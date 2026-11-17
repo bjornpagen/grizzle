@@ -1,144 +1,76 @@
-import { ConfigProvider, Effect, Exit, FileSystem, Layer, Option, Path, Sink, Stdio } from "effect"
-import { HttpClient, HttpClientResponse } from "effect/http"
-/* oxlint-disable unicorn/no-array-for-each -- Sink.forEach is the Effect sink, not Array#forEach */
-import { describe, expect, test } from "vitest"
-import * as Auth from "#runtime-src/runtime/auth.ts"
-import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
-import { Transport } from "#runtime-src/runtime/client.ts"
-import * as Input from "#runtime-src/runtime/input.ts"
-import * as Output from "#runtime-src/runtime/output.ts"
-import { runCredentialsLayer } from "#runtime-src/runtime/redact.ts"
-import * as Serialize from "#runtime-src/runtime/serialize.ts"
+/**
+ * HDR-03, the response clause: a required response header the matched case declares (its code, else its range, else
+ * default, among the operation's declared response keys) and the answer leaves out (names compared without case)
+ * writes one stderr warning, in document order, before the body; stdout and the exit are what the run would give with
+ * no header required, and a matched key that requires nothing checks nothing.
+ */
 
-// HDR-03 (response clause): a required response header the matched case declares and the response
-// omits writes one stderr warning, in document order, before the body; stdout and the exit are
-// unchanged.
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	aimedExchanges,
+	type ExchangeFeature,
+	exchangeFeatures,
+	judged,
+	runsOf
+} from "#test/runtime/response-headers.fixtures.ts"
 
-const rootTable: BaseUrl.ServersTable = {
-	boundOrigins: ["https://api.example.com"],
-	defaultServer: 0,
-	servers: [{ url: "https://api.example.com/v1" }]
-}
-
-const meta: Output.OperationMeta = {
-	media: { request: [], responses: { "200": ["text/plain"], "4XX": [] } },
-	method: "GET",
-	operationId: "typed-get",
-	pathTemplate: "/typed",
-	requiredHeaders: { "200": ["X-Required", "X-Second"], "4XX": ["X-Trace"] },
-	security: []
-}
-
-// Retry notices carry a jittered delay (design D-AD7); fix only that value so two runs compare equal.
-const fixRetryDelays = (stderr: string) =>
-	stderr.replaceAll(
-		/^(?<notice>Notice: retrying .+ \(attempt \d+ of \d+\) in )\d+ ms$/gmu,
-		"$<notice><delay> ms"
-	)
-
-const run = async (
-	operation: Output.OperationMeta,
-	status: number,
-	headers: Record<string, string>
-) => {
-	const events: string[] = []
-	const stderr: string[] = []
-	const stdout: string[] = []
-	const capture = (into: string[], tag: string) => () =>
-		Sink.forEach((chunk: string | Uint8Array) =>
-			Effect.sync(() => {
-				into.push(Buffer.from(chunk).toString())
-				events.push(tag)
-			})
-		)
-	const client = HttpClient.make((sent) =>
-		Effect.succeed(
-			HttpClientResponse.fromWeb(
-				sent,
-				new Response("body", { headers: { "content-type": "text/plain", ...headers }, status })
-			)
-		)
-	)
-	const environment = Layer.mergeAll(
-		BaseUrl.layer(rootTable, "X"),
-		Auth.layer({ schemes: {} }, "X", []),
-		ConfigProvider.layer(ConfigProvider.fromEnvRecord({})),
-		FileSystem.layerNoop({}),
-		Path.layer,
-		Stdio.layerTest({
-			stderr: capture(stderr, "stderr"),
-			stdout: capture(stdout, "stdout"),
-			stdoutIsTerminal: Effect.succeed(false)
+/**
+ * A run warns of each missing required header and changes nothing else. It replaces five example cases; its rotating
+ * stream is five drawn exchanges, its floor and steered phase reach each situation by an aimed one.
+ */
+export const requiredHeaders = property.explore(aimedExchanges, {
+	needs: {},
+	situations: [
+		"a required header missing",
+		"two required headers missing",
+		"a required header present in another case",
+		"a non-2xx key checked",
+		"a key that requires nothing",
+		"an operation without required headers"
+	] satisfies ReadonlyArray<Reached<ExchangeFeature>>,
+	check: (_, c: Case<ExchangeFeature>) => (exchange) =>
+		Effect.gen(function* () {
+			c.noteAll(exchangeFeatures(exchange))
+			const runs = yield* runsOf(exchange)
+			const { actual, expected } = judged(exchange, runs)
+			deepStrictEqual(actual, expected)
 		}),
-		Input.stdinClaimLayer,
-		runCredentialsLayer,
-		Layer.succeed(Transport, {
-			certified: Option.none(),
-			plain: { direct: client, environment: client }
-		}),
-		Layer.succeed(Output.ClientPolicy, {
-			binName: "x",
-			version: "1.0.0"
-		}),
-		Layer.succeed(Output.OutputPath, Option.none()),
-		Layer.succeed(Output.Force, false),
-		Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
-		Layer.succeed(BaseUrl.serverSetting, Option.none()),
-		Layer.succeed(BaseUrl.serverVariableSetting, []),
-		Layer.succeed(Auth.allowCredentialsForBaseUrl, false)
-	)
-	const request = Serialize.request("GET", {
-		headers: [],
-		path: Serialize.path(operation.pathTemplate, []),
-		query: []
-	})
-	const exit = await Effect.runPromise(
-		Effect.exit(request.pipe(Effect.flatMap(Output.send(operation)))).pipe(
-			Effect.provide(environment)
-		)
-	)
-
-	return { events, exit, stderr: stderr.join(""), stdout: stdout.join("") }
-}
-
-const warning = (name: string) => `Warning: the response is missing the required header ${name}\n`
-
-describe("missing required response headers (HDR-03)", () => {
-	test("each missing required header of the matched case warns once, in document order, before the body", async () => {
-		const result = await run(meta, 200, {})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.stdout).toBe("body")
-		expect(result.stderr).toBe(`${warning("X-Required")}${warning("X-Second")}`)
-		expect(result.events).toEqual(["stderr", "stderr", "stdout"])
-	})
-
-	test("a present header is matched case-insensitively and writes nothing", async () => {
-		const result = await run(meta, 200, { "X-SECOND": "b", "x-required": "a" })
-
-		expect(result.stderr).toBe("")
-		expect(result.stdout).toBe("body")
-	})
-
-	test("a non-2xx case is checked by its matched key, and the error is unchanged", async () => {
-		const plain = await run({ ...meta, requiredHeaders: undefined }, 404, {})
-		const result = await run(meta, 404, {})
-
-		expect(result.stderr).toBe(`${warning("X-Trace")}${plain.stderr}`)
-		expect(result.exit).toEqual(plain.exit)
-	})
-
-	test("an undeclared status matches no case and checks nothing", async () => {
-		const result = await run(meta, 500, {})
-		const plain = await run({ ...meta, requiredHeaders: undefined }, 500, {})
-
-		expect(fixRetryDelays(result.stderr)).toBe(fixRetryDelays(plain.stderr))
-	})
-
-	test("an operation without required headers writes nothing", async () => {
-		const result = await run({ ...meta, requiredHeaders: undefined }, 200, {})
-
-		expect(result.stderr).toBe("")
-		expect(result.stdout).toBe("body")
-	})
+	oracle: {
+		kind: "specification",
+		name: "HDR-03: one warning per missing required header of the matched key, before the body, nothing else changed"
+	},
+	kept: [],
+	budget: { runs: 5, steered: 18 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original:
+				"yield* respond.pipe(\n\t\t\t\tEffect.flatMap((ok) =>\n\t\t\t\t\tisBodiless(ok)\n\t\t\t\t\t\t? Effect.void\n\t\t\t\t\t\t: Effect.flatMap(framedOf(ok), (framed) =>\n\t\t\t\t\t\t\t\twriteStream(retrying(framed.bytes), framed.binary)\n\t\t\t\t\t\t\t)\n\t\t\t\t),\n\t\t\t\tEffect.provideService(RetryAfterCap, cap),\n\t\t\t\tEffect.scoped,\n\t\t\t\tEffect.provide(redactedNames(security))\n\t\t\t)",
+			replacement: "{}",
+			why: "A successful answer's body is never written, so stdout loses it; the property fails (CATCH's evidence, mutant 24dfb4ca36)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: `\tconst range = \`\${Math.floor(status / 100)}XX\``,
+			replacement: `\tconst range = \`\${Math.floor(status / 101)}XX\``,
+			why: "A status's range is computed one off, so a 4xx is matched to no key and its required headers go unchecked; the property fails (CATCH's evidence, mutant 39df168cfc)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: "required.filter((name) => Option.isNone(Headers.get(response.headers, name))),",
+			replacement:
+				"required.filter((name) => Option.isNone(Headers.get(response.headers, name)) && false),",
+			why: "No missing required header is warned of; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original:
+				"\tconst key = matchResponse(meta.media.responses, response.status)\n\tconst required",
+			replacement: "\tconst key = String(response.status)\n\tconst required",
+			why: "The required headers are looked up under the status itself, never its range, so a 4xx's required headers go unchecked; the property fails."
+		}
+	]
 })

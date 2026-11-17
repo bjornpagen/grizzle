@@ -1,150 +1,76 @@
-import { Clock, DateTime, Effect, Exit, Fiber, Option, Ref, Sink, Stdio } from "effect"
-import { Headers, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
-import { TestClock } from "effect/testing"
-import { describe, expect, test } from "vitest"
-import * as Client from "#runtime-src/runtime/client.ts"
+/**
+ * A retried answer is sent again after its `Retry-After` when one parses (seconds, or an HTTP date's distance), after
+ * the backoff otherwise, and never past the effective `--timeout` (design D-AD7, 13.1 R6): a delay equal to the timeout
+ * is waited, a longer one ends the run with that answer and the delay recorded, `--timeout 0` waits any delay, a status
+ * the design does not retry ends the run at once, and a run whose retries run out records nothing. Time is virtual.
+ */
 
-const url = "http://127.0.0.1:1/r"
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	aimedSchedules,
+	expectedOf,
+	type ScheduleFeature,
+	scheduleFeatures
+} from "#test/runtime/client-retry-after.fixtures.ts"
 
-// One scripted answer: a status, and the `Retry-After` value it carries, if any. The value may
-// depend on the virtual time the call arrives at (an HTTP date).
-interface Answer {
-	readonly retryAfter?: (nowMillis: number) => string
-	readonly status: number
-}
-
-const answer = (status: number, retryAfter?: string): Answer =>
-	retryAfter === undefined ? { status } : { retryAfter: () => retryAfter, status }
-
-// A scripted client: call k gets `answers[k]`, a call past the script gets 200, and each call's
-// virtual arrival time is recorded.
-const scripted = (answers: readonly Answer[], arrivals: number[]) =>
-	HttpClient.make((request) =>
-		Effect.gen(function* respond() {
-			const now = yield* Clock.currentTimeMillis
-			const next = answers[arrivals.length] ?? answer(200)
-			arrivals.push(now)
-
-			const headers: Record<string, string> =
-				next.retryAfter === undefined ? {} : { "retry-after": next.retryAfter(now) }
-
-			return HttpClientResponse.fromWeb(
-				request,
-				new Response(`status ${next.status}`, { headers, status: next.status })
-			)
-		})
-	)
-
-interface Outcome {
-	readonly arrivals: readonly number[]
-	readonly capped: Option.Option<number>
-	readonly status: number
-}
-
-// The retry transform alone over the scripted client, with `--timeout` and `--retries 2` given as
-// flags and the clock driven in one-second steps for six minutes, so every wait elapses in virtual
-// time.
-const run = async (answers: readonly Answer[], timeout: number): Promise<Outcome> => {
-	const arrivals: number[] = []
-	const exchange = Effect.gen(function* exchanging() {
-		const budget = yield* Client.retryBudget
-		const client = scripted(answers, arrivals).pipe(
-			Client.retryTransform((text) => text, budget, false)
-		)
-		const record = yield* Ref.make(Option.none<number>())
-		const status = yield* Effect.scoped(
-			client.execute(HttpClientRequest.get(url)).pipe(Effect.map((response) => response.status))
-		).pipe(Effect.provideService(Client.RetryAfterCap, record))
-
-		return { capped: yield* Ref.get(record), status }
-	}).pipe(
-		Effect.provideService(Client.timeoutSetting, Option.some(timeout)),
-		Effect.provideService(Client.retriesSetting, Option.some(2))
-	)
-	const exit = await Effect.runPromiseExit(
-		Effect.gen(function* drive() {
-			const fiber = yield* Effect.forkChild(exchange)
-			for (let step = 0; step < 360; step += 1) {
-				yield* TestClock.adjust("1 second")
-			}
-
-			return yield* Fiber.join(fiber)
-		}).pipe(
-			Effect.provide(TestClock.layer()),
-			Effect.provide(Stdio.layerTest({ stderr: () => Sink.drain }))
-		)
-	)
-	if (Exit.isFailure(exit)) {
-		throw new Error("the exchange failed")
-	}
-
-	return { ...exit.value, arrivals }
-}
-
-// An HTTP date `seconds` after the call's arrival.
-const dateAhead =
-	(seconds: number) =>
-	(nowMillis: number): string =>
-		Headers.formatHttpDate(DateTime.makeUnsafe(nowMillis + seconds * 1000))
-
-describe("Retry-After capped by the effective --timeout", () => {
-	test("Retry-After: 1 with --timeout 30 waits 1 s and succeeds", async () => {
-		const outcome = await run([answer(503, "1")], 30)
-		expect(outcome.status).toBe(200)
-		expect(outcome.arrivals).toEqual([0, 1000])
-		expect(outcome.capped).toEqual(Option.none())
-	})
-
-	test("a delay equal to the timeout is waited", async () => {
-		const outcome = await run([answer(503, "30")], 30)
-		expect(outcome.status).toBe(200)
-		expect(outcome.arrivals).toEqual([0, 30_000])
-		expect(outcome.capped).toEqual(Option.none())
-	})
-
-	test("Retry-After: 2 with --timeout 1 makes one attempt and reports 2", async () => {
-		const outcome = await run([answer(503, "2")], 1)
-		expect(outcome.status).toBe(503)
-		expect(outcome.arrivals).toEqual([0])
-		expect(outcome.capped).toEqual(Option.some(2))
-	})
-
-	test("an HTTP date 2 s ahead behaves like 2", async () => {
-		const above = await run([{ retryAfter: dateAhead(2), status: 503 }], 1)
-		expect(above.status).toBe(503)
-		expect(above.arrivals).toEqual([0])
-		expect(above.capped).toEqual(Option.some(2))
-
-		const within = await run([{ retryAfter: dateAhead(2), status: 503 }], 30)
-		expect(within.status).toBe(200)
-		expect(within.arrivals).toEqual([0, 2000])
-	})
-
-	test("--timeout 0 removes the cap: Retry-After: 120 is waited", async () => {
-		const outcome = await run([answer(503, "120")], 0)
-		expect(outcome.status).toBe(200)
-		expect(outcome.arrivals).toEqual([0, 120_000])
-		expect(outcome.capped).toEqual(Option.none())
-	})
-
-	test("retries that run out report nothing", async () => {
-		const outcome = await run([answer(503, "1"), answer(503, "1"), answer(503, "1")], 30)
-		expect(outcome.status).toBe(503)
-		expect(outcome.arrivals).toEqual([0, 1000, 2000])
-		expect(outcome.capped).toEqual(Option.none())
-	})
-
-	test("a status that is not retried reports nothing, even with a long Retry-After", async () => {
-		const outcome = await run([answer(404, "120")], 1)
-		expect(outcome.status).toBe(404)
-		expect(outcome.arrivals).toEqual([0])
-		expect(outcome.capped).toEqual(Option.none())
-	})
-
-	test("an invalid Retry-After falls back to the backoff", async () => {
-		const outcome = await run([answer(503, "soon")], 1)
-		expect(outcome.status).toBe(200)
-		expect(outcome.arrivals).toHaveLength(2)
-		expect(outcome.capped).toEqual(Option.none())
-	})
+/**
+ * A run's attempts follow the retry policy and its cap. It replaces eight example cases; its rotating stream is eight
+ * drawn schedules, its floor and steered phase reach each situation by an aimed one.
+ */
+export const retrySchedule = property.explore(aimedSchedules, {
+	needs: {},
+	situations: [
+		"a delay waited",
+		"a delay equal to the timeout",
+		"a delay past the timeout",
+		"an HTTP date",
+		"no cap, a long delay waited",
+		"retries run out",
+		"a status not retried",
+		"an invalid Retry-After"
+	] satisfies ReadonlyArray<Reached<ScheduleFeature>>,
+	check: (_, c: Case<ScheduleFeature>) => (schedule) =>
+		Effect.gen(function* () {
+			const outcome = yield* actualOf(schedule)
+			c.noteAll(scheduleFeatures(schedule, outcome))
+			deepStrictEqual(outcome, expectedOf(schedule))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design D-AD7's retry policy: the server's delay waited unless it passes the timeout, the budget, the retried statuses"
+	},
+	kept: [],
+	budget: { runs: 8, steered: 24 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/client.ts",
+			original: "retriedStatuses.has(status) ? Option.some(String(status)) : Option.none()",
+			replacement: "retriedStatuses.has(status) ? Option.none() : Option.some(String(status))",
+			why: "A retried status is not retried and every other status is; the property fails (CATCH's evidence, mutant 2ac02a7ae1)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/client.ts",
+			original:
+				"timeoutSeconds !== 0 && Duration.isGreaterThan(delay, Duration.seconds(timeoutSeconds))",
+			replacement: "Duration.isGreaterThan(delay, Duration.seconds(timeoutSeconds))",
+			why: "`--timeout 0` no longer removes the cap, so every server delay is past it; the property fails (CATCH's evidence, mutant 5fa83cbb28)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/client.ts",
+			original:
+				"timeoutSeconds !== 0 && Duration.isGreaterThan(delay, Duration.seconds(timeoutSeconds))",
+			replacement: "true",
+			why: "Every server delay reads as past the timeout, so none is waited; the property fails (CATCH's evidence, mutant 69f9ae27a9)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/client.ts",
+			original: "\tif (left === 0) {",
+			replacement: "\tif (left !== 0) {",
+			why: "The budget reads as spent while it holds and as left once spent; the property fails (CATCH's evidence, mutant c8a7c020cf)."
+		}
+	]
 })

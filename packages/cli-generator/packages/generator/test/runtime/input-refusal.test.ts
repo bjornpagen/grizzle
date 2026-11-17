@@ -11,323 +11,67 @@
  * place's pointer, and `(required)`, the JSON type the schema expects there, or `(additionalProperties)`, and quotes no
  * planted value.
  */
-import { explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { int } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	JsonPointer,
-	Layer,
-	Option,
-	Schema,
-	Sink,
-	Stdio,
-	Stream,
-	String as Str
-} from "effect"
-import * as Input from "#runtime-src/runtime/input.ts"
-import { aimedAmong } from "#test/support/steering.ts"
-
-/** A member name holding both characters a JSON pointer escapes. */
-const odd = "a/b~c"
-
-/** The schema: one object with a member of every JSON type, a nested object and an array of strings. */
-const Body = Schema.Struct({
-	text: Schema.String,
-	count: Schema.Finite,
-	flag: Schema.Boolean,
-	none: Schema.Null,
-	list: Schema.Array(Schema.String),
-	nested: Schema.Struct({ [odd]: Schema.String })
-})
-
-/** A place a fault is planted at: a member of the top object, the nested object's member, or the list's first item. */
-type Place = "text" | "count" | "flag" | "none" | "list" | "nested" | "nested member" | "list item"
-
-type JsonType = "a string" | "a number" | "a boolean" | "null" | "an array" | "an object"
-
-const places: Arr.NonEmptyReadonlyArray<Place> = [
-	"text",
-	"count",
-	"flag",
-	"none",
-	"list",
-	"nested",
-	"nested member",
-	"list item"
-]
-
-/** Each place's path in the body, and the JSON type the schema expects there. */
-const placed: Readonly<Record<Place, Readonly<{ path: ReadonlyArray<string>; type: JsonType }>>> = {
-	text: { path: ["text"], type: "a string" },
-	count: { path: ["count"], type: "a number" },
-	flag: { path: ["flag"], type: "a boolean" },
-	none: { path: ["none"], type: "null" },
-	list: { path: ["list"], type: "an array" },
-	nested: { path: ["nested"], type: "an object" },
-	"nested member": { path: ["nested", odd], type: "a string" },
-	"list item": { path: ["list", "0"], type: "a string" }
-}
-
-/** A value of each JSON type, its spelling a planted one no message may quote. */
-const valueOf: Readonly<Record<JsonType, Schema.Json>> = {
-	"a string": "planted-secret",
-	"a number": 7_654_321,
-	"a boolean": true,
-	null: null,
-	"an array": ["planted-secret"],
-	"an object": { planted: "planted-secret" }
-}
-
-const types: Arr.NonEmptyReadonlyArray<JsonType> = [
-	"a string",
-	"a number",
-	"a boolean",
-	"null",
-	"an array",
-	"an object"
-]
+	FEATURES,
+	faultFeatures,
+	faults,
+	plantedAt,
+	quotesAValue,
+	type RefusalFeature,
+	refusalOf
+} from "#test/runtime/input-refusal.fixtures.ts"
 
 /**
- * One fault: a required member left out, a value of another JSON type than the place's, or a member no property of
- * the closed object at `within` declares.
+ * A refused body names where it fails and the keyword it breaks, and none of its values. Its budget is the count its
+ * suite stated before the conversion: 40 independent cases, and up to 40 steered while a situation is unreached.
  */
-type Fault =
-	| Readonly<{ kind: "missing"; place: Place }>
-	| Readonly<{ kind: "type"; place: Place; given: JsonType }>
-	| Readonly<{ kind: "extra"; within: "top" | "nested" }>
-
-/** The member name an extra fault plants, and its value, which no message may quote. */
-const extraName = "planted"
-
-/** A fault at `place`: a member left out where `missing` and the place is a member, else a value of another type. */
-const faultAt =
-	(place: Place, missing: boolean): Gen<Fault> =>
-	(source) => {
-		if (missing && place !== "list item") {
-			return { kind: "missing", place }
+export const bodyRefusal = property.explore(faults, {
+	needs: {},
+	situations: FEATURES satisfies ReadonlyArray<Reached<RefusalFeature>>,
+	check: (_, c: Case<RefusalFeature>) => (fault) =>
+		Effect.gen(function* () {
+			const items = c.draw(int(1, 3))
+			const { path, expectation, pointer } = plantedAt(fault)
+			c.noteAll(faultFeatures(fault, path))
+			const refused = yield* refusalOf(fault, items)
+			deepStrictEqual(
+				{ message: refused.message, quotesAValue: quotesAValue(refused.message) },
+				{
+					message: `--body: the request body does not match its schema at ${pointer}: ${expectation}`,
+					quotesAValue: false
+				}
+			)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "the planted fault's RFC 6901 pointer and the keyword it breaks, and no planted value in the message"
+	},
+	kept: [],
+	budget: { runs: 40, steered: 40 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/input.ts",
+			original: 'const closedObjects = { onExcessProperty: "error" } as const',
+			replacement: 'const closedObjects = { onExcessProperty: "ignore" } as const',
+			why: "A body is checked with excess properties ignored, so a member no property declares passes; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/input.ts",
+			original:
+				'\t\t\tcase "MissingKey":\n\t\t\t\treturn "a required member is missing (required)"',
+			replacement: '\t\t\tcase "MissingKey":\n\t\t\t\treturn "a required member is missing"',
+			why: "A missing member's message no longer names the keyword it breaks; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/input.ts",
+			original: "\t\t\t\tJsonPointer.escapeToken(",
+			replacement: "\t\t\t\t(",
+			why: "The refusal's pointer leaves `/` and `~` in a member's name unescaped, so a name holding them points elsewhere; the property fails."
 		}
-		const others = Arr.filter(types, (type) => type !== placed[place].type)
-		return {
-			kind: "type",
-			place,
-			given: source.draw(element(Arr.isReadonlyArrayNonEmpty(others) ? others : types))
-		}
-	}
-
-/** An extra member, in the top object or the nested one. */
-const extraGen: Gen<Fault> = (source) => ({
-	kind: "extra",
-	within: source.draw(element(["top", "nested"] as const))
+	]
 })
-
-/**
- * Any fault: an extra member one time in four, there being two objects for it against eight places for the others,
- * else a drawn place left out or of another type.
- */
-const faultGen: Gen<Fault> = (source) =>
-	source.draw(
-		weighted<"extra" | "place">([
-			[1, constant("extra")],
-			[3, constant("place")]
-		])
-	) === "extra"
-		? source.draw(extraGen)
-		: source.draw(faultAt(source.draw(element(places)), source.draw(element([true, false]))))
-
-type RefusalFeature =
-	| "a member left out"
-	| "a value of another type"
-	| "a member no property declares"
-	| "a nested place"
-	| "an escaped name"
-
-const FEATURES: Arr.NonEmptyReadonlyArray<RefusalFeature> = [
-	"a member left out",
-	"a value of another type",
-	"a member no property declares",
-	"a nested place",
-	"an escaped name"
-]
-
-/** A fault made to reach `feature`, every other choice drawn. */
-const faultFor =
-	(feature: RefusalFeature): Gen<Fault> =>
-	(source) => {
-		switch (feature) {
-			case "a member left out":
-				return source.draw(faultAt(source.draw(element(places)), true))
-			case "a value of another type":
-				return source.draw(faultAt(source.draw(element(places)), false))
-			case "a member no property declares":
-				return source.draw(extraGen)
-			case "a nested place":
-				return source.draw(
-					faultAt(
-						source.draw(element(["nested member", "list item"] as const)),
-						source.draw(element([true, false]))
-					)
-				)
-			case "an escaped name":
-				return source.draw(faultAt("nested member", source.draw(element([true, false]))))
-		}
-	}
-
-/** What `place` holds in a body: the planted value, `valid`, or nothing where the fault leaves it out. */
-const holding = (fault: Fault, place: Place, valid: Schema.Json): Option.Option<Schema.Json> => {
-	switch (fault.kind) {
-		case "extra":
-			return Option.some(valid)
-		case "missing":
-			return fault.place === place ? Option.none() : Option.some(valid)
-		case "type":
-			return Option.some(fault.place === place ? valueOf[fault.given] : valid)
-	}
-}
-
-/** The extra member an object holds where the fault plants one `within` it, else none. */
-const extra = (
-	fault: Fault,
-	within: "top" | "nested"
-): ReadonlyArray<readonly [string, Option.Option<Schema.Json>]> =>
-	fault.kind === "extra" && fault.within === within
-		? [[extraName, Option.some("planted-secret")]]
-		: []
-
-/** An object of the members `entries` holds, each left out where it holds nothing. */
-const objectOf = (
-	entries: ReadonlyArray<readonly [string, Option.Option<Schema.Json>]>
-): Schema.JsonObject => {
-	const object: Record<string, Schema.Json> = {}
-	for (const [name, value] of entries) {
-		if (Option.isSome(value)) {
-			object[name] = value.value
-		}
-	}
-	return object
-}
-
-/** A valid body, its list holding `items` strings, with `fault` planted. */
-const bodyOf = (fault: Fault, items: number): Schema.Json =>
-	objectOf([
-		["text", holding(fault, "text", "t")],
-		["count", holding(fault, "count", 1)],
-		["flag", holding(fault, "flag", false)],
-		["none", holding(fault, "none", null)],
-		[
-			"list",
-			holding(fault, "list", [
-				...Option.toArray(holding(fault, "list item", "x")),
-				...Array.from({ length: items - 1 }, () => "x")
-			])
-		],
-		[
-			"nested",
-			holding(
-				fault,
-				"nested",
-				objectOf([[odd, holding(fault, "nested member", "n")], ...extra(fault, "nested")])
-			)
-		],
-		...extra(fault, "top")
-	])
-
-const stdin = Layer.succeed(
-	Stdio.Stdio,
-	Stdio.make({
-		args: Effect.succeed([]),
-		stderr: () => Sink.drain,
-		stdin: Stream.empty,
-		stdout: () => Sink.drain
-	})
-)
-
-layer(Layer.mergeAll(NodeFileSystem.layer, stdin, Input.stdinClaimLayer))(
-	"a refused body",
-	(it) => {
-		it.effect("names where it fails and the keyword it breaks, and none of its values", (ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "body refusal",
-						oracle: {
-							kind: "specification",
-							name: "the planted fault's RFC 6901 pointer and the keyword it breaks, and no planted value in the message"
-						},
-						draw: aimedAmong(FEATURES, faultGen, faultFor),
-						literal: Formatter.format,
-						coverage: required<RefusalFeature>(FEATURES, { cases: 40, sense: notesOnly }),
-						kept: [],
-						runs: 40,
-						shrink: { kind: "bounded", candidates: 40 },
-						steerEvery: 10,
-						caseHang: Duration.seconds(30)
-					},
-					(fault, notes) =>
-						Effect.gen(function* () {
-							const items = notes.draw(int(1, 3))
-							const { path, expectation } =
-								fault.kind === "extra"
-									? {
-											path: fault.within === "top" ? [extraName] : ["nested", extraName],
-											expectation: "a member the schema does not admit (additionalProperties)"
-										}
-									: {
-											path: placed[fault.place].path,
-											expectation:
-												fault.kind === "missing"
-													? "a required member is missing (required)"
-													: `expected ${placed[fault.place].type}`
-										}
-							notes.note(
-								fault.kind === "extra"
-									? "a member no property declares"
-									: fault.kind === "missing"
-										? "a member left out"
-										: "a value of another type"
-							)
-							if (path.length > 1) {
-								notes.note("a nested place")
-							}
-							if (Arr.contains(path, odd)) {
-								notes.note("an escaped name")
-							}
-							const refused = yield* Effect.flip(
-								Input.structuredBody({
-									body: Option.some(jsonTextOf(bodyOf(fault, items))),
-									bodyFile: Option.none(),
-									fields: {},
-									required: true,
-									schema: Body,
-									constants: {}
-								})
-							)
-							const pointer = `/${Arr.join(Arr.map(path, JsonPointer.escapeToken), "/")}`
-							deepStrictEqual(
-								{
-									message: refused.message,
-									quotesAValue:
-										Str.includes("planted-secret")(refused.message) ||
-										Str.includes("7654321")(refused.message)
-								},
-								{
-									message: `--body: the request body does not match its schema at ${pointer}: ${expectation}`,
-									quotesAValue: false
-								}
-							)
-						})
-				)
-			)
-		)
-	}
-)

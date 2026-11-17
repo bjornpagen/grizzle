@@ -1,310 +1,181 @@
-import { Cause, Effect, Exit, Option, Redacted, Runtime } from "effect"
-import { HttpClientError, HttpClientRequest, HttpClientResponse, UrlParams } from "effect/http"
-import { describe, expect, test } from "vitest"
-import { ApiResponseError, TransportError } from "#runtime-src/domain/errors.ts"
-import type { Credential } from "#runtime-src/runtime/auth.ts"
-import { renderError } from "#runtime-src/runtime/output.ts"
-import type { ScrubEntry } from "#runtime-src/runtime/redact.ts"
-import type { ResponseTable } from "#runtime-src/runtime/response.ts"
+/**
+ * A response is matched and classified as the design says (7.1, 7.3). Its key is the explicit code, else the code's
+ * range, else default, else undeclared; a HEAD answer, a 1xx, a 204 and a 304 carry no body; a 2xx passes whichever
+ * key matched; any other status fails as an API response error with the matched key, the status, the operation, the
+ * media type's essence, exit 3 for a 401 or 403 and 1 otherwise, a 3xx's Location with its credentials redacted, and
+ * the request id from the designated header only: whole, its control, format and surrogate characters and U+2028/9
+ * removed, every value the run recorded (a credential, a secret file's text) its placeholder however it is split by
+ * removed characters or holds them itself.
+ */
+
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import {
-	classify,
-	isBodiless,
-	mapClientError,
-	matchResponse,
-	toApiResponseError
-} from "#runtime-src/runtime/response.ts"
+	actualOf,
+	actualReason,
+	type AnswerFeature,
+	answerFeatures,
+	answers,
+	clientFailures,
+	expectedOf,
+	expectedReason,
+	type FailureFeature,
+	failureFeatures
+} from "#test/runtime/response.fixtures.ts"
 
-const table: ResponseTable = {
-	operation: "users-update",
-	requestIdHeader: "x-request-id",
-	responses: { "200": ["application/json"], "404": [], "4XX": ["application/json"], default: [] }
-}
-
-const request = HttpClientRequest.get("https://api.example.com/users/1")
-
-const respond = (status: number, headers: Record<string, string> = {}) =>
-	HttpClientResponse.fromWeb(request, new Response(null, { headers, status }))
-
-const redacting = <A, E>(effect: Effect.Effect<A, E>) =>
-	Effect.provideService(effect, UrlParams.CurrentRedactedNames, ["access_token", "api_key"])
-
-const apiError = (response: HttpClientResponse.HttpClientResponse, using = table) =>
-	Effect.runPromise(Effect.flip(redacting(classify(using, response, []))))
-
-const transport = (cause?: unknown) =>
-	new HttpClientError.HttpClientError({
-		reason: new HttpClientError.TransportError({
-			cause,
-			request: HttpClientRequest.get("https://api.example.com/users?api_key=SECRET&page=2")
-		})
-	})
-
-const systemError = (code: string, message = "failed") =>
-	Object.assign(new Error(message), { code })
-
-const transportError = (cause?: unknown) =>
-	Effect.runPromise(Effect.flip(redacting(mapClientError(transport(cause)))))
-
-describe("matchResponse precedence", () => {
-	test("an explicit code beats its range and default", () => {
-		expect(matchResponse(table.responses, 404)).toBe("404")
-		expect(matchResponse(table.responses, 200)).toBe("200")
-	})
-
-	test("a range beats default", () => {
-		expect(matchResponse(table.responses, 418)).toBe("4XX")
-	})
-
-	test("default covers codes no key matches", () => {
-		expect(matchResponse(table.responses, 500)).toBe("default")
-	})
-
-	test("no key and no default is undeclared", () => {
-		expect(matchResponse({ "200": [] }, 500)).toBe("undeclared")
-	})
+/**
+ * A response classifies as the design says. It replaces twenty-four example cases (response.test.ts's matching and
+ * request id cases, request-id.test.ts's ten); its budget is 96 drawn answers, its floor 24, steered up to 96 while a
+ * situation is unreached.
+ */
+export const responseDispatch = property.explore(answers, {
+	needs: {},
+	situations: [
+		"an explicit code",
+		"a range",
+		"default",
+		"undeclared",
+		"a bodiless answer",
+		"a 401 or 403",
+		"a 3xx with a Location",
+		"a request id with lost characters",
+		"a recorded value in the request id",
+		"a recorded value split by a lost character",
+		"a recorded value holding lost characters",
+		"a request id header not designated",
+		"a media type with parameters"
+	] satisfies ReadonlyArray<Reached<AnswerFeature>>,
+	check: (_, c: Case<AnswerFeature>) => (answer) =>
+		Effect.gen(function* () {
+			const classified = yield* actualOf(answer)
+			c.noteAll(answerFeatures(answer, classified))
+			deepStrictEqual(classified, expectedOf(answer))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 7.1/7.3: the matched key's precedence, the error's fields, its exit, and the request id's scrub"
+	},
+	kept: [],
+	budget: { runs: 96, steered: 96 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: "status >= 200 && status < 300",
+			replacement: "true",
+			why: "Every status reads as a success, so no non-2xx answer fails; the property fails (CATCH's evidence, mutant 0504314175)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: "Rec.has(responses, key)",
+			replacement: "false",
+			why: "No key reads as declared, so every answer matches default or nothing; the property fails (CATCH's evidence, mutant 0756fea87a)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: "if (declares(responses, range)) {\n\t\treturn range\n\t}",
+			replacement: "{}",
+			why: "A range key is never matched, so a status only a range covers falls to default or undeclared; the property fails (CATCH's evidence, mutant 1d1d4f1f28)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original:
+				'isSuccess(response.status)\n\t\t\t? Effect.succeed(response)\n\t\t\t: Effect.fail(toApiResponseError(table, response, "", scrubbed, Option.none()))',
+			replacement:
+				'isSuccess(response.status) ? Effect.fail(toApiResponseError(table, response, "", scrubbed, Option.none())) : Effect.succeed(response)',
+			why: "A 2xx fails and every other status passes; the property fails (CATCH's evidence, mutant 65041189b6)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: "Rec.has(responses, key)",
+			replacement: "true",
+			why: "Every key reads as declared, so every status matches as its explicit code; the property fails (CATCH's evidence, mutant 7ca7975dfe)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: "\tresponse.status === 304",
+			replacement: "\tresponse.status !== 304",
+			why: "Every answer but a 304 reads as bodiless and a 304 as carrying a body; the property fails (CATCH's evidence, mutant 9730702d65)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/redact.ts",
+			original: "some",
+			replacement: "every",
+			why: "A recorded value is scrubbed only where every one of its occurrences sits inside a token, so a value in a request id survives; the property fails (CATCH's evidence, mutant ccafccff2d)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: "const isSuccess = (status: number): boolean => status >= 200 && status < 300",
+			replacement: "const isSuccess = (status: number): boolean => status >= 200 && status >= 300",
+			why: "Every status from 200 up reads as a success, so a 4xx or 5xx passes; the property fails (CATCH's evidence, mutant dc298bbad2)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original:
+				'\tconst redirect = response.status >= 300 && response.status < 400 ? locationNote(response) : ""',
+			replacement:
+				'\tconst redirect = response.status < 300 && response.status < 400 ? locationNote(response) : ""',
+			why: "A 3xx's Location is never noted, and a 1xx's would be; the property fails (CATCH's evidence, mutant f3100d697b)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: "status >= 200 && status < 300",
+			replacement: "false",
+			why: "No status reads as a success, so a 2xx fails; the property fails (CATCH's evidence, mutant fde28c1487)."
+		}
+	]
 })
 
-const answer = (method: "GET" | "HEAD", status: number) =>
-	HttpClientResponse.fromWeb(
-		HttpClientRequest.make(method)("https://api.example.com/users/1"),
-		new Response(null, { status })
-	)
-
-describe("isBodiless", () => {
-	// fetch never yields a final 1xx and `Response` refuses one, so 1xx is not constructed here.
-	test("a HEAD answer, a 204 and a 304 carry no body; other answers do", () => {
-		expect(isBodiless(answer("HEAD", 200))).toBe(true)
-		expect(isBodiless(answer("HEAD", 404))).toBe(true)
-		expect(isBodiless(answer("GET", 204))).toBe(true)
-		expect(isBodiless(answer("GET", 304))).toBe(true)
-		expect(isBodiless(answer("GET", 200))).toBe(false)
-		expect(isBodiless(answer("GET", 404))).toBe(false)
-	})
-})
-
-describe("classify", () => {
-	test("2xx is success whichever key matched", async () => {
-		const onlyDefault: ResponseTable = { operation: "op", responses: { default: [] } }
-		const response = respond(204)
-
-		expect(await Effect.runPromise(classify(onlyDefault, response, []))).toBe(response)
-		expect(await Effect.runPromise(classify(table, respond(200), []))).toBeDefined()
-	})
-
-	test("a non-2xx status fails with the matched key and exit 1", async () => {
-		const error = await apiError(
-			respond(404, { "content-type": "application/json; charset=utf-8" })
-		)
-
-		expect(error).toBeInstanceOf(ApiResponseError)
-		expect(error).toMatchObject({
-			matched: "404",
-			mediaType: "application/json",
-			operation: "users-update",
-			status: 404
-		})
-		expect(Runtime.getErrorExitCode(error)).toBe(1)
-	})
-
-	test("a status that only default covers is matched default", async () => {
-		const error = await apiError(respond(500))
-
-		expect(error).toMatchObject({ matched: "default", status: 500 })
-		expect(Runtime.getErrorExitCode(error)).toBe(1)
-	})
-
-	test("an undeclared status is reported, not a decode failure", async () => {
-		const bare: ResponseTable = { operation: "op", responses: { "200": [] } }
-
-		expect(await apiError(respond(500), bare)).toMatchObject({
-			matched: "undeclared",
-			status: 500
-		})
-	})
-
-	test.each([401, 403])("%i exits 3", async (status) => {
-		const error = await apiError(respond(status))
-
-		expect(error).toBeInstanceOf(ApiResponseError)
-		expect(Runtime.getErrorExitCode(error)).toBe(3)
-	})
-
-	test("the request id comes from the declared header, whole", async () => {
-		const found = await apiError(respond(404, { "X-Request-Id": "req-1" }))
-		const long = await apiError(respond(404, { "x-request-id": "r".repeat(300) }))
-		const absent = await apiError(respond(404))
-		const undeclared = await apiError(respond(404, { "x-request-id": "req-1" }), {
-			...table,
-			requestIdHeader: undefined
-		})
-
-		expect(found.requestId).toBe("req-1")
-		expect(long.requestId).toHaveLength(300)
-		expect(absent).not.toHaveProperty("requestId")
-		expect(undeclared).not.toHaveProperty("requestId")
-	})
-
-	test("the request id is scrubbed (audit F6)", () => {
-		const secret = "SECRETTOKEN-abcdefghijklmnopqrstuvwxyz01"
-		const credential: Credential = {
-			definition: { kind: "http", scheme: "bearer" },
-			scheme: "bearer",
-			value: Redacted.make(secret)
+/**
+ * A client failure maps as the design says: a transport failure to its reason by the strongest sign anywhere in its
+ * cause chain (a timeout, an abort, a TLS code or word, a DNS code or word; a connect failure otherwise), a cyclic
+ * chain ending with a reason, its URL's credentials redacted; any other failure a defect. It replaces fifteen example
+ * cases; its budget is 36 drawn failures, its floor 9, steered up to 36 while a situation is unreached.
+ */
+export const transportReason = property.explore(clientFailures, {
+	needs: {},
+	situations: [
+		"timeout",
+		"aborted",
+		"tls",
+		"dns",
+		"connect",
+		"a defect",
+		"a cyclic cause",
+		"a reason two links deep"
+	] satisfies ReadonlyArray<Reached<FailureFeature>>,
+	check: (_, c: Case<FailureFeature>) => (failure) =>
+		Effect.gen(function* () {
+			const reason = yield* actualReason(failure)
+			c.noteAll(failureFeatures(failure, reason))
+			deepStrictEqual(reason, expectedReason(failure))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "the transport table: timeout, aborted, tls, dns in that order of strength, else connect; other failures defects"
+	},
+	kept: [],
+	budget: { runs: 36, steered: 36 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: '\t\treason._tag === "TransportError"',
+			replacement: '\t\treason._tag !== "TransportError"',
+			why: "A transport failure dies as a defect and an invalid URL becomes a transport error; the property fails (CATCH's evidence, mutant 0b39447738)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original: 'link.name === "AbortError"',
+			replacement: "true",
+			why: "Every link reads as an abort, so a TLS, DNS or connect failure reports aborted; the property fails (CATCH's evidence, mutant 19ab08bc31)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original:
+				'{\n\tconst code = String(link.code ?? "")\n\n\treturn tlsCodes.has(code) || tlsCode.test(code) || tlsMessage.test(link.message ?? "")\n}',
+			replacement: "{ return false }",
+			why: "No link reads as TLS, so a certificate failure reports dns or connect; the property fails (CATCH's evidence, mutant a3fd6b6fc8)."
 		}
-		const header = `${"r".repeat(230)}${secret}`
-		const error = toApiResponseError(
-			table,
-			respond(404, { "x-request-id": header }),
-			"",
-			[credential],
-			Option.none()
-		)
-		const rendered = renderError(error, [credential])
-
-		expect(error.requestId).toBe(`${"r".repeat(230)}<redacted:bearer>`)
-		expect(rendered).not.toContain("SECRETTOKEN")
-	})
-
-	test("a secret-file value is scrubbed from the request id (audit F2)", () => {
-		const secret: ScrubEntry = {
-			kind: "secret",
-			label: "password-file",
-			value: Redacted.make("hunter2-PASSWORD-xyz")
-		}
-		const header = `${"r".repeat(250)}hunter2-PASSWORD-xyz`
-		const error = toApiResponseError(
-			table,
-			respond(404, { "x-request-id": header }),
-			"",
-			[secret],
-			Option.none()
-		)
-
-		expect(error.requestId).toBe(`${"r".repeat(250)}<redacted:password-file>`)
-	})
-
-	test("a credential holding characters sanitize removes is scrubbed from the request id (audit S2)", () => {
-		// U+00AD, the C1 NEL and the C0 SOH: `auth.ts` accepts them, `sanitize` removes them.
-		const secret = "CANARY\u00AD\u0085\u0001SECRET"
-		const credential: Credential = {
-			definition: { kind: "http", scheme: "bearer" },
-			scheme: "bearer",
-			value: Redacted.make(secret)
-		}
-		const header = `req-${secret}-CANARY\u009B\u00AD\u0085\u0001SECRET`
-		const error = toApiResponseError(
-			table,
-			respond(404, { "x-request-id": header }),
-			"",
-			[credential],
-			Option.none()
-		)
-
-		expect(error.requestId).toBe("req-<redacted:bearer>-<redacted:bearer>")
-	})
-
-	test("an unfollowed 3xx carries the Location with query credentials redacted, exit 1", async () => {
-		const error = await apiError(
-			respond(302, { location: "https://login.example.com/next?access_token=SECRET&state=ok" })
-		)
-
-		expect(error).toBeInstanceOf(ApiResponseError)
-		expect(error.status).toBe(302)
-		expect(error.body).toContain("access_token=REDACTED")
-		expect(error.body).toContain("state=ok")
-		expect(error.body).not.toContain("SECRET")
-		expect(Runtime.getErrorExitCode(error)).toBe(1)
-	})
-
-	test("a 3xx without a Location is still an exit 1 error", async () => {
-		const error = await apiError(respond(304))
-
-		expect(error.status).toBe(304)
-		expect(error.body).toBe("")
-		expect(Runtime.getErrorExitCode(error)).toBe(1)
-	})
-
-	test("every declared key is reported as matched, not only four literals", () => {
-		const declared: ResponseTable = {
-			operation: "users-get",
-			responses: { "401": [], "500": [], "5XX": [] }
-		}
-
-		expect(toApiResponseError(declared, respond(500), "", [], Option.none()).matched).toBe("500")
-		expect(toApiResponseError(declared, respond(503), "", [], Option.none()).matched).toBe("5XX")
-		expect(toApiResponseError(declared, respond(401), "", [], Option.none()).matched).toBe("401")
-	})
-
-	test("toApiResponseError keeps the body it is given", () => {
-		expect(toApiResponseError(table, respond(404), "not found", [], Option.none()).body).toBe(
-			"not found"
-		)
-	})
-})
-
-interface Linked {
-	cause?: unknown
-	name: string
-}
-
-describe("mapClientError", () => {
-	const abort = new DOMException("The operation was aborted.", "AbortError")
-
-	const cases = [
-		["timeout", new Cause.TimeoutError("Operation request")],
-		["aborted", abort],
-		["aborted", new TypeError("fetch failed", { cause: abort })],
-		["dns", new TypeError("fetch failed", { cause: systemError("ENOTFOUND") })],
-		["dns", systemError("EAI_AGAIN")],
-		["tls", new TypeError("fetch failed", { cause: systemError("SELF_SIGNED_CERT_IN_CHAIN") })],
-		["tls", systemError("UNABLE_TO_VERIFY_LEAF_SIGNATURE")],
-		["tls", systemError("ERR_TLS_CERT_ALTNAME_INVALID")],
-		["connect", new TypeError("fetch failed", { cause: systemError("ECONNREFUSED") })],
-		["connect", undefined]
-	] as const
-
-	test.each(cases)("a transport failure is reason %s", async (reason, cause) => {
-		const error = await transportError(cause)
-
-		expect(error).toBeInstanceOf(TransportError)
-		expect(error.reason).toBe(reason)
-		expect(Runtime.getErrorExitCode(error)).toBe(4)
-	})
-
-	test("the URL is redacted by the redacted-name lists", async () => {
-		const error = await transportError()
-
-		expect(error.url).toContain("api_key=REDACTED")
-		expect(error.url).toContain("page=2")
-		expect(error.url).not.toContain("SECRET")
-	})
-
-	test("an InvalidUrlError is a defect, never a TransportError", async () => {
-		const invalid = new HttpClientError.HttpClientError({
-			reason: new HttpClientError.InvalidUrlError({ request })
-		})
-		const exit = await Effect.runPromiseExit(mapClientError(invalid))
-
-		expect(Exit.isFailure(exit) && Cause.hasFails(exit.cause)).toBe(false)
-		expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
-	})
-
-	test("a self-referential cause terminates with a reason", async () => {
-		const loop: Linked = { name: "Loop" }
-		loop.cause = loop
-		const error = await transportError(loop)
-
-		expect(error).toBeInstanceOf(TransportError)
-		expect(error.reason).toBe("connect")
-	})
-
-	test("a two-link cyclic cause terminates with a reason", async () => {
-		const a: Linked = { name: "A" }
-		const b: Linked = { cause: a, name: "B" }
-		a.cause = b
-		const error = await transportError(a)
-
-		expect(error).toBeInstanceOf(TransportError)
-		expect(error.reason).toBe("connect")
-	})
+	]
 })

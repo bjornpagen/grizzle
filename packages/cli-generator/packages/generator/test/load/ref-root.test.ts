@@ -1,392 +1,141 @@
-import { execFileSync } from "node:child_process"
+/**
+ * `--ref-root` preloads every JSON and YAML file under its root, after the pairs, by the file URL of each file's real
+ * path, in the walk's order, each once: a link inside the root reads as its target, a directory reached twice (a link
+ * to it, a link back up the tree) is entered once, a tree forty levels deep is walked to its bottom, and anything not
+ * named like a spec file that is no directory inside the root (a dangling link, a link out, a FIFO, a node_modules-style
+ * directory link out) is skipped. A spec-named link out of the root is refused as outside-root, a spec-named FIFO as
+ * unreadable-root before it is opened, a pair under a preloaded file's URI as a duplicate naming the file, and a member
+ * swapped at its open (for a link out, its parent for a link out, or swapped back after the open) is refused; an entry
+ * inside the root is that member, never a second document; a ../ path is outside the root. The generator's member
+ * check takes the entry's own file under its exact URI as the entry, and refuses any other file under it or any other
+ * spelling of it.
+ */
+
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Scratch } from "@bjornpagen/testing/resources"
+import { Effect } from "effect"
+import { Digest } from "effect/crypto"
 import {
-	cpSync,
-	mkdirSync,
-	mkdtempSync,
-	realpathSync,
-	renameSync,
-	rmSync,
-	symlinkSync,
-	unlinkSync,
-	writeFileSync
-} from "node:fs"
-import path from "node:path"
-import { pathToFileURL } from "node:url"
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import * as NodePath from "@effect/platform-node/NodePath"
-import { Effect, FileSystem, Layer, Schema } from "effect"
-import { describe, expect, onTestFinished, test } from "vitest"
-import { setMembers } from "#generate.ts"
-import { makeDocumentSet, resolveUnderRoot } from "#load/document-set.ts"
-import type { DocumentPair, DocumentSetOptions } from "#load/document-set.ts"
-import { DocumentUri } from "#model/brands.ts"
-
-const fixtures = path.join(import.meta.dirname, "..", "fixtures", "document-set", "ref-root")
-
-const scratch = path.join(import.meta.dirname, "..", "..", "work")
+	actualOf,
+	comparable,
+	type EntryFeature,
+	entryCases,
+	entryFeatures,
+	expectedOf,
+	type Hazard,
+	laidOut,
+	membersOf,
+	trees
+} from "#test/load/ref-root.fixtures.ts"
+import { digestService } from "#test/support/digest.ts"
 
 /**
- * A fresh copy of the fixture tree, plus a sibling directory outside it, under `work/`.
+ * A reference root loads as the specification's walk says, or is refused at its hazard. It replaces seventeen example
+ * cases, so its rotating stream is seventeen drawn trees; its floor and steered phase reach each hazard by an aimed tree.
  */
-const workspace = () => {
-	mkdirSync(scratch, { recursive: true })
-
-	const base = realpathSync(mkdtempSync(path.join(scratch, "ref-root-")))
-	const root = path.join(base, "root")
-	const outside = path.join(base, "outside")
-
-	onTestFinished(() => {
-		rmSync(base, { force: true, recursive: true })
-	})
-	cpSync(path.join(fixtures, "tree"), root, { recursive: true })
-	mkdirSync(outside)
-	cpSync(path.join(fixtures, "outside.json"), path.join(outside, "secret.json"))
-
-	return { base, outside, root }
-}
-
-const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
-
-const run = (
-	pairs: readonly DocumentPair[],
-	refRoot: string,
-	options: Omit<DocumentSetOptions, "refRoot"> = {}
-) => makeDocumentSet(pairs, { ...options, refRoot }).pipe(Effect.provide(layer))
-
-const refusal = (
-	pairs: readonly DocumentPair[],
-	refRoot: string,
-	options: Omit<DocumentSetOptions, "refRoot"> = {}
-) => Effect.runPromise(Effect.flip(run(pairs, refRoot, options)))
-
-/**
- * `count` pairs over one file outside the root, each under its own retrieval URI.
- */
-const numbered = (count: number) =>
-	Array.from({ length: count }, (_, index) => ({
-		path: path.join(fixtures, "outside.json"),
-		uri: `https://example.com/doc-${index}.json`
-	}))
-
-/**
- * The FileSystem with a hook that fires once, synchronously, the first time `target` is opened or
- * streamed: the point between the walk's check and the read where a concurrent writer can swap
- * the path. `after` fires once the open itself has returned.
- */
-const swapAtOpen = (target: string, before: () => void, after?: () => void) =>
-	Effect.gen(function* hooked() {
-		const fs = yield* FileSystem.FileSystem
-		let fired = false
-		const fire = (file: string) => {
-			const hit = !fired && file === target
-
-			if (hit) {
-				fired = true
-				before()
-			}
-
-			return hit
+export const refRoot = property.explore(trees, {
+	needs: { dir: Scratch.dir, digest: digestService },
+	situations: [
+		"none",
+		"a link to a member",
+		"a directory link inside the root",
+		"a spec-named link to an outside file",
+		"a spec-named link to an outside directory",
+		"a directory link to outside, not spec-named",
+		"skipped entries: dangling, escaping and special",
+		"a spec-named FIFO",
+		"directory links closing a cycle",
+		"a spec file deep below the root",
+		"pairs beside the root",
+		"a pair under a member's URI",
+		"a member swapped for an outside link at its open",
+		"a parent swapped for an outside link at its member's open",
+		"a parent swapped out and back around its member's open",
+		"a ../ path"
+	] satisfies ReadonlyArray<Reached<Hazard["kind"]>>,
+	check:
+		({ dir, digest }, c: Case<Hazard["kind"]>) =>
+		(tree) =>
+			Effect.gen(function* () {
+				const service = yield* digest
+				const scratch = yield* dir
+				const place = yield* laidOut(scratch, tree)
+				const expected = yield* expectedOf(place, tree)
+				const actual = yield* Effect.provideService(actualOf(place, tree), Digest.Digest, service)
+				c.note(tree.hazard.kind)
+				deepStrictEqual(comparable(expected, actual), expected)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "the reference root's walk: every spec file once by its real path, in name order, or the hazard's refusal"
+	},
+	kept: [],
+	budget: { runs: 17, steered: 32 },
+	kills: [
+		{
+			file: "packages/generator/src/load/document-set.ts",
+			original: '\t\t\t\t\t\tEffect.map((info) => info.type === "Directory"),',
+			replacement: '\t\t\t\t\t\tEffect.map((info) => info.type !== "Directory"),',
+			why: "A name not like a spec file is entered when it is no directory and skipped when it is one, so a subdirectory's spec files are never loaded; the property fails (CATCH's evidence, mutant 1504b072df)."
+		},
+		{
+			file: "packages/generator/src/load/json.ts",
+			original: "\t})\n\tstate.cursor += 1\n}\n",
+			replacement: "\t})\n\t{}\n}\n",
+			why: "Opening an object or array leaves the JSON reader on its bracket, so every JSON member file fails to parse; the property fails (CATCH's evidence, mutant 5bda9a6d80)."
+		},
+		{
+			file: "packages/generator/src/load/document-set.ts",
+			original:
+				"isDocumentUri(pair.uri)\n\t\t? pair.uri\n\t\t: (yield* path.toFileUrl(pair.path).pipe(Effect.orDie)).href",
+			replacement:
+				"isDocumentUri(pair.uri) ? (yield* path.toFileUrl(pair.path).pipe(Effect.orDie)).href : pair.uri",
+			why: "A refusal's document is the file URL for an absolute URI and the raw text otherwise, so a root's refusal, which names no URI, cannot be made; the property fails (CATCH's evidence, mutant 6b350018a4)."
 		}
-		const wrapped: FileSystem.FileSystem = {
-			...fs,
-			open: (file, options) =>
-				Effect.suspend(() =>
-					fire(file)
-						? fs.open(file, options).pipe(
-								Effect.tap(() =>
-									Effect.sync(() => {
-										after?.()
-									})
-								)
-							)
-						: fs.open(file, options)
-				),
-			stream: (file, options) => {
-				fire(file)
+	]
+})
 
-				return fs.stream(file, options)
-			}
-		}
-
-		return wrapped
-	})
-
-const runSwapped = (
-	refRoot: string,
-	hook: Effect.Effect<FileSystem.FileSystem, never, FileSystem.FileSystem>
-) =>
-	Effect.runPromise(
-		Effect.flip(
-			hook.pipe(
-				Effect.flatMap((fs) =>
-					makeDocumentSet([], { refRoot }).pipe(Effect.provideService(FileSystem.FileSystem, fs))
+/**
+ * The generator's member check against the entry. It replaces one example case of two spellings; its budget is 4 drawn members, steered up to 8 while a situation is
+ * unreached.
+ */
+export const entryMembers = property.explore(entryCases, {
+	needs: { dir: Scratch.dir, digest: digestService },
+	situations: [
+		"exact over the entry's file",
+		"exact over another file",
+		"a dot segment over the entry's file",
+		"upper scheme over another file",
+		"another URI over another file"
+	] satisfies ReadonlyArray<Reached<EntryFeature>>,
+	check:
+		({ dir, digest }, c: Case<EntryFeature>) =>
+		(entryCase) =>
+			Effect.gen(function* () {
+				const service = yield* digest
+				const scratch = yield* dir
+				const judged = yield* Effect.provideService(
+					membersOf(scratch, entryCase),
+					Digest.Digest,
+					service
 				)
-			)
-		).pipe(Effect.provide(layer))
-	)
-
-/**
- * A directory outside the root holding `sub/b.yaml` with a secret, for swapping in place of
- * `root/sub`.
- */
-const evilSub = (base: string) => {
-	const evil = path.join(base, "evil", "sub")
-
-	mkdirSync(evil, { recursive: true })
-	writeFileSync(path.join(evil, "b.yaml"), "Secret: TOPSECRET\n")
-
-	return evil
-}
-
-const mkfifo = (file: string) => execFileSync("mkfifo", [file])
-
-const uris = (set: { readonly documents: ReadonlyMap<string, unknown> }) =>
-	[...set.documents.keys()].map(String)
-
-describe("document set: --ref-root", () => {
-	test("JSON and YAML files under the root load with file: URIs", async () => {
-		const { root } = workspace()
-		const set = await Effect.runPromise(run([], root))
-
-		expect(uris(set)).toEqual([
-			pathToFileURL(path.join(root, "a.json")).href,
-			pathToFileURL(path.join(root, "sub", "b.yaml")).href
-		])
-	})
-
-	test("a symlink to a file outside the root is refused at document scope", async () => {
-		const { outside, root } = workspace()
-
-		symlinkSync(path.join(outside, "secret.json"), path.join(root, "escape.json"))
-
-		const error = await refusal([], root)
-
-		expect(error.diagnostic.code).toBe("REF-16/outside-root")
-		expect(error.diagnostic.scope).toBe("document")
-		expect(error.diagnostic.hint).toBe(path.join(root, "escape.json"))
-	})
-
-	test("a spec-named symlink to a directory outside the root is refused", async () => {
-		const { outside, root } = workspace()
-
-		symlinkSync(outside, path.join(root, "linked.json"))
-
-		const error = await refusal([], root)
-
-		expect(error.diagnostic.code).toBe("REF-16/outside-root")
-		expect(error.diagnostic.scope).toBe("document")
-	})
-
-	test("a node_modules-style directory link to outside the root is skipped and the set loads", async () => {
-		const { outside, root } = workspace()
-
-		symlinkSync(outside, path.join(root, "node_modules"))
-
-		const set = await Effect.runPromise(run([], root))
-
-		expect(uris(set)).toEqual([
-			pathToFileURL(path.join(root, "a.json")).href,
-			pathToFileURL(path.join(root, "sub", "b.yaml")).href
-		])
-	})
-
-	test("a ../ path is refused at document scope", async () => {
-		const { root } = workspace()
-		const error = await Effect.runPromise(
-			Effect.flip(resolveUnderRoot(root, "../outside.json")).pipe(Effect.provide(layer))
-		)
-
-		expect(error.diagnostic.code).toBe("REF-16/outside-root")
-		expect(error.diagnostic.scope).toBe("document")
-	})
-
-	test("a symlink inside the root resolves to one URI however it is reached", async () => {
-		const { root } = workspace()
-
-		symlinkSync(path.join(root, "a.json"), path.join(root, "alias.json"))
-		symlinkSync(path.join(root, "sub"), path.join(root, "subs"))
-
-		const set = await Effect.runPromise(run([], root))
-
-		expect(uris(set)).toEqual([
-			pathToFileURL(path.join(root, "a.json")).href,
-			pathToFileURL(path.join(root, "sub", "b.yaml")).href
-		])
-	})
-
-	test("both sources load whole, 40 pairs beside the root's files, refused by no count", async () => {
-		const { root } = workspace()
-		const set = await Effect.runPromise(run(numbered(40), root))
-
-		expect(set.documents.size).toBe(42)
-	})
-
-	test("an entry inside the root is the root's file, never a second document", async () => {
-		const { root } = workspace()
-		const entry = Schema.decodeUnknownSync(DocumentUri)(
-			pathToFileURL(path.join(root, "a.json")).href
-		)
-		const set = await Effect.runPromise(run(numbered(40), root, { entry }))
-
-		expect(set.documents.size).toBe(42)
-	})
-
-	test("a --document URI spelling a preloaded file's URI differently is refused", async () => {
-		const { root } = workspace()
-		const spelled = pathToFileURL(path.join(root, "a.json")).href.replace(/^file:/u, "FILE:")
-		const error = await refusal([{ path: path.join(fixtures, "outside.json"), uri: spelled }], root)
-
-		expect(error.diagnostic.code).toBe("REF-16/duplicate-uri")
-		expect(error.diagnostic.hint).toBe(realpathSync(path.join(root, "a.json")))
-	})
-
-	test("setMembers refuses a member spelling the entry's URI differently, same file or not", async () => {
-		const { root } = workspace()
-		const entryPath = path.join(root, "a.json")
-		const entryUri = pathToFileURL(entryPath).href
-		const entry = {
-			document: Schema.decodeUnknownSync(DocumentUri)(entryUri),
-			source: { _tag: "File", path: entryPath } as const
+				c.noteAll(entryFeatures(entryCase))
+				deepStrictEqual(judged.actual, judged.expected)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "the entry's own file under its exact URI is the entry; another file or spelling under it is a duplicate"
+	},
+	kept: [],
+	budget: { runs: 4, steered: 8 },
+	kills: [
+		{
+			file: "packages/generator/src/generate.ts",
+			original: "document !== entry.document || Option.isNone(entryPath)",
+			replacement: "Option.isNone(entryPath)",
+			why: "A member spelling the entry's URI differently over the entry's own file is taken as the entry instead of refused; the property fails (CATCH's evidence, mutant 63b3374ef1)."
 		}
-		const spellings = [
-			{ path: entryPath, uri: entryUri.replace(/a\.json$/u, "./a.json") },
-			{ path: path.join(fixtures, "outside.json"), uri: entryUri.replace(/^file:/u, "FILE:") }
-		]
-
-		const errors = await Promise.all(
-			spellings.map((pair) =>
-				Effect.runPromise(
-					Effect.flip(
-						makeDocumentSet([pair], {}).pipe(
-							Effect.flatMap((set) => setMembers(entry, set)),
-							Effect.provide(layer)
-						)
-					)
-				)
-			)
-		)
-
-		expect(errors.map((error) => error.diagnostic.code)).toEqual([
-			"REF-16/duplicate-uri",
-			"REF-16/duplicate-uri"
-		])
-		expect(errors.map((error) => error.diagnostic.hint)).toEqual(spellings.map((pair) => pair.path))
-	})
-
-	test("a --document URI equal to a preloaded file's URI is refused", async () => {
-		const { root } = workspace()
-		const uri = pathToFileURL(path.join(root, "a.json")).href
-		const error = await refusal([{ path: path.join(fixtures, "outside.json"), uri }], root)
-
-		expect(error.diagnostic.code).toBe("REF-16/duplicate-uri")
-		expect(error.diagnostic.scope).toBe("document")
-	})
-
-	test("a file swapped for an outside symlink after the walk's check is refused unread", async () => {
-		const { outside, root } = workspace()
-		const target = path.join(root, "a.json")
-		const error = await runSwapped(
-			root,
-			swapAtOpen(target, () => {
-				unlinkSync(target)
-				symlinkSync(path.join(outside, "secret.json"), target)
-			})
-		)
-
-		expect(error.diagnostic.code).toBe("DOC-14/unreadable")
-		expect(error.diagnostic.scope).toBe("document")
-	})
-
-	test("a parent directory swapped for an outside symlink after the walk's check is refused", async () => {
-		const { base, root } = workspace()
-		const evil = evilSub(base)
-		const error = await runSwapped(
-			root,
-			swapAtOpen(path.join(root, "sub", "b.yaml"), () => {
-				renameSync(path.join(root, "sub"), path.join(base, "held"))
-				symlinkSync(evil, path.join(root, "sub"))
-			})
-		)
-
-		expect(error.diagnostic.code).toBe("REF-16/outside-root")
-		expect(error.diagnostic.scope).toBe("document")
-	})
-
-	test("an outside file opened and then swapped back is refused by the handle's identity", async () => {
-		const { base, root } = workspace()
-		const evil = evilSub(base)
-		const sub = path.join(root, "sub")
-		const held = path.join(base, "held")
-		const error = await runSwapped(
-			root,
-			swapAtOpen(
-				path.join(sub, "b.yaml"),
-				() => {
-					renameSync(sub, held)
-					symlinkSync(evil, sub)
-				},
-				() => {
-					unlinkSync(sub)
-					renameSync(held, sub)
-				}
-			)
-		)
-
-		expect(error.diagnostic.code).toBe("REF-16/outside-root")
-		expect(error.diagnostic.scope).toBe("document")
-	})
-
-	test("a FIFO named like a spec file is refused before it is opened", async () => {
-		const { root } = workspace()
-
-		mkfifo(path.join(root, "pipe.json"))
-
-		const error = await refusal([], root)
-
-		expect(error.diagnostic.code).toBe("REF-16/unreadable-root")
-		expect(error.diagnostic.scope).toBe("document")
-		expect(error.diagnostic.hint).toBe(path.join(root, "pipe.json"))
-	})
-
-	test("entries not named like spec files are skipped: dangling, escaping and special", async () => {
-		const { outside, root } = workspace()
-
-		symlinkSync(path.join(root, "missing"), path.join(root, "dangling"))
-		symlinkSync(path.join(outside, "secret.json"), path.join(root, "escape.txt"))
-		mkfifo(path.join(root, "pipe"))
-
-		const set = await Effect.runPromise(run([], root))
-
-		expect(uris(set)).toEqual([
-			pathToFileURL(path.join(root, "a.json")).href,
-			pathToFileURL(path.join(root, "sub", "b.yaml")).href
-		])
-	})
-
-	test("the walk enters 40 levels below the root, refused by no depth", async () => {
-		const { root } = workspace()
-		const deep = path.join(root, ...Array.from({ length: 40 }, (_, index) => `d${index}`))
-
-		mkdirSync(deep, { recursive: true })
-		writeFileSync(path.join(deep, "deep.json"), "{}")
-
-		const set = await Effect.runPromise(run([], root))
-
-		expect(uris(set)).toContain(pathToFileURL(path.join(deep, "deep.json")).href)
-	})
-
-	test("a directory link back up the tree ends the walk where it closes", async () => {
-		const { root } = workspace()
-
-		symlinkSync(root, path.join(root, "sub", "up"))
-		symlinkSync(path.join(root, "sub"), path.join(root, "sub", "self"))
-
-		const set = await Effect.runPromise(run([], root))
-
-		expect(uris(set)).toEqual([
-			pathToFileURL(path.join(root, "a.json")).href,
-			pathToFileURL(path.join(root, "sub", "b.yaml")).href
-		])
-	})
+	]
 })
