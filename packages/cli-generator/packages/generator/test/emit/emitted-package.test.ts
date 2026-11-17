@@ -6,10 +6,12 @@
  * runtime's sources sit under src/ byte for byte as under src/runtime-src; and the root command module is lazy: it
  * imports no command module and no group's api module statically, every command module is loaded exactly once, by the
  * root's `import()` or by its parent group's import, each entry of the root's table names the group its module's
- * `Command.make` makes, and no entry module holds a top-level await or reads process.argv.
+ * `Command.make` makes, and no entry module holds a top-level await or reads process.argv. Every operation command,
+ * the root's untagged ones too, records the run (the error format it renders in) as a step of its own before any
+ * annotation, so an error raised before the request is sent renders in the run's format.
  *
- * Required features are read from what the package emitted: a construct counts only when an operation holding it has a
- * command. They reach every family the runtime-gate fixture reached: each parameter location (a query object by
+ * Required situations are read from what the package emitted: a construct counts only when an operation holding it has
+ * a command. They reach every family the runtime-gate fixture reached: each parameter location (a query object by
  * deepObject and a query array among them), JSON, form, form-data, positional multipart/mixed, JSON Lines, binary and
  * text bodies, SSE, JSON-seq, NDJSON and binary responses, a problem response with Retry-After, and bearer, basic,
  * apiKey in a header, a query and a cookie, OAuth 2, OpenID Connect and mutual TLS. They also reach a child group and a
@@ -18,762 +20,197 @@
  * The compiler is the oracle, so it is checked to refuse: a package with a command whose root services layer has its
  * `BaseUrl.layer` entry cut fails tsc, which names `Servers`, the service the commands require and nothing provides.
  */
-import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
-import type { Kept } from "@bjornpagen/testing/explore"
-import { noCoverage, required } from "@bjornpagen/testing/features"
-import { type Gen, map } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { regex } from "arkregex"
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
+import { Digest } from "effect/crypto"
 import {
-	Array as Arr,
-	Cause,
-	Duration,
-	Effect,
-	Exit,
-	FileSystem,
-	Formatter,
-	JsonPointer,
-	Option,
-	Path,
-	Record,
-	String as Str
-} from "effect"
-import { format } from "oxfmt"
-import type { FormatConfig } from "oxfmt"
-import { runtimeSources } from "#emit/runtime.ts"
-import { generateFixture, harnessLayer, typecheckPackage } from "#test/support/cli-package.ts"
-import {
-	BINDING_TAGS,
-	configGen,
-	configOf,
-	documentGen,
-	documentOf,
-	textOf
-} from "#test/support/openapi-gen.ts"
-import type {
-	ConfigSketch,
-	DocumentSketch,
-	OperationSketch,
-	Requirement,
-	SchemeSketch
-} from "#test/support/openapi-gen.ts"
-
-/** The formatter's options for generated files, as docs/printer.md names them. */
-const FORMAT_OPTIONS: FormatConfig = {
-	jsdoc: { commentLineStrategy: "multiline", lineWrappingStyle: "balance" }
-}
-
-/** A generated document and an author config that fits it. */
-type PackageCase = Readonly<{ document: DocumentSketch; config: ConfigSketch }>
-
-const caseGen: Gen<PackageCase> = (s) => {
-	const sketch = s.draw(documentGen)
-	return { document: sketch, config: s.draw(configGen(sketch)) }
-}
-
-/** A GET no emitter refuses, with no parameter, no body and one empty answer, at a path no drawn operation takes. */
-const COMMANDED: OperationSketch = {
-	method: "get",
-	segments: ["commanded"],
-	operationId: Option.none(),
-	tags: [],
-	summary: Option.none(),
-	description: Option.none(),
-	deprecated: false,
-	parameters: [],
-	querystring: Option.none(),
-	body: Option.none(),
-	responses: [{ status: "204", description: "Done", content: [], headers: [] }],
-	security: Option.none(),
-	aliases: []
-}
-
-/** The scheme an aimed case adds for "an apiKey cookie scheme": a key the client sends as the `session` cookie. */
-const COOKIE_KEY: SchemeSketch = {
-	name: "cookieKey",
-	deprecated: false,
-	kind: { type: "apiKey", in: "cookie", name: "session" }
-}
-
-/** An operation of the cookie key alone: COMMANDED's GET at a path of its own, requiring COOKIE_KEY. */
-const COOKIE_KEYED: OperationSketch = {
-	...COMMANDED,
-	segments: ["cookie-keyed"],
-	security: Option.some([[[COOKIE_KEY.name, []]]])
-}
+	baseUrlLayer,
+	cliModulesOf,
+	commandedCaseGen,
+	type Feature,
+	featuresOf,
+	lazyRootFindings,
+	packageSpace,
+	runRecordFindings,
+	typecheckReport,
+	unformatted,
+	UNPROVIDED_SERVERS,
+	unshipped
+} from "#test/emit/emitted-package.fixtures.ts"
+import { generateFixture } from "#test/support/cli-package.ts"
+import { digestService } from "#test/support/digest.ts"
+import { configOf, documentOf, textOf } from "#test/support/openapi-gen.ts"
 
 /**
- * An operation the generator refuses: a required body whose one alternative is an event stream, the refusal
- * openapi-gen.ts draws on purpose, so the operation goes with an operation-scope refusal.
+ * Every package generated from a generated document type-checks, with a lazy root, its runtime verbatim and every
+ * printed file one the formatter keeps. An optional query parameter written by content with an array schema, once
+ * refused by tsc (its kept case, shrunk at TEST_SEED=2432862457, which the space no longer draws), is a required
+ * situation an aimed arm reaches on every run. Its budget is the count its suite stated before the conversion: 8
+ * independent cases, and up to 40 steered while a situation is unreached. Its case deadline is five minutes, measured:
+ * a case generates a package and runs the package's own tsc over it, and a steered case, which adds an operation for
+ * every pending situation, replayed alone took 113 s of wall time for 5.7 CPU-s on cassowary at a load of 454 to 529
+ * (2026-11-17, out/replay-ep.txt of lane EOCG-EMIT), past its suite's stated two-minute hang, which the run hit.
  */
-const REFUSED: OperationSketch = {
-	...COMMANDED,
-	method: "post",
-	segments: ["refused-stream"],
-	body: Option.some({
-		required: true,
-		description: Option.none(),
-		alternatives: [{ kind: "event-stream" }]
-	})
-}
-
-/** The case with `operations` and `schemes` added to its document; its config, which names neither, still fits. */
-const withAdded =
-	(operations: ReadonlyArray<OperationSketch>, schemes: ReadonlyArray<SchemeSketch>) =>
-	(drawnCase: PackageCase): PackageCase => ({
-		config: drawnCase.config,
-		document: {
-			...drawnCase.document,
-			schemes: [...drawnCase.document.schemes, ...schemes],
-			operations: [...drawnCase.document.operations, ...operations]
-		}
-	})
-
-/**
- * What a steered case adds to reach a situation the plain draw reaches too rarely for the steered budget: an operation
- * of an apiKey cookie scheme, or one the generator refuses. The drawn case keeps everything else, so a steered case
- * still reaches what its plain draw reached.
- */
-const AIMED: ReadonlyArray<readonly [Feature, (drawnCase: PackageCase) => PackageCase]> = [
-	["an apiKey cookie scheme", withAdded([COOKIE_KEYED], [COOKIE_KEY])],
-	["an operation refused", withAdded([REFUSED], [])]
-]
-
-/** A package case whose package has a command, so its root services layer provides Servers: a generated document
- * with COMMANDED among its operations, and an author config that fits it. */
-const commandedCaseGen: Gen<PackageCase> = (s) => {
-	const sketch = s.draw(documentGen)
-	const document: DocumentSketch = { ...sketch, operations: [...sketch.operations, COMMANDED] }
-	return { document, config: s.draw(configGen(document)) }
-}
-
-/** The files the printer writes: every module and JSON file of the package but the runtime's sources, which ship
- * verbatim. */
-const isPrinted = (path: string): boolean =>
-	!Str.startsWith("node_modules/")(path) &&
-	!Str.startsWith("src/runtime/")(path) &&
-	path !== "src/domain/errors.ts" &&
-	(Str.endsWith(".ts")(path) || Str.endsWith(".json")(path))
-
-type Feature =
-	| "OpenAPI 3.0"
-	| "OpenAPI 3.1"
-	| "OpenAPI 3.2"
-	| "a path parameter"
-	| "a query deepObject parameter"
-	| "a query array parameter"
-	| "a header parameter"
-	| "a cookie parameter"
-	| "a querystring parameter"
-	| "a content parameter"
-	| "a JSON body"
-	| "a form body"
-	| "a form-data body"
-	| "a positional multipart/mixed body"
-	| "a JSON Lines body"
-	| "a binary body"
-	| "a text body"
-	| "several body alternatives"
-	| "an SSE response"
-	| "a JSON-seq response"
-	| "an NDJSON response"
-	| "a binary response"
-	| "a problem response with Retry-After"
-	| "a bearer scheme"
-	| "a basic scheme"
-	| "an apiKey header scheme"
-	| "an apiKey query scheme"
-	| "an apiKey cookie scheme"
-	| "an OAuth 2 scheme"
-	| "an OpenID Connect scheme"
-	| "a mutual TLS scheme"
-	| "an author-supplied scheme"
-	| "an alias"
-	| "a child group"
-	| "a group named like a binding"
-	| "a deprecated operation"
-	| "a webhook"
-	| "a non-standard switch"
-	| "an operation refused"
-
-const pointerOf = (operation: OperationSketch): string =>
-	`/paths/${JsonPointer.escapeToken(`/${Arr.join(operation.segments, "/")}`)}/${operation.method}`
-
-/** The schemes an operation's requirements name, its own or the document's. */
-const schemesOf = (document: DocumentSketch, operation: OperationSketch): ReadonlyArray<string> =>
-	Arr.flatMap(
-		Option.getOrElse(
-			Option.orElse(operation.security, () => document.security),
-			(): ReadonlyArray<Requirement> => []
-		),
-		(requirement) => Arr.map(requirement, ([scheme]) => scheme)
-	)
-
-const SCHEME_FEATURES: ReadonlyArray<readonly [Feature, (scheme: SchemeSketch) => boolean]> = [
-	["a bearer scheme", (scheme) => scheme.kind.type === "http" && scheme.kind.scheme === "bearer"],
-	["a basic scheme", (scheme) => scheme.kind.type === "http" && scheme.kind.scheme === "basic"],
-	[
+export const emittedPackage = property.explore(packageSpace, {
+	needs: { digest: digestService },
+	situations: [
+		"OpenAPI 3.0",
+		"OpenAPI 3.1",
+		"OpenAPI 3.2",
+		"a path parameter",
+		"a query deepObject parameter",
+		"a query array parameter",
+		"a header parameter",
+		"a cookie parameter",
+		"a querystring parameter",
+		"a content parameter",
+		"an optional array parameter by content",
+		"a JSON body",
+		"a form body",
+		"a form-data body",
+		"a positional multipart/mixed body",
+		"a JSON Lines body",
+		"a binary body",
+		"a text body",
+		"several body alternatives",
+		"an SSE response",
+		"a JSON-seq response",
+		"an NDJSON response",
+		"a binary response",
+		"a problem response with Retry-After",
+		"a bearer scheme",
+		"a basic scheme",
 		"an apiKey header scheme",
-		(scheme) => scheme.kind.type === "apiKey" && scheme.kind.in === "header"
-	],
-	[
 		"an apiKey query scheme",
-		(scheme) => scheme.kind.type === "apiKey" && scheme.kind.in === "query"
-	],
-	[
 		"an apiKey cookie scheme",
-		(scheme) => scheme.kind.type === "apiKey" && scheme.kind.in === "cookie"
-	],
-	["an OAuth 2 scheme", (scheme) => scheme.kind.type === "oauth2"],
-	["an OpenID Connect scheme", (scheme) => scheme.kind.type === "openIdConnect"],
-	["a mutual TLS scheme", (scheme) => scheme.kind.type === "mutualTLS"]
-]
-
-const staticImport = regex('from "\\./([a-z0-9-]+)\\.ts"', "gu")
-
-const apiImport = regex('from "\\.\\./api/([a-z0-9-]+)\\.ts"', "gu")
-
-/** The api modules the root may import statically: its own commands' builders, the security and servers tables. */
-const ROOT_API: ReadonlyArray<string> = ["root", "security", "servers"]
-
-/** What starts a run eagerly, which the entry modules never hold: a top-level await, or argv read past Stdio. */
-const EAGER: ReadonlyArray<string> = ["await", "process.argv"]
-
-/** The root services layer's `BaseUrl.layer` entry, which provides the `Servers` service every operation command
- * requires. */
-const baseUrlLayer = regex('BaseUrl\\.layer\\(servers, "[A-Z0-9_]+"\\),\\s*', "u")
-
-/** What tsc reports when a run still requires `Servers` where the entry needs every service provided. */
-const UNPROVIDED_SERVERS = "Type 'Servers' is not assignable to type 'never'"
-
-const dynamicImport = regex('import\\("\\./([a-z0-9-]+)\\.ts"\\)', "gu")
-
-const tableEntry = regex('import\\("\\./([a-z0-9-]+)\\.ts"\\),\\s*name: "([^"\\\\]*)"', "gu")
-
-const groupHeader = regex('export const group = Command\\.make\\(\\s*"([^"\\\\]*)"', "gu")
-
-const modulesIn = (text: string, pattern: RegExp): ReadonlyArray<string> =>
-	Arr.map(Arr.fromIterable(Str.matchAll(pattern)(text)), (match) => match[1] ?? "")
-
-const pairsIn = (text: string, pattern: RegExp): ReadonlyArray<readonly [string, string]> =>
-	Arr.map(
-		Arr.fromIterable(Str.matchAll(pattern)(text)),
-		(match) => [match[1] ?? "", match[2] ?? ""] as const
-	)
-
-/** A package's command modules: the root's text, each other module's text by its name, and the entry modules' texts by
- * their paths. */
-type CliModules = Readonly<{
-	root: string
-	groups: ReadonlyArray<readonly [name: string, text: string]>
-	entries: ReadonlyArray<readonly [file: string, text: string]>
-}>
-
-const cliModulesOf = (dir: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		const cli = path.join(dir, "src", "cli")
-		const listed = yield* fs.readDirectory(cli)
-		const names = Arr.map(
-			Arr.filter(listed, (file) => Str.endsWith(".ts")(file) && file !== "root.ts"),
-			(file) => Str.slice(0, -3)(file)
-		)
-		const groups = yield* Effect.forEach(names, (name) =>
-			Effect.map(fs.readFileString(path.join(cli, `${name}.ts`)), (text) => [name, text] as const)
-		)
-		const entries = yield* Effect.forEach(
-			["src/cli/root.ts", "src/main.ts", "src/bin.ts"],
-			(file) => Effect.map(fs.readFileString(path.join(dir, file)), (text) => [file, text] as const)
-		)
-		const root = yield* fs.readFileString(path.join(cli, "root.ts"))
-		const modules: CliModules = { root, groups, entries }
-		return modules
-	})
-
-/** The command modules another command module imports statically: the child groups. */
-const childrenOf = (modules: CliModules): ReadonlyArray<string> =>
-	Arr.flatMap(modules.groups, ([, text]) => modulesIn(text, staticImport))
-
-/** What the package reached, read from the operations it emitted a command for and the command modules it wrote. */
-const featuresOf = (
-	drawnCase: PackageCase,
-	commanded: ReadonlyArray<string>,
-	modules: CliModules
-): ReadonlyArray<Feature> => {
-	const { document, config } = drawnCase
-	const emitted = Arr.filter(document.operations, (operation) =>
-		Arr.contains(commanded, pointerOf(operation))
-	)
-	const parameters = Arr.flatMap(emitted, (operation) => operation.parameters)
-	const alternatives = Arr.flatMap(emitted, (operation) =>
-		Option.match(operation.body, { onNone: () => [], onSome: (body) => body.alternatives })
-	)
-	const responses = Arr.flatMap(emitted, (operation) => operation.responses)
-	const contents = Arr.flatMap(responses, (response) =>
-		Arr.map(response.content, (content) => content.kind)
-	)
-	const used = Arr.flatMap(emitted, (operation) => schemesOf(document, operation))
-	const usedSchemes = Arr.filter(document.schemes, (scheme) => Arr.contains(used, scheme.name))
-	const when = (holds: boolean, feature: Feature): ReadonlyArray<Feature> =>
-		holds ? [feature] : []
-	const located = (location: string) =>
-		Arr.some(parameters, (parameter) => parameter.location === location)
-	const bodies = (kind: string) =>
-		Arr.some(alternatives, (alternative) => alternative.kind === kind)
-	return [
-		...when(document.line === "3.0", "OpenAPI 3.0"),
-		...when(document.line === "3.1", "OpenAPI 3.1"),
-		...when(document.line === "3.2", "OpenAPI 3.2"),
-		...when(located("path"), "a path parameter"),
-		...when(
-			Arr.some(
-				parameters,
-				(parameter) =>
-					parameter.location === "query" &&
-					parameter.serialization.kind === "schema" &&
-					parameter.serialization.schema.kind === "object" &&
-					Option.contains(parameter.serialization.style, "deepObject")
-			),
-			"a query deepObject parameter"
-		),
-		...when(
-			Arr.some(
-				parameters,
-				(parameter) =>
-					parameter.location === "query" &&
-					parameter.serialization.kind === "schema" &&
-					parameter.serialization.schema.kind === "array"
-			),
-			"a query array parameter"
-		),
-		...when(located("header"), "a header parameter"),
-		...when(located("cookie"), "a cookie parameter"),
-		...when(
-			Arr.some(emitted, (operation) => Option.isSome(operation.querystring)),
-			"a querystring parameter"
-		),
-		...when(
-			Arr.some(parameters, (parameter) => parameter.serialization.kind === "content"),
-			"a content parameter"
-		),
-		...when(bodies("json"), "a JSON body"),
-		...when(bodies("form"), "a form body"),
-		...when(bodies("multipart"), "a form-data body"),
-		...when(bodies("mixed"), "a positional multipart/mixed body"),
-		...when(
-			Arr.some(
-				alternatives,
-				(alternative) =>
-					alternative.kind === "sequential" && alternative.mediaType === "application/jsonl"
-			),
-			"a JSON Lines body"
-		),
-		...when(bodies("binary"), "a binary body"),
-		...when(bodies("text"), "a text body"),
-		...when(
-			Arr.some(emitted, (operation) =>
-				Option.exists(operation.body, (body) => body.alternatives.length > 1)
-			),
-			"several body alternatives"
-		),
-		...when(Arr.contains(contents, "event-stream"), "an SSE response"),
-		...when(Arr.contains(contents, "json-seq"), "a JSON-seq response"),
-		...when(Arr.contains(contents, "ndjson"), "an NDJSON response"),
-		...when(Arr.contains(contents, "binary"), "a binary response"),
-		...when(
-			Arr.some(
-				responses,
-				(response) =>
-					Arr.some(response.content, (content) => content.kind === "problem") &&
-					Arr.some(response.headers, (header) => header.name === "Retry-After")
-			),
-			"a problem response with Retry-After"
-		),
-		...Arr.flatMap(SCHEME_FEATURES, ([feature, matches]) =>
-			when(Arr.some(usedSchemes, matches), feature)
-		),
-		...when(
-			Option.isSome(config.added) && Arr.isReadonlyArrayNonEmpty(emitted),
-			"an author-supplied scheme"
-		),
-		...when(
-			Arr.some(emitted, (operation) => Arr.isReadonlyArrayNonEmpty(operation.aliases)),
-			"an alias"
-		),
-		...when(Arr.isReadonlyArrayNonEmpty(childrenOf(modules)), "a child group"),
-		...when(
-			Arr.some(modules.groups, ([name]) =>
-				Arr.contains(Arr.map(BINDING_TAGS, Str.toLowerCase), name)
-			),
-			"a group named like a binding"
-		),
-		...when(
-			Arr.some(emitted, (operation) => operation.deprecated),
-			"a deprecated operation"
-		),
-		...when(Arr.isReadonlyArrayNonEmpty(document.webhooks), "a webhook"),
-		...when(
-			Option.contains(config.brackets, true) || Option.contains(config.scalars, true),
-			"a non-standard switch"
-		),
-		...when(
-			emitted.length < document.operations.length - config.skipped.length,
-			"an operation refused"
-		)
-	]
-}
-
-/** Each printed file of a generated package that oxfmt would change, by path. */
-const unformatted = (dir: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		const listed = yield* fs.readDirectory(dir, { recursive: true })
-		const files = Arr.filter(listed, isPrinted)
-		const changed = yield* Effect.forEach(files, (file) =>
+		"an OAuth 2 scheme",
+		"an OpenID Connect scheme",
+		"a mutual TLS scheme",
+		"an author-supplied scheme",
+		"an alias",
+		"a child group",
+		"a group named like a binding",
+		"a deprecated operation",
+		"a webhook",
+		"a non-standard switch",
+		"an operation refused"
+	] satisfies ReadonlyArray<Reached<Feature>>,
+	check:
+		({ digest }, k: Case<Feature>) =>
+		(drawnCase) =>
 			Effect.gen(function* () {
-				const text = yield* fs.readFileString(path.join(dir, file))
-				const result = yield* Effect.promise(() => format(file, text, FORMAT_OPTIONS))
-				return result.code === text && !Arr.isReadonlyArrayNonEmpty(result.errors)
-					? Option.none()
-					: Option.some(file)
-			})
-		)
-		return Arr.getSomes(changed)
-	})
-
-/** Each runtime source the package does not hold byte for byte under src/, by its path. */
-const unshipped = (dir: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		const sources = yield* runtimeSources
-		const missing = yield* Effect.forEach(Record.toEntries(sources), ([key, content]) =>
-			Effect.map(Effect.exit(fs.readFileString(path.join(dir, "src", key))), (read) =>
-				Exit.isSuccess(read) && read.value === content ? Option.none() : Option.some(key)
-			)
-		)
-		return Arr.getSomes(missing)
-	})
-
-const decoder = new TextDecoder()
-
-/** What a package's own typecheck reports: nothing when it passes, else tsc's output, or the failure itself when tsc
- * never ran. */
-const typecheckReport = (generated: Parameters<typeof typecheckPackage>[0]) =>
-	Effect.map(Effect.exit(typecheckPackage(generated)), (checked) =>
-		Exit.match(checked, {
-			onSuccess: () => "",
-			onFailure: (cause) =>
-				Option.match(Cause.findErrorOption(cause), {
-					onNone: () => Formatter.format(cause),
-					onSome: (failed) =>
-						failed._tag === "BuildStepFailed"
-							? decoder.decode(failed.stdout)
-							: Formatter.format(failed)
-				})
-		})
-	)
-
-/**
- * Whether the root command module is lazy: it imports no command module statically; every command module is loaded
- * exactly once, by the root's `import()` or by its parent's import; and each root table entry's header names the group
- * its module's `Command.make` makes.
- */
-const lazyRootFindings = (modules: CliModules): ReadonlyArray<string> => {
-	const names = Arr.map(modules.groups, ([name]) => name)
-	const lazy = modulesIn(modules.root, dynamicImport)
-	const loaded = [...lazy, ...childrenOf(modules)]
-	const headers = Arr.map(
-		modules.groups,
-		([name, text]) => [name, modulesIn(text, groupHeader)] as const
-	)
-	const entries = pairsIn(modules.root, tableEntry)
-	return [
-		...Arr.flatMap(modules.entries, ([file, text]) =>
-			Arr.map(
-				Arr.filter(EAGER, (word) => Str.includes(word)(text)),
-				(word) => `${file} holds ${word}`
-			)
-		),
-		...Arr.map(
-			Arr.filter(modulesIn(modules.root, apiImport), (name) => !Arr.contains(ROOT_API, name)),
-			(name) => `root imports api/${name} statically`
-		),
-		...Arr.map(
-			Arr.filter(modulesIn(modules.root, staticImport), (name) => Arr.contains(names, name)),
-			(name) => `root imports ${name} statically`
-		),
-		...Arr.flatMap(names, (name) => {
-			const count = Arr.filter(loaded, (load) => load === name).length
-			return count === 1 ? [] : [`${name} is loaded ${count} times`]
-		}),
-		...Arr.flatMap(lazy, (name) => {
-			const named = Arr.flatMap(entries, ([module, header]) => (module === name ? [header] : []))
-			const made = Arr.flatMap(headers, ([module, makes]) => (module === name ? makes : []))
-			const agrees =
-				named.length > 0 &&
-				made.length > 0 &&
-				Arr.every(named, (header) => Arr.every(made, (make) => make === header))
-			return agrees
-				? []
-				: [
-						`root's entry for ${name} names ${Arr.join(named, ", ")} and its module makes ${Arr.join(made, ", ")}`
-					]
-		})
-	]
-}
-
-/**
- * An optional query parameter written by content, with an array schema, reached its builder as the flag's Option,
- * which tsc refused. Shrunk from a failure at TEST_SEED=2432862457; replay it alone with
- * TEST_REPLAY='emitted package:2ffed39b1:2.0.0.0.1.0.0.0.0.2.0.0.0.0.0.0.0.1.1.0.0.0.0.0.1.0.1.1.0.1.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.1.0.0.0.0.6.0.6.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0'
- */
-const OPTIONAL_ARRAY_CONTENT: Kept<PackageCase, Feature> = {
-	note: "an optional array parameter written by content",
-	sketch: {
-		document: {
-			line: "3.2",
-			title: "Update a user.",
-			description: Option.none(),
-			servers: [],
-			tags: [],
-			components: [],
-			schemes: [],
-			security: Option.none(),
-			operations: [
-				{
-					method: "get",
-					segments: ["users0"],
-					operationId: Option.none(),
-					tags: [],
-					summary: Option.none(),
-					description: Option.some("Update a user."),
-					deprecated: false,
-					parameters: [],
-					querystring: Option.none(),
-					body: Option.some({
-						required: false,
-						description: Option.some("Update a user."),
-						alternatives: [
-							{
-								kind: "json",
-								mediaType: "application/json",
-								schema: { kind: "object", properties: [], closed: false }
-							}
-						]
+				const service = yield* digest
+				const generated = yield* Effect.provideService(
+					generateFixture({
+						spec: { path: "openapi.json", text: textOf(documentOf(drawnCase.document)) },
+						config: { path: "author-config.json", text: textOf(configOf(drawnCase.config)) },
+						authorFiles: []
 					}),
-					responses: [{ status: "200", description: "Update a user.", content: [], headers: [] }],
-					security: Option.none(),
-					aliases: []
-				},
-				{
-					method: "get",
-					segments: ["users1"],
-					operationId: Option.none(),
-					tags: [],
-					summary: Option.none(),
-					description: Option.some("Update a user."),
-					deprecated: false,
-					parameters: [
-						{
-							location: "query",
-							name: "limit",
-							required: false,
-							deprecated: false,
-							description: Option.none(),
-							serialization: {
-								kind: "content",
-								mediaType: "application/json",
-								schema: {
-									kind: "array",
-									items: { kind: "string", format: Option.none(), values: [] }
-								}
-							}
-						}
-					],
-					querystring: Option.none(),
-					body: Option.none(),
-					responses: [{ status: "200", description: "Update a user.", content: [], headers: [] }],
-					security: Option.none(),
-					aliases: []
-				}
-			],
-			webhooks: []
-		},
-		config: {
-			binName: "example",
-			envPrefix: Option.none(),
-			accepted: [],
-			brackets: Option.none(),
-			scalars: Option.none(),
-			environments: [],
-			skipped: [],
-			added: Option.none()
-		}
+					Digest.Digest,
+					service
+				)
+				const modules = yield* cliModulesOf(generated.dir)
+				k.noteAll(
+					featuresOf(
+						drawnCase,
+						Arr.map(generated.result.report.commandNames, (command) => command.pointer),
+						modules
+					)
+				)
+				const kept = yield* unformatted(generated.dir)
+				const shipped = yield* unshipped(generated.dir)
+				const typecheck = yield* typecheckReport(generated)
+				deepStrictEqual(
+					{
+						typecheck,
+						unformatted: kept,
+						unshipped: shipped,
+						lazyRoot: lazyRootFindings(modules),
+						runRecord: runRecordFindings(modules)
+					},
+					{ typecheck: "", unformatted: [], unshipped: [], lazyRoot: [], runRecord: [] }
+				)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "tsc over the emitted package, oxfmt's fixed point, the runtime's sources byte for byte and the lazy root's imports"
 	},
-	draws: "",
-	reaches: ["OpenAPI 3.2", "a content parameter", "a JSON body"]
-}
+	kept: [],
+	budget: { runs: 8, steered: 40 },
+	caseDeadline: 300_000,
+	kills: [
+		{
+			file: "packages/generator/src/emit/cli.ts",
+			original: "value: pipe(make, [recording, ...annotationsOf(command, meta, context)])",
+			replacement: "value: pipe(make, [...annotationsOf(command, meta, context)])",
+			why: "An operation command no longer records the run, so an error raised before its request is sent renders in the default format, not the run's; the property fails (global-settings' claim, m3-wi1a, whose CATCH evidence, a reference-hop cap, went with the caps in ca6d3cd)."
+		},
+		{
+			file: "packages/generator/src/emit/api.ts",
+			original: '\t\tif (alternative.codec !== "multipart") {',
+			replacement: '\t\tif (alternative.codec === "multipart") {',
+			why: "A body's encoder is chosen as if only multipart bodies were not multipart, so every builder writes the wrong encoder for its body; the property fails (CATCH's evidence, mutant 5008fe8599)."
+		},
+		{
+			file: "packages/generator/src/emit/cli.ts",
+			original:
+				'\talternative.codec === "ndjson" || alternative.codec === "jsonseq" || alternative.codec === "text"',
+			replacement:
+				'\talternative.codec === "ndjson" || alternative.codec === "jsonseq" || alternative.codec !== "text"',
+			why: "Every body alternative but text is taken for a verbatim stream, so a JSON or form body is emitted as raw bytes its builder's types refuse; the property fails (CATCH's evidence, mutant eda74e9a4e)."
+		}
+	]
+})
 
-layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (it) => {
-	it.effect(
-		"every package generated from a generated document type-checks, with a lazy root, its runtime verbatim and every printed file one the formatter keeps",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "emitted package",
-						oracle: {
-							kind: "specification",
-							name: "tsc over the emitted package, oxfmt's fixed point, the runtime's sources byte for byte and the lazy root's imports"
-						},
-						draw: aimed(
-							caseGen,
-							Arr.map(AIMED, ([feature, add]) => [feature, map(caseGen, add)] as const)
-						),
-						literal: Formatter.format,
-						coverage: required<Feature>(
-							[
-								"OpenAPI 3.0",
-								"OpenAPI 3.1",
-								"OpenAPI 3.2",
-								"a path parameter",
-								"a query deepObject parameter",
-								"a query array parameter",
-								"a header parameter",
-								"a cookie parameter",
-								"a querystring parameter",
-								"a content parameter",
-								"a JSON body",
-								"a form body",
-								"a form-data body",
-								"a positional multipart/mixed body",
-								"a JSON Lines body",
-								"a binary body",
-								"a text body",
-								"several body alternatives",
-								"an SSE response",
-								"a JSON-seq response",
-								"an NDJSON response",
-								"a binary response",
-								"a problem response with Retry-After",
-								"a bearer scheme",
-								"a basic scheme",
-								"an apiKey header scheme",
-								"an apiKey query scheme",
-								"an apiKey cookie scheme",
-								"an OAuth 2 scheme",
-								"an OpenID Connect scheme",
-								"a mutual TLS scheme",
-								"an author-supplied scheme",
-								"an alias",
-								"a child group",
-								"a group named like a binding",
-								"a deprecated operation",
-								"a webhook",
-								"a non-standard switch",
-								"an operation refused"
-							],
-							{ cases: 40, sense: notesOnly }
-						),
-						kept: [OPTIONAL_ARRAY_CONTENT],
-						runs: 8,
-						shrink: { kind: "bounded", candidates: 60 },
-						steerEvery: 4,
-						caseHang: Duration.minutes(2)
-					},
-					(drawnCase, k) =>
-						Effect.scoped(
-							Effect.gen(function* () {
-								const generated = yield* generateFixture({
-									spec: { path: "openapi.json", text: textOf(documentOf(drawnCase.document)) },
-									config: { path: "author-config.json", text: textOf(configOf(drawnCase.config)) },
-									authorFiles: []
-								})
-								const modules = yield* cliModulesOf(generated.dir)
-								k.noteAll(
-									featuresOf(
-										drawnCase,
-										Arr.map(generated.result.report.commandNames, (command) => command.pointer),
-										modules
-									)
-								)
-								const kept = yield* unformatted(generated.dir)
-								const shipped = yield* unshipped(generated.dir)
-								const lazyRoot = lazyRootFindings(modules)
-								const got = {
-									typecheck: yield* typecheckReport(generated),
-									unformatted: kept,
-									unshipped: shipped,
-									lazyRoot
-								}
-								const want: typeof got = {
-									typecheck: "",
-									unformatted: [],
-									unshipped: [],
-									lazyRoot: []
-								}
-								deepStrictEqual(got, want)
-							})
-						)
+/**
+ * A package whose root services layer drops the Servers service its commands require is refused by tsc, which names it.
+ * Its budget is the count its suite stated before the conversion: 8 independent cases, and no steered case (it requires
+ * no situation). Its case deadline is its suite's stated hang, two minutes: a case generates a package and runs its tsc.
+ */
+export const droppedService = property.explore(commandedCaseGen, {
+	needs: { digest: digestService },
+	situations: [],
+	check:
+		({ digest }) =>
+		(drawnCase) =>
+			Effect.gen(function* () {
+				const fs = yield* FileSystem.FileSystem
+				const path = yield* Path.Path
+				const service = yield* digest
+				const generated = yield* Effect.provideService(
+					generateFixture({
+						spec: { path: "openapi.json", text: textOf(documentOf(drawnCase.document)) },
+						config: { path: "author-config.json", text: textOf(configOf(drawnCase.config)) },
+						authorFiles: []
+					}),
+					Digest.Digest,
+					service
 				)
-			),
-		Duration.toMillis(Duration.minutes(5))
-	)
-
-	it.effect(
-		"a package whose root services layer drops the Servers service its commands require is refused by tsc, which names it",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "dropped service",
-						oracle: {
-							kind: "specification",
-							name: "tsc refuses the package and names Servers, the service its commands require"
-						},
-						draw: drawn(commandedCaseGen),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 8,
-						shrink: { kind: "bounded", candidates: 20 },
-						steerEvery: 4,
-						caseHang: Duration.minutes(2)
-					},
-					(drawnCase) =>
-						Effect.scoped(
-							Effect.gen(function* () {
-								const fs = yield* FileSystem.FileSystem
-								const path = yield* Path.Path
-								const generated = yield* generateFixture({
-									spec: { path: "openapi.json", text: textOf(documentOf(drawnCase.document)) },
-									config: { path: "author-config.json", text: textOf(configOf(drawnCase.config)) },
-									authorFiles: []
-								})
-								const rootPath = path.join(generated.dir, "src", "cli", "root.ts")
-								const root = yield* fs.readFileString(rootPath)
-								const dropped = Str.replace(baseUrlLayer, "")(root)
-								yield* fs.writeFileString(rootPath, dropped)
-								const report = yield* typecheckReport(generated)
-								deepStrictEqual(
-									{
-										dropped: dropped !== root,
-										unprovided: Str.includes(UNPROVIDED_SERVERS)(report)
-									},
-									{ dropped: true, unprovided: true }
-								)
-							})
-						)
+				const rootPath = path.join(generated.dir, "src", "cli", "root.ts")
+				const root = yield* fs.readFileString(rootPath)
+				const dropped = Str.replace(baseUrlLayer, "")(root)
+				yield* fs.writeFileString(rootPath, dropped)
+				const report = yield* typecheckReport(generated)
+				deepStrictEqual(
+					{ dropped: dropped !== root, unprovided: Str.includes(UNPROVIDED_SERVERS)(report) },
+					{ dropped: true, unprovided: true }
 				)
-			),
-		Duration.toMillis(Duration.minutes(5))
-	)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "tsc refuses the package and names Servers, the service its commands require"
+	},
+	kept: [],
+	budget: { runs: 8, steered: 0 },
+	caseDeadline: 120_000,
+	kills: [
+		{
+			file: "packages/generator/src/emit/domain.ts",
+			original: 'expression = { _tag: "Member", name: this.next().text, object: expression }',
+			replacement: "{}",
+			why: "The domain module's expression parser drops every member access, so what the root's services layer reads is not what it names; the property fails (CATCH's evidence, mutant 0426fcc96b)."
+		}
+	]
 })

@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 1270,
+		"total": 1013,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -19,16 +19,6 @@
 			"packages/generator/test/check/path-items.test.ts": 6,
 			"packages/generator/test/corpus/walk.test.ts": 8,
 			"packages/generator/test/determinism.test.ts": 13,
-			"packages/generator/test/emit/api.test.ts": 64,
-			"packages/generator/test/emit/author-supplied.test.ts": 11,
-			"packages/generator/test/emit/dpany.test.ts": 12,
-			"packages/generator/test/emit/dsc-fixes.test.ts": 26,
-			"packages/generator/test/emit/fmt-fixes.test.ts": 30,
-			"packages/generator/test/emit/global-settings.test.ts": 30,
-			"packages/generator/test/emit/help-non-standard.test.ts": 27,
-			"packages/generator/test/emit/password-file.test.ts": 30,
-			"packages/generator/test/emit/s30-fixes.test.ts": 15,
-			"packages/generator/test/emit/sec-fixes.test.ts": 12,
 			"packages/generator/test/generator-cli-failure.test.ts": 5,
 			"packages/generator/test/load/read.test.ts": 5,
 			"packages/generator/test/report/command-names.test.ts": 22,
@@ -51,7 +41,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 727,
+		"total": 607,
 		"files": {
 			"packages/generator/src/emit/api.ts": 115,
 			"packages/generator/src/emit/cli.ts": 153,
@@ -67,16 +57,6 @@
 			"packages/generator/test/check/grammar.test.ts": 14,
 			"packages/generator/test/corpus/walk.test.ts": 1,
 			"packages/generator/test/determinism.test.ts": 1,
-			"packages/generator/test/emit/api.test.ts": 11,
-			"packages/generator/test/emit/author-supplied.test.ts": 1,
-			"packages/generator/test/emit/dpany.test.ts": 16,
-			"packages/generator/test/emit/dsc-fixes.test.ts": 15,
-			"packages/generator/test/emit/fmt-fixes.test.ts": 16,
-			"packages/generator/test/emit/global-settings.test.ts": 6,
-			"packages/generator/test/emit/help-non-standard.test.ts": 9,
-			"packages/generator/test/emit/password-file.test.ts": 30,
-			"packages/generator/test/emit/s30-fixes.test.ts": 13,
-			"packages/generator/test/emit/sec-fixes.test.ts": 3,
 			"packages/generator/test/generated/body-alternatives.test.ts": 1,
 			"packages/generator/test/generated/credential-sources.test.ts": 1,
 			"packages/generator/test/generated/event-stream.test.ts": 2,
