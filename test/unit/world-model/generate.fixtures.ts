@@ -1,57 +1,31 @@
 /** What the properties of generate.test.ts read: its spaces, models and helpers. */
 
-import { word } from "@bjornpagen/testing/dictionary"
-import { array, boolean, element, finite, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { floorSeed } from "@bjornpagen/testing/random"
-import { sample } from "@bjornpagen/testing/source"
-import { Array as Arr, Option, Order, Record } from "effect"
-import { assert } from "#test/support/assert.ts"
-import { educationBase, educationInstall } from "#test/support/fixtures/education/index.ts"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { Array as Arr, Order, Record } from "effect"
+import { educationInstall } from "#test/support/fixtures/education/index.ts"
 import { valueText } from "#test/support/laws/model.ts"
-import { serial } from "#test/support/worlds/drive/index.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
-import { actionGen, invalidGens } from "#test/support/worlds/generate/action.ts"
-import { knownNonEmpty, pool, sameDomain } from "#test/support/worlds/generate/domain.ts"
-import { contextsRead } from "#test/support/worlds/generate/entries.ts"
+import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
 import {
 	defaultScope,
 	enumerateRealities,
 	stateValues
 } from "#test/support/worlds/generate/enumerate.ts"
 import {
-	type InstallKind,
-	installGen,
-	plantedInstallGen
-} from "#test/support/worlds/generate/install.ts"
-import { applicable, namesOffered } from "#test/support/worlds/generate/offered.ts"
-import { realityGen } from "#test/support/worlds/generate/reality.ts"
-import { weightsGen, zeroWeights } from "#test/support/worlds/generate/weights.ts"
-import { liveFactsGen } from "#test/support/worlds/invalid/tokens.ts"
-import {
 	docsBase,
 	docsInstall,
 	docsOneShareInstall
 } from "#test/support/worlds/model/bases/docs.ts"
-import { driftOf } from "#test/support/worlds/model/session/catalog.ts"
-import { migrating, staleDb } from "#test/support/worlds/model/session/state.ts"
 import { initialState } from "#test/support/worlds/model/step.ts"
 import type {
 	Action,
-	ActionKind,
 	BaseSpec,
-	ContextFacts,
-	DirectSessionState,
 	FieldDomain,
 	HostState,
-	HostValue,
 	InstallSpec,
 	InstalledNames,
-	InvalidKind,
-	ModelSession,
-	ModelState,
-	RoleSpec
+	ModelState
 } from "#test/support/worlds/model/types.ts"
-import { invalidKindWords } from "#test/unit/world-model/generate.dictionary.ts"
 
 /** A reading's units: an int4 contract of 0 to 100, so a fact or a claim can hold a value its DOMAIN refuses. */
 const units: FieldDomain = { kind: "contract", name: "Units", bits: 32, min: 0, max: 100 }
@@ -232,237 +206,6 @@ const fixtures: Arr.NonEmptyReadonlyArray<{
 	"the fixtures"
 )
 
-/**
- * The sessions a model state may hold beside its reality, drawn so every kind of handle is there to name: a Db opened
- * at the state's version, or before it, its snapshot moved past, its guard holding the ledger to its snapshot or to one
- * no migration lands, its claims admitted or refused by PostgreSQL.
- */
-const sessionsGen = (state: ModelState): Gen<ReadonlyArray<ModelSession>> => {
-	const install = state.install
-	const db: Gen<ModelSession> = (source) => {
-		const role = source.draw(element(install.roles))
-		return {
-			kind: "db",
-			login: Option.getOrThrowWith(
-				Arr.findFirst(install.logins, (l) => l.roles.includes(role.name)),
-				() => new Error(`no login holds ${role.name}`)
-			).name,
-			role: role.name,
-			facts: source.draw(liveFactsGen(state, contextsRead(install.base, role))),
-			claims: source.draw(element(["admitted", "refused"] as const)),
-			connection: 0,
-			snapshot: {
-				version: source.draw(int(0, state.version)),
-				install,
-				names: state.names,
-				host: state.host
-			},
-			guard: source.draw(element(["held", "never"] as const))
-		}
-	}
-	const direct: Gen<ModelSession> = (source) => {
-		const login = source.draw(element(install.logins))
-		const role = source.draw(boolean)
-		const aborted = source.draw(boolean)
-		return {
-			kind: "direct",
-			login: login.name,
-			current: role ? { kind: "role", role: login.roles[0] } : { kind: "login" },
-			claims: { kind: "none" },
-			isolation: "serializable",
-			transaction: aborted ? "aborted" : "open",
-			view: state.reality,
-			prepared: {},
-			sent: []
-		}
-	}
-	const closed: Gen<ModelSession> = map(
-		element(["db", "direct"] as const),
-		(was): ModelSession => ({ kind: "closed", was })
-	)
-	return (source) => [
-		...source.draw(array(oneOf([db, closed]), { min: 0, max: 3 })),
-		...source.draw(array(direct, { min: 0, max: 1 }))
-	]
-}
-
-/**
- * The moves a state forces when the weights give nothing to draw, restated from the model's state apart from the
- * generator's offering: none while a session is live (a direct writer's transaction, or a Db whose guard holds the
- * ledger, whose claims PostgreSQL admits and whose snapshot is the installation's current version); otherwise opening a
- * Db, and beginning a direct transaction too unless a folder is unfinished or the catalog has left its contract (the
- * model's drift finds a perturbation).
- */
-export const forcedOf = (state: ModelState): ReadonlyArray<ActionKind> => {
-	const live = Arr.some(
-		state.sessions,
-		(s) =>
-			s.kind === "direct" ||
-			(s.kind === "db" && s.guard === "held" && s.claims === "admitted" && !staleDb(state, s))
-	)
-	if (live) {
-		return []
-	}
-	return migrating(state) || driftOf(state.install, state.tampered).length > 0
-		? ["open-db"]
-		: ["open-db", "direct-begin"]
-}
-
-/**
- * A model state over a fixture: a lawful reality of its base, at the first version or after a migration, and sessions
- * of every kind.
- */
-const stateGen: Gen<ModelState> = (source) => {
-	const { install, state } = source.draw(element(fixtures))
-	const reality = source.draw(realityGen(install.base, state.host))
-	const loaded = { ...initialState(install, state.names, reality), version: source.draw(int(0, 1)) }
-	return { ...loaded, sessions: source.draw(sessionsGen(loaded)) }
-}
-
-/**
- * Each context a role reads, its fact at the `n`th value of each field's domain the reality holds (the domain's first
- * pool value when it holds none): claims that meet the reality's facts, so a witness's worlds hold rows.
- */
-const factsMeeting = (state: ModelState, role: RoleSpec, n: number): ContextFacts => {
-	const base = state.install.base
-	const held = (domain: FieldDomain): ReadonlyArray<HostValue> => [
-		...new Set(
-			Arr.flatMap(base.relations, (r) =>
-				Arr.flatMap(r.fields, (f) =>
-					sameDomain(f.domain, domain)
-						? Arr.flatMap(state.reality.get(r.name) ?? [], (fact) => {
-								const v = fact[f.name]
-								return v === undefined ? [] : [v]
-							})
-						: []
-				)
-			)
-		)
-	]
-	const valueOf = (domain: FieldDomain): HostValue => {
-		const values = held(domain)
-		return values[n % Math.max(1, values.length)] ?? pool(domain)[0]
-	}
-	return Record.fromEntries(
-		Arr.map(
-			contextsRead(base, role),
-			(c) =>
-				[
-					c.name,
-					Record.fromEntries(Arr.map(c.fields, (f) => [f.name, valueOf(f.domain)] as const))
-				] as const
-		)
-	)
-}
-
-/**
- * The sessions of a witness state: three open Dbs for each role, their claims meeting the reality's values, a closed Db
- * and a closed direct writer, and then nothing more, or a direct writer's open transaction as its login's first role or
- * as the login, or one a refusal aborted.
- */
-const witnessLayouts = (state: ModelState): ReadonlyArray<ReadonlyArray<ModelSession>> => {
-	const install = state.install
-	const [login] = install.logins
-	const dbs = Arr.flatMap(install.roles, (role) =>
-		Arr.map([0, 1, 2], (n): ModelSession => ({
-			kind: "db",
-			login: Option.getOrThrowWith(
-				Arr.findFirst(install.logins, (l) => l.roles.includes(role.name)),
-				() => new Error(`no login holds ${role.name}`)
-			).name,
-			role: role.name,
-			facts: factsMeeting(state, role, n),
-			claims: "admitted",
-			connection: 0,
-			snapshot: { version: state.version, install, names: state.names, host: state.host },
-			guard: "held"
-		}))
-	)
-	const shared: ReadonlyArray<ModelSession> = [
-		...dbs,
-		{ kind: "closed", was: "db" },
-		{ kind: "closed", was: "direct" }
-	]
-	const direct = (
-		current: DirectSessionState["current"],
-		transaction: "open" | "aborted"
-	): ModelSession => ({
-		kind: "direct",
-		login: login.name,
-		current,
-		claims: { kind: "none" },
-		isolation: "serializable",
-		transaction,
-		view: state.reality,
-		prepared: {},
-		sent: []
-	})
-	const asRole = { kind: "role" as const, role: login.roles[0] }
-	return [
-		shared,
-		[...shared, direct(asRole, "open")],
-		[...shared, direct({ kind: "login" }, "open")],
-		[...shared, direct(asRole, "aborted")]
-	]
-}
-
-/** The reality holding no fact. */
-const empty: HostState = new Map()
-
-/**
- * The witness states every invalid kind is sought in: each fixture over the empty reality and eight lawful realities, each
- * under every witness layout, every folder applied or the installation's own folder a run left unfinished. The realities
- * are drawn from the label's floor stream on purpose: they are witnesses of a reachability proof, which must not move
- * with TEST_SEED, not samples of a distribution.
- */
-const witnesses: ReadonlyArray<ModelState> = Arr.flatMap(fixtures, ({ install, state }) =>
-	Arr.flatMap(
-		[
-			empty,
-			...sample(realityGen(install.base, state.host), floorSeed("unit/world-model witnesses"), 8)
-		],
-		(reality) => {
-			const loaded = initialState(install, state.names, reality)
-			return Arr.flatMap(witnessLayouts(loaded), (sessions): ReadonlyArray<ModelState> => [
-				{ ...loaded, sessions },
-				{
-					...loaded,
-					sessions,
-					migrations: { kind: "pending", folders: [install], ledger: "unfinished" }
-				}
-			])
-		}
-	)
-)
-
-/** Every session an action names. */
-const namedSessions = (action: Action): ReadonlyArray<number> => {
-	switch (action.kind) {
-		case "read":
-		case "apply":
-		case "refresh":
-		case "close":
-		case "direct":
-		case "direct-end":
-		case "interrupt":
-			return [action.session]
-		case "wild":
-			return action.at.kind === "session" ? [action.at.session] : []
-		case "open-db":
-		case "direct-begin":
-		case "migrate":
-		case "tamper":
-		case "drift":
-			return []
-	}
-}
-
-/** The defects an installation may have planted. */
-const installKindList: Arr.NonEmptyReadonlyArray<InstallKind> = [
-	"install:unwritable-write",
-	"install:two-writes-one-relation"
-]
-
 /** Every uuid and text value of the pools: the values a renaming may move. */
 const symmetricValues = (base: BaseSpec): ReadonlySet<string> =>
 	new Set(
@@ -526,93 +269,6 @@ export const canonicalAction = (state: ModelState, action: Action): string => {
 		}
 	}
 	return form(action)
-}
-
-/**
- * The harness rules every drawn action keeps: it names only sessions the state holds, the serial rule admits it, and the
- * state offers its kind and the session it names.
- */
-export const holdsHarnessRules = (state: ModelState, action: Action): void => {
-	const absent = Arr.filter(
-		namedSessions(action),
-		(session) => !(Number.isInteger(session) && session >= 0 && session < state.sessions.length)
-	)
-	assert.deepEqual(absent, [], `a ${action.kind} names a session the state does not hold`)
-	assert.ok(serial(state, action), `a ${action.kind} the serial rule refuses was drawn`)
-	assert.ok(applicable(state, action.kind), `a ${action.kind} drawn where the state offers none`)
-	assert.ok(
-		namesOffered(state, action),
-		`a ${action.kind} drawn naming a session its kind may not name`
-	)
-}
-
-/** An invalid kind a case's draw is classified as. */
-export type Feature = `invalid:${InvalidKind}`
-
-/** What a drawn installation reaches: lawful or its planted defect, two logins, a query entry. */
-export type InstallFeature = "live" | InstallKind | "two logins" | "query"
-
-/** Each witness state, with the generator of each invalid kind it offers. */
-export const offering = Arr.map(witnesses, (state) => ({ state, invalidGen: invalidGens(state) }))
-
-/** Every invalid kind of the vocabulary, in its order: the box the exhaustion runs every case of. */
-export const invalidKindBox = finite(word(invalidKindWords))
-
-/**
- * Six draws of a kind's generator from the stream of its label: the draws a case of the exhaustion judges, which a
- * case's own draws would enumerate too. The label fixes them: the runner hands a check no run seed to rotate them by.
- */
-export const drawsOf = <A>(kind: InvalidKind, generator: Gen<A>): ReadonlyArray<A> =>
-	sample(generator, floorSeed(`unit/world-model/invalid-kinds ${kind}`), 6)
-
-/** A model state, swarm weights, and 32 actions drawn in the state under them. */
-export const actionsGen: Gen<{
-	readonly state: ModelState
-	readonly actions: ReadonlyArray<Action>
-}> = (source) => {
-	const state = source.draw(stateGen)
-	const weights = source.draw(weightsGen)
-	return {
-		state,
-		actions: source.draw(array(actionGen(state, weights), { min: 32, max: 32 }))
-	}
-}
-
-const bases: Arr.NonEmptyReadonlyArray<{
-	readonly base: BaseSpec
-	readonly state: ModelState
-}> = knownNonEmpty(
-	Arr.map(fixtures, (f) => ({ base: f.install.base, state: f.state })),
-	"the bases"
-)
-
-/** A fixture's base, its model state, and a lawful reality drawn of it. */
-export const realitiesGen: Gen<{
-	readonly base: BaseSpec
-	readonly state: ModelState
-	readonly reality: HostState
-}> = (source) => {
-	const { base, state } = source.draw(element(bases))
-	return { base, state, reality: source.draw(realityGen(base, state.host)) }
-}
-
-/** An installation of the documents or the education base, lawful or with one write-list defect planted. */
-export const installsGen: Gen<{
-	readonly kind: "live" | InstallKind
-	readonly install: InstallSpec
-}> = (source) => {
-	const base = source.draw(element([docsBase, educationBase]))
-	const kind = source.draw(element(["live", ...installKindList] as const))
-	return {
-		kind,
-		install: source.draw(kind === "live" ? installGen(base) : plantedInstallGen(base, kind))
-	}
-}
-
-/** A model state, and an action drawn in it under weights of zero. */
-export const forcedGen: Gen<{ readonly state: ModelState; readonly action: Action }> = (source) => {
-	const state = source.draw(stateGen)
-	return { state, action: source.draw(actionGen(state, zeroWeights)) }
 }
 
 export const docs = Arr.headNonEmpty(fixtures)

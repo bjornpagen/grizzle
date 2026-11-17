@@ -211,7 +211,7 @@ const keptLaws = (state: ModelState): ReadonlyArray<LawSpec> =>
 	Arr.filter(newLaws(state), (law) => !violatedBy(state, law))
 
 /** The invalid kinds of an installation's write lists: an entry the writable rule refuses, two entries over one relation. */
-export const installKinds = (install: InstallSpec): ReadonlyArray<InvalidKind> => [
+const installKinds = (install: InstallSpec): ReadonlyArray<InvalidKind> => [
 	...new Set(Arr.flatMap(install.roles, (role) => writeListKinds(install, role)))
 ]
 

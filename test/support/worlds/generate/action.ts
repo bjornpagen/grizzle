@@ -68,7 +68,6 @@ import {
 	offLive,
 	type Share,
 	type Strata,
-	strataOf,
 	underStrata,
 	unionStrata
 } from "#test/support/worlds/invalid/kinds.ts"
@@ -109,7 +108,6 @@ import type {
 	FieldSpec,
 	HostFact,
 	HostState,
-	InvalidKind,
 	Isolation,
 	ModelState,
 	ConflictResolution,
@@ -1124,24 +1122,6 @@ const strataOfKind = (state: ModelState, kind: ActionKind, focus: RoleFocus): St
 /** An action kind's strata in a state under a role focus (only an open reads it). */
 const kindStrata = (state: ModelState, kind: ActionKind, focus: RoleFocus): Strata<Action> =>
 	strataOfKind(state, kind, kind === "open-db" ? focus : everyRole)
-
-/**
- * The actions of a state that carry each invalid kind, every way any applicable action kind carries it, the rest of
- * each action live; none for a kind the state offers nowhere. Every draw is classified as the kind (invalidKindsOf).
- * Each applicable action kind's strata are built once, with the function.
- */
-export const invalidGens = (
-	state: ModelState
-): ((kind: InvalidKind) => Gen<Action> | undefined) => {
-	const strata = Arr.map(
-		Arr.filter(actionKinds, (k) => applicable(state, k)),
-		(k) => kindStrata(state, k, everyRole)
-	)
-	return (kind) => {
-		const [first, ...rest] = Arr.flatMap(strata, (s) => strataOf(s, kind))
-		return first === undefined ? undefined : anyOf([first, ...rest])
-	}
-}
 
 /** A weight scaled to a whole number, keeping the ratios of fractional weights a caller may give. */
 const scaled = (weight: number): number => Math.max(0, Math.round(weight * 1000))

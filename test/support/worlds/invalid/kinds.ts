@@ -280,7 +280,3 @@ export const anyOf = <T>(gens: Arr.NonEmptyReadonlyArray<Gen<T>>): Gen<T> => {
 	const [first, ...rest] = gens
 	return Arr.isReadonlyArrayNonEmpty(rest) ? oneOf(gens) : first
 }
-
-/** The draws of strata that carry one invalid kind, of either class; none when no stratum carries it. */
-export const strataOf = <T>(strata: Strata<T>, kind: InvalidKind): ReadonlyArray<Gen<T>> =>
-	Arr.flatMap([...strata.stale, ...strata.wild], (v) => (v.invalid === kind ? [v.gen] : []))
