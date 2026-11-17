@@ -227,10 +227,10 @@ export const factIdentityRefusesEveryFactWithAWordAndItsFieldOrAdmitsEveryFieldA
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/values/fault.ts",
-				original: "\tvalueFaultWords.some((word) => word === value)",
-				replacement: "\tfalse",
-				why: "Operator mutant (boolean-return) at packages/engine/src/scalar/values/fault.ts:90 in isValueFault: `valueFaultWords.some((word) => word === value)` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				file: "packages/engine/src/scalar/values/span.ts",
+				original: '\t\tif (typeof value !== "bigint" || value < int8Min || value > int8Max) {',
+				replacement: '\t\tif (typeof value !== "bigint" || value >= int8Min || value > int8Max) {',
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/span.ts:51 in the int8 span endpoint: `<` becomes `>=`, so every int8 endpoint at or above the minimum is refused as spanEndpoint; a fact of Live fields is refused and the property fails (lane CATCH, grizzle a673cd7a)."
 			}
 		]
 	})
