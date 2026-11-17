@@ -506,7 +506,8 @@ const visitWorld: (site: WorldSite, node: ts.Node) => void = (site, node) => {
 
 /**
  * The `sql-world` family: every world operator, in the world files alone, each found by `visitWorld`. One of grizzle's
- * operator families, which test.config.ts gives `toolchain-test mutate` (`pnpm mutate`) beside the library's operators.
+ * operator families, which `toolchain-test mutate` (`pnpm mutate`) alone loads (mutation.ts), beside the library's
+ * operators.
  */
 export const sqlWorld: Family<WorldOperator> = {
 	operators: worldOperators,
@@ -589,7 +590,7 @@ const distinctFlag: Rule<"set-semantics"> = (node, { add, source }) => {
 /**
  * The `set-semantics` family, in every file: grizzle's slips between a bag and a set, UNION ALL swapped with UNION and
  * a DISTINCT dropped in SQL text, and a `distinct` flag flipped. One of grizzle's operator families, which
- * test.config.ts gives `toolchain-test mutate` (`pnpm mutate`) beside the library's operators.
+ * `toolchain-test mutate` (`pnpm mutate`) alone loads (mutation.ts), beside the library's operators.
  */
 export const setSemantics: Family<"set-semantics"> = {
 	operators: ["set-semantics"],

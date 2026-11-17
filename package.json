@@ -31,7 +31,7 @@
 		"typecheck": "toolchain-typecheck -b",
 		"typecheck:full": "toolchain-typecheck -p tsconfig.json --incremental false",
 		"workspace-gate": "workspace-gate",
-		"oxlint": "toolchain-oxlint test bench scripts oxlint.config.ts oxlint.ast.config.ts toolchain.config.ts",
+		"oxlint": "toolchain-oxlint-root",
 		"format": "oxfmt --check .",
 		"format:write": "oxfmt .",
 		"dead-code": "fallow dead-code",

@@ -729,6 +729,34 @@ const driverOf = <E>(
 				return Effect.void
 		}
 	}
+	/**
+	 * The backend a move in flight runs on, once it is known: its own; a world direct session's, opened by its BEGIN and
+	 * fixed for the move; a pooled move's, read while its call holds a connection, each read a look at the pool's own
+	 * record, between which the fiber yields. A BEGIN's backend is known only once it has ended, and a world session's
+	 * that no BEGIN opened never is, so neither move is ever seen waiting: it never completes.
+	 */
+	const backendNow = (session: string, move: Move): Effect.Effect<number> => {
+		switch (move.backend.kind) {
+			case "own":
+				return Effect.succeed(move.backend.pid)
+			case "opened": {
+				const pid = pids.get(session)
+				return pid === undefined ? Effect.never : Effect.succeed(pid)
+			}
+			case "opens":
+				return Effect.never
+			case "watched":
+				return Effect.gen(function* () {
+					for (;;) {
+						const held = yield* pidOf(session, move)
+						if (Option.isSome(held)) {
+							return held.value
+						}
+						yield* Effect.yieldNow
+					}
+				})
+		}
+	}
 	return {
 		reset: Effect.andThen(
 			Effect.sync(() => {
@@ -750,35 +778,33 @@ const driverOf = <E>(
 			}),
 		waitOf: (session, move) =>
 			Effect.gen(function* () {
-				const own = yield* pidOf(session, move)
-				if (Option.isNone(own)) {
-					return Option.none()
-				}
-				for (const [other, otherMove] of inFlight) {
-					if (other !== session) {
-						yield* pidOf(other, otherMove)
+				for (;;) {
+					const own = yield* backendNow(session, move)
+					for (const [other, otherMove] of inFlight) {
+						if (other !== session) {
+							yield* pidOf(other, otherMove)
+						}
+					}
+					const wait = yield* lockWaitOf(env.observer, own)
+					if (wait !== undefined) {
+						const holderOf = (pid: number): ReadonlyArray<string> => {
+							const stepping = Arr.filter(
+								[...inFlight.keys()],
+								(s) => s !== session && pids.get(s) === pid
+							)
+							return stepping.length > 0
+								? stepping
+								: Arr.filter(
+										[...pids.keys()],
+										(s) => s !== session && pids.get(s) === pid && pid !== own
+									)
+						}
+						const holders = Arr.dedupe(Arr.flatMap(wait.blockedBy, holderOf))
+						if (Arr.isReadonlyArrayNonEmpty(holders)) {
+							return { on: holders, detail: wait }
+						}
 					}
 				}
-				const wait = yield* lockWaitOf(env.observer, own.value)
-				if (wait === undefined) {
-					return Option.none()
-				}
-				const holderOf = (pid: number): ReadonlyArray<string> => {
-					const stepping = Arr.filter(
-						[...inFlight.keys()],
-						(s) => s !== session && pids.get(s) === pid
-					)
-					return stepping.length > 0
-						? stepping
-						: Arr.filter(
-								[...pids.keys()],
-								(s) => s !== session && pids.get(s) === pid && pid !== own.value
-							)
-				}
-				const holders = Arr.dedupe(Arr.flatMap(wait.blockedBy, holderOf))
-				return Arr.isReadonlyArrayNonEmpty(holders)
-					? Option.some({ on: holders, detail: wait })
-					: Option.none()
 			}),
 		quiesce: (waiting) =>
 			awaitDeadlockChecks(

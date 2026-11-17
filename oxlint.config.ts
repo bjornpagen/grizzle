@@ -430,7 +430,10 @@ export default defineConfig(
 				]
 			},
 			"no-dynamic-imports": {
-				allowed: [{ file: "packages/grizzle/src/cli/main.ts", specifier: "grizzle:config" }]
+				allowed: [
+					{ file: "packages/grizzle/src/cli/main.ts", specifier: "grizzle:config" },
+					{ file: "test.config.ts", specifier: "#test/support/mutation/mutation.ts" }
+				]
 			},
 			"test-no-prose-search": {
 				fields: ["capability", "what"],
