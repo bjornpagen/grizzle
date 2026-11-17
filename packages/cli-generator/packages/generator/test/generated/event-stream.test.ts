@@ -45,7 +45,9 @@ import {
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
-import { NodeChildProcessSpawner, NodeCrypto, NodeHttpServer } from "@effect/platform-node"
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import {

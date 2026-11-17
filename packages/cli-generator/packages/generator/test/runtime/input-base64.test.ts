@@ -1,4 +1,4 @@
-import { NodeFileSystem } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import { Effect, FileSystem, Layer, Option, Schema, Sink, Stdio, Stream } from "effect"
 import type { HttpBody } from "effect/http"
 import { describe, expect, test } from "vitest"

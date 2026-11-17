@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs"
-import { NodeCrypto, NodeFileSystem, NodePath } from "@effect/platform-node"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { Effect, Layer, Option, PlatformError, Predicate, Schema } from "effect"
 import type { FileSystem, Path } from "effect"
 import type { Digest } from "effect/crypto"

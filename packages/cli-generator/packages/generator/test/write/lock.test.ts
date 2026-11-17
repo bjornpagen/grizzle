@@ -1,4 +1,5 @@
-import { NodeFileSystem, NodePath } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { Effect, Exit, FileSystem, Layer, Option, Path } from "effect"
 import { describe, expect, test } from "vitest"
 import { acquireRunLock, RunLockHeld, runLockFileName } from "#write/lock.ts"

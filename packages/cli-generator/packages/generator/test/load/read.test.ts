@@ -8,7 +8,7 @@ import {
 	writeFileSync
 } from "node:fs"
 import path from "node:path"
-import { NodeFileSystem } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import { ByteSize, Effect, FileSystem, Option, Schema, String as Str } from "effect"
 import { describe, expect, onTestFinished, test } from "vitest"
 import { LoadRefusal, readMemberFile, readOperatorFile, refuse, wholeInput } from "#load/read.ts"

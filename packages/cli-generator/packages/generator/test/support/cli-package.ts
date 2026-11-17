@@ -1,5 +1,6 @@
 import { HARDENED_FLAGS } from "@bjornpagen/testing/runner"
-import { NodeCrypto, NodeServices } from "@effect/platform-node"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import {
 	Array as Arr,
 	Deferred,

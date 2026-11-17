@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { NodeCrypto, NodeRuntime, NodeServices } from "@effect/platform-node"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Effect } from "effect"
 import { main } from "#main.ts"
 

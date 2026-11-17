@@ -290,8 +290,10 @@ const clientCertificateStatements = (): readonly Statement[] => {
 }
 
 /**
- * `bin.ts` (design 4.1, 4.3): the only emitted module that names the platform, Node. It composes
- * Node's services and the runtime's `Transport`: one Effect undici client per way a hop travels,
+ * `bin.ts` (design 4.1, 4.3): the only emitted module that names the platform, Node. It imports
+ * each platform module it uses from that module's own path, never `@effect/platform-node`'s index,
+ * which loads every platform module (its Redis client's 647 modules among them) before any command
+ * runs. It composes Node's services and the runtime's `Transport`: one Effect undici client per way a hop travels,
  * each over its own connection pool, which the run closes when it ends. `environment` routes a hop
  * from the platform's proxy variables (`EnvHttpProxyAgent`) and `direct` sends it straight to the
  * host, for the runtime's loopback hops (design 6.5 Loopback hosts). Neither pool follows
@@ -393,7 +395,9 @@ const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 
 	return {
 		imports: [
-			named("@effect/platform-node", ["NodeHttpClient", "NodeRuntime", "NodeServices"]),
+			namespace("@effect/platform-node/NodeHttpClient", "NodeHttpClient"),
+			namespace("@effect/platform-node/NodeRuntime", "NodeRuntime"),
+			namespace("@effect/platform-node/NodeServices", "NodeServices"),
 			named("@effect/platform-node/Undici", ["Agent", "EnvHttpProxyAgent"]),
 			named("@effect/platform-node/Undici", ["Dispatcher"], true),
 			named(

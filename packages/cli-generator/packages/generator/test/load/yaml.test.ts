@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import path from "node:path"
-import { NodeFileSystem } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import { Array as Arr, Effect, Schema, String as Str } from "effect"
 import { describe, expect, test } from "vitest"
 import { loadBytes, loadFile } from "#load/index.ts"

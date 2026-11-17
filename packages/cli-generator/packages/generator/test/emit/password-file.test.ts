@@ -1,4 +1,4 @@
-import { NodeServices } from "@effect/platform-node"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Cause, Console, Effect, Exit, Layer, Option, Runtime, Schema, Sink, Stdio } from "effect"
 import { CliOutput, Command, Flag } from "effect/cli"
 import { constVoid } from "effect/Function"

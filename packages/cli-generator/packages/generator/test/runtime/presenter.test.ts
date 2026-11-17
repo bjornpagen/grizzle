@@ -1,4 +1,4 @@
-import { NodeServices } from "@effect/platform-node"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Cause, Console, Effect, Exit, Layer, Runtime, Sink, Stdio } from "effect"
 import { CliError, CliOutput, Command, Flag } from "effect/cli"
 /* oxlint-disable unicorn/no-array-for-each -- Sink.forEach is the Effect sink, not Array#forEach */

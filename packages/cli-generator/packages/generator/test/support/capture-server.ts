@@ -1,6 +1,6 @@
 import { createServer, type Socket as NetSocket } from "node:net"
 import { createServer as createTlsServer, type TLSSocket } from "node:tls"
-import { NodeSocket } from "@effect/platform-node"
+import * as NodeSocket from "@effect/platform-node/NodeSocket"
 import { Array as Arr, type Duration, Effect, MutableHashMap, Option, String as Str } from "effect"
 import type { Scope } from "effect"
 import { Socket } from "effect/socket"

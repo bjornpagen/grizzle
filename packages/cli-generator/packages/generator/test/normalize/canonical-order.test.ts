@@ -1,4 +1,6 @@
-import { NodeCrypto, NodeFileSystem, NodePath } from "@effect/platform-node"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { Array as Arr, Effect, FileSystem, Layer, Option, Order, Path, Schema, pipe } from "effect"
 import { describe, expect, test } from "vitest"
 import { generate } from "#generate.ts"

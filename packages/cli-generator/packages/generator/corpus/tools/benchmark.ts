@@ -1,5 +1,7 @@
 import { tmpdir } from "node:os"
-import { NodeCrypto, NodeRuntime, NodeServices } from "@effect/platform-node"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Array as Arr, Effect, FileSystem, Path } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { exerciseCommands } from "#corpus/tools/exercise.ts"
