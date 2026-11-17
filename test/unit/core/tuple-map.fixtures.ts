@@ -34,7 +34,7 @@ export type TupleMapFeature =
 	| "a key set again in place"
 
 /** Two elements as a Map compares its keys: SameValueZero. */
-export const sameValueZero = (x: unknown, y: unknown): boolean =>
+const sameValueZero = (x: unknown, y: unknown): boolean =>
 	x === y || (typeof x === "number" && typeof y === "number" && Number.isNaN(x) && Number.isNaN(y))
 
 /** Two keys as the model compares them: of one length, equal element by element. */

@@ -391,7 +391,7 @@ const bench = (scale: Scale) =>
 				)}`
 			})
 		}
-		const collections: ReadonlyArray<Collection> = end.gc?.statistics ?? []
+		const collections: ReadonlyArray<Collection> = end.gc.statistics
 		const measured: Measured = {
 			wallMs: Math.round(end.wall - start.wall),
 			mainThreadCpuMs: Math.round((end.thread.user + end.thread.system) / 1000),

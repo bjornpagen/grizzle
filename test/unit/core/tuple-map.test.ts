@@ -107,9 +107,11 @@ export const aTupleMapAnswersEveryProgramOfSetsAndDeletesAsAListOfEntriesCompare
 						`step ${at}: the values in insertion order`
 					)
 					assert.ok(
-						Arr.every(
-							Arr.fromIterable(map),
-							([k, v], i) => k === model[i]?.key && v === model[i]?.value
+						Arr.every(Arr.fromIterable(map), ([k, v], i) =>
+							Option.match(Arr.get(model, i), {
+								onNone: () => false,
+								onSome: (e) => k === e.key && v === e.value
+							})
 						),
 						`step ${at}: the entries in insertion order`
 					)
