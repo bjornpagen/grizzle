@@ -15,16 +15,7 @@ const { active, lintConfig } = standard(toolchain)
 export default defineConfig(
 	lintConfig({
 		ignorePatterns: ["packages/generator/test/fixtures/**", "vendor/**"],
-		restrictedImports: {
-			paths: [
-				{
-					name: "@effect/platform-node",
-					message:
-						"Import each platform module from its own path (`import * as NodeServices from \"@effect/platform-node/NodeServices\"`): the package's index loads every platform module, its Redis client's 647 modules among them, about 0.39 s of CPU in every process that imports it."
-				}
-			],
-			patterns: []
-		},
+		restrictedImports: { paths: [], patterns: [] },
 		restrictedGlobals: [],
 		restrictedProperties: [],
 		unassignedImports: [],

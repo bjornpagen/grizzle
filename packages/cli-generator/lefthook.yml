@@ -8,7 +8,11 @@ lefthook: node_modules/.bin/lefthook
 # one lane's unfinished files never fail another's commit or push. The commit's gate, on what the index holds, runs
 # `pnpm types`, oxfmt's check of the staged files and the AST-only oxlint (oxlint.ast.config.ts) on them, and builds no
 # lint program; the push's gate runs the full `pnpm check` on each commit the push sends, which git names on stdin. A
-# merge or rebase skips pre-commit; the push gate covers it.
+# merge or rebase skips pre-commit; the push gate covers it. The push's gate is a script job (.lefthook/pre-push/gate.sh,
+# committed executable, since lefthook makes a script job's file executable each time it runs it), as lefthook skips a
+# pre-push run job whenever `git diff HEAD @{push}` names no file: a push of a submodule's gitlink alone (every toolchain
+# move), of deletions alone or of an empty commit would go out ungated. The commit's run job is skipped only for a
+# commit that stages nothing, whose tree is its parent's.
 pre-commit:
   skip:
     - merge
@@ -19,5 +23,6 @@ pre-commit:
 pre-push:
   jobs:
     - name: gate
-      run: sh vendor/toolchain/packages/devtools/bin/gate.sh push
+      script: gate.sh
+      runner: sh
       use_stdin: true
