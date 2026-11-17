@@ -5,7 +5,8 @@ import { sha256Hex } from "#compiler/core/sha256.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { pin } from "#pg/pin.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
-import { configureDatabase, devSession, testDatabaseSettings } from "#test/support/pg.ts"
+import { pgPin } from "#test/support/env.ts"
+import { configureDatabase, devSession, session, testDatabaseSettings } from "#test/support/pg.ts"
 import { sqlNeedFailed } from "#test/support/runner.ts"
 
 /**
@@ -17,12 +18,24 @@ import { sqlNeedFailed } from "#test/support/runner.ts"
 const databaseDefaultGrant = "GRANT CONNECT, TEMPORARY ON DATABASE"
 
 /**
+ * The owner's default privileges on vector_ext, the schema scripts/pg/init.sh creates for pgvector under the owner,
+ * granted as the grant that states them (its ACL then reads as PostgreSQL's default for a schema, acldefault, never
+ * NULL): an installation whose relations hold a vector grants USAGE on vector_ext to its roles, which materializes the
+ * ACL, so a template whose schema ACL is NULL is told apart from a clone whose roles' grants were released, and a held
+ * clone's fingerprint would never settle back to its template (GZ-MIGRATE-CLI's fixtures.test.ts#workedExamples and
+ * paths.test.ts#renamedPaths on Substrate.installing: the one line their clones differed in, `schema vector_ext`).
+ */
+const vectorSchemaGrant = "GRANT USAGE, CREATE ON SCHEMA vector_ext TO CURRENT_USER"
+
+/**
  * The database every grizzle case starts from: grizzle_template as scripts/pg/init.sh makes it (public empty, the
  * vector extension in vector_ext, plpgsql), with the test database settings (pg.ts testDatabaseSettings) as its
- * database defaults, and PUBLIC's default privileges on it stated (databaseDefaultGrant), which the toolchain replays on
- * every clone (a clone copies no pg_db_role_setting row, and its ACL is replayed as the template's). Its content
- * is what makes it: the PostgreSQL build the pin names and its patches, pgvector's version, and the settings; its build
- * only sets them, from the owner's own database, so no session is left in it.
+ * database defaults, PUBLIC's default privileges on it stated (databaseDefaultGrant), which the toolchain replays on
+ * every clone (a clone copies no pg_db_role_setting row, and its ACL is replayed as the template's), and the owner's on
+ * vector_ext stated (vectorSchemaGrant), which a clone copies as a catalog row. Its content is what makes it: the
+ * PostgreSQL build the pin names and its patches, pgvector's version, the settings and the stated privileges; its build
+ * sets the database's from the owner's own database and vector_ext's from a session in it that the build closes, so no
+ * session is left in it.
  */
 export const baseTemplate: DatabaseTemplate = Template.database({
 	declaredIn: import.meta,
@@ -31,7 +44,8 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 		postgres: { tag: pin.PG_PIN_TAG, commit: pin.PG_PIN_COMMIT, patches: pin.PG_PIN_PATCHES },
 		vector: pin.PGVECTOR_PIN_VERSION,
 		settings: Arr.map(testDatabaseSettings, ([name, value]) => [name, value]),
-		acl: databaseDefaultGrant
+		acl: databaseDefaultGrant,
+		vectorAcl: vectorSchemaGrant
 	},
 	from: Template.cluster,
 	build: (target) =>
@@ -46,6 +60,20 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 				yield* Effect.mapError(configureDatabase(admin, target.name), failed)
 				yield* Effect.mapError(
 					admin.query(`${databaseDefaultGrant} ${quoteIdent(target.name)} TO PUBLIC`, []),
+					failed
+				)
+				yield* Effect.mapError(
+					Effect.scoped(
+						Effect.flatMap(
+							session(cluster, {
+								database: target.name,
+								username: pgPin.devRole,
+								password: cluster.devPassword,
+								applicationName: Option.some("grizzle base template")
+							}),
+							(inTarget) => inTarget.query(vectorSchemaGrant, [])
+						)
+					),
 					failed
 				)
 			})
