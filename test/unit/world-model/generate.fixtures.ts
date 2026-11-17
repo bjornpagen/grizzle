@@ -110,7 +110,7 @@ export const canonicalAction = (state: ModelState, action: Action): string => {
  * The box the generators are tried over: the docs installation's names, as its base's compilation gives them, and every
  * reality of the box over its host schema.
  */
-export type Box = Readonly<{
+type Box = Readonly<{
 	names: InstalledNames
 	realities: Arr.NonEmptyReadonlyArray<HostState>
 }>
