@@ -48,6 +48,8 @@ import {
 } from "#test/support/kernel/sanitize.ts"
 import { hangLimit, testExitWait } from "#test/support/limits.ts"
 import {
+	configureDatabase,
+	devSession,
 	type Exchange,
 	exchanging,
 	freshDatabase,
@@ -1057,7 +1059,10 @@ const formerBuildDropped = (
  * template's schema name and installing the plan on a substrate over the template database, each worker plans it once
  * to bind its cases, and its cases clone it by any form (Substrate.freshOf, seat, rolledBack). Its identity is the
  * toolchain's: the declaring module's import closure, the name and the content, so an install that changes is a new
- * template, under new names.
+ * template, under new names. Its build first gives its database the test database settings (pg.ts configureDatabase),
+ * as the base template's build does, since a derived template is made from its origin with no database setting of the
+ * origin's: every session of the install then runs under them, a write of a fill SERIALIZABLE among them, and every
+ * clone of it gets them, as the toolchain replays a template's own settings on each clone.
  */
 export const installTemplate = <P, T, E1, E2>(
 	spec: InstallSpec<P, T, E1, E2>
@@ -1080,6 +1085,11 @@ export const installTemplate = <P, T, E1, E2>(
 					const { digest, plan } = yield* planned(database)
 					const { cluster } = yield* target.member.leased
 					const failed = sqlNeedFailed(spec.name, `the install in ${target.name}`)
+					const settings = yield* Effect.mapError(
+						devSession(cluster, Option.some("template settings")),
+						failed
+					)
+					yield* Effect.mapError(configureDatabase(settings, target.name), failed)
 					const admin = yield* Effect.mapError(
 						connect(cluster, {
 							database: target.name,
