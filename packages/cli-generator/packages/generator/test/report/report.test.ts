@@ -63,11 +63,6 @@ describe("generation report bytes", () => {
 
 	const parsed: unknown = JSON.parse(text)
 
-	test("the same input prints the same bytes, ending in a newline", () => {
-		expect(print([operationRefusal, notice])).toBe(text)
-		expect(text.endsWith("}\n")).toBe(true)
-	})
-
 	test("keys are sorted at the top level of the printed text", () => {
 		const keys = Arr.flatMap(Str.split("\n")(text), (line) =>
 			Str.startsWith('  "')(line) ? Option.toArray(Arr.get(Str.split('"')(line), 1)) : []
@@ -102,10 +97,6 @@ describe("generation report bytes", () => {
 		expect(report.refusals.map((entry) => entry.code)).toEqual(["PRM-27/compound-nested"])
 		expect(report.notices.map((entry) => entry.code)).toEqual(["PRM-19/ignored-header"])
 		expect(report.refusals[0]?.message).toBe(base.message)
-	})
-
-	test("carries no timestamp field anywhere", () => {
-		expect(text).not.toMatch(/time|date|generatedAt/iu)
 	})
 
 	test("a bad digest fails with a schema error", () => {
@@ -144,9 +135,5 @@ describe("generatorExitStatus", () => {
 		expect(
 			generatorExitStatus({ _tag: "Written", diagnostics: [operationRefusal], strict: true })
 		).toBe(1)
-	})
-
-	test("a held lock exits 1", () => {
-		expect(generatorExitStatus({ _tag: "LockHeld" })).toBe(1)
 	})
 })

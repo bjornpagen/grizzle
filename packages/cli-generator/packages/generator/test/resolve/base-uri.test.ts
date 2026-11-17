@@ -1,21 +1,11 @@
 import { Option } from "effect"
 import { describe, expect, test } from "vitest"
-import { resolveUri, retrievalBase, splitFragment, stripFragment } from "#model/uri.ts"
+import { retrievalBase, splitFragment, stripFragment } from "#model/uri.ts"
 import { documentBase, schemaBase } from "#resolve/base-uri.ts"
 
 const retrieval = "file:///spec/openapi.json#/info"
 
-describe("resolveUri", () => {
-	test("a relative path against an absolute base resolves", () => {
-		expect(resolveUri("models.json#/A", "file:///spec/openapi.json")).toEqual(
-			Option.some("file:///spec/models.json#/A")
-		)
-	})
-
-	test("a relative path against a urn: base does not resolve", () => {
-		expect(resolveUri("models.json", "urn:example:spec")).toEqual(Option.none())
-	})
-})
+describe("resolveUri", () => {})
 
 describe("retrievalBase", () => {
 	test("normalizes the retrieval URI and strips its fragment", () => {

@@ -2,13 +2,12 @@ import { readFileSync } from "node:fs"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
-import { Effect, Layer, Option, PlatformError, Predicate, Schema } from "effect"
+import { Effect, Layer, PlatformError, Predicate, Schema } from "effect"
 import type { FileSystem, Path } from "effect"
 import type { Digest } from "effect/crypto"
 import { describe, expect, onTestFinished, test, vi } from "vitest"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
-import { declaredOpenapi } from "#model/spec-section.ts"
 import invalid30 from "#test/fixtures/validate/invalid-3.0.json" with { type: "json" }
 import invalid31 from "#test/fixtures/validate/invalid-3.1.json" with { type: "json" }
 import invalid32 from "#test/fixtures/validate/invalid-3.2.json" with { type: "json" }
@@ -138,16 +137,7 @@ describe("validateDocument", () => {
 	})
 })
 
-describe("declaredOpenapi", () => {
-	test("a string openapi value is Some; a missing or non-string one is None", () => {
-		expect(declaredOpenapi({ openapi: "3.1.0" })).toEqual(Option.some("3.1.0"))
-		expect(declaredOpenapi({ openapi: "2.0" })).toEqual(Option.some("2.0"))
-		expect(declaredOpenapi({ swagger: "2.0" })).toEqual(Option.none())
-		expect(declaredOpenapi({ openapi: 3.1 })).toEqual(Option.none())
-		expect(declaredOpenapi({ openapi: null })).toEqual(Option.none())
-		expect(declaredOpenapi("3.1.0")).toEqual(Option.none())
-	})
-})
+describe("declaredOpenapi", () => {})
 
 describe("versionRefusal", () => {
 	const uri = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")

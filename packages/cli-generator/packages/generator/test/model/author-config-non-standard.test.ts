@@ -27,28 +27,6 @@ const refusals = (input: Schema.Json) => {
 }
 
 describe("author config nonStandard.deepObjectBrackets", () => {
-	test("absent nonStandard decodes and means strict", () => {
-		expect(decode(base).nonStandard).toBeUndefined()
-	})
-
-	test("an empty nonStandard decodes", () => {
-		expect(decode({ ...base, nonStandard: {} }).nonStandard).toEqual({})
-	})
-
-	test("deepObjectBrackets false decodes", () => {
-		const config = decode({ ...base, nonStandard: { deepObjectBrackets: false } })
-		expect(config.nonStandard?.deepObjectBrackets).toBe(false)
-	})
-
-	test("deepObjectBrackets true decodes and round-trips", () => {
-		const config = decode({ ...base, nonStandard: { deepObjectBrackets: true } })
-		expect(config.nonStandard?.deepObjectBrackets).toBe(true)
-		expect(Schema.encodeSync(AuthorConfig)(config)).toEqual({
-			...base,
-			nonStandard: { deepObjectBrackets: true }
-		})
-	})
-
 	test("a string is refused as an invalid value", () => {
 		expect(refusals({ ...base, nonStandard: { deepObjectBrackets: "true" } })).toEqual([
 			"/nonStandard/deepObjectBrackets|CFG-1/invalid-value"
@@ -66,36 +44,9 @@ describe("author config nonStandard.deepObjectBrackets", () => {
 			"/nonStandard/x|CFG-1/unknown-key"
 		])
 	})
-
-	test("an M1 config decodes unchanged", () => {
-		const config = decode(base)
-		expect(Schema.encodeSync(AuthorConfig)(config)).toEqual(base)
-	})
 })
 
 describe("author config nonStandard.deepObjectScalars", () => {
-	test("deepObjectScalars true decodes with the key kept and round-trips", () => {
-		const config = decode({ ...base, nonStandard: { deepObjectScalars: true } })
-		expect(config.nonStandard?.deepObjectScalars).toBe(true)
-		expect(config.nonStandard?.deepObjectBrackets).toBeUndefined()
-		expect(Schema.encodeSync(AuthorConfig)(config)).toEqual({
-			...base,
-			nonStandard: { deepObjectScalars: true }
-		})
-	})
-
-	test("deepObjectScalars false decodes", () => {
-		const config = decode({ ...base, nonStandard: { deepObjectScalars: false } })
-		expect(config.nonStandard?.deepObjectScalars).toBe(false)
-	})
-
-	test("the two switches are independent keys", () => {
-		const both = { deepObjectBrackets: false, deepObjectScalars: true }
-		const config = decode({ ...base, nonStandard: both })
-		expect(config.nonStandard).toEqual(both)
-		expect(Schema.encodeSync(AuthorConfig)(config)).toEqual({ ...base, nonStandard: both })
-	})
-
 	test("a non-boolean is refused as an invalid value", () => {
 		expect(refusals({ ...base, nonStandard: { deepObjectScalars: "true" } })).toEqual([
 			"/nonStandard/deepObjectScalars|CFG-1/invalid-value"

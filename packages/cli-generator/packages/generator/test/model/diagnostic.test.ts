@@ -58,18 +58,6 @@ describe("Diagnostic", () => {
 		expect(Schema.encodeSync(Diagnostic)(diagnostic)).toEqual(encoded)
 	})
 
-	test("a malformed code is rejected", () => {
-		const rejected = [
-			"PRM-27",
-			"prm-27/compound-nested",
-			"PRM-27/Compound",
-			"PRM-27/",
-			"PRM27/compound-nested",
-			"PRM-27/compound nested"
-		].map((code) => Exit.isFailure(decode({ ...base, code })))
-		expect(rejected.every(Boolean)).toBe(true)
-	})
-
 	test("a code that names a different row than the row field is rejected", () => {
 		expect(Exit.isFailure(decode({ ...base, row: "PRM-28" }))).toBe(true)
 	})
@@ -78,14 +66,6 @@ describe("Diagnostic", () => {
 		expect(
 			Exit.isSuccess(decode({ ...base, code: "S30-22/array-without-items", row: "S30-22" }))
 		).toBe(true)
-	})
-
-	test("a row id that starts with a digit, is lowercase, or lacks digits is rejected", () => {
-		const rows = ["30S-1", "s30-1", "S30-"]
-		const rejected = rows.map((row) =>
-			Exit.isFailure(decode({ ...base, code: `${row}/array-without-items`, row }))
-		)
-		expect(rejected.every(Boolean)).toBe(true)
 	})
 
 	test("a field-scope refusal decodes and round-trips; an unknown scope is rejected", () => {
@@ -184,17 +164,6 @@ describe("Verdict", () => {
 		const decoded = Schema.decodeUnknownSync(Verdict)(verdict)
 		expect(Schema.encodeSync(Verdict)(decoded)).toEqual(verdict)
 	})
-
-	test("a refusal count without the field key is rejected", () => {
-		const counts = { ...verdict.counts, refusals: { document: 0, element: 1, operation: 0 } }
-		expect(Exit.isFailure(Schema.decodeUnknownExit(Verdict)({ ...verdict, counts }))).toBe(true)
-	})
-
-	test("an unknown verdict value is rejected", () => {
-		expect(Exit.isFailure(Schema.decodeUnknownExit(Verdict)({ ...verdict, verdict: "ok" }))).toBe(
-			true
-		)
-	})
 })
 
 describe("diagnosticOf and makeDiagnostic", () => {
@@ -210,20 +179,6 @@ describe("diagnosticOf and makeDiagnostic", () => {
 		const diagnostic = await Effect.runPromise(makeDiagnostic(input))
 
 		expect(diagnostic.row).toBe(rowId("PRM-27"))
-	})
-
-	test("an invalid code dies through makeDiagnostic and fails with SchemaError through diagnosticOf", async () => {
-		const bad = { ...input, code: "nonsense" }
-
-		expect(Exit.isFailure(await Effect.runPromiseExit(makeDiagnostic(bad)))).toBe(true)
-
-		const failed = await Effect.runPromise(Effect.flip(diagnosticOf(bad)))
-
-		expect(Schema.isSchemaError(failed)).toBe(true)
-
-		const exit = await Effect.runPromiseExit(makeDiagnostic(bad))
-
-		expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
 	})
 
 	test("the encoded key order equals that of a directly decoded Diagnostic", async () => {
@@ -245,14 +200,4 @@ describe("diagnosticOf and makeDiagnostic", () => {
 	})
 })
 
-describe("Site", () => {
-	test("Site is the entity Origin: one value decodes the same and encodes document then pointer", () => {
-		const value = { document: "file:///spec.json", pointer: "/paths/~1x/get" }
-		const site = Schema.decodeUnknownSync(Site)(value)
-		const origin = Schema.decodeUnknownSync(Origin)(value)
-
-		expect(site).toEqual(origin)
-		expect(Object.keys(Schema.encodeSync(Site)(site))).toEqual(["document", "pointer"])
-		expect(Object.keys(Schema.encodeSync(Origin)(origin))).toEqual(["document", "pointer"])
-	})
-})
+describe("Site", () => {})

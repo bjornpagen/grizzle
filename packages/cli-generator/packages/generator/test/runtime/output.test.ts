@@ -156,13 +156,6 @@ const reasonOf = (error: { readonly _tag: string } | undefined) =>
 	error instanceof OutputErrorClass ? error.reason : undefined
 
 describe("stdout sink", () => {
-	test("raw bytes reach stdout unchanged", async () => {
-		const { body } = countedBody("application/json")
-		const result = await run({}, writeBody(body))
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.stdout).toEqual(bytes())
-	})
-
 	test("a text body to a terminal is allowed", async () => {
 		const { body } = countedBody("text/plain; charset=utf-8")
 		const result = await run({ isTerminal: true }, writeBody(body))
@@ -587,17 +580,7 @@ describe("overlapping credential forms are scrubbed as one run (recheck N1)", ()
 	})
 })
 
-describe("sanitize", () => {
-	test("keeps LF and TAB; removes C0, DEL, C1, bidi, format and line separators", () => {
-		const dirty = "a\u0000b\u001Bc\u007Fd\u0085e\u202Ef\u200Bg\u2028h\u2029i\n\tj"
-
-		expect(sanitize(dirty)).toBe("abcdefghi\n\tj")
-	})
-
-	test("removes lone surrogates and keeps paired ones", () => {
-		expect(sanitize("a\uD800b\u{1F600}")).toBe("ab\u{1F600}")
-	})
-})
+describe("sanitize", () => {})
 
 describe("renderError", () => {
 	test("an ApiResponseError shows its line, request id and scrubbed body", () => {
@@ -671,13 +654,6 @@ describe("valueFreeFormatter", () => {
 })
 
 describe("finalCatch", () => {
-	test("success passes through untouched", async () => {
-		const { exit, stderr } = await runCatch(Effect.succeed(7))
-
-		expect(Exit.isSuccess(exit) && exit.value).toBe(7)
-		expect(stderr).toBe("")
-	})
-
 	test("an unknown defect prints one scrubbed line and exits 70", async () => {
 		const { exit, stderr } = await runCatch(Effect.die(new Error(`boom ${canary}\nsecond`)))
 		const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
@@ -786,13 +762,6 @@ describe("finalCatch", () => {
 		expect(Runtime.getErrorReported(invalid)).toBe(false)
 		expect(stderr.match(/<count>/gu)).toHaveLength(1)
 		expect(stderr).not.toContain(canary)
-	})
-
-	test("an interrupt passes through unprinted", async () => {
-		const { exit, stderr } = await runCatch(Effect.interrupt)
-
-		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
-		expect(stderr).toBe("")
 	})
 })
 

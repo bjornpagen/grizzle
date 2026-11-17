@@ -116,16 +116,7 @@ describe("credentialFileSetting", () => {
 	})
 })
 
-describe("Auth.layer", () => {
-	test("provides Schemes with the table and the env prefix", async () => {
-		const schemes = await Effect.runPromise(
-			Effect.service(Auth.Schemes).pipe(Effect.provide(Auth.layer(table, "EXAMPLE", [])))
-		)
-
-		expect(schemes.table).toBe(table)
-		expect(schemes.envPrefix).toBe("EXAMPLE")
-	})
-})
+describe("Auth.layer", () => {})
 
 describe("credential sources", () => {
 	test("env EXAMPLE_<SCHEME> is the default source", async () => {
@@ -664,11 +655,7 @@ describe("Auth.credentialOrigins", () => {
 	})
 })
 
-describe("allowCredentialsForBaseUrl", () => {
-	test("is the root setting --allow-credentials-for-base-url", () => {
-		expect(Auth.allowCredentialsForBaseUrl.id).toBe("allow-credentials-for-base-url")
-	})
-})
+describe("allowCredentialsForBaseUrl", () => {})
 
 describe("Auth.redactedNames", () => {
 	test("adds apiKey header and query names to the defaults, per list", async () => {

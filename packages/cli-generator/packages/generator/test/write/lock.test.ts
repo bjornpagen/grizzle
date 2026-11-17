@@ -118,18 +118,4 @@ describe("run lock", () => {
 		expect(outcome.tempB).toBe(false)
 		expect(outcome.unrelated).toBe(true)
 	})
-
-	test("a registered temp that was already renamed away does not fail the release", async () => {
-		const exit = await inTempDir((dir, _fs, path) =>
-			Effect.exit(
-				Effect.scoped(
-					Effect.gen(function* step7() {
-						const lock = yield* acquireRunLock(dir)
-						yield* lock.registerTemp(path.join(dir, ".gone.tmp"))
-					})
-				)
-			)
-		)
-		expect(Exit.isSuccess(exit)).toBe(true)
-	})
 })

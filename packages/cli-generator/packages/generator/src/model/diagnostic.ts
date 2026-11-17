@@ -24,7 +24,7 @@ const rowOfCode = (code: string): Option.Option<string> =>
 /**
  * The use site or target of a diagnostic: a document and an RFC 6901 pointer, the entity `Origin`.
  */
-export const Site = Origin
+const Site = Origin
 
 /**
  * How much a diagnostic covers: the whole document, one operation, one element, or one `field`

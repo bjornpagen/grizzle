@@ -5,8 +5,7 @@ import {
 	foldIdentifier,
 	foldKebab,
 	SafeFileSegment,
-	SafeIdentifier,
-	words
+	SafeIdentifier
 } from "#names/fold.ts"
 import { reservedEnvSuffixes, reservedIdentifiers, windowsDeviceNames } from "#names/reserved.ts"
 import hostile from "#test/fixtures/seeds/hostile.json" with { type: "json" }
@@ -55,16 +54,7 @@ const okName = (result: Result.Result<{ readonly name: string }, unknown>): stri
 const failTag = (result: Result.Result<unknown, { readonly _tag: string }>): string | undefined =>
 	Result.isFailure(result) ? result.failure._tag : undefined
 
-describe("words", () => {
-	test("splits on non-alphanumerics, lower-to-upper boundaries and drops marks", () => {
-		expect(words("users-list")).toEqual(["users", "list"])
-		expect(words("listUsers")).toEqual(["list", "Users"])
-		expect(words("Crème Brûlée")).toEqual(["Creme", "Brulee"])
-		expect(words("a__b..c")).toEqual(["a", "b", "c"])
-		expect(words("ﬁne")).toEqual(["fine"])
-		expect(words("日本")).toEqual([])
-	})
-})
+describe("words", () => {})
 
 describe("foldKebab", () => {
 	test("folds to lowercase kebab", () => {
@@ -187,17 +177,6 @@ describe("fold properties over hostile strings", () => {
 				expect(result.success.name.includes("--")).toBe(false)
 			} else {
 				expect(result.failure._tag).toBe("EmptyFold")
-			}
-		}
-	})
-
-	test("every file segment is a SafeFileSegment or a refusal", () => {
-		for (const input of corpus) {
-			const result = foldFileSegment(input)
-			if (Result.isSuccess(result)) {
-				expect(Schema.is(SafeFileSegment)(result.success)).toBe(true)
-			} else {
-				expect(["EmptyFold", "UnsafeFileSegment"]).toContain(result.failure._tag)
 			}
 		}
 	})

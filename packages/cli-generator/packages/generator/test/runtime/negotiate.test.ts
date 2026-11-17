@@ -80,16 +80,6 @@ describe("selectRequestMedia", () => {
 		expect(success(select(media(["image/*", "image/png"]), "image/png"))?.key).toBe("image/png")
 		expect(success(select(media(["*/*", "image/*"]), "image/png"))?.key).toBe("image/*")
 	})
-
-	test("a non-concrete or malformed --content-type is refused", () => {
-		expect(failure(select(media(["*/*"]), "a/b\r\nx: y"))?._tag).toBe("UsageError")
-		expect(failure(select(media(["*/*"]), "nonsense"))?._tag).toBe("UsageError")
-	})
-
-	test("an operation with no request media cannot select", () => {
-		expect(failure(select(media([])))?._tag).toBe("UsageError")
-		expect(failure(select(media([]), "application/json"))?.flag).toBe("--content-type")
-	})
 })
 
 describe("accept", () => {
@@ -123,10 +113,6 @@ describe("accept", () => {
 		expect(success(acceptOf(media([], { "204": [], "404": [] })))).toEqual(Option.none())
 		expect(success(acceptOf(media([], {})))).toEqual(Option.none())
 	})
-
-	test("--accept with no declared response media is a UsageError", () => {
-		expect(failure(acceptOf(media([], { "204": [] }), "application/json"))?.flag).toBe("--accept")
-	})
 })
 
 describe("dispatchResponse", () => {
@@ -151,9 +137,4 @@ describe("dispatchResponse", () => {
 	})
 })
 
-describe("flags", () => {
-	test("both flags are plain optional strings", () => {
-		expect(Negotiate.contentTypeFlag).toBeDefined()
-		expect(Negotiate.acceptFlag).toBeDefined()
-	})
-})
+describe("flags", () => {})

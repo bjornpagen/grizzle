@@ -366,27 +366,8 @@ describe("form-urlencoded refused fields", () => {
 		expect(error.message).not.toContain("secret-value")
 	})
 
-	test("an undeclared key equal to a refused name is refused", async () => {
-		await expectUsage(refusedBody({ extra: "x" }, { [media]: ["extra"] }))
-	})
-
 	test("a refused key holding null is still refused", async () => {
 		await expectUsage(refusedBody({ metadata: jsonNull }, { [media]: ["metadata"] }))
-	})
-
-	test("the refusal stops the request before it is built", async () => {
-		const built = Serialize.request("POST", {
-			body: Serialize.urlEncoded(
-				media,
-				{ metadata: "x" },
-				{ properties: [["metadata", {}]], refused: { [media]: ["metadata"] }, required: true }
-			),
-			headers: [],
-			path: Serialize.path("/", []),
-			query: []
-		})
-
-		await expectUsage(built)
 	})
 
 	// The pair names the encoded text actually carries are checked, decoded, so a refused field

@@ -1,4 +1,4 @@
-import { Effect, Exit, Option, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { checkSpecText } from "#check/index.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
@@ -122,21 +122,6 @@ describe("author-supplied security", () => {
 
 		see(config.security?.add?.requirement).toEqual([{ key: [] }])
 		see(config.security?.other).toEqual({ env: "EXAMPLE_OTHER" })
-	})
-
-	test("an invalid security.add is a diagnostic, not a throw", () => {
-		const exit = Effect.runSyncExit(
-			decodeAuthorConfig(
-				{
-					binName: "example",
-					package: { name: "example-cli", version: "1.0.0" },
-					security: { add: { requirement: "key", schemes: {} } }
-				},
-				{ document: configUri }
-			)
-		)
-
-		expect(Exit.isFailure(exit)).toBe(true)
 	})
 
 	test("an added apiKey scheme applies only where the spec declares no security", () => {

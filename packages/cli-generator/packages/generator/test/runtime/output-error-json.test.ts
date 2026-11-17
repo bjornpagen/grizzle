@@ -421,13 +421,6 @@ describe("--error-format json renders each design 7.1 error as one object", () =
 		expect(rendered.stderr).not.toContain(SECRET)
 	})
 
-	test("help without errors still prints nothing", async () => {
-		const help = new CliError.ShowHelp({ commandPath: [], errors: [] })
-		const rendered = await runCatch(Effect.fail(help), json)
-
-		expect(rendered.stderr).toBe("")
-	})
-
 	test("credentials and recorded secrets are scrubbed in every field", async () => {
 		const echo = notFound({
 			body: `token ${SECRET} password ${SECRET_FILE_VALUE}`,

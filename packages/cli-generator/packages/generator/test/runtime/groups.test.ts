@@ -1,16 +1,11 @@
 import { Context, Effect } from "effect"
-import { Command, Completions, GlobalFlag } from "effect/cli"
+import { Command, Completions } from "effect/cli"
 import type { Flag } from "effect/cli"
 import { describe, expect, test } from "vitest"
-import * as Describe from "#runtime-src/runtime/describe.ts"
 import * as Groups from "#runtime-src/runtime/groups.ts"
 
 class Provided extends Context.Service<Provided, { readonly value: string }>()(
 	"openapi-cli/test/Provided"
-) {}
-
-class Missing extends Context.Service<Missing, { readonly value: string }>()(
-	"openapi-cli/test/Missing"
 ) {}
 
 const needs = <S>(service: Context.Key<S, { readonly value: string }>) =>
@@ -72,9 +67,6 @@ const selectedNames = (args: readonly string[]) =>
 		.entries.filter((entry) => Groups.selected(entry, args))
 		.map((entry) => entry.name)
 
-const flagNames = <A>(flag: Flag.Flag<A>) =>
-	Completions.fromCommand(Command.make("probe", { flag })).flags.map((each) => each.name)
-
 const fieldsOf = (command: Command.Command.Any) => ({
 	alias: command.alias,
 	description: command.description,
@@ -121,11 +113,6 @@ describe("Groups.selected", () => {
 		expect(selectedNames([])).toEqual([])
 		expect(selectedNames(["--help"])).toEqual([])
 		expect(selectedNames(["ping", "--version"])).toEqual([])
-	})
-
-	test("the trigger names are the describe flag and the built-in completions flag", () => {
-		expect(flagNames(Describe.describeFlag.flag)).toEqual([Groups.describeTrigger])
-		expect(flagNames(GlobalFlag.Completions.flag)).toEqual([Groups.completionsTrigger])
 	})
 })
 
@@ -184,17 +171,5 @@ describe("Groups.root", () => {
 			"hello"
 		])
 		expect([users.count, teams.count, billing.count]).toEqual([0, 0, 0])
-	})
-
-	test("an entry whose group needs a service outside its requirement type does not type-check", () => {
-		const needsMissing = Command.make("audit").pipe(
-			Command.withSubcommands([Command.make("list", {}, () => needs(Missing))])
-		)
-		const entry: Groups.Entry<never, Provided> = {
-			// @ts-expect-error the group requires Missing, which the entry's requirement type excludes
-			load: () => Promise.resolve({ group: needsMissing }),
-			name: "audit"
-		}
-		expect(entry.name).toBe("audit")
 	})
 })

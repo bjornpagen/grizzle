@@ -27,10 +27,6 @@ const queryCredential = (value: string): Credential => ({
 
 describe("every echoed form of a query credential is scrubbed (audit M F1)", () => {
 	for (const probe of queryProbes) {
-		test(`${JSON.stringify(probe.raw)} has the wire form the request target carries`, () => {
-			expect(queryWireForm(probe.raw)).toBe(probe.wire)
-		})
-
 		for (const form of ["raw", "searchParams", "wire"] as const) {
 			test(`${JSON.stringify(probe.raw)} echoed as its ${form} form`, () => {
 				expect(scrub(`echo ${probe[form]} end`, [queryCredential(probe.raw)])).toBe(

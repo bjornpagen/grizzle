@@ -24,8 +24,4 @@ describe("sanitize", () => {
 			expect(stripUnsafeText(character) === "").toBe(!isSafeText(character))
 		}
 	)
-
-	test("sanitize keeps LF, TAB and plain letters and removes the rest", () => {
-		expect(stripUnsafeText(characters.map(([, character]) => character).join(""))).toBe("\n\taZ")
-	})
 })

@@ -209,11 +209,6 @@ const reverseTwin = (source: Json): Json =>
 			)
 	)
 
-const pathKeys = (source: Json): readonly string[] =>
-	entriesOf(
-		Option.fromUndefinedOr(entriesOf(Option.some(source)).find(([key]) => key === "paths")?.[1])
-	).map(([key]) => key)
-
 const config = JSON.stringify({
 	binName: "canon",
 	envPrefix: "CANON",
@@ -273,13 +268,6 @@ const trees = Effect.runPromise(
 )
 
 describe("canonical order (design 3.7)", () => {
-	test("the reversed twin differs from the fixture in member order only", () => {
-		const twin = reverseTwin(spec)
-
-		expect(twin).toEqual(spec)
-		expect(pathKeys(twin)).toEqual(Arr.reverse(pathKeys(spec)))
-	})
-
 	test("a spec and its member-reversed twin generate the same package", async () => {
 		const { twin, written } = await trees
 

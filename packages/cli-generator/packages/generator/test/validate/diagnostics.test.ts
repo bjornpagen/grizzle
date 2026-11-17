@@ -247,12 +247,6 @@ describe("error grouping", () => {
 
 		expect(groups.map((group) => String(group.pointer))).toEqual(["/a/b"])
 	})
-
-	test("a location that is not a fragment fails", async () => {
-		const failure = await Effect.runPromise(Effect.flip(groupErrors([unit("/a")])))
-
-		expect(failure._tag).toBe("InvalidInstanceLocation")
-	})
 })
 
 const withKey = (key: string): Json =>

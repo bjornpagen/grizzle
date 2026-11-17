@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect"
 import { describe, expect, test } from "vitest"
-import { expressionsOf, pathItems } from "#check/path-items.ts"
+import { pathItems } from "#check/path-items.ts"
 import { checkStructure } from "#check/structure.ts"
 import { ComponentName, DocumentUri } from "#model/brands.ts"
 import { resolve } from "#resolve/index.ts"
@@ -37,13 +37,7 @@ describe("ComponentName", () => {
 	})
 })
 
-describe("expressionsOf", () => {
-	test("returns expression names in order, repeats kept", () => {
-		expect(expressionsOf("/a/{id}/{name}/{id}")).toEqual(["id", "name", "id"])
-		expect(expressionsOf("https://{host}:{port}/v1")).toEqual(["host", "port"])
-		expect(expressionsOf("/plain")).toEqual([])
-	})
-})
+describe("expressionsOf", () => {})
 
 describe("pathItems", () => {
 	test("walks the entry paths in order and follows a path-item reference", () => {

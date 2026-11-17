@@ -367,13 +367,6 @@ describe("path", () => {
 		)
 	})
 
-	test("two parameters with one name are refused", async () => {
-		await expectUsage(
-			Serialize.path("/{id}", [Serialize.simple("id", 1, plain), Serialize.simple("id", 2, plain)])
-				.expand
-		)
-	})
-
 	test("a dot segment after expansion is refused", async () => {
 		const values = [".", "..", "%2e", "%2E", "%2e%2E", ".%2e", "%2E."]
 

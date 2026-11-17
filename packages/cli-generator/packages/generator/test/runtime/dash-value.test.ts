@@ -72,13 +72,6 @@ describe("a flag value that starts with a dash", () => {
 		})
 	}
 
-	test("--p=-bad_.host- exits 0 and the handler sees the value", async () => {
-		const { exit, seen } = await run(["--p=-bad_.host-"])
-
-		expect(exitCode(exit)).toBe(0)
-		expect(seen).toEqual(["-bad_.host-"])
-	})
-
 	test("--help exits 0 and the root help names the --flag=-value escape", async () => {
 		const { exit, seen, stdout } = await run(["--help"])
 

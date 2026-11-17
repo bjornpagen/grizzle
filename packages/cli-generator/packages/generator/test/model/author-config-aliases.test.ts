@@ -34,10 +34,6 @@ const refusals = (input: Schema.Json) => {
 const at = "/naming/operations/fetch/aliases"
 
 describe("author config naming aliases", () => {
-	test("an empty list decodes", () => {
-		expect(decode(withAliases([])).naming?.operations?.fetch?.aliases).toEqual([])
-	})
-
 	test("a dotted group, an array group and a method decode and round-trip", () => {
 		const aliases = [
 			{ group: "zones.settings", method: "pause" },

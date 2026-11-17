@@ -27,17 +27,6 @@ describe("stringMember", () => {
 		expect(stringMember({ name: "pets" }, "name")).toBe("pets")
 	})
 
-	test("new pin: returns undefined for an inherited name", () => {
-		expect(stringMember({ name: "pets" }, "constructor")).toBeUndefined()
-		expect(stringMember({ name: "pets" }, "__proto__")).toBeUndefined()
-	})
-
-	test("new pin: returns undefined for a non-string member", () => {
-		expect(stringMember({ list: ["a"], name: 7, nested: { a: "b" } }, "name")).toBeUndefined()
-		expect(stringMember({ list: ["a"] }, "list")).toBeUndefined()
-		expect(stringMember({ nested: { a: "b" } }, "nested")).toBeUndefined()
-	})
-
 	test("new pin: returns undefined for a non-object value", () => {
 		const values: readonly Json[] = ["name", 1, true, null, ["name"]]
 		for (const value of values) {

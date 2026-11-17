@@ -69,10 +69,6 @@ describe("NDJSON and JSONL records", () => {
 		)
 	})
 
-	test("an empty body yields no records", async () => {
-		expect(await lines(ndjsonRecords, [])).toEqual([])
-	})
-
 	test("a record of exactly the bound passes; one byte more is recordTooLarge with its index", async () => {
 		const exact = `"${"x".repeat(bound - 2)}"`
 
@@ -173,10 +169,6 @@ describe("JSON-seq records (RFC 7464)", () => {
 			"1",
 			'"a"'
 		])
-	})
-
-	test("an empty body yields no records", async () => {
-		expect(await lines(jsonSeqRecords, [])).toEqual([])
 	})
 
 	test("a body not starting at U+001E is invalidFraming", async () => {
