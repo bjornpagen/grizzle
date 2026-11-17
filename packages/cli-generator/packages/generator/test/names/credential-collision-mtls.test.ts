@@ -1,159 +1,88 @@
-import { Array as Arr, Effect, Order, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { decodeAuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
-import { planNames } from "#names/index.ts"
-import { normalize } from "#normalize/index.ts"
-import { resolve } from "#resolve/index.ts"
+/**
+ * Design 4.4's credential names through the pipeline (resolve, normalize, the names plan): over security schemes of
+ * every kind the runtime sends (bearer, basic, an API key, mutual TLS) under names drawn to fold alike, to fold to
+ * nothing and to take the runtime's own settings, each used by one operation, some with an author-config environment
+ * name and some overrides naming no scheme, a token scheme gets `<PREFIX>_<SLUG>` (or its configured env) and
+ * `--<slug>-file`, and a mutual TLS scheme `<PREFIX>_<SLUG>_CERT`, `_KEY` and `_CA`; an operation using a scheme whose
+ * names another credential, a runtime setting (`BASE_URL`, `TIMEOUT`, `IDLE_TIMEOUT`, `ERROR_FORMAT`) or a reserved flag
+ * also takes is refused SSC-01/credential-collision, one using a scheme folding to nothing SSC-01/empty-name, and every
+ * other operation is a command; an override naming no scheme is a CFG-1/unmatched-override notice.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	credentialSpace,
+	expectedOf,
+	type Feature,
+	featuresOf
+} from "#test/names/credential-collision-mtls.fixtures.ts"
 
-// A mutualTLS scheme's certificate environment names (`<PREFIX>_<SCHEME>_CERT`, `_KEY`, `_CA`)
-// join the SSC-01 credential collision check: a name another certificate or a token credential
-// also takes refuses every operation using the scheme, and a scheme name folding to nothing is
-// SSC-01/empty-name (design 4.4). Certificate names have no override key, so a certificate's
-// hint names the colliding token's `security["<token>"].env`, or else the operation's skip (R87).
-
-const document = Schema.decodeUnknownSync(DocumentUri)("file:///mtls/openapi.json")
-
-const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///mtls/author-config.json")
-
-const config: Schema.Json = {
-	binName: "mtls",
-	envPrefix: "MT",
-	package: { name: "mtls-cli", version: "1.0.0" },
-	servers: { accepted: ["https://api.example.com"] }
-}
-
-const mutualTls: Schema.Json = { type: "mutualTLS" }
-
-const bearer: Schema.Json = { scheme: "bearer", type: "http" }
-
-// A `GET /<operationId>` path item with one security alternative per scheme (none for `[]`).
-const pathItem = (
-	operationId: string,
-	...schemes: readonly string[]
-): readonly [string, Schema.Json] => [
-	`/${operationId}`,
-	{
-		get: {
-			operationId,
-			responses: { "204": { description: "Done." } },
-			security: schemes.map((scheme) => ({ [scheme]: [] }))
+/**
+ * A drawn set of schemes is planned as design 4.4's credential names say. Its budget replaces 9 example cases
+ * (credential-collision-mtls 4, plan's credentials 5): 9 independent cases, and up to 26 steered while one of its 13
+ * situations is unreached, each reached by its own aimed arm.
+ */
+export const schemeCredentials = property.explore(credentialSpace, {
+	needs: {},
+	situations: [
+		"a token kept",
+		"a certificate kept",
+		"two tokens folding to one env",
+		"two certificates folding to one slug",
+		"a certificate env a token also takes",
+		"a token env taking BASE_URL",
+		"a token env taking TIMEOUT",
+		"a token env taking IDLE_TIMEOUT",
+		"a token env taking ERROR_FORMAT",
+		"a name folding to nothing",
+		"a configured env",
+		"an override naming no scheme",
+		"the prefix from the bin name"
+	],
+	check: (_, k: Case<Feature>) => (c) =>
+		Effect.gen(function* () {
+			k.noteAll(featuresOf(c))
+			const actual = yield* actualOf(c)
+			deepStrictEqual(actual, expectedOf(c))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 4.4's token and certificate names, their collisions, empty names and unmatched overrides"
+	},
+	kept: [],
+	budget: { runs: 9, steered: 26 },
+	kills: [
+		{
+			file: "packages/generator/src/normalize/security.ts",
+			original: "\t\tif (declared === undefined) {",
+			replacement: "\t\tif (declared !== undefined) {",
+			why: "Normalize refuses every security requirement naming a declared scheme and reaches every undeclared one, so each secured operation is refused; the property fails (CATCH's evidence, mutant 5dff77b919)."
+		},
+		{
+			file: "packages/generator/src/model/entities.ts",
+			original: '["basic", "bearer"]',
+			replacement: '["basic"]',
+			why: "HTTP bearer is no scheme the model admits, so a bearer scheme's operations lose their credential; the property fails (CATCH's evidence, mutant 8996dfcb66)."
+		},
+		{
+			file: "packages/generator/src/names/index.ts",
+			original: "names.set(scheme.name, credential.value)",
+			replacement: "{}",
+			why: "No used scheme gets credential names, so no credential is planned and no collision is found; the property fails (CATCH's evidence, mutant 5eba3d89dc)."
+		},
+		{
+			file: "packages/generator/src/names/index.ts",
+			original: "!schemes.has(name)",
+			replacement: "schemes.has(name)",
+			why: "A security override naming a declared scheme is reported unmatched and one naming no scheme is not; the property fails (CATCH's evidence, mutant 0bf3e2aa91)."
+		},
+		{
+			file: "packages/generator/src/names/reserved.ts",
+			original: '[\n\t"BASE_URL",\n\t"ERROR_FORMAT",\n\t"IDLE_TIMEOUT",\n\t"TIMEOUT"\n]',
+			replacement: '["BASE_URL", "ERROR_FORMAT", "TIMEOUT"]',
+			why: "IDLE_TIMEOUT is no runtime setting to the plan, so a scheme named idleTimeout takes the runtime's idle-timeout variable; the property fails (CATCH's evidence, mutant e4c8b3d051)."
 		}
-	}
-]
-
-// One operation per `[operationId, scheme]` entry of `uses`, plus the unsecured `open`.
-const spec = (
-	securitySchemes: Readonly<Record<string, Schema.Json>>,
-	uses: readonly (readonly [string, string])[]
-): Schema.Json => ({
-	components: { securitySchemes },
-	info: { title: "Mtls", version: "1.0.0" },
-	openapi: "3.1.1",
-	paths: Object.fromEntries([
-		...uses.map(([operationId, scheme]) => pathItem(operationId, scheme)),
-		pathItem("open")
-	])
-})
-
-interface Shown {
-	readonly code: string
-	readonly hint: string | undefined
-	readonly pointer: string
-	readonly scope: string
-	readonly severity: string
-}
-
-const planned = (
-	securitySchemes: Readonly<Record<string, Schema.Json>>,
-	uses: readonly (readonly [string, string])[]
-) =>
-	Effect.runPromise(
-		Effect.gen(function* generate() {
-			const author = yield* decodeAuthorConfig(config, { document: configDocument })
-			const resolution = yield* resolve({
-				document,
-				line: "3.1",
-				value: spec(securitySchemes, uses)
-			})
-			const { api } = yield* normalize(resolution, {
-				checkFindings: [],
-				config: author,
-				configDocument
-			})
-			const plan = yield* planNames(api, { config: author, configDocument, strict: false })
-
-			return {
-				commands: Arr.sort(
-					[...plan.root, ...plan.groups.flatMap((group) => group.commands)].map(
-						(command) => command.name
-					),
-					Order.String
-				),
-				diagnostics: plan.diagnostics.map(({ code, hint, pointer, scope, severity }): Shown => ({
-					code,
-					hint,
-					pointer,
-					scope,
-					severity
-				}))
-			}
-		})
-	)
-
-// The hint for an operation whose colliding certificate names have no override key (R87 B).
-const skip = (operation: string): string =>
-	`Skip the operation with naming.operations[${JSON.stringify(operation)}].skip.`
-
-const refusal = (code: string, operation: string, hint?: string) => ({
-	code,
-	hint,
-	pointer: `/paths/~1${operation}/get`,
-	scope: "operation",
-	severity: "refusal"
-})
-
-describe("certificate environment names join the SSC-01 collision check", () => {
-	test("two mutualTLS schemes folding to one slug refuse each operation, hinting the skip", async () => {
-		const result = await planned({ Client: mutualTls, client: mutualTls }, [
-			["lower", "client"],
-			["upper", "Client"]
-		])
-
-		expect(result.commands).toEqual(["open"])
-		expect(result.diagnostics).toEqual([
-			refusal("SSC-01/credential-collision", "lower", skip("lower")),
-			refusal("SSC-01/credential-collision", "upper", skip("upper"))
-		])
-	})
-
-	test("a certificate name equal to a token env name refuses both, hinting the token's env", async () => {
-		const result = await planned({ client: mutualTls, "client-cert": bearer }, [
-			["certified", "client"],
-			["tokened", "client-cert"]
-		])
-
-		expect(result.commands).toEqual(["open"])
-		expect(result.diagnostics).toEqual([
-			refusal("SSC-01/credential-collision", "certified", 'security["client-cert"].env'),
-			refusal("SSC-01/credential-collision", "tokened", 'security["client-cert"].env')
-		])
-	})
-
-	test("a mutualTLS scheme with distinct names is kept", async () => {
-		const result = await planned({ client: mutualTls, partner: mutualTls }, [
-			["certified", "client"],
-			["partnered", "partner"]
-		])
-
-		expect(result.commands).toEqual(["certified", "open", "partnered"])
-		expect(result.diagnostics).toEqual([])
-	})
-
-	test("a mutualTLS scheme name folding to nothing is SSC-01/empty-name", async () => {
-		const result = await planned({ _: mutualTls }, [["blank", "_"]])
-
-		expect(result.commands).toEqual(["open"])
-		expect(result.diagnostics).toEqual([refusal("SSC-01/empty-name", "blank")])
-	})
+	]
 })

@@ -1,204 +1,80 @@
-import { Effect, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { decodeAuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
-import { planNames } from "#names/index.ts"
-import { normalize } from "#normalize/index.ts"
-import { resolve } from "#resolve/index.ts"
+/**
+ * Secret and base64 body fields through the pipeline (resolve, normalize, the names plan, the CLI emitter): over JSON
+ * bodies whose properties are drawn from every shape the rules turn on, on each line, a `format: password` string is a
+ * secret-file flag `--<name>-file` and never `--<name>` (design 13.1 R4), reached directly, through a component, an
+ * allOf member, a `$ref` sibling or any anyOf or oneOf branch (failing closed), at its dotted name one level down and
+ * not at all inside a JSON-valued flag; an array of password strings has no flag and is refused at element scope
+ * (FMT-05), the body still sent by `--body-file`; a base64 string (contentEncoding base64 or base64url, or 3.0's
+ * `format: byte`) is a file flag the emitted CLI sends in that encoding, 3.1's `format: byte` and any base64 array plain
+ * text; and a sibling named like a secret's file flag refuses the operation (RQB-03).
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	expectedOf,
+	type Feature,
+	featuresOf,
+	plannedOf,
+	secretSpace
+} from "#test/names/password-file.fixtures.ts"
 
-// A `format: password` string property of a flattened request body is read from a file: its flag
-// is --<prop>-file of kind secret-file, never --<prop> (design 13.1 R4), and the new name joins
-// the operation's collision set (design 4.4).
-
-const document = Schema.decodeUnknownSync(DocumentUri)("file:///pw/openapi.json")
-
-const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///pw/author-config.json")
-
-const config: Schema.Json = {
-	binName: "pw",
-	envPrefix: "PW",
-	package: { name: "pw-cli", version: "1.0.0" },
-	servers: { accepted: ["https://api.example.com"] }
-}
-
-const password: Schema.Json = { format: "password", type: "string" }
-
-const spec = (properties: Readonly<Record<string, Schema.Json>>): Schema.Json => ({
-	components: {
-		schemas: {
-			Plain: { type: "string" },
-			Secret: password,
-			Secrets: { items: { $ref: "#/components/schemas/Secret" }, type: "array" }
-		}
+/**
+ * A drawn body's secret, base64 and plain fields are planned and emitted as the specification says. Its budget replaces
+ * 21 example cases (password-file 13, base64-field 8): 21 independent cases, and up to 42 steered while one of its 21
+ * situations is unreached, each reached by its own aimed arm.
+ */
+export const secretFields = property.explore(secretSpace, {
+	needs: {},
+	situations: [
+		"a property shaped plain string",
+		"a property shaped password",
+		"a property shaped password through a component",
+		"a property shaped password through an allOf member",
+		"a property shaped password beside a $ref",
+		"a property shaped password in an anyOf branch",
+		"a property shaped password in a oneOf branch",
+		"a property shaped base64 contentEncoding",
+		"a property shaped base64url contentEncoding",
+		"a property shaped format byte",
+		"a property shaped password array inline",
+		"a property shaped password array through items $ref",
+		"a property shaped password array component",
+		"a property shaped password array through allOf",
+		"a property shaped plain string array",
+		"a property shaped format byte array",
+		"a property shaped object holding a password",
+		"a property shaped object two deep holding a password",
+		"a secret's sibling colliding",
+		"a 3.0 byte field as base64",
+		"a 3.1 byte field as text"
+	],
+	check: (_, k: Case<Feature>) => (c) =>
+		Effect.gen(function* () {
+			k.noteAll(featuresOf(c))
+			const planned = yield* plannedOf(c)
+			deepStrictEqual(planned, expectedOf(c))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 4.5 and 13.1 R4's secret-file flags, 6.3's base64 file flags and FMT-05, by each property's shape and line"
 	},
-	info: { title: "Pw", version: "1.0.0" },
-	openapi: "3.1.1",
-	paths: {
-		"/logins": {
-			post: {
-				operationId: "logins-create",
-				requestBody: {
-					content: { "application/json": { schema: { properties, type: "object" } } },
-					required: true
-				},
-				responses: { "204": { description: "Created." } },
-				tags: ["logins"]
-			}
+	kept: [],
+	budget: { runs: 21, steered: 42 },
+	kills: [
+		{
+			file: "packages/generator/src/normalize/schemas.ts",
+			original: '["requestBody", "requestBody", "one"]',
+			replacement: '["requestBody", "one"]',
+			why: "Normalize stores no schema for a request body's own sites, so a body's properties plan no field flags; the property fails (CATCH's evidence, mutant 7028d16aeb)."
+		},
+		{
+			file: "packages/generator/src/resolve/index.ts",
+			original:
+				'\t\tif (kind === "schema") {\n\t\t\tconst own = Option.getOrUndefined(schemaBase(member.line, base, node))\n\t\t\tif (own === undefined) {\n\t\t\t\treturn failure(\n\t\t\t\t\tmember.line === "3.2" ? "REF-12/invalid-base" : "REF-11/invalid-base",',
+			replacement:
+				'\t\tif (kind === "schema") {\n\t\t\tconst own = Option.getOrUndefined(schemaBase(member.line, base, node))\n\t\t\tif (own !== undefined) {\n\t\t\t\treturn failure(\n\t\t\t\t\tmember.line === "3.2" ? "REF-12/invalid-base" : "REF-11/invalid-base",',
+			why: "A schema reference resolves as a non-schema member, so a body reaching a component through `$ref` resolves wrongly; the property fails (CATCH's evidence, mutant 65babfccac)."
 		}
-	}
-})
-
-const planned = (properties: Readonly<Record<string, Schema.Json>>) =>
-	Effect.runPromise(
-		Effect.gen(function* generate() {
-			const author = yield* decodeAuthorConfig(config, { document: configDocument })
-			const resolution = yield* resolve({ document, line: "3.1", value: spec(properties) })
-			const { api } = yield* normalize(resolution, {
-				checkFindings: [],
-				config: author,
-				configDocument
-			})
-			const plan = yield* planNames(api, { config: author, configDocument, strict: false })
-			const flags = plan.groups
-				.flatMap((group) => group.commands)
-				.flatMap((command) => command.flags)
-			const codes = plan.diagnostics.map(({ code, scope, severity }) => ({
-				code,
-				scope,
-				severity
-			}))
-
-			return {
-				codes,
-				diagnostics: plan.diagnostics,
-				flags: new Map(flags.map((flag) => [flag.name, flag] as const))
-			}
-		})
-	)
-
-describe("a format password body property is a secret-file flag", () => {
-	test("password plans --password-file of kind secret-file and no --password", async () => {
-		const { codes, flags } = await planned({ password, user: { type: "string" } })
-
-		expect(codes).toEqual([])
-		expect(flags.get("password-file")?.source).toMatchObject({
-			_tag: "Body",
-			kind: "secret-file",
-			repeated: false,
-			wireName: "/password"
-		})
-		expect(flags.has("password")).toBe(false)
-		expect(flags.get("user")?.source).toMatchObject({ kind: "string" })
-	})
-
-	test("a property without the format keeps its own flag", async () => {
-		const { flags } = await planned({ token: { type: "string" } })
-
-		expect(flags.get("token")?.source).toMatchObject({ kind: "string" })
-		expect(flags.has("token-file")).toBe(false)
-	})
-
-	test("a property whose schema is a format password component is a secret-file flag", async () => {
-		const { flags } = await planned({ pin: { $ref: "#/components/schemas/Secret" } })
-
-		expect(flags.get("pin-file")?.source).toMatchObject({ kind: "secret-file", wireName: "/pin" })
-		expect(flags.has("pin")).toBe(false)
-	})
-
-	// A password format reached through a composition the flattener follows, or through any anyOf or
-	// oneOf branch, fails closed: the flag is a secret-file flag (design invariant I4).
-	const composed: readonly (readonly [string, Schema.Json])[] = [
-		["an allOf member", { allOf: [{ type: "string" }, { format: "password" }] }],
-		["a $ref sibling", { $ref: "#/components/schemas/Plain", format: "password" }],
-		["an anyOf branch", { anyOf: [password, { type: "integer" }] }],
-		["a oneOf branch", { oneOf: [{ type: "integer" }, { $ref: "#/components/schemas/Secret" }] }]
 	]
-
-	for (const [through, schema] of composed) {
-		test(`a password format through ${through} is a secret-file flag`, async () => {
-			const { codes, flags } = await planned({ secret: schema })
-
-			expect(codes).toEqual([])
-			expect(flags.get("secret-file")?.source).toMatchObject({
-				kind: "secret-file",
-				repeated: false,
-				wireName: "/secret"
-			})
-			expect(flags.has("secret")).toBe(false)
-		})
-	}
-
-	test("a nested flattened property is a secret-file flag at its dotted name", async () => {
-		const { flags } = await planned({ auth: { properties: { password }, type: "object" } })
-
-		expect(flags.get("auth.password-file")?.source).toMatchObject({
-			kind: "secret-file",
-			wireName: "/auth/password"
-		})
-		expect(flags.has("auth.password")).toBe(false)
-	})
-
-	test("a sibling property named password-file collides and the operation is refused", async () => {
-		const { codes, flags } = await planned({ password, "password-file": { type: "string" } })
-
-		expect(codes).toEqual([
-			{ code: "RQB-03/flag-collision", scope: "operation", severity: "refusal" }
-		])
-		expect(flags.size).toBe(0)
-	})
-
-	test("a format password property inside a JSON-valued flag gets no file flag", async () => {
-		const { flags } = await planned({
-			deep: {
-				properties: { inner: { properties: { password }, type: "object" } },
-				type: "object"
-			}
-		})
-
-		expect(flags.get("deep.inner")?.source).toMatchObject({ kind: "json" })
-		expect([...flags.keys()].some((name) => name.endsWith("-file") && name !== "body-file")).toBe(
-			false
-		)
-	})
-})
-
-// An array of format password strings has no flag: a repeatable argv flag would expose each value.
-// It is refused at element scope and stays reachable through --body-file (design 4.5, 13.1 R4).
-const propertyPointer = (name: string): string =>
-	`/paths/~1logins/post/requestBody/content/application~1json/schema/properties/${name}`
-
-describe("an array of format password strings is refused at element scope", () => {
-	const arrays: readonly (readonly [string, Schema.Json])[] = [
-		["inline items", { items: password, type: "array" }],
-		["items through a $ref", { items: { $ref: "#/components/schemas/Secret" }, type: "array" }],
-		["an array component", { $ref: "#/components/schemas/Secrets" }],
-		["an allOf member", { allOf: [{ type: "array" }, { items: password }] }]
-	]
-
-	for (const [through, schema] of arrays) {
-		test(`an array of password strings with ${through} plans no flag`, async () => {
-			const { codes, diagnostics, flags } = await planned({ secrets: schema, user: password })
-
-			expect(codes).toEqual([
-				{ code: "FMT-05/password-array", scope: "element", severity: "refusal" }
-			])
-			expect(String(diagnostics[0]?.pointer)).toBe(propertyPointer("secrets"))
-			expect(diagnostics[0]?.hint).toContain("--body-file")
-			expect(flags.has("secrets")).toBe(false)
-			expect(flags.has("secrets-file")).toBe(false)
-			expect(flags.has("body-file")).toBe(true)
-			expect(flags.get("user-file")?.source).toMatchObject({ kind: "secret-file" })
-		})
-	}
-
-	test("an array of plain strings keeps its repeatable flag", async () => {
-		const { codes, flags } = await planned({ tags: { items: { type: "string" }, type: "array" } })
-
-		expect(codes).toEqual([])
-		expect(flags.get("tags")?.source).toMatchObject({
-			kind: "string",
-			repeated: true,
-			wireName: "/tags"
-		})
-	})
 })

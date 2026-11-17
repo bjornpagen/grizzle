@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 2590,
+		"total": 2355,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -31,16 +31,6 @@
 			"packages/generator/test/emit/sec-fixes.test.ts": 12,
 			"packages/generator/test/generator-cli-failure.test.ts": 5,
 			"packages/generator/test/load/read.test.ts": 5,
-			"packages/generator/test/names/base64-field.test.ts": 13,
-			"packages/generator/test/names/credential-collision-mtls.test.ts": 15,
-			"packages/generator/test/names/domain.test.ts": 8,
-			"packages/generator/test/names/flatten.test.ts": 48,
-			"packages/generator/test/names/fold.test.ts": 8,
-			"packages/generator/test/names/naming-precedence.test.ts": 30,
-			"packages/generator/test/names/password-file.test.ts": 19,
-			"packages/generator/test/names/plan.test.ts": 64,
-			"packages/generator/test/names/positional-collision.test.ts": 14,
-			"packages/generator/test/names/reserved.test.ts": 16,
 			"packages/generator/test/normalize/author-supplied.test.ts": 13,
 			"packages/generator/test/normalize/bodies.test.ts": 63,
 			"packages/generator/test/normalize/canonical-order.test.ts": 19,
@@ -108,7 +98,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 1297,
+		"total": 1208,
 		"files": {
 			"packages/generator/src/emit/api.ts": 115,
 			"packages/generator/src/emit/cli.ts": 153,
@@ -142,16 +132,6 @@
 			"packages/generator/test/generated/printed-requests.test.ts": 2,
 			"packages/generator/test/generated/retry-policy.test.ts": 1,
 			"packages/generator/test/generated/run-scoped.test.ts": 1,
-			"packages/generator/test/names/alias-cycles.test.ts": 1,
-			"packages/generator/test/names/base64-field.test.ts": 8,
-			"packages/generator/test/names/credential-collision-mtls.test.ts": 9,
-			"packages/generator/test/names/flatten.test.ts": 14,
-			"packages/generator/test/names/fold.test.ts": 10,
-			"packages/generator/test/names/naming-precedence.test.ts": 6,
-			"packages/generator/test/names/password-file.test.ts": 10,
-			"packages/generator/test/names/plan.test.ts": 21,
-			"packages/generator/test/names/positional-collision.test.ts": 3,
-			"packages/generator/test/names/reserved.test.ts": 7,
 			"packages/generator/test/normalize/author-supplied.test.ts": 8,
 			"packages/generator/test/normalize/bodies.test.ts": 50,
 			"packages/generator/test/normalize/canonical-order.test.ts": 9,
