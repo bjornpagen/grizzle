@@ -1,343 +1,105 @@
-import { Effect, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { DocumentUri } from "#model/brands.ts"
-import type { Diagnostic } from "#model/diagnostic.ts"
-import type { EncodingRule, MediaAlternative } from "#model/entities.ts"
-import type { Json } from "#model/pointer.ts"
-import type { SpecLine } from "#model/spec-section.ts"
-import { normalizeBody } from "#normalize/bodies.ts"
-import type { BodyOutcome } from "#normalize/bodies.ts"
-import { resolve } from "#resolve/index.ts"
+/**
+ * Form-urlencoded request bodies (design 6.3, 8.5), as normalizeBody builds their rules: one rule per declared property
+ * in document order. Style fields apply on every line (3.0's rows say so) and are kept as given, a contentType beside
+ * them ignored with a notice; without them the value takes the default contentType table's type (ENC-17 to ENC-26), and
+ * an explicit contentType is kept only when it names that type. Style fields the query style table finds inapplicable
+ * (explode where no value type fits, a delimited style over a primitive, deepObject over a non-object) and a deepObject
+ * over a nested value without the author config's bracket switch are refused; a contentType that is no list of media
+ * ranges is refused. A refused optional property is refused at field scope at its Encoding entry and the alternative
+ * stays; a required one drops the alternative, reported at the media type. A 3.0 or 3.1 deepObject without explode true
+ * is exploded with a notice; headers, nested encodings and 3.2's positional fields are multipart's and are ignored with
+ * notices; an encoding key naming no property refuses the alternative before 3.2 and is ignored on 3.2.
+ *
+ * Oracle: design 6.3's form rules and default table, applied to the drawn body.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	expectedOf,
+	type FormFeature,
+	formFeatures,
+	formSpace
+} from "#test/normalize/form-body.fixtures.ts"
 
-const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
-
-const openapi: Readonly<Record<SpecLine, string>> = {
-	"3.0": "3.0.3",
-	"3.1": "3.1.1",
-	"3.2": "3.2.0"
-}
-
-const lines: readonly SpecLine[] = ["3.0", "3.1", "3.2"]
-
-const formMedia = "application/x-www-form-urlencoded"
-
-const media = "/paths/~1a/post/requestBody/content/application~1x-www-form-urlencoded"
-
-interface Members {
-	readonly [key: string]: Json
-}
-
-const normalize = (line: SpecLine, requestBody: Json): BodyOutcome => {
-	const value: Json = {
-		info: { title: "t", version: "1" },
-		openapi: openapi[line],
-		paths: { "/a": { post: { requestBody, responses: { "200": { description: "ok" } } } } }
-	}
-	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
-
-	return Effect.runSync(
-		normalizeBody(resolution, { openapi: openapi[line], pointer: "/paths/~1a/post/requestBody" })
-	)
-}
-
-const form = (properties: Members, extra: Members = {}, schema: Members = {}): Json => ({
-	content: { [formMedia]: { schema: { properties, type: "object", ...schema }, ...extra } },
-	required: true
-})
-
-const implemented = (line: SpecLine, requestBody: Json) => {
-	const outcome = normalize(line, requestBody)
-	if (outcome._tag !== "Implemented") {
-		throw new Error(`expected Implemented, got ${outcome._tag}`)
-	}
-
-	return outcome
-}
-
-const only = <T>(values: readonly T[]): T => {
-	const [first] = values
-	if (first === undefined || values.length !== 1) {
-		throw new Error(`expected exactly one value, got ${values.length}`)
-	}
-
-	return first
-}
-
-const alternative = (line: SpecLine, requestBody: Json): MediaAlternative =>
-	only(implemented(line, requestBody).body.alternatives)
-
-const ruleOf = (found: MediaAlternative, name: string): EncodingRule => {
-	const rule = found.encoding.find(
-		(candidate) => candidate.target.kind === "property" && candidate.target.name === name
-	)
-	if (rule === undefined) {
-		throw new Error(`no rule for ${name}`)
-	}
-
-	return rule
-}
-
-const rowsOf = (rule: EncodingRule): readonly string[] => rule.rows.map(String)
-
-// The expected rows a list lacks; empty when it holds them all.
-const missing = (rows: readonly string[], expected: readonly string[]): readonly string[] =>
-	expected.filter((row) => !rows.includes(row))
-
-const targets = (found: MediaAlternative): readonly string[] =>
-	found.encoding.map((rule) =>
-		rule.target.kind === "property" ? rule.target.name : `#${rule.target.index}`
-	)
-
-const typeOf = (rule: EncodingRule): readonly string[] => rule.contentType.map(String)
-
-const findings = (diagnostics: readonly Diagnostic[]) =>
-	diagnostics.map((diagnostic) => [
-		String(diagnostic.pointer),
-		diagnostic.code,
-		diagnostic.scope,
-		diagnostic.severity
-	])
-
-// A refusal that drops its alternative names the media type and keeps its keyword in `related`.
-const relatedOf = (diagnostics: readonly Diagnostic[]) =>
-	diagnostics.map((diagnostic) => (diagnostic.related ?? []).map((site) => String(site.pointer)))
-
-const string: Json = { type: "string" }
-
-const tags: Json = { items: string, type: "array" }
-
-describe("ENC-12 ENC-13 a form-urlencoded body with explicit style rules", () => {
-	const body = form(
-		{ q: string, tags },
+/**
+ * A form body's rules, refused fields and findings are what design 6.3 states. Its budget replaces the thirty-five
+ * example cases of the suites' form rules it converts (form-body and the form cases of bodies), twice over.
+ */
+export const formEncoding = property.explore(formSpace, {
+	needs: {},
+	situations: [
+		"default table string",
+		"default table binary string",
+		"default table scalar",
+		"default table object",
+		"default table null",
+		"default table array",
+		"default table untyped",
+		"style fields kept",
+		"contentType beside style ignored",
+		"explicit contentType equal to the table",
+		"explicit contentType refused on an optional property",
+		"explicit contentType refused on a required property",
+		"contentType that is no list refused",
+		"explode not applicable",
+		"delimited style over a primitive",
+		"deepObject over a non-object",
+		"deepObject nested refused",
+		"deepObject nested under the bracket switch",
+		"deepObject explode corrected",
+		"multipart-only fields ignored",
+		"unknown encoding key refused",
+		"unknown encoding key ignored on 3.2",
+		"positional fields ignored on 3.2",
+		"3.0 rows"
+	] satisfies ReadonlyArray<Reached<FormFeature>>,
+	check: (_, c: Case<FormFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			const expected = expectedOf(sketch)
+			c.noteAll(formFeatures(sketch, expected))
+			const actual = yield* actualOf(sketch)
+			deepStrictEqual(actual, expected)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 6.3's form rules and default contentType table, applied to the drawn body"
+	},
+	kept: [],
+	budget: { runs: 70, steered: 512 },
+	kills: [
 		{
-			encoding: {
-				q: { allowReserved: true },
-				tags: { explode: false, style: "pipeDelimited" }
-			}
+			file: "packages/generator/src/resolve/index.ts",
+			original: "\treturn { invalidBase: base === undefined, member }",
+			replacement: "\treturn { invalidBase: base !== undefined, member }",
+			why: "Every document with a base URI is read as having none, so resolution refuses every document; the property fails (CATCH's evidence, mutant 96109f34de)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original:
+				"if (\n\t\tfallback !== undefined &&\n\t\t(typing.contentType.length !== 1 ||\n\t\t\tpipe(given, UndefinedOr.map(Str.toLowerCase)) !== fallback.type)\n\t) {\n\t\treturn {\n\t\t\tfindings: [...typing.findings, formContentTypeRefusal(input, fallback.type)],\n\t\t\trule: undefined\n\t\t}\n\t}",
+			replacement: "{}",
+			why: "An explicit contentType that differs from the default table's type is kept, so a form value is sent as a type it is not; the property fails (CATCH's evidence, mutant b9f0c78455)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: "findings.push(contentTypeIgnored(input.actual))",
+			replacement: "{}",
+			why: "A contentType beside style fields is ignored without its notice; the property fails (CATCH's evidence, mutant ce61311706)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: 'if (!declared.has(name) && line !== "3.2") {',
+			replacement: "if (false) {",
+			why: "An encoding key that names no property is never refused before 3.2; the property fails (CATCH's evidence, mutant ef5b8633bc)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: '!declared.has(name) && line !== "3.2"',
+			replacement: 'line !== "3.2"',
+			why: "Every encoding key refuses its alternative before 3.2, even one naming a declared property; the property fails (CATCH's evidence, mutant a73e5c4cda)."
 		}
-	)
-
-	test("each property's rule keeps the fields it sets, on every line, with no diagnostics", () => {
-		for (const line of lines) {
-			const outcome = implemented(line, body)
-			const found = only(outcome.body.alternatives)
-
-			expect(found.codec).toBe("form")
-			expect(found.schema).toBeDefined()
-			expect(outcome.diagnostics).toEqual([])
-			expect(targets(found)).toEqual(["q", "tags"])
-			expect(ruleOf(found, "q").serialization).toEqual({ allowReserved: true })
-			expect(ruleOf(found, "tags").serialization).toEqual({
-				explode: false,
-				style: "pipeDelimited"
-			})
-			expect(typeOf(ruleOf(found, "tags"))).toEqual([])
-			expect(missing(rowsOf(ruleOf(found, "tags")), ["ENC-12", "ENC-13"])).toEqual([])
-			expect(String(ruleOf(found, "q").origin.pointer)).toBe(`${media}/encoding/q`)
-		}
-	})
-
-	test("the alternative names the line's form row and the property order row", () => {
-		expect(missing(alternative("3.1", body).rows.map(String), ["ENC-27", "ENC-29"])).toEqual([])
-		expect(missing(alternative("3.2", body).rows.map(String), ["ENC-28", "ENC-29"])).toEqual([])
-	})
-
-	test("a contentType beside a style field is ignored with an ENC-13 notice", () => {
-		const outcome = implemented(
-			"3.1",
-			form({ q: string }, { encoding: { q: { contentType: "image/png", style: "form" } } })
-		)
-
-		expect(findings(outcome.diagnostics)).toEqual([
-			[`${media}/encoding/q`, "ENC-13/content-type-ignored", "element", "notice"]
-		])
-		expect(typeOf(ruleOf(only(outcome.body.alternatives), "q"))).toEqual([])
-	})
-})
-
-describe("ENC-17 to ENC-26 the default contentType table when no style field is set", () => {
-	test("an object is JSON, a contentEncoding string is octet-stream and null is text", () => {
-		for (const line of ["3.1", "3.2"] as const) {
-			const found = alternative(
-				line,
-				form({
-					file: { contentEncoding: "base64", type: "string" },
-					meta: { type: "object" },
-					nothing: { type: "null" }
-				})
-			)
-
-			expect(typeOf(ruleOf(found, "meta"))).toEqual(["application/json"])
-			expect(typeOf(ruleOf(found, "file"))).toEqual(["application/octet-stream"])
-			expect(typeOf(ruleOf(found, "nothing"))).toEqual(["text/plain"])
-			expect(rowsOf(ruleOf(found, "file"))).toContain("ENC-19")
-			expect(ruleOf(found, "meta").serialization).toBeUndefined()
-		}
-	})
-
-	test("3.0.4 types a format byte string as octet-stream", () => {
-		const found = alternative("3.0", form({ file: { format: "byte", type: "string" } }))
-
-		expect(typeOf(ruleOf(found, "file"))).toEqual(["application/octet-stream"])
-		expect(rowsOf(ruleOf(found, "file"))).toContain("ENC-18")
-	})
-
-	test("ENC-02 an explicit contentType equal to the table value is kept", () => {
-		const found = alternative(
-			"3.1",
-			form(
-				{ meta: { type: "object" } },
-				{ encoding: { meta: { contentType: "application/json" } } }
-			)
-		)
-
-		expect(typeOf(ruleOf(found, "meta"))).toEqual(["application/json"])
-		expect(rowsOf(ruleOf(found, "meta"))).toContain("ENC-02")
-	})
-
-	test("ENC-02 any other explicit contentType on a required property refuses the alternative, never dropped", () => {
-		for (const line of lines) {
-			const outcome = normalize(
-				line,
-				form(
-					{ meta: { type: "object" } },
-					{ encoding: { meta: { contentType: "text/plain" } } },
-					{ required: ["meta"] }
-				)
-			)
-
-			expect(outcome._tag).toBe("Refused")
-			expect(findings(outcome.diagnostics)).toEqual([
-				[media, "ENC-02/form-content-type", "element", "refusal"]
-			])
-			expect(relatedOf(outcome.diagnostics)).toEqual([[`${media}/encoding/meta/contentType`]])
-		}
-	})
-
-	test("ENC-02 any other explicit contentType on an optional property is refused at field scope", () => {
-		for (const line of lines) {
-			const outcome = implemented(
-				line,
-				form({ meta: { type: "object" } }, { encoding: { meta: { contentType: "text/plain" } } })
-			)
-
-			expect(findings(outcome.diagnostics)).toEqual([
-				[`${media}/encoding/meta`, "ENC-02/form-content-type", "field", "refusal"]
-			])
-			expect(relatedOf(outcome.diagnostics)).toEqual([[`${media}/encoding/meta/contentType`]])
-			expect(only(outcome.body.alternatives).refusedFields?.map(String)).toEqual(["meta"])
-		}
-	})
-})
-
-describe("ENC-14 3.0.4 back-compatibility", () => {
-	test("3.0 applies style fields to form-urlencoded and tags each rule ENC-14", () => {
-		const found = alternative(
-			"3.0",
-			form({ q: string, tags }, { encoding: { tags: { style: "spaceDelimited" } } })
-		)
-
-		expect(ruleOf(found, "tags").serialization).toEqual({ style: "spaceDelimited" })
-		expect(missing(rowsOf(ruleOf(found, "tags")), ["ENC-12", "ENC-14"])).toEqual([])
-		expect(ruleOf(found, "q").serialization).toBeUndefined()
-		expect(typeOf(ruleOf(found, "q"))).toEqual(["text/plain"])
-		expect(rowsOf(ruleOf(found, "q"))).toContain("ENC-14")
-	})
-
-	test("3.1 and 3.2 rules carry no ENC-14", () => {
-		for (const line of ["3.1", "3.2"] as const) {
-			const found = alternative(line, form({ q: string }, { encoding: { q: { style: "form" } } }))
-
-			expect(rowsOf(ruleOf(found, "q"))).not.toContain("ENC-14")
-		}
-	})
-})
-
-describe("MED-11 MED-12 an encoding key that names no schema property", () => {
-	const body = form({ q: string }, { encoding: { ghost: { style: "form" } } })
-
-	test("3.0 and 3.1 refuse the alternative with MED-11", () => {
-		for (const line of ["3.0", "3.1"] as const) {
-			const outcome = normalize(line, body)
-
-			expect(outcome._tag).toBe("Refused")
-			expect(findings(outcome.diagnostics)).toEqual([
-				[media, "MED-11/unknown-property", "element", "refusal"]
-			])
-			expect(relatedOf(outcome.diagnostics)).toEqual([[`${media}/encoding/ghost`]])
-		}
-	})
-
-	test("3.2 ignores the key with a MED-12 notice and sends no part for it", () => {
-		const outcome = implemented("3.2", body)
-		const found = only(outcome.body.alternatives)
-
-		expect(findings(outcome.diagnostics)).toEqual([
-			[`${media}/encoding/ghost`, "MED-12/absent-property-ignored", "element", "notice"]
-		])
-		expect(targets(found)).toEqual(["q"])
-	})
-})
-
-describe("multipart-only Encoding fields under a form alternative yield notices", () => {
-	test("ENC-11 headers are ignored and the rule keeps none", () => {
-		for (const line of lines) {
-			const outcome = implemented(
-				line,
-				form({ q: string }, { encoding: { q: { headers: { "X-Part": { schema: string } } } } })
-			)
-
-			expect(findings(outcome.diagnostics)).toEqual([
-				[`${media}/encoding/q/headers`, "ENC-11/headers-ignored", "element", "notice"]
-			])
-			expect(ruleOf(only(outcome.body.alternatives), "q").headers).toEqual([])
-		}
-	})
-
-	test("3.2 nested encoding, prefixEncoding and itemEncoding are ignored per field", () => {
-		const outcome = implemented(
-			"3.2",
-			form(
-				{ q: { type: "object" } },
-				{
-					encoding: {
-						q: {
-							encoding: { a: { contentType: "text/plain" } },
-							itemEncoding: { contentType: "text/plain" },
-							prefixEncoding: [{ contentType: "text/plain" }]
-						}
-					}
-				}
-			)
-		)
-
-		expect(findings(outcome.diagnostics)).toEqual([
-			[`${media}/encoding/q/encoding`, "ENC-07/nested-encoding-ignored", "element", "notice"],
-			[`${media}/encoding/q/itemEncoding`, "ENC-09/item-encoding-ignored", "element", "notice"],
-			[`${media}/encoding/q/prefixEncoding`, "ENC-08/prefix-encoding-ignored", "element", "notice"]
-		])
-		expect(ruleOf(only(outcome.body.alternatives), "q").nested).toBeUndefined()
-	})
-
-	test("3.2 media-level prefixEncoding and itemEncoding are ignored, encoding beside them is not MED-13", () => {
-		const outcome = implemented(
-			"3.2",
-			form(
-				{ q: string },
-				{
-					encoding: { q: { style: "form" } },
-					itemEncoding: { contentType: "text/plain" },
-					prefixEncoding: [{ contentType: "text/plain" }]
-				}
-			)
-		)
-		const found = only(outcome.body.alternatives)
-
-		expect(findings(outcome.diagnostics)).toEqual([
-			[`${media}/itemEncoding`, "MED-08/item-encoding-ignored", "element", "notice"],
-			[`${media}/prefixEncoding`, "MED-07/prefix-encoding-ignored", "element", "notice"]
-		])
-		expect(found.prefixEncoding).toEqual([])
-		expect(found.itemEncoding).toBeUndefined()
-	})
+	]
 })

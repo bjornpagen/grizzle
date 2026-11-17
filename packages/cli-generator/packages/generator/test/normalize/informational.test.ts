@@ -1,284 +1,99 @@
-import { Effect, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { DocumentUri } from "#model/brands.ts"
-import { evaluatePointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
-import type { SpecLine } from "#model/spec-section.ts"
-import { collectInformational } from "#normalize/informational.ts"
-import { resolve } from "#resolve/index.ts"
+/**
+ * The elements the generator reads and counts but never sends (design 2.4), as collectInformational records them: info,
+ * contact and license; external documentation; tags; webhooks, callbacks, links and examples; specification
+ * extensions (the reserved `x-oai-` and `x-oas-` prefixes on their own row). Each is one record at its use site, a
+ * declared but empty informative map is one record at the map, an informational element and a Reference Object are
+ * recorded and never walked, a key that only looks like an extension in a map of names is none, and the walk's order
+ * is fixed: info, extensions, external docs, tags, servers, webhooks, paths (each path item's methods in name order),
+ * components. Every record points at a node of the document.
+ *
+ * Oracle: design 2.4's accounting, applied to the drawn document as it is built.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	documentOf,
+	type InformationalFeature,
+	informationalFeatures,
+	informationalSpace
+} from "#test/normalize/informational.fixtures.ts"
 
-const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
-
-const openapi: Readonly<Record<SpecLine, string>> = {
-	"3.0": "3.0.3",
-	"3.1": "3.1.1",
-	"3.2": "3.2.0"
-}
-
-interface Members {
-	readonly [key: string]: Json
-}
-
-const document = (line: SpecLine, extra: Members = {}): Json => ({
-	info: { title: "t", version: "1" },
-	openapi: openapi[line],
-	paths: {},
-	...extra
-})
-
-const text = (value: string): string => value
-
-const collect = (value: Json, line: SpecLine = "3.1") => {
-	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
-
-	return Effect.runSync(collectInformational(resolution))
-}
-
-const pairs = (value: Json, line: SpecLine = "3.1") =>
-	collect(value, line).map((record) => [text(record.row), text(record.origin.pointer)])
-
-const ok: Members = { description: "ok" }
-
-describe("document metadata", () => {
-	test("info, contact, license, root external docs and each tag are one record each", () => {
-		const value = document("3.1", {
-			externalDocs: { url: "https://example.com/docs" },
-			info: {
-				contact: { name: "n" },
-				license: { name: "MIT" },
-				title: "t",
-				version: "1"
-			},
-			tags: [{ externalDocs: { url: "https://example.com/t" }, name: "a" }, { name: "b" }]
-		})
-
-		expect(pairs(value)).toEqual([
-			["INF-01", "/info"],
-			["INF-09", "/info/contact"],
-			["INF-13", "/info/license"],
-			["EXD-01", "/externalDocs"],
-			["TAG-01", "/tags/0"],
-			["EXD-01", "/tags/0/externalDocs"],
-			["TAG-01", "/tags/1"]
-		])
-	})
-
-	test("a record names the entry document as its origin", () => {
-		const [first] = collect(document("3.1"))
-
-		expect(text(first?.origin.document ?? "")).toBe(entry)
-	})
-})
-
-describe("webhooks and callbacks", () => {
-	test("37 webhooks yield 37 records, one per webhook", () => {
-		const hooks = Object.fromEntries(
-			Array.from({ length: 37 }, (_unused, index) => [`hook-${index}`, { post: {} }])
-		)
-		const records = pairs(document("3.1", { webhooks: hooks })).filter(([row]) => row === "DOC-08")
-
-		expect(records).toHaveLength(37)
-		expect(records[0]).toEqual(["DOC-08", "/webhooks/hook-0"])
-		expect(records[36]).toEqual(["DOC-08", "/webhooks/hook-36"])
-	})
-
-	test("a webhook is not walked further", () => {
-		const value = document("3.1", {
-			webhooks: { incoming: { post: { callbacks: { cb: {} }, externalDocs: {} }, "x-note": "a" } }
-		})
-
-		expect(pairs(value).filter(([row]) => row !== "INF-01")).toEqual([
-			["DOC-08", "/webhooks/incoming"]
-		])
-	})
-
-	test("an empty webhooks map is one record at the map", () => {
-		expect(pairs(document("3.1", { webhooks: {} })).slice(1)).toEqual([["DOC-08", "/webhooks"]])
-	})
-
-	test("an operation callback is one record at its use site, and an empty map is one at the map", () => {
-		const value = document("3.1", {
-			paths: {
-				"/a": {
-					post: { callbacks: { onEvent: { "{$request.body#/url}": { post: {} } } } },
-					put: { callbacks: {} }
-				}
-			}
-		})
-
-		expect(pairs(value).slice(1)).toEqual([
-			["CBK-01", "/paths/~1a/post/callbacks/onEvent"],
-			["CBK-01", "/paths/~1a/put/callbacks"]
-		])
-	})
-
-	test("a component callback is recorded where it is written", () => {
-		const value = document("3.1", { components: { callbacks: { c: {} } } })
-
-		expect(pairs(value).slice(1)).toEqual([["CBK-01", "/components/callbacks/c"]])
-	})
-})
-
-describe("links and examples", () => {
-	test("response links are one record each and an empty map is one record", () => {
-		const value = document("3.1", {
-			paths: {
-				"/a": {
-					get: {
-						responses: {
-							"200": { ...ok, links: { next: { operationId: "x" }, prev: { operationId: "y" } } },
-							"404": { ...ok, links: {} }
-						}
-					}
-				}
-			}
-		})
-
-		expect(pairs(value).slice(1)).toEqual([
-			["LNK-01", "/paths/~1a/get/responses/200/links/next"],
-			["LNK-01", "/paths/~1a/get/responses/200/links/prev"],
-			["LNK-01", "/paths/~1a/get/responses/404/links"]
-		])
-	})
-
-	test("a Reference Object link is recorded at its use site and not followed", () => {
-		const value = document("3.1", {
-			components: { links: { shared: { operationId: "x", "x-note": 1 } } },
-			paths: {
-				"/a": {
-					get: {
-						responses: { "200": { ...ok, links: { n: { $ref: "#/components/links/shared" } } } }
-					}
-				}
-			}
-		})
-
-		expect(pairs(value).slice(1)).toEqual([
-			["LNK-01", "/paths/~1a/get/responses/200/links/n"],
-			["LNK-01", "/components/links/shared"]
-		])
-	})
-
-	test("examples on a parameter, a media type, a header and the components are one record each", () => {
-		const value = document("3.1", {
-			components: { examples: { shared: { value: 1 } } },
-			paths: {
-				"/a": {
-					get: {
-						parameters: [{ examples: { one: { value: 1 } }, in: "query", name: "q" }],
-						requestBody: { content: { "application/json": { examples: { e: { value: {} } } } } },
-						responses: {
-							"200": { ...ok, headers: { "X-Rate": { examples: { r: { value: 1 } } } } }
-						}
-					}
-				}
-			}
-		})
-
-		expect(pairs(value).slice(1)).toEqual([
-			["EXM-01", "/paths/~1a/get/parameters/0/examples/one"],
-			["EXM-01", "/paths/~1a/get/requestBody/content/application~1json/examples/e"],
-			["EXM-01", "/paths/~1a/get/responses/200/headers/X-Rate/examples/r"],
-			["EXM-01", "/components/examples/shared"]
-		])
-	})
-
-	test("the schema example keyword and an example value are not Example Objects", () => {
-		const value = document("3.1", {
-			components: { schemas: { s: { example: { "x-a": 1 }, examples: [{ "x-b": 2 }] } } },
-			paths: {
-				"/a": {
-					get: {
-						requestBody: {
-							content: {
-								"application/json": { example: { "x-c": 3 }, schema: { type: "object" } }
-							}
-						}
-					}
-				}
-			}
-		})
-
-		expect(pairs(value)).toEqual([["INF-01", "/info"]])
-	})
-})
-
-describe("vendor extensions", () => {
-	test("an extension on the root, an operation and a server is one record each", () => {
-		const value = document("3.1", {
-			paths: {
-				"/a": { get: { "x-fern-sdk-group-name": "things" } },
-				"x-paths-note": true
-			},
-			servers: [{ url: "https://example.com", "x-s": 1 }],
-			"x-root": 1
-		})
-
-		expect(pairs(value).slice(1)).toEqual([
-			["EXT-01", "/x-root"],
-			["EXT-01", "/servers/0/x-s"],
-			["EXT-01", "/paths/~1a/get/x-fern-sdk-group-name"],
-			["EXT-01", "/paths/x-paths-note"]
-		])
-	})
-
-	test("the reserved x-oai- and x-oas- prefixes use their own row", () => {
-		const value = document("3.2", { "x-oai-a": 1, "x-oas-b": 2, "x-other": 3 })
-
-		expect(pairs(value, "3.2").slice(1)).toEqual([
-			["EXT-02", "/x-oai-a"],
-			["EXT-02", "/x-oas-b"],
-			["EXT-01", "/x-other"]
-		])
-	})
-
-	test("a key that starts with x- in a map of names is not an extension", () => {
-		const value = document("3.1", {
-			components: { schemas: { "x-name": { properties: { "x-prop": {} } } } },
-			paths: {
-				"/a": {
-					get: {
-						requestBody: { content: { "application/json": {} } },
-						responses: { "200": { ...ok, headers: { "x-header": {} } } }
-					}
-				}
-			}
-		})
-
-		expect(pairs(value)).toEqual([["INF-01", "/info"]])
-	})
-})
-
-describe("accounting", () => {
-	const mixed = document("3.1", {
-		components: { callbacks: { c: {} }, examples: { e: {} }, links: { l: {} } },
-		externalDocs: { url: "https://example.com" },
-		paths: { "/a": { get: { callbacks: { cb: {} }, "x-a": 1 } } },
-		tags: [{ name: "t" }],
-		webhooks: { w: {} },
-		"x-root": 1
-	})
-
-	test("every record points at a node of the document", () => {
-		const records = collect(mixed)
-
-		expect(records.length).toBeGreaterThan(8)
-		for (const record of records) {
-			expect(() => Effect.runSync(evaluatePointer(mixed, record.origin.pointer))).not.toThrow()
+/**
+ * Every informational element of a document is accounted for once, in the walk's order, at a node of the document. Its
+ * budget replaces the eighteen example cases of the suite it converts, twice over.
+ */
+export const informationalAccounting = property.explore(informationalSpace, {
+	needs: {},
+	situations: [
+		"info parts",
+		"root extensions",
+		"reserved extension prefix",
+		"tag with external docs",
+		"server extension",
+		"webhooks",
+		"empty webhooks map",
+		"operation callback",
+		"empty informative map",
+		"parameter examples",
+		"media type examples",
+		"response links",
+		"link by reference",
+		"header examples",
+		"component callbacks, examples and links",
+		"post operation",
+		"put operation",
+		"name that looks like an extension",
+		"nothing but info"
+	] satisfies ReadonlyArray<Reached<InformationalFeature>>,
+	check: (_, c: Case<InformationalFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			c.noteAll(informationalFeatures(sketch))
+			const [, expected] = documentOf(sketch)
+			const actual = yield* actualOf(sketch)
+			deepStrictEqual(actual, { records: expected, dangling: [] })
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 2.4's accounting of informational elements, in the walk's fixed order"
+	},
+	kept: [],
+	budget: { runs: 36, steered: 256 },
+	kills: [
+		{
+			file: "packages/generator/src/normalize/informational.ts",
+			original: '["informative", "links", "link"]',
+			replacement: '["informative", "link"]',
+			why: "A response's links are no longer an edge of the walk, so no link is recorded; the property fails (CATCH's evidence, mutant 1f1d3e1f28)."
+		},
+		{
+			file: "packages/generator/src/model/path-item.ts",
+			original:
+				'[\n\t"get",\n\t"put",\n\t"post",\n\t"delete",\n\t"options",\n\t"head",\n\t"patch",\n\t"trace"\n]',
+			replacement: '["get", "post", "delete", "options", "head", "patch", "trace"]',
+			why: "`put` is no longer a method of a path item, so a put operation's informational elements are never recorded; the property fails (CATCH's evidence, mutant 3f830c71d2)."
+		},
+		{
+			file: "packages/generator/src/model/path-item.ts",
+			original:
+				'[\n\t"get",\n\t"put",\n\t"post",\n\t"delete",\n\t"options",\n\t"head",\n\t"patch",\n\t"trace"\n]',
+			replacement: '["get", "put", "delete", "options", "head", "patch", "trace"]',
+			why: "`post` is no longer a method of a path item, so a post operation's informational elements are never recorded; the property fails (CATCH's evidence, mutant 28accd0cf9)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original:
+				"if (Arr.isArray<Json>(current)) {\n\t\treturn Result.fromOption(\n\t\t\tarrayIndex.test(token) ? Arr.get(current, Number(token)) : Option.none(),\n\t\t\t() => PointerIndexOutOfRange.make({ pointer, token })\n\t\t)\n\t}",
+			replacement: "{}",
+			why: "A pointer into an array names no node, so a record under a tag, a server or a parameter points at nothing; the property fails (CATCH's evidence, mutant 41318bc6f6)."
+		},
+		{
+			file: "packages/generator/src/resolve/index.ts",
+			original: "\treturn { invalidBase: base === undefined, member }",
+			replacement: "\treturn { invalidBase: base !== undefined, member }",
+			why: "Every document with a base URI is read as having none, so resolution refuses every document; the property fails (CATCH's evidence, mutant 96109f34de)."
 		}
-	})
-
-	test("no two records share a row and a pointer", () => {
-		const keys = pairs(mixed).map(([row, pointer]) => `${row} ${pointer}`)
-
-		expect(new Set(keys).size).toBe(keys.length)
-	})
-
-	test("the same document yields the same records in the same order", () => {
-		expect(pairs(mixed)).toEqual(pairs(mixed))
-	})
-
-	test("a document with nothing informational but info yields the info record alone", () => {
-		expect(pairs(document("3.0"), "3.0")).toEqual([["INF-01", "/info"]])
-	})
+	]
 })

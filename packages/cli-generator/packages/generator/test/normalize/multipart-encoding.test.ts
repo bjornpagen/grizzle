@@ -1,331 +1,211 @@
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import * as NodePath from "@effect/platform-node/NodePath"
-import { Effect, Layer, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { DocumentUri } from "#model/brands.ts"
-import { RowId } from "#model/entities.ts"
-import type { EncodingRule } from "#model/entities.ts"
-import type { Json } from "#model/pointer.ts"
-import type { SpecLine } from "#model/spec-section.ts"
-import { normalizeBody } from "#normalize/bodies.ts"
-import type { BodyOutcome } from "#normalize/bodies.ts"
-import { resolve } from "#resolve/index.ts"
-import { diagnoseDocument } from "#validate/index.ts"
+/**
+ * multipart/form-data parts (design 6.3, 8.5), as normalizeBody builds their rules: each declared property in document
+ * order is a part typed by its Encoding Object's contentType (a comma-separated list of media ranges; one that is no
+ * such list refused) or by the default table; an object typed as XML is refused (XML-01). A 3.0 `format: byte` part
+ * and a 3.1 or 3.2 `contentEncoding: base64` one (or their array's items) are sent base64, an identity encoding raw,
+ * any other refused (ENC-37, ENC-38); a declared Content-Transfer-Encoding header whose schema rules out base64 is a
+ * conflict (ENC-39). Part headers are typed as header parameters, a Content-Type entry ignored, the headers the writer
+ * owns noticed, a name that is no token refused. Style fields apply from 3.1 on (3.0 ignores them with a notice): form
+ * with explode is sent as name and value pairs, any other style refused at field scope for an optional part and for
+ * the whole alternative for a required one (ENC-40). An encoding key naming no property is refused before 3.2 and
+ * ignored on 3.2, and a schema-valued additionalProperties map is refused while the declared parts stay (SCH-13).
+ *
+ * Oracle: design 6.3's multipart rules and default table, applied to the drawn body.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	expectedOf,
+	type MultipartFeature,
+	multipartFeatures,
+	multipartSpace,
+	positionalActual,
+	positionalExpected,
+	type PositionalFeature,
+	positionalFeatures,
+	positionalSpace,
+	keywordActual,
+	keywordExpected,
+	keywordSpace
+} from "#test/normalize/multipart-encoding.fixtures.ts"
+import { digestService } from "#test/support/digest.ts"
 
-const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
-
-const rowId = Schema.decodeUnknownSync(RowId)
-
-const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
-
-const openapi: Readonly<Record<SpecLine, string>> = {
-	"3.0": "3.0.3",
-	"3.1": "3.1.1",
-	"3.2": "3.2.0"
-}
-
-const site = "/paths/~1a/post/requestBody"
-
-const media = `${site}/content/multipart~1form-data`
-
-const documentOf = (line: SpecLine, requestBody: Json): Json => ({
-	info: { title: "t", version: "1" },
-	openapi: openapi[line],
-	paths: { "/a": { post: { requestBody, responses: { "200": { description: "ok" } } } } }
-})
-
-const normalize = (line: SpecLine, requestBody: Json): BodyOutcome => {
-	const value = documentOf(line, requestBody)
-	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
-
-	return Effect.runSync(normalizeBody(resolution, { openapi: openapi[line], pointer: site }))
-}
-
-const multipart = (
-	properties: Record<string, Json>,
-	encoding: Record<string, Json> = {}
-): Json => ({
-	content: { "multipart/form-data": { encoding, schema: { properties, type: "object" } } }
-})
-
-const rulesOf = (line: SpecLine, body: Json): ReadonlyMap<string, EncodingRule> => {
-	const outcome = normalize(line, body)
-	if (outcome._tag !== "Implemented") {
-		throw new Error(`expected Implemented, got ${outcome._tag}`)
-	}
-
-	const [alternative] = outcome.body.alternatives
-
-	return new Map(
-		(alternative?.encoding ?? []).map((rule) => [
-			rule.target.kind === "property" ? rule.target.name : `#${rule.target.index}`,
-			rule
-		])
-	)
-}
-
-const ruleOf = (line: SpecLine, body: Json, name: string): EncodingRule => {
-	const rule = rulesOf(line, body).get(name)
-	if (rule === undefined) {
-		throw new Error(`no rule for ${name}`)
-	}
-
-	return rule
-}
-
-const refusalOf = (line: SpecLine, body: Json) => {
-	const outcome = normalize(line, body)
-	if (outcome._tag !== "Refused") {
-		throw new Error(`expected Refused, got ${outcome._tag}`)
-	}
-
-	return outcome.diagnostics
-		.filter((diagnostic) => diagnostic.severity === "refusal")
-		.map((diagnostic) => ({
-			code: diagnostic.code,
-			pointer: String(diagnostic.pointer),
-			related: diagnostic.related?.map((related) => String(related.pointer)),
-			row: diagnostic.row,
-			scope: diagnostic.scope
-		}))
-}
-
-const byte: Json = { format: "byte", type: "string" }
-
-const base64: Json = { contentEncoding: "base64", type: "string" }
-
-const transferHeader = (schema: Json) => ({
-	file: { headers: { "Content-Transfer-Encoding": { schema } } }
-})
-
-describe("ENC-38: format byte on a 3.0 multipart part is a base64 transfer encoding", () => {
-	test("ENC-38: a format byte part carries the base64 rule", () => {
-		const rule = ruleOf("3.0", multipart({ file: byte }), "file")
-
-		expect(rule.contentEncoding).toBe("base64")
-		expect(rule.rows.map(String)).toContain("ENC-38")
-	})
-
-	test("ENC-38: an array of format byte items sends every part base64", () => {
-		const files: Json = { items: byte, type: "array" }
-
-		expect(ruleOf("3.0", multipart({ files }), "files").contentEncoding).toBe("base64")
-	})
-
-	test("ENC-38: format binary and a plain string carry no transfer encoding", () => {
-		const rules = rulesOf("3.0", multipart({ bin: { format: "binary", type: "string" }, text: {} }))
-
-		expect(rules.get("bin")?.contentEncoding).toBeUndefined()
-		expect(rules.get("text")?.contentEncoding).toBeUndefined()
-	})
-})
-
-describe("ENC-37: contentEncoding on a 3.1 or 3.2 multipart part", () => {
-	for (const line of ["3.1", "3.2"] as const) {
-		test(`ENC-37: ${line} contentEncoding base64 carries the base64 rule`, () => {
-			const rule = ruleOf(line, multipart({ file: base64 }), "file")
-
-			expect(rule.contentEncoding).toBe("base64")
-			expect(rule.rows.map(String)).toContain("ENC-37")
-		})
-
-		test(`ENC-37: ${line} format byte alone carries no transfer encoding`, () => {
-			expect(ruleOf(line, multipart({ file: byte }), "file").contentEncoding).toBeUndefined()
-		})
-
-		for (const value of ["binary", "7bit", "8BIT"]) {
-			test(`ENC-37: ${line} identity contentEncoding ${value} sends the part raw`, () => {
-				const rule = ruleOf(line, multipart({ file: { contentEncoding: value } }), "file")
-
-				expect(rule.contentEncoding).toBeUndefined()
-				expect(rule.contentType.map(String)).toEqual(["application/octet-stream"])
-				expect(rule.rows.map(String)).toContain("ENC-37")
-			})
+/**
+ * A multipart body's part rules, refused fields and findings are what design 6.3 states. Its budget replaces the
+ * thirty-five example cases of the suites' multipart rules it converts (multipart-encoding and the multipart cases of
+ * bodies), twice over.
+ */
+export const multipartEncoding = property.explore(multipartSpace, {
+	needs: {},
+	situations: [
+		"3.0 format byte sent base64",
+		"3.1 contentEncoding base64",
+		"identity contentEncoding sent raw",
+		"unsupported contentEncoding refused",
+		"array of base64 items",
+		"comma-separated contentType",
+		"contentType that is no list refused",
+		"object part typed as XML refused",
+		"typed part header",
+		"Content-Type header ignored",
+		"writer-owned header",
+		"header name no token refused",
+		"transfer header admits base64",
+		"transfer header conflict refused",
+		"form pairs style",
+		"unsupported part style refused at field scope",
+		"unsupported part style drops the alternative",
+		"3.0 multipart style ignored",
+		"unknown encoding key",
+		"additionalProperties map refused",
+		"part typed through a reference or allOf",
+		"type list read without null or as disagreeing"
+	] satisfies ReadonlyArray<Reached<MultipartFeature>>,
+	check: (_, c: Case<MultipartFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			const expected = expectedOf(sketch)
+			c.noteAll(multipartFeatures(sketch, expected))
+			const actual = yield* actualOf(sketch)
+			deepStrictEqual(actual, expected)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 6.3's multipart part rules and default table, applied to the drawn body"
+	},
+	kept: [],
+	budget: { runs: 70, steered: 512 },
+	kills: [
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: "values === undefined || Arr.some(values, isBase64)",
+			replacement: "Arr.some(values, isBase64)",
+			why: "A Content-Transfer-Encoding schema with no enum or const is read as ruling out base64, so a base64 part with a plain transfer header is refused; the property fails (CATCH's evidence, mutant 060fb7b78f)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original:
+				'schema !== undefined &&\n\t\tbase === "multipart/form-data" &&\n\t\t(yield* isArrayBody(ctx.walk, schema, members))',
+			replacement: 'schema !== undefined && base === "multipart/form-data"',
+			why: "Every multipart/form-data body with a schema is refused as an array body; the property fails (CATCH's evidence, mutant 965d604df9)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: "\t\t...(styled === undefined || pairs ? [] : [unsupportedPartStyle(input)])",
+			replacement: "\t\t...(styled !== undefined || pairs ? [] : [unsupportedPartStyle(input)])",
+			why: "The part-style check is inverted, so a form part with explode is refused and an unsupported style is sent; the property fails (CATCH's evidence, mutant d5d54e3ff8)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: '["const", "enum"]',
+			replacement: '["enum"]',
+			why: "A Content-Transfer-Encoding schema's const is no longer read, so a const that rules out base64 conflicts with nothing; the property fails (CATCH's evidence, mutant e322d75dc6)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: "if (keys.refused) {\n\t\treturn refusedParts([...extra, ...keys.findings])\n\t}",
+			replacement: "{}",
+			why: "An encoding key naming no part no longer refuses a multipart body before 3.2; the property fails (CATCH's evidence, mutant 7cc87ed432)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: "\t\treturn { drops: false, findings, refusedFields: [] }",
+			replacement: "\t\treturn { drops: true, findings, refusedFields: [] }",
+			why: "A multipart body whose parts refuse no style drops its alternative all the same; the property fails (CATCH's evidence, mutant a53dfceb8b)."
 		}
-
-		test(`ENC-37: ${line} another contentEncoding refuses the media type it drops`, () => {
-			const body = multipart({ file: { contentEncoding: "quoted-printable", type: "string" } })
-
-			expect(refusalOf(line, body)).toEqual([
-				{
-					code: "ENC-37/unsupported-content-encoding",
-					pointer: media,
-					related: [`${media}/schema/properties/file/contentEncoding`],
-					row: rowId("ENC-37"),
-					scope: "element"
-				}
-			])
-		})
-	}
+	]
 })
 
-describe("ENC-37: a nested part has no place for a transfer encoding", () => {
-	test("ENC-37: a 3.2 nested base64 part is refused rather than sent unencoded", () => {
-		const meta: Json = { properties: { blob: base64 }, type: "object" }
-		const body = multipart(
-			{ meta },
-			{ meta: { contentType: "multipart/mixed", encoding: { blob: {} } } }
-		)
-
-		expect(refusalOf("3.2", body)).toEqual([
-			{
-				code: "ENC-37/nested-transfer-encoding",
-				pointer: media,
-				related: [`${media}/encoding/meta/encoding/blob`],
-				row: rowId("ENC-37"),
-				scope: "element"
-			}
-		])
-	})
-
-	test("ENC-37: a 3.2 nested identity part is sent raw", () => {
-		const meta: Json = { properties: { blob: { contentEncoding: "binary" } }, type: "object" }
-		const body = multipart(
-			{ meta },
-			{ meta: { contentType: "multipart/mixed", encoding: { blob: {} } } }
-		)
-
-		expect(ruleOf("3.2", body, "meta").nested?.length).toBe(1)
-	})
-})
-
-describe("ENC-39: a Content-Transfer-Encoding header schema against the part's encoding", () => {
-	test("ENC-39: a 3.0 enum without base64 is refused at the header schema", () => {
-		const body = multipart({ file: byte }, transferHeader({ enum: ["7bit"], type: "string" }))
-
-		expect(refusalOf("3.0", body)).toEqual([
-			{
-				code: "ENC-39/conflicting-transfer-encoding",
-				pointer: media,
-				related: [`${media}/encoding/file/headers/Content-Transfer-Encoding/schema/enum`],
-				row: rowId("ENC-39"),
-				scope: "element"
-			}
-		])
-	})
-
-	test("ENC-39: a 3.1 const other than base64 is refused at the header schema", () => {
-		const body = multipart({ file: base64 }, transferHeader({ const: "binary", type: "string" }))
-
-		expect(refusalOf("3.1", body)).toEqual([
-			{
-				code: "ENC-39/conflicting-transfer-encoding",
-				pointer: media,
-				related: [`${media}/encoding/file/headers/Content-Transfer-Encoding/schema/const`],
-				row: rowId("ENC-39"),
-				scope: "element"
-			}
-		])
-	})
-
-	test("ENC-39: a header schema that admits base64 is accepted", () => {
-		const enumBody = multipart({ file: byte }, transferHeader({ enum: ["base64"], type: "string" }))
-		const constBody = multipart({ file: base64 }, transferHeader({ const: "BASE64" }))
-
-		expect(ruleOf("3.0", enumBody, "file").contentEncoding).toBe("base64")
-		expect(ruleOf("3.2", constBody, "file").contentEncoding).toBe("base64")
-	})
-})
-
-describe("ENC-41: 3.1 keywords in a 3.0 multipart schema", () => {
-	test("ENC-41: contentEncoding in a 3.0 part schema stays refused by 3.0 schema validation", async () => {
-		const body = multipart({ file: { contentEncoding: "identity", type: "string" } })
-		const diagnosis = await Effect.runPromise(
-			diagnoseDocument(documentOf("3.0", body), entry).pipe(Effect.provide(layer))
-		)
-
-		expect(
-			diagnosis.refusals.map(({ diagnostic }) => ({
-				code: diagnostic.code,
-				pointer: String(diagnostic.pointer),
-				scope: diagnostic.scope
-			}))
-		).toEqual([
-			{
-				code: "VAL-02/schema-invalid",
-				pointer: `${media}/schema/properties/file/contentEncoding`,
-				scope: "document"
-			}
-		])
-	})
-})
-
-// Design 8.5 rule 2: ENC-40 on a named part follows the form property rules (field scope when the
-// part is optional, the alternative dropped when it is required); a 3.2 positional entry is not a
-// field and keeps element scope.
-const tagsBody = (required: readonly string[]): Json => ({
-	content: {
-		"multipart/form-data": {
-			encoding: { tags: { style: "spaceDelimited" } },
-			schema: {
-				properties: {
-					note: { type: "string" },
-					tags: { items: { type: "string" }, type: "array" }
-				},
-				required,
-				type: "object"
-			}
+/**
+ * A 3.2 body read by position, and a form-data part nesting one level, get the rules design 6.3 states: multipart/mixed
+ * gives every prefixItems position a rule (its prefixEncoding entry, else the default table) and items or itemSchema an
+ * item rule, closed items none; multipart/related gives only its declared entries; an encoding beside prefixEncoding or
+ * itemEncoding refuses the alternative (MED-13). A nesting part's rules follow by name, then by position, then its
+ * item rule (ENC-07 to ENC-09); a second level is refused (ENC-16), and so is a nested part declaring base64. Its budget
+ * replaces the twelve example cases of the suites' positional and nested rules it converts (bodies and
+ * multipart-encoding), twice over.
+ */
+export const positionalEncoding = property.explore(positionalSpace, {
+	needs: {},
+	situations: [
+		"prefixItems positions by the default table",
+		"explicit position contentType",
+		"item rule by the default table",
+		"item rule from itemSchema",
+		"closed items give no item rule",
+		"multipart/related positions only as declared",
+		"encoding beside positional fields refused",
+		"nested by name",
+		"nested by position",
+		"nested item rule",
+		"second nested level refused",
+		"nested base64 part refused",
+		"nesting part sent base64"
+	] satisfies ReadonlyArray<Reached<PositionalFeature>>,
+	check: (_, c: Case<PositionalFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			const expected = positionalExpected(sketch)
+			c.noteAll(positionalFeatures(sketch, expected))
+			const actual = yield* positionalActual(sketch)
+			deepStrictEqual(actual, expected)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 6.3's positional and nested encoding rules, applied to the drawn 3.2 body"
+	},
+	kept: [],
+	budget: { runs: 24, steered: 256 },
+	kills: [
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: "!defaulted",
+			replacement: "defaulted",
+			why: "A multipart/mixed body's item rule is made only when nothing defaults it, so items and itemSchema give no item rule and an absent one does; the property fails (CATCH's evidence, mutant ff04237b83)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: "input.depth === 0 || found.encoding === undefined",
+			replacement: "found.encoding === undefined",
+			why: "A nested part's base64 transfer encoding is accepted, so the part is sent unencoded where nothing can carry the encoding; the property fails (CATCH's evidence, mutant 47c486a7d2)."
+		},
+		{
+			file: "packages/generator/src/normalize/bodies.ts",
+			original: "input.depth === 1 && (nests || node.itemEncoding !== undefined)",
+			replacement: "(nests || node.itemEncoding !== undefined)",
+			why: "Nesting is refused at every depth, so a form-data part nesting its first level is refused as too deep; the property fails (CATCH's evidence, mutant 0f8cd859c7)."
 		}
-	}
+	]
 })
 
-const implemented = (line: SpecLine, body: Json) => {
-	const outcome = normalize(line, body)
-	if (outcome._tag !== "Implemented") {
-		throw new Error(`expected Implemented, got ${outcome._tag}`)
-	}
-
-	return outcome
-}
-
-const located = (outcome: BodyOutcome) =>
-	outcome.diagnostics.map((diagnostic) => ({
-		code: diagnostic.code,
-		pointer: String(diagnostic.pointer),
-		scope: diagnostic.scope
-	}))
-
-describe("ENC-40: a part style the writer cannot send", () => {
-	for (const line of ["3.1", "3.2"] as const) {
-		test(`ENC-40: ${line} an optional named part is refused at field scope and the alternative stays`, () => {
-			const outcome = implemented(line, tagsBody([]))
-
-			expect(outcome.body.alternatives[0]?.refusedFields?.map(String)).toEqual(["tags"])
-			expect(located(outcome)).toEqual([
-				{
-					code: "ENC-40/unsupported-part-style",
-					pointer: `${media}/encoding/tags`,
-					scope: "field"
-				}
-			])
-		})
-
-		test(`ENC-40: ${line} a required named part drops the alternative`, () => {
-			expect(refusalOf(line, tagsBody(["tags"]))).toEqual([
-				{
-					code: "ENC-40/unsupported-part-style",
-					pointer: media,
-					related: [`${media}/encoding/tags`],
-					row: rowId("ENC-40"),
-					scope: "element"
-				}
-			])
-		})
-	}
-
-	test("ENC-40: a 3.2 positional entry keeps element scope and is no field", () => {
-		const outcome = implemented("3.2", {
-			content: { "multipart/form-data": { prefixEncoding: [{ style: "spaceDelimited" }] } }
-		})
-
-		expect(outcome.body.alternatives[0]?.refusedFields).toBeUndefined()
-		expect(located(outcome)).toEqual([
-			{
-				code: "ENC-40/unsupported-part-style",
-				pointer: `${media}/prefixEncoding/0`,
-				scope: "element"
-			}
-		])
-	})
+/**
+ * A 3.1 keyword in a 3.0 multipart part schema stays refused by 3.0 schema validation (ENC-41): one VAL-02 refusal at
+ * document scope, located at the keyword itself, the deepest place the validator's errors share, whether it sits on the
+ * part or on a member of it. Its budget replaces the one example case of the suite it converts, on each placement.
+ */
+export const threeZeroPartKeyword = property.exhaust(finite(keywordSpace), {
+	box: "the keyword on the part or on a member of an object part, under either part name, with or without a sibling part",
+	needs: { digest: digestService },
+	situations: [],
+	check: (resources) => (sketch) =>
+		Effect.gen(function* () {
+			const digest = yield* resources.digest
+			const actual = yield* keywordActual(sketch, digest)
+			deepStrictEqual(actual, keywordExpected(sketch))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "3.0 schema validation, located at the deepest place its errors share"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original: "pointer === ancestor || Str.startsWith(",
+			replacement: "pointer === ancestor || false && Str.startsWith(",
+			why: "A pointer is within another only when equal to it, so validation errors are not grouped under their deepest location and the refusal lands elsewhere; the property fails (CATCH's evidence, mutant 9ab9320360)."
+		}
+	]
 })

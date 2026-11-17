@@ -1,81 +1,67 @@
-import { Effect, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { DocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
-import { normalizeParameter } from "#normalize/parameters.ts"
-import { resolve } from "#resolve/index.ts"
+/**
+ * A parameter whose schema reaches a dynamic or recursive keyword (`$dynamicRef`, `$recursiveRef`, or a `$ref` to a
+ * `$dynamicAnchor` or `$recursiveAnchor` holder) cannot be checked, so normalizeParameter refuses it, never sending it
+ * unchecked: in place, in a subschema or through a chain of references, for a schema or a content entry's schema, on
+ * every location, keeping its required mark so a required one raises its operation. A plain schema is built.
+ *
+ * Oracle: design 6.1's rule for schemas the generator cannot check, applied to the drawn parameter.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	type DynamicFeature,
+	dynamicFeatures,
+	dynamicSpace,
+	expectedOf
+} from "#test/normalize/dynamic-parameter.fixtures.ts"
 
-const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
-
-const outcome = (parameter: Json, schemas: Record<string, Json> = {}) => {
-	const value: Json = {
-		components: { schemas },
-		info: { title: "t", version: "1" },
-		openapi: "3.1.1",
-		paths: {
-			"/a": { get: { parameters: [parameter], responses: { "200": { description: "ok" } } } }
-		}
-	}
-	const resolution = Effect.runSync(resolve({ document: entry, line: "3.1", value }))
-
-	return Effect.runSync(
-		normalizeParameter(resolution, { openapi: "3.1.1", pointer: "/paths/~1a/get/parameters/0" })
-	)
-}
-
-const holder = { $dynamicAnchor: "node", type: "string" } as const
-
-const schemasUnderTest: readonly (readonly [string, Json, Record<string, Json>])[] = [
-	["a $dynamicRef", { $dynamicRef: "#node" }, {}],
-	["a $recursiveRef", { $recursiveRef: "#" }, {}],
-	[
+/**
+ * A parameter reaching a dynamic keyword is refused keeping its required mark; one that reaches none is built. Its
+ * budget replaces the eleven example cases of the suite it converts, twice over.
+ */
+export const dynamicParameter = property.explore(dynamicSpace, {
+	needs: {},
+	situations: [
+		"nowhere",
+		"$dynamicRef in place",
+		"$recursiveRef in place",
+		"$dynamicRef in a subschema",
 		"a $ref to a $dynamicAnchor holder",
-		{ $ref: "#/components/schemas/Holder" },
-		{ Holder: holder }
-	],
-	[
 		"a $ref to a $recursiveAnchor holder",
-		{ $ref: "#/components/schemas/Holder" },
-		{ Holder: { $recursiveAnchor: true, type: "string" } }
+		"a $ref chain to a $dynamicAnchor holder",
+		"content-entry schema",
+		"path parameter",
+		"header parameter",
+		"required parameter refused",
+		"optional parameter refused"
+	] satisfies ReadonlyArray<Reached<DynamicFeature>>,
+	check: (_, c: Case<DynamicFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			c.noteAll(dynamicFeatures(sketch))
+			const actual = yield* actualOf(sketch)
+			deepStrictEqual(actual, expectedOf(sketch))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "a schema the generator cannot check refuses its parameter, keeping required"
+	},
+	kept: [],
+	budget: { runs: 22, steered: 128 },
+	kills: [
+		{
+			file: "packages/generator/src/resolve/index.ts",
+			original: '[method, "operation", "one"]',
+			replacement: '["operation", "one"]',
+			why: "An operation's members are no longer walked, so a parameter's `$ref` to an anchor holder is never followed and the parameter is built unchecked; the property fails (CATCH's evidence, mutant 945327cbc8)."
+		},
+		{
+			file: "packages/generator/src/resolve/index.ts",
+			original: "\treturn { invalidBase: base === undefined, member }",
+			replacement: "\treturn { invalidBase: base !== undefined, member }",
+			why: "Every document with a base URI is read as having none, so resolution refuses every document; the property fails (CATCH's evidence, mutant 96109f34de)."
+		}
 	]
-]
-
-describe("a parameter whose schema reaches a dynamic or recursive keyword", () => {
-	for (const [label, schema, schemas] of schemasUnderTest) {
-		test(`a required query parameter with ${label} is refused and raises`, () => {
-			const result = outcome({ in: "query", name: "q", required: true, schema }, schemas)
-			expect(result).toMatchObject({ _tag: "Refused", required: true })
-			expect(result.diagnostics).toEqual([])
-		})
-
-		test(`an optional query parameter with ${label} is refused, never sent unchecked`, () => {
-			const result = outcome({ in: "query", name: "q", schema }, schemas)
-			expect(result).toMatchObject({ _tag: "Refused", required: false })
-		})
-	}
-
-	test("a required path parameter is refused", () => {
-		const result = outcome({
-			in: "path",
-			name: "id",
-			required: true,
-			schema: { $dynamicRef: "#node" }
-		})
-		expect(result).toMatchObject({ _tag: "Refused", required: true })
-	})
-
-	test("a content-entry schema is held to the same rule", () => {
-		const result = outcome({
-			content: { "application/json": { schema: { $dynamicRef: "#node" } } },
-			in: "query",
-			name: "q",
-			required: true
-		})
-		expect(result).toMatchObject({ _tag: "Refused", required: true })
-	})
-
-	test("a plain schema still builds", () => {
-		const result = outcome({ in: "query", name: "q", schema: { type: "string" } })
-		expect(result._tag).toBe("Implemented")
-	})
 })

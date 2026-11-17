@@ -1,465 +1,130 @@
-import { Option, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { AuthorConfig } from "#model/author-config.ts"
-import { DocumentUri, JsonPointer } from "#model/brands.ts"
-import type { Diagnostic } from "#model/diagnostic.ts"
-import type { Json } from "#model/pointer.ts"
-import { boundOrigins, effectiveServers } from "#normalize/servers.ts"
-import type { ServerSource, ServersContext } from "#normalize/servers.ts"
+/**
+ * Effective servers and the bound origin set (design 6.4, 9 I3), as effectiveServers and boundOrigins give them: the
+ * operation level wins over the path item, which wins over the root; an absent or empty root is the single server `/`,
+ * and an empty override is refused; a value that is no list of Server Objects, an illegal template and an undeclared
+ * variable are refused. A server is accepted only when the author config lists it, by URL or, on 3.2, by name, and an
+ * accepted server must pass the baked-default rules (https, or http with allowInsecure; no userinfo, query or
+ * fragment; a relative server only through retrievalUri; a scheme or authority variable only with an enum; a path
+ * variable value staying on the server's origin), the first refusing assignment of its variables naming the code, at
+ * the config entry that accepts it and never echoing the secret it carries. An accepted server expands to every origin
+ * its enums give; the bound set adds the author's acceptedOrigins under the same rules, sorted and without repeats.
+ *
+ * Oracle: design 6.4's server levels and baked-default rules, applied to the drawn templates as they are written.
+ */
+import { assertTrue, deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	echoesNoSecret,
+	expectedOf,
+	type ServersFeature,
+	serversFeatures,
+	serversSpace
+} from "#test/normalize/servers.fixtures.ts"
 
-const uri = Schema.decodeUnknownSync(DocumentUri)
-
-const pointer = Schema.decodeUnknownSync(JsonPointer)
-
-const config = (extra: Record<string, Json> = {}) =>
-	Schema.decodeUnknownSync(AuthorConfig)({
-		binName: "example",
-		package: { name: "example-cli", version: "1.0.0" },
-		...extra
-	})
-
-const context = (extra: Record<string, Json> = {}, openapi = "3.1.0"): ServersContext => ({
-	config: config(extra),
-	configDocument: uri("file:///work/author.json"),
-	document: uri("https://example.com/openapi.json"),
-	openapi
-})
-
-const accepting = (...accepted: string[]) => ({ servers: { accepted } })
-
-const root = (value?: Json): ServerSource => ({
-	pointer: pointer("/servers"),
-	value: Option.fromUndefinedOr(value)
-})
-
-const operationSource = (value: Json | undefined): ServerSource => ({
-	pointer: pointer("/paths/~1a/get/servers"),
-	value: Option.fromUndefinedOr(value)
-})
-
-const pathItemSource = (value: Json | undefined): ServerSource => ({
-	pointer: pointer("/paths/~1a/servers"),
-	value: Option.fromUndefinedOr(value)
-})
-
-const see = (value: readonly unknown[] | string | boolean | undefined) => expect(value)
-
-const codes = (diagnostics: readonly Diagnostic[]) => diagnostics.map((d) => d.code)
-
-const normalize = (value: Json | undefined, ctx: ServersContext) =>
-	effectiveServers({ root: root(value) }, ctx)
-
-const url = (template: string, extra: Record<string, Json> = {}): Json => ({
-	url: template,
-	...extra
-})
-
-describe("effective servers", () => {
-	test("the operation level wins over the path item and the root", () => {
-		const result = effectiveServers(
-			{
-				operation: operationSource([url("https://op.example.com")]),
-				pathItem: pathItemSource([url("https://item.example.com")]),
-				root: root([url("https://root.example.com")])
-			},
-			context()
-		)
-		see(result.servers.map((s) => [s.template, s.level])).toEqual([
-			["https://op.example.com", "operation"]
-		])
-	})
-
-	test("the path item level wins over the root", () => {
-		const result = effectiveServers(
-			{
-				pathItem: pathItemSource([url("https://item.example.com")]),
-				root: root([url("https://root.example.com")])
-			},
-			context()
-		)
-		see(result.servers.map((s) => [s.template, s.level])).toEqual([
-			["https://item.example.com", "pathItem"]
-		])
-	})
-
-	test("the root applies when no other level declares servers", () => {
-		const result = effectiveServers({ root: root([url("https://root.example.com")]) }, context())
-		see(result.servers.map((s) => [s.template, s.level])).toEqual([
-			["https://root.example.com", "root"]
-		])
-	})
-
-	test("an empty root or an absent root means the single server /", () => {
-		const absent = normalize(undefined, context())
-		const empty = normalize([], context())
-		see(absent.servers.map((s) => [s.template, s.level])).toEqual([["/", "root"]])
-		see(empty.servers.map((s) => s.template)).toEqual(["/"])
-		see(codes([...absent.diagnostics, ...empty.diagnostics])).toEqual([])
-	})
-
-	test("an empty override at the operation or path item is refused with SRV-16", () => {
-		const operationLevel = effectiveServers(
-			{ operation: operationSource([]), root: root([url("https://root.example.com")]) },
-			context()
-		)
-		const pathLevel = effectiveServers(
-			{ pathItem: pathItemSource([]), root: root([url("https://root.example.com")]) },
-			context()
-		)
-		see(codes(operationLevel.diagnostics)).toEqual(["SRV-16/empty-override"])
-		see(operationLevel.diagnostics.map((d) => [d.scope, d.severity, d.pointer])).toEqual([
-			["operation", "refusal", "/paths/~1a/get/servers"]
-		])
-		see(codes(pathLevel.diagnostics)).toEqual(["SRV-16/empty-override"])
-		see(pathLevel.diagnostics.map((d) => d.pointer)).toEqual(["/paths/~1a/servers"])
-		see(operationLevel.servers).toEqual([])
-		see(pathLevel.servers).toEqual([])
-	})
-
-	test("a servers value that is not a list of server objects is refused with SRV-01", () => {
-		const notList = normalize("https://example.com", context())
-		const notObject = normalize(["https://example.com"], context())
-		see(codes(notList.diagnostics)).toEqual(["SRV-01/invalid-server"])
-		see(codes(notObject.diagnostics)).toEqual(["SRV-01/invalid-server"])
-		see(notObject.diagnostics.map((d) => d.pointer)).toEqual(["/servers/0"])
-		see([...notList.servers, ...notObject.servers]).toEqual([])
-	})
-
-	test("a template that is not a legal server URL template is refused with SRV-19", () => {
-		const result = normalize([url("https://exa mple.com")], context())
-		see(codes(result.diagnostics)).toEqual(["SRV-19/invalid-template"])
-		see(result.servers).toEqual([])
-	})
-
-	test("a variable that is used but not declared is refused with SRV-11", () => {
-		const result = normalize([url("https://{host}.example.com")], context())
-		see(codes(result.diagnostics)).toEqual(["SRV-11/undeclared-variable"])
-		see(result.servers).toEqual([])
-	})
-})
-
-describe("acceptance comes only from the author config", () => {
-	test("a spec server is not accepted unless the config lists it", () => {
-		const result = normalize([url("https://api.example.com")], context())
-		see(result.servers.map((s) => [s.accepted, s.origins])).toEqual([[false, []]])
-		see(result.diagnostics).toEqual([])
-	})
-
-	test("a server listed by URL is accepted and contributes its origin without the path", () => {
-		const result = normalize(
-			[url("https://api.example.com/v1"), url("https://other.example.com")],
-			context(accepting("https://api.example.com/v1"))
-		)
-		see(result.servers.map((s) => [s.template, s.accepted, s.origins])).toEqual([
-			["https://api.example.com/v1", true, ["https://api.example.com"]],
-			["https://other.example.com", false, []]
-		])
-	})
-
-	test("a 3.2 server is accepted by name, and a name means nothing in 3.1", () => {
-		const servers: Json = [url("https://api.example.com", { name: "prod" })]
-		const byName = normalize(servers, context(accepting("prod"), "3.2.0"))
-		const ignored = normalize(servers, context(accepting("prod"), "3.1.0"))
-		see(byName.servers.map((s) => [s.name, s.accepted])).toEqual([["prod", true]])
-		see(ignored.servers.map((s) => [s.name ?? null, s.accepted])).toEqual([[null, false]])
-	})
-
-	test("the server keeps the use site pointer and its inventory rows", () => {
-		const result = effectiveServers(
-			{ operation: operationSource([url("https://api.example.com")]), root: root() },
-			context()
-		)
-		see(result.servers.map((s) => s.origin.pointer)).toEqual(["/paths/~1a/get/servers/0"])
-		see(result.servers.every((s) => s.rows.map(String).includes("SRV-15"))).toBe(true)
-	})
-})
-
-const refused = (template: string, extra: Record<string, Json> = {}) =>
-	normalize([url(template)], context({ ...accepting(template), ...extra }))
-
-describe("baked defaults", () => {
-	test("http is refused without allowInsecure and accepted with it", () => {
-		const without = refused("http://localhost:8080")
-		const withFlag = refused("http://localhost:8080", { allowInsecure: true })
-		see(codes(without.diagnostics)).toEqual(["SRV-02/insecure-scheme"])
-		see(without.diagnostics.map((d) => [d.scope, d.document, d.pointer])).toEqual([
-			["document", "file:///work/author.json", "/servers/accepted/0"]
-		])
-		see(without.servers.map((s) => [s.accepted, s.origins])).toEqual([[false, []]])
-		see(withFlag.servers.map((s) => s.origins)).toEqual([["http://localhost:8080"]])
-		see(withFlag.diagnostics).toEqual([])
-	})
-
-	test("a scheme other than http and https is refused even with allowInsecure", () => {
-		const result = refused("ftp://files.example.com", { allowInsecure: true })
-		see(codes(result.diagnostics)).toEqual(["SRV-02/unsupported-scheme"])
-	})
-
-	test("userinfo is refused and never echoed", () => {
-		const result = refused("https://user:canary-secret@api.example.com")
-		see(codes(result.diagnostics)).toEqual(["SRV-02/userinfo"])
-		see(JSON.stringify(result.diagnostics)).not.toContain("canary-secret")
-	})
-
-	test("a query or a fragment in the template is refused", () => {
-		see(codes(refused("https://api.example.com/v1?key=1").diagnostics)).toEqual([
-			"SRV-18/query-or-fragment"
-		])
-		see(codes(refused("https://api.example.com/v1#top").diagnostics)).toEqual([
-			"SRV-18/query-or-fragment"
-		])
-	})
-
-	test("a server that is not accepted is not checked against the baked-default rules", () => {
-		const result = normalize([url("http://localhost:8080")], context())
-		see(result.diagnostics).toEqual([])
-		see(result.servers.map((s) => s.accepted)).toEqual([false])
-	})
-})
-
-describe("relative servers", () => {
-	test("a relative server needs retrievalUri to be accepted", () => {
-		const result = normalize([url("/v1")], context(accepting("/v1")))
-		see(codes(result.diagnostics)).toEqual(["SRV-17/relative-needs-retrieval-uri"])
-		see(result.servers.map((s) => [s.accepted, s.origins])).toEqual([[false, []]])
-	})
-
-	test("with retrievalUri the relative server's origin is the retrieval origin", () => {
-		const result = normalize(
-			[url("/v1")],
-			context({ ...accepting("/v1"), retrievalUri: "https://docs.example.com/specs/openapi.json" })
-		)
-		see(result.diagnostics).toEqual([])
-		see(result.servers.map((s) => s.origins)).toEqual([["https://docs.example.com"]])
-	})
-
-	test("the implicit / server is accepted only through retrievalUri", () => {
-		const without = normalize(undefined, context(accepting("/")))
-		const withUri = normalize(
-			undefined,
-			context({ ...accepting("/"), retrievalUri: "https://docs.example.com/openapi.json" })
-		)
-		see(codes(without.diagnostics)).toEqual(["SRV-17/relative-needs-retrieval-uri"])
-		see(withUri.servers.map((s) => s.origins)).toEqual([["https://docs.example.com"]])
-	})
-
-	test("an insecure retrievalUri is refused like any baked default", () => {
-		const result = normalize(
-			[url("/v1")],
-			context({ ...accepting("/v1"), retrievalUri: "http://docs.example.com/openapi.json" })
-		)
-		see(codes(result.diagnostics)).toEqual(["SRV-02/insecure-scheme"])
-	})
-
-	test("a relative form that could change scheme is refused", () => {
-		const result = normalize(
-			[url("v1:evil")],
-			context({ ...accepting("v1:evil"), retrievalUri: "https://docs.example.com/openapi.json" })
-		)
-		see(codes(result.diagnostics)).toEqual(["SRV-02/unsupported-form"])
-	})
-})
-
-const check = (entry: string, extra: Record<string, Json> = {}) =>
-	boundOrigins([], context({ acceptedOrigins: [entry], ...extra }))
-
-describe("server variables and the bound origin set", () => {
-	const regional = url("https://{region}.example.com/v1", {
-		variables: { region: { default: "eu", enum: ["us", "eu"] } }
-	})
-
-	test("an enumerated host variable contributes every member as an origin", () => {
-		const ctx = context(accepting("https://{region}.example.com/v1"))
-		const result = normalize([regional], ctx)
-		see(result.diagnostics).toEqual([])
-		see(result.servers.map((s) => s.origins)).toEqual([
-			["https://eu.example.com", "https://us.example.com"]
-		])
-		see(boundOrigins(result.servers, ctx).origins).toEqual([
-			"https://eu.example.com",
-			"https://us.example.com"
-		])
-	})
-
-	test("the default is expanded as an origin even when the enum omits it", () => {
-		const result = normalize(
-			[
-				url("https://{region}.example.com", {
-					variables: { region: { default: "ap", enum: ["us"] } }
-				})
-			],
-			context(accepting("https://{region}.example.com"))
-		)
-		see(result.servers.map((s) => s.origins)).toEqual([
-			["https://ap.example.com", "https://us.example.com"]
-		])
-	})
-
-	test("a scheme or authority variable without an enum is refused", () => {
-		const host = url("https://{host}/v1", { variables: { host: { default: "api.example.com" } } })
-		const scheme = url("{scheme}://api.example.com", {
-			variables: { scheme: { default: "https" } }
-		})
-		const hostResult = normalize([host], context(accepting("https://{host}/v1")))
-		const schemeResult = normalize([scheme], context(accepting("{scheme}://api.example.com")))
-		see(codes(hostResult.diagnostics)).toEqual(["SRV-05/variable-needs-enum"])
-		see(codes(schemeResult.diagnostics)).toEqual(["SRV-05/variable-needs-enum"])
-		see(hostResult.servers.map((s) => [s.accepted, s.origins])).toEqual([[false, []]])
-	})
-
-	test("a scheme variable member that is http is refused unless allowInsecure", () => {
-		const scheme = url("{scheme}://api.example.com", {
-			variables: { scheme: { default: "https", enum: ["https", "http"] } }
-		})
-		const without = normalize([scheme], context(accepting("{scheme}://api.example.com")))
-		const withFlag = normalize(
-			[scheme],
-			context({ ...accepting("{scheme}://api.example.com"), allowInsecure: true })
-		)
-		see(codes(without.diagnostics)).toEqual(["SRV-02/insecure-scheme"])
-		see(withFlag.servers.map((s) => s.origins)).toEqual([
-			["http://api.example.com", "https://api.example.com"]
-		])
-	})
-
-	test("an enum member that smuggles userinfo or a query into the authority is refused", () => {
-		const userinfo = url("https://{host}", {
-			variables: {
-				host: { default: "api.example.com", enum: ["api.example.com", "a@evil.example"] }
-			}
-		})
-		const query = url("https://{host}", {
-			variables: {
-				host: { default: "api.example.com", enum: ["api.example.com", "evil.example?x"] }
-			}
-		})
-		see(codes(normalize([userinfo], context(accepting("https://{host}"))).diagnostics)).toEqual([
-			"SRV-02/userinfo"
-		])
-		see(codes(normalize([query], context(accepting("https://{host}"))).diagnostics)).toEqual([
-			"SRV-18/query-or-fragment"
-		])
-	})
-
-	test("the first refusing assignment names the reported code", () => {
-		// Template order, not key order: scheme varies slowest, so https+userinfo refuses before
-		// http+api.example.com would.
-		const template = "{scheme}://{host}"
-		const server = url(template, {
-			variables: {
-				host: { default: "api.example.com", enum: ["api.example.com", "a@evil.example"] },
-				scheme: { default: "https", enum: ["https", "http"] }
-			}
-		})
-		const result = normalize([server], context(accepting(template)))
-		see(codes(result.diagnostics)).toEqual(["SRV-02/userinfo"])
-	})
-
-	test("a path variable default or enum member carrying ? or # is refused without echoing it", () => {
-		const template = "https://api.example.com/{v}"
-		const withDefault = (fallback: string) =>
-			normalize(
-				[url(template, { variables: { v: { default: fallback } } })],
-				context(accepting(template))
-			)
-		const withMember = (member: string) =>
-			normalize(
-				[url(template, { variables: { v: { default: "v1", enum: ["v1", member] } } })],
-				context(accepting(template))
-			)
-		const query = withDefault("v1?canary-secret=1")
-		const fragment = withDefault("v1#canary-secret")
-		const queryMember = withMember("v2?canary-secret=1")
-		const fragmentMember = withMember("v2#canary-secret")
-		for (const result of [query, fragment, queryMember, fragmentMember]) {
-			see(codes(result.diagnostics)).toEqual(["SRV-18/query-or-fragment"])
-			see(result.servers.map((s) => [s.accepted, s.origins])).toEqual([[false, []]])
-			see(JSON.stringify(result.diagnostics)).not.toContain("canary-secret")
+/**
+ * An operation's servers and the run's bound origins are what design 6.4 states. Its budget replaces the thirty-six
+ * example cases of the suite it converts, twice over.
+ */
+export const serversRules = property.explore(serversSpace, {
+	needs: {},
+	situations: [
+		"operation level wins",
+		"path item level wins",
+		"root level",
+		"implicit server",
+		"empty override",
+		"servers not a list",
+		"server not an object",
+		"invalid template",
+		"undeclared variable",
+		"accepted by URL",
+		"accepted by name",
+		"name ignored before 3.2",
+		"server not accepted",
+		"insecure scheme refused",
+		"insecure scheme allowed",
+		"unsupported scheme",
+		"userinfo refused",
+		"query or fragment refused",
+		"relative needs retrievalUri",
+		"relative through retrievalUri",
+		"unsupported relative form",
+		"variable needs an enum",
+		"enumerated host expanded",
+		"two variables expanded",
+		"path variable value refused",
+		"value leaves the authority",
+		"accepted origin refused",
+		"accepted origins bound"
+	] satisfies ReadonlyArray<Reached<ServersFeature>>,
+	check: (_, c: Case<ServersFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			const expected = expectedOf(sketch)
+			c.noteAll(serversFeatures(sketch, expected))
+			const actual = yield* actualOf(sketch)
+			deepStrictEqual(actual, expected)
+			assertTrue(echoesNoSecret(actual), "no diagnostic echoes a secret")
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 6.4's server levels and baked-default rules, applied to the drawn templates"
+	},
+	kept: [],
+	budget: { runs: 72, steered: 512 },
+	kills: [
+		{
+			file: "packages/generator/src/normalize/servers.ts",
+			original: "\tif (Arr.some(variableNames(url), (name) => variables[name] === undefined)) {",
+			replacement: "\tif (Arr.some(variableNames(url), (name) => variables[name] !== undefined)) {",
+			why: "A server whose variables are all declared is refused as using an undeclared one, and one using an undeclared variable is built; the property fails (CATCH's evidence, mutant 2270f82c90)."
+		},
+		{
+			file: "packages/generator/src/normalize/servers.ts",
+			original: "!Arr.isReadonlyArrayNonEmpty(value)",
+			replacement: "Arr.isReadonlyArrayNonEmpty(value)",
+			why: "An empty servers list is read as a list of servers and a non-empty one as empty, so the implicit `/` and SRV-16 land on the wrong levels; the property fails (CATCH's evidence, mutant 601946ab55)."
+		},
+		{
+			file: "packages/generator/src/normalize/servers.ts",
+			original: "\tif (Arr.some(names, (name) => variables[name]?.enum === undefined)) {",
+			replacement: "\tif (Arr.every(names, (name) => variables[name]?.enum === undefined)) {",
+			why: "An origin span needs an enum only when none of its variables has one, so a span with one enumerated and one free variable is accepted; the property fails (CATCH's evidence, mutant 70b30ee556)."
+		},
+		{
+			file: "packages/generator/src/normalize/servers.ts",
+			original: "config.servers?.accepted ?? []",
+			replacement: "config.servers?.accepted",
+			why: "An author config that accepts no server makes the acceptance lookup throw; the property fails (CATCH's evidence, mutant 78308d1eca)."
+		},
+		{
+			file: "packages/generator/src/normalize/servers.ts",
+			original:
+				'if (declares(levels.pathItem)) {\n\t\treturn normalizeLevel(levels.pathItem, "pathItem", context)\n\t}',
+			replacement: "{}",
+			why: "The path item's servers are never chosen, so an operation under a path item with servers falls to the root's; the property fails (CATCH's evidence, mutant 8b746147d6)."
+		},
+		{
+			file: "packages/generator/src/model/entities.ts",
+			original: '["operation", "pathItem", "root"]',
+			replacement: '["operation", "root"]',
+			why: "A server of the path item level cannot be made, so a path item's servers fail to build; the property fails (CATCH's evidence, mutant a315e7f644)."
+		},
+		{
+			file: "packages/generator/src/normalize/servers.ts",
+			original: '["acceptedOrigins", String(index)]',
+			replacement: '["acceptedOrigins"]',
+			why: "A refused acceptedOrigins entry is reported at the list, not at its own index; the property fails (CATCH's evidence, mutant eb8c9b6cf2)."
+		},
+		{
+			file: "packages/generator/src/normalize/servers.ts",
+			original:
+				"\n\tconst variables = raw.variables ?? {}\n\n\tif (Arr.some(variableNames(url), (name) => variables[name] === undefined)) {",
+			replacement:
+				"\n\tconst variables = raw.variables\n\n\tif (Arr.some(variableNames(url), (name) => variables[name] === undefined)) {",
+			why: "A server with no `variables` member reads its variables from nothing, so a template naming a variable it never declares throws instead of being refused; the property fails (CATCH's evidence, mutant fd58e06d3e)."
 		}
-	})
-
-	test("a path variable value that leaves the template authority is refused", () => {
-		const relative = normalize(
-			[url("/{x}", { variables: { x: { default: "/evil.com" } } })],
-			context({ ...accepting("/{x}"), retrievalUri: "https://api.example.com/spec.json" })
-		)
-		const member = normalize(
-			[url("/{x}", { variables: { x: { default: "v1", enum: ["v1", "/evil.com"] } } })],
-			context({ ...accepting("/{x}"), retrievalUri: "https://api.example.com/spec.json" })
-		)
-		for (const result of [relative, member]) {
-			see(codes(result.diagnostics)).toEqual(["SRV-02/value-leaves-authority"])
-			see(result.servers.map((s) => [s.accepted, s.origins])).toEqual([[false, []]])
-			see(JSON.stringify(result.diagnostics)).not.toContain("evil.com")
-		}
-	})
-
-	test("a path variable needs no enum and adds no origin", () => {
-		const result = normalize(
-			[url("https://api.example.com/{version}", { variables: { version: { default: "v1" } } })],
-			context(accepting("https://api.example.com/{version}"))
-		)
-		see(result.diagnostics).toEqual([])
-		see(result.servers.map((s) => s.origins)).toEqual([["https://api.example.com"]])
-	})
-
-	test("variables are listed in name order", () => {
-		const result = normalize(
-			[
-				url("https://api.example.com/{b}/{a}", {
-					variables: { a: { default: "2" }, b: { default: "1" } }
-				})
-			],
-			context()
-		)
-		see(result.servers.map((s) => s.variables.map((v) => v.name))).toEqual([["a", "b"]])
-	})
-
-	test("an accepted server expands to every origin its enums give, however many", () => {
-		const members = Array.from({ length: 20 }, (_, index) => `h${index}`)
-		const variable = { default: "h0", enum: members }
-		const result = normalize(
-			[url("https://{a}.{b}.example.com", { variables: { a: variable, b: variable } })],
-			context(accepting("https://{a}.{b}.example.com"))
-		)
-		see(result.diagnostics).toEqual([])
-		see(result.servers.map((s) => s.origins.length)).toEqual([members.length ** 2])
-	})
-
-	test("the bound set adds acceptedOrigins, drops duplicates and sorts", () => {
-		const ctx = context({
-			...accepting("https://{region}.example.com/v1"),
-			acceptedOrigins: ["https://zz.example.com", "https://eu.example.com"]
-		})
-		const spec = normalize([regional, url("https://other.example.com")], ctx)
-		const bound = boundOrigins(spec.servers, ctx)
-		see(bound.diagnostics).toEqual([])
-		see(bound.origins).toEqual([
-			"https://eu.example.com",
-			"https://us.example.com",
-			"https://zz.example.com"
-		])
-	})
-
-	test("an unaccepted server adds nothing to the bound set", () => {
-		const ctx = context()
-		const spec = normalize([regional], ctx)
-		see(boundOrigins(spec.servers, ctx).origins).toEqual([])
-	})
-
-	test("acceptedOrigins entries follow the baked-default rules and must be origins", () => {
-		const refusal = check("http://a.example.com").diagnostics.at(0)
-
-		see(codes(check("http://a.example.com").diagnostics)).toEqual(["SRV-02/insecure-scheme"])
-		see(check("http://a.example.com", { allowInsecure: true }).origins).toEqual([
-			"http://a.example.com"
-		])
-		see(codes(check("https://u:p@a.example.com").diagnostics)).toEqual(["SRV-02/userinfo"])
-		see(codes(check("https://a.example.com/v1").diagnostics)).toEqual(["SRV-02/not-an-origin"])
-		see(codes(check("https://a.example.com?x=1").diagnostics)).toEqual(["SRV-18/query-or-fragment"])
-		see(check("https://a.example.com/").origins).toEqual(["https://a.example.com"])
-		see(refusal?.pointer).toBe("/acceptedOrigins/0")
-		see(refusal?.document).toBe("file:///work/author.json")
-		see(check("http://a.example.com").origins).toEqual([])
-	})
+	]
 })

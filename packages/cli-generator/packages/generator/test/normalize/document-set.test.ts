@@ -1,207 +1,81 @@
-import { Effect, Option, Predicate, Record, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { AuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
-import type { Diagnostic } from "#model/diagnostic.ts"
-import { Api } from "#model/entities.ts"
-import { isArray, isObject } from "#model/json-tree.ts"
-import type { JsonObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
-import { nodeOption } from "#normalize/document-set.ts"
-import { normalize } from "#normalize/index.ts"
-import type { Normalization } from "#normalize/index.ts"
-import { resolve } from "#resolve/index.ts"
-import type { ResolveMember } from "#resolve/index.ts"
+/**
+ * Normalization across a document set (design 3.7, 5): a schema, a parameter and a response read from a second
+ * document normalize to the same model as when written in place; the schema store holds every schema root a use
+ * reaches under its canonical key (a component of the entry by its name, a site of the entry by its pointer, a node
+ * of another document by its URI and pointer); the model lists the set's documents, entry first; a diagnostic inside
+ * another document names that document and the pointer of its node there; and nodeOption reads a node of the set,
+ * none for a document outside it or a pointer to nothing.
+ *
+ * Oracle: the inlined twin of each drawn set (metamorphic), and the canonical keys and sites design 5 states for it.
+ */
+import { assertTrue, deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	expectedOf,
+	inlinedOf,
+	readingOf,
+	type SetFeature,
+	setFeatures,
+	setSpace
+} from "#test/normalize/document-set.fixtures.ts"
 
-const uri = (value: string) => Schema.decodeUnknownSync(DocumentUri)(value)
-
-const entry = uri("file:///spec/openapi.json")
-
-const common = uri("file:///spec/common.json")
-
-const configUri = uri("file:///spec/author.json")
-
-const config = Schema.decodeUnknownSync(AuthorConfig)({
-	binName: "example",
-	package: { name: "example-cli", version: "1.0.0" }
-})
-
-const run = (paths: Json, members: readonly ResolveMember[] = []): Normalization =>
-	Effect.runSync(
-		resolve({
-			document: entry,
-			line: "3.1",
-			members,
-			value: { info: { title: "t", version: "1" }, openapi: "3.1.1", paths }
-		}).pipe(
-			Effect.flatMap((resolution) =>
-				normalize(resolution, { checkFindings: [], config, configDocument: configUri })
+/**
+ * Shared elements normalize alike wherever they are written, under canonical keys, with their diagnostics in place.
+ * Its budget replaces the five example cases of the suite it converts, each over every placement it drew, three times.
+ */
+export const documentSet = property.explore(setSpace, {
+	needs: {},
+	situations: [
+		"schema in a second document",
+		"parameter in a second document",
+		"response in a second document",
+		"schema among the entry's components",
+		"schema inline",
+		"diagnostic inside a second document",
+		"single document"
+	] satisfies ReadonlyArray<Reached<SetFeature>>,
+	check: (_, c: Case<SetFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			c.noteAll(setFeatures(sketch))
+			const across = yield* readingOf(sketch)
+			const inline = yield* readingOf(inlinedOf(sketch))
+			deepStrictEqual(across.meaning, inline.meaning, "the set normalizes as its inlined twin")
+			deepStrictEqual(
+				{ keys: across.keys, documents: across.documents, diagnostics: across.diagnostics },
+				expectedOf(sketch)
 			)
-		)
-	)
-
-const pet: Json = {
-	properties: { name: { pattern: "^a", type: "string" } },
-	required: ["name"],
-	type: "object"
-}
-
-const limit: Json = { in: "query", name: "limit", required: true, schema: { type: "integer" } }
-
-const okResponse = (schema: Json): Json => ({
-	content: { "application/json": { schema } },
-	description: "ok",
-	headers: { "Content-Type": { schema: { type: "string" } } }
-})
-
-// The schema, parameter and response live in a fragment beside the entry document.
-const fragment: ResolveMember = {
-	document: common,
-	value: {
-		components: {
-			parameters: { Limit: limit },
-			responses: { Ok: okResponse({ $ref: "#/components/schemas/Pet" }) },
-			schemas: { Pet: pet }
-		}
-	}
-}
-
-const referenced: Json = {
-	"/pets": {
-		get: {
-			parameters: [{ $ref: "common.json#/components/parameters/Limit" }],
-			responses: { "200": { $ref: "common.json#/components/responses/Ok" } }
+			deepStrictEqual(across.unread, [], "every diagnostic names a node of its document")
+			assertTrue(
+				across.absent[0] === true && across.absent[1] === true && across.absent[2] === true,
+				"nodeOption reads the set"
+			)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "the inlined twin of the drawn set, and design 5's canonical keys and sites"
+	},
+	kept: [],
+	budget: { runs: 16, steered: 128 },
+	kills: [
+		{
+			file: "packages/generator/src/resolve/index.ts",
+			original: "\treturn tokens === undefined ? undefined : formatPointer(tokens)",
+			replacement: "\treturn tokens !== undefined ? undefined : formatPointer(tokens)",
+			why: "A reference's fragment is read as no pointer whenever it holds one, so no reference into another document resolves; the property fails (CATCH's evidence, mutant 0b47ff02a3)."
 		},
-		post: {
-			requestBody: {
-				content: {
-					"application/json": { schema: { $ref: "common.json#/components/schemas/Pet" } }
-				}
-			},
-			responses: { "204": { description: "done" } }
+		{
+			file: "packages/generator/src/normalize/parameters.ts",
+			original: "node.schema !== undefined && node.content !== undefined",
+			replacement: "node.schema !== undefined",
+			why: "A parameter with a schema is read as carrying both schema and content, so it is unreadable and normalization fails; the property fails (CATCH's evidence, mutant 82b625ad9d)."
+		},
+		{
+			file: "packages/generator/src/normalize/schemas.ts",
+			original: 'key !== "$id"',
+			replacement: "false",
+			why: "The store drops every member of every stored schema, so a schema's pattern is never seen and its not-asserted notice is lost; the property fails (CATCH's evidence, mutant 8f8a5cd8d6)."
 		}
-	}
-}
-
-const inlined: Json = {
-	"/pets": {
-		get: { parameters: [limit], responses: { "200": okResponse(pet) } },
-		post: {
-			requestBody: { content: { "application/json": { schema: pet } } },
-			responses: { "204": { description: "done" } }
-		}
-	}
-}
-
-// The model as plain JSON, as it is written out.
-const encoded = (api: Api): Json =>
-	Schema.decodeUnknownSync(Schema.Json)(Schema.encodeSync(Api)(api))
-
-// The stored `$defs` of the model's schema document.
-const memberOf = (value: Option.Option<Json>, name: string): Option.Option<Json> =>
-	Option.flatMap(Option.filter(value, isObject), (object) => Record.get(object, name))
-
-const defsOf = (model: Json): JsonObject =>
-	Option.getOrElse(
-		Option.filter(
-			memberOf(memberOf(memberOf(Option.some(model), "schemas"), "document"), "$defs"),
-			isObject
-		),
-		(): JsonObject => ({})
-	)
-
-// The operations with every schema reference replaced by the stored schema it names and every
-// origin dropped, so the two documents compare by meaning rather than by where each element sits.
-const meaning = (model: Json): Json => {
-	const store = defsOf(model)
-	const strip = (value: Json): Json => {
-		if (isArray(value)) {
-			return value.map(strip)
-		}
-
-		if (!isObject(value)) {
-			return value
-		}
-
-		const keys = Object.keys(value)
-		const { key } = value
-		if (keys.length === 1 && Predicate.isString(key)) {
-			// A key the store does not hold stays visible, so the two models differ.
-			return Object.hasOwn(store, key) ? strip(store[key] ?? null) : { missing: key }
-		}
-
-		return Object.fromEntries(
-			keys.filter((name) => name !== "origin").map((name) => [name, strip(value[name] ?? null)])
-		)
-	}
-
-	return strip(isObject(model) ? (model.operations ?? null) : null)
-}
-
-const located = (diagnostics: readonly Diagnostic[]): readonly string[] =>
-	diagnostics.map((diagnostic) => `${diagnostic.code} ${diagnostic.document}#${diagnostic.pointer}`)
-
-describe("normalization across the document set", () => {
-	test("a schema, parameter and response from a second document normalize to the inlined model", () => {
-		const across = run(referenced, [fragment])
-		const inline = run(inlined)
-
-		expect(meaning(encoded(across.api))).toEqual(meaning(encoded(inline.api)))
-
-		const [get] = across.api.operations
-		expect(get?.parameters.map((parameter) => String(parameter.wireName))).toEqual(["limit"])
-		expect(get?.responses.map((response) => response.alternatives.length)).toEqual([1])
-	})
-
-	test("the store holds the schema roots a reference reaches in the member, under canonical keys", () => {
-		const { api } = run(referenced, [fragment])
-
-		expect(Object.keys(defsOf(encoded(api)))).toEqual([
-			"/paths/~1pets/post/requestBody/content/application~1json/schema",
-			"file:///spec/common.json#/components/parameters/Limit/schema",
-			"file:///spec/common.json#/components/responses/Ok/content/application~1json/schema",
-			"file:///spec/common.json#/components/responses/Ok/headers/Content-Type/schema",
-			"file:///spec/common.json#/components/schemas/Pet"
-		])
-		expect(api.documents).toEqual([entry, common])
-	})
-
-	test("a diagnostic inside a member names that member's document and pointer", () => {
-		const { diagnostics } = run(referenced, [fragment])
-
-		expect(located(diagnostics)).toEqual([
-			"RSP-09/ignored-content-type file:///spec/common.json#/components/responses/Ok/headers/Content-Type",
-			"SCH-37/not-asserted file:///spec/common.json#/components/schemas/Pet/properties/name/pattern"
-		])
-	})
-
-	test("nodeOption reads a node of the set, none for a missing document or pointer", () => {
-		const resolution = Effect.runSync(
-			resolve({
-				document: entry,
-				line: "3.1",
-				members: [fragment],
-				value: { info: { title: "t", version: "1" }, openapi: "3.1.1", paths: referenced }
-			})
-		)
-
-		expect(nodeOption(resolution, { document: entry, pointer: "/info/title" })).toEqual(
-			Option.some("t")
-		)
-		expect(
-			nodeOption(resolution, { document: common, pointer: "/components/schemas/Pet" })
-		).toEqual(Option.some(pet))
-		expect(
-			nodeOption(resolution, { document: uri("file:///spec/absent.json"), pointer: "" })
-		).toEqual(Option.none())
-		expect(nodeOption(resolution, { document: common, pointer: "/components/missing" })).toEqual(
-			Option.none()
-		)
-	})
-
-	test("a single document normalizes as before: its diagnostics name the entry", () => {
-		const { diagnostics } = run(inlined)
-
-		expect(diagnostics.every((diagnostic) => diagnostic.document === entry)).toBe(true)
-	})
+	]
 })

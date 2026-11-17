@@ -1,442 +1,91 @@
-import { Effect, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { DocumentUri } from "#model/brands.ts"
-import type { ResponseCase } from "#model/entities.ts"
-import type { Json } from "#model/pointer.ts"
-import type { SpecLine } from "#model/spec-section.ts"
-import { dispatchOrder, normalizeResponses, precedenceOrder } from "#normalize/responses.ts"
-import type { NormalizedResponses } from "#normalize/responses.ts"
-import { resolve } from "#resolve/index.ts"
+/**
+ * A Responses Object, as normalizeResponses builds its cases (design 2.2, 6.6, 7.3): each member in the order the
+ * parsed object lists it is an explicit code, a range `1XX` to `5XX` or `default`; a three-digit code outside 100 to
+ * 599 and a name outside the grammar are refused at element scope, and an `x-` member is skipped. A case keeps its use
+ * site as origin, follows a `$ref` to its target (a 3.1 use-site description overriding the target's), makes its help
+ * text safe, records its headers by name with their marks read through a `$ref` (a Content-Type header ignored with a
+ * notice, a name that is no token refused, a 3.0 schema-serialized header noticed for its percent-encoding) and its
+ * media alternatives with the codec their media type selects, a schema keyed by its component name or its canonical
+ * pointer and a 3.2 item schema apart (a key that is no media type refused, encoding and a 3.2 description ignored
+ * with a notice). Findings follow member order, a case's alternatives before its headers; cases match explicit codes,
+ * then ranges, then default, and media types are looked up exact keys first, then type ranges, then the full range.
+ *
+ * Oracle: design 6.6's key grammar, codec table and orders, applied to the drawn Responses Object.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	expectedOf,
+	type ResponsesFeature,
+	responsesFeatures,
+	responsesSpace
+} from "#test/normalize/responses.fixtures.ts"
 
-const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
-
-const openapi: Readonly<Record<SpecLine, string>> = {
-	"3.0": "3.0.3",
-	"3.1": "3.1.1",
-	"3.2": "3.2.0"
-}
-
-interface Members {
-	readonly [key: string]: Json
-}
-
-const responsesPointer = "/paths/~1a/get/responses"
-
-const normalize = (
-	line: SpecLine,
-	responses: Members,
-	components: Members = {}
-): NormalizedResponses => {
-	const value: Json = {
-		components,
-		info: { title: "t", version: "1" },
-		openapi: openapi[line],
-		paths: { "/a": { get: { responses } } }
-	}
-	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
-
-	return Effect.runSync(
-		normalizeResponses(resolution, responsesPointer, { method: "GET", path: "/a" })
-	)
-}
-
-const keys = (result: NormalizedResponses) => result.responses.map((response) => response.key)
-
-const text = (value: string | undefined): string | undefined => value
-
-const headerNames = (response: ResponseCase | undefined) =>
-	response?.headers.map((header) => text(header.name))
-
-const members = (...names: readonly string[]): Members =>
-	Object.fromEntries(names.map((name) => [name, {}]))
-
-const content = (media: Members): Members => ({ "200": { content: media, description: "ok" } })
-
-const codes = (result: NormalizedResponses) =>
-	result.diagnostics.map((diagnostic) => diagnostic.code)
-
-const ok: Members = { description: "ok" }
-
-const described = (...names: readonly string[]): Members =>
-	Object.fromEntries(names.map((name) => [name, ok]))
-
-// One key alone: its built case, its refusal code, or skipped (no case and no diagnostic).
-const keyOutcome = (key: string) => {
-	const result = normalize("3.1", { [key]: ok })
-	const [built] = keys(result)
-
-	return built ?? codes(result)[0] ?? "skipped"
-}
-
-describe("response keys", () => {
-	test("an explicit code, a range and default become their key kinds in member order", () => {
-		// JavaScript lists integer-like keys first and ascending, so 200 precedes 404 here.
-		const result = normalize("3.1", described("404", "2XX", "default", "200"))
-
-		expect(keys(result)).toEqual([{ code: 200 }, { code: 404 }, { range: 2 }, "default"])
-		expect(result.diagnostics).toEqual([])
-	})
-
-	test("each case keeps its use site as origin", () => {
-		const [first] = normalize("3.1", { "200": ok }).responses
-
-		expect(text(first?.origin.document)).toBe(entry)
-		expect(text(first?.origin.pointer)).toBe(`${responsesPointer}/200`)
-	})
-
-	test("a code outside 100 to 599 is refused at element scope and its case is not built", () => {
-		const result = normalize("3.1", { "200": ok, "600": ok })
-
-		expect(keys(result)).toEqual([{ code: 200 }])
-		expect(codes(result)).toEqual(["RSS-10/status-out-of-range"])
-		expect(result.diagnostics[0]?.scope).toBe("element")
-		expect(result.diagnostics[0]?.severity).toBe("refusal")
-		expect(text(result.diagnostics[0]?.pointer)).toBe(`${responsesPointer}/600`)
-	})
-
-	test("a lowercase range and a key outside the grammar are refused", () => {
-		const result = normalize("3.1", { "2xx": ok, "6XX": ok, nope: ok })
-
-		expect(keys(result)).toEqual([])
-		expect(codes(result)).toEqual([
-			"RSS-06/invalid-key",
-			"RSS-06/invalid-key",
-			"RSS-06/invalid-key"
-		])
-	})
-
-	test("a vendor extension key is not a response and raises no diagnostic", () => {
-		const result = normalize("3.1", { "200": ok, "x-note": "text" })
-
-		expect(keys(result)).toEqual([{ code: 200 }])
-		expect(result.diagnostics).toEqual([])
-	})
-
-	test("an absent Responses Object has no cases", () => {
-		const value: Json = {
-			info: { title: "t", version: "1" },
-			openapi: openapi["3.1"],
-			paths: { "/a": { get: {} } }
+/**
+ * A Responses Object normalizes to the cases, findings and orders design 6.6 states. Its budget replaces the
+ * twenty-five example cases of the suite it converts, twice over.
+ */
+export const responsesRules = property.explore(responsesSpace, {
+	needs: {},
+	situations: [
+		"explicit code",
+		"range",
+		"default",
+		"code out of range",
+		"key outside the grammar",
+		"extension key skipped",
+		"referenced response",
+		"use-site description",
+		"unsafe description",
+		"Content-Type header ignored",
+		"header name no token",
+		"header marks through a reference",
+		"3.0 header percent-encoding notice",
+		"content-based header",
+		"media key no media type",
+		"encoding ignored",
+		"media description ignored",
+		"component schema",
+		"inline schema",
+		"item schema",
+		"media range dispatched after exact keys",
+		"no responses"
+	] satisfies ReadonlyArray<Reached<ResponsesFeature>>,
+	check: (_, c: Case<ResponsesFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			const expected = expectedOf(sketch)
+			c.noteAll(responsesFeatures(sketch, expected))
+			const actual = yield* actualOf(sketch)
+			deepStrictEqual(actual, expected)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 6.6's response key grammar, codec table and orders, applied to the drawn Responses Object"
+	},
+	kept: [],
+	budget: { runs: 50, steered: 256 },
+	kills: [
+		{
+			file: "packages/generator/src/resolve/index.ts",
+			original: "\t\t\tif (known !== undefined && known !== member) {",
+			replacement: "\t\t\tif (known !== undefined && known === member) {",
+			why: "Resolution takes a member it already holds for a new one, so the document set is refused; the property fails (CATCH's evidence, mutant 503dbfe0f1)."
+		},
+		{
+			file: "packages/generator/src/normalize/responses.ts",
+			original:
+				"[...alternatives.flatMap((alternative) => alternative.findings), ...headers.findings]",
+			replacement: "[...headers.findings]",
+			why: "A response's media alternatives raise no finding, so an invalid content key, a 3.0 encoding and a 3.2 description pass unreported; the property fails (CATCH's evidence, mutant 10241650d3)."
+		},
+		{
+			file: "packages/generator/src/resolve/index.ts",
+			original: "\tfor (let index = items.length - 1; index >= 0; index -= 1) {",
+			replacement: "\tfor (let index = items.length - 1; index >= 0; index -= 0) {",
+			why: "The resolver's walk never steps past its last item, so resolving a document with any reference to walk does not end within the case deadline; the property fails (CATCH's evidence, mutant 041212ab52)."
 		}
-		const resolution = Effect.runSync(resolve({ document: entry, line: "3.1", value }))
-		const result = Effect.runSync(
-			normalizeResponses(resolution, responsesPointer, { method: "GET", path: "/a" })
-		)
-
-		expect(result).toEqual({ diagnostics: [], responses: [] })
-	})
-
-	test("response keys classify by the exact grammar", () => {
-		const expected = {
-			"": "RSS-06/invalid-key",
-			" 200": "RSS-06/invalid-key",
-			"007": "RSS-10/status-out-of-range",
-			"099": "RSS-10/status-out-of-range",
-			"100": { code: 100 },
-			"1XX": { range: 1 },
-			"1xx": "RSS-06/invalid-key",
-			"200 ": "RSS-06/invalid-key",
-			"2xx": "RSS-06/invalid-key",
-			"599": { code: 599 },
-			"5XX": { range: 5 },
-			"600": "RSS-10/status-out-of-range",
-			"6XX": "RSS-06/invalid-key",
-			"999": "RSS-10/status-out-of-range",
-			DEFAULT: "RSS-06/invalid-key",
-			"X-note": "RSS-06/invalid-key",
-			default: "default",
-			"x-note": "skipped"
-		}
-		const actual = Object.fromEntries(Object.keys(expected).map((key) => [key, keyOutcome(key)]))
-
-		expect(actual).toEqual(expected)
-	})
-})
-
-describe("response headers", () => {
-	const headers = {
-		"Retry-After": { schema: { type: "integer" } },
-		"X-Request-Id": { schema: { type: "string" } }
-	}
-
-	test("declared header names are recorded in order and nothing else", () => {
-		const [first] = normalize("3.1", { "429": { description: "slow", headers } }).responses
-
-		expect(headerNames(first)).toEqual(["Retry-After", "X-Request-Id"])
-	})
-
-	test("a response without headers records none", () => {
-		const [first] = normalize("3.1", { "200": ok }).responses
-
-		expect(headerNames(first)).toEqual([])
-	})
-
-	test("a Content-Type header is ignored with a notice, whatever its case", () => {
-		const result = normalize("3.1", {
-			"200": {
-				description: "ok",
-				headers: { "X-Rate": { schema: {} }, "content-type": { schema: { type: "string" } } }
-			}
-		})
-
-		expect(headerNames(result.responses[0])).toEqual(["X-Rate"])
-		expect(codes(result)).toEqual(["RSP-09/ignored-content-type"])
-		expect(result.diagnostics[0]?.severity).toBe("notice")
-		expect(text(result.diagnostics[0]?.pointer)).toBe(
-			`${responsesPointer}/200/headers/content-type`
-		)
-	})
-
-	test("a header name that is not a token is refused and the case stays", () => {
-		const result = normalize("3.1", {
-			"200": {
-				description: "ok",
-				headers: { "X-Rate": { schema: {} }, "bad name": { schema: {} } }
-			}
-		})
-
-		expect(headerNames(result.responses[0])).toEqual(["X-Rate"])
-		expect(codes(result)).toEqual(["RSP-09/invalid-header-name"])
-		expect(result.diagnostics[0]?.severity).toBe("refusal")
-	})
-
-	test("required and deprecated are read from each Header Object, through a $ref, absent as false", () => {
-		const [first] = normalize(
-			"3.1",
-			{
-				"200": {
-					description: "ok",
-					headers: {
-						"X-Both": { deprecated: true, required: true, schema: {} },
-						"X-Plain": { schema: {} },
-						"X-Shared": { $ref: "#/components/headers/Shared" }
-					}
-				}
-			},
-			{ headers: { Shared: { deprecated: true, schema: {} } } }
-		).responses
-
-		expect(
-			first?.headers.map(({ deprecated, name, required }) => [text(name), required, deprecated])
-		).toEqual([
-			["X-Both", true, true],
-			["X-Plain", false, false],
-			["X-Shared", false, true]
-		])
-	})
-})
-
-describe("HDR-15 response header percent-encoding in 3.0", () => {
-	const traced: Members = {
-		"200": {
-			description: "ok",
-			headers: {
-				"Content-Type": { schema: { type: "string" } },
-				"X-Body": { content: { "text/plain": { schema: { type: "string" } } } },
-				"X-Rate": { schema: { type: "integer" } },
-				"X-Trace": { $ref: "#/components/headers/Trace" }
-			}
-		}
-	}
-	const components: Members = { headers: { Trace: { schema: { type: "string" } } } }
-
-	test("each schema-serialized header gets one notice at its use site", () => {
-		const result = normalize("3.0", traced, components)
-		const notices = result.diagnostics.filter(
-			(diagnostic) => diagnostic.code === "HDR-15/header-percent-encoding"
-		)
-
-		expect(notices.map((diagnostic) => text(diagnostic.pointer))).toEqual([
-			`${responsesPointer}/200/headers/X-Rate`,
-			`${responsesPointer}/200/headers/X-Trace`
-		])
-		expect(notices.map((diagnostic) => [diagnostic.severity, diagnostic.scope])).toEqual([
-			["notice", "element"],
-			["notice", "element"]
-		])
-		expect(codes(result)).toEqual([
-			"RSP-09/ignored-content-type",
-			"HDR-15/header-percent-encoding",
-			"HDR-15/header-percent-encoding"
-		])
-	})
-
-	test("3.1 and 3.2 headers already agree with the correction", () => {
-		expect(codes(normalize("3.1", traced, components))).toEqual(["RSP-09/ignored-content-type"])
-		expect(codes(normalize("3.2", traced, components))).toEqual(["RSP-09/ignored-content-type"])
-	})
-})
-
-describe("referenced responses and docs", () => {
-	const components: Members = {
-		responses: { Slow: { description: "Too slow.", headers: { "Retry-After": { schema: {} } } } }
-	}
-
-	test("a response reference is followed to its target", () => {
-		const [first] = normalize(
-			"3.1",
-			{ "429": { $ref: "#/components/responses/Slow" } },
-			components
-		).responses
-
-		expect(headerNames(first)).toEqual(["Retry-After"])
-		expect(text(first?.docs.description)).toBe("Too slow.")
-		expect(text(first?.origin.pointer)).toBe(`${responsesPointer}/429`)
-	})
-
-	test("a 3.1 use-site description overrides the target", () => {
-		const [first] = normalize(
-			"3.1",
-			{ "429": { $ref: "#/components/responses/Slow", description: "Back off." } },
-			components
-		).responses
-
-		expect(text(first?.docs.description)).toBe("Back off.")
-	})
-
-	test("help text is made safe", () => {
-		const [first] = normalize("3.1", { "200": { description: "a\u0007b" } }).responses
-
-		expect(text(first?.docs.description)).toBe("ab")
-	})
-})
-
-describe("media alternatives", () => {
-	test("a response without content has no alternatives", () => {
-		const [first] = normalize("3.1", { "204": { description: "none" } }).responses
-
-		expect(first?.alternatives).toEqual([])
-	})
-
-	test("alternatives keep document order with the codec derived from the media type", () => {
-		const [first] = normalize(
-			"3.1",
-			content(
-				members(
-					"application/json",
-					"application/problem+json",
-					"text/plain",
-					"application/xml",
-					"application/octet-stream",
-					"text/event-stream",
-					"application/x-ndjson",
-					"application/json-seq",
-					"application/geo+json-seq",
-					"image/*"
-				)
-			)
-		).responses
-
-		expect(first?.alternatives.map((alt) => [text(alt.mediaType), alt.codec])).toEqual([
-			["application/json", "json"],
-			["application/problem+json", "json"],
-			["text/plain", "text"],
-			["application/xml", "xml"],
-			["application/octet-stream", "binary"],
-			["text/event-stream", "sse"],
-			["application/x-ndjson", "ndjson"],
-			["application/json-seq", "jsonseq"],
-			["application/geo+json-seq", "jsonseq"],
-			["image/*", "binary"]
-		])
-	})
-
-	test("a schema reference uses its defs key and an inline schema its canonical pointer key", () => {
-		const [named, inline] = normalize(
-			"3.1",
-			{
-				"200": {
-					content: { "application/json": { schema: { $ref: "#/components/schemas/User" } } },
-					description: "ok"
-				},
-				"201": {
-					content: { "application/json": { schema: { type: "object" } } },
-					description: "ok"
-				}
-			},
-			{ schemas: { User: { type: "object" } } }
-		).responses
-
-		expect(named?.alternatives[0]?.schema?.key).toBe("User")
-		expect(inline?.alternatives[0]?.schema?.key).toBe(
-			`${responsesPointer}/201/content/application~1json/schema`
-		)
-	})
-
-	test("a 3.2 itemSchema is kept apart from schema", () => {
-		const [first] = normalize(
-			"3.2",
-			content({ "text/event-stream": { itemSchema: { type: "string" } } })
-		).responses
-		const [alternative] = first?.alternatives ?? []
-
-		expect(alternative?.schema).toBeUndefined()
-		expect(alternative?.itemSchema?.key).toBe(
-			`${responsesPointer}/200/content/text~1event-stream/itemSchema`
-		)
-	})
-
-	test("a content key that is not a media type or range is refused", () => {
-		const result = normalize("3.1", content(members("application/json", "not a type")))
-
-		expect(result.responses[0]?.alternatives.map((alt) => text(alt.mediaType))).toEqual([
-			"application/json"
-		])
-		expect(codes(result)).toEqual(["RSP-05/invalid-media-type"])
-	})
-})
-
-describe("order", () => {
-	test("dispatch tries exact keys, then type ranges, then the full range, each in document order", () => {
-		const [first] = normalize(
-			"3.1",
-			content(members("*/*", "text/*", "text/plain", "application/json; charset=utf-8", "image/*"))
-		).responses
-
-		expect(dispatchOrder(first?.alternatives ?? []).map((alt) => text(alt.mediaType))).toEqual([
-			"text/plain",
-			"application/json; charset=utf-8",
-			"text/*",
-			"image/*",
-			"*/*"
-		])
-	})
-
-	test("an explicit code beats a range and a range beats default", () => {
-		const { responses } = normalize("3.1", described("default", "5XX", "404", "4XX", "200"))
-
-		expect(precedenceOrder(responses).map((response) => response.key)).toEqual([
-			{ code: 200 },
-			{ code: 404 },
-			{ range: 4 },
-			{ range: 5 },
-			"default"
-		])
-	})
-})
-
-describe("finding order", () => {
-	test("response findings follow key order, alternatives before headers", () => {
-		// A lowercase range is outside the key grammar; it sorts first and is listed first.
-		const result = normalize("3.1", {
-			"1xx": ok,
-			"2XX": {
-				content: { "application/json": { encoding: {} }, "not media": {} },
-				description: "ok",
-				headers: { "Content-Type": {}, "not a token": {} }
-			},
-			default: { description: "ok", headers: { "also not a token": {} } }
-		})
-
-		expect(
-			result.diagnostics.map((diagnostic) => [diagnostic.code, text(diagnostic.pointer)])
-		).toEqual([
-			["RSS-06/invalid-key", `${responsesPointer}/1xx`],
-			["MED-10/encoding-ignored", `${responsesPointer}/2XX/content/application~1json`],
-			["RSP-05/invalid-media-type", `${responsesPointer}/2XX/content/not media`],
-			["RSP-09/ignored-content-type", `${responsesPointer}/2XX/headers/Content-Type`],
-			["RSP-09/invalid-header-name", `${responsesPointer}/2XX/headers/not a token`],
-			["RSP-09/invalid-header-name", `${responsesPointer}/default/headers/also not a token`]
-		])
-	})
+	]
 })
