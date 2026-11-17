@@ -1574,12 +1574,14 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	}
 	/**
 	 * A case's choice among a closed set of templates, each under `form`: one need per key, to spread into a property's
-	 * needs, of which a case takes only the one it draws (`yield* resources[key]`).
+	 * needs, of which a case takes only the one it draws (`yield* resources[key]`), each opened on a worker the first time
+	 * a case there takes it (the toolchain's Database.chosen), so a worker builds only the templates its cases drew.
 	 */
 	static readonly oneOf = <K extends string, T, A>(
 		templates: Readonly<Record<K, SubstrateTemplate<T>>>,
 		form: (template: SubstrateTemplate<T>) => TemplateNeed<A>
-	): Readonly<Record<K, TemplateNeed<A>>> => Rec.map(templates, form)
+	): Readonly<Record<K, TemplateNeed<A>>> =>
+		Rec.map(templates, (template) => Database.chosen(form(template)))
 	/** A shared database: build this layer once per file. It reads the initialised cluster once, as it builds. */
 	static readonly layer = Layer.effect(Substrate, makeSubstrate).pipe(
 		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))
