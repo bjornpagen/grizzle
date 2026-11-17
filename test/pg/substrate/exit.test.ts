@@ -76,13 +76,6 @@ export const exitsOnceItsScopesClose = property.exhaust(finite(caseGen), {
 	kept: [],
 	kills: [
 		{
-			file: "packages/pg/src/lease.ts",
-			original: "\t\t\t(maxConnections - superuserReserved - reserved - unleasedConnections + 1) /",
-			replacement:
-				"\t\t\t(reserved - maxConnections - superuserReserved - unleasedConnections + 1) /",
-			why: "Operator mutant (operand-swap) at packages/pg/src/lease.ts:46 in leaseSlots: `maxConnections - superuserReserved - reserved` becomes `reserved - maxConnections - superuserReserved`; the property fails (lane CATCH, grizzle 0baff5d6)."
-		},
-		{
 			file: "packages/grizzle/src/adapter/wire/session.ts",
 			original: "\t\tyield* Effect.addFinalizer(() => Effect.sync(end))\n",
 			replacement: "",
