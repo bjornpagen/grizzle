@@ -1,244 +1,109 @@
-import { Effect, Exit, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { AuthorConfig, decodeAuthorConfig } from "#model/author-config.ts"
-import type { AuthorConfigContext } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
-import { RowId } from "#model/entities.ts"
+/**
+ * The author config's decoder (design 4.8, D-AD11): a config of every documented key, each optional one present or
+ * not, decodes and encodes back to itself; a config with faults planted in its members (a bin name missing, off its
+ * pattern or no string; a package version off semver 2.0.0 or missing; an unknown or unsupported key at any depth; a
+ * commands module outside the package; a wrongly typed value; a naming override's field pointer, field flag or alias
+ * entry; a non-standard switch; a root that is no object) is refused with exactly one CFG-1 document refusal per fault,
+ * at the fault's own pointer, in pointer order, each echoing no value it refuses and hinting the folded title only for
+ * a missing bin name.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	configSpace,
+	expectedOf,
+	type Feature,
+	featuresOf
+} from "#test/model/author-config.fixtures.ts"
 
-const document = Schema.decodeUnknownSync(DocumentUri)("file:///work/author.json")
-
-const rowId = Schema.decodeUnknownSync(RowId)
-
-const context: AuthorConfigContext = { document, foldedTitle: "example-api" }
-
-const encode = (input: Schema.Json) =>
-	Schema.encodeSync(AuthorConfig)(Effect.runSync(decodeAuthorConfig(input, context)))
-
-const sample = {
-	binName: "example",
-	commands: { module: "./custom/commands.ts", names: ["login"] },
-	envPrefix: "EXAMPLE",
-	naming: {
-		byPointer: {},
-		operations: {
-			"users-update": {
-				command: "update",
-				parameters: { "header:If-Match": { flag: "if-match" } }
-			}
-		}
+/**
+ * A drawn config decodes to itself, or is refused exactly as its planted faults say. Its budget replaces 31 example
+ * cases (author-config 21, author-config-aliases 5, author-config-non-standard 5): 31 independent cases, and up to 32
+ * steered while one of its 16 situations is unreached, each reached by its own aimed arm.
+ */
+export const authorConfig = property.explore(configSpace, {
+	needs: {},
+	situations: [
+		"a valid config",
+		"a missing bin name",
+		"an invalid bin name",
+		"an unsafe commands module",
+		"an unsupported key",
+		"an unknown key",
+		"a missing key",
+		"an invalid version",
+		"an invalid value",
+		"an invalid field pointer",
+		"an invalid field flag",
+		"an alias refused",
+		"a key escaped in its pointer",
+		"a value at the root that is no object",
+		"several refusals in pointer order",
+		"a hint naming the folded title"
+	],
+	check: (_, k: Case<Feature>) => (c) =>
+		Effect.gen(function* () {
+			k.noteAll(featuresOf(c))
+			const actual = yield* actualOf(c)
+			deepStrictEqual(actual, expectedOf(c))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "the config itself, or one CFG-1 document refusal per planted fault at its pointer, in pointer order"
 	},
-	package: { name: "example-cli", version: "1.0.0" },
-	servers: { accepted: ["https://api.example.com"] }
-} as const
-
-const full = {
-	...sample,
-	acceptedOrigins: ["https://eu.example.com", "https://us.example.com"],
-	allowInsecure: false,
-	naming: {
-		byPointer: { "/paths/~1health/get": { group: "ops", skip: true } },
-		operations: sample.naming.operations
-	},
-	retrievalUri: "https://example.com/openapi.json",
-	security: { bearerAuth: { env: "EXAMPLE_TOKEN" } }
-} as const
-
-const refusals = (input: Schema.Json, ctx = context) => {
-	const exit = Effect.runSyncExit(decodeAuthorConfig(input, ctx))
-	if (Exit.isSuccess(exit)) {
-		throw new Error("expected a refusal")
-	}
-
-	const failure = exit.cause.reasons.find((reason) => reason._tag === "Fail")
-	if (failure === undefined) {
-		throw new Error("expected a typed failure")
-	}
-
-	expect(failure.error._tag).toBe("AuthorConfigRefused")
-
-	return failure.error.diagnostics
-}
-
-const keys = (input: Schema.Json) => refusals(input).map((d) => `${d.pointer}|${d.code}`)
-
-const without = (key: string) =>
-	Object.fromEntries(Object.entries(sample).filter(([name]) => name !== key))
-
-describe("decodeAuthorConfig", () => {
-	test("a config shaped like the design 4.8 sample decodes", () => {
-		expect(encode(sample)).toEqual(sample)
-	})
-
-	test("every documented key decodes", () => {
-		expect(encode(full)).toEqual(full)
-	})
-
-	test("a missing binName is a document refusal whose hint suggests the folded title", () => {
-		const [only, ...rest] = refusals(without("binName"))
-		expect(rest).toEqual([])
-		expect(only?.code).toBe("CFG-1/missing-bin-name")
-		expect(only?.row).toBe(rowId("CFG-1"))
-		expect(only?.scope).toBe("document")
-		expect(only?.severity).toBe("refusal")
-		expect(only?.document).toBe(document)
-		expect(String(only?.pointer)).toBe("/binName")
-		expect(only?.hint?.includes("example-api")).toBe(true)
-	})
-
-	test("a missing binName without a title still refuses", () => {
-		const [only] = refusals(without("binName"), { document })
-		expect(only?.code).toBe("CFG-1/missing-bin-name")
-	})
-
-	test("a binName with an uppercase letter is refused", () => {
-		expect(keys({ ...sample, binName: "Example" })).toEqual(["/binName|CFG-1/invalid-bin-name"])
-	})
-
-	test("binNames outside the pattern are refused", () => {
-		for (const binName of ["", "1abc", "-abc", "ab_c", "ab c", "abc\n"]) {
-			expect(keys({ ...sample, binName })).toEqual(["/binName|CFG-1/invalid-bin-name"])
+	kept: [],
+	budget: { runs: 31, steered: 32 },
+	kills: [
+		{
+			file: "packages/generator/src/model/author-config.ts",
+			original: 'part !== "" && part !== "." && part !== ".."',
+			replacement: "false",
+			why: "A commands module's segments are never plain, so every commands module is refused as unsafe; the property fails (CATCH's evidence, mutant 84169df5f6)."
+		},
+		{
+			file: "packages/generator/src/model/author-config.ts",
+			original: 'group.split(".").every((segment) => segment !== "")',
+			replacement: "false",
+			why: "A dotted alias group is never admitted, so a config whose alias names a group as a string is refused; the property fails (CATCH's evidence, mutant 851028c2ce)."
+		},
+		{
+			file: "packages/generator/src/model/author-config.ts",
+			original:
+				"Effect.forEach(findings(issue, []), (finding) => diagnose(finding, context)).pipe(\n\t\tEffect.map(\n\t\t\t(diagnostics) =>\n\t\t\t\tnew AuthorConfigRefused({\n\t\t\t\t\tdiagnostics: sortDiagnostics(\n\t\t\t\t\t\t[context.document],\n\t\t\t\t\t\tArr.dedupeWith(\n\t\t\t\t\t\t\tdiagnostics,\n\t\t\t\t\t\t\t(left, right) => left.pointer === right.pointer && left.code === right.code\n\t\t\t\t\t\t)\n\t\t\t\t\t)\n\t\t\t\t})\n\t\t)\n\t)",
+			replacement: "Effect.forEach(findings(issue, []), (finding) => diagnose(finding, context))",
+			why: "The refusals are neither ordered by pointer nor deduplicated, so several refusals come in the decoder's order; the property fails (CATCH's evidence, mutant 161e92aabd)."
+		},
+		{
+			file: "packages/generator/src/model/author-config.ts",
+			original: 'isField(path, 5) && kind === "unknown"',
+			replacement: 'kind === "unknown"',
+			why: "Every unknown key is read as a field pointer off its pattern, so an unknown key is refused under the wrong rule; the property fails (CATCH's evidence, mutant 19223c25f8)."
+		},
+		{
+			file: "packages/generator/src/model/author-config.ts",
+			original: '\t\t\t\t\tSchema.check(Schema.makeFilter((name: string) => name !== "add"))',
+			replacement: '\t\t\t\t\tSchema.check(Schema.makeFilter((name: string) => name === "add"))',
+			why: "A security scheme's name is admitted only when it is `add`, so a config naming a scheme's environment variable is refused; the property fails (CATCH's evidence, mutant 7195dc3ec1)."
+		},
+		{
+			file: "packages/generator/src/model/author-config.ts",
+			original: '\t\treturn kind === "missing" ? "missing-bin-name" : "invalid-bin-name"',
+			replacement: '\t\treturn kind !== "missing" ? "missing-bin-name" : "invalid-bin-name"',
+			why: "A missing bin name is refused as invalid and an invalid one as missing; the property fails (CATCH's evidence, mutant 949f80d319)."
+		},
+		{
+			file: "packages/generator/src/model/author-config.ts",
+			original: "[...path, ...pointer.path.map(String)]",
+			replacement: "[...pointer.path.map(String)]",
+			why: "A nested finding loses the tokens above it, so a refusal under package, naming or nonStandard points at the wrong place; the property fails (CATCH's evidence, mutant e1304fd8c3)."
+		},
+		{
+			file: "packages/generator/src/model/author-config.ts",
+			original: 'path.length === 1 && path[0] === "binName"',
+			replacement: "true",
+			why: "Every finding is read as the bin name's, so any refusal is named for the bin name; the property fails (CATCH's evidence, mutant ac1ffde917)."
 		}
-	})
-
-	test("a binName that is not a string is refused", () => {
-		expect(keys({ ...sample, binName: 3 })).toEqual(["/binName|CFG-1/invalid-bin-name"])
-	})
-
-	test("a commands module outside the package is a value-free document refusal", () => {
-		for (const module of [
-			"/abs/commands.ts",
-			"../outside.ts",
-			"./a/../x.ts",
-			".\\x.ts",
-			"./a//x.ts",
-			"./",
-			"."
-		]) {
-			const found = refusals({ ...sample, commands: { module, names: ["login"] } })
-			expect(found.map((d) => `${d.pointer}|${d.code}|${d.scope}`)).toEqual([
-				"/commands/module|CFG-1/unsafe-commands-module|document"
-			])
-			if (module.length > 3) {
-				expect(JSON.stringify(found)).not.toContain(module)
-			}
-		}
-	})
-
-	test("refuses assertPatterns, true or false, naming the key and not the value", () => {
-		for (const value of [true, false]) {
-			const found = refusals({ ...sample, assertPatterns: value })
-
-			expect(found.map((d) => `${d.pointer}|${d.code}`)).toEqual([
-				"/assertPatterns|CFG-1/unsupported-key"
-			])
-			expect(found[0]?.message).toContain("assertPatterns")
-			expect(found[0]?.message).not.toContain(String(value))
-		}
-	})
-
-	test("an unknown top-level key is refused", () => {
-		expect(keys({ ...sample, bogus: true })).toEqual(["/bogus|CFG-1/unknown-key"])
-	})
-
-	test("an unknown nested key is refused at its pointer", () => {
-		expect(keys({ ...sample, package: { extra: 1, name: "x", version: "1.0.0" } })).toEqual([
-			"/package/extra|CFG-1/unknown-key"
-		])
-	})
-
-	test("a missing required key is refused", () => {
-		expect(keys({ ...sample, package: { name: "x" } })).toEqual([
-			"/package/version|CFG-1/missing-key"
-		])
-	})
-
-	test("a package version that is not semver 2.0.0 is refused without echoing the value", () => {
-		const bad = [
-			"1",
-			"1.0",
-			"01.0.0",
-			"1.0.0-",
-			"1.0.0 ",
-			" 1.0.0",
-			"1.0.0-'rc'\u2028",
-			"v1.0.0",
-			"1.0.0\n",
-			""
-		]
-		for (const version of bad) {
-			const found = refusals({ ...sample, package: { name: "x", version } }, { document })
-			expect(found.map((d) => `${d.pointer}|${d.code}`)).toEqual([
-				"/package/version|CFG-1/invalid-version"
-			])
-			expect(found[0]?.message).not.toContain("rc")
-		}
-	})
-
-	test("semver 2.0.0 versions with prerelease and build metadata are accepted", () => {
-		for (const version of [
-			"0.0.0",
-			"1.2.3",
-			"1.0.0-rc.1",
-			"1.0.0+build.5",
-			"1.0.0-alpha-1+sha.abc"
-		]) {
-			const exit = Effect.runSyncExit(
-				decodeAuthorConfig({ ...sample, package: { name: "x", version } }, { document })
-			)
-			expect(Exit.isSuccess(exit)).toBe(true)
-		}
-	})
-
-	test("a wrongly typed value is refused", () => {
-		expect(keys({ ...sample, allowInsecure: "yes" })).toEqual([
-			"/allowInsecure|CFG-1/invalid-value"
-		])
-		expect(keys({ ...sample, envPrefix: "lower" })).toEqual(["/envPrefix|CFG-1/invalid-value"])
-	})
-
-	test("a non-object config is refused at the root", () => {
-		expect(keys([])).toEqual(["|CFG-1/invalid-value"])
-		expect(keys(null)).toEqual(["|CFG-1/invalid-value"])
-	})
-
-	test("every problem is reported, ordered by pointer", () => {
-		expect(keys({ ...without("binName"), aaa: 2, zzz: 1 })).toEqual([
-			"/aaa|CFG-1/unknown-key",
-			"/binName|CFG-1/missing-bin-name",
-			"/zzz|CFG-1/unknown-key"
-		])
-	})
-
-	test("a body field flag rename keyed by its body pointer decodes", () => {
-		const fields = { "/foo_bar": { flag: "foo-bar-raw" }, "/meta/name": { flag: "meta.label" } }
-		const input = { ...sample, naming: { operations: { "things-make": { fields } } } }
-
-		expect(encode(input)).toEqual(input)
-	})
-
-	test("a body field key that is not a pointer is refused at its config pointer", () => {
-		for (const key of ["foo_bar", "", "/a~2b"]) {
-			const naming = { operations: { make: { fields: { [key]: { flag: "foo" } } } } }
-			const found = refusals({ ...sample, naming })
-
-			expect(found.map((d) => `${d.pointer}|${d.code}|${d.scope}`)).toEqual([
-				`/naming/operations/make/fields/${key.replaceAll("~", "~0").replaceAll("/", "~1")}|CFG-1/invalid-field-pointer|document`
-			])
-			expect(found[0]?.message).toContain("RFC 6901")
-		}
-	})
-
-	test("a body field flag that is not a flag name is refused at its config pointer", () => {
-		for (const flag of ["", "Foo", "foo bar", "--foo", "foo-", "1foo", "foo..bar", "foo_bar"]) {
-			const naming = { byPointer: { "/paths/~1x/post": { fields: { "/x": { flag } } } } }
-
-			expect(keys({ ...sample, naming })).toEqual([
-				"/naming/byPointer/~1paths~1~01x~1post/fields/~1x/flag|CFG-1/invalid-field-flag"
-			])
-		}
-	})
-
-	test("pointers escape slash and tilde in keys", () => {
-		expect(keys({ ...sample, "a/b~c": 1 })).toEqual(["/a~1b~0c|CFG-1/unknown-key"])
-	})
+	]
 })

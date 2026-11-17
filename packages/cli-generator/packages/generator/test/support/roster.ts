@@ -4,4 +4,11 @@
  * module converted to properties moves from Vitest to the runner by entering it, in the commit that converts it. The
  * list grows as each directory is converted, until it names every test module and Vitest's configs go.
  */
-export const propertyModules: ReadonlyArray<string> = []
+export const propertyModules: ReadonlyArray<string> = [
+	"test/model/author-config.test.ts",
+	"test/model/brands.test.ts",
+	"test/model/diagnostic.test.ts",
+	"test/model/json-tree.test.ts",
+	"test/model/path-item.test.ts",
+	"test/model/pointer.test.ts"
+]

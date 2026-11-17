@@ -1,203 +1,179 @@
-import { Array as Arr, Cause, Effect, Exit, Schema } from "effect"
-import { describe, expect, test } from "vitest"
+/**
+ * The model's Diagnostic (design 8.1) and verdict file (design 8.2). A diagnostic of every scope and severity, each
+ * optional field present or not, decodes, encodes back to itself in its declared key order, is what the factory builds
+ * from its fields without a row, and reads as a refusal and a document refusal exactly as its severity and scope say;
+ * a code naming another row, a malformed code, an unknown scope, a pointer that is no RFC 6901 text and a position
+ * below one are each refused. Diagnostics sort by their document's place in the set (any other last), then design
+ * 3.7's pointer order, then code, whatever order they arrive in, and the sort is a fixed point. A verdict whose
+ * coverage holds every element and claim kind, its keys in any order, decodes and encodes back with each entry's keys
+ * in the schema's order.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import {
-	Diagnostic,
-	diagnosticOf,
-	isDocumentRefusal,
-	isRefusal,
-	makeDiagnostic,
-	Site,
-	sortDiagnostics
-} from "#model/diagnostic.ts"
-import { Origin, RowId } from "#model/entities.ts"
-import { Verdict } from "#model/verdict.ts"
+	type CodecFeature,
+	codecAnswerOf,
+	codecFeaturesOf,
+	diagnosticSpace,
+	expectedCodecOf,
+	expectedSortOf,
+	expectedVerdictOf,
+	type OrderFeature,
+	orderFeaturesOf,
+	sortedOf,
+	sortSpace,
+	verdictAnswerOf,
+	type VerdictFeature,
+	verdictFeaturesOf,
+	verdictSpace
+} from "#test/model/diagnostic.fixtures.ts"
 
-const rowId = Schema.decodeUnknownSync(RowId)
-
-const base: typeof Diagnostic.Encoded = {
-	code: "PRM-27/compound-nested",
-	column: 3,
-	document: "file:///spec.json",
-	element: "Parameter style deepObject",
-	line: 12,
-	message: "deepObject value has nested objects",
-	openapi: "3.0.3",
-	pointer: "/paths/~1x/get/parameters/0",
-	row: "PRM-27",
-	scope: "element",
-	severity: "refusal",
-	specSection: "https://spec.openapis.org/oas/v3.0.4.html#style-values"
-}
-
-const at = (severity: "refusal" | "notice", scope: "document" | "element") =>
-	Schema.decodeUnknownSync(Diagnostic)({ ...base, scope, severity })
-
-const keys = (list: readonly Diagnostic[]) => list.map((d) => `${d.document}${d.pointer}|${d.code}`)
-
-const decode = Schema.decodeUnknownExit(Diagnostic)
-
-const make = (document: string, pointer: string, code: string) =>
-	Schema.decodeUnknownSync(Diagnostic)({ ...base, code, document, pointer, row: "PRM-1" })
-
-describe("Diagnostic", () => {
-	test("a well-formed diagnostic decodes and round-trips through its encoding", () => {
-		const diagnostic = Schema.decodeUnknownSync(Diagnostic)(base)
-		expect(Schema.encodeSync(Diagnostic)(diagnostic)).toEqual(base)
-	})
-
-	test("the optional wire name decodes and round-trips, alongside an S30 row", () => {
-		const encoded = {
-			...base,
-			code: "S30-22/array-without-items",
-			openapi: "3.0.3",
-			row: "S30-22",
-			wire: "session"
+/**
+ * A drawn diagnostic round-trips and is what the factory builds, or is refused for its planted fault. Its budget replaces
+ * 12 example cases: 12 independent cases, and up to 32 steered while one of its 16 situations is unreached, each reached
+ * by its own aimed arm.
+ */
+export const diagnosticCodec = property.explore(diagnosticSpace, {
+	needs: {},
+	situations: [
+		"a code naming another row refused",
+		"a malformed code refused",
+		"an unknown scope refused",
+		"a pointer that is no RFC 6901 text refused",
+		"a position below one refused",
+		"a document refusal",
+		"a document notice",
+		"a operation refusal",
+		"a operation notice",
+		"a element refusal",
+		"a element notice",
+		"a field refusal",
+		"a field notice",
+		"a diagnostic of every optional field",
+		"a diagnostic of no optional field",
+		"a row whose prefix holds a digit"
+	],
+	check: (_, k: Case<CodecFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			k.noteAll(codecFeaturesOf(sketch))
+			const actual = yield* codecAnswerOf(sketch)
+			deepStrictEqual(actual, expectedCodecOf(sketch))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "the encoded fields back in declared order, the factory's diagnostic, the predicates by severity and scope"
+	},
+	kept: [],
+	budget: { runs: 12, steered: 32 },
+	kills: [
+		{
+			file: "packages/generator/src/model/diagnostic.ts",
+			original: "\t\t\t\tOption.getOrUndefined(rowOfCode(fields.code)) === fields.row ||",
+			replacement: "\t\t\t\tOption.getOrUndefined(rowOfCode(fields.code)) !== fields.row ||",
+			why: "A diagnostic is admitted only when its code names another row than its row field, so every sound diagnostic is refused; the property fails (CATCH's evidence, mutant 327a1669df)."
+		},
+		{
+			file: "packages/generator/src/model/diagnostic.ts",
+			original:
+				'Option.getOrUndefined(rowOfCode(fields.code)) === fields.row ||\n\t\t\t\t"code must start with its row id"',
+			replacement: '"code must start with its row id"',
+			why: "The row check always answers its message, so every diagnostic is refused; the property fails (CATCH's evidence, mutant 8ab3c2d689)."
+		},
+		{
+			file: "packages/generator/src/model/diagnostic.ts",
+			original: 'diagnostic.scope === "document"',
+			replacement: "false",
+			why: "isDocumentRefusal never answers true, so a document-scope refusal reads as an element's; the property fails (CATCH's evidence, mutant 6d016061c9)."
 		}
-		const diagnostic = Schema.decodeUnknownSync(Diagnostic)(encoded)
-		expect(diagnostic.wire).toBe("session")
-		expect(Schema.encodeSync(Diagnostic)(diagnostic)).toEqual(encoded)
-	})
+	]
+})
 
-	test("a code that names a different row than the row field is rejected", () => {
-		expect(Exit.isFailure(decode({ ...base, row: "PRM-28" }))).toBe(true)
-	})
-
-	test("a row id with a digit in its prefix, like S30, decodes with its code", () => {
-		expect(
-			Exit.isSuccess(decode({ ...base, code: "S30-22/array-without-items", row: "S30-22" }))
-		).toBe(true)
-	})
-
-	test("a field-scope refusal decodes and round-trips; an unknown scope is rejected", () => {
-		const encoded: typeof Diagnostic.Encoded = {
-			...base,
-			element: "metadata",
-			pointer:
-				"/paths/~1x/post/requestBody/content/application~1x-www-form-urlencoded/encoding/metadata",
-			scope: "field"
+/**
+ * A drawn list of diagnostics sorts as the model orders it, whatever its arrival order, and sorting again changes
+ * nothing. Its budget replaces 2 example cases: 2 independent cases, and up to 8 steered while one of its 4 situations
+ * is unreached, each reached by its own aimed arm.
+ */
+export const diagnosticOrder = property.explore(sortSpace, {
+	needs: {},
+	situations: [
+		"two pointers differing in an array index",
+		"a document outside the set",
+		"two diagnostics at one place told apart by code",
+		"a pointer and its own descendant"
+	],
+	check: (_, k: Case<OrderFeature>) => (c) =>
+		Effect.gen(function* () {
+			k.noteAll(orderFeaturesOf(c))
+			const actual = yield* sortedOf(c)
+			deepStrictEqual(actual, expectedSortOf(c))
+		}),
+	oracle: {
+		kind: "second-implementation",
+		name: "design 3.7's order: document place, then pointer token by token with array indices by number, then code"
+	},
+	kept: [],
+	budget: { runs: 2, steered: 8 },
+	kills: [
+		{
+			file: "packages/generator/src/model/diagnostic.ts",
+			original: "\t\treturn index === -1 ? documents.length : index",
+			replacement: "\t\treturn index !== -1 ? documents.length : index",
+			why: "A document outside the set sorts first instead of last; the property fails (CATCH's evidence, mutant 9a5102f2c9)."
 		}
-		const diagnostic = Schema.decodeUnknownSync(Diagnostic)(encoded)
-		expect(diagnostic.scope).toBe("field")
-		expect(Schema.encodeSync(Diagnostic)(diagnostic)).toEqual(encoded)
-		expect(Exit.isFailure(decode({ ...base, scope: "property" }))).toBe(true)
-	})
-
-	test("a pointer that is not RFC 6901 text is rejected", () => {
-		expect(Exit.isFailure(decode({ ...base, pointer: "#/paths" }))).toBe(true)
-	})
+	]
 })
 
-describe("sortDiagnostics", () => {
-	const documents = ["file:///a.json", "file:///b.json"]
-
-	test("orders by document index, then pointer, then code, whatever the input order", () => {
-		const ordered = [
-			make("file:///a.json", "/paths/~1x", "PRM-1/a"),
-			make("file:///a.json", "/paths/~1x", "PRM-1/b"),
-			make("file:///a.json", "/paths/~1x/get/parameters/2", "PRM-1/a"),
-			make("file:///a.json", "/paths/~1x/get/parameters/10", "PRM-1/a"),
-			make("file:///b.json", "/info", "PRM-1/a")
-		]
-		const shuffled = Arr.getSomes([3, 4, 1, 2, 0].map((index) => Arr.get(ordered, index)))
-		expect(keys(sortDiagnostics(documents, shuffled))).toEqual(keys(ordered))
-	})
-
-	test("a document outside the set sorts after every listed document", () => {
-		const stray = make("file:///z.json", "/a", "PRM-1/a")
-		const listed = make("file:///b.json", "/z", "PRM-1/a")
-		expect(sortDiagnostics(documents, [stray, listed])).toEqual([listed, stray])
-	})
-})
-
-describe("Verdict", () => {
-	// Every list carries a real entry so the round trip exercises each element and claim shape,
-	// not only empty arrays; the counts agree with the lists.
-	const verdict: typeof Verdict.Encoded = {
-		commandSources: { config: 1, fern: 0, fold: 1, forge: 0 },
-		corpusVersion: 1,
-		counts: {
-			informational: 0,
-			nonStandard: 1,
-			notices: 1,
-			operations: { generated: 2, refused: 1, total: 3 },
-			refusals: { document: 0, element: 1, field: 1, operation: 0 }
+/**
+ * A drawn verdict decodes and encodes back to itself, each coverage entry's keys in the schema's order. Its budget
+ * replaces 2 example cases (diagnostic's verdict round trip, verdict's key order): 2 independent cases, and up to 26
+ * steered while one of its 13 situations is unreached, each reached by its own aimed arm.
+ */
+export const verdictCodec = property.explore(verdictSpace, {
+	needs: {},
+	situations: [
+		"a operation element",
+		"a parameter element",
+		"a refusedField element",
+		"a requestMedia element",
+		"a response element",
+		"a securityAlternative element",
+		"a server element",
+		"an invented command",
+		"an invented refusedField",
+		"an invented requestMedia",
+		"an invented response",
+		"an invented securityAlternative",
+		"an invented server"
+	],
+	check: (_, k: Case<VerdictFeature>) => (v) =>
+		Effect.gen(function* () {
+			k.noteAll(verdictFeaturesOf(v))
+			const actual = yield* verdictAnswerOf(v)
+			deepStrictEqual(actual, expectedVerdictOf(v))
+		}),
+	oracle: {
+		kind: "universal",
+		name: "the verdict round-trips, each coverage entry's site or claim first, then its kind's keys alphabetically"
+	},
+	kept: [],
+	budget: { runs: 2, steered: 26 },
+	kills: [
+		{
+			file: "packages/generator/src/model/verdict.ts",
+			original:
+				"[\n\twithSite(OperationKind),\n\twithSite(ParameterKind),\n\twithSite(RefusedFieldKind),\n\twithSite(RequestMediaKind),\n\twithSite(ResponseKind),\n\twithSite(SecurityAlternativeKind),\n\twithSite(ServerKind)\n]",
+			replacement:
+				"[withSite(OperationKind), withSite(RefusedFieldKind), withSite(RequestMediaKind), withSite(ResponseKind), withSite(SecurityAlternativeKind), withSite(ServerKind)]",
+			why: "The coverage join forgets the parameter element, so a verdict holding one no longer decodes; the property fails (CATCH's evidence, mutant c1c4d5b07d)."
 		},
-		coverage: {
-			byNotice: [
-				{
-					document: "file:///stripe.json",
-					in: "header",
-					kind: "parameter",
-					name: "X-Trace",
-					pointer: "/paths/~1x/get/parameters/0"
-				}
-			],
-			checked: true,
-			invented: [{ kind: "server", path: ["charges", "list"], url: "https://example.test" }],
-			missing: [{ document: "file:///stripe.json", kind: "operation", pointer: "/paths/~1y/get" }]
-		},
-		generator: {
-			config: "corpus/config/stripe.json",
-			configSha256: "ab".repeat(32),
-			version: "0.1.0"
-		},
-		nonStandard: [
-			{ choice: "deepObjectBrackets", pointer: "/paths/~1x/get/parameters/1", row: "PRM-27" }
-		],
-		notices: [{ code: "PRM-19/ignored-header", pointer: "/paths/~1x", row: "PRM-19" }],
-		refusals: [
-			{ code: "PRM-27/compound-nested", pointer: "/paths/~1x", row: "PRM-27", scope: "element" },
-			{
-				code: "PRM-27/compound-nested",
-				pointer:
-					"/paths/~1z/post/requestBody/content/application~1x-www-form-urlencoded/encoding/a",
-				row: "PRM-27",
-				scope: "field"
-			}
-		],
-		spec: { id: "stripe", openapi: "3.0.0", sha256: "cd".repeat(32) },
-		twinEquality: { checked: true, equal: true },
-		verdict: "partly-refused"
-	}
-
-	test("a verdict round-trips", () => {
-		const decoded = Schema.decodeUnknownSync(Verdict)(verdict)
-		expect(Schema.encodeSync(Verdict)(decoded)).toEqual(verdict)
-	})
+		{
+			file: "packages/generator/src/model/verdict.ts",
+			original:
+				"[\n\twithClaim(CommandKind),\n\twithClaim(RefusedFieldKind),\n\twithClaim(RequestMediaKind),\n\twithClaim(ResponseKind),\n\twithClaim(SecurityAlternativeKind),\n\twithClaim(ServerKind)\n]",
+			replacement:
+				"[withClaim(CommandKind), withClaim(RefusedFieldKind), withClaim(RequestMediaKind), withClaim(SecurityAlternativeKind), withClaim(ServerKind)]",
+			why: "The coverage join forgets the invented response claim, so a verdict holding one no longer decodes; the property fails (CATCH's evidence, mutant 592bf238d5)."
+		}
+	]
 })
-
-describe("diagnosticOf and makeDiagnostic", () => {
-	const { row: _row, ...input } = base
-
-	test("an undefined key is absent from the result", async () => {
-		const diagnostic = await Effect.runPromise(makeDiagnostic({ ...input, hint: undefined }))
-
-		expect(Object.keys(diagnostic)).not.toContain("hint")
-	})
-
-	test("row equals the code prefix", async () => {
-		const diagnostic = await Effect.runPromise(makeDiagnostic(input))
-
-		expect(diagnostic.row).toBe(rowId("PRM-27"))
-	})
-
-	test("the encoded key order equals that of a directly decoded Diagnostic", async () => {
-		const built = await Effect.runPromise(makeDiagnostic({ ...input, hint: "h" }))
-		const direct = Schema.decodeUnknownSync(Diagnostic)({ ...base, hint: "h" })
-
-		expect(Object.keys(Schema.encodeSync(Diagnostic)(built))).toEqual(
-			Object.keys(Schema.encodeSync(Diagnostic)(direct))
-		)
-		expect(built).toEqual(direct)
-	})
-
-	test("refusal predicates read severity and scope", () => {
-		expect(isRefusal(at("refusal", "element"))).toBe(true)
-		expect(isRefusal(at("notice", "document"))).toBe(false)
-		expect(isDocumentRefusal(at("refusal", "document"))).toBe(true)
-		expect(isDocumentRefusal(at("refusal", "element"))).toBe(false)
-		expect(isDocumentRefusal(at("notice", "document"))).toBe(false)
-	})
-})
-
-describe("Site", () => {})

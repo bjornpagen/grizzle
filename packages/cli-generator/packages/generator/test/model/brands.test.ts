@@ -1,189 +1,100 @@
-import { Effect, Exit, Schema } from "effect"
-import { describe, expect, test } from "vitest"
+/**
+ * The model's branded codecs (WireName, HeaderName, CookieName, MediaType, MediaRange, PathTemplate, ServerTemplate,
+ * MethodToken, SafeText, DocumentUri, JsonPointer) admit exactly what their grammars admit, decided by recognizers
+ * written from RFC 9110, RFC 3986, RFC 6901, OpenAPI's templates and the help-safe text categories over text built from
+ * the pieces each grammar turns on: dot and empty path segments, percent-encodings, brace expressions, wildcards,
+ * quoted parameters, `CONNECT`, controls, format characters, separators and lone surrogates. No brand admits a number,
+ * and SafeText's stripper removes exactly the characters its grammar refuses.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import {
-	CookieName,
-	DocumentUri,
-	HeaderName,
-	JsonLiteral,
-	JsonPointer,
-	MediaRange,
-	MediaType,
-	MethodToken,
-	PathTemplate,
-	SafeText,
-	ServerTemplate,
-	WireName
-} from "#model/brands.ts"
-import { parsePointer } from "#model/pointer.ts"
-import hostile from "#test/fixtures/seeds/hostile.json" with { type: "json" }
-import paths from "#test/fixtures/seeds/paths.json" with { type: "json" }
+	actualOf,
+	brandSpace,
+	expectedOf,
+	type Feature,
+	featuresOf
+} from "#test/model/brands.fixtures.ts"
 
-const decode = (codec: Schema.Decoder<unknown>, input: Schema.Json) =>
-	Schema.decodeUnknownExit(codec)(input)
-
-const issueTag = (codec: Schema.Decoder<unknown>, input: Schema.Json): string => {
-	const exit = decode(codec, input)
-	if (Exit.isSuccess(exit)) {
-		return "accepted"
-	}
-
-	return "rejected"
-}
-
-const HostileCases = Schema.Struct({
-	cases: Schema.Array(
-		Schema.Struct({
-			id: Schema.String,
-			input: Schema.Union([
-				Schema.String,
-				Schema.Struct({ codeUnits: Schema.Array(Schema.Number) })
-			])
-		})
-	)
-})
-
-const hostileStrings: readonly string[] = Schema.decodeUnknownSync(HostileCases)(hostile).cases.map(
-	({ input }) =>
-		Schema.is(Schema.String)(input) ? input : String.fromCodePoint(...input.codeUnits)
-)
-
-const PathCases = Schema.Struct({
-	cases: Schema.Array(
-		Schema.Struct({
-			expected: Schema.Struct({
-				outcome: Schema.Literals(["accepted", "refused"]),
-				rows: Schema.optional(Schema.Array(Schema.String))
-			}),
-			id: Schema.String,
-			input: Schema.Struct({ path: Schema.String })
-		})
-	)
-})
-
-const pathCases = Schema.decodeUnknownSync(PathCases)(paths).cases
-
-// The once-per-expression rule belongs to the cross-check slice, not the brand.
-const brandAcceptsAnyway: ReadonlySet<string> = new Set(["path-reject-duplicate-expression"])
-
-const brands = [
-	["WireName", WireName, "page[size]", ""],
-	["HeaderName", HeaderName, "X-Request-Id", "bad name"],
-	["CookieName", CookieName, "session_id", "a=b"],
-	["MediaType", MediaType, "application/json; charset=utf-8", "application/*"],
-	["MediaRange", MediaRange, "image/*", "image"],
-	["PathTemplate", PathTemplate, "/users/{id}/posts", "users/{id}"],
-	["ServerTemplate", ServerTemplate, "https://{region}.example.com/v1", "https://a b/{"],
-	["MethodToken", MethodToken, "PROPFIND", "CONNECT"],
-	["SafeText", SafeText, "Line one\nline\ttwo", "bell\u0007"],
-	["DocumentUri", DocumentUri, "file:///specs/api.yaml", "no scheme"],
-	["JsonPointer", JsonPointer, "/a~1b/0", "a/b"]
-] as const
-
-describe("branded codecs", () => {
-	for (const [name, codec, valid, invalid] of brands) {
-		test(`${name} accepts a valid value and rejects an invalid one`, () => {
-			const ok = decode(codec, valid)
-			expect(Exit.isSuccess(ok) ? ok.value : undefined).toBe(valid)
-			expect(issueTag(codec, invalid)).toBe("rejected")
-			expect(issueTag(codec, 42)).toBe("rejected")
-		})
-	}
-
-	test("rejection is stable across repeated decodes", () => {
-		for (const [, codec, , invalid] of brands) {
-			const first = decode(codec, invalid)
-			const second = decode(codec, invalid)
-			expect(Exit.isFailure(first)).toBe(true)
-			expect(String(first)).toBe(String(second))
+/**
+ * A brand admits a drawn text exactly when its grammar does. Its budget replaces 18 example cases: 18 independent
+ * cases, and up to 54 steered while one of its 27 situations is unreached, each reached by its own aimed arm.
+ */
+export const brandMembership = property.explore(brandSpace, {
+	needs: {},
+	situations: [
+		"WireName admitted",
+		"WireName refused",
+		"HeaderName admitted",
+		"HeaderName refused",
+		"CookieName admitted",
+		"CookieName refused",
+		"MediaType admitted",
+		"MediaType refused",
+		"MediaRange admitted",
+		"MediaRange refused",
+		"PathTemplate admitted",
+		"PathTemplate refused",
+		"ServerTemplate admitted",
+		"ServerTemplate refused",
+		"MethodToken admitted",
+		"MethodToken refused",
+		"SafeText admitted",
+		"SafeText refused",
+		"DocumentUri admitted",
+		"DocumentUri refused",
+		"JsonPointer admitted",
+		"JsonPointer refused",
+		"a template of several segments admitted",
+		"a dot segment refused",
+		"an interior empty segment refused",
+		"CONNECT refused",
+		"unsafe text stripped"
+	],
+	check: (_, k: Case<Feature>) => (c) =>
+		Effect.sync(() => {
+			k.noteAll(featuresOf(c))
+			deepStrictEqual(actualOf(c), expectedOf(c))
+		}),
+	oracle: {
+		kind: "second-implementation",
+		name: "a recognizer per brand written from its grammar, and the text grammar's own removal"
+	},
+	kept: [],
+	budget: { runs: 18, steered: 54 },
+	kills: [
+		{
+			file: "packages/generator/src/model/brands.ts",
+			original: "!Str.isEmpty(segment) || index === last",
+			replacement: "index === last",
+			why: "An empty path segment is admitted anywhere, so a template with an interior empty segment decodes; the property fails (CATCH's evidence, mutant 9737c73c19)."
+		},
+		{
+			file: "packages/generator/src/model/brands.ts",
+			original:
+				'pattern(tokenPattern).pipe(\n\tSchema.check(Schema.makeFilter((method: string) => method !== "CONNECT")),\n\tSchema.brand("MethodToken")\n)',
+			replacement: 'pattern(tokenPattern).pipe(Schema.brand("MethodToken"))',
+			why: "MethodToken admits CONNECT, which asks for a tunnel instead of a response; the property fails (CATCH's evidence, mutant 564f9cca57)."
+		},
+		{
+			file: "packages/generator/src/model/brands.ts",
+			original: '\treturn decoded === "." || decoded === ".."',
+			replacement: '\treturn decoded === "." || decoded !== ".."',
+			why: "No segment reads as a dot segment, so a template with `.`, `..` or their percent-encodings decodes; the property fails (CATCH's evidence, mutant f6cd9a7b46)."
+		},
+		{
+			file: "packages/generator/src/model/brands.ts",
+			original: "Schema.String.pipe(Schema.check(Schema.isPattern(regExp)))",
+			replacement: "Schema.String",
+			why: "A brand built on a pattern checks none, so every text decodes as a WireName, HeaderName, MediaType, SafeText or URI; the property fails (CATCH's evidence, mutant 679dac1427)."
+		},
+		{
+			file: "packages/generator/src/model/brands.ts",
+			original:
+				'Schema.String.pipe(\n\tSchema.check(Schema.isPattern(pointerPattern)),\n\tSchema.brand("JsonPointer")\n)',
+			replacement: 'Schema.String.pipe(Schema.brand("JsonPointer"))',
+			why: "JsonPointer checks no pattern, so a text without its leading slash or with a bare `~` decodes; the property fails (CATCH's evidence, mutant 59d8a9970a)."
 		}
-	})
-
-	test("path templates reject unbalanced and empty expressions", () => {
-		for (const bad of ["/a/{", "/a/}", "/a/{}", "/a/{x{y}}", "/a b", "/a?x=1"]) {
-			expect(issueTag(PathTemplate, bad)).toBe("rejected")
-		}
-		expect(issueTag(PathTemplate, "/")).toBe("accepted")
-	})
-
-	test("PathTemplate agrees with every seeded path case it owns (seeds/paths.json)", () => {
-		expect(pathCases.length).toBeGreaterThan(100)
-		for (const { id, input, expected } of pathCases) {
-			const owned =
-				expected.outcome === "accepted" ||
-				(expected.rows ?? []).some((row) => row === "PTH-02" || row === "PTH-07")
-			const want =
-				expected.outcome === "accepted" || brandAcceptsAnyway.has(id) ? "accepted" : "rejected"
-			if (owned) {
-				expect([id, issueTag(PathTemplate, input.path)]).toEqual([id, want])
-			}
-		}
-	})
-
-	test("PathTemplate refuses dot segments, interior empty segments and control characters in names", () => {
-		for (const bad of [
-			"/a/%2E%2e/b",
-			"/a//b",
-			"//a",
-			"/a/./b",
-			"/a/..",
-			`/a/{b${String.fromCodePoint(1)}}`,
-			"/a/{b\uD800}"
-		]) {
-			expect([bad, issueTag(PathTemplate, bad)]).toEqual([bad, "rejected"])
-		}
-		for (const good of ["/", "/a/", "/a/%ff", "/a/{café}", "/a/%2e%2ex", "/a/..a", "/a/.b"]) {
-			expect([good, issueTag(PathTemplate, good)]).toEqual([good, "accepted"])
-		}
-	})
-
-	test("hostile strings never throw and the token brands reject all syntax-bearing ones", () => {
-		expect(hostileStrings.length).toBeGreaterThanOrEqual(12)
-		for (const text of hostileStrings) {
-			for (const [, codec] of brands) {
-				expect(() => decode(codec, text)).not.toThrow()
-			}
-		}
-		const nonTokens = hostileStrings.filter((s) => !/^[A-Za-z_]+$/u.test(s))
-		for (const text of nonTokens) {
-			for (const codec of [HeaderName, CookieName, MethodToken, MediaType, MediaRange]) {
-				expect(issueTag(codec, text)).toBe("rejected")
-			}
-			expect(issueTag(PathTemplate, text)).toBe("rejected")
-			expect(issueTag(DocumentUri, text)).toBe("rejected")
-		}
-	})
-
-	test("text brands reject control, lone-surrogate and line-separator input and keep plain text", () => {
-		for (const bad of ["\uD800", "\uDC00", "a\rb", String.fromCodePoint(0x20_28, 0x20_29)]) {
-			expect(issueTag(SafeText, bad)).toBe("rejected")
-		}
-		for (const bad of ["\uD800", "\uDC00", "a\rb"]) {
-			expect(issueTag(WireName, bad)).toBe("rejected")
-		}
-		for (const good of [
-			["a", "{b}c"].join("$"),
-			"`\\",
-			"text */ more",
-			"first line\n  @deprecated forged tag",
-			"😀"
-		]) {
-			expect(issueTag(SafeText, good)).toBe("accepted")
-		}
-		for (const good of ["__proto__", "constructor", "prototype", ["a", "{b}c"].join("$"), "😀"]) {
-			expect(issueTag(WireName, good)).toBe("accepted")
-		}
-		for (const good of ["__proto__", "constructor", "prototype"]) {
-			expect(issueTag(HeaderName, good)).toBe("accepted")
-		}
-	})
-})
-
-describe("JsonPointer brand", () => {
-	test("accepts exactly what parsePointer accepts", () => {
-		for (const text of ["", "/", "//", "a", "/a~1b/m~0n", "/~", "/~2", "/~01", "/\uD800"]) {
-			expect(Schema.is(JsonPointer)(text)).toBe(
-				Exit.isSuccess(Effect.runSyncExit(parsePointer(text)))
-			)
-		}
-	})
+	]
 })

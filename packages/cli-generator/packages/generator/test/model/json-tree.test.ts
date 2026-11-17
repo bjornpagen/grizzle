@@ -1,88 +1,62 @@
-import { Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { foldJson, isObject, stringMember } from "#model/json-tree.ts"
-import type { JsonFold } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
+/**
+ * The JSON tree readers (model/json-tree.ts): over drawn trees whose objects hold their keys in any order, `isObject`
+ * and `isArray` tell an object from an array, null and the scalars; `stringMember` reads an own string member and
+ * nothing else (no prototype member, no member of another type, nothing of a non-object); and `foldJson` folds bottom
+ * up, items by index and members in insertion order, each node beneath its parent's tokens from the tokens it starts
+ * at, as a reference walk does.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	actualOf,
+	expectedOf,
+	type Feature,
+	featuresOf,
+	treeSpace
+} from "#test/model/json-tree.fixtures.ts"
 
-describe("isObject", () => {
-	test("new pin: rejects null", () => {
-		expect(isObject(null)).toBe(false)
-	})
-
-	test("new pin: rejects an array", () => {
-		expect(isObject([1, "a"])).toBe(false)
-	})
-
-	test("new pin: accepts an object", () => {
-		expect(isObject({ a: 1 })).toBe(true)
-	})
-
-	test("new pin: rejects a string", () => {
-		expect(isObject("text")).toBe(false)
-	})
-})
-
-describe("stringMember", () => {
-	test("new pin: reads an own string member", () => {
-		expect(stringMember({ name: "pets" }, "name")).toBe("pets")
-	})
-
-	test("new pin: returns undefined for a non-object value", () => {
-		const values: readonly Json[] = ["name", 1, true, null, ["name"]]
-		for (const value of values) {
-			expect(stringMember(value, "name")).toBeUndefined()
+/**
+ * A drawn tree reads and folds as the reference walk says. Its budget replaces 6 example cases: 6 independent cases,
+ * and up to 20 steered while one of its 10 situations is unreached, each reached by its own aimed arm.
+ */
+export const jsonTree = property.explore(treeSpace, {
+	needs: {},
+	situations: [
+		"an object",
+		"an array",
+		"null",
+		"a string",
+		"a number or a boolean",
+		"an own string member read",
+		"a member that is no string",
+		"a prototype name",
+		"keys out of sorted order",
+		"a fold from a nonempty start"
+	],
+	check: (_, k: Case<Feature>) => (c) =>
+		Effect.sync(() => {
+			k.noteAll(featuresOf(c))
+			deepStrictEqual(actualOf(c), expectedOf(c))
+		}),
+	oracle: {
+		kind: "second-implementation",
+		name: "a reference walk: kinds by JSON's own types, own members alone, children first in insertion order"
+	},
+	kept: [],
+	budget: { runs: 6, steered: 20 },
+	kills: [
+		{
+			file: "packages/generator/src/model/json-tree.ts",
+			original: "Predicate.isObject(value)",
+			replacement: "true",
+			why: "isObject answers true for every value, so an array, null or a scalar reads as an object; the property fails (CATCH's evidence, mutant 2595d7d4f3)."
+		},
+		{
+			file: "packages/generator/src/model/json-tree.ts",
+			original: "Predicate.isObject(value)",
+			replacement: "false",
+			why: "isObject answers false for every value, so an object's members are never read and it folds as a leaf; the property fails (CATCH's evidence, mutant 704166ffff)."
 		}
-	})
-})
-
-describe("foldJson", () => {
-	// Records every node as "<kind> <tokens joined by />" in the order the fold returns them.
-	const visits: JsonFold<readonly string[]> = {
-		array: (items, tokens) => [...items.flat(), `array /${tokens.join("/")}`],
-		leaf: (value, tokens) => [`leaf /${tokens.join("/")} ${JSON.stringify(value)}`],
-		object: (members, tokens) => [
-			...members.flatMap(({ folded, key }) => [`key ${key}`, ...folded]),
-			`object /${tokens.join("/")}`
-		]
-	}
-
-	test("foldJson visits members in document order", () => {
-		// Parsed from text so the keys keep an unsorted document order.
-		const value = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
-			'{"z": 1, "a": [true, {"y": null, "b": "x"}], "m": []}'
-		)
-
-		expect(foldJson(value, visits, [])).toEqual([
-			"key z",
-			"leaf /z 1",
-			"key a",
-			"leaf /a/0 true",
-			"key y",
-			"leaf /a/1/y null",
-			"key b",
-			'leaf /a/1/b "x"',
-			"object /a/1",
-			"array /a",
-			"key m",
-			"array /m",
-			"object /"
-		])
-	})
-
-	test("starts from the given tokens and passes a member's own value", () => {
-		const keys: JsonFold<readonly string[]> = {
-			array: (items) => items.flat(),
-			leaf: () => [],
-			object: (members, tokens) =>
-				members.flatMap(({ folded, key, value }) => [
-					`/${[...tokens, key].join("/")}=${JSON.stringify(value)}`,
-					...folded
-				])
-		}
-
-		expect(foldJson({ a: { b: 2 } }, keys, ["root", "0"])).toEqual([
-			'/root/0/a={"b":2}',
-			"/root/0/a/b=2"
-		])
-	})
+	]
 })

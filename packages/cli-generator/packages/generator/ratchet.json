@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 2986,
+		"total": 2888,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -35,15 +35,6 @@
 			"packages/generator/test/load/read.test.ts": 15,
 			"packages/generator/test/load/ref-root.test.ts": 35,
 			"packages/generator/test/load/yaml.test.ts": 28,
-			"packages/generator/test/model/author-config-aliases.test.ts": 6,
-			"packages/generator/test/model/author-config-non-standard.test.ts": 6,
-			"packages/generator/test/model/author-config.test.ts": 17,
-			"packages/generator/test/model/brands.test.ts": 11,
-			"packages/generator/test/model/diagnostic.test.ts": 36,
-			"packages/generator/test/model/extension.test.ts": 2,
-			"packages/generator/test/model/json-tree.test.ts": 10,
-			"packages/generator/test/model/pointer.test.ts": 6,
-			"packages/generator/test/model/verdict.test.ts": 4,
 			"packages/generator/test/names/base64-field.test.ts": 13,
 			"packages/generator/test/names/credential-collision-mtls.test.ts": 15,
 			"packages/generator/test/names/domain.test.ts": 8,
@@ -130,7 +121,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 1471,
+		"total": 1417,
 		"files": {
 			"packages/generator/src/emit/api.ts": 115,
 			"packages/generator/src/emit/cli.ts": 153,
@@ -168,12 +159,6 @@
 			"packages/generator/test/load/read.test.ts": 3,
 			"packages/generator/test/load/ref-root.test.ts": 7,
 			"packages/generator/test/load/yaml.test.ts": 3,
-			"packages/generator/test/model/author-config.test.ts": 14,
-			"packages/generator/test/model/brands.test.ts": 18,
-			"packages/generator/test/model/diagnostic.test.ts": 7,
-			"packages/generator/test/model/json-tree.test.ts": 3,
-			"packages/generator/test/model/pointer.test.ts": 10,
-			"packages/generator/test/model/verdict.test.ts": 2,
 			"packages/generator/test/names/alias-cycles.test.ts": 1,
 			"packages/generator/test/names/base64-field.test.ts": 8,
 			"packages/generator/test/names/credential-collision-mtls.test.ts": 9,

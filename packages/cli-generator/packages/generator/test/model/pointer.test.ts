@@ -1,247 +1,186 @@
-import { Effect, Result, Schema } from "effect"
-import { describe, expect, test } from "vitest"
+/**
+ * RFC 6901 JSON Pointers (model/pointer.ts), the `$defs` key reader (model/defs-ref.ts) and the extension-name test
+ * (model/extension.ts). A pointer or URI fragment drawn into a JSON tree (empty, blank, escaped, percent-encoded,
+ * prototype and index-like names) or off it (a missing member, an index out of range or non-canonical, a scalar
+ * descended into), spelled soundly or with a fault (no leading slash, a `~2` or bare `~`, a broken percent escape, no
+ * hash), parses and evaluates as a reference evaluator written from the RFC says, its Result and Effect forms agreeing,
+ * each failure naming the pointer through the token that failed; the JsonPointer brand admits exactly the texts that
+ * parse, and formatting the parsed tokens gives the pointer text back. A pointer is within an ancestor exactly when its
+ * tokens extend the ancestor's; a `#/$defs/` reference's key is its text unescaped by `~1` and `~0` alone, never
+ * percent-decoded; a member name is a specification extension exactly when it begins `x-`.
+ */
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import {
-	escapeToken,
-	evaluateFragment,
-	evaluateFragmentResult,
-	evaluatePointer,
-	evaluatePointerResult,
-	evaluateTokens,
-	evaluateTokensResult,
-	formatPointer,
-	isPointerWithin,
-	parseFragment,
-	parseFragmentResult,
-	parsePointer,
-	parsePointerResult,
-	PointerIndexOutOfRange,
-	PointerMemberNotFound,
-	PointerNotContainer,
-	PointerSyntaxError,
-	unescapeToken,
-	unescapeTokenResult
-} from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
+	actualOf,
+	expectedNamesOf,
+	expectedOf,
+	type NameFeature,
+	nameFeaturesOf,
+	namesOf,
+	nameSpace,
+	type PointerFeature,
+	pointerFeaturesOf,
+	pointerSpace
+} from "#test/model/pointer.fixtures.ts"
 
-// RFC 6901 section 5 document.
-const doc: Json = {
-	"": 0,
-	" ": 7,
-	"a/b": 1,
-	"c%d": 2,
-	"e^f": 3,
-	foo: ["bar", "baz"],
-	"g|h": 4,
-	"i\\j": 5,
-	'k"l': 6,
-	"m~n": 8
-}
-
-const run = <A, E>(e: Effect.Effect<A, E>) => Effect.runSync(e)
-
-const agree = <A, E extends { readonly _tag: string }>(
-	result: Result.Result<A, E>,
-	effect: Effect.Effect<A, E>
-) => {
-	const exit = Effect.runSyncExit(effect)
-	if (Result.isSuccess(result)) {
-		expect(exit._tag).toBe("Success")
-		expect(exit._tag === "Success" && exit.value).toEqual(result.success)
-	} else {
-		expect(exit._tag).toBe("Failure")
-		expect(Effect.runSync(Effect.flip(effect))).toEqual(result.failure)
-	}
-}
-
-const tagOf = <A, E extends { readonly _tag: string }>(e: Effect.Effect<A, E>): string =>
-	run(Effect.flip(e))._tag
-
-describe("RFC 6901 section 5 evaluation", () => {
-	const cases: readonly (readonly [string, Json])[] = [
-		["", doc],
-		["/foo", ["bar", "baz"]],
-		["/foo/0", "bar"],
-		["/", 0],
-		["/a~1b", 1],
-		["/c%d", 2],
-		["/e^f", 3],
-		["/g|h", 4],
-		["/i\\j", 5],
-		['/k"l', 6],
-		["/ ", 7],
-		["/m~0n", 8]
+/**
+ * A drawn pointer parses and evaluates as the reference does, in both forms. Its budget replaces 52 example cases
+ * (pointer's 12 section 5 and 12 section 6 evaluations, its 28 parse, failure and agreement cases): 52 independent
+ * cases, and up to 28 steered while one of its 14 situations is unreached, each reached by its own aimed arm.
+ */
+export const pointerEvaluation = property.explore(pointerSpace, {
+	needs: {},
+	situations: [
+		"a value reached",
+		"the root by the empty pointer",
+		"a member missing",
+		"an index out of range",
+		"a non-canonical index",
+		"a scalar descended into",
+		"a prototype name",
+		"an escaped token",
+		"a fragment percent-encoded",
+		"no leading slash refused",
+		"an escape of `~2` refused",
+		"a bare `~` at the end refused",
+		"a broken percent escape refused",
+		"no hash refused"
+	],
+	check: (_, k: Case<PointerFeature>) => (c) =>
+		Effect.gen(function* () {
+			k.noteAll(pointerFeaturesOf(c))
+			const actual = yield* actualOf(c)
+			deepStrictEqual(actual, expectedOf(c))
+		}),
+	oracle: {
+		kind: "second-implementation",
+		name: "a reference RFC 6901 parser and evaluator, sections 3, 4 and 6, written from the RFC"
+	},
+	kept: [],
+	budget: { runs: 52, steered: 28 },
+	kills: [
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original: "\t\t\t\tstepResult(current, token, formatPointer(Arr.take(tokens, index + 1)))",
+			replacement: "\t\t\t\tstepResult(current, token, formatPointer(Arr.take(tokens, index + 0)))",
+			why: "An evaluation failure names the pointer to the token's parent instead of through the token; the property fails (CATCH's evidence, mutant fe745aa53c)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original:
+				'[\n\t\t"missing-leading-slash",\n\t\t"invalid-escape",\n\t\t"invalid-percent-escape",\n\t\t"missing-hash"\n\t]',
+			replacement: '["missing-leading-slash", "invalid-escape", "missing-hash"]',
+			why: "PointerSyntaxError no longer admits invalid-percent-escape, so a broken fragment's error cannot be built; the property fails (CATCH's evidence, mutant 59e18e686b)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original:
+				'[\n\t\t"missing-leading-slash",\n\t\t"invalid-escape",\n\t\t"invalid-percent-escape",\n\t\t"missing-hash"\n\t]',
+			replacement: '["missing-leading-slash", "invalid-percent-escape", "missing-hash"]',
+			why: "PointerSyntaxError no longer admits invalid-escape, so a bad escape's error cannot be built; the property fails (CATCH's evidence, mutant 68c52c5033)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original:
+				'[\n\t\t"missing-leading-slash",\n\t\t"invalid-escape",\n\t\t"invalid-percent-escape",\n\t\t"missing-hash"\n\t]',
+			replacement: '["invalid-escape", "invalid-percent-escape", "missing-hash"]',
+			why: "PointerSyntaxError no longer admits missing-leading-slash, so a relative text's error cannot be built; the property fails (CATCH's evidence, mutant 423d6a4698)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original:
+				'Result.try({\n\t\tcatch: () => PointerSyntaxError.make({ pointer: fragment, reason: "invalid-percent-escape" }),\n\t\ttry: () => decodeURIComponent(Str.slice(1)(fragment))\n\t}).pipe(\n\t\tResult.flatMap((decoded) =>\n\t\t\tResult.mapError(parsePointerResult(decoded), (failure) =>\n\t\t\t\tPointerSyntaxError.make({ pointer: fragment, reason: failure.reason })\n\t\t\t)\n\t\t)\n\t)',
+			replacement:
+				'Result.try({\n\t\tcatch: () => PointerSyntaxError.make({ pointer: fragment, reason: "invalid-percent-escape" }),\n\t\ttry: () => decodeURIComponent(Str.slice(1)(fragment))\n\t})',
+			why: "A fragment is percent-decoded but never parsed as a pointer, so its tokens are wrong; the property fails (CATCH's evidence, mutant a7fdf4a4db)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original: "if (Str.isEmpty(pointer)) {\n\t\treturn Result.succeed([])\n\t}",
+			replacement: "{}",
+			why: "The empty pointer is refused as missing its leading slash instead of naming the whole document; the property fails (CATCH's evidence, mutant b8c5d9a1bc)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original:
+				'invalidEscape.test(token)\n\t\t? Result.fail(PointerSyntaxError.make({ pointer: token, reason: "invalid-escape" }))\n\t\t: Result.succeed(JsonPointer.unescapeToken(token))',
+			replacement:
+				'invalidEscape.test(token) ? Result.succeed(JsonPointer.unescapeToken(token)) : Result.fail(PointerSyntaxError.make({ pointer: token, reason: "invalid-escape" }))',
+			why: "Unescaping fails every sound token and passes every bad escape; the property fails (CATCH's evidence, mutant ec2c5d7c2a)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original:
+				"if (Arr.isArray<Json>(current)) {\n\t\treturn Result.fromOption(\n\t\t\tarrayIndex.test(token) ? Arr.get(current, Number(token)) : Option.none(),\n\t\t\t() => PointerIndexOutOfRange.make({ pointer, token })\n\t\t)\n\t}",
+			replacement: "{}",
+			why: "An array is read as an object, so a non-canonical index or `-` is a missing member and the failure is misnamed; the property fails (CATCH's evidence, mutant 41318bc6f6)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original: "arrayIndex.test(token) ? Arr.get(current, Number(token)) : Option.none()",
+			replacement: "arrayIndex.test(token) ? Option.none() : Arr.get(current, Number(token))",
+			why: "A canonical array index reaches nothing and every other token reads an item; the property fails (CATCH's evidence, mutant 0aa9da3fd6)."
+		}
 	]
-	for (const [pointer, expected] of cases) {
-		test(`pointer ${JSON.stringify(pointer)}`, () => {
-			expect(run(evaluatePointer(doc, pointer))).toEqual(expected)
-		})
-	}
 })
 
-describe("RFC 6901 section 6 fragment form", () => {
-	const cases: readonly (readonly [string, Json])[] = [
-		["#", doc],
-		["#/foo", ["bar", "baz"]],
-		["#/foo/0", "bar"],
-		["#/", 0],
-		["#/a~1b", 1],
-		["#/c%25d", 2],
-		["#/e%5Ef", 3],
-		["#/g%7Ch", 4],
-		["#/i%5Cj", 5],
-		["#/k%22l", 6],
-		["#/%20", 7],
-		["#/m~0n", 8]
+/**
+ * Drawn pointer pairs and member names read as the model says. Its budget replaces 8 example cases (pointer's 2
+ * isPointerWithin, defs-ref's 5, extension's 1): 8 independent cases, and up to 18 steered while one of its 9
+ * situations is unreached, each reached by its own aimed arm.
+ */
+export const pointerNames = property.explore(nameSpace, {
+	needs: {},
+	situations: [
+		"a pointer within itself",
+		"a pointer below its ancestor",
+		"a sibling sharing a text prefix",
+		"a pointer above",
+		"the empty ancestor",
+		"an extension name",
+		"an extension in another case",
+		"a $defs key with escapes",
+		"a reference outside $defs"
+	],
+	check: (_, k: Case<NameFeature>) => (c) =>
+		Effect.sync(() => {
+			k.noteAll(nameFeaturesOf(c))
+			deepStrictEqual(namesOf(c), expectedNamesOf(c))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "token-wise ancestry, `~1` and `~0` unescaping alone, and the case-sensitive `x-` prefix"
+	},
+	kept: [],
+	budget: { runs: 8, steered: 18 },
+	kills: [
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original: "pointer === ancestor || Str.startsWith(",
+			replacement: "false && Str.startsWith(",
+			why: "isPointerWithin never answers true, so no pointer is within itself or its ancestor; the property fails (CATCH's evidence, mutant 28323e2ebb)."
+		},
+		{
+			file: "packages/generator/src/model/pointer.ts",
+			original: "pointer === ancestor ||",
+			replacement: "pointer !== ancestor ||",
+			why: "isPointerWithin no longer counts a pointer as within itself; the property fails (CATCH's evidence, mutant c38cb8519b)."
+		},
+		{
+			file: "packages/generator/src/model/defs-ref.ts",
+			original:
+				"Str.startsWith(defsRefPrefix)(ref)\n\t\t? JsonPointer.unescapeToken(Str.slice(defsRefPrefix.length)(ref))\n\t\t: undefined",
+			replacement:
+				"Str.startsWith(defsRefPrefix)(ref) ? undefined : JsonPointer.unescapeToken(Str.slice(defsRefPrefix.length)(ref))",
+			why: "defsKeyOf reads a `#/$defs/` reference as no key and every other reference as one; the property fails (CATCH's evidence, mutant c8ed75051b)."
+		},
+		{
+			file: "packages/generator/src/model/extension.ts",
+			original: 'Str.startsWith("x-")(key)',
+			replacement: "true",
+			why: "Every member name reads as a specification extension; the property fails (CATCH's evidence, mutant 6f194aedd5)."
+		}
 	]
-	for (const [fragment, expected] of cases) {
-		test(`fragment ${fragment}`, () => {
-			expect(run(evaluateFragment(doc, fragment))).toEqual(expected)
-		})
-	}
-
-	test("percent-decodes before pointer parsing", () => {
-		expect(run(parseFragment("#/c%25d"))).toEqual(["c%d"])
-		expect(run(parseFragment("#/a%2Fb"))).toEqual(["a", "b"])
-	})
-
-	test("rejects a bad percent escape and a missing hash", () => {
-		expect(tagOf(parseFragment("#/%E0%A4%A"))).toBe("PointerSyntaxError")
-		expect(tagOf(parseFragment("/foo"))).toBe("PointerSyntaxError")
-	})
-})
-
-describe("parse, format and escape", () => {
-	test("parse tokens", () => {
-		expect(run(parsePointer(""))).toEqual([])
-		expect(run(parsePointer("/"))).toEqual([""])
-		expect(run(parsePointer("/a~1b/m~0n"))).toEqual(["a/b", "m~n"])
-		expect(run(parsePointer("//"))).toEqual(["", ""])
-	})
-
-	test("format round-trips parse", () => {
-		for (const p of ["", "/", "//", "/a~1b", "/m~0n", "/foo/0", "/~01"]) {
-			expect(formatPointer(run(parsePointer(p)))).toBe(p)
-		}
-	})
-
-	test("escape order keeps ~01 unambiguous", () => {
-		expect(escapeToken("~1")).toBe("~01")
-		expect(run(unescapeToken("~01"))).toBe("~1")
-		expect(escapeToken("a/b~c")).toBe("a~1b~0c")
-	})
-
-	test("syntax failures", () => {
-		expect(tagOf(parsePointer("a"))).toBe("PointerSyntaxError")
-		expect(tagOf(parsePointer("/a~2"))).toBe("PointerSyntaxError")
-		expect(tagOf(parsePointer("/a~"))).toBe("PointerSyntaxError")
-		expect(tagOf(unescapeToken("~"))).toBe("PointerSyntaxError")
-	})
-})
-
-describe("evaluation failures", () => {
-	test("missing member", () => {
-		expect(tagOf(evaluatePointer(doc, "/nope"))).toBe("PointerMemberNotFound")
-	})
-
-	test("inherited members are not members", () => {
-		expect(tagOf(evaluatePointer(doc, "/constructor"))).toBe("PointerMemberNotFound")
-		expect(tagOf(evaluatePointer(doc, "/__proto__"))).toBe("PointerMemberNotFound")
-	})
-
-	test("out-of-range, dash and non-canonical array indexes", () => {
-		expect(tagOf(evaluatePointer(doc, "/foo/2"))).toBe("PointerIndexOutOfRange")
-		expect(tagOf(evaluatePointer(doc, "/foo/-"))).toBe("PointerIndexOutOfRange")
-		expect(tagOf(evaluatePointer(doc, "/foo/01"))).toBe("PointerIndexOutOfRange")
-		expect(tagOf(evaluatePointer(doc, "/foo/x"))).toBe("PointerIndexOutOfRange")
-	})
-
-	test("descending into a scalar", () => {
-		expect(tagOf(evaluatePointer(doc, "/foo/0/x"))).toBe("PointerNotContainer")
-	})
-
-	test("syntax errors surface from evaluation", () => {
-		expect(tagOf(evaluatePointer(doc, "foo"))).toBe("PointerSyntaxError")
-		expect(tagOf(evaluateFragment(doc, "#/foo~"))).toBe("PointerSyntaxError")
-	})
-
-	test("failures carry the prefix pointer that failed", () => {
-		const e = run(Effect.flip(evaluatePointer(doc, "/foo/9")))
-		expect("pointer" in e && e.pointer).toBe("/foo/9")
-	})
-})
-
-describe("Result functions agree with their Effect forms", () => {
-	const pointers = ["", "/", "a", "/foo/0", "/a~1b", "/m~0n", "/~", "/~2", "/foo/9", "/foo/0/x"]
-	for (const pointer of pointers) {
-		test(`pointer ${JSON.stringify(pointer)}`, () => {
-			agree(parsePointerResult(pointer), parsePointer(pointer))
-			agree(evaluatePointerResult(doc, pointer), evaluatePointer(doc, pointer))
-		})
-	}
-
-	const fragments = ["#", "#/foo/0", "#/a%25b", "#/%zz", "foo", "#/foo~", "#a"]
-	for (const fragment of fragments) {
-		test(`fragment ${JSON.stringify(fragment)}`, () => {
-			agree(parseFragmentResult(fragment), parseFragment(fragment))
-			agree(evaluateFragmentResult(doc, fragment), evaluateFragment(doc, fragment))
-		})
-	}
-
-	for (const token of ["a", "a~1b", "~", "~2", "a~"]) {
-		test(`token ${JSON.stringify(token)}`, () => {
-			agree(unescapeTokenResult(token), unescapeToken(token))
-		})
-	}
-
-	test("tokens", () => {
-		for (const tokens of [[], ["foo", "1"], ["foo", "x"], ["constructor"], ["foo", "0", "x"]]) {
-			agree(evaluateTokensResult(doc, tokens), evaluateTokens(doc, tokens))
-		}
-	})
-})
-
-describe("isPointerWithin", () => {
-	test("a pointer is within itself and below it at a token boundary", () => {
-		expect(isPointerWithin("/a", "/a")).toBe(true)
-		expect(isPointerWithin("/a", "/a/b")).toBe(true)
-		expect(isPointerWithin("", "/a")).toBe(true)
-	})
-
-	test("a shared text prefix is not a descendant", () => {
-		expect(isPointerWithin("/a", "/ab")).toBe(false)
-		expect(isPointerWithin("/a/b", "/a")).toBe(false)
-	})
-})
-
-// Reflect.construct passes a reason outside the four literals past the type checker.
-const constructWithUnknownReason = (): void => {
-	Reflect.construct(PointerSyntaxError, [{ pointer: "a", reason: "bad-reason" }])
-}
-
-describe("pointer error classes", () => {
-	test("pointer errors are schema classes", () => {
-		const syntax = new PointerSyntaxError({ pointer: "a", reason: "missing-leading-slash" })
-		expect(syntax._tag).toBe("PointerSyntaxError")
-		expect({ pointer: syntax.pointer, reason: syntax.reason }).toEqual({
-			pointer: "a",
-			reason: "missing-leading-slash"
-		})
-		expect(Schema.is(PointerSyntaxError)(syntax)).toBe(true)
-
-		for (const [ErrorClass, tag] of [
-			[PointerMemberNotFound, "PointerMemberNotFound"],
-			[PointerIndexOutOfRange, "PointerIndexOutOfRange"],
-			[PointerNotContainer, "PointerNotContainer"]
-		] as const) {
-			const failure = new ErrorClass({ pointer: "/foo/9", token: "9" })
-			expect(failure._tag).toBe(tag)
-			expect({ pointer: failure.pointer, token: failure.token }).toEqual({
-				pointer: "/foo/9",
-				token: "9"
-			})
-			expect(Schema.is(ErrorClass)(failure)).toBe(true)
-		}
-
-		expect(constructWithUnknownReason).toThrow()
-	})
 })
