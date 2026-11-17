@@ -1,12 +1,15 @@
+import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { HARDENED_FLAGS } from "@bjornpagen/testing/runner"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import {
 	Array as Arr,
+	Context,
 	Deferred,
 	Effect,
 	Fiber,
 	FileSystem,
+	Formatter,
 	Layer,
 	Option,
 	Path,
@@ -14,9 +17,11 @@ import {
 	Record as Rec,
 	Ref,
 	Schema,
+	type Scope,
 	Stream,
 	String as Str
 } from "effect"
+import { Digest } from "effect/crypto"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { generate, type GenerateResult } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
@@ -79,6 +84,30 @@ class ManifestBinUnclear extends Schema.TaggedError<
 
 /** Everything the harness runs on: Node's file system, path, child processes and digests. */
 export const harnessLayer = Layer.mergeAll(NodeServices.layer, NodeCrypto.layerDigest)
+
+/**
+ * A suite's fixture as a need, `key` naming it: `open` (a capture server, the package generated and built against its
+ * origin) runs once on each worker that runs a property needing it, in that worker's scope, with the harness's
+ * services, so the server stops and the package's directory goes when the worker ends; every case the worker runs is
+ * given what it opened. No case changes it: a built package is only run, and a capture server observes one run at a
+ * time, each observation the case's own. A fixture that does not open refuses its properties on that worker, with its
+ * failure.
+ */
+export const workerFixture = <A, E>(
+	key: string,
+	open: Effect.Effect<A, E, Scope.Scope | NodeServices.NodeServices | Digest.Digest>
+): Need<A> => ({
+	key,
+	open: Effect.mapBoth(
+		Effect.flatMap(Layer.build(NodeCrypto.layerDigest), (context) =>
+			Effect.provideService(open, Digest.Digest, Context.get(context, Digest.Digest))
+		),
+		{
+			onFailure: (error) => NeedFailed.make({ need: key, message: Formatter.format(error) }),
+			onSuccess: (opened) => Effect.succeed(opened)
+		}
+	)
+})
 
 /** Writes a fixture file under a directory, making its parent directories. */
 const writeUnder = Effect.fn("cliPackage.write")(function* (directory: string, file: FixtureFile) {
