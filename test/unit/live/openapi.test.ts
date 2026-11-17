@@ -52,8 +52,7 @@
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
-import { array } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Result as Answered, Array as Arr, Effect, Formatter } from "effect"
 import { workload } from "#compiler/program/workload/value.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
@@ -74,7 +73,8 @@ import {
 	firstCodes,
 	holds,
 	servedShape,
-	unseen
+	unseen,
+	documentsGen
 } from "#test/unit/live/openapi.fixtures.ts"
 
 /**
@@ -264,58 +264,59 @@ export const aLoginsOpenAPIDocumentDocumentsEveryServedChangeSetsFactsAndOutcome
  * may depend on alone, across the two or three documents of a case as within each.
  *
  * Budget: openapi-logins's count (unit/live/openapi-logins, 60 independent cases and none steered), the claim it held
- * across those cases before the conversion. At those counts its required situations went unreached at TEST_SEED=1 (a
- * tag's description seen again under what it may depend on; toolchain-test run of 2026-11-16 08:21Z), so its steered
- * phase keeps the runner's cap of 200, which it stops short of once every situation is reached. At those counts its
- * kill "A role's description names the relations its programs write." survived at TEST_SEED=1 (toolchain-test run of
- * 2026-11-16 08:55Z); at the runner's 150 runs and 200 steered, which it was landed at, it is killed, so it keeps
- * them.
+ * across those cases before the conversion. Every case holds one login's document at two law levels (documentsGen), so
+ * every text is seen again under what it may depend on in each case; two logins whose roles coincide in name, contexts
+ * and deed counts but write different relations are kept (its kept token, found by the kill's mutant at the runner's
+ * budget and shrunk): at TEST_SEED=1 to 5 every situation is reached and every kill is killed.
  */
 export const aLoginsOpenAPIDocumentIsShortEachTextDependingOnWhatItMayDependOnAloneAcrossDocuments =
-	property.explore(
-		array((source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const, {
-			min: 2,
-			max: 3
-		}),
-		{
-			needs: {},
-			situations: [
-				"a summary seen again under what it may depend on",
-				"a body's description seen again under what it may depend on",
-				"a tag's description seen again under what it may depend on"
-			] satisfies ReadonlyArray<Reached<Feature>>,
-			check: (_, notes: Case<Feature>) => (documents) =>
-				Effect.gen(function* () {
-					const seen = unseen()
-					for (const [sketch, level] of documents) {
-						yield* documentHolds(notes, seen, sketch, level)
-					}
-				}),
-			oracle: {
-				kind: "specification",
-				name: "the served file each document is read off: what each text may depend on"
-			},
-			budget: { runs: 150, steered: 200 },
-			kept: [],
-			kills: [
-				{
-					file: "packages/engine/src/live/openapi.ts",
-					original: '\t\t\treturn "A write"',
-					replacement: `\t\t\treturn member.wire.member.shape === "write" && member.wire.member.outcome.kind === "change"\n\t\t\t\t? \`A write of \${listed(member.wire.member.outcome.relations)}\`\n\t\t\t\t: "A write"`,
-					why: "A write's summary names the relations it writes."
-				},
-				{
-					file: "packages/engine/src/live/openapi.ts",
-					original: `\t\treturn count === 0 ? [] : [\`\${count} \${deedWords[kind]}\`]`,
-					replacement: `\t\treturn count === 0\n\t\t\t? []\n\t\t\t: [\n\t\t\t\t\t\`\${count} \${deedWords[kind]} \${listed(\n\t\t\t\t\t\tprograms.flatMap((program) =>\n\t\t\t\t\t\t\tprogram.deed.kind === kind && program.deed.kind !== "reads" ? program.deed.relations : []\n\t\t\t\t\t\t)\n\t\t\t\t\t)}\`\n\t\t\t\t]`,
-					why: "A role's description names the relations its programs write."
-				},
-				{
-					file: "packages/engine/src/live/openapi.ts",
-					original: `\t\t\treturn \`The call's input: \${params}; \${factsWords(input.facts)}.\``,
-					replacement: `\t\t\treturn \`The call's input: \${params}; \${factsWords(input.facts)}, \${listed(input.facts.map((f) => f.relation))}.\``,
-					why: "A body's description names the relations of its facts."
+	property.explore(documentsGen, {
+		needs: {},
+		situations: [
+			"a summary seen again under what it may depend on",
+			"a body's description seen again under what it may depend on",
+			"a tag's description seen again under what it may depend on"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check: (_, notes: Case<Feature>) => (documents) =>
+			Effect.gen(function* () {
+				const seen = unseen()
+				for (const [sketch, level] of documents) {
+					yield* documentHolds(notes, seen, sketch, level)
 				}
-			]
-		}
-	)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the served file each document is read off: what each text may depend on"
+		},
+		budget: { runs: 60, steered: 0 },
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/live/openapi.test.ts#aLoginsOpenAPIDocumentIsShortEachTextDependingOnWhatItMayDependOnAloneAcrossDocuments:-:9.0.1.0.1.0.1.0.1.0.1.0.1.0.1.2.0.1.0.1.0.1.2.1.0.1.0.1.0.1.0.1.2.1.0.1.0.1.0.0.1.0.0.1.0.0.1.0.1.0.1.2.1.0.1.0.0.1.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.1.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.0.0.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.1.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.1.0.0.1.0.0.1.0.0.1.0.0.0"
+				),
+				reason:
+					"two logins whose roles share a name, contexts and deed counts but write different relations, so a role's description that named its relations would differ under what it may depend on",
+				since: "2026-11-16"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/live/openapi.ts",
+				original: '\t\t\treturn "A write"',
+				replacement: `\t\t\treturn member.wire.member.shape === "write" && member.wire.member.outcome.kind === "change"\n\t\t\t\t? \`A write of \${listed(member.wire.member.outcome.relations)}\`\n\t\t\t\t: "A write"`,
+				why: "A write's summary names the relations it writes."
+			},
+			{
+				file: "packages/engine/src/live/openapi.ts",
+				original: `\t\treturn count === 0 ? [] : [\`\${count} \${deedWords[kind]}\`]`,
+				replacement: `\t\treturn count === 0\n\t\t\t? []\n\t\t\t: [\n\t\t\t\t\t\`\${count} \${deedWords[kind]} \${listed(\n\t\t\t\t\t\tprograms.flatMap((program) =>\n\t\t\t\t\t\t\tprogram.deed.kind === kind && program.deed.kind !== "reads" ? program.deed.relations : []\n\t\t\t\t\t\t)\n\t\t\t\t\t)}\`\n\t\t\t\t]`,
+				why: "A role's description names the relations its programs write."
+			},
+			{
+				file: "packages/engine/src/live/openapi.ts",
+				original: `\t\t\treturn \`The call's input: \${params}; \${factsWords(input.facts)}.\``,
+				replacement: `\t\t\treturn \`The call's input: \${params}; \${factsWords(input.facts)}, \${listed(input.facts.map((f) => f.relation))}.\``,
+				why: "A body's description names the relations of its facts."
+			}
+		]
+	})

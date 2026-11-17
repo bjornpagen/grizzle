@@ -44,11 +44,10 @@ import {
 /**
  * A served compile under a snapshot casts a parameter only to a type the snapshot's installation installs.
  *
- * Budget: its suite's count before the conversion (unit/served/installed-types: 60 independent cases and 60 steered,
- * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (an uninstalled
- * pattern domain refused, a pattern parameter installed, compiled, a parameter's pattern domain over a field's
- * structural domain; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200,
- * which it stops short of once every situation is reached.
+ * Budget: its suite's 60 independent cases (unit/served/installed-types: 60 and 60 steered, Vitest at grizzle
+ * 4ca3036a), and 128 steered, measured: at 60 runs its witnesses, fixed by its identity, reach every required
+ * situation after 128 steered cases and not before (toolchain-test run with a cap of 1,000, 2026-11-16); at
+ * TEST_SEED=1 to 5 every kill is killed.
  */
 export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsInstallationInstalls =
 	property.explore(aimed(sketchGen({ kind: "drawn" }), aimsAt), {
@@ -76,7 +75,7 @@ export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsI
 			kind: "specification",
 			name: "the parameter types the login declares against those snapshot.json records (derived.params)"
 		},
-		budget: { runs: 60, steered: 200 },
+		budget: { runs: 60, steered: 128 },
 		kept: [
 			{
 				token: ReplayToken(

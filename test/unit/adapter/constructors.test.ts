@@ -1,5 +1,5 @@
 import { type Reached } from "@bjornpagen/testing/features"
-import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
+import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { serializationRefusal, transientReason } from "#adapter/errors/execution.ts"
 import { applyOutcome, transientFailureOf } from "#adapter/outcomes/index.ts"
@@ -32,9 +32,9 @@ import {
  * each drawn fact, and the adapter's classifications build the same values.
  *
  * Budget: its suite's count before the conversion (unit/adapter/public-constructors: 1000 independent cases and 0
- * steered, Vitest at grizzle 4ca3036a). At those counts its kill "40P01 is read as 40001, a deadlock as a
- * serialization failure." survived at TEST_SEED=1 (toolchain-test run of 2026-11-16 08:21Z); at the runner's 150 runs
- * and 200 steered, which it was landed at, it is killed, so it keeps them.
+ * steered, Vitest at grizzle 4ca3036a). Its fixed witnesses hold no deadlock report, so the case a deadlock's kill
+ * needs is kept (its kept token, found by the kill's mutant at the runner's budget and shrunk): at TEST_SEED=1 to 5
+ * every kill is killed.
  */
 export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeExactlyAsTheAdapterDoesCarryingEachDrawnFactAndTheAdaptersClassificationsBuildTheSameValues =
 	property.explore(constructorCases, {
@@ -187,8 +187,17 @@ export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeEx
 			kind: "specification",
 			name: "each constructor carries its facts as given, and the adapter's classification of the same facts is the public value"
 		},
-		budget: { runs: 150, steered: 200 },
-		kept: [],
+		budget: { runs: 1000, steered: 0 },
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/adapter/constructors.test.ts#thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeExactlyAsTheAdapterDoesCarryingEachDrawnFactAndTheAdaptersClassificationsBuildTheSameValues:116000.e:0.0.1.0.0.0.0.0.0.0.0.1.0"
+				),
+				reason:
+					"a deadlock (40P01) a report must read as Deadlock, never as a serialization failure, which its suite's old 1,000 cases reached and its fixed witnesses do not",
+				since: "2026-11-16"
+			}
+		],
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/errors/failures.ts",

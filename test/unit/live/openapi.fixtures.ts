@@ -1,6 +1,6 @@
 /** What the properties of openapi.test.ts read: its spaces, models and helpers. */
 
-import { boolean } from "@bjornpagen/testing/gen"
+import { array, boolean, type Gen } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import {
@@ -30,8 +30,12 @@ import { rostersOf } from "#compiler/schema/own.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
 import { assert, deepEquals } from "#test/support/assert.ts"
 import { documentErrors } from "#test/support/openapi/validator.ts"
-import { type CaseSketch, resolveCase } from "#test/support/oracle/public/generate.ts"
-import { type LawLevel } from "#test/support/oracle/public/laws.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
+import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import { type WChangeSet } from "#test/support/oracle/write/changeset.ts"
 import {
@@ -684,3 +688,23 @@ export const documentHolds = (
 		const entry = compiled.success.entry
 		yield* holds(entry.file, entry.openapi, seen, notes.note, printed)
 	}).pipe(Effect.scoped, Effect.orDie)
+
+/**
+ * A cross-document case: one login's document at two law levels, which differ in what no text of the document may
+ * depend on, so every text is seen again under what it depends on in every case; then up to one document of another
+ * login, whose texts are seen again only where its schema's coincide.
+ */
+export const documentsGen: Gen<ReadonlyArray<readonly [CaseSketch, LawLevel]>> = (source) => {
+	const sketch = source.draw(caseSketchGen)
+	const twice: ReadonlyArray<readonly [CaseSketch, LawLevel]> = [
+		[sketch, source.draw(lawLevelGen)],
+		[sketch, source.draw(lawLevelGen)]
+	]
+	const other = source.draw(
+		array((inner) => [inner.draw(caseSketchGen), inner.draw(lawLevelGen)] as const, {
+			min: 0,
+			max: 1
+		})
+	)
+	return [...twice, ...other]
+}

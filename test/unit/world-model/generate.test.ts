@@ -33,7 +33,7 @@
  */
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record } from "effect"
 import { assert } from "#test/support/assert.ts"
 import { projection, violations } from "#test/support/laws/model.ts"
@@ -313,10 +313,8 @@ export const theWorldsGeneratorsDrawTheForcedMovesUnderWeightsOfZeroAndOnlyLiveI
  * offers.
  *
  * Budget: its suite's count before the conversion (unit/world-model/generate-box: 24 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a). At those counts its kill "Operator mutant (comparison) at
- * packages/engine/src/lower/conservative/deliver.ts:495 in <module>: `>` becomes `<=`" survived at TEST_SEED=1
- * (toolchain-test run of 2026-11-16 08:21Z); at the runner's 150 runs and 200 steered, which it was landed at, it is
- * killed, so it keeps them.
+ * Vitest at grizzle 4ca3036a). Its six fixed witnesses reach no arm with attachments, so that case is kept (its kept
+ * token, found by the kill's mutant at the runner's budget and shrunk): at TEST_SEED=1 to 5 every kill is killed.
  */
 export const theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCoveringEveryActionKindTheStateOffers =
 	property.explore(boxGen, {
@@ -374,8 +372,17 @@ export const theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCove
 			kind: "specification",
 			name: "the box's canonical form up to renaming, the offered kinds and the serial rule"
 		},
-		budget: { runs: 150, steered: 200 },
-		kept: [],
+		budget: { runs: 24, steered: 0 },
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/world-model/generate.test.ts#theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCoveringEveryActionKindTheStateOffers:0:0.1.2.a"
+				),
+				reason:
+					"a box whose enumeration reaches an arm with attachments, which the conservative delivery must hold",
+				since: "2026-11-16"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/lower/conservative/deliver.ts",

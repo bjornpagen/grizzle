@@ -18,7 +18,7 @@
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
 import { CallInputRefused } from "#adapter/errors/failures.ts"
 import { windowCall } from "#adapter/page/window.ts"
@@ -41,9 +41,8 @@ import {
  * its size or its anchor.
  *
  * Budget: its suite's count before the conversion (unit/page/window: 2000 independent cases and 640 steered, Vitest at
- * grizzle 4ca3036a). At those counts its kill "A key longer than the comparators is admitted" survived at TEST_SEED=1
- * (toolchain-test run of 2026-11-16 08:21Z); at the runner's 150 runs and 200 steered, which it was landed at, it is
- * killed, so it keeps them.
+ * grizzle 4ca3036a). Its fixed witnesses hold no key longer than its comparators, so that case is kept (its kept
+ * token, found by the kill's mutant at the runner's budget and shrunk): at TEST_SEED=1 to 5 every kill is killed.
  */
 export const aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEveryOtherWindowByItsMembersItsSizeOrItsAnchor =
 	property.explore(aimed(windowCaseGen, windowAims), {
@@ -81,8 +80,17 @@ export const aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEve
 				)
 			}),
 		oracle: { kind: "specification", name: "the window rule restated (expectedOf)" },
-		budget: { runs: 150, steered: 200 },
-		kept: [],
+		budget: { runs: 2000, steered: 640 },
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/page/request.test.ts#aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEveryOtherWindowByItsMembersItsSizeOrItsAnchor:100.8:0.0.0.0.1.0.0.1.0.0.1.0.1.1.0.7.0.0.0.0.0"
+				),
+				reason:
+					"a window whose key holds one value more than its comparators, which must be refused",
+				since: "2026-11-16"
+			}
+		],
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/page/window.ts",

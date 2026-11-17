@@ -54,13 +54,10 @@ import {
  * The loop over a generated project: every command's exit status, refusal and folders are the model's, and what
  * generate writes is the pure generator's draft byte for byte.
  *
- * Budget: its suite's count before the conversion (unit/cli/project: 16 independent cases and 64 steered, Vitest at
- * grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (the placeholders reviewed,
- * a first draft beside an abandoned schema, the loss decided, generate refused: UndeclaredDrop, check finds
- * unresolvedLoss, check finds strayEntry; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the
- * runner's cap of 200, which it stops short of once every situation is reached. At those counts and the runner's cap
- * of 200 steered, "generate refused: UndeclaredDrop" still went unreached at TEST_SEED=1 (toolchain-test run of
- * 2026-11-16 08:55Z); at the runner's 150 runs, which it was landed at, it is reached, so it keeps them.
+ * Budget: its suite's 64 steered cases (unit/cli/project: 16 independent and 64 steered, Vitest at grizzle 4ca3036a)
+ * and 40 runs, measured as the least witnesses that reach every required situation: with a cap of 1,000 steered, 16
+ * runs need 272 steered (292 cases), 20 need 144, 24 need 176, 32 need 144, 40 need 64 (114 cases) and 80 need 128
+ * (toolchain-test run, 2026-11-16); at TEST_SEED=1 to 5 every kill is killed.
  */
 export const theLoopOverAGeneratedProjectEveryCommandsExitStatusRefusalAndFoldersAreTheModelsAndWhatGenerateWritesIsThePureGeneratorsDraftByteForByte =
 	property.explore(programSpace, {
@@ -75,7 +72,7 @@ export const theLoopOverAGeneratedProjectEveryCommandsExitStatusRefusalAndFolder
 			kind: "second-implementation",
 			name: "a model of the documented loop, and the pure generator fed the committed snapshot read before each generate"
 		},
-		budget: { runs: 150, steered: 200 },
+		budget: { runs: 40, steered: 64 },
 		kept: [],
 		kills: [
 			{
