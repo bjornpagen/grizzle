@@ -606,8 +606,19 @@ const build = Effect.fnUntraced(function* (
 > {
 	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 	const owner = ownerCredentials(cluster)
-	const observer = yield* connect(cluster, { database, credentials: owner, label: "observer" })
-	yield* observer.query("SET default_transaction_isolation TO 'read committed'", [])
+	const scope = yield* Effect.scope
+	/**
+	 * The barriers' observer connection (awaitLockWait, awaitBlockedBy), opened the first time a barrier polls through it,
+	 * in the substrate's scope, and held for the rest of it: a substrate whose barriers never poll opens none, and a case
+	 * substrate (Substrate.installing, seat, freshOf, ...) opened one for every case, though few cases wait on a lock.
+	 */
+	const opened = Scope.provide(
+		Effect.tap(connect(cluster, { database, credentials: owner, label: "observer" }), (made) =>
+			made.query("SET default_transaction_isolation TO 'read committed'", [])
+		),
+		scope
+	)
+	const observer = yield* Effect.cached(opened)
 	const allocations = yield* Ref.make(0)
 	const nextAllocation = Ref.getAndUpdate(allocations, (n) => n + 1)
 
@@ -784,8 +795,10 @@ const build = Effect.fnUntraced(function* (
 		ownerLogin,
 		session,
 		psql,
-		awaitLockWait: (pid, blockedBy) => awaitLockWait(observer, pid, blockedBy),
-		awaitBlockedBy: (holder, role) => awaitBlockedBy(observer, holder, role),
+		awaitLockWait: (pid, blockedBy) =>
+			Effect.flatMap(observer, (polling) => awaitLockWait(polling, pid, blockedBy)),
+		awaitBlockedBy: (holder, role) =>
+			Effect.flatMap(observer, (polling) => awaitBlockedBy(polling, holder, role)),
 		roleExists,
 		superuser: (sql) => asSuperuser(cluster, database, [sql]),
 		superuserRead: (read) => asSuperuserRead(cluster, database, read)

@@ -3,14 +3,17 @@
  * case (Substrate.freshOf), the worker's own clone of it held across cases and reset after each (Substrate.seat), and
  * one owner transaction a case on the worker's own clone (Substrate.rolledBack). Each case writes into what it was given
  * and requires to find what its form promises: the template's installation and no row an earlier case wrote, every
- * login of the installation logging in with the credentials the case derives from the member's owner password.
+ * login of the installation logging in with the credentials the case derives from the member's owner password. A case's
+ * substrate opens its barriers' observer only when a barrier first polls through it.
  */
-import { int } from "@bjornpagen/testing/gen"
+import { finite, int } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Effect, Fiber, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import {
 	loggedIn,
+	heldTable,
+	observersIn,
 	secondWorkTemplate,
 	servedTemplate,
 	servedWorld,
@@ -21,7 +24,7 @@ import {
 import { assert } from "#test/support/assert.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { Served } from "#test/support/served-db.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /** A case's own clone of an installed template holds its installation, no earlier case's rows, and its logins. */
@@ -155,6 +158,55 @@ export const oneOfTemplates = property.explore(oneOfCase, {
 			original: "\t\tconst level = owned.levels[login.base.levels.length - 1]",
 			replacement: "\t\tconst level = owned.levels[login.base.levels.length - 2]",
 			why: "Operator mutant (bound) at packages/engine/src/physical/install/compile.ts:341 in admittedSettings: `1` becomes `2`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	]
+})
+
+/**
+ * A case's substrate opens its barriers' observer session only when a barrier first polls through it: a case that never
+ * waits on a lock holds none in its database; one whose barrier waited for a backend blocked on a table lock holds one.
+ */
+export const observerOnDemand = property.exhaust(finite(int(0, 1)), {
+	needs: { substrate: Substrate.installing },
+	situations: [],
+	check:
+		({ substrate: taking }) =>
+		(polls) =>
+			Effect.gen(function* () {
+				const substrate = yield* taking
+				if (polls === 0) {
+					const idle = yield* observersIn(substrate)
+					assert.equal(idle, 0, "no barrier polled: no observer session")
+					return
+				}
+				const schema = yield* substrate.schema(freshSchema)
+				const table = heldTable(schema)
+				yield* substrate.admin.query(`CREATE TABLE ${table} (value int4)`, [])
+				const holder = yield* substrate.session({ ...ownerSession(), label: "holder" })
+				const waiter = yield* substrate.session({ ...ownerSession(), label: "waiter" })
+				yield* holder.begin
+				yield* holder.query(`LOCK TABLE ${table} IN ACCESS EXCLUSIVE MODE`, [])
+				const waiting = yield* Effect.forkChild(waiter.query(`SELECT count(*) FROM ${table}`, []), {
+					startImmediately: true
+				})
+				yield* substrate.awaitLockWait(waiter.pid, Option.some(holder.pid))
+				const polled = yield* observersIn(substrate)
+				assert.equal(polled, 1, "a barrier polled: its one observer session")
+				yield* holder.rollback
+				yield* Fiber.join(waiting)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "the observer opens on a barrier's first poll, and a substrate whose barriers never poll holds none"
+	},
+	box: "a case whose barrier never polls, and one whose barrier waits for a backend blocked on a table lock",
+	kept: [],
+	kills: [
+		{
+			file: "test/support/substrate/substrate.ts",
+			original: "\tconst observer = yield* Effect.cached(opened)",
+			replacement: "\tconst eager = yield* opened\n\tconst observer = Effect.succeed(eager)",
+			why: "Every case's substrate opens its barriers' observer as it is built, as it did before, so a case that never waits on a lock pays a session for nothing; the case that never polls finds an observer session, and the property fails."
 		}
 	]
 })

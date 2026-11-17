@@ -2,6 +2,7 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Effect } from "effect"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { Account, Work, type WorkNamed, workWorlds } from "#test/support/fixtures/api/work.ts"
@@ -129,3 +130,16 @@ export const loggedIn = (
 		const [[role] = []] = yield* reader.values("SELECT current_user::text", [])
 		assert.equal(role, installed.role(worlds.reader), "the reader's session acts as its world role")
 	}).pipe(Effect.scoped)
+
+/** The observer sessions open in the case's database: the barriers' (substrate.ts build), by the label they connect under. */
+export const observersIn = (substrate: SubstrateShape): Effect.Effect<number, SqlError> =>
+	Effect.map(
+		substrate.admin.queryValues(
+			"SELECT count(*)::text FROM pg_catalog.pg_stat_activity WHERE datname = current_database() AND application_name = 'grizzle-substrate observer'",
+			[]
+		),
+		(rows) => Number(rows[0]?.[0] ?? "-1")
+	)
+
+/** The table a case of observerOnDemand locks, in its own schema. */
+export const heldTable = (schema: string): string => `${quoteIdent(schema)}.${quoteIdent("held")}`
