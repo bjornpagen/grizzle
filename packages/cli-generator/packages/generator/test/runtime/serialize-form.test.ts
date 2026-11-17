@@ -1,447 +1,161 @@
-import { Effect, Runtime } from "effect"
-import type { HttpClientRequest } from "effect/http"
-import { describe, expect, test } from "vitest"
-import { UsageError } from "#runtime-src/domain/errors.ts"
-import { jsonNull } from "#runtime-src/runtime/input.ts"
-import type { MediaDeclaration } from "#runtime-src/runtime/negotiate.ts"
+/**
+ * A form body or a form-urlencoded querystring is written exactly as its reference writes it from the WHATWG
+ * serializer and the Encoding Object rules, in declared order with undeclared names after, or refused exactly where
+ * the reference refuses (a pair two properties send, a refused field however it would travel, a value that is no
+ * object), and no refusal repeats a value.
+ */
+
+import { assertFalse, assertTrue, deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect, Option, Record as Rec, Result, String as Str } from "effect"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
-import type { FormEncoding, Json } from "#runtime-src/runtime/serialize.ts"
+import {
+	type FormFeature,
+	formFeatures,
+	formModel,
+	formSpace
+} from "#test/runtime/serialize-form.fixtures.ts"
+import { bodyBytes, expanded, outcomeOf, SECRET } from "#test/runtime/serialize.fixtures.ts"
 
-const media = "application/x-www-form-urlencoded"
-
-type Properties = Serialize.UrlEncodedOptions["properties"]
-
-// Every name in `value` declared with no Encoding fields, in the value's own order.
-const declared = (value: { readonly [property: string]: Json }, encoding: FormEncoding = {}) =>
-	Object.keys(value).map((name) => [name, encoding] as const)
-
-// An object whose keys are in the given order, which a sorted literal cannot spell.
-const inOrder = (...entries: readonly (readonly [string, Json])[]) => Object.fromEntries(entries)
-
-const encode = (
-	value: { readonly [property: string]: Json },
-	properties: Properties = declared(value)
-) => Effect.runPromise(Serialize.urlEncode(value, { properties }))
-
-const expectUsage = async (effect: Effect.Effect<unknown, UsageError>) => {
-	const error = await Effect.runPromise(Effect.flip(effect))
-
-	expect(error).toBeInstanceOf(UsageError)
-	expect(error[Runtime.errorExitCode]).toBe(2)
-
-	return error.message
-}
-
-// The refusal names `property` and holds none of `values`.
-const expectRefusalNaming = async (
-	value: { readonly [property: string]: Json },
-	properties: Properties,
-	property: string,
-	...values: readonly string[]
-) => {
-	const message = await expectUsage(Serialize.urlEncode(value, { properties }))
-
-	expect(message).toContain(property)
-
-	for (const text of values) {
-		expect(message).not.toContain(text)
-	}
-}
-
-const send = (value: Json | undefined, properties: Properties, required = true) =>
-	Effect.runPromise(
-		Serialize.request("POST", {
-			body: Serialize.urlEncoded(media, value, { properties, required }),
-			headers: [],
-			path: Serialize.path("/", []),
-			query: []
-		})
-	)
-
-const bytes = (built: HttpClientRequest.HttpClientRequest) =>
-	built.body._tag === "Uint8Array" ? new TextDecoder().decode(built.body.body) : built.body._tag
-
-describe("form-urlencoded value text", () => {
-	test.each([
-		["a space", "a b", "v=a+b"],
-		["a plus", "a+b", "v=a%2Bb"],
-		["a percent", "100%", "v=100%25"],
-		["an ampersand", "a&b", "v=a%26b"],
-		["an equals sign", "a=b", "v=a%3Db"],
-		["non-ASCII text", "é ☃", "v=%C3%A9+%E2%98%83"],
-		["a percent triplet", "%20", "v=%2520"],
-		["the WHATWG safe set and the rest", "*-._~!'()", "v=*-._%7E%21%27%28%29"]
-	])("%s is encoded once by the WHATWG serializer", async (_, text, expected) => {
-		expect(await encode({ v: text })).toBe(expected)
-	})
-
-	test("names are encoded as values are", async () => {
-		expect(await encode({ "a b&c": "x" })).toBe("a+b%26c=x")
-	})
-
-	test("numbers and booleans are sent as their JSON text", async () => {
-		expect(await encode({ n: 1.5, ok: true })).toBe("n=1.5&ok=true")
-	})
-
-	test("base64 padding is percent-encoded", async () => {
-		expect(await encode({ data: "AQI=" })).toBe("data=AQI%3D")
-	})
-})
-
-describe("form-urlencoded default contentType", () => {
-	test("an object property is sent as compact JSON, then encoded", async () => {
-		expect(await encode({ meta: { a: 1, b: "x y" } })).toBe(
-			"meta=%7B%22a%22%3A1%2C%22b%22%3A%22x+y%22%7D"
-		)
-	})
-
-	test("an array repeats its name, one pair per item", async () => {
-		expect(await encode({ tag: ["a", "b c"] })).toBe("tag=a&tag=b+c")
-	})
-
-	test("an object item of an array is sent as compact JSON", async () => {
-		expect(await encode({ tag: [{ a: 1 }] })).toBe("tag=%7B%22a%22%3A1%7D")
-	})
-
-	test("an array item of an array is sent as compact JSON", async () => {
-		expect(await encode({ tag: [[1, "a"], "b"] })).toBe("tag=%5B1%2C%22a%22%5D&tag=b")
-		expect(await encode({ grid: [[]] }, [])).toBe("grid=%5B%5D")
-	})
-
-	test("a lone surrogate inside a JSON-valued property is refused", async () => {
-		await expectRefusalNaming({ meta: { a: "x\uD800" } }, declared({ meta: {} }), "meta")
-		await expectRefusalNaming({ meta: { "\uDC00": 1 } }, declared({ meta: {} }), "meta")
-		await expectRefusalNaming({ tag: [["\uD800"]] }, declared({ tag: [] }), "tag")
-	})
-
-	test("a null property is omitted", async () => {
-		expect(await encode({ a: jsonNull, b: "x" })).toBe("b=x")
-	})
-
-	test("an empty array sends no pair", async () => {
-		expect(await encode({ a: [], b: "x" })).toBe("b=x")
-	})
-
-	test("a non-finite number is refused", async () => {
-		await expectUsage(Serialize.urlEncode({ n: Number.NaN }, { properties: [["n", {}]] }))
-	})
-})
-
-describe("form-urlencoded Encoding style", () => {
-	test("style form with explode false joins items with an unencoded comma", async () => {
-		expect(await encode({ tag: ["a b", "c,d"] }, [["tag", { explode: false }]])).toBe(
-			"tag=a+b,c%2Cd"
-		)
-	})
-
-	test("style form explodes an array to repeated names and an object to its members", async () => {
-		expect(await encode({ tag: ["a", "b"] }, [["tag", { style: "form" }]])).toBe("tag=a&tag=b")
-		expect(await encode({ color: { G: 200, R: 100 } }, [["color", { explode: true }]])).toBe(
-			"G=200&R=100"
-		)
-	})
-
-	test("a non-exploded object joins keys and values with commas", async () => {
-		expect(await encode({ color: { G: 200, R: 100 } }, [["color", { explode: false }]])).toBe(
-			"color=G,200,R,100"
-		)
-	})
-
-	test("an explicit style sends an object as members, not as JSON", async () => {
-		expect(await encode({ color: { R: 1 } }, [["color", { style: "form" }]])).toBe("R=1")
-	})
-
-	test("spaceDelimited joins with an encoded space and pipeDelimited with an encoded pipe", async () => {
-		expect(await encode({ tag: ["a", "b"] }, [["tag", { style: "spaceDelimited" }]])).toBe(
-			"tag=a+b"
-		)
-		expect(await encode({ tag: ["a", "b"] }, [["tag", { style: "pipeDelimited" }]])).toBe(
-			"tag=a%7Cb"
-		)
-	})
-
-	test("deepObject sends each member under a bracketed, encoded name", async () => {
-		expect(
-			await encode({ color: { "G B": "x y", R: 100 } }, [["color", { style: "deepObject" }]])
-		).toBe("color%5BG+B%5D=x+y&color%5BR%5D=100")
-	})
-
-	test("allowReserved leaves / and ? but encodes &, =, + and #", async () => {
-		expect(await encode({ p: "/a?b&c=d+e#f g" }, [["p", { allowReserved: true }]])).toBe(
-			"p=/a?b%26c%3Dd%2Be%23f+g"
-		)
-	})
-
-	test("a null property is omitted under an explicit style", async () => {
-		expect(
-			await encode({ a: jsonNull, b: "x" }, [
-				["a", { style: "form" }],
-				["b", {}]
-			])
-		).toBe("b=x")
-	})
-
-	test("a value nested deeper than one level is refused", async () => {
-		await expectUsage(
-			Serialize.urlEncode({ c: { d: { e: 1 } } }, { properties: [["c", { style: "form" }]] })
-		)
-	})
-
-	test("a delimiter inside an item that the expansion leaves unencoded is refused", async () => {
-		await expectUsage(
-			Serialize.urlEncode(
-				{ tag: ["a,b", "c"] },
-				{ properties: [["tag", { allowReserved: true, explode: false }]] }
+/**
+ * A form is sent as its reference writes it, nothing is sent where the reference sends nothing, and it is refused as
+ * the reference refuses. It replaces eighty-two example cases (serialize-form, serialize-form-number, querystring's
+ * form-urlencoded content, and the form arms of serialize-brackets, serialize-scalars and deep-object-keys); its
+ * budget is 328 drawn forms, its floor 82, steered up to 328 while a situation is unreached.
+ */
+export const formBody = property.explore(formSpace, {
+	needs: {},
+	situations: [
+		"space written as plus",
+		"name encoded",
+		"default content scalar",
+		"default content object as JSON",
+		"default content list repeats its name",
+		"default content list item as JSON",
+		"digit text kept",
+		"null property omitted",
+		"styled list joined",
+		"styled object exploded",
+		"delimited style",
+		"deepObject members",
+		"bracket convention",
+		"scalar under deepObject",
+		"reserved character passed",
+		"declared order kept",
+		"undeclared name follows",
+		"nested styled value refused",
+		"number with no JSON text refused",
+		"lone surrogate refused",
+		"member named like a declared property refused",
+		"pair name from two properties refused",
+		"refused field named refused",
+		"refused field named though it sends nothing refused",
+		"refused field carried by a pair refused",
+		"refused field carried by a bracketed pair refused",
+		"refused field of another media sent",
+		"absent body",
+		"empty body text",
+		"value not an object refused",
+		"form querystring sent"
+	] satisfies ReadonlyArray<Reached<FormFeature>>,
+	check: (_, c: Case<FormFeature>) => (form) =>
+		Effect.gen(function* () {
+			c.noteAll(formFeatures(form))
+			const value = Option.getOrUndefined(form.value)
+			const expected = formModel(form)
+			if (form.through === "querystring") {
+				const actual = yield* expanded(
+					Serialize.querystring("q", form.mediaType, value, {
+						required: form.required,
+						properties: form.properties
+					}).expand
+				)
+				deepStrictEqual(actual.outcome, outcomeOf(expected))
+				assertFalse(
+					Option.exists(actual.message, Str.includes(SECRET)),
+					"a refusal repeats a value"
+				)
+				return
+			}
+			const options = Option.match(form.refused, {
+				onNone: () => ({ properties: form.properties, required: form.required }),
+				onSome: (refused) => ({ properties: form.properties, required: form.required, refused })
+			})
+			const built = yield* Effect.result(
+				Serialize.request("POST", {
+					body: Serialize.urlEncoded(form.mediaType, value, options),
+					headers: [],
+					path: Serialize.path("/", []),
+					query: []
+				})
 			)
-		)
-	})
-})
-
-describe("form-urlencoded pairs", () => {
-	test("pair order is the declared order, not the input order", async () => {
-		expect(
-			await encode({ a: "1", b: "2", c: "3" }, [
-				["c", {}],
-				["a", {}],
-				["b", {}]
-			])
-		).toBe("c=3&a=1&b=2")
-	})
-
-	test("a declared property with no value sends nothing", async () => {
-		expect(
-			await encode({ b: "2" }, [
-				["a", {}],
-				["b", {}]
-			])
-		).toBe("b=2")
-	})
-
-	test("an undeclared key is appended after the declared ones", async () => {
-		expect(await encode(inOrder(["z", "2"], ["a", "1"]), [["a", {}]])).toBe("a=1&z=2")
-	})
-
-	test("undeclared array and object keys follow the default table, nulls are omitted", async () => {
-		expect(
-			await encode(inOrder(["n", jsonNull], ["o", { k: 1 }], ["a", "1"], ["l", ["x", "y"]]), [
-				["a", { style: "form" }]
-			])
-		).toBe("a=1&o=%7B%22k%22%3A1%7D&l=x&l=y")
-	})
-
-	test("undeclared keys keep their input order", async () => {
-		expect(await encode(inOrder(["y", "1"], ["x", "2"], ["w", "3"]), [])).toBe("y=1&x=2&w=3")
-	})
-})
-
-describe("form-urlencoded pair name collisions", () => {
-	test("an exploded member named like another declared property is refused", async () => {
-		await expectRefusalNaming(
-			inOrder(["color", { a: "evil" }], ["a", "good"]),
-			[
-				["color", { explode: true }],
-				["a", {}]
-			],
-			"color",
-			"evil",
-			"good"
-		)
-	})
-
-	test("an exploded member named like an absent declared property is refused", async () => {
-		await expectRefusalNaming(
-			{ color: { a: "evil" } },
-			[
-				["color", { explode: true }],
-				["a", {}]
-			],
-			"color",
-			"evil"
-		)
-	})
-
-	test("an exploded member named like its own property is refused", async () => {
-		await expectRefusalNaming({ color: { color: "x" } }, [["color", { explode: true }]], "color")
-	})
-
-	test("an undeclared key named like an exploded member is refused", async () => {
-		await expectRefusalNaming(
-			inOrder(["color", { z: "1" }], ["z", "2"]),
-			[["color", { explode: true }]],
-			"z"
-		)
-	})
-
-	test("an undeclared key named like a deepObject pair is refused", async () => {
-		await expectRefusalNaming(
-			inOrder(["color", { a: "1" }], ["color[a]", "2"]),
-			[["color", { style: "deepObject" }]],
-			"color[a]"
-		)
-	})
-
-	test("members of two exploded properties with one name are refused", async () => {
-		await expectRefusalNaming(
-			{ p: { k: "1" }, q: { k: "2" } },
-			[
-				["p", { explode: true }],
-				["q", { explode: true }]
-			],
-			"q"
-		)
-	})
-
-	test("one array property repeating its own name is sent", async () => {
-		expect(
-			await encode({ color: { R: 1 }, tag: ["a", "b"] }, [
-				["color", { explode: true }],
-				["tag", { explode: true }]
-			])
-		).toBe("R=1&tag=a&tag=b")
-	})
-})
-
-describe("form-urlencoded body", () => {
-	test("the body is the encoded text under the declared media type", async () => {
-		const built = await send({ a: "x y", b: ["1", "2"] }, [
-			["a", {}],
-			["b", {}]
-		])
-
-		expect(built.headers["content-type"]).toBe(media)
-		expect(bytes(built)).toBe("a=x+y&b=1&b=2")
-	})
-
-	test("an absent required body is empty text, an absent optional one is no body", async () => {
-		const required = await send(undefined, [["a", {}]])
-		const optional = await send(undefined, [["a", {}]], false)
-
-		expect(bytes(required)).toBe("")
-		expect(required.headers["content-type"]).toBe(media)
-		expect(bytes(optional)).toBe("Empty")
-		expect(optional.headers["content-type"]).toBeUndefined()
-	})
-
-	test.each([
-		["an empty object", {}],
-		["only null properties", { a: jsonNull }],
-		["only empty arrays", { a: [] }]
-	])("a present body with %s is empty text under the media type", async (_, value) => {
-		const built = await Promise.all(
-			[true, false].map((required) => send(value, [["a", {}]], required))
-		)
-
-		for (const request of built) {
-			expect(bytes(request)).toBe("")
-			expect(request.headers["content-type"]).toBe(media)
-		}
-	})
-
-	test("a body that is not an object is refused", async () => {
-		await expectUsage(Serialize.urlEncoded(media, ["a"], { properties: [], required: true }).expand)
-		await expectUsage(Serialize.urlEncoded(media, "a=b", { properties: [], required: true }).expand)
-	})
-})
-
-describe("form-urlencoded refused fields", () => {
-	const refusedBody = (value: Json, refused: MediaDeclaration["refused"]) =>
-		Serialize.urlEncoded(media, value, {
-			properties: [
-				["a", {}],
-				["metadata", {}]
-			],
-			refused,
-			required: false
-		}).expand
-
-	test("a declared property refused at field scope is refused in the merged body", async () => {
-		const error = await Effect.runPromise(
-			Effect.flip(refusedBody({ a: "x", metadata: "secret-value" }, { [media]: ["metadata"] }))
-		)
-
-		expect(error).toBeInstanceOf(UsageError)
-		expect(error[Runtime.errorExitCode]).toBe(2)
-		expect(error.flag).toBe("--body")
-		expect(error.message).toContain("metadata")
-		expect(error.message).not.toContain("secret-value")
-	})
-
-	test("a refused key holding null is still refused", async () => {
-		await expectUsage(refusedBody({ metadata: jsonNull }, { [media]: ["metadata"] }))
-	})
-
-	// The pair names the encoded text actually carries are checked, decoded, so a refused field
-	// reaches no server under a bracketed or dotted name either.
-	const expectFieldRefusal = async (
-		value: { readonly [property: string]: Json },
-		properties: Properties
-	) => {
-		const error = await Effect.runPromise(
-			Effect.flip(
-				Serialize.urlEncoded(media, value, {
-					properties,
-					refused: { [media]: ["metadata"] },
-					required: false
-				}).expand
+			assertTrue(
+				Result.isSuccess(built) === Result.isSuccess(expected),
+				"refused exactly when the reference refuses"
 			)
-		)
-
-		expect(error).toBeInstanceOf(UsageError)
-		expect(error[Runtime.errorExitCode]).toBe(2)
-		expect(error.flag).toBe("--body")
-		expect(error.message).toContain("metadata")
-		expect(error.message).not.toContain("secret-value")
-	}
-
-	test.each([["metadata[a]"], ["metadata.a"], ["metadata[a][b]"]])(
-		"an undeclared key %s under a refused name is refused",
-		async (key) => {
-			await expectFieldRefusal({ a: "x", [key]: "secret-value" }, [
-				["a", {}],
-				["metadata", {}]
-			])
+			if (Result.isFailure(built)) {
+				assertFalse(Str.includes(SECRET)(built.failure.message), "a refusal repeats a value")
+			}
+			if (Result.isSuccess(built) && Result.isSuccess(expected)) {
+				const contentType = Rec.get(built.success.headers, "content-type")
+				Option.match(expected.success, {
+					onNone: () => {
+						strictEqual(built.success.body._tag, "Empty")
+						deepStrictEqual(contentType, Option.none())
+					},
+					onSome: () => deepStrictEqual(contentType, Option.some(form.mediaType))
+				})
+				deepStrictEqual(
+					yield* bodyBytes(built.success.body),
+					Option.map(expected.success, (written) => Buffer.from(written, "utf8").toString("latin1"))
+				)
+			}
+		}),
+	oracle: {
+		kind: "second-implementation",
+		name: "Node's URLSearchParams serializer per name and value, under the design's Encoding Object and guard rules"
+	},
+	kept: [],
+	budget: { runs: 328, steered: 328 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				"(sender !== undefined && sender !== name) ||\n\t\t\t\t\t(sent.members && declaredNames.has(pairName))",
+			replacement: "(sender !== undefined && sender !== name)",
+			why: "An exploded member's pair named like a declared property is sent beside it, so a server cannot tell them apart; the property fails (CATCH's evidence, mutant 6b0d3e6409)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: '\t\t\treturn token === "~" ? "%7E" : encodeUnreserved(token)',
+			replacement: '\t\t\treturn token !== "~" ? "%7E" : encodeUnreserved(token)',
+			why: "Every character the WHATWG serializer encodes is written as a tilde's triplet and a tilde by RFC 3986; the property fails (CATCH's evidence, mutant 609d3514cf)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: "[`)(pairName)",
+			replacement: "\\u0000`)(pairName)",
+			why: "A pair named under a refused field by brackets is no longer read as carrying it, so the field reaches the server; the property fails (CATCH's evidence, mutant 2afe26279a)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				"if (Option.isSome(ownKey)) {\n\t\t\treturn yield* refuseField(ownKey.value, mediaType)\n\t\t}",
+			replacement: "{}",
+			why: "A refused field among the body's own names is sent when it sends no pair of its own name; the property fails (CATCH's evidence, mutant a9330420c3)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: '\tmediaEssence(mediaType) === "application/x-www-form-urlencoded"',
+			replacement: '\tmediaEssence(mediaType) !== "application/x-www-form-urlencoded"',
+			why: "Form-urlencoded querystring content is written by the text codec and any other by the form encoder; the property fails (CATCH's evidence, mutant 0315b2f785)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: '\t\t\texplode: encoding.explode ?? style === "form"',
+			replacement: '\t\t\texplode: encoding.explode ?? style !== "form"',
+			why: "A property with no explode takes explode true exactly when its style is not form, so a form list is joined; the property fails (CATCH's evidence, mutant f3d6d3d188)."
 		}
-	)
-
-	test("an exploded member pair named under a refused name is refused", async () => {
-		await expectFieldRefusal({ opts: { "metadata[a]": "secret-value" } }, [
-			["metadata", {}],
-			["opts", { explode: true, style: "form" }]
-		])
-	})
-
-	test("an exploded member pair named exactly like an undeclared refused name is refused", async () => {
-		await expectFieldRefusal({ opts: { metadata: "secret-value" } }, [
-			["opts", { explode: true, style: "form" }]
-		])
-	})
-
-	test("a declared property whose own name extends a refused name is sent", async () => {
-		const built = await Effect.runPromise(
-			Serialize.urlEncoded(
-				media,
-				{ "metadata.kind": "x" },
-				{
-					properties: [
-						["metadata", {}],
-						["metadata.kind", {}]
-					],
-					refused: { [media]: ["metadata"] },
-					required: false
-				}
-			).expand
-		)
-
-		expect(built._tag).toBe("Uint8Array")
-	})
-
-	test.each([
-		["no refused names", undefined],
-		["a refused name the body does not hold", { [media]: ["metadata"] }],
-		["a refused name under another media type", { "multipart/form-data": ["a"] }]
-	])("a body with %s is sent", async (_, refused) => {
-		const built = await Effect.runPromise(refusedBody({ a: "x" }, refused))
-
-		expect(built._tag).toBe("Uint8Array")
-	})
+	]
 })

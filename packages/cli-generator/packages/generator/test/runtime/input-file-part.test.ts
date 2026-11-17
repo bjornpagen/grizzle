@@ -1,125 +1,162 @@
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import * as NodePath from "@effect/platform-node/NodePath"
-import { Cause, Effect, Exit, FileSystem, Layer, Path, Ref, Sink, Stdio, Stream } from "effect"
-import type { Scope } from "effect"
-/* oxlint-disable unicorn/no-array-for-each -- Sink.forEach is the Effect sink, not Array#forEach */
-import { describe, expect, test } from "vitest"
+/**
+ * A file part's flag reads its file, or stdin once per run, and its Content-Disposition names the file by its path's
+ * last segment; a path that is missing, a directory or unreadable, and a second claimant of stdin, are refused through
+ * the final catch naming the flag, in text and in `--error-format json`, never echoing the path the operator gave
+ * (m3-pwmh: a `format: password` part is a file part, and its path may be the secret itself).
+ */
+
+import { assertFalse, assertTrue, deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Scratch } from "@bjornpagen/testing/resources"
+import {
+	Array as Arr,
+	Effect,
+	Exit,
+	FileSystem,
+	Path,
+	Ref,
+	Sink,
+	Stdio,
+	Stream,
+	String as Str
+} from "effect"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Multipart from "#runtime-src/runtime/multipart.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
-import type { ScrubEntry } from "#runtime-src/runtime/redact.ts"
-import { RunCredentials } from "#runtime-src/runtime/redact.ts"
+import { RunCredentials, type ScrubEntry } from "#runtime-src/runtime/redact.ts"
+import {
+	type FileFeature,
+	fileFeatures,
+	fileSpace,
+	filenameModel,
+	laidOut,
+	pathOf,
+	readingModel,
+	STDIN
+} from "#test/runtime/input-file-part.fixtures.ts"
+import { latin1 } from "#test/runtime/serialize.fixtures.ts"
 
-// m3-pwmh: a multipart `format: password` part is a file part (ruling DR4), its flag a path or `-`.
-// An operator may pass the secret itself as the value; a read failure for that flag (missing file,
-// directory, unreadable file) names the flag and never echoes the given value, in text or in
-// `--error-format json`, on stdout or stderr.
-
-const FLAG = "secret"
-
-// The value the operator mistakenly passed: the secret, read as a path.
-const MARKER = "hunter2-PWMH"
-
-const capture = (into: Buffer[]) => () =>
-	Sink.forEach((chunk: string | Uint8Array) =>
-		Effect.sync(() => {
-			into.push(Buffer.from(chunk))
-		})
-	)
-
-// The part's bytes are drained so a failure past the path check would surface too.
-const readPart = (given: string) =>
-	Multipart.fileBody(FLAG, given).pipe(Effect.flatMap((bytes) => Stream.runDrain(bytes)))
-
-// Run the read for the path `given` builds through the real final catch, in `format`.
-const runPart = async (
-	format: Output.ErrorFormat,
-	given: Effect.Effect<string, unknown, FileSystem.FileSystem | Path.Path | Scope.Scope>
-) => {
-	const stderr: Buffer[] = []
-	const stdout: Buffer[] = []
-	const program = Effect.gen(function* run() {
-		const path = yield* given
-
-		return yield* Output.finalCatch([])(readPart(path)).pipe(
-			Effect.provideServiceEffect(Output.RunRecord, Ref.make<Output.RunRecordState>({ format })),
-			Effect.as(path)
-		)
-	}).pipe(Effect.scoped)
-	const environment = Layer.mergeAll(
-		NodeFileSystem.layer,
-		NodePath.layer,
-		Stdio.layerTest({ stderr: capture(stderr), stdout: capture(stdout) }),
-		Input.stdinClaimLayer,
-		Layer.effect(RunCredentials)(Ref.make<readonly ScrubEntry[]>([]))
-	)
-	const exit = await Effect.runPromise(Effect.exit(program).pipe(Effect.provide(environment)))
-
-	return {
-		error: Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined,
-		printed: Buffer.concat([...stdout, ...stderr]).toString("utf-8"),
-		stderr: Buffer.concat(stderr).toString("utf-8"),
-		stdout: Buffer.concat(stdout).toString("utf-8")
-	}
-}
-
-const missing = Effect.succeed(MARKER)
-
-const directory = Effect.gen(function* dir() {
-	const fs = yield* FileSystem.FileSystem
-
-	return yield* fs.makeTempDirectoryScoped({ prefix: `${MARKER}-dir-` })
-})
-
-const unreadable = Effect.gen(function* file() {
-	const fs = yield* FileSystem.FileSystem
-	const path = yield* Path.Path
-	const parent = yield* fs.makeTempDirectoryScoped({ prefix: "pwmh-" })
-	const target = path.join(parent, `${MARKER}-file`)
-
-	yield* fs.writeFileString(target, "the secret")
-	yield* fs.chmod(target, 0o000)
-	yield* Effect.addFinalizer(() => Effect.ignore(fs.chmod(target, 0o600)))
-
-	return target
-})
-
-const cases = [
-	["a missing file", missing],
-	["a directory", directory],
-	["an unreadable file", unreadable]
-] as const
-
-describe("a multipart password part's read failure", () => {
-	for (const [name, given] of cases) {
-		test(`${name} names the flag and never echoes the value in text`, async () => {
-			const { error, printed, stderr, stdout } = await runPart("text", given)
-
-			expect(error).toBeDefined()
-			expect(stderr).toContain(`--${FLAG}`)
-			expect(stdout).toBe("")
-			expect(printed).not.toContain(MARKER)
-		})
-
-		test(`${name} names the flag and never echoes the value in --error-format json`, async () => {
-			const { error, printed, stderr, stdout } = await runPart("json", given)
-			const lines = stderr.trimEnd().split("\n")
-			const parsed: unknown = JSON.parse(lines[0] ?? "null")
-
-			expect(error).toBeDefined()
-			expect(lines).toHaveLength(1)
-			expect(parsed).toMatchObject({ error: { kind: "UsageError" } })
-			expect(stderr).toContain(`--${FLAG}`)
-			expect(stdout).toBe("")
-			expect(printed).not.toContain(MARKER)
-		})
-	}
-
-	test("the failure is a UsageError naming the flag, with no path in its fields", async () => {
-		const { error } = await runPart("text", missing)
-
-		expect(error).toMatchObject({ _tag: "UsageError", flag: FLAG })
-		expect(JSON.stringify(error)).not.toContain(MARKER)
-		expect(String(error)).not.toContain(MARKER)
-	})
+/**
+ * A run reads its file parts as its model says, or is refused naming the first refused part's flag and never its path.
+ * It replaces seven example cases (the password part's three read failures, each in text and json, and its fields)
+ * and serialize's stdin and file part reading; its budget is 32 drawn runs, its floor 8, steered up to 32.
+ */
+export const filePart = property.explore(fileSpace, {
+	needs: { dir: Scratch.dir },
+	situations: [
+		"regular file read",
+		"stdin read",
+		"second stdin claimant refused",
+		"missing file refused",
+		"directory refused",
+		"unreadable file refused",
+		"refusal in json"
+	] satisfies ReadonlyArray<Reached<FileFeature>>,
+	check: (resources, c: Case<FileFeature>) => (run) =>
+		Effect.gen(function* () {
+			c.noteAll(fileFeatures(run, STDIN))
+			const dir = yield* resources.dir
+			const fs = yield* FileSystem.FileSystem
+			const path = yield* Path.Path
+			const placed = Arr.map(
+				run.parts,
+				(part) => [part, pathOf(path, dir, part, run.secret)] as const
+			)
+			yield* Effect.forEach(placed, ([part, at]) => laidOut(fs, at, part))
+			yield* Effect.addFinalizer(() =>
+				Effect.forEach(placed, ([, at]) => Effect.ignore(fs.chmod(at, 0o700)), { discard: true })
+			)
+			for (const [part, at] of placed) {
+				strictEqual(Multipart.partFilename(at, part.flag), filenameModel(at, part.flag))
+			}
+			const stdout: Array<Uint8Array> = []
+			const stderr: Array<Uint8Array> = []
+			const keep = (into: Array<Uint8Array>) => (chunk: string | Uint8Array) =>
+				Effect.sync(() => {
+					into.push(typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk)
+				})
+			const capture = (into: Array<Uint8Array>) => () => Sink.forEach(keep(into))
+			const read = Effect.forEach(placed, ([part, at]) =>
+				Effect.flatMap(Multipart.fileBody(part.flag, at), (stream) =>
+					Effect.map(Stream.runCollect(Stream.orDie(stream)), (chunks) =>
+						Arr.join(Arr.map(Arr.fromIterable(chunks), latin1), "")
+					)
+				)
+			)
+			const exit = yield* Effect.exit(
+				Output.finalCatch([])(read).pipe(
+					Effect.provideServiceEffect(
+						Output.RunRecord,
+						Ref.make<Output.RunRecordState>({ format: run.format })
+					),
+					Effect.provideServiceEffect(RunCredentials, Ref.make<ReadonlyArray<ScrubEntry>>([])),
+					Effect.provideService(
+						Stdio.Stdio,
+						Stdio.make({
+							args: Effect.succeed([]),
+							stdout: capture(stdout),
+							stderr: capture(stderr),
+							stdin: Stream.make(STDIN)
+						})
+					),
+					Effect.provide(Input.stdinClaimLayer)
+				)
+			)
+			const printedOut = latin1(Buffer.concat(stdout))
+			const printedErr = new TextDecoder().decode(Buffer.concat(stderr))
+			const expected = readingModel(run, STDIN)
+			switch (expected.kind) {
+				case "read":
+					deepStrictEqual(Exit.isSuccess(exit) ? exit.value : [], expected.bytes)
+					assertTrue(Exit.isSuccess(exit), "a run of readable parts reads them")
+					strictEqual(printedErr, "")
+					break
+				case "refused": {
+					assertTrue(Exit.isFailure(exit), "a refused part fails the run")
+					assertTrue(Str.includes(`--${expected.flag}`)(printedErr), "the refusal names the flag")
+					if (run.format === "json") {
+						deepStrictEqual(
+							Arr.filter(Str.split("\n")(Str.trimEnd(printedErr)), Str.isNonEmpty).length,
+							1
+						)
+						assertTrue(
+							Str.includes('"kind":"UsageError"')(printedErr),
+							"the json refusal is a UsageError"
+						)
+					}
+				}
+			}
+			strictEqual(printedOut, "")
+			assertFalse(
+				Str.includes(run.secret)(printedErr),
+				"a refusal echoes the path the operator gave"
+			)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 4.5's file part reading: a regular readable file, stdin once, every other path refused by its flag"
+	},
+	kept: [],
+	budget: { runs: 32, steered: 32 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/multipart.ts",
+			original: 'info.type === "File"',
+			replacement: "true",
+			why: "A directory passes the regular-file check, so its read fails past the check with the file system's cause; the property fails (CATCH's evidence, mutant d82ede44ae)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/input.ts",
+			original: '\tpath === "-"',
+			replacement: '\tpath !== "-"',
+			why: "A path reads stdin and - reads a file named -, so every part reads the wrong source; the property fails (CATCH's evidence, mutant fada6f4a7d)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/input.ts",
+			original: "Option.isSome(held) ? [held, held] : [Option.none<string>(), Option.some(flag)]",
+			replacement: "[Option.none<string>(), Option.some(flag)]",
+			why: "Every claimant of stdin is granted it, so a second part reading - reads an already drained stdin instead of being refused; the property fails."
+		}
+	]
 })

@@ -1,167 +1,64 @@
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import * as NodePath from "@effect/platform-node/NodePath"
-import { Effect, Exit, Layer, Option, Schema, Sink, Stdio, Stream } from "effect"
-/* oxlint-disable unicorn/no-array-for-each -- Sink.forEach is the Effect sink, not Array#forEach */
-import { describe, expect, test } from "vitest"
-import { DocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
-import { normalizeResponses } from "#normalize/responses.ts"
-import { resolve } from "#resolve/index.ts"
-import { Force, OutputPath, writeResponse } from "#runtime-src/runtime/output.ts"
-import type { SequentialCodec } from "#runtime-src/runtime/sequential.ts"
-import { sequentialMediaTypes } from "#runtime-src/runtime/sequential.ts"
+/**
+ * The generator and the runtime agree on every sequential media type: the codec the generator assigns a declared
+ * response key is the codec the runtime frames that response's body by, and a type the runtime frames as sequential
+ * is one the generator assigns that codec, in every spelling a document may use.
+ */
 
-const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
-
-const encoder = new TextEncoder()
-
-const decoder = new TextDecoder()
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect, Option } from "effect"
+import {
+	generatorCodec,
+	mediaSpace,
+	type ParityFeature,
+	parityFeatures,
+	runtimeCodec,
+	spelled
+} from "#test/runtime/sequential-media-parity.fixtures.ts"
 
 /**
- * Media types a document may declare for a sequential body: every entry of the shared table, the
- * `+json-seq` suffix forms (RFC 8091), and the variants (case, parameters) both sides accept.
+ * Each media type of the runtime's sequential table, its suffix forms and its near misses, in four spellings, is
+ * framed by the runtime with exactly the codec the generator assigns it. It replaces two example cases, each over a
+ * hand list of candidates; the exhaustion proves it over the table's every type.
  */
-const sequentialCandidates = [
-	...sequentialMediaTypes.keys(),
-	"Application/NDJSON",
-	"application/ndjson; charset=utf-8",
-	"text/event-stream;charset=utf-8",
-	"application/geo+json-seq",
-	"Application/Geo+JSON-Seq",
-	"application/vnd.example+json-seq; charset=utf-8"
-] as const
-
-/**
- * Media types neither side treats as sequential, including near misses of the suffix rule.
- */
-const plainCandidates = [
-	"application/json",
-	"application/geo+json",
-	"application/octet-stream",
-	"text/plain",
-	"application/json-seq+xml"
-] as const
-
-const candidates = [...sequentialCandidates, ...plainCandidates] as const
-
-/**
- * The codec the generator assigns each declared response media key.
- */
-const generatorCodecs = (mediaTypes: readonly string[]) => {
-	const value: Json = {
-		info: { title: "t", version: "1" },
-		openapi: "3.1.1",
-		paths: {
-			"/a": {
-				get: {
-					responses: {
-						"200": {
-							content: Object.fromEntries(mediaTypes.map((mediaType) => [mediaType, {}])),
-							description: "ok"
-						}
-					}
-				}
-			}
-		}
-	}
-	const resolution = Effect.runSync(resolve({ document: entry, line: "3.1", value }))
-	const { responses } = Effect.runSync(
-		normalizeResponses(resolution, "/paths/~1a/get/responses", { method: "GET", path: "/a" })
-	)
-
-	return new Map(
-		(responses[0]?.alternatives ?? []).map(
-			(alternative) => [String(alternative.mediaType), alternative.codec] as const
-		)
-	)
-}
-
-/**
- * A two-record body in each sequential codec's framing, and the lines the runtime prints for it.
- */
-const samples = {
-	jsonseq: ['\u001E{"a": 1}\n\u001E{"b": [1, 2]}\n', '{"a":1}\n{"b":[1,2]}\n'],
-	ndjson: ['{"a": 1}\n\n{"b": [1, 2]}\n', '{"a":1}\n{"b":[1,2]}\n'],
-	sse: ["data: one\n\ndata: two\n\n", '{"data":"one"}\n{"data":"two"}\n']
-} as const satisfies Record<Sequential, readonly [string, string]>
-
-type Sequential = SequentialCodec
-
-const sequentialCodecs: readonly Sequential[] = ["jsonseq", "ndjson", "sse"]
-
-const isSequential = (codec: string | undefined): codec is Sequential =>
-	sequentialCodecs.some((known) => known === codec)
-
-/**
- * What the runtime prints for `text` served under the matched response key `mediaType`, or
- * `undefined` when the write fails.
- */
-const printed = async (mediaType: string, text: string): Promise<string | undefined> => {
-	const captured: Buffer[] = []
-	const layer = Layer.mergeAll(
-		NodeFileSystem.layer,
-		NodePath.layer,
-		Stdio.layerTest({
-			stdout: () =>
-				Sink.forEach((chunk: string | Uint8Array) =>
-					Effect.sync(() => {
-						captured.push(Buffer.from(chunk))
-					})
+export const sequentialParity = property.exhaust(mediaSpace, {
+	needs: {},
+	box: "every type of the runtime's sequential media table, with its +json-seq and +xml forms, upper-cased or not, with a parameter or not",
+	situations: [
+		"jsonseq",
+		"ndjson",
+		"sse",
+		"not sequential",
+		"suffix form",
+		"upper case",
+		"parameter"
+	] satisfies ReadonlyArray<Reached<ParityFeature>>,
+	check: (_, c: Case<ParityFeature>) => (media) =>
+		Effect.gen(function* () {
+			const mediaType = spelled(media)
+			const assigned = yield* Effect.orDie(generatorCodec(mediaType))
+			const framed = yield* runtimeCodec(mediaType)
+			c.noteAll(parityFeatures(media, framed))
+			deepStrictEqual(
+				Option.filter(
+					assigned,
+					(codec) => codec === "jsonseq" || codec === "ndjson" || codec === "sse"
 				),
-			stdoutIsTerminal: Effect.succeed(false)
+				framed
+			)
 		}),
-		Layer.succeed(OutputPath, Option.none()),
-		Layer.succeed(Force, false)
-	)
-	const exit = await Effect.runPromise(
-		Effect.exit(writeResponse({ bytes: Stream.make(encoder.encode(text)), mediaType })).pipe(
-			Effect.provide(layer)
-		)
-	)
-
-	return Exit.isSuccess(exit) ? decoder.decode(Buffer.concat(captured)) : undefined
-}
-
-/**
- * The codec the runtime frames a `mediaType` body by: the one whose sample it prints as that
- * codec's record lines, or `undefined` when it frames none of them.
- */
-const runtimeCodec = async (mediaType: string): Promise<Sequential | undefined> => {
-	const outputs = await Promise.all(
-		sequentialCodecs.map(
-			async (codec) => [codec, await printed(mediaType, samples[codec][0])] as const
-		)
-	)
-
-	return outputs.find(([codec, output]) => output === samples[codec][1])?.[0]
-}
-
-describe("sequential media parity", () => {
-	test("every media type the generator gives a sequential codec is framed by the runtime with it", async () => {
-		const generated = generatorCodecs(candidates)
-		const sequential = candidates.flatMap((mediaType) => {
-			const codec = generated.get(mediaType)
-
-			return isSequential(codec) ? [[mediaType, codec] as const] : []
-		})
-		const framed = await Promise.all(
-			sequential.map(async ([mediaType]) => [mediaType, await runtimeCodec(mediaType)] as const)
-		)
-
-		expect(sequential.map(([mediaType]) => mediaType)).toEqual(sequentialCandidates)
-		expect(framed).toEqual(sequential)
-	})
-
-	test("every media type the runtime frames is given that sequential codec by the generator", async () => {
-		const generated = generatorCodecs(candidates)
-		const framed = await Promise.all(
-			candidates.map(async (mediaType) => [mediaType, await runtimeCodec(mediaType)] as const)
-		)
-		const assigned = framed.flatMap(([mediaType, codec]) =>
-			codec === undefined ? [] : [[mediaType, generated.get(mediaType)] as const]
-		)
-
-		expect(assigned.map(([mediaType]) => mediaType)).toEqual(sequentialCandidates)
-		expect(assigned).toEqual(framed.filter(([, codec]) => codec !== undefined))
-	})
+	oracle: {
+		kind: "universal",
+		name: "the generator's codec of a response media type is the codec its runtime frames by"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/sequential.ts",
+			original: '[",", ":"]',
+			replacement: '[","]',
+			why: "A colon no longer lets a value follow, so a JSON-seq record holding a member is not framed and its type no longer reads as JSON-seq at runtime; the property fails (CATCH's evidence, mutant f315b3e7bc)."
+		}
+	]
 })

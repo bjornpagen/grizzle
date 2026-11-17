@@ -1,140 +1,141 @@
-import { Effect, Option } from "effect"
-import { describe, expect, test } from "vitest"
+/**
+ * Media negotiation follows its precedence model: the request media an operation sends with or without
+ * `--content-type`, the Accept value with or without `--accept`, and the declared key a response's Content-Type
+ * dispatches to, an exact type before its range before any; a refusal names its flag and never the operator's value.
+ */
+
+import { assertFalse, deepStrictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import * as Negotiate from "#runtime-src/runtime/negotiate.ts"
+import {
+	acceptModel,
+	declarationOf,
+	dispatchModel,
+	echoes,
+	type Negotiated,
+	type NegotiationFeature,
+	negotiationFeatures,
+	negotiationSpace,
+	requestMediaModel
+} from "#test/runtime/negotiate.fixtures.ts"
 
-const media = (
-	request: readonly string[],
-	responses: Record<string, readonly string[]> = {}
-): Negotiate.MediaDeclaration => ({ request, responses })
-
-const select = (declaration: Negotiate.MediaDeclaration, chosen?: string) =>
-	Effect.runSync(
-		Effect.result(Negotiate.selectRequestMedia(declaration, Option.fromNullishOr(chosen)))
-	)
-
-const acceptOf = (declaration: Negotiate.MediaDeclaration, chosen?: string) =>
-	Effect.runSync(Effect.result(Negotiate.accept(declaration, Option.fromNullishOr(chosen))))
-
-const failure = (result: ReturnType<typeof select> | ReturnType<typeof acceptOf>) =>
-	result._tag === "Failure" ? result.failure : undefined
-
-const success = <A>(result: { readonly _tag: string; readonly success?: A }) =>
-	result._tag === "Success" ? result.success : undefined
-
-describe("selectRequestMedia", () => {
-	test("a single alternative is used as declared", () => {
-		expect(success(select(media(["application/xml"])))).toEqual({
-			contentType: "application/xml",
-			key: "application/xml"
-		})
+/** A negotiation's effect as its result: the value, or the flag its UsageError names, its message kept for the echo law. */
+const negotiated = <A>(
+	effect: Effect.Effect<A, { readonly flag?: string; readonly message: string }>
+) =>
+	Effect.match(effect, {
+		onFailure: (error) =>
+			[
+				{ kind: "refused", flag: error.flag ?? "" } satisfies Negotiated<A>,
+				Option.some(error.message)
+			] as const,
+		onSuccess: (value) =>
+			[{ kind: "chosen", value } satisfies Negotiated<A>, Option.none<string>()] as const
 	})
 
-	test("several alternatives default to the first JSON-family key", () => {
-		expect(success(select(media(["image/png", "application/json"])))?.key).toBe("application/json")
-		expect(
-			success(select(media(["image/png", "application/vnd.api+json", "application/json"])))?.key
-		).toBe("application/vnd.api+json")
-	})
-
-	test("with no JSON-family key the default is the first key", () => {
-		expect(success(select(media(["image/png", "application/xml"])))?.key).toBe("image/png")
-	})
-
-	test("--content-type chooses among declared keys", () => {
-		expect(success(select(media(["application/json", "image/png"]), "image/png"))).toEqual({
-			contentType: "image/png",
-			key: "image/png"
-		})
-	})
-
-	test("an undeclared --content-type is a UsageError naming the flag, never the value", () => {
-		const error = failure(select(media(["application/json", "image/png"]), "text/secret-value"))
-
-		expect(error?._tag).toBe("UsageError")
-		expect(error?.flag).toBe("--content-type")
-		expect(error?.message).not.toContain("secret-value")
-	})
-
-	test("--content-type outside a single declared key is a UsageError", () => {
-		expect(failure(select(media(["application/json"]), "image/png"))?.flag).toBe("--content-type")
-	})
-
-	test("a range key needs --content-type naming a concrete type inside it", () => {
-		const declared = media(["application/json", "image/*"])
-
-		expect(success(select(declared, "image/png"))).toEqual({
-			contentType: "image/png",
-			key: "image/*"
-		})
-		expect(failure(select(declared, "text/plain"))?._tag).toBe("UsageError")
-		expect(failure(select(declared, "image/*"))?._tag).toBe("UsageError")
-	})
-
-	test("a lone range key without --content-type is a UsageError", () => {
-		expect(failure(select(media(["*/*"])))?.flag).toBe("--content-type")
-		expect(success(select(media(["application/xml", "image/*"])))?.key).toBe("application/xml")
-		expect(failure(select(media(["image/*", "application/xml"])))?.flag).toBe("--content-type")
-	})
-
-	test("an exact key wins over a range that also contains it", () => {
-		expect(success(select(media(["image/*", "image/png"]), "image/png"))?.key).toBe("image/png")
-		expect(success(select(media(["*/*", "image/*"]), "image/png"))?.key).toBe("image/*")
-	})
+/**
+ * Each negotiation chooses, lists and dispatches as its precedence model does, or is refused naming its flag. It
+ * replaces seventeen example cases (negotiate's selectRequestMedia, accept and dispatchResponse); its budget is 68
+ * drawn negotiations, its floor 17, steered up to 68.
+ */
+export const mediaNegotiation = property.explore(negotiationSpace, {
+	needs: {},
+	situations: [
+		"one key used as declared",
+		"JSON key chosen by default",
+		"first key by default",
+		"type chosen among keys",
+		"range key with a type inside it",
+		"exact key over its range",
+		"range key as default refused",
+		"undeclared type refused",
+		"not one concrete type refused",
+		"no request media refused",
+		"Accept lists every key once",
+		"Accept narrowed to JSON",
+		"Accept names one type",
+		"Accept outside the keys refused",
+		"no Accept",
+		"dispatched exactly",
+		"dispatched by a type range",
+		"dispatched by any",
+		"dispatched past case and parameters",
+		"dispatched nowhere"
+	] satisfies ReadonlyArray<Reached<NegotiationFeature>>,
+	check: (_, c: Case<NegotiationFeature>) => (media) =>
+		Effect.gen(function* () {
+			c.noteAll(negotiationFeatures(media))
+			const declaration = declarationOf(media)
+			const [chosen, chosenMessage] = yield* negotiated(
+				Negotiate.selectRequestMedia(declaration, media.contentType)
+			)
+			deepStrictEqual(chosen, requestMediaModel(media))
+			const [accepted, acceptMessage] = yield* negotiated(
+				Negotiate.accept(declaration, media.accept)
+			)
+			deepStrictEqual(accepted, acceptModel(media))
+			assertFalse(
+				Option.exists(chosenMessage, echoes) || Option.exists(acceptMessage, echoes),
+				"a refusal repeats the operator's value"
+			)
+			deepStrictEqual(
+				Option.fromUndefinedOr(
+					Negotiate.dispatchResponse(
+						Arr.dedupe(Arr.flatten(Rec.values(media.responses))),
+						Option.getOrUndefined(media.actual)
+					)
+				),
+				dispatchModel(media)
+			)
+		}),
+	oracle: {
+		kind: "second-implementation",
+		name: "a media precedence model: an exact type, then its type range, then any, the first among equals"
+	},
+	kept: [],
+	budget: { runs: 68, steered: 68 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/negotiate.ts",
+			original: 'Str.endsWith("/*")(essence(key))',
+			replacement: "true",
+			why: "Every key reads as a range, so a lone concrete key cannot be the default and a named type is sent under any key; the property fails (CATCH's evidence, mutant ad92409670)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/negotiate.ts",
+			original: "\t\t\t\t\t\tmedia.request.length === 1\n\t\t\t\t\t\t\t? first",
+			replacement: "\t\t\t\t\t\tmedia.request.length === 2\n\t\t\t\t\t\t\t? first",
+			why: "A lone key is no longer used as declared but sought among JSON keys, and two keys default to the first; the property fails (CATCH's evidence, mutant c97a2f0475)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/negotiate.ts",
+			original: "\tArr.findFirst(declared, (key) => essence(key) === concrete.type).pipe(",
+			replacement: "\tArr.findFirst(declared, (key) => essence(key) !== concrete.type).pipe(",
+			why: "The exact match takes the first key that is not the named type; the property fails (CATCH's evidence, mutant 2c778d0c25)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/negotiate.ts",
+			original: "!==",
+			replacement: "===",
+			why: "A type's range is matched by any range but its own, and any-type ranges by */* alone; the property fails (CATCH's evidence, mutant 89bbe0c455)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/negotiate.ts",
+			original:
+				"\t\t\tconst listed = json.length > 0 && json.length < declared.length ? json : declared",
+			replacement:
+				"\t\t\tconst listed = json.length > 1 && json.length < declared.length ? json : declared",
+			why: "Accept narrows to JSON only when two JSON keys coexist with others, so one JSON key beside others is not chosen; the property fails (CATCH's evidence, mutant d3bb2a7141)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/negotiate.ts",
+			original:
+				'Arr.isReadonlyArrayNonEmpty(listed) ? Option.some(Arr.join(listed, ", ")) : Option.none()',
+			replacement:
+				'Arr.isReadonlyArrayNonEmpty(listed) ? Option.none() : Option.some(Arr.join(listed, ", "))',
+			why: "An operation with response media sends no Accept and one without sends an empty one; the property fails (CATCH's evidence, mutant 43c2a18460)."
+		}
+	]
 })
-
-describe("accept", () => {
-	test("lists the declared response media in document order, once each", () => {
-		const declared = media([], { "200": ["application/xml", "text/csv"], default: ["text/csv"] })
-
-		expect(success(acceptOf(declared))).toEqual(Option.some("application/xml, text/csv"))
-	})
-
-	test("JSON is the default where JSON and other alternatives coexist", () => {
-		const declared = media([], { "200": ["image/png", "application/json"] })
-
-		expect(success(acceptOf(declared))).toEqual(Option.some("application/json"))
-	})
-
-	test("--accept naming a declared type is sent as named", () => {
-		const declared = media([], { "200": ["application/json", "image/png"] })
-
-		expect(success(acceptOf(declared, "image/png"))).toEqual(Option.some("image/png"))
-	})
-
-	test("--accept outside the declared set is a UsageError naming the flag, never the value", () => {
-		const error = failure(acceptOf(media([], { "200": ["application/json"] }), "text/secret-value"))
-
-		expect(error?._tag).toBe("UsageError")
-		expect(error?.flag).toBe("--accept")
-		expect(error?.message).not.toContain("secret-value")
-	})
-
-	test("no Accept when no response declares content", () => {
-		expect(success(acceptOf(media([], { "204": [], "404": [] })))).toEqual(Option.none())
-		expect(success(acceptOf(media([], {})))).toEqual(Option.none())
-	})
-})
-
-describe("dispatchResponse", () => {
-	test("picks the most specific declared key: exact, then type/*, then */*", () => {
-		const declared = ["*/*", "image/*", "image/png"]
-
-		expect(Negotiate.dispatchResponse(declared, "image/png")).toBe("image/png")
-		expect(Negotiate.dispatchResponse(declared, "image/gif")).toBe("image/*")
-		expect(Negotiate.dispatchResponse(declared, "text/plain")).toBe("*/*")
-	})
-
-	test("ignores parameters and case on the response media type", () => {
-		expect(
-			Negotiate.dispatchResponse(["application/json"], "Application/JSON; charset=utf-8")
-		).toBe("application/json")
-	})
-
-	test("an undeclared or missing media type matches nothing (raw bytes)", () => {
-		expect(Negotiate.dispatchResponse(["application/json"], "text/plain")).toBeUndefined()
-		expect(Negotiate.dispatchResponse(["application/json"], undefined)).toBeUndefined()
-		expect(Negotiate.dispatchResponse([], "application/json")).toBeUndefined()
-	})
-})
-
-describe("flags", () => {})

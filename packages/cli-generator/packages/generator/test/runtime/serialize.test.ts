@@ -1,1482 +1,784 @@
-import {
-	ByteSize,
-	Cause,
-	Effect,
-	Exit,
-	FileSystem,
-	Layer,
-	Option,
-	Runtime,
-	Schema,
-	Stdio,
-	Stream
-} from "effect"
-import { HttpBody, UrlParams } from "effect/http"
-import type { HttpClientRequest } from "effect/http"
-import { describe, expect, test } from "vitest"
-import { UsageError } from "#runtime-src/domain/errors.ts"
-import { jsonNull, stdinClaimLayer } from "#runtime-src/runtime/input.ts"
-import { fileBody, partFilename } from "#runtime-src/runtime/multipart.ts"
+/**
+ * The runtime's parameter serializers write exactly what their reference writes from the specification, and refuse
+ * exactly what it refuses: path styles and templates (RFC 6570 simple, label and matrix, OAS path templating),
+ * query styles (form, spaceDelimited, pipeDelimited, deepObject with its bracket convention and scalar switch),
+ * header and cookie parameters (RFC 9110, RFC 6265, OAS 3.2 and Appendix D), and no refusal repeats a value.
+ */
+
+import { assertFalse, assertTrue, deepStrictEqual, strictEqual } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as Str } from "effect"
+import { HttpBody, type HttpClientRequest } from "effect/http"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
-import type { Value } from "#runtime-src/runtime/serialize.ts"
-
-const plain = { allowReserved: false, explode: false } as const
-
-const exploded = { allowReserved: false, explode: true } as const
-
-const reserved = { allowReserved: true, explode: false } as const
-
-const reservedExploded = { allowReserved: true, explode: true } as const
-
-const array: Value = ["red", "green", "blue"]
-
-const object: Value = { B: 150, G: 200, R: 100 }
-
-const expand = (parameter: Serialize.PathParameter) => Effect.runPromise(parameter.expand)
-
-const expectUsage = async (effect: Effect.Effect<unknown, UsageError>) => {
-	const error = await Effect.runPromise(Effect.flip(effect))
-
-	expect(error).toBeInstanceOf(UsageError)
-	expect(error).toMatchObject({ _tag: "UsageError" })
-	expect(error[Runtime.errorExitCode]).toBe(2)
-}
-
-const pathOf = (template: string, ...parameters: Serialize.PathParameter[]) =>
-	Effect.runPromise(Serialize.path(template, parameters).expand)
-
-const text = (value: Value) => Effect.runPromise(Serialize.toText("p", value, false))
-
-describe("type to text", () => {
-	test("scalars use their JSON text", async () => {
-		expect(await text("abc")).toEqual({ kind: "primitive", text: "abc" })
-		expect(await text("")).toEqual({ kind: "primitive", text: "" })
-		expect(await text(true)).toEqual({ kind: "primitive", text: "true" })
-		expect(await text(false)).toEqual({ kind: "primitive", text: "false" })
-		expect(await text(0)).toEqual({ kind: "primitive", text: "0" })
-		expect(await text(-0)).toEqual({ kind: "primitive", text: "0" })
-		expect(await text(1.5)).toEqual({ kind: "primitive", text: "1.5" })
-		expect(await text(0.1 + 0.2)).toEqual({ kind: "primitive", text: "0.30000000000000004" })
-		expect(await text(1e21)).toEqual({ kind: "primitive", text: "1e+21" })
-		expect(await text(1e-7)).toEqual({ kind: "primitive", text: "1e-7" })
-	})
-
-	test("a digit string passes unchanged", async () => {
-		expect(await text("9007199254740993")).toEqual({
-			kind: "primitive",
-			text: "9007199254740993"
-		})
-	})
-
-	test("null, undefined, empty arrays and empty objects are undefined", async () => {
-		expect(await text(jsonNull)).toBeUndefined()
-		// oxlint-disable-next-line unicorn/no-useless-undefined -- the value under test
-		expect(await text(undefined)).toBeUndefined()
-		expect(await text([])).toBeUndefined()
-		expect(await text({})).toBeUndefined()
-		expect(await text({ a: undefined })).toBeUndefined()
-	})
-
-	test("an array holding one empty string is one empty item", async () => {
-		expect(await text([""])).toEqual({ items: [""], kind: "array" })
-	})
-
-	test("arrays and objects keep document order", async () => {
-		expect(await text(array)).toEqual({ items: ["red", "green", "blue"], kind: "array" })
-		expect(await text(object)).toEqual({
-			kind: "object",
-			members: [
-				["B", "150"],
-				["G", "200"],
-				["R", "100"]
-			]
-		})
-	})
-
-	test("an undefined member is omitted", async () => {
-		expect(await text({ a: 1, b: undefined })).toEqual({
-			kind: "object",
-			members: [["a", "1"]]
-		})
-	})
-
-	test("a required undefined is a usage error", async () => {
-		const values: readonly Value[] = [jsonNull, undefined, [], {}]
-
-		await Promise.all(values.map((value) => expectUsage(Serialize.toText("p", value, true))))
-	})
-
-	test("non-finite numbers are refused", async () => {
-		const values = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]
-
-		await Promise.all(values.map((value) => expectUsage(Serialize.toText("p", value, false))))
-	})
-
-	test("null array items, undefined array items and null members are refused", async () => {
-		await expectUsage(Serialize.toText("p", ["a", jsonNull], false))
-		await expectUsage(Serialize.toText("p", ["a", undefined], false))
-		await expectUsage(Serialize.toText("p", { a: jsonNull }, false))
-	})
-
-	test("a nested value is refused", async () => {
-		// A runtime value outside the declared type, as a content-based parameter could carry.
-		// oxlint-disable-next-line typescript/no-unsafe-assignment -- parsed JSON is any
-		const nested: Value = JSON.parse('[["a"]]')
-
-		await expectUsage(Serialize.toText("p", nested, false))
-	})
-
-	test("lone surrogates are refused in values, items, keys and members", async () => {
-		const high = "a\uD800b"
-		const low = "\uDC00"
-
-		await expectUsage(Serialize.toText("p", high, false))
-		await expectUsage(Serialize.toText("p", [low], false))
-		await expectUsage(Serialize.toText("p", { [high]: "a" }, false))
-		await expectUsage(Serialize.toText("p", { a: low }, false))
-	})
-
-	test("a surrogate pair is one code point and passes", async () => {
-		expect(await text("\u{1F600}")).toEqual({ kind: "primitive", text: "\u{1F600}" })
-	})
-})
-
-describe("simple", () => {
-	test("a primitive", async () => {
-		expect(await expand(Serialize.simple("id", "abc", plain))).toBe("abc")
-		expect(await expand(Serialize.simple("id", 5, exploded))).toBe("5")
-		expect(await expand(Serialize.simple("id", true, plain))).toBe("true")
-		expect(await expand(Serialize.simple("id", "", plain))).toBe("")
-	})
-
-	test("an array", async () => {
-		expect(await expand(Serialize.simple("id", array, plain))).toBe("red,green,blue")
-		expect(await expand(Serialize.simple("id", array, exploded))).toBe("red,green,blue")
-	})
-
-	test("an object", async () => {
-		expect(await expand(Serialize.simple("id", object, plain))).toBe("B,150,G,200,R,100")
-		expect(await expand(Serialize.simple("id", object, exploded))).toBe("B=150,G=200,R=100")
-	})
-
-	test("everything outside unreserved is percent-encoded", async () => {
-		expect(await expand(Serialize.simple("id", "a b/c?d#e%f&g=h,i", plain))).toBe(
-			"a%20b%2Fc%3Fd%23e%25f%26g%3Dh%2Ci"
-		)
-		expect(await expand(Serialize.simple("id", "-_.~AZaz09", plain))).toBe("-_.~AZaz09")
-		expect(await expand(Serialize.simple("id", "!'()*", plain))).toBe("%21%27%28%29%2A")
-		expect(await expand(Serialize.simple("id", "é\u{1F600}", plain))).toBe("%C3%A9%F0%9F%98%80")
-	})
-
-	test("array items and object members are encoded, delimiters in them too", async () => {
-		expect(await expand(Serialize.simple("id", ["a,b", "c d"], plain))).toBe("a%2Cb,c%20d")
-		expect(await expand(Serialize.simple("id", { "k=": "v,w" }, exploded))).toBe("k%3D=v%2Cw")
-	})
-
-	test("an empty array and an empty object are refused: a path parameter is required", async () => {
-		await expectUsage(Serialize.simple("id", [], plain).expand)
-		await expectUsage(Serialize.simple("id", {}, plain).expand)
-		await expectUsage(Serialize.simple("id", jsonNull, plain).expand)
-		await expectUsage(Serialize.simple("id", undefined, plain).expand)
-	})
-
-	test("a one-item array holding an empty string expands to nothing", async () => {
-		expect(await expand(Serialize.simple("id", [""], plain))).toBe("")
-	})
-
-	test("allowReserved lets reserved characters and percent triplets through", async () => {
-		expect(await expand(Serialize.simple("id", ":[]@!$&'()*+;=", reserved))).toBe(":[]@!$&'()*+;=")
-		expect(await expand(Serialize.simple("id", "a%2Fb%2fc", reserved))).toBe("a%2Fb%2fc")
-	})
-
-	test("allowReserved still encodes slash, question mark and hash", async () => {
-		expect(await expand(Serialize.simple("id", "a/b?c#d", reserved))).toBe("a%2Fb%3Fc%23d")
-	})
-
-	test("allowReserved encodes a stray percent, spaces and other non-reserved characters", async () => {
-		expect(await expand(Serialize.simple("id", "50% 100%2 %zz%", reserved))).toBe(
-			"50%25%20100%252%20%25zz%25"
-		)
-		expect(await expand(Serialize.simple("id", 'a\\b"c<d>e^f`g{h|i}', reserved))).toBe(
-			"a%5Cb%22c%3Cd%3Ee%5Ef%60g%7Bh%7Ci%7D"
-		)
-	})
-
-	test("allowReserved with a comma inside an array item or object member is refused", async () => {
-		await expectUsage(Serialize.simple("id", ["a,b"], reserved).expand)
-		await expectUsage(Serialize.simple("id", ["a,b"], reservedExploded).expand)
-		await expectUsage(Serialize.simple("id", { k: "a,b" }, reserved).expand)
-		await expectUsage(Serialize.simple("id", { "a,b": "v" }, reserved).expand)
-	})
-
-	test("allowReserved with an equals sign is refused only in an exploded object", async () => {
-		await expectUsage(Serialize.simple("id", { k: "a=b" }, reservedExploded).expand)
-		await expectUsage(Serialize.simple("id", { "a=b": "v" }, reservedExploded).expand)
-		expect(await expand(Serialize.simple("id", { k: "a=b" }, reserved))).toBe("k,a=b")
-		expect(await expand(Serialize.simple("id", ["a=b"], reservedExploded))).toBe("a=b")
-	})
-
-	test("allowReserved with a comma in a primitive is not split, so it passes", async () => {
-		expect(await expand(Serialize.simple("id", "a,b", reserved))).toBe("a,b")
-	})
-
-	test("lone surrogates are refused", async () => {
-		await expectUsage(Serialize.simple("id", "\uD800", plain).expand)
-		await expectUsage(Serialize.simple("id", "\uD800", reserved).expand)
-	})
-})
-
-describe("label", () => {
-	test("a primitive", async () => {
-		expect(await expand(Serialize.label("id", "abc", plain))).toBe(".abc")
-		expect(await expand(Serialize.label("id", 5, exploded))).toBe(".5")
-		expect(await expand(Serialize.label("id", "", plain))).toBe(".")
-	})
-
-	test("an array", async () => {
-		expect(await expand(Serialize.label("id", array, plain))).toBe(".red,green,blue")
-		expect(await expand(Serialize.label("id", array, exploded))).toBe(".red.green.blue")
-	})
-
-	test("an object", async () => {
-		expect(await expand(Serialize.label("id", object, plain))).toBe(".B,150,G,200,R,100")
-		expect(await expand(Serialize.label("id", object, exploded))).toBe(".B=150.G=200.R=100")
-	})
-
-	test("empty items follow RFC 6570", async () => {
-		expect(await expand(Serialize.label("id", [""], plain))).toBe(".")
-		expect(await expand(Serialize.label("id", ["", ""], exploded))).toBe("..")
-	})
-
-	test("a dot inside an exploded item or member is refused in every mode", async () => {
-		await expectUsage(Serialize.label("id", ["a.b"], exploded).expand)
-		await expectUsage(Serialize.label("id", { k: "a.b" }, exploded).expand)
-		await expectUsage(Serialize.label("id", { "a.b": "v" }, exploded).expand)
-		await expectUsage(Serialize.label("id", ["a.b"], reservedExploded).expand)
-	})
-
-	test("a dot is fine where it is not a delimiter", async () => {
-		expect(await expand(Serialize.label("id", ["a.b"], plain))).toBe(".a.b")
-		expect(await expand(Serialize.label("id", "a.b", exploded))).toBe(".a.b")
-	})
-
-	test("allowReserved with a comma or equals sign inside an item or member is refused", async () => {
-		await expectUsage(Serialize.label("id", ["a,b"], reserved).expand)
-		await expectUsage(Serialize.label("id", { k: "a=b" }, reserved).expand)
-		await expectUsage(Serialize.label("id", ["a=b"], reservedExploded).expand)
-	})
-
-	test("without allowReserved the same delimiters are encoded", async () => {
-		expect(await expand(Serialize.label("id", ["a,b", "c=d"], plain))).toBe(".a%2Cb,c%3Dd")
-	})
-
-	test("allowReserved passes other reserved characters", async () => {
-		expect(await expand(Serialize.label("id", "a:b;c@d", reserved))).toBe(".a:b;c@d")
-	})
-})
-
-describe("matrix", () => {
-	test("a primitive", async () => {
-		expect(await expand(Serialize.matrix("id", "abc", plain))).toBe(";id=abc")
-		expect(await expand(Serialize.matrix("id", 5, exploded))).toBe(";id=5")
-		expect(await expand(Serialize.matrix("id", "", plain))).toBe(";id")
-	})
-
-	test("an array", async () => {
-		expect(await expand(Serialize.matrix("id", array, plain))).toBe(";id=red,green,blue")
-		expect(await expand(Serialize.matrix("id", array, exploded))).toBe(";id=red;id=green;id=blue")
-	})
-
-	test("an object", async () => {
-		expect(await expand(Serialize.matrix("id", object, plain))).toBe(";id=B,150,G,200,R,100")
-		expect(await expand(Serialize.matrix("id", object, exploded))).toBe(";B=150;G=200;R=100")
-	})
-
-	test("empty values drop the equals sign", async () => {
-		expect(await expand(Serialize.matrix("id", [""], plain))).toBe(";id")
-		expect(await expand(Serialize.matrix("id", ["a", ""], exploded))).toBe(";id=a;id")
-		expect(await expand(Serialize.matrix("id", { k: "" }, exploded))).toBe(";k")
-	})
-
-	test("allowReserved with a semicolon, comma or equals sign inside an item or member is refused", async () => {
-		await expectUsage(Serialize.matrix("id", ["a;b"], reserved).expand)
-		await expectUsage(Serialize.matrix("id", ["a,b"], reservedExploded).expand)
-		await expectUsage(Serialize.matrix("id", { k: "a=b" }, reserved).expand)
-		await expectUsage(Serialize.matrix("id", { "a;b": "v" }, reservedExploded).expand)
-	})
-
-	test("allowReserved never lets a semicolon, equals sign or comma in the parameter name reach the wire raw", async () => {
-		expect(await expand(Serialize.matrix("a;b=c,d", "v", reserved))).toBe(";a%3Bb%3Dc%2Cd=v")
-	})
-
-	test("without allowReserved the same delimiters are encoded", async () => {
-		expect(await expand(Serialize.matrix("id", ["a;b", "c=d", "e,f"], exploded))).toBe(
-			";id=a%3Bb;id=c%3Dd;id=e%2Cf"
-		)
-	})
-
-	test("allowReserved passes other reserved characters", async () => {
-		expect(await expand(Serialize.matrix("id", "a:b@c", reserved))).toBe(";id=a:b@c")
-	})
-})
-
-describe("path", () => {
-	test("substitutes each placeholder with its expansion", async () => {
-		expect(
-			await pathOf(
-				"/users/{id}/files/{name}",
-				Serialize.simple("id", 42, plain),
-				Serialize.simple("name", "a b", plain)
-			)
-		).toBe("/users/42/files/a%20b")
-	})
-
-	test("a label and a matrix keep their prefix", async () => {
-		expect(
-			await pathOf(
-				"/a{id}/b{tag}",
-				Serialize.label("id", "x", plain),
-				Serialize.matrix("tag", array, exploded)
-			)
-		).toBe("/a.x/b;tag=red;tag=green;tag=blue")
-	})
-
-	test("a template with no placeholder passes unchanged", async () => {
-		expect(await pathOf("/health")).toBe("/health")
-	})
-
-	test("a parameter used twice expands twice", async () => {
-		expect(await pathOf("/{id}/x/{id}", Serialize.simple("id", 1, plain))).toBe("/1/x/1")
-	})
-
-	test("a parameter error surfaces from the path", async () => {
-		await expectUsage(Serialize.path("/{id}", [Serialize.simple("id", [], plain)]).expand)
-		await expectUsage(Serialize.path("/{id}", [Serialize.simple("id", "\uD800", plain)]).expand)
-	})
-
-	test("a placeholder without a parameter is refused", async () => {
-		await expectUsage(Serialize.path("/{id}/{other}", [Serialize.simple("id", 1, plain)]).expand)
-	})
-
-	test("a parameter without a placeholder is refused", async () => {
-		await expectUsage(
-			Serialize.path("/{id}", [
-				Serialize.simple("id", 1, plain),
-				Serialize.simple("extra", 2, plain)
-			]).expand
-		)
-	})
-
-	test("a dot segment after expansion is refused", async () => {
-		const values = [".", "..", "%2e", "%2E", "%2e%2E", ".%2e", "%2E."]
-
-		await Promise.all(
-			values.map((value) =>
-				expectUsage(
-					Serialize.path("/files/{name}/x", [Serialize.simple("name", value, reserved)]).expand
+import {
+	type AlternativeCase,
+	type AlternativeFeature,
+	alternativeFeatures,
+	alternativeSpace,
+	type BodyFeature,
+	bodyBytes,
+	bodyFeatures,
+	bodyModel,
+	bodySpace,
+	type ContentFeature,
+	contentFeatures,
+	contentModel,
+	contentSpace,
+	type RequestFeature,
+	requestFeatures,
+	requestModel,
+	requestSpace,
+	type CookieFeature,
+	cookieFeatures,
+	cookieModel,
+	cookieSpace,
+	type Expanded,
+	expanded,
+	type HeaderFeature,
+	headerFeatures,
+	headerModel,
+	headerSpace,
+	outcomeOf,
+	type PathFeature,
+	pathFeatures,
+	pathModel,
+	pathParameterModel,
+	pathSpace,
+	type QueryFeature,
+	queryFeatures,
+	queryModel,
+	querySpace,
+	SECRET,
+	templateOf
+} from "#test/runtime/serialize.fixtures.ts"
+
+/** A request with nothing but its body, as a body's codec is judged. */
+const posted = (body: Serialize.RequestBody): Serialize.Request =>
+	Serialize.request("POST", { body, headers: [], path: Serialize.path("/", []), query: [] })
+
+/** A request's outcome: refused, or its body's bytes and Content-Type, a multipart boundary read as `<boundary>`. */
+const sentOf = (request: Serialize.Request) =>
+	Effect.matchEffect(request, {
+		onFailure: () =>
+			Effect.succeed(Option.none<readonly [Option.Option<string>, Option.Option<string>]>()),
+		onSuccess: (built: HttpClientRequest.HttpClientRequest) =>
+			Effect.map(bodyBytes(built.body), (bytes) => {
+				const contentType = Rec.get(built.headers, "content-type")
+				const boundary = Option.flatMap(contentType, (type) =>
+					Arr.get(Str.split("boundary=")(type), 1)
 				)
-			)
-		)
-	})
-
-	test("a dot segment is refused when it is the first, middle or last segment", async () => {
-		await expectUsage(Serialize.path("/{a}", [Serialize.simple("a", "..", plain)]).expand)
-		await expectUsage(Serialize.path("/x/{a}/y", [Serialize.simple("a", "..", plain)]).expand)
-		await expectUsage(Serialize.path("/x/{a}", [Serialize.simple("a", ".", plain)]).expand)
-	})
-
-	test("a label that expands to a dot segment is refused", async () => {
-		await expectUsage(Serialize.path("/x/{a}", [Serialize.label("a", ".", plain)]).expand)
-	})
-
-	test("a dot inside a longer segment is fine", async () => {
-		expect(await pathOf("/f/{a}", Serialize.simple("a", "..a", plain))).toBe("/f/..a")
-		expect(await pathOf("/f/{a}", Serialize.simple("a", "a.", plain))).toBe("/f/a.")
-		expect(await pathOf("/f/{a}", Serialize.simple("a", "%2e%2ea", reserved))).toBe("/f/%2e%2ea")
-	})
-
-	test("an encoded slash does not split a segment", async () => {
-		expect(await pathOf("/f/{a}", Serialize.simple("a", "../x", plain))).toBe("/f/..%2Fx")
-	})
-
-	test("a stray percent in a template parameter is encoded under allowReserved", async () => {
-		expect(await pathOf("/f/{a}", Serialize.simple("a", "100%", reserved))).toBe("/f/100%25")
-	})
-})
-
-const query = (parameter: Serialize.QueryParameter) => Effect.runPromise(parameter.expand)
-
-const formOptions = (options: Partial<Serialize.QueryOptions> = {}): Serialize.QueryOptions => ({
-	allowReserved: false,
-	explode: true,
-	required: false,
-	...options
-})
-
-describe("form", () => {
-	test("a primitive", async () => {
-		expect(await query(Serialize.form("q", "abc", formOptions()))).toBe("q=abc")
-		expect(await query(Serialize.form("q", 5, formOptions({ explode: false })))).toBe("q=5")
-		expect(await query(Serialize.form("q", false, formOptions()))).toBe("q=false")
-	})
-
-	test("an empty string sends the name with no text", async () => {
-		expect(await query(Serialize.form("q", "", formOptions()))).toBe("q=")
-		expect(await query(Serialize.form("q", [""], formOptions({ explode: false })))).toBe("q=")
-	})
-
-	test("an exploded array repeats the name", async () => {
-		expect(await query(Serialize.form("color", array, formOptions()))).toBe(
-			"color=red&color=green&color=blue"
-		)
-	})
-
-	test("an array with explode false joins with commas", async () => {
-		expect(await query(Serialize.form("tags", array, formOptions({ explode: false })))).toBe(
-			"tags=red,green,blue"
-		)
-	})
-
-	test("an exploded object uses its members as names", async () => {
-		expect(await query(Serialize.form("color", object, formOptions()))).toBe("B=150&G=200&R=100")
-	})
-
-	test("an object with explode false joins keys and values with commas", async () => {
-		expect(await query(Serialize.form("color", object, formOptions({ explode: false })))).toBe(
-			"color=B,150,G,200,R,100"
-		)
-	})
-
-	test("values are percent-encoded outside unreserved, delimiters included", async () => {
-		expect(await query(Serialize.form("q", "a b&c=d+e#f/g?h,i", formOptions()))).toBe(
-			"q=a%20b%26c%3Dd%2Be%23f%2Fg%3Fh%2Ci"
-		)
-		expect(await query(Serialize.form("q", "!'()*", formOptions()))).toBe("q=%21%27%28%29%2A")
-		expect(await query(Serialize.form("q", "é\u{1F600}", formOptions()))).toBe(
-			"q=%C3%A9%F0%9F%98%80"
-		)
-	})
-
-	test("names and exploded keys are percent-encoded", async () => {
-		expect(await query(Serialize.form("a b[]", "x", formOptions()))).toBe("a%20b%5B%5D=x")
-		expect(await query(Serialize.form("q", { "a&b": 1 }, formOptions()))).toBe("a%26b=1")
-	})
-
-	test("a comma in a non-exploded item is encoded without allowReserved", async () => {
-		expect(
-			await query(Serialize.form("q", ["private,a", "b"], formOptions({ explode: false })))
-		).toBe("q=private%2Ca,b")
-	})
-
-	test("a comma in a non-exploded item or key is refused under allowReserved", async () => {
-		const options = formOptions({ allowReserved: true, explode: false })
-
-		await expectUsage(Serialize.form("q", ["a,b"], options).expand)
-		await expectUsage(Serialize.form("q", { "a,b": 1 }, options).expand)
-		await expectUsage(Serialize.form("q", { a: "b,c" }, options).expand)
-	})
-
-	test("a comma is fine under allowReserved when exploded", async () => {
-		expect(
-			await query(Serialize.form("q", ["a,b", "c"], formOptions({ allowReserved: true })))
-		).toBe("q=a,b&q=c")
-	})
-
-	test("an undefined optional value sends nothing", async () => {
-		const values: readonly Value[] = [jsonNull, undefined, [], {}, { a: undefined }]
-
-		const results = await Promise.all(
-			values.map((value) => query(Serialize.form("q", value, formOptions())))
-		)
-
-		expect(results).toEqual([undefined, undefined, undefined, undefined, undefined])
-	})
-
-	test("an undefined required value is a usage error", async () => {
-		const values: readonly Value[] = [jsonNull, undefined, [], {}]
-
-		await Promise.all(
-			values.map((value) =>
-				expectUsage(Serialize.form("q", value, formOptions({ required: true })).expand)
-			)
-		)
-	})
-
-	test("a nested value is refused", async () => {
-		// oxlint-disable-next-line typescript/no-unsafe-assignment -- parsed JSON is any
-		const nested: Value = JSON.parse('{"a":{"b":1}}')
-
-		await expectUsage(Serialize.form("q", nested, formOptions()).expand)
-	})
-
-	test("a lone surrogate in a value or a name is refused", async () => {
-		await expectUsage(Serialize.form("q", "a\uD800", formOptions()).expand)
-		await expectUsage(Serialize.form("q\uDC00", "a", formOptions()).expand)
-	})
-})
-
-describe("allowReserved in a query", () => {
-	const options = formOptions({ allowReserved: true })
-
-	test("reserved characters pass but the form delimiters are encoded", async () => {
-		expect(await query(Serialize.form("q", ":/?[]@!$()*,;", options))).toBe("q=:/?[]@!$()*,;")
-		expect(await query(Serialize.form("q", "a&b=c+d#e", options))).toBe("q=a%26b%3Dc%2Bd%23e")
-	})
-
-	test("' is sent as %27, the form fetch writes on the wire (a platform limit, D-OC7)", async () => {
-		expect(await query(Serialize.form("q", ":/?[]@!$'()*,;", options))).toBe("q=:/?[]@!$%27()*,;")
-	})
-
-	test("' is sent raw in an allowReserved form body, which no URL serializer parses", async () => {
-		const body = Serialize.urlEncode(
-			{ q: ":/?[]@!$'()*,;" },
-			{ properties: [["q", { allowReserved: true }]] }
-		)
-
-		expect(await Effect.runPromise(body)).toBe("q=:/?[]@!$'()*,;")
-	})
-
-	test("everything else is still encoded", async () => {
-		expect(await query(Serialize.form("q", 'a b|c"d<e>f\\g^h`i{j}k~l-m_n.o', options))).toBe(
-			"q=a%20b%7Cc%22d%3Ce%3Ef%5Cg%5Eh%60i%7Bj%7Dk~l-m_n.o"
-		)
-	})
-
-	test("a percent triplet passes and a stray percent is encoded", async () => {
-		expect(await query(Serialize.form("q", "%2F%e9", options))).toBe("q=%2F%e9")
-		expect(await query(Serialize.form("q", "100%", options))).toBe("q=100%25")
-		expect(await query(Serialize.form("q", "%zz%2", options))).toBe("q=%25zz%252")
-	})
-
-	test("without allowReserved the percent is encoded", async () => {
-		expect(await query(Serialize.form("q", "%2F", formOptions()))).toBe("q=%252F")
-	})
-
-	test("the name is encoded as without allowReserved", async () => {
-		expect(await query(Serialize.form("a:b", "x", options))).toBe("a%3Ab=x")
-	})
-})
-
-describe("spaceDelimited and pipeDelimited", () => {
-	test("a non-exploded array uses the encoded delimiter", async () => {
-		const spaced = formOptions({ explode: false })
-
-		expect(await query(Serialize.spaceDelimited("color", array, spaced))).toBe(
-			"color=red%20green%20blue"
-		)
-		expect(await query(Serialize.pipeDelimited("color", ["blue", "black"], spaced))).toBe(
-			"color=blue%7Cblack"
-		)
-	})
-
-	test("a non-exploded object lists keys and values", async () => {
-		const options = formOptions({ explode: false })
-
-		expect(await query(Serialize.spaceDelimited("color", object, options))).toBe(
-			"color=B%20150%20G%20200%20R%20100"
-		)
-		expect(await query(Serialize.pipeDelimited("color", object, options))).toBe(
-			"color=B%7C150%7CG%7C200%7CR%7C100"
-		)
-	})
-
-	test("an exploded value follows form", async () => {
-		expect(await query(Serialize.spaceDelimited("c", ["a", "b"], formOptions()))).toBe("c=a&c=b")
-		expect(await query(Serialize.pipeDelimited("c", { a: 1 }, formOptions()))).toBe("a=1")
-	})
-
-	test("a primitive is a plain pair", async () => {
-		expect(await query(Serialize.pipeDelimited("c", "a|b", formOptions({ explode: false })))).toBe(
-			"c=a%7Cb"
-		)
-	})
-
-	test("an item holding the style's delimiter is refused", async () => {
-		const options = formOptions({ explode: false })
-
-		await expectUsage(Serialize.spaceDelimited("c", ["a b"], options).expand)
-		await expectUsage(Serialize.spaceDelimited("c", { "a b": 1 }, options).expand)
-		await expectUsage(Serialize.pipeDelimited("c", ["a|b"], options).expand)
-		await expectUsage(
-			Serialize.pipeDelimited("c", ["a|b"], { ...options, allowReserved: true }).expand
-		)
-		expect(await query(Serialize.spaceDelimited("c", ["a|b", "c"], options))).toBe("c=a%7Cb%20c")
-		expect(await query(Serialize.pipeDelimited("c", ["a b", "c"], options))).toBe("c=a%20b%7Cc")
-	})
-
-	test("an undefined value sends nothing or is refused when required", async () => {
-		expect(await query(Serialize.pipeDelimited("c", [], formOptions()))).toBeUndefined()
-		await expectUsage(
-			Serialize.spaceDelimited("c", jsonNull, formOptions({ required: true })).expand
-		)
-	})
-})
-
-describe("deepObject", () => {
-	test("members become bracketed names with encoded brackets", async () => {
-		expect(await query(Serialize.deepObject("color", object, formOptions()))).toBe(
-			"color%5BB%5D=150&color%5BG%5D=200&color%5BR%5D=100"
-		)
-	})
-
-	test("explode has no effect", async () => {
-		expect(
-			await query(Serialize.deepObject("c", { a: "x" }, formOptions({ explode: false })))
-		).toBe("c%5Ba%5D=x")
-	})
-
-	test("keys and values are encoded and allowReserved applies to values", async () => {
-		expect(await query(Serialize.deepObject("c", { "a b": "x/y" }, formOptions()))).toBe(
-			"c%5Ba%20b%5D=x%2Fy"
-		)
-		expect(
-			await query(
-				Serialize.deepObject("c", { "a/b": "x/y&z" }, formOptions({ allowReserved: true }))
-			)
-		).toBe("c%5Ba%2Fb%5D=x/y%26z")
-	})
-
-	test("a nested value is refused", async () => {
-		// oxlint-disable-next-line typescript/no-unsafe-assignment -- parsed JSON is any
-		const nested: Value = JSON.parse('{"a":{"b":1}}')
-
-		await expectUsage(Serialize.deepObject("c", nested, formOptions()).expand)
-	})
-
-	test("an array and a primitive are refused", async () => {
-		await expectUsage(Serialize.deepObject("c", ["a"], formOptions()).expand)
-		await expectUsage(Serialize.deepObject("c", "a", formOptions()).expand)
-	})
-
-	// Watch item N2: a marked array of scalars (Stripe's `expand`) sends each value indexed.
-	test("with brackets, two values of a scalar array are sent as a[0] and a[1]", async () => {
-		const brackets = formOptions({ brackets: true })
-		const body = Serialize.urlEncode(
-			{ expand: ["data.a", "data.b"] },
-			{ properties: [["expand", { brackets: true, explode: true, style: "deepObject" }]] }
-		)
-
-		expect(await query(Serialize.deepObject("expand", ["data.a", "data.b"], brackets))).toBe(
-			"expand%5B0%5D=data.a&expand%5B1%5D=data.b"
-		)
-		expect(await Effect.runPromise(body)).toBe("expand%5B0%5D=data.a&expand%5B1%5D=data.b")
-	})
-
-	test("an empty object sends nothing or is refused when required", async () => {
-		expect(await query(Serialize.deepObject("c", {}, formOptions()))).toBeUndefined()
-		await expectUsage(Serialize.deepObject("c", {}, formOptions({ required: true })).expand)
-	})
-})
-
-describe("allowEmptyValue", () => {
-	const allowed = formOptions({ allowEmptyValue: true })
-
-	test("an empty array or object sends the name with no text", async () => {
-		expect(await query(Serialize.form("q", [], allowed))).toBe("q=")
-		expect(await query(Serialize.form("q", {}, allowed))).toBe("q=")
-		expect(await query(Serialize.pipeDelimited("q", [], allowed))).toBe("q=")
-		expect(await query(Serialize.deepObject("q", {}, allowed))).toBe("q=")
-	})
-
-	test("an empty value satisfies a required parameter", async () => {
-		expect(await query(Serialize.form("q", [], { ...allowed, required: true }))).toBe("q=")
-	})
-
-	test("null and undefined still send nothing, or are refused when required", async () => {
-		expect(await query(Serialize.form("q", jsonNull, allowed))).toBeUndefined()
-		// oxlint-disable-next-line unicorn/no-useless-undefined -- the value under test
-		expect(await query(Serialize.form("q", undefined, allowed))).toBeUndefined()
-		await expectUsage(Serialize.form("q", jsonNull, { ...allowed, required: true }).expand)
-	})
-
-	test("without it an empty array sends nothing", async () => {
-		expect(await query(Serialize.form("q", [], formOptions()))).toBeUndefined()
-		expect(
-			await query(Serialize.form("q", [], formOptions({ allowEmptyValue: false })))
-		).toBeUndefined()
-	})
-
-	test("a defined value is unchanged", async () => {
-		expect(await query(Serialize.form("q", "a", allowed))).toBe("q=a")
-	})
-})
-
-const headerOptions = (
-	options: Partial<Serialize.HeaderOptions> = {}
-): Serialize.HeaderOptions => ({
-	explode: false,
-	required: false,
-	...options
-})
-
-const headerText = (value: Value, options: Partial<Serialize.HeaderOptions> = {}) =>
-	Effect.runPromise(Serialize.header("X-Test", value, headerOptions(options)).expand)
-
-describe("header", () => {
-	test("a scalar is sent as its text with no percent-encoding", async () => {
-		expect(await headerText("a b/c%20é")).toBe("a b/c%20é")
-		expect(await headerText(42)).toBe("42")
-		expect(await headerText(true)).toBe("true")
-	})
-
-	test("arrays and objects use the simple style", async () => {
-		expect(await headerText(["a", "b", 3])).toBe("a,b,3")
-		expect(await headerText({ G: 200, R: 100 })).toBe("G,200,R,100")
-		expect(await headerText({ G: 200, R: 100 }, { explode: true })).toBe("G=200,R=100")
-		expect(await headerText(["a", "b"], { explode: true })).toBe("a,b")
-	})
-
-	test("an empty value is sent, not refused", async () => {
-		expect(await headerText("")).toBe("")
-		expect(await headerText([""])).toBe("")
-		expect(await headerText({ k: "" })).toBe("k,")
-	})
-
-	test("null, undefined, [] and {} send nothing, or are refused when required", async () => {
-		expect(await headerText(jsonNull)).toBeUndefined()
-		// oxlint-disable-next-line unicorn/no-useless-undefined -- the value under test
-		expect(await headerText(undefined)).toBeUndefined()
-		expect(await headerText([])).toBeUndefined()
-		expect(await headerText({})).toBeUndefined()
-		await expectUsage(
-			Serialize.header("X-Test", jsonNull, headerOptions({ required: true })).expand
-		)
-		await expectUsage(Serialize.header("X-Test", [], headerOptions({ required: true })).expand)
-	})
-
-	test.each(["a\rb", "a\nb", "a\0b", " a", "a ", "\ta", "a\t"])(
-		"a value with a forbidden character is refused: %j",
-		async (value) => {
-			await expectUsage(Serialize.header("X-Test", value, headerOptions()).expand)
-			await expectUsage(Serialize.header("X-Test", [value], headerOptions()).expand)
-			await expectUsage(Serialize.header("X-Test", { k: value }, headerOptions()).expand)
-		}
-	)
-
-	test("an item with edge whitespace is refused inside a list", async () => {
-		await expectUsage(Serialize.header("X-Test", ["a", " b"], headerOptions()).expand)
-		await expectUsage(Serialize.header("X-Test", { " k": "v" }, headerOptions()).expand)
-	})
-
-	test("interior whitespace is kept", async () => {
-		expect(await headerText("a b\tc")).toBe("a b\tc")
-	})
-
-	test("a comma inside an item or member is refused, a scalar keeps its comma", async () => {
-		expect(await headerText("a,b")).toBe("a,b")
-		await expectUsage(Serialize.header("X-Test", ["a,b"], headerOptions()).expand)
-		await expectUsage(Serialize.header("X-Test", { k: "a,b" }, headerOptions()).expand)
-		await expectUsage(Serialize.header("X-Test", { "k,": "v" }, headerOptions()).expand)
-		await expectUsage(Serialize.header("X-Test", ["a,b"], headerOptions({ explode: true })).expand)
-	})
-
-	test("an exploded object key with an equals sign is refused", async () => {
-		await expectUsage(
-			Serialize.header("X-Test", { "a=b": "v" }, headerOptions({ explode: true })).expand
-		)
-		expect(await headerText({ k: "a=b" }, { explode: true })).toBe("k=a=b")
-	})
-
-	test("a lone surrogate or a name that is not a token is refused", async () => {
-		await expectUsage(Serialize.header("X-Test", "\uD800", headerOptions()).expand)
-		await expectUsage(Serialize.header("X Test", "v", headerOptions()).expand)
-		await expectUsage(Serialize.header("X-Test\r\nInjected", "v", headerOptions()).expand)
-		await expectUsage(Serialize.header("", "v", headerOptions()).expand)
-	})
-
-	test("a nested value is refused", async () => {
-		// oxlint-disable-next-line typescript/no-unsafe-assignment -- parsed JSON is any
-		const nested: Value = JSON.parse('{"k":{"deeper":1}}')
-
-		await expectUsage(Serialize.header("X-Test", nested, headerOptions()).expand)
-	})
-})
-
-const refusal = async (...parameters: Serialize.PathParameter[]) => {
-	const error = await Effect.runPromise(
-		Effect.flip(Serialize.path("/users/{id}", parameters).expand)
-	)
-
-	expect(error).toBeInstanceOf(UsageError)
-	expect(error).toMatchObject({ _tag: "UsageError" })
-	expect(error.message).toContain("id")
-
-	return error
-}
-
-describe("path refuses an empty expansion", () => {
-	test("an empty string and a list of one empty string are refused, naming the parameter", async () => {
-		await refusal(Serialize.simple("id", "", plain))
-		await refusal(Serialize.simple("id", [""], plain))
-	})
-
-	test("the refusal names the parameter and never the value", async () => {
-		const error = await refusal(Serialize.simple("id", "", plain))
-
-		expect(error.message).not.toContain("''")
-	})
-
-	test("a matrix and a label expand an empty string to a non-empty text", async () => {
-		expect(await pathOf("/u{id}", Serialize.matrix("id", "", plain))).toBe("/u;id")
-		expect(await pathOf("/u{id}", Serialize.label("id", "", plain))).toBe("/u.")
-	})
-
-	test("the parameter alone still expands to the empty string", async () => {
-		expect(await expand(Serialize.simple("id", "", plain))).toBe("")
-	})
-})
-
-describe("matrix parameter name", () => {
-	test("a lone surrogate in the name is refused without echoing it", async () => {
-		const error = await Effect.runPromise(
-			Effect.flip(Serialize.matrix("a\uD800", "v", plain).expand)
-		)
-
-		expect(error).toBeInstanceOf(UsageError)
-		expect(error.message).not.toContain("\uD800")
-	})
-
-	test("a paired surrogate in the name is encoded", async () => {
-		expect(await expand(Serialize.matrix("a\u{1F600}", "v", plain))).toBe(";a%F0%9F%98%80=v")
-	})
-})
-
-const describeRequest = (parts: Partial<Serialize.RequestParts> = {}) =>
-	Serialize.request("GET", {
-		headers: [],
-		path: Serialize.path("/users/{id}", [Serialize.simple("id", 42, plain)]),
-		query: [],
-		...parts
-	})
-
-const run = (request: Serialize.Request) => Effect.runPromise(request)
-
-describe("request", () => {
-	test("urlParams is a UrlParams value, not a bare array", async () => {
-		const built = await run(describeRequest())
-
-		expect(UrlParams.isUrlParams(built.urlParams)).toBe(true)
-	})
-
-	test("the URL is the expanded path plus the query pairs, with no origin and no urlParams", async () => {
-		const built = await run(
-			describeRequest({
-				query: [
-					Serialize.form("notify", true, { allowReserved: false, explode: true, required: false }),
-					Serialize.form("skip", undefined, {
-						allowReserved: false,
-						explode: true,
-						required: false
-					}),
-					Serialize.form("tag", ["a b", "c"], {
-						allowReserved: false,
-						explode: true,
-						required: false
+				const blank = (piece: string) =>
+					Option.match(boundary, {
+						onNone: () => piece,
+						onSome: (marker) => Str.replaceAll(marker, "<boundary>")(piece)
 					})
-				]
+				return Option.some([Option.map(bytes, blank), Option.map(contentType, blank)] as const)
 			})
-		)
-
-		expect(built.url).toBe("/users/42?notify=true&tag=a%20b&tag=c")
-		expect([...built.urlParams]).toEqual([])
-		expect(built.method).toBe("GET")
 	})
 
-	test("with no query pair the URL has no question mark", async () => {
-		const built = await run(
-			describeRequest({
-				query: [
-					Serialize.form("skip", jsonNull, { allowReserved: false, explode: true, required: false })
-				]
-			})
-		)
+/** A refusal's message never repeats the secret a drawn value holds. */
+const keepsSecret = (actual: Expanded): void =>
+	assertFalse(Option.exists(actual.message, Str.includes(SECRET)), "a refusal repeats a value")
 
-		expect(built.url).toBe("/users/42")
-	})
+const pathStyles = {
+	simple: Serialize.simple,
+	label: Serialize.label,
+	matrix: Serialize.matrix
+} as const
 
-	test("the method is kept", async () => {
-		const built = await run(
-			Serialize.request("PATCH", { headers: [], path: Serialize.path("/", []), query: [] })
-		)
-
-		expect(built.method).toBe("PATCH")
-		expect(built.url).toBe("/")
-	})
-
-	test("header descriptors set their headers and skip the ones with no value", async () => {
-		const built = await run(
-			describeRequest({
-				headers: [
-					Serialize.header("If-Match", "etag-1", headerOptions()),
-					Serialize.header("X-Tags", ["a", "b"], headerOptions()),
-					Serialize.header("X-Skip", undefined, headerOptions())
-				]
-			})
-		)
-
-		expect(built.headers["if-match"]).toBe("etag-1")
-		expect(built.headers["x-tags"]).toBe("a,b")
-		expect(built.headers["x-skip"]).toBeUndefined()
-	})
-
-	test("an empty header value is sent", async () => {
-		const built = await run(
-			describeRequest({ headers: [Serialize.header("X-Empty", "", headerOptions())] })
-		)
-
-		expect(built.headers["x-empty"]).toBe("")
-	})
-
-	test("a refusal in any descriptor fails the effect with UsageError", async () => {
-		await expectUsage(
-			describeRequest({ path: Serialize.path("/users/{id}", [Serialize.simple("id", "", plain)]) })
-		)
-		await expectUsage(
-			describeRequest({
-				query: [
-					Serialize.form("q", jsonNull, { allowReserved: false, explode: true, required: true })
-				]
-			})
-		)
-		await expectUsage(
-			describeRequest({ headers: [Serialize.header("X-Test", "a\nb", headerOptions())] })
-		)
-		await expectUsage(
-			describeRequest({ body: Serialize.body("application/json", { n: Number.NaN }) })
-		)
-		await expectUsage(describeRequest({ body: Serialize.body("text/plain", { not: "text" }) }))
-	})
-})
-
-const withBody = (mediaType: string, value: Serialize.Body) =>
-	run(
-		Serialize.request("POST", {
-			body: Serialize.body(mediaType, value),
-			headers: [],
-			path: Serialize.path("/", []),
-			query: []
-		})
-	)
-
-const bytes = (built: HttpClientRequest.HttpClientRequest) =>
-	built.body._tag === "Uint8Array" ? new TextDecoder().decode(built.body.body) : undefined
-
-describe("body", () => {
-	test("a JSON value is sent as compact JSON text under its media type", async () => {
-		const built = await withBody("application/json", { name: "Ada", tags: ["a"] })
-
-		expect(built.headers["content-type"]).toBe("application/json")
-		expect(bytes(built)).toBe('{"name":"Ada","tags":["a"]}')
-	})
-
-	test("a JSON string is quoted, a structured +json type is JSON", async () => {
-		expect(bytes(await withBody("application/json", "x"))).toBe('"x"')
-		expect(bytes(await withBody("application/merge-patch+json", { a: jsonNull }))).toBe(
-			'{"a":null}'
-		)
-	})
-
-	test("a text media type sends the string as given", async () => {
-		const built = await withBody("text/plain", "line\n")
-
-		expect(built.headers["content-type"]).toBe("text/plain")
-		expect(bytes(built)).toBe("line\n")
-	})
-
-	test("Content-Type is the media type given, set in one place", async () => {
-		const built = await withBody(
-			"image/png",
-			HttpBody.uint8Array(new Uint8Array([1, 2]), "text/other")
-		)
-
-		expect(built.headers["content-type"]).toBe("image/png")
-		expect(built.body._tag).toBe("Uint8Array")
-	})
-
-	test("a binary stream is sent as the stream, with the media type", async () => {
-		const stream = HttpBody.stream(Stream.make(new Uint8Array([1, 2, 3])))
-		const built = await withBody("application/octet-stream", stream)
-
-		expect(built.body).toBe(stream)
-		expect(built.headers["content-type"]).toBe("application/octet-stream")
-	})
-
-	test("a binary body under a JSON media type is sent as the stream", async () => {
-		const stream = HttpBody.stream(Stream.make(new Uint8Array([1])))
-		const built = await withBody("application/json", stream)
-
-		expect(built.body).toBe(stream)
-	})
-
-	test("a lone surrogate in a text body or a media type with a control character is refused", async () => {
-		await expectUsage(
-			Serialize.request("POST", {
-				body: Serialize.body("text/plain", "\uD800"),
-				headers: [],
-				path: Serialize.path("/", []),
-				query: []
-			})
-		)
-		await expectUsage(
-			Serialize.request("POST", {
-				body: Serialize.body("text/plain\r\nX: y", "v"),
-				headers: [],
-				path: Serialize.path("/", []),
-				query: []
-			})
-		)
-	})
-
-	test("a request with no body has an empty body and no Content-Type", async () => {
-		const built = await run(describeRequest())
-
-		expect(built.body._tag).toBe("Empty")
-		expect(built.headers["content-type"]).toBeUndefined()
-	})
-})
-
-describe("request repairs", () => {
-	test("an empty body sends no Content-Type", async () => {
-		const built = await withBody("application/json", HttpBody.empty)
-
-		expect(built.body._tag).toBe("Empty")
-		expect(built.headers["content-type"]).toBeUndefined()
-	})
-
-	test("a header value or media type above U+00FF is refused without naming the value", async () => {
-		const error = await Effect.runPromise(
-			Effect.flip(
-				describeRequest({ headers: [Serialize.header("X-Name", "cafā-secret", headerOptions())] })
+/**
+ * Each path parameter expands, alone and in its template, to its reference's text, or is refused as the reference
+ * refuses it. It replaces sixty-three example cases (type to text, simple, label, matrix, path and the path refusals);
+ * its budget is 252 drawn paths, its floor 63, steered up to 252 while a situation is unreached.
+ */
+export const pathExpansion = property.explore(pathSpace, {
+	needs: {},
+	situations: [
+		"simple",
+		"label",
+		"matrix",
+		"list exploded",
+		"object exploded",
+		"list joined",
+		"object joined",
+		"reserved character passed",
+		"percent triplet passed",
+		"non-ASCII text encoded",
+		"empty text",
+		"delimiter refused",
+		"lone surrogate refused",
+		"nested value refused",
+		"absent value refused",
+		"non-finite number refused",
+		"digit text kept",
+		"empty expansion refused",
+		"dot segment refused",
+		"placeholder with no parameter",
+		"parameter with no placeholder",
+		"two parameters with one name",
+		"path expanded"
+	] satisfies ReadonlyArray<Reached<PathFeature>>,
+	check: (_, c: Case<PathFeature>) => (path) =>
+		Effect.gen(function* () {
+			const template = templateOf(path)
+			c.noteAll(pathFeatures(path, template))
+			const parameters = Arr.map(path.parameters, (parameter) =>
+				pathStyles[parameter.style](parameter.name, parameter.value, parameter)
 			)
-		)
-
-		expect(error).toBeInstanceOf(UsageError)
-		expect(error.message).toContain("X-Name")
-		expect(error.message).not.toContain("secret")
-		await expectUsage(
-			describeRequest({ headers: [Serialize.header("X-Name", "\u{1F600}", headerOptions())] })
-		)
-		await expectUsage(describeRequest({ body: Serialize.body("text/plain; x=Ā", "v") }))
-	})
-
-	test("header code points U+0080 through U+00FF pass", async () => {
-		const built = await run(
-			describeRequest({
-				headers: [Serialize.header("X-Name", "café\u0080ÿ", headerOptions())]
-			})
-		)
-
-		expect(built.headers["x-name"]).toBe("café\u0080ÿ")
-	})
-
-	test("an allowlisted extension method token is kept", async () => {
-		const built = await run(
-			Serialize.request("PURGE", { headers: [], path: Serialize.path("/c", []), query: [] })
-		)
-
-		expect(built.method).toBe("PURGE")
-		expect(built.url).toBe("/c")
-	})
-
-	test("under allowReserved a percent-encoded delimiter in a delimited item is refused", async () => {
-		const options = { allowReserved: true, explode: false, required: false }
-
-		await expectUsage(Serialize.spaceDelimited("c", ["a%20b", "c"], options).expand)
-		await expectUsage(Serialize.pipeDelimited("c", ["a%7Cb"], options).expand)
-		await expectUsage(Serialize.pipeDelimited("c", ["a%7cb"], options).expand)
-		await expectUsage(Serialize.spaceDelimited("c", { k: "a%20b" }, options).expand)
-		expect(await query(Serialize.spaceDelimited("c", ["a%7Cb", "c"], options))).toBe("c=a%7Cb%20c")
-	})
-
-	test("two header parameters differing only in case are refused", async () => {
-		await expectUsage(
-			describeRequest({
-				headers: [
-					Serialize.header("X-Id", "1", headerOptions()),
-					Serialize.header("x-id", "2", headerOptions())
-				]
-			})
-		)
-	})
+			for (const [parameter, built] of Arr.zip(path.parameters, parameters)) {
+				const alone = yield* expanded(built.expand)
+				deepStrictEqual(
+					alone.outcome,
+					outcomeOf(Result.map(pathParameterModel(parameter), Option.some))
+				)
+				keepsSecret(alone)
+			}
+			const whole = yield* expanded(Serialize.path(template, parameters).expand)
+			deepStrictEqual(
+				whole.outcome,
+				outcomeOf(Result.map(pathModel(template, path.parameters), Option.some))
+			)
+			keepsSecret(whole)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "RFC 6570's simple, label and matrix operators over RFC 3986 percent-encoding, with the design's refusals"
+	},
+	kept: [],
+	budget: { runs: 252, steered: 252 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: "\tconst clash = Arr.some(parts(text), (part) =>",
+			replacement: "\tconst clash = Arr.every(parts(text), (part) =>",
+			why: "A path value is refused only when every piece holds a delimiter its style writes raw, so one ambiguous item or member is sent; the property fails (CATCH's evidence, mutant 03d6cadd53)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: '\treturn decoded === "." || decoded === ".."',
+			replacement: '\treturn decoded === "." || decoded !== ".."',
+			why: "Every segment but a lone dot reads as a dot segment, so a path with an ordinary segment is refused; the property fails (CATCH's evidence, mutant 6d75138800)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				'if (explode && text.kind === "array") {\n\t\treturn Arr.join(\n\t\t\tArr.map(text.items, (item) => assignment(name, item)),\n\t\t\t""\n\t\t)\n\t}',
+			replacement: "{}",
+			why: "An exploded matrix list is written as one joined assignment instead of one per item; the property fails (CATCH's evidence, mutant 100eb0d7f9)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: '\t\t\tif (style === "matrix" && loneSurrogate.test(name)) {',
+			replacement: '\t\t\tif (style !== "matrix" && loneSurrogate.test(name)) {',
+			why: "A matrix name with a lone surrogate is sent while a simple or label one is refused; the property fails (CATCH's evidence, mutant 15e19f5cda)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: "percentTriplet.test(token) || Str.includes(token)(passed)",
+			replacement: "percentTriplet.test(token)",
+			why: "allowReserved passes percent triplets only, so the reserved characters a path keeps raw are encoded; the property fails (CATCH's evidence, mutant 23e975b1bb)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: "\t\t\tif (index % 2 === 0) {",
+			replacement: "\t\t\tif (index % 2 === (-1)) {",
+			why: "A path's literal pieces and its placeholders trade places, so every template expands to its parameters' names; the property fails (CATCH's evidence, mutant d151f80c60, from EOCG-CONV's output units)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				'{\n\tconst decoded = Str.replaceAll(encodedDot, ".")(segment)\n\n\treturn decoded === "." || decoded === ".."\n}',
+			replacement: "{ return true }",
+			why: "Every segment reads as a dot segment, so every path is refused; the property fails (CATCH's evidence, mutant e5388547ef, from EOCG-CONV's output units)."
+		}
+	]
 })
 
-const utf8 = new TextEncoder()
+const queryStyles = {
+	form: Serialize.form,
+	spaceDelimited: Serialize.spaceDelimited,
+	pipeDelimited: Serialize.pipeDelimited,
+	deepObject: Serialize.deepObject
+} as const
 
-const latin1 = (chunks: readonly Uint8Array[]): string =>
-	Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("latin1")
+/**
+ * A query parameter expands to its reference's pairs, sends nothing, or is refused as the reference says. It replaces
+ * seventy example cases (form, allowReserved, the delimited styles, deepObject with brackets and scalars, its bracketed
+ * member names, allowEmptyValue); its budget is 280 drawn parameters, its floor 70, steered up to 280.
+ */
+export const queryExpansion = property.explore(querySpace, {
+	needs: {},
+	situations: [
+		"form",
+		"spaceDelimited",
+		"pipeDelimited",
+		"deepObject",
+		"list exploded",
+		"object exploded",
+		"list joined",
+		"object joined",
+		"bracket convention",
+		"scalar under deepObject",
+		"reserved character passed",
+		"percent triplet passed",
+		"empty value sent",
+		"nothing sent",
+		"required value refused",
+		"delimiter refused",
+		"bracket in a member name refused",
+		"nested value refused",
+		"lone surrogate refused",
+		"name encoded"
+	] satisfies ReadonlyArray<Reached<QueryFeature>>,
+	check: (_, c: Case<QueryFeature>) => (parameter) =>
+		Effect.gen(function* () {
+			c.noteAll(queryFeatures(parameter))
+			const actual = yield* expanded(
+				queryStyles[parameter.style](parameter.name, parameter.value, parameter).expand
+			)
+			deepStrictEqual(actual.outcome, outcomeOf(queryModel(parameter)))
+			keepsSecret(actual)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "OAS query styles as RFC 6570 form expansion over RFC 3986 percent-encoding, with the design's refusals"
+	},
+	kept: [],
+	budget: { runs: 280, steered: 280 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: 'style === "deepObject" && !deepObjectTakes(text, options.scalars === true)',
+			replacement: "!deepObjectTakes(text, options.scalars === true)",
+			why: "Every style, not only deepObject, refuses a value that is not an object; the property fails (CATCH's evidence, mutant a1dfc19cc0)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: 'if (explode && text.kind === "array") {\n\t\treturn Arr.map(text.items',
+			replacement: "if (explode) {\n\t\treturn Arr.map(text.items",
+			why: "An exploded object is written as one pair per member text under the parameter's name; the property fails (CATCH's evidence, mutant f0718a2894)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: '\tstyle === "deepObject" && brackets && !(scalars && isScalar(value))',
+			replacement: '\tstyle !== "deepObject" && brackets && !(scalars && isScalar(value))',
+			why: "The bracket convention applies to every style but deepObject, so a deepObject value with brackets on is refused as nested; the property fails (CATCH's evidence, mutant 8051b9b8f0)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: "\t\t\t: Arr.filter(Rec.toEntries(value), ([, member]) => member !== undefined)",
+			replacement: "\t\t\t: Arr.filter(Rec.toEntries(value), ([, member]) => false)",
+			why: "The bracket convention drops every object member, so a bracketed object sends nothing; the property fails (CATCH's evidence, mutant ffa07913bd)."
+		}
+	]
+})
 
-// The bytes a streamed body puts on the wire.
-const streamed = async (built: HttpClientRequest.HttpClientRequest): Promise<string> => {
-	if (built.body._tag !== "Stream") {
-		throw new Error(`expected a stream body, got ${built.body._tag}`)
+/**
+ * A header parameter's value is its reference's unencoded simple expansion, nothing, or a refusal. It replaces twenty
+ * example cases (header, the header repairs); its budget is 80 drawn headers, its floor 20, steered up to 80.
+ */
+export const headerExpansion = property.explore(headerSpace, {
+	needs: {},
+	situations: [
+		"scalar sent unencoded",
+		"list sent",
+		"object sent",
+		"object exploded",
+		"empty text sent",
+		"latin-1 text sent",
+		"nothing sent",
+		"required value refused",
+		"unsafe text refused",
+		"comma refused",
+		"name not a token refused",
+		"nested value refused"
+	] satisfies ReadonlyArray<Reached<HeaderFeature>>,
+	check: (_, c: Case<HeaderFeature>) => (parameter) =>
+		Effect.gen(function* () {
+			c.noteAll(headerFeatures(parameter))
+			const actual = yield* expanded(
+				Serialize.header(parameter.name, parameter.value, parameter).expand
+			)
+			deepStrictEqual(actual.outcome, outcomeOf(headerModel(parameter)))
+			keepsSecret(actual)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "RFC 6570 simple expansion with no percent-encoding, refused where RFC 9110 field values cannot carry it"
+	},
+	kept: [],
+	budget: { runs: 80, steered: 80 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				"\n\t\tif (text === undefined) {\n\t\t\treturn text\n\t\t}\n\n\t\tif (Arr.some(headerTexts(text), unsafeHeaderText)) {",
+			replacement: "\n\t\t{}\n\n\t\tif (Arr.some(headerTexts(text), unsafeHeaderText)) {",
+			why: "A header with no value runs on into the text checks and fails instead of sending nothing; the property fails (CATCH's evidence, mutant 21a3a45aa0)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				'headerLineBreak.test(text) || Str.includes("\\u0000")(text) || wideCodePoint.test(text)',
+			replacement: 'Str.includes("\\u0000")(text) || wideCodePoint.test(text)',
+			why: "A CR or LF in a header value is no longer refused, so a value no header line can carry is sent; the property fails (CATCH's evidence, mutant 3834dba2a3)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				'\texpand: Effect.gen(function* headerExpansion() {\n\t\tif (!headerToken.test(name)) {\n\t\t\treturn yield* refuse("a header parameter has a name that is not an RFC 9110 token")',
+			replacement:
+				'\texpand: Effect.gen(function* headerExpansion() {\n\t\tif (headerToken.test(name)) {\n\t\t\treturn yield* refuse("a header parameter has a name that is not an RFC 9110 token")',
+			why: "A header name that is a token is refused and one that is none is sent; the property fails (CATCH's evidence, mutant 475cf51163)."
+		}
+	]
+})
+
+/**
+ * A cookie parameter's pair is its reference's, nothing, or a refusal, on every OpenAPI line and both styles. It
+ * replaces twenty-eight example cases (serialize-cookie's five tables); its budget is 112 drawn cookies, its floor 28,
+ * steered up to 112.
+ */
+export const cookieExpansion = property.explore(cookieSpace, {
+	needs: {},
+	situations: [
+		"form scalar encoded",
+		"form reserved character passed on 3.2",
+		"form reserved character encoded before 3.2",
+		"cookie style text sent",
+		"cookie style list exploded",
+		"cookie style object exploded",
+		"nothing sent",
+		"required value refused",
+		"form list or object refused",
+		"cookie style text refused",
+		"explode false refused on 3.2",
+		"cookie style before 3.2 refused",
+		"name not a token refused"
+	] satisfies ReadonlyArray<Reached<CookieFeature>>,
+	check: (_, c: Case<CookieFeature>) => (parameter) =>
+		Effect.gen(function* () {
+			c.noteAll(cookieFeatures(parameter))
+			const actual = yield* expanded(
+				Serialize.cookie(parameter.name, parameter.value, parameter).expand
+			)
+			deepStrictEqual(actual.outcome, outcomeOf(cookieModel(parameter)))
+			keepsSecret(actual)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "OAS 3.2 cookie and form styles, RFC 6265 cookie-octet, OAS Appendix D's form-cookie rule"
+	},
+	kept: [],
+	budget: { runs: 112, steered: 112 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: '\t\tif (options.style === "cookie" && options.line !== "3.2") {',
+			replacement: '\t\tif (options.style !== "cookie" && options.line !== "3.2") {',
+			why: "Style form, not style cookie, is refused before 3.2, so a 3.0 or 3.1 form cookie is refused; the property fails (CATCH's evidence, mutant 2b76713925)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				'\n\t\tif (text === undefined) {\n\t\t\treturn text\n\t\t}\n\n\t\tif (options.style === "cookie") {',
+			replacement: '\n\t\t{}\n\n\t\tif (options.style === "cookie") {',
+			why: "A cookie with no value runs on into the text checks and fails instead of sending nothing; the property fails (CATCH's evidence, mutant 312665f5bd)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: 'if (options.line === "3.2" && !options.explode) {',
+			replacement: "if (false) {",
+			why: "explode false is sent on 3.2, which forbids it for a cookie; the property fails (CATCH's evidence, mutant f72c681e8c)."
+		}
+	]
+})
+
+/**
+ * A content-based parameter in the query, a header, a cookie or the whole query string writes its codec's text as its
+ * location writes it, sends nothing when absent and optional, or is refused as the reference says. It replaces
+ * twenty-two example cases (serialize-content-parameter, and querystring under non-form media); its budget is 88
+ * drawn parameters, its floor 22, steered up to 88.
+ */
+export const contentParameters = property.explore(contentSpace, {
+	needs: {},
+	situations: [
+		"query content",
+		"header content",
+		"cookie content",
+		"querystring content",
+		"JSON content",
+		"text content",
+		"digit text kept",
+		"absent and optional",
+		"absent and required refused",
+		"non-text under text media refused",
+		"number with no JSON text refused",
+		"header line break refused",
+		"cookie-octet refused",
+		"name refused"
+	] satisfies ReadonlyArray<Reached<ContentFeature>>,
+	check: (_, c: Case<ContentFeature>) => (parameter) =>
+		Effect.gen(function* () {
+			c.noteAll(contentFeatures(parameter))
+			const value = Option.getOrUndefined(parameter.value)
+			const options = { required: parameter.required }
+			const built = {
+				query: () =>
+					Serialize.queryContent(parameter.name, parameter.mediaType, value, options).expand,
+				header: () =>
+					Serialize.headerContent(parameter.name, parameter.mediaType, value, options).expand,
+				cookie: () =>
+					Serialize.cookieContent(parameter.name, parameter.mediaType, value, options).expand,
+				querystring: () =>
+					Serialize.querystring(parameter.name, parameter.mediaType, value, options).expand
+			}[parameter.location]()
+			const actual = yield* expanded(built)
+			deepStrictEqual(actual.outcome, outcomeOf(contentModel(parameter)))
+			keepsSecret(actual)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "OAS content parameters: the media type's codec, then each location's encoding and refusals"
+	},
+	kept: [],
+	budget: { runs: 88, steered: 88 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				"const absentContent = (name: string, options: ContentOptions) =>\n\toptions.required",
+			replacement:
+				"const absentContent = (name: string, options: ContentOptions) =>\n\t!options.required",
+			why: "An absent content value is refused when optional and sends nothing when required; the property fails (CATCH's evidence, mutant 2840e0a0e8)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				'\texpand: Effect.gen(function* headerContentExpansion() {\n\t\tif (!headerToken.test(name)) {\n\t\t\treturn yield* refuse("a header parameter has a name that is not an RFC 9110 token")\n\t\t}\n\n\t\tif (value === undefined) {',
+			replacement:
+				"\texpand: Effect.gen(function* headerContentExpansion() {\n\t\t{}\n\n\t\tif (value === undefined) {",
+			why: "A header content parameter whose name is no token is sent; the property fails (CATCH's evidence, mutant 43628eae5e)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				'\t\t\treturn yield* refuse("a cookie parameter has a name that is not an RFC 6265 token")\n\t\t}\n\n\t\tif (value === undefined) {\n\t\t\treturn yield* absentContent(name, options)\n\t\t}\n',
+			replacement:
+				'\t\t\treturn yield* refuse("a cookie parameter has a name that is not an RFC 6265 token")\n\t\t}\n\n\t\tif (value !== undefined) {\n\t\t\treturn yield* absentContent(name, options)\n\t\t}\n',
+			why: "A present cookie content value is read as absent and an absent one runs on into the codec; the property fails (CATCH's evidence, mutant b1506d168f)."
+		}
+	]
+})
+
+/**
+ * A request's URL is its path and its sent query pairs (none left in urlParams), its headers each header sent and one
+ * Cookie header of the cookies' pairs, or it is refused as its descriptors are, or for two headers of one name or a Cookie header beside
+ * cookie parameters. It replaces sixteen example cases (request, serialize-cookie-request, the header repairs); its
+ * budget is 64 drawn requests, its floor 16, steered up to 64.
+ */
+export const requestAssembly = property.explore(requestSpace, {
+	needs: {},
+	situations: [
+		"query pairs joined",
+		"no query pair, no question mark",
+		"header set",
+		"header with no value left out",
+		"cookies joined",
+		"no cookie pair, no Cookie header",
+		"extension method kept",
+		"header names alike refused",
+		"Cookie header beside cookies refused",
+		"descriptor refusal"
+	] satisfies ReadonlyArray<Reached<RequestFeature>>,
+	check: (_, c: Case<RequestFeature>) => (request) =>
+		Effect.gen(function* () {
+			c.noteAll(requestFeatures(request))
+			const built = Serialize.request(request.method, {
+				path: Serialize.path(
+					templateOf(request.path),
+					Arr.map(request.path.parameters, (parameter) =>
+						pathStyles[parameter.style](parameter.name, parameter.value, parameter)
+					)
+				),
+				query: Arr.map(request.query, (parameter) =>
+					queryStyles[parameter.style](parameter.name, parameter.value, parameter)
+				),
+				headers: Arr.map(request.headers, (header) =>
+					Serialize.header(header.name, header.value, header)
+				),
+				cookies: Arr.map(request.cookies, (cookie) =>
+					Serialize.cookie(cookie.name, cookie.value, cookie)
+				)
+			})
+			const actual = yield* Effect.match(built, {
+				onFailure: () => Option.none(),
+				onSuccess: (made) =>
+					Option.some({
+						method: made.method,
+						url: made.url,
+						headers: Rec.fromEntries(Rec.toEntries(made.headers)),
+						urlParams: Arr.fromIterable(made.urlParams)
+					})
+			})
+			const expected = Result.match(requestModel(request), {
+				onFailure: () => Option.none(),
+				onSuccess: (sent) => Option.some({ method: request.method, ...sent, urlParams: [] })
+			})
+			deepStrictEqual(actual, expected)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 4.5's request assembly over each descriptor's reference expansion"
+	},
+	kept: [],
+	budget: { runs: 64, steered: 64 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				'\n\t\tif (new Set(names).size !== names.length) {\n\t\t\treturn yield* refuse("two header parameters have one name")',
+			replacement:
+				'\n\t\tif (new Set(names).size === names.length) {\n\t\t\treturn yield* refuse("two header parameters have one name")',
+			why: "Headers with distinct names are refused and two of one name are sent; the property fails (CATCH's evidence, mutant ad2a0508fc)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original:
+				'if (new Set(names).size !== names.length) {\n\t\t\treturn yield* refuse("two header parameters have one name")\n\t\t}',
+			replacement: "{}",
+			why: "Two header parameters whose names differ only in case are both set; the property fails (CATCH's evidence, mutant fac55e368f)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: 'if (cookies.length > 0 && Arr.contains(names, "cookie")) {',
+			replacement: "if (false) {",
+			why: "A header parameter named Cookie is sent beside the cookie parameters' own Cookie header; the property fails."
+		}
+	]
+})
+
+/**
+ * A body is sent as its reference writes it under its media type: compact JSON with every digit text kept, text as
+ * given, bytes passed through, the empty body with no Content-Type; or it is refused as the reference says. It replaces
+ * twenty-two example cases (body, the request repairs, serialize-json-number's tables); its budget is 88 drawn bodies,
+ * its floor 22, steered up to 88.
+ */
+export const requestBody = property.explore(bodySpace, {
+	needs: {},
+	situations: [
+		"JSON text",
+		"digit text kept",
+		"structured JSON media",
+		"text as given",
+		"bytes passed through",
+		"streamed bytes passed through",
+		"empty body, no Content-Type",
+		"number with no JSON text refused",
+		"non-text under text media refused",
+		"lone surrogate in text refused",
+		"media type no header carries refused"
+	] satisfies ReadonlyArray<Reached<BodyFeature>>,
+	check: (_, c: Case<BodyFeature>) => (body) =>
+		Effect.gen(function* () {
+			c.noteAll(bodyFeatures(body))
+			const given = {
+				json: () => (body.payload.kind === "json" ? body.payload.value : ""),
+				bytes: () =>
+					body.payload.kind === "bytes" && body.payload.as === "stream"
+						? HttpBody.stream(Stream.make(body.payload.bytes))
+						: HttpBody.uint8Array(
+								body.payload.kind === "bytes" ? body.payload.bytes : new Uint8Array(0)
+							),
+				empty: () => HttpBody.empty
+			}[body.payload.kind]()
+			const built = yield* Effect.result(posted(Serialize.body(body.mediaType, given)))
+			const expected = bodyModel(body)
+			assertTrue(
+				Result.isSuccess(built) === Result.isSuccess(expected),
+				"refused exactly when the reference refuses"
+			)
+			if (!Result.isSuccess(built) || !Result.isSuccess(expected)) {
+				return
+			}
+			const made = built.success
+			const contentType = Rec.get(made.headers, "content-type")
+			const sent = expected.success
+			switch (sent.kind) {
+				case "empty":
+					strictEqual(made.body._tag, "Empty")
+					deepStrictEqual(contentType, Option.none())
+					break
+				case "given":
+					assertTrue(made.body === given, "bytes pass through as given")
+					deepStrictEqual(contentType, Option.some(sent.contentType))
+					break
+				case "text":
+					deepStrictEqual(
+						yield* bodyBytes(made.body),
+						Option.some(Buffer.from(sent.text, "utf8").toString("latin1"))
+					)
+					deepStrictEqual(contentType, Option.some(sent.contentType))
+			}
+		}),
+	oracle: {
+		kind: "second-implementation",
+		name: "JSON text through effect's formatter with each digit text spliced in, the media type's codec otherwise"
+	},
+	kept: [],
+	budget: { runs: 88, steered: 88 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: "if (value instanceof JsonNumber) {\n\t\treturn !isJsonNumberText(value.text)\n\t}",
+			replacement: "{}",
+			why: "A digit text that is no JSON number is written into the JSON body; the property fails (CATCH's evidence, mutant f4d0ddac91)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: "\thasUnwritableNumber(value)\n\t\t?",
+			replacement: "\t!hasUnwritableNumber(value)\n\t\t?",
+			why: "A JSON body is refused when its numbers are all writable and written when one is not; the property fails (CATCH's evidence, mutant c5077ca9c0)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: "\t\t\tdescriptors.body.ownsContentType === true",
+			replacement: "\t\t\tdescriptors.body.ownsContentType !== true",
+			why: "A body that owns no Content-Type sends its own type and a multipart body its media type without the boundary; the property fails (CATCH's evidence, mutant a676da4918)."
+		}
+	]
+})
+
+/** The table a chosen-codec case reads: each key's codec, recording the Content-Type it is handed into `seen`. */
+const tableOf = (
+	seen: Array<string>
+): Serialize.Alternatives<{
+	"application/json": Serialize.Body
+	"application/x-www-form-urlencoded": Serialize.Json | undefined
+	"image/*": Serialize.Body
+	"multipart/form-data": Serialize.FormFields
+}> => ({
+	"application/json": (body, contentType) => {
+		seen.push(contentType)
+		return Serialize.body(contentType, body)
+	},
+	"application/x-www-form-urlencoded": (body, contentType) => {
+		seen.push(contentType)
+		return Serialize.urlEncoded(contentType, body, {
+			properties: [
+				["name", {}],
+				["tags", { explode: false }]
+			],
+			required: true
+		})
+	},
+	"image/*": (body, contentType) => {
+		seen.push(contentType)
+		return Serialize.body(contentType, body)
+	},
+	"multipart/form-data": (body, contentType) => {
+		seen.push(contentType)
+		return Serialize.formData(body, {
+			parts: [
+				["name", "text/plain"],
+				["file", "application/octet-stream"]
+			],
+			required: true
+		})
 	}
-
-	return latin1(await Effect.runPromise(Stream.runCollect(built.body.stream)))
-}
-
-const boundaryOf = (built: HttpClientRequest.HttpClientRequest): string => {
-	const match = /^multipart\/form-data; boundary=(?<boundary>.+)$/u.exec(
-		built.headers["content-type"] ?? ""
-	)
-
-	return match?.groups?.boundary ?? ""
-}
-
-const formRequest = (
-	fields: Serialize.FormFields,
-	parts: readonly Serialize.FormPartEntry[],
-	required = true
-) =>
-	Serialize.request("POST", {
-		body: Serialize.formData(fields, { parts, required }),
-		headers: [],
-		path: Serialize.path("/imports", []),
-		query: []
-	})
-
-// Multipart.fileBody as the emitted handler calls it: a path through the file system, `-` through
-// stdin under the invocation's one stdin claim.
-const regularFile: FileSystem.File.Info = {
-	atime: Option.none(),
-	birthtime: Option.none(),
-	blksize: Option.none(),
-	blocks: Option.none(),
-	dev: 0n,
-	gid: Option.none(),
-	ino: Option.none(),
-	mode: 0o644,
-	mtime: Option.none(),
-	nlink: Option.none(),
-	rdev: Option.none(),
-	size: ByteSize.bytes(10),
-	type: "File",
-	uid: Option.none()
-}
-
-const files = Layer.mergeAll(
-	stdinClaimLayer,
-	FileSystem.layerNoop({
-		access: () => Effect.void,
-		stat: () => Effect.succeed(regularFile),
-		stream: () => Stream.make(utf8.encode("a,b\r\n1,2\r\n"))
-	}),
-	Stdio.layerTest({ stdin: Stream.make(utf8.encode("from stdin")) })
-)
-
-const fileOf = (flag: string, path: string, part: string) =>
-	Effect.map(fileBody(flag, path), (stream) => ({
-		filename: partFilename(path, part),
-		stream
-	})).pipe(Effect.provide(files))
-
-describe("formData", () => {
-	test("scalar, repeated scalar and file parts stream under the writer's boundary", async () => {
-		const fromPath = await Effect.runPromise(fileOf("file", "/data/in/contacts.csv", "file"))
-		const fromStdin = await Effect.runPromise(fileOf("note", "-", "note"))
-		const built = await run(
-			formRequest(
-				{
-					count: [{ text: "9007199254740993" }],
-					file: [fromPath],
-					flag: [false],
-					note: [fromStdin],
-					ratio: [1.5],
-					segment: ["a", "b"],
-					title: ["Café"]
-				},
-				[
-					["file", "application/octet-stream"],
-					["title", "text/plain"],
-					["segment", "text/plain"],
-					["count", "text/plain"],
-					["ratio", "text/plain"],
-					["flag", "text/plain"],
-					["note", "text/csv"]
-				]
-			)
-		)
-		const boundary = boundaryOf(built)
-		const part = (head: string, body: string) => `--${boundary}\r\n${head}\r\n\r\n${body}\r\n`
-		const textPart = (name: string, body: string) =>
-			part(`Content-Disposition: form-data; name="${name}"\r\nContent-Type: text/plain`, body)
-
-		expect(boundary).toMatch(/^----EffectFormBoundary[0-9a-f]{32}$/u)
-		expect(await streamed(built)).toBe(
-			[
-				part(
-					'Content-Disposition: form-data; name="file"; filename="contacts.csv"\r\nContent-Type: application/octet-stream',
-					"a,b\r\n1,2\r\n"
-				),
-				textPart("title", "Caf\u00C3\u00A9"),
-				textPart("segment", "a"),
-				textPart("segment", "b"),
-				textPart("count", "9007199254740993"),
-				textPart("ratio", "1.5"),
-				textPart("flag", "false"),
-				part(
-					'Content-Disposition: form-data; name="note"; filename="note"\r\nContent-Type: text/csv',
-					"from stdin"
-				),
-				`--${boundary}--\r\n`
-			].join("")
-		)
-	})
-
-	test("a required body with no parts is the close delimiter alone", async () => {
-		const built = await run(formRequest({ title: [] }, [["title", "text/plain"]]))
-		const boundary = boundaryOf(built)
-
-		expect(boundary).not.toBe("")
-		expect(await streamed(built)).toBe(`--${boundary}--\r\n`)
-	})
-
-	test("an optional body with no parts sends no body and no Content-Type", async () => {
-		const built = await run(formRequest({ title: [] }, [["title", "text/plain"]], false))
-
-		expect(built.body._tag).toBe("Empty")
-		expect(built.headers["content-type"]).toBeUndefined()
-	})
-
-	test("a second stdin part is refused before any read", async () => {
-		await expectUsage(
-			Effect.all([fileBody("file", "-"), fileBody("note", "-")]).pipe(Effect.provide(files))
-		)
-	})
-
-	test("a lone surrogate in a text part is refused", async () => {
-		await expectUsage(formRequest({ title: ["\uD800"] }, [["title", "text/plain"]]))
-	})
-
-	test("a chosen part is sent under its chosen type, in entry order", async () => {
-		const built = await run(
-			formRequest({ title: ["cat"] }, [
-				["photo", { contentType: "image/jpeg", values: ["x", "y"] }],
-				["title", "text/plain"]
-			])
-		)
-		const boundary = boundaryOf(built)
-		const part = (name: string, type: string, body: string) =>
-			`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\nContent-Type: ${type}\r\n\r\n${body}\r\n`
-
-		expect(await streamed(built)).toBe(
-			[
-				part("photo", "image/jpeg", "x"),
-				part("photo", "image/jpeg", "y"),
-				part("title", "text/plain", "cat"),
-				`--${boundary}--\r\n`
-			].join("")
-		)
-	})
-
-	test("a keyed part's header lines precede its type on every value; an absent header is not written", async () => {
-		const headers = [
-			Serialize.header("X-Checksum", "9f86d0", { explode: false, required: false }),
-			Serialize.header("X-Trace", undefined, { explode: false, required: false }),
-			Serialize.header("X-Tags", ["a", "b"], { explode: false, required: false })
-		]
-		const built = await run(
-			formRequest({}, [["photo", { contentType: "image/png", headers, values: ["x", "y"] }]])
-		)
-		const boundary = boundaryOf(built)
-		const part = (body: string) =>
-			`--${boundary}\r\nContent-Disposition: form-data; name="photo"\r\nX-Checksum: 9f86d0\r\nX-Tags: a,b\r\nContent-Type: image/png\r\n\r\n${body}\r\n`
-
-		expect(await streamed(built)).toBe([part("x"), part("y"), `--${boundary}--\r\n`].join(""))
-	})
-
-	test("a part header value no header line can carry is a usage error", async () => {
-		const headers = [Serialize.header("X-Trace", "a\r\nb", { explode: false, required: false })]
-
-		await expectUsage(
-			formRequest({}, [["photo", { contentType: "image/png", headers, values: ["x"] }]])
-		)
-	})
-
-	test("a chosen part not sent writes nothing", async () => {
-		const built = await run(formRequest({}, [["photo", undefined]], false))
-
-		expect(built.body._tag).toBe("Empty")
-	})
-
-	test("a chosen part's name among the fields is a defect", async () => {
-		const chosen = { contentType: "image/png", values: ["x"] }
-		const exits = await Promise.all(
-			[chosen, undefined].map((entry) =>
-				Effect.runPromiseExit(formRequest({ photo: ["y"] }, [["photo", entry]]))
-			)
-		)
-
-		expect(exits.map((exit) => Exit.isFailure(exit) && Cause.hasDies(exit.cause))).toEqual([
-			true,
-			true
-		])
-	})
 })
 
-const split = (fields: Serialize.FormFields, contentType: Option.Option<"image/png">) =>
-	Effect.runPromiseExit(Serialize.chooseParts({ photo: ["photo-part", contentType] })(fields))
-
-describe("chooseParts", () => {
-	test("a sent part leaves the fields and carries the chosen type", async () => {
-		const exit = await split({ "photo-part": ["x"], title: ["cat"] }, Option.some("image/png"))
-
-		expect(exit).toEqual(
-			Exit.succeed({
-				fields: { title: ["cat"] },
-				photo: { contentType: Option.some("image/png"), values: ["x"] }
-			})
-		)
-	})
-
-	test("a part with no value is absent", async () => {
-		const exits = await Promise.all(
-			[{ title: ["cat"] }, { "photo-part": [], title: ["cat"] }].map((fields) =>
-				split(fields, Option.none())
-			)
-		)
-
-		expect(exits).toEqual([
-			Exit.succeed({ fields: { title: ["cat"] } }),
-			Exit.succeed({ fields: { title: ["cat"] } })
-		])
-	})
-
-	test("a sent part with no type is a defect when its form is written", async () => {
-		const chosen = await split({ "photo-part": ["x"] }, Option.none())
-		const written = await Effect.runPromiseExit(
-			formRequest({}, [["photo", { contentType: Option.none(), values: ["x"] }]])
-		)
-
-		expect(chosen).toEqual(
-			Exit.succeed({ fields: {}, photo: { contentType: Option.none(), values: ["x"] } })
-		)
-		expect(Exit.isFailure(written) && Cause.hasDies(written.cause)).toBe(true)
-	})
-
-	test("a part with one listed type and headers carries both; not sent, it carries neither", async () => {
-		const header = Serialize.header("X-Checksum", "9f86d0", { explode: false, required: false })
-		const choose = Serialize.chooseParts({ file: ["file", "image/png", [header]] })
-		const sent = await Effect.runPromise(choose({ file: ["x"], title: ["cat"] }))
-		const absent = await Effect.runPromise(choose({ title: ["cat"] }))
-
-		expect(sent).toEqual({
-			fields: { title: ["cat"] },
-			file: { contentType: "image/png", headers: [header], values: ["x"] }
-		})
-		expect(absent).toEqual({ fields: { title: ["cat"] } })
-	})
-})
-
-const importBody = Schema.Struct({
-	code: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[A-Z]{3}$/u))),
-	count: Schema.optionalKey(Schema.Int),
-	file: Schema.String.check(Schema.isMinLength(1)),
-	on_conflict: Schema.optionalKey(Schema.Literals(["skip", "upsert"])),
-	tags: Schema.optionalKey(Schema.Array(Schema.String))
-})
-
-const importOptions: Serialize.FormSchemaOptions = {
-	flags: { code: "code", count: "count", file: "file", on_conflict: "on-conflict", tags: "tags" },
-	repeated: ["tags"],
-	required: true,
-	schema: importBody
+/** A chosen case's body as its key's codec takes it. */
+const chosenOf = (chosen: AlternativeCase) => {
+	switch (chosen.key) {
+		case "application/json":
+			return { key: chosen.key, contentType: chosen.contentType, body: chosen.body }
+		case "application/x-www-form-urlencoded":
+			return {
+				key: chosen.key,
+				contentType: chosen.contentType,
+				body: { name: chosen.body.name, tags: chosen.body.tags }
+			}
+		case "image/*":
+			return {
+				key: chosen.key,
+				contentType: chosen.contentType,
+				body: HttpBody.uint8Array(chosen.body)
+			}
+		case "multipart/form-data":
+			return {
+				key: chosen.key,
+				contentType: chosen.contentType,
+				body: {
+					name: [chosen.body.name],
+					file: [{ filename: "a.bin", stream: Stream.make(chosen.body.file) }]
+				}
+			}
+	}
 }
 
-const csvFile: Serialize.FormFile = { filename: "contacts.csv", stream: Stream.empty }
-
-// The assertion as the emitted handler runs it: before the request is built, so a failure leaves
-// the request (and any connection) unmade.
-const assertThenBuild = (fields: Serialize.FormFields, options = importOptions) => {
-	let built = 0
-	const effect = Serialize.assertFormData(options)(fields).pipe(
-		Effect.tap(() =>
-			Effect.sync(() => {
-				built += 1
-			})
-		)
-	)
-
-	return { built: () => built, effect }
-}
-
-const usageOf = async (fields: Serialize.FormFields, options = importOptions) => {
-	const pending = assertThenBuild(fields, options)
-	const error = await Effect.runPromise(Effect.flip(pending.effect))
-
-	expect(error).toBeInstanceOf(UsageError)
-	expect(error[Runtime.errorExitCode]).toBe(2)
-	expect(pending.built()).toBe(0)
-
-	return error
-}
-
-describe("assertFormData", () => {
-	test("typed part values and a supplied file part pass unchanged", async () => {
-		const fields: Serialize.FormFields = {
-			code: ["ABC"],
-			count: [{ text: "42" }],
-			file: [csvFile],
-			on_conflict: ["upsert"],
-			tags: ["a", "b"]
+/**
+ * The alternatives table runs exactly the chosen key's codec, handed the chosen Content-Type, and sends what that
+ * codec sends alone (a JSON choice, what the body's reference writes). It replaces four example cases (serialize-alternatives); its budget is 16 drawn choices, its
+ * floor 4.
+ */
+export const chosenCodec = property.explore(alternativeSpace, {
+	needs: {},
+	situations: [
+		"application/json",
+		"application/x-www-form-urlencoded",
+		"image/*",
+		"multipart/form-data",
+		"range key's concrete type sent"
+	] satisfies ReadonlyArray<Reached<AlternativeFeature>>,
+	check: (_, c: Case<AlternativeFeature>) => (chosen) =>
+		Effect.gen(function* () {
+			c.noteAll(alternativeFeatures(chosen))
+			const seen: Array<string> = []
+			const choice = chosenOf(chosen)
+			const through = yield* sentOf(posted(Serialize.alternatives(choice, tableOf(seen))))
+			deepStrictEqual(seen, [chosen.contentType])
+			const alone = yield* sentOf(posted(tableOf([])[choice.key](choice.body, choice.contentType)))
+			deepStrictEqual(through, alone)
+			if (chosen.key === "application/json") {
+				deepStrictEqual(
+					through,
+					Result.match(
+						bodyModel({
+							mediaType: chosen.contentType,
+							payload: { kind: "json", value: chosen.body }
+						}),
+						{
+							onFailure: () => Option.none(),
+							onSuccess: (sent) =>
+								Option.some([
+									Option.some(
+										sent.kind === "text" ? Buffer.from(sent.text, "utf8").toString("latin1") : ""
+									),
+									Option.some(chosen.contentType)
+								] as const)
+						}
+					)
+				)
+			}
+		}),
+	oracle: { kind: "universal", name: "a chosen alternative sends what its own codec sends alone" },
+	kept: [],
+	budget: { runs: 16, steered: 16 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/sequential.ts",
+			original:
+				'{\n\tconst essence = mediaEssence(mediaType)\n\n\treturn essence === "application/json" || essence.endsWith("+json")\n}',
+			replacement: "{ return false }",
+			why: "No media type is JSON, so the chosen JSON codec refuses an object body as non-text; the property fails (CATCH's evidence, mutant 363f6be2dd)."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/serialize.ts",
+			original: "table[chosen.key](chosen.body, chosen.contentType)",
+			replacement: "table[chosen.key](chosen.body, chosen.key)",
+			why: "A range key's codec is handed the range itself, not the operator's concrete type, which it then sends; the property fails."
 		}
-
-		expect(await Effect.runPromise(Serialize.assertFormData(importOptions)(fields))).toBe(fields)
-	})
-
-	test("a required part with no value is a UsageError naming its flag, before any request", async () => {
-		const error = await usageOf({ code: [], count: [], file: [], on_conflict: ["skip"], tags: [] })
-
-		expect(error.flag).toBe("file")
-		expect(error.message).toBe("--file: this request needs it")
-	})
-
-	test("a required body with no input is asserted and fails on its missing required part", async () => {
-		const error = await usageOf({ code: [], count: [], file: [], on_conflict: [], tags: [] })
-
-		expect(error.flag).toBe("file")
-	})
-
-	test("an enum violation on a scalar part names its flag, never the value", async () => {
-		const error = await usageOf({ file: [csvFile], on_conflict: ["replace"] })
-
-		expect(error.flag).toBe("on-conflict")
-		expect(error.message).toBe("--on-conflict: does not match the request body schema")
-		expect(error.message).not.toContain("replace")
-	})
-
-	test("a pattern violation on a scalar part names its flag", async () => {
-		const error = await usageOf({ code: ["abc"], file: [csvFile] })
-
-		expect(error.flag).toBe("code")
-	})
-
-	test("an int64 digit text is asserted as its number", async () => {
-		const error = await usageOf({ count: [{ text: "1.5" }], file: [csvFile] })
-
-		expect(error.flag).toBe("count")
-	})
-
-	test("a file part is asserted for presence only, not content", async () => {
-		const strict = {
-			...importOptions,
-			schema: importBody.mapFields((fields) => ({ ...fields, file: Schema.Literal("never") }))
-		}
-
-		expect(await Effect.runPromise(Serialize.assertFormData(strict)({ file: [csvFile] }))).toEqual({
-			file: [csvFile]
-		})
-	})
-
-	test("an optional body with no input is not asserted", async () => {
-		const optional = { ...importOptions, required: false }
-		const fields: Serialize.FormFields = { file: [], tags: [] }
-
-		expect(await Effect.runPromise(Serialize.assertFormData(optional)(fields))).toBe(fields)
-	})
-
-	test("the first failing part in declared order is named", async () => {
-		const error = await usageOf({ code: ["abc"], file: [], on_conflict: ["replace"] })
-
-		expect(error.flag).toBe("code")
-	})
+	]
 })
