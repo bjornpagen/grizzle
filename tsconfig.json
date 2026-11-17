@@ -186,7 +186,6 @@
 							"bench/main.ts",
 							"bench/cold/main.ts",
 							"bench/cold/probe.ts",
-							"scripts/dev/mutate/main.ts",
 							"scripts/dev/profile/compile.ts",
 							"scripts/dev/profile/read.ts",
 							"scripts/gen/allen/main.ts",
@@ -212,7 +211,6 @@
 					},
 					{
 						"include": [
-							"scripts/dev/mutate/clone.ts",
 							"test/support/memory-tls.ts",
 							"test/unit/dev/consumer.ts",
 							"test/support/wire-tap.ts",

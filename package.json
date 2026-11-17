@@ -41,7 +41,7 @@
 		"test:properties": "toolchain-test run",
 		"test:network": "node --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
 		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
-		"mutate": "node scripts/dev/mutate/main.ts",
+		"mutate": "toolchain-test mutate",
 		"bench": "node bench/main.ts",
 		"bench:full": "node bench/main.ts full",
 		"pg:build": "scripts/pg/build.sh",

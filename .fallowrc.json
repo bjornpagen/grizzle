@@ -6,8 +6,6 @@
 		"test/unit/deps/runtime-probe.ts",
 		"test/support/pg-global-setup.ts",
 		"bench/**/main.ts",
-		"scripts/dev/mutate/reporter.ts",
-		"scripts/dev/mutate/take-coverage.ts",
 		"scripts/dev/profile/compile.ts",
 		"scripts/dev/profile/read.ts",
 		"scripts/gen/allen/main.ts",

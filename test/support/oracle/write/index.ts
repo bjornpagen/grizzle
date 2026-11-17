@@ -53,7 +53,7 @@ export interface WriteRun {
 
 const maxCasesPerRun = 12
 
-export const writeRunGen: Gen<WriteRun> = (source) => ({
+const writeRunGen: Gen<WriteRun> = (source) => ({
 	schema: source.draw(schemaSketchGen),
 	statistics: source.draw(element<Statistics>(["analyzed", "none"])),
 	ambient: source.draw(ambientSessionGen),

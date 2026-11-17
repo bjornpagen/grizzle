@@ -542,9 +542,10 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   is 86% busy at 9 seat sets, 44% of it in native writev (verify-full TLS and one write per statement), so its cases
   at once gain little until a transaction's statements go as one pipelined write.
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
-- **pnpm mutate scoped to a change (PLANTS, 2026-11-15):** `--base <ref>` plans only the mutants on lines changed since
-  `<ref>`, so checking a change mutates what it changed rather than every module of its scope. It is borrowed from
-  fallow mutation, which is not adopted: it has no test scoping, its operators are generic, and it prunes the adapter.
+- **pnpm mutate scoped to a change (PLANTS, 2026-11-15):** `--base <ref>` judges only the mutants on lines changed since
+  `<ref>`, so checking a change mutates what it changed rather than every mutant of the files it names. `pnpm mutate` is
+  the toolchain's `toolchain-test mutate` now, so this is the toolchain's to add. It is borrowed from fallow mutation,
+  which is not adopted: it has no test scoping, its operators are generic, and it prunes the adapter.
 - **The fill kernel's rows have one handle, their `id` (RESTATED, 2026-11-12):** test/support/families/fill.ts follows a
   row across a stored instance and its restatement by its `id` field (writtenRows' byId map, every memberOf owner,
   instanceFacts), and a tree's root fields are named by its root's id (rootValuesOf), so G4 (test/pg/write/reinsert,

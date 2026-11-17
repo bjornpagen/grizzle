@@ -1,9 +1,4 @@
-import {
-	type Family,
-	type Operator as LibraryOperator,
-	OPERATORS,
-	type Rule
-} from "@bjornpagen/testing/mutants"
+import type { Family, Rule } from "@bjornpagen/testing/mutants"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import * as ts from "typescript/ast"
@@ -52,7 +47,7 @@ const worldOperators = [
 	"world-reads-flip",
 	"world-precondition-drop"
 ] as const
-export type WorldOperator = (typeof worldOperators)[number]
+type WorldOperator = (typeof worldOperators)[number]
 
 /** The Compute catalogue, whose overloads declare what they read of their operands. */
 const registryPath = "packages/engine/src/scalar/compute/registry.ts"
@@ -509,7 +504,10 @@ const visitWorld: (site: WorldSite, node: ts.Node) => void = (site, node) => {
 	preconditionDrop(site, node)
 }
 
-/** The `sql-world` family: every world operator, in the world files alone, each found by `visitWorld`. */
+/**
+ * The `sql-world` family: every world operator, in the world files alone, each found by `visitWorld`. One of grizzle's
+ * operator families, which test.config.ts gives `toolchain-test mutate` (`pnpm mutate`) beside the library's operators.
+ */
 export const sqlWorld: Family<WorldOperator> = {
 	operators: worldOperators,
 	applies: isWorldFile,
@@ -590,41 +588,11 @@ const distinctFlag: Rule<"set-semantics"> = (node, { add, source }) => {
 
 /**
  * The `set-semantics` family, in every file: grizzle's slips between a bag and a set, UNION ALL swapped with UNION and
- * a DISTINCT dropped in SQL text, and a `distinct` flag flipped.
+ * a DISTINCT dropped in SQL text, and a `distinct` flag flipped. One of grizzle's operator families, which
+ * test.config.ts gives `toolchain-test mutate` (`pnpm mutate`) beside the library's operators.
  */
 export const setSemantics: Family<"set-semantics"> = {
 	operators: ["set-semantics"],
 	applies: () => true,
 	rules: [sqlText, distinctFlag]
 }
-
-/** Every operator grizzle's mutation runs choose from: the library's, set-semantics, and the sql-world family's. */
-export type Operator = LibraryOperator | "set-semantics" | WorldOperator
-
-export const operators: ReadonlyArray<Operator> = [...OPERATORS, "set-semantics", ...worldOperators]
-
-/**
- * The classic family: comparison, conjunct, boolean-return and bound and guard from the library, and set-semantics,
- * grizzle's own.
- */
-const classicOperators = [
-	"comparison",
-	"conjunct",
-	"boolean-return",
-	"set-semantics",
-	"bound",
-	"guard"
-] as const
-
-/**
- * The operator families a run names with --operators, each the operators it stands for: `classic`, `sql-world`, and
- * `library`, every operator of the library's.
- */
-export const families: Readonly<Record<string, ReadonlyArray<Operator>>> = {
-	classic: classicOperators,
-	"sql-world": worldOperators,
-	library: OPERATORS
-}
-
-/** The operators a run tests when it names none: the classic and sql-world families. */
-export const defaultOperators: ReadonlyArray<Operator> = [...classicOperators, ...worldOperators]

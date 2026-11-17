@@ -18,7 +18,9 @@
  * - Case deadline: a whole write run a case, measured (oracle.fixtures.ts writeRunDeadline).
  * - Kills: the compiler and runtime bugs the old suites 0, 1 and 3 caught (their plants, now kills): a staged member
  *   slot's carrier taken from another slot of the same heading, a later stratum's removal no longer cancelling an
- *   earlier addition, a fact removed and re-added in one stratum left added, and two orderings of the scheduler.
+ *   earlier addition, a fact removed and re-added in one stratum left added, and two orderings of the scheduler; and
+ *   lane CATCH's kill from the mutation tester's old oracle subset: the checker never finding the match of a bind map
+ *   whose variables are all bound.
  *
  * The four old suites were one property under four labels, each a floor stream of its own: the runner's own streams
  * and its budget replace them. Their two kept cases (suite 1's) drew their schemas' resolution mid-case, from tapes
@@ -103,6 +105,12 @@ export const writeOracle = property.explore(perturbedRunGen, {
 				'\tphaseOf(a.action) < phaseOf(b.action) &&\n\t!(a.meeting === "nowhere" && a.action.op === "delete" && !isGenerated(b.action))',
 			replacement: "\tphaseOf(a.action) < phaseOf(b.action)",
 			why: 'The scheduler runs a deletion where facts meet nowhere before every addition of its relation, so it refuses the planted arm "deletion meeting nowhere", which only that exception orders.'
+		},
+		{
+			file: "packages/engine/src/check/checker.ts",
+			original: "\t\t\tconst found = pending.find((q) => waiting(q.match).length === 0)",
+			replacement: "\t\t\tconst found = pending.find((q) => waiting(q.match).length === (-1))",
+			why: "Operator mutant (bound) at packages/engine/src/check/checker.ts:2568 in <module>: `0` becomes `(-1)`; the property fails (lane CATCH, grizzle 0baff5d6, against the mutation tester's oracle subset scripts/dev/mutate/oracle/writes.test.ts, which this property replaces)."
 		}
 	]
 })
