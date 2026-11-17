@@ -1055,6 +1055,18 @@ const formerBuildDropped = (
 	})
 
 /**
+ * Ends every session still in database `name` and waits for each backend's exit (pg_terminate_backend's wait, the
+ * substrate's exit bound), as the bootstrap superuser from the owner's own database, since a build's sessions include
+ * the superuser's and its logins': a template build's sessions close with its scope, but a backend's exit lags its
+ * client's close, and CREATE DATABASE ... TEMPLATE refuses a template another backend is in (55006) once its few seconds
+ * of waiting pass, so a build returns only when none is left.
+ */
+const backendsEnded = (cluster: BudgetedCluster, name: string): Effect.Effect<void> =>
+	asSuperuser(cluster, pgPin.devRole, [
+		`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait}) FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = ${quoteString(name)}::name AND a.pid <> pg_catalog.pg_backend_pid()`
+	])
+
+/**
  * A template of an installation over the base template (InstallSpec): its database is built by planning under the
  * template's schema name and installing the plan on a substrate over the template database, each worker plans it once
  * to bind its cases, and its cases clone it by any form (Substrate.freshOf, seat, rolledBack). Its identity is the
@@ -1111,7 +1123,13 @@ export const installTemplate = <P, T, E1, E2>(
 							Effect.andThen(Effect.provideService(spec.install(plan), Substrate, substrate), keep)
 						)
 					)
-				})
+				}).pipe(
+					Effect.andThen(
+						Effect.flatMap(target.member.leased, ({ cluster }) =>
+							backendsEnded(cluster, target.name)
+						)
+					)
+				)
 			)
 	})
 	return {
