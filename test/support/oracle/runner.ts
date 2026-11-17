@@ -3,10 +3,8 @@ import {
 	type Draw,
 	type Explored,
 	explore,
-	isWitness,
 	type Kept,
 	type Oracle,
-	type PropertyFalsified,
 	type Run as SearchRun,
 	type SearchFailure,
 	steered
@@ -15,24 +13,30 @@ import { failureText } from "@bjornpagen/testing/failure"
 import type { Coverage } from "@bjornpagen/testing/features"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Aimed, aimed, constant, type Gen, type Space } from "@bjornpagen/testing/gen"
+import { inlineRun, searchInline } from "@bjornpagen/testing/inline"
 import {
 	type Case as PropertyCase,
+	type CheckContext,
 	type Kept as KeptToken,
 	type Budget,
 	type Kill,
 	property
 } from "@bjornpagen/testing/property"
+import { fnv1a32 } from "@bjornpagen/testing/random"
 import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
 import {
 	Array as Arr,
 	Cause,
 	Data,
 	Effect,
+	Formatter,
+	Layer,
 	MutableHashMap,
 	Option,
 	Order,
 	pipe,
 	Record as Rec,
+	Ref,
 	Result,
 	Scope,
 	String as Str
@@ -132,8 +136,9 @@ import { renderExpected } from "#test/support/oracle/reference/render.ts"
 import { type DeclineReason, ReferenceUnsupported } from "#test/support/oracle/reference/values.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, PipelineRefused, SqlError } from "#test/support/pg.ts"
+import { grizzleCluster } from "#test/support/runner.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
 
 /** A hand-built case with the name its suite reports it by (runLabelledOracle). */
@@ -1388,32 +1393,47 @@ export const oracleProperty = <S, const F extends string, E>(
 	})
 
 /**
- * What a kill search ends with: every case passed, so the population survived; or a case failed, with the library's
- * report (the shrunk case and how to replay it) and the last case whose property failed, with the verdict its typed
- * failure carried. A verdict is a kill only when a witness found it (the floor stream or the steered phase, which the
- * suite's label fixes), so a kill search passes or fails alike on every run seed; one only a case the run's seed drew
- * found is unwitnessed, its counterexample carried so the population gains an arm that reaches it. A failure that
- * carries no verdict, a harness's, is no kill. Shrinking runs failing cases until the shrunk one, so the last failing
- * case is the shrunk case unless a later candidate failed without drawing fewer decisions.
+ * What an oracle property over an installed template states (installedOracleProperty): an oracle property's statement
+ * (OracleSpec) whose check of a case also reads the template's value bound to the case's clone.
  */
-export type KillResult<T> =
-	| { readonly kind: "survived"; readonly explored: Explored }
-	| {
-			readonly kind: "killed"
-			readonly report: string
-			readonly counterexample: T
-			readonly verdict: KillVerdict
-	  }
-	| {
-			readonly kind: "unwitnessed"
-			readonly report: string
-			readonly counterexample: T
-	  }
-	| {
-			readonly kind: "failed"
-			readonly report: string
-			readonly counterexample: Option.Option<T>
-	  }
+export interface InstalledOracleSpec<S, T, F extends string, E> extends Omit<
+	OracleSpec<S, F, E>,
+	"check"
+> {
+	readonly check: (
+		c: PropertyCase<F>,
+		installed: T
+	) => (value: S) => Effect.Effect<void, E, Substrate | Scope.Scope>
+}
+
+/**
+ * An oracle property (oracleProperty) whose every case runs in a clone of its own of `template` (Substrate.freshOf), so
+ * what the template installs once per member is each case's from its start, under the case's perturbation.
+ */
+export const installedOracleProperty = <S, T, const F extends string, E>(
+	template: SubstrateTemplate<T>,
+	space: Space<S> | Aimed<S, F>,
+	spec: InstalledOracleSpec<S, T, F, E>
+) =>
+	property.explore(conditionedAimed(space, spec.perturb), {
+		needs: { installed: Substrate.freshOf(template) },
+		situations: spec.situations,
+		check:
+			({ installed }, c: PropertyCase<F>) =>
+			([value, conditions]) =>
+				Effect.flatMap(installed, ({ substrate, value: bound }) =>
+					Effect.provideService(
+						underPerturbation(spec.check(c, bound)(value), conditions),
+						Substrate,
+						substrate
+					)
+				),
+		oracle: spec.oracle,
+		kept: spec.kept,
+		kills: spec.kills,
+		budget: spec.budget,
+		show: ([value]: readonly [S, Conditions]) => spec.show(value)
+	})
 
 /**
  * What a failing case was caught by, as its typed failure says: the two sides' comparison, with its outcome, or one
@@ -1438,61 +1458,117 @@ const verdictOf = (failure: Verdict): KillVerdict => {
 	}
 }
 
-/** The last case a kill search's property failed on, and the verdict its failure carried. */
-type LastFailure<T> = { readonly value: T; readonly verdict: Option.Option<KillVerdict> }
+/**
+ * What a kill population's search (killSearched) ends with: every witness passed, so the population survived; a witness
+ * failed with a verdict (the two sides' comparison or one side's second reading), the shrunk kill, its report and the
+ * last case whose check failed with one, which is the shrunk case unless a later candidate failed without drawing fewer
+ * decisions; or the search failed otherwise (a check's failure that carries no verdict, a hang, an unreached situation),
+ * with its report.
+ */
+export type KillFound<S> =
+	| { readonly kind: "survived" }
+	| {
+			readonly kind: "killed"
+			readonly report: string
+			readonly counterexample: S
+			readonly verdict: KillVerdict
+	  }
+	| { readonly kind: "failed"; readonly report: string }
+
+/** What a kill population's search states: its required situations, its witnesses' budget, its oracle, and how a case prints. */
+export interface KillSpec<S, F extends string> {
+	readonly situations: ReadonlyArray<Reached<F>>
+	/** Its witnesses' cases: a floor of a quarter of `runs`, and up to `steered` steered cases while a situation is unreached. */
+	readonly budget: Budget
+	readonly oracle: Oracle
+	readonly show: (value: S) => string
+}
 
 /**
- * oracleCheck for a population that must be killed (a mutant's): a failing case is the result rather than the search's
- * failure, so the suite can judge the kill's verdict and where it was found. Every other way the search fails (a hang,
- * a stall, an unreached feature, a stale kept case) fails it still.
+ * A kill population's search (a mutant's), nested in the case that states it and run in its process (searchInline) on
+ * its witnesses alone, the floor and steered phase its identity `id` fixes, so a mutant is killed on every run seed or
+ * on none: `space`'s values, each drawn with its second reading's restorage, run unperturbed by `check` on the case's
+ * own substrate. A failing witness is the search's result rather than the case's failure: the shrunk kill, with the
+ * verdict its check's typed failure carried, which the case then judges (KillFound).
  */
-export const oracleKill = <S, T, F extends string, R>(
-	draw: Draw<S, T, F>,
-	options: CheckOptions<S, F>,
-	property: (value: T, c: Case<F>) => Effect.Effect<void, Verdict, R>
-): Effect.Effect<
-	KillResult<T>,
-	Exclude<SearchFailure, PropertyFalsified>,
-	SearchRun | Exclude<R, Scope.Scope>
-> =>
-	Effect.suspend(() => {
-		let last: Option.Option<LastFailure<T>> = Option.none()
-		return checked(draw, options, (value, c) =>
-			property(value, c).pipe(
-				Effect.tapCause((cause) =>
-					Effect.sync(() => {
-						if (!Cause.hasInterruptsOnly(cause)) {
-							last = Option.some({
-								value,
-								verdict: Option.map(Cause.findErrorOption(cause), verdictOf)
-							})
-						}
-					})
-				)
-			)
-		).pipe(
-			Effect.map((explored): KillResult<T> => ({ kind: "survived", explored })),
-			Effect.catchTag("PropertyFalsified", (falsified) =>
-				Effect.succeed(
-					Option.match(
-						Option.flatMap(last, (failure) =>
-							Option.map(failure.verdict, (verdict) => ({ value: failure.value, verdict }))
-						),
-						{
-							onNone: (): KillResult<T> => ({
-								kind: "failed",
-								report: falsified.message,
-								counterexample: Option.map(last, (failure) => failure.value)
-							}),
-							onSome: ({ value, verdict }): KillResult<T> =>
-								isWitness(falsified.phase)
-									? { kind: "killed", report: falsified.message, counterexample: value, verdict }
-									: { kind: "unwitnessed", report: falsified.message, counterexample: value }
-						}
-					)
-				)
-			)
+export const killSearched = <S, const F extends string>(
+	id: string,
+	space: Space<S>,
+	spec: KillSpec<S, F>,
+	check: (
+		c: PropertyCase<F>
+	) => (value: S) => Effect.Effect<void, Verdict | PropertyFailed, Substrate | Scope.Scope>
+): Effect.Effect<KillFound<S>, never, Substrate | CheckContext> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const last = yield* Ref.make(
+			Option.none<{ readonly value: S; readonly verdict: KillVerdict }>()
 		)
+		const recorded =
+			(value: S) =>
+			(cause: Cause.Cause<Verdict | PropertyFailed>): Effect.Effect<void> =>
+				Cause.hasInterruptsOnly(cause)
+					? Effect.void
+					: Ref.set(
+							last,
+							Option.map(
+								Option.filter(
+									Cause.findErrorOption(cause),
+									(error): error is Verdict => error._tag !== "PropertyFailed"
+								),
+								(error) => ({ value, verdict: verdictOf(error) })
+							)
+						)
+		const services = yield* Layer.build(grizzleCluster)
+		const verdict = yield* Effect.provideContext(
+			searchInline(
+				property.explore(conditioned(space, "none"), {
+					needs: {},
+					situations: spec.situations,
+					check:
+						(_, c: PropertyCase<F>) =>
+						([value, conditions]) =>
+							Effect.provideService(
+								underPerturbation(Effect.tapCause(check(c)(value), recorded(value)), conditions),
+								Substrate,
+								substrate
+							),
+					oracle: spec.oracle,
+					kept: [],
+					kills: [],
+					budget: spec.budget,
+					show: ([value]: readonly [S, Conditions]) => spec.show(value)
+				}),
+				{ ...inlineRun(id, fnv1a32(id)), reach: "witnesses" }
+			),
+			services
+		)
+		if (verdict.kind !== "failed") {
+			return { kind: "survived" } satisfies KillFound<S>
+		}
+		const finding = verdict.finding
+		if (finding.kind !== "falsified") {
+			return { kind: "failed", report: Formatter.format(finding) } satisfies KillFound<S>
+		}
+		const report = Arr.join(
+			[
+				`${finding.where}, shrunk: ${Formatter.format(finding.shrinking)}`,
+				finding.printed.kind === "drawn" ? finding.printed.value : finding.printed.why,
+				finding.failure,
+				`replay: ${finding.token}`
+			],
+			"\n"
+		)
+		const shrunk = yield* Ref.get(last)
+		return Option.match(shrunk, {
+			onNone: (): KillFound<S> => ({ kind: "failed", report }),
+			onSome: ({ value, verdict: killed }): KillFound<S> => ({
+				kind: "killed",
+				report,
+				counterexample: value,
+				verdict: killed
+			})
+		})
 	})
 
 /**

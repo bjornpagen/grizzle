@@ -24,6 +24,7 @@ const { active, lintConfig } = standard(toolchain)
  * states, every probe of a scale program, every dimension a cost gate measures).
  */
 const DICTIONARY_MINTS = [
+	"test/pg/oracle/mutants/invalid.dictionary.ts",
 	"test/types/api/config.dictionary.ts",
 	"test/types/api/decoder.dictionary.ts",
 	"test/types/api/handle.dictionary.ts",

@@ -1,378 +1,91 @@
 /**
- * The reference side of the oracle discriminates, and failing cases shrink to printable form.
+ * The reference side of the oracle discriminates the structure of a program: the reference derives the delivered
+ * statements from the IR, so a lowering that drops an attachment's part, delivers one under another name, or reports a
+ * narrowed column type is a structural difference, never a reference built to match it. A fault the conservative
+ * program of a generated case offers a target for is planted in it, or none, and the comparison must report exactly
+ * the differences the plant makes, read off the program's statement labels (compare.ts labeledStatements) before and
+ * after it, and none where it plants nothing. The cases are the generator's own with an attaching root, so most
+ * programs offer an attachment to drop or rename; each case draws the fault it plants, a fault still pending where its
+ * turn is steered, and plants it where the program offers it a target.
  *
- * The conservative gate only ever shows the reference agreeing. These checks show that the same runner, with the
- * reference on the right, catches a wrong lowering on PostgreSQL:
+ * That the reference tells a wrong lowering's rows apart (the I1 mutant, a DISTINCT dropped from a projection that
+ * keeps no key) is the mutant roster's kill search against it (mutants/invalid.test.ts); that the reference agrees with
+ * PostgreSQL's capture of every hard spelling is the conservative gate's (conservative.test.ts), whose generated facts
+ * store NaN, -0, display scales and supplementary-plane text.
  *
- * - the I1 mutant (a DISTINCT dropped from a projection that keeps no key) is told apart from the reference by the
- *   floor stream's generated cases, which the suite's label fixes, and the failure shrinks to the printed case and the
- *   repeated row;
- * - the reference derives the delivered statements from the IR, so a lowering that drops an attachment's part,
- *   delivers one under another name, or reports a narrowed column type is a structural difference, never a reference
- *   built to match it: a fault the conservative program of a generated case offers a target for is planted in it, or
- *   none, and the comparison must report exactly the differences the plant makes, read off the program's statement
- *   labels (compare.ts labeledStatements) before and after it, and none where it plants nothing. The cases are the
- *   generator's own with an attaching root, so most programs offer an attachment to drop or rename; each case draws
- *   the fault it plants, a fault still pending where its turn is steered, and plants it where the program offers it
- *   a target.
+ * Every planted lowering is the left side, the reference the right; the order of the two is no contract.
  *
- * That the reference agrees with PostgreSQL's capture of every hard spelling is the conservative gate's
- * (conservative.test.ts), whose generated facts store NaN, -0, display scales and supplementary-plane text.
- *
- * The mutant, and every planted lowering, is the left side, the reference the right; the order of the two is no
- * contract.
- *
- * Features: each fault planted where the program offers it, and the I1 mutant told apart. The I1 mutant is the suite's
- * own.
+ * Features: each fault planted where the program offers it.
  */
-import { drawn, explore, Run, type Steered, steered } from "@bjornpagen/testing/explore"
-import { noCoverage, required } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { runOfTest } from "@bjornpagen/testing/vitest/run"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect, Formatter } from "effect"
 import * as Result from "#compiler/core/result.ts"
-import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
-import { type AttachedTree, mapTree, type StatementTree } from "#compiler/runtime/lower/tree.ts"
-import { assert, containsText, defined, unorderedEqual } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
 import {
-	labeledStatements,
-	repeatsOn,
-	type StructuralDifference
-} from "#test/support/oracle/compare.ts"
-import { defaultGenConfig, type QueryCase } from "#test/support/oracle/gen/case.ts"
-import { float4 } from "#test/support/oracle/gen/domain.ts"
-import { defaultQueryConfig, queryGenerators } from "#test/support/oracle/gen/query.ts"
-import { projectRoot, rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
-import { mutantLowering } from "#test/support/oracle/mutants/index.ts"
-import { mutants } from "#test/support/oracle/mutants/mutants.ts"
+	type Offered,
+	type PlantFeature,
+	plantFeatures,
+	planted,
+	plantOf,
+	structureSpace
+} from "#test/pg/oracle/reference.fixtures.ts"
+import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import {
-	comparisonFailed,
 	conservative,
 	defaultRunOptions,
 	type Lowering,
-	oracleKill,
-	printOracleCase,
 	reference,
-	runOracle,
-	type SentProgram
+	runOracle
 } from "#test/support/oracle/runner.ts"
-import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A fault a lowering may make in a program's structure, each planted in the conservative program. */
-type StructureFault = "an attachment dropped" | "an attachment renamed" | "a column's type narrowed"
-
-const structureFaults: readonly [StructureFault, ...ReadonlyArray<StructureFault>] = [
-	"an attachment dropped",
-	"an attachment renamed",
-	"a column's type narrowed"
-]
-
-/** What a planted lowering delivers: the conservative program with one fault planted, or unchanged. */
-type PlantFeature = StructureFault | "no fault"
-
-/** Every plant feature: no fault, then each fault. */
-const plantFeatures: readonly [PlantFeature, ...ReadonlyArray<PlantFeature>] = [
-	"no fault",
-	...structureFaults
-]
-
-/** The roots the structure cases draw: an attachment, each with its nested chain, over a generated body. */
-const attachedRoot = queryGenerators({
-	...defaultQueryConfig,
-	roots: { plain: 0, attach: 1, hetero: 0 }
-}).root
-
-/** The name the planted lowering takes, the left side of every comparison. */
-const planted = "planted"
-
-/** The program with the attached tree labelled `target` replaced by `replace` of it: none drops it. */
-const editAttached = (
-	program: SentProgram,
-	target: string,
-	replace: (tree: AttachedTree<DeliveredPart>) => ReadonlyArray<AttachedTree<DeliveredPart>>
-): SentProgram => {
-	const labels = Arr.map(labeledStatements(program.roots), (l) => l.label)
-	let at = 0
-	const attached = (
-		tree: AttachedTree<DeliveredPart>
-	): ReadonlyArray<AttachedTree<DeliveredPart>> => {
-		const label = Arr.getUnsafe(labels, at++)
-		const edited: AttachedTree<DeliveredPart> = {
-			...tree,
-			attachments: Arr.flatMap(tree.attachments, attached)
-		}
-		return label === target ? replace(edited) : [edited]
-	}
-	return {
-		...program,
-		roots: Arr.map(program.roots, (tree): StatementTree<DeliveredPart> => {
-			at++
-			return { ...tree, attachments: Arr.flatMap(tree.attachments, attached) }
-		})
-	}
-}
-
-/** A plant: the program the planted lowering delivers, and the structural differences the comparison must report. */
-interface Plant {
-	readonly program: SentProgram
-	readonly expected: ReadonlyArray<StructuralDifference>
-}
-
-/** A plant and what it plants. */
-type Offered = readonly [PlantFeature, Plant]
-
-/**
- * The plant of `fault` in `program`, its target picked by `pick` among those the program offers: an attachment for a
- * drop or a rename, a double precision column of a delivered heading for a narrowing; none where the program offers no
- * target.
- */
-const plantIn = (
-	program: SentProgram,
-	fault: StructureFault,
-	pick: number
-): Option.Option<Plant> => {
-	const labeled = labeledStatements(program.roots)
-	const subtree = (label: string): ReadonlyArray<string> =>
-		Arr.filter(
-			Arr.map(labeled, (l) => l.label),
-			(l) => l === label || Str.startsWith(`${label}/`)(l)
-		)
-	const attachments = Arr.filter(labeled, (l) => l.attach !== undefined)
-	switch (fault) {
-		case "an attachment dropped":
-		case "an attachment renamed": {
-			if (!Arr.isReadonlyArrayNonEmpty(attachments)) {
-				return Option.none()
-			}
-			const target = Arr.getUnsafe(attachments, pickIndex(pick, attachments.length))
-			const lost = Arr.map(subtree(target.label), (label): StructuralDifference => ({
-				kind: "missing",
-				side: planted,
-				label
-			}))
-			if (fault === "an attachment dropped") {
-				return Option.some({
-					program: editAttached(program, target.label, () => []),
-					expected: lost
-				})
-			}
-			const renamedLabel = `${target.label}_renamed`
-			if (Arr.some(labeled, (l) => l.label === renamedLabel)) {
-				return Option.none()
-			}
-			return Option.some({
-				program: editAttached(program, target.label, (tree) => [
-					{ ...tree, attach: { ...tree.attach, name: `${tree.attach.name}_renamed` } }
-				]),
-				expected: [
-					...lost,
-					...Arr.map(subtree(target.label), (label): StructuralDifference => ({
-						kind: "missing",
-						side: reference.name,
-						label: `${renamedLabel}${Str.slice(target.label.length)(label)}`
-					}))
-				]
-			})
-		}
-		case "a column's type narrowed": {
-			const columns = Arr.flatMap(labeled, (l, position) =>
-				Arr.flatMap(l.statement.heading, (column: HeadingColumn) =>
-					column.type.carrier === "float8" ? [{ position, label: l.label, column }] : []
-				)
-			)
-			if (!Arr.isReadonlyArrayNonEmpty(columns)) {
-				return Option.none()
-			}
-			const target = Arr.getUnsafe(columns, pickIndex(pick, columns.length))
-			const narrowed = Arr.getUnsafe(labeled, target.position).statement
-			return Option.some({
-				program: {
-					...program,
-					roots: mapTree(program.roots, (s) =>
-						s === narrowed
-							? {
-									...s,
-									heading: Arr.map(s.heading, (h): HeadingColumn =>
-										h === target.column ? { ...h, type: float4 } : h
-									)
-								}
-							: s
-					)
-				},
-				expected: [
-					{
-						kind: "type",
-						label: target.label,
-						column: target.column.name,
-						left: float4,
-						right: target.column.type
-					}
-				]
-			})
-		}
-	}
-}
-
-/**
- * The plant of `fault` in `program`, `pick` choosing its target: the program unchanged, whose comparison reports no
- * difference, where the fault is none or the program offers it no target.
- */
-const plantOf = (program: SentProgram, fault: PlantFeature, pick: number): Offered => {
-	const unchanged: Offered = ["no fault", { program, expected: [] }]
-	return fault === "no fault"
-		? unchanged
-		: Option.match(plantIn(program, fault, pick), {
-				onNone: () => unchanged,
-				onSome: (plant) => [fault, plant]
-			})
-}
-
-/** A structure case: a generated case, the fault its planted lowering plants, and the pick of the fault's target. */
-interface StructureSketch {
-	readonly case: QueryCase
-	readonly pick: number
-	readonly fault: PlantFeature
-}
-
-/**
- * The structure cases: a generated case with an attaching root, its target's pick, and the fault it plants, drawn among
- * the faults still pending where the case's turn is steered and some is, among every fault otherwise.
- */
-const structureSketchGen: Steered<StructureSketch, PlantFeature> = (steering) => {
-	const pending = Arr.filter(plantFeatures, (fault) => Option.exists(steering, (p) => p.has(fault)))
-	const faults = Arr.isReadonlyArrayNonEmpty(pending) ? pending : plantFeatures
-	return (source) => ({
-		case: source.draw(rootedCaseGen(attachedRoot, defaultGenConfig)),
-		pick: source.draw(pickGen),
-		fault: source.draw(element(faults))
-	})
-}
-
-layer(Substrate.layer)("the reference side of the oracle discriminates", (it) => {
-	it.effect(
-		"tells the I1 mutant from the reference in its floor cases and shrinks to the printed case",
-		(ctx) =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const name = yield* s.schema({ create: false, label: "oracle" })
-				const harnessErrors: Array<string> = []
-				/** Unperturbed, as the kill population always ran: the kill rests on the facts as drawn. */
-				const result = yield* oracleKill(
-					drawn(rootedCaseGen(projectRoot, defaultGenConfig)),
-					{
-						suite: "oracle/reference-i1",
-						oracle: {
-							kind: "second-implementation",
-							name: "the brute-force reference evaluator, which the I1 mutant must break"
-						},
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 500,
-						shrink: completeShrink,
-						perturb: "none"
-					},
-					(c) =>
-						Effect.gen(function* () {
-							const harnessFailure = (e: unknown) =>
-								Effect.sync(() => {
-									harnessErrors.push(`${String(e)}\n${printOracleCase(c)}`)
-								})
-							const outcome = yield* runOracle(c, mutantLowering(mutants.I1), reference, {
-								...defaultRunOptions,
-								schema: { kind: "named", name: name }
-							}).pipe(Effect.catchTags({ OracleFailure: harnessFailure, SqlError: harnessFailure }))
-							if (outcome !== undefined && !outcome.comparison.equal) {
-								return yield* comparisonFailed(outcome)
-							}
-						})
-				).pipe(Effect.provideServiceEffect(Run, runOfTest(ctx)))
-				assert.deepEqual(harnessErrors, [], Arr.join(harnessErrors, "\n\n"))
-				if (result.kind === "survived") {
-					return assert.fail("the I1 mutant survived every case")
-				}
-				if (result.kind === "unwitnessed") {
-					return assert.fail(
-						`the I1 mutant survived its witnesses, the floor and steered cases: only a case the run's seed drew killed it\n${result.report}`
-					)
-				}
-				if (result.kind === "failed") {
-					return assert.fail(result.report)
-				}
-				if (result.verdict.kind === "invariance") {
-					return assert.fail(
-						`the I1 mutant was caught by its own second reading, never told from the reference\n${result.report}`
-					)
-				}
-				const outcome = result.verdict.outcome
-				containsText(result.report, printOracleCase(result.counterexample))
-				assert.ok(
-					Arr.some(outcome.comparison.diffs, (d) => d.missing.length > 0),
-					result.report
-				)
-				assert.deepEqual(outcome.comparison.structural, [])
-				assert.ok(repeatsOn(outcome.comparison, "left") > 0)
-				assert.equal(repeatsOn(outcome.comparison, "right"), 0)
-			})
-	)
-
-	it.effect(
-		"reports exactly the structure a lowering drops, renames or narrows, planted in a generated case's program",
-		(ctx) =>
-			searched(
-				ctx,
+/** The comparison reports exactly the structure a lowering drops, renames or narrows, planted in a generated case's program. */
+export const structure = property.explore(structureSpace, {
+	needs: { substrate: Substrate.fresh },
+	situations: plantFeatures satisfies ReadonlyArray<Reached<PlantFeature>>,
+	/** Its pre-conversion budget: runs 40, coverage cases 300 (reference.test.ts at 4fbc3e95). */
+	budget: { runs: 40, steered: 300 },
+	check:
+		({ substrate }, c: Case<PlantFeature>) =>
+		(sketch) =>
+			Effect.provideServiceEffect(
 				Effect.gen(function* () {
 					const s = yield* Substrate
 					const name = yield* s.schema({ create: false, label: "oracle" })
-					return yield* explore(
-						{
-							suite: "oracle/reference-structure",
-							draw: steered(structureSketchGen, (sketch) => sketch),
-							literal: Formatter.format,
-							oracle: {
-								kind: "specification",
-								name: "the structural differences a plant makes, read off the program's statement labels before and after it"
-							},
-							coverage: required<PlantFeature>(plantFeatures, {
-								cases: 300,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs: 40,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(sketch, c) =>
-							Effect.gen(function* () {
-								const chosen: Array<Offered> = []
-								const lowering: Lowering = {
-									name: planted,
-									lower: (input) =>
-										Result.map(conservative.lower(input), (program) => {
-											const plant = plantOf(program, sketch.fault, sketch.pick)
-											chosen.push(plant)
-											return plant[1].program
-										})
-								}
-								const outcome = yield* runOracle(sketch.case, lowering, reference, {
-									...defaultRunOptions,
-									schema: { kind: "named", name }
-								})
-								const [feature, plant] = defined(chosen[0], "the planted lowering's plant")
-								c.note(feature)
-								assert.equal(outcome.comparison.equal, plant.expected.length === 0)
-								unorderedEqual(outcome.comparison.structural, plant.expected)
+					const chosen: Array<Offered> = []
+					const lowering: Lowering = {
+						name: planted,
+						lower: (input) =>
+							Result.map(conservative.lower(input), (program) => {
+								const plant = plantOf(program, sketch.fault, sketch.pick)
+								chosen.push(plant)
+								return plant[1].program
 							})
-					)
-				})
-			)
-	)
+					}
+					const outcome = yield* runOracle(sketch.case, lowering, reference, {
+						...defaultRunOptions,
+						schema: { kind: "named", name }
+					})
+					const [feature, plant] = defined(chosen[0], "the planted lowering's plant")
+					c.note(feature)
+					assert.equal(outcome.comparison.equal, plant.expected.length === 0)
+					unorderedEqual(outcome.comparison.structural, plant.expected)
+				}),
+				Substrate,
+				substrate
+			),
+	oracle: {
+		kind: "specification",
+		name: "the structural differences a plant makes, read off the program's statement labels before and after it"
+	},
+	show: Formatter.format,
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/runtime/lower/tree.ts",
+			original: "\theading.length === 0 ? unitHeading : heading",
+			replacement: "\theading.length === 1 ? unitHeading : heading",
+			why: "Operator mutant (bound) at packages/engine/src/runtime/lower/tree.ts:37 in deliveredHeading: `0` becomes `1`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	]
 })

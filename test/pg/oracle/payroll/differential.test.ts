@@ -1,10 +1,11 @@
 /**
  * Every payroll program through the optimized artifact against the conservative lowering, on generated lawful payroll
- * facts (./support.ts). The suite explores through the oracle runner (test/support/oracle/runner.ts): each case under
- * planner settings; a failing case shrinks to its state and bindings.
+ * facts (./support.ts). The property runs through the oracle runner (test/support/oracle/runner.ts): each case under
+ * planner settings, in a clone of its own of Reporting installed (differential.fixtures.ts payrollTemplate); a failing
+ * case shrinks to its state and bindings.
  *
  * The population must reach every program with rows: a program that never delivers a row compares nothing, so each
- * program's delivering a row is a required feature. Two ChangeSet members compile only inside their ChangeSet.
+ * program's delivering a row is a required situation. Two ChangeSet members compile only inside their ChangeSet.
  *
  * Oracle: the conservative lowering of every payroll program.
  *
@@ -13,97 +14,55 @@
  *
  * Features: each payroll program, and a case that delivers rows.
  */
-import { sketched } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+import type { Reached } from "@bjornpagen/testing/features"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { caseGen, payrollTemplate } from "#test/pg/oracle/payroll/differential.fixtures.ts"
 import {
 	type PayrollProgramName,
-	payrollPrograms,
+	payrollProgramNames,
 	runPayrollCase
 } from "#test/pg/oracle/payroll/support.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
-import { nonEmpty } from "#test/support/assert.ts"
-import * as P from "#test/support/fixtures/api/payroll.ts"
-import { installMigrated as install } from "#test/support/install-migrate.ts"
-import {
-	type ParamSketch,
-	type PayrollSketch,
-	paramSketchGen,
-	payrollSketchGen,
-	resolvePayroll
-} from "#test/support/oracle/gen/payroll.ts"
-import { oracleCheck } from "#test/support/oracle/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { resolvePayroll } from "#test/support/oracle/gen/payroll.ts"
+import { installedOracleProperty } from "#test/support/oracle/runner.ts"
 
-const cases = 60
-
-/** A payroll program whose conservative run delivered a row, by its exported name. */
-type PayrollFeature = `delivered ${PayrollProgramName}`
-
-/**
- * A state and one parameter sketch per program, reused cyclically: eight sketches vary the bindings of every program.
- */
-interface CaseSketch {
-	readonly facts: PayrollSketch
-	readonly params: ReadonlyArray<ParamSketch>
-}
-
-const caseGen: Gen<CaseSketch> = (source) => ({
-	facts: source.draw(payrollSketchGen),
-	params: source.draw(array(paramSketchGen, { min: 1, max: 8 }))
-})
-
-/** Every payroll program, each compiled standalone, optimized against conservative on generated states. */
-const run = Effect.gen(function* () {
-	const installed = yield* install(P.Reporting, {
-		ambient: ordinarySession,
-		extensions: [],
-		logins: [],
-		label: "real"
-	})
-	const programs = payrollPrograms(installed)
-	return yield* oracleCheck(
-		sketched(caseGen, (k) => ({ facts: resolvePayroll(k.facts), params: k.params })),
+/** Every payroll program, each compiled standalone, agrees optimized against conservative on generated states. */
+export const differential = installedOracleProperty(payrollTemplate, caseGen, {
+	situations: Arr.map(
+		payrollProgramNames,
+		(name): `delivered ${PayrollProgramName}` => `delivered ${name}`
+	) satisfies ReadonlyArray<Reached<`delivered ${PayrollProgramName}`>>,
+	perturb: "planner",
+	oracle: {
+		kind: "second-implementation",
+		name: "the conservative lowering of every payroll program"
+	},
+	kept: [],
+	/** Its pre-conversion budget: runs 60, coverage cases 60 (differential.test.ts `cases` at 4fbc3e95). */
+	budget: { runs: 60, steered: 60 },
+	kills: [
 		{
-			suite: "payroll/differential",
-			oracle: {
-				kind: "second-implementation",
-				name: "the conservative lowering of every payroll program"
-			},
-			literal: Formatter.format,
-			coverage: required<PayrollFeature>(
-				Arr.map(
-					nonEmpty(programs, "the payroll programs the compiler admits"),
-					(p): PayrollFeature => `delivered ${p.name}`
-				),
-				{ cases: cases, sense: notesOnly }
-			),
-			kept: [],
-			runs: cases,
-			shrink: completeShrink,
-			perturb: "planner"
-		},
-		(c, notes) =>
-			Effect.map(runPayrollCase(installed, programs, c), (outcomes) => {
-				for (const o of outcomes) {
-					if (Arr.some(o.conservative.statements, (s) => s.rows.length > 0)) {
-						notes.note(`delivered ${o.name}`)
+			file: "packages/engine/src/sql/print.ts",
+			original: '\ttype.kind === "builtin" && type.name === "integer" && !type.array',
+			replacement: '\ttype.kind === "builtin" && !type.array',
+			why: 'Operator mutant (conjunct) at packages/engine/src/sql/print.ts:388 in isInt4: `type.kind === "builtin" && type.name === "integer" && !type.array` becomes `type.kind === "builtin" && !type.array`; the property fails (lane CATCH, grizzle 0baff5d6).'
+		}
+	],
+	show: Formatter.format,
+	check:
+		(notes: Case<`delivered ${PayrollProgramName}`>, { installed, programs }) =>
+		(sketch) =>
+			Effect.map(
+				runPayrollCase(installed, programs, {
+					facts: resolvePayroll(sketch.facts),
+					params: sketch.params
+				}),
+				(outcomes) => {
+					for (const o of outcomes) {
+						if (Arr.some(o.conservative.statements, (s) => s.rows.length > 0)) {
+							notes.note(`delivered ${o.name}`)
+						}
 					}
 				}
-			})
-	)
+			)
 })
-
-layer(Substrate.layer, { excludeTestServices: true })(
-	"the payroll programs, optimized against conservative on generated facts",
-	(it) => {
-		it.effect(`${cases} generated payroll states: every program agrees`, (ctx) =>
-			searched(ctx, run)
-		)
-	}
-)

@@ -45,7 +45,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * compile error wherever its name is typed (the differential's required features), and payrollPrograms refuses a
  * fixture whose programs differ from it.
  */
-const payrollProgramNames = [
+export const payrollProgramNames = [
 	"Org",
 	"approveShiftsMember",
 	"employeeCard",
@@ -89,11 +89,12 @@ const programNameOf = (name: string): PayrollProgramName => {
 }
 
 /**
- * Every query and ordered query the payroll fixture exports, compiled against Reporting under the installed name. Each
+ * Every query and ordered query the payroll fixture exports, compiled against Reporting under the installed name
+ * `declared` (the schema an installation of it is declared under). Each
  * compiles standalone, a ChangeSet member included, since a parameter is of its declared type wherever it stands; one
  * that does not is a defect.
  */
-export const payrollPrograms = (installed: Installed): ReadonlyArray<PayrollProgram> => {
+export const payrollPrograms = (declared: string): ReadonlyArray<PayrollProgram> => {
 	const programs: Array<PayrollProgram> = []
 	const codes = succeeded(
 		Result.flatMap(parseSchemaInput(P.Reporting), (input) => codebookFor(input, testCompile.codes))
@@ -104,7 +105,7 @@ export const payrollPrograms = (installed: Installed): ReadonlyArray<PayrollProg
 		}
 		const compiled = compileTemplate(value, P.Reporting, {
 			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
+			installation: identity.schema(parsedSchemaName(declared))
 		})
 		if (!compiled.ok) {
 			throw new Error(`the payroll program ${name} does not compile: ${compiled.error.message}`)

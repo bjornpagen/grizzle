@@ -10,123 +10,52 @@
  *
  * Features: an attachment's part planted, and each part passed.
  */
-import { drawn } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+import type { Reached } from "@bjornpagen/testing/features"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { flight } from "#compiler/lower/conservative/types.ts"
-import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import { builtinType, cast, types } from "#compiler/sql/build.ts"
-import { printStatement } from "#compiler/sql/print.ts"
-import { optimizedShrink } from "#test/pg/oracle/optimized/suite.ts"
-import { type TypePlant, typedPlants } from "#test/pg/oracle/optimized/support.ts"
+import { typedPlants } from "#test/pg/oracle/optimized/support.ts"
+import { type PlantFeature, plantsOf } from "#test/pg/oracle/optimized/type-plant.fixtures.ts"
 import { assert } from "#test/support/assert.ts"
 import { optimizerGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
-import { namedPlacement, oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
-import { programJudged } from "#test/support/oracle/verify/types.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { namedPlacement, oracleProperty, PropertyFailed } from "#test/support/oracle/runner.ts"
 
-const cases = 150
-
-type PlantFeature = "a part planted" | "no attachment's part to plant"
-
-/** The type the plant casts to: a pg_catalog type no delivered column is claimed as. */
-const planted = builtinType("name")
-
-/**
- * Each plant of a program: for each attachment's part of a statement of tagged parts whose query as lowered ends in a
- * core, which has a target, that query with its first output column cast through text to `planted`, beside every other
- * part as lowered.
- */
-const plantsOf = (program: OptimizedProgram): ReadonlyArray<TypePlant> => {
-	const parts = program.parts
-	if (parts.kind !== "tagged") {
-		return []
-	}
-	const judged = programJudged(program, "optimized statement")
-	const relations = flight(program.roots)
-	return Arr.flatMap(parts.parts, (part, tag): ReadonlyArray<TypePlant> => {
-		const body = part.delivered.body
-		if (
-			body.kind !== "core" ||
-			!Arr.some(relations, (r) => r.answer === tag && r.role.kind === "attachment")
-		) {
-			return []
+/** Every part as lowered passes the type oracle, and an attachment's part planted another column type is reported there alone. */
+export const typePlant = oracleProperty(queryCaseGen(optimizerGenConfig), {
+	situations: ["a part planted"] satisfies ReadonlyArray<Reached<PlantFeature>>,
+	perturb: "none",
+	oracle: {
+		kind: "specification",
+		name: "the type oracle (test/support/oracle/verify/types.ts) over each part as lowered"
+	},
+	kept: [],
+	/** Its pre-conversion budget: runs 150, coverage cases 150 (type-plant.test.ts `cases` at 4fbc3e95). */
+	budget: { runs: 150, steered: 150 },
+	kills: [
+		{
+			file: "packages/engine/src/ir/decimal.ts",
+			original: '\t\tif (text[i] === ".") {\n\t\t\ti++\n\t\t\tfracStart = i',
+			replacement: '\t\tif (text[i] === ".") {\n\t\t\t{}\n\t\t\tfracStart = i',
+			why: "Operator mutant (statement) at packages/engine/src/ir/decimal.ts:80 in <module>: `i++` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 		}
-		const [first, ...rest] = body.targets
-		const text = printStatement({
-			...part.delivered,
-			body: {
-				...body,
-				targets: [{ ...first, expr: cast(cast(first.expr, types.text), planted) }, ...rest]
-			}
-		})
-		const where = `optimized statement part ${tag}`
-		return [
-			{
-				where,
-				judged: Arr.map(judged, (j) =>
-					j.where === where ? { ...j, statement: { ...j.statement, sql: { text } } } : j
+	],
+	show: Formatter.format,
+	check: (k: Case<PlantFeature>) => (queryCase) =>
+		Effect.gen(function* () {
+			const placement = yield* namedPlacement("typeplant")
+			const typed = yield* typedPlants(queryCase, { placement }, plantsOf).pipe(
+				Effect.mapError(
+					(e) => new PropertyFailed({ report: `${e.stage} failed on ${e.side}: ${e.message}` })
+				)
+			)
+			assert.deepEqual(typed.clean, [], "every part as lowered is of its heading's types")
+			for (const plant of typed.planted) {
+				assert.ok(plant.problems.length > 0, `${plant.where}: the planted column reported`)
+				assert.deepEqual(
+					Arr.filter(plant.problems, (line) => !Str.startsWith(`${plant.where} column `)(line)),
+					[],
+					`${plant.where}: every problem at the planted part`
 				)
 			}
-		]
-	})
-}
-
-layer(Substrate.layer)("the type oracle over a statement's tagged parts", (it) => {
-	it.effect(
-		"passes every part as lowered, and reports an attachment's part planted another column type there alone",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const placement = yield* namedPlacement("typeplant")
-					return yield* oracleCheck(
-						drawn(queryCaseGen(optimizerGenConfig)),
-						{
-							suite: "optimized/type-plant",
-							oracle: {
-								kind: "specification",
-								name: "the type oracle (test/support/oracle/verify/types.ts) over each part as lowered"
-							},
-							literal: Formatter.format,
-							coverage: required<PlantFeature>(["a part planted"], { cases, sense: notesOnly }),
-							kept: [],
-							runs: cases,
-							shrink: optimizedShrink,
-							perturb: "none"
-						},
-						(queryCase, k) =>
-							Effect.gen(function* () {
-								const typed = yield* typedPlants(queryCase, { placement }, plantsOf).pipe(
-									Effect.mapError(
-										(e) =>
-											new PropertyFailed({ report: `${e.stage} failed on ${e.side}: ${e.message}` })
-									)
-								)
-								assert.deepEqual(typed.clean, [], "every part as lowered is of its heading's types")
-								for (const plant of typed.planted) {
-									assert.ok(
-										plant.problems.length > 0,
-										`${plant.where}: the planted column reported`
-									)
-									assert.deepEqual(
-										Arr.filter(
-											plant.problems,
-											(line) => !Str.startsWith(`${plant.where} column `)(line)
-										),
-										[],
-										`${plant.where}: every problem at the planted part`
-									)
-								}
-								k.note(
-									typed.planted.length > 0 ? "a part planted" : "no attachment's part to plant"
-								)
-							})
-					)
-				})
-			)
-	)
+			k.note(typed.planted.length > 0 ? "a part planted" : "no attachment's part to plant")
+		})
 })
