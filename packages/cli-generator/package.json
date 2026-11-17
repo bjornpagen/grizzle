@@ -30,7 +30,7 @@
 		"typecheck": "toolchain-typecheck",
 		"typecheck:full": "toolchain-typecheck --incremental false",
 		"workspace-gate": "workspace-gate",
-		"oxlint": "toolchain-oxlint oxlint.config.ts oxlint.ast.config.ts",
+		"oxlint": "toolchain-oxlint-root",
 		"format": "oxfmt --check .",
 		"dead-code": "node packages/generator/scripts/ratchet.ts dead-code",
 		"architecture": "fallow architecture",
