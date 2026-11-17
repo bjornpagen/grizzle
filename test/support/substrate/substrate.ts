@@ -82,6 +82,7 @@ import { type BackendCancel, openPsql, type PsqlWriter } from "#test/support/sub
 import { clearRows, noTables, type ResetGroup } from "#test/support/substrate/replace.ts"
 import {
 	type Credentials,
+	beginSerializable,
 	connect,
 	openSession,
 	type CaseSession,
@@ -1366,9 +1367,12 @@ const endedTransaction = (
 		)
 	})
 
-/** The statements that begin a case's transaction and read the transaction id it is given. */
+/**
+ * The statements that begin a case's transaction, SERIALIZABLE as every grizzle write requires whatever its clone's
+ * database defaults hold (a derived template's clone has none of the base's), and read the transaction id it is given.
+ */
 const caseStart: Arr.NonEmptyReadonlyArray<PgStatement> = [
-	bare("BEGIN"),
+	bare(beginSerializable),
 	bare("SELECT pg_catalog.pg_current_xact_id()::text")
 ]
 
