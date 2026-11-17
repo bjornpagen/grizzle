@@ -4085,7 +4085,9 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
     entry;
   - the entry's filter function, exactly when its filter reads a table besides the written row;
   - the advance function of each serial column of a table it writes;
-  - the refusal function, when it writes or reads a context, which only raises, in the caller's own statement;
+  - the refusal function, whatever it writes, which only raises, in the caller's own statement: a write's refusals,
+    a context's unreadable claims and a read-back's check of the bare children and options it delivers call it, and
+    any role serves a read-back, one that writes nothing among them;
   - every constant a statement it runs evaluates, since PostgreSQL checks EXECUTE as the invoker: each constant reached
     through constants' bodies and through the CHECKs of every domain a value is written or cast into (a roster's names
     constant, a set's live constant), from the domains of its columns, from every CHECK, generated field, default and

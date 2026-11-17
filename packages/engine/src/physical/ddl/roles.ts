@@ -1359,10 +1359,7 @@ const addRole = (
 			)
 		}
 	}
-	const refuses = role.writes.size > 0 || Object.keys(role.contexts).length > 0
-	if (refuses) {
-		after.push(b.refusal)
-	}
+	after.push(b.refusal)
 
 	const refreshed = role.refresh.map((f) => b.names.relation(f))
 	for (const f of role.refresh) {
@@ -1392,9 +1389,7 @@ const addRole = (
 		privileges.push(grant(["MAINTAIN"], { kind: "TABLE", names: refreshed }))
 	}
 	appendAll(privileges, grants)
-	if (refuses) {
-		privileges.push(grant(["EXECUTE"], { kind: "FUNCTION", names: [refusalFunction(b.schema)] }))
-	}
+	privileges.push(grant(["EXECUTE"], { kind: "FUNCTION", names: [refusalFunction(b.schema)] }))
 	const executes = roleExecutes(
 		b,
 		use,
@@ -1664,9 +1659,11 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   writes O whole (`ownerHolds`): column SELECT on what the family's read flight reads, O's key, count, ends and the
  *   fields its owner axis copies into members, and, when O is mutable, column UPDATE on what its count statement
  *   sets, O's count and ends, none on an immutable O, whose family is fixed at insert; USAGE on those fields' domains.
- *   EXECUTE on the refusal function to a role that writes or reads a context: its
- *   context sources refuse an unreadable claims setting through it, and PostgreSQL checks EXECUTE on every function of
- *   a plan as the plan starts, a branch never taken included. EXECUTE on every constant its statements evaluate,
+ *   EXECUTE on the refusal function, to every role, whatever it writes: a write's statements refuse through it, a
+ *   context source refuses an unreadable claims setting through it, and a read-back checks each bare child and option
+ *   it delivers through it (lower/conservative/deliver.ts checkedAttachment), on any role, one that writes nothing among
+ *   them; PostgreSQL checks EXECUTE on every function of a plan as the plan starts, a branch never taken included, and
+ *   the function reads and writes nothing, so holding it confers nothing. EXECUTE on every constant its statements evaluate,
  *   through constants' bodies and domains' base types and CHECKs alike (`roleExecutes`): the domains it holds USAGE
  *   on; every statement on a table it writes or updates an owner's count in, its column types, defaults, CHECKs,
  *   generated columns and index expressions, each cast to a domain in them included; its policies' predicates; its

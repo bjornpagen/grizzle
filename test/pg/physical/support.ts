@@ -185,9 +185,9 @@ export const worldsExpectation = (
  * whole, so each holds USAGE on the schema and on every enum and domain of it (a full role reads every type a
  * relation's heading uses, and the installer creates no other) but a closed relation's own pattern domain, and SELECT
  * on its view of every stored and derived relation; the writer writes every stored relation, so it holds SELECT, INSERT and DELETE on its table, UPDATE too on a
- * mutable one, and EXECUTE on the refusal function and on every serial field's advance function, and refreshes every
- * derived one, so it holds MAINTAIN on its materialized view; the login holds USAGE on the schema and EXECUTE on the
- * snapshot guard; each role's schema grants USAGE to its role alone; and both roles hold EXECUTE on a declared closed
+ * mutable one, and EXECUTE on every serial field's advance function, and refreshes every derived one, so it holds
+ * MAINTAIN on its materialized view; both roles hold EXECUTE on the refusal function, whatever they write; the login
+ * holds USAGE on the schema and EXECUTE on the snapshot guard; each role's schema grants USAGE to its role alone; and both roles hold EXECUTE on a declared closed
  * relation's own constants, the writer on any constant a CHECK or generated column it writes calls.
  *
  * The writer refreshes every derived relation, which both read through their views.
@@ -263,7 +263,7 @@ export const worldsGrants = (
 		...Arr.flatMap([...declared.functions], ([name, fn]): ReadonlyArray<ProjectedGrant> => {
 			switch (fn.kind) {
 				case "refusal":
-					return declared.tables.size > 0 ? on("function", name, [writer.role], ["EXECUTE"]) : []
+					return on("function", name, [writer.role, reader], ["EXECUTE"])
 				case "advance":
 					return on("function", name, [writer.role], ["EXECUTE"])
 				case "snapshotGuard":

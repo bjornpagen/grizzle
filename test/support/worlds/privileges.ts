@@ -12,7 +12,6 @@ import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { termHeadDomain } from "#test/support/worlds/model/host.ts"
 import { rowSecured } from "#test/support/worlds/model/session/catalog.ts"
-import { roleContexts } from "#test/support/worlds/model/session/state.ts"
 import { filterReadsStored, keysOf, writtenOf } from "#test/support/worlds/model/session/writes.ts"
 
 import type {
@@ -429,8 +428,8 @@ const privilege = (
  *   serial column draws its identity default with no sequence privilege, and the advance function is the one way past
  *   an explicit value). TRUNCATE is granted to no one;
  * - for each writable query entry, EXECUTE on its key probes, one per key of T, and on its filter function when its
- *   membership reads a stored relation besides T's row; and EXECUTE on the refusal function when it writes or reads a context
- *   (a context source refuses an unreadable claims setting through it);
+ *   membership reads a stored relation besides T's row; and EXECUTE on the refusal function, whatever it writes (a write,
+ *   a context source and a read-back each refuse through it, and any role serves a read-back);
  * - MAINTAIN on the materialized view of each derived relation its refresh list names;
  * - USAGE on every installation type its views' columns and its written tables' columns are typed by;
  * - the attribute INHERIT, PostgreSQL's default, which passes nothing on since it is granted no role.
@@ -509,16 +508,13 @@ const roleFacts = (
 				: [])
 		]
 	})
-	const refusal =
-		role.write.length > 0 || roleContexts(role).size > 0
-			? [
-					privilege(
-						grantee,
-						{ kind: "function", schema: names.schema, name: refusalFunctionName },
-						"EXECUTE"
-					)
-				]
-			: []
+	const refusal = [
+		privilege(
+			grantee,
+			{ kind: "function", schema: names.schema, name: refusalFunctionName },
+			"EXECUTE"
+		)
+	]
 	const refreshes = Arr.map(role.refresh, (relation) => {
 		const view = tableOf(names, relation)
 		return privilege(

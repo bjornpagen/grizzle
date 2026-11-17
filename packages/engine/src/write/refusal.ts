@@ -40,8 +40,8 @@ import {
 import type { NameSupply } from "#compiler/sql/naming.ts"
 
 /** The installed refusal function of a schema, `<schema>.<refuse>(text, text, text) RETURNS boolean`: a function every
- * role that writes or reads a context executes, a write statement's refusals and a context source's (sql/print.ts
- * contextClaims). It raises its arguments, the SQLSTATE, the constraint name and the DETAIL, and never returns; it
+ * role executes (physical/ddl/roles.ts addWorlds), a write statement's refusals, a context source's (sql/print.ts
+ * contextClaims) and a read-back's check of what it delivers (lower/conservative/deliver.ts checkedAttachment). It raises its arguments, the SQLSTATE, the constraint name and the DETAIL, and never returns; it
  * reads and writes nothing, so its header, the one every installed function has (`CreateFunction`), confers nothing,
  * and it is PARALLEL SAFE, so a statement that reads the claims still plans in parallel. It has one name and is
  * replaced in place when its body changes. */
