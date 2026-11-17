@@ -1,4 +1,4 @@
-import { regexMaxRepeat } from "@bjornpagen/grizzle-engine/scalar/lexical"
+import type { Reached } from "@bjornpagen/testing/features"
 /**
  * Regex membership across the three engines.
  *
@@ -20,738 +20,163 @@ import { regexMaxRepeat } from "@bjornpagen/grizzle-engine/scalar/lexical"
  * test/unit/text/parse.test.ts's, and that the limits judge the printed ARE whatever its spelling is
  * test/unit/text/lowering.test.ts's.
  */
-import { aimed, drawn, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	array,
-	boolean,
-	constant,
-	element,
-	type Gen,
-	int,
-	oneOf,
-	uniqueKeys,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Exit, Formatter, Pool, String as Str } from "effect"
-import { everyProperty } from "#compiler/core/canonical.ts"
-import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
-import { domainDigest } from "#compiler/core/fingerprint.ts"
-import { identity } from "#compiler/core/identity.ts"
+
+import { family, property, ReplayToken } from "@bjornpagen/testing/property"
+import type { Case } from "@bjornpagen/testing/property"
+import { Effect, Exit, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { jsonText } from "#compiler/core/trusted.ts"
-import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
-import { matches, type Nfa } from "#compiler/scalar/regex/match.ts"
-import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { emit } from "#compiler/sql/emit.ts"
-import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
-import { analyzeText, type TextRefinement, textDomainDdl } from "#compiler/text/refinement.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
-import { caseHang, windowCasesAtOnce } from "#test/support/limits.ts"
-import { pickGen } from "#test/support/pick.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { upTo } from "#test/support/up-to.ts"
+import { matches } from "#compiler/scalar/regex/match.ts"
 import {
-	type Family,
-	type Flags,
-	families,
-	flagsGen,
-	jsMatcher,
-	nestedPattern,
-	patternOver,
-	stringsOver,
-	walk,
-	walkGen,
-	walkLength,
-	walkTape
-} from "#test/unit/text/generators.ts"
-
-/**
- * What refuses a count of a shape, so that PostgreSQL is handed no ARE of it: the limit of PostgreSQL's regex compiler
- * it crosses; an IR no text matches, which every reader of an admitted pattern refuses in place of an ARE (admit.ts
- * admitMatch, text/refinement.ts analyzeText); or another refusal.
- */
-type EdgeRefusal = RegexSpaceMeasure["kind"] | "no text" | "another refusal"
-
-/**
- * What an edge search reached: the refusal past its largest admitted count, the shape's greatest count itself, or a
- * shape refused at its first count, which has no edge to compile.
- */
-type EdgeFeature = EdgeRefusal | "the shape's top" | "a shape refused at its first count"
-
-/**
- * A shape a pattern grows along, from count 1 to `top`, each count's pattern its source: the limits of PostgreSQL's
- * regex compiler bind along one of them, or none does by the top.
- */
-interface Growth {
-	readonly at: (n: number) => string
-	readonly top: number
-}
-
-/**
- * A count's pattern as PostgreSQL is handed it: admitted (admit.ts admitPattern) with an IR some text matches, and the
- * NFA its host membership reads.
- */
-interface LivePattern {
-	readonly ir: RegexIr.LiveNode
-	readonly nfa: Nfa
-}
-
-/** A count's pattern, admitted with an IR some text matches, or what refuses it. */
-type Measured =
-	| { readonly kind: "admitted"; readonly pattern: LivePattern }
-	| { readonly kind: "refused"; readonly refusal: EdgeRefusal }
-
-const measureAt = (growth: Growth, n: number): Measured => {
-	const r = admitPattern(growth.at(n), "u", SourceLoc("str.regex", []))
-	if (!r.ok) {
-		const reason = r.error.reason
-		return {
-			kind: "refused",
-			refusal:
-				reason._tag === "ResourceBound" && reason.bound.kind === "regexCompileSpace"
-					? reason.bound.measure.kind
-					: "another refusal"
-		}
-	}
-	const { ir, nfa } = r.value
-	return ir.kind === "never"
-		? { kind: "refused", refusal: "no text" }
-		: { kind: "admitted", pattern: { ir, nfa } }
-}
-
-/** The largest count admitted from an admitted 1, its pattern, and what refuses the count past it. */
-interface Edge {
-	readonly greatest: number
-	readonly pattern: LivePattern
-	readonly past: EdgeFeature
-}
-
-/** The edge from count 1's admitted pattern, by bisection over 1 to the shape's top. */
-const edgeAt = (growth: Growth, first: LivePattern): Edge => {
-	const top = measureAt(growth, growth.top)
-	if (top.kind === "admitted") {
-		return { greatest: growth.top, pattern: top.pattern, past: "the shape's top" }
-	}
-	let low = { greatest: 1, pattern: first }
-	let high = growth.top
-	let past: EdgeRefusal = top.refusal
-	while (high - low.greatest > 1) {
-		const middle = Math.floor((low.greatest + high) / 2)
-		const measured = measureAt(growth, middle)
-		switch (measured.kind) {
-			case "admitted":
-				low = { greatest: middle, pattern: measured.pattern }
-				break
-			case "refused":
-				high = middle
-				past = measured.refusal
-				break
-		}
-	}
-	return { ...low, past }
-}
-
-/** A code point as its braced escape, which means itself inside a class and out. */
-const escaped = (c: number): string => `\\u{${c.toString(16)}}`
-
-/** Code points of three widths, so a drawn alphabet cuts the characters into many colors. */
-const widePoint: Gen<number> = oneOf<number>([
-	int(0x21, 0x7e),
-	int(0x4e00, 0x9fff),
-	int(0x1f300, 0x1faff)
-])
-
-/** A drawn body repeated `{inner}` times, then `{n}` or `{0,n}` times, anchored at both ends or followed by a literal. */
-const repeatedOf =
-	(body: Gen<string>): Gen<Growth> =>
-	(source) => {
-		const drawnBody = source.draw(body)
-		const inner = source.draw(int(1, regexMaxRepeat))
-		const exact = source.draw(boolean)
-		const anchored = source.draw(boolean)
-		return {
-			at: (n) =>
-				`${anchored ? "^" : ""}(?:(?:${drawnBody}){${inner}}){${exact ? n : `0,${n}`}}${anchored ? "$" : "b"}`,
-			top: regexMaxRepeat
-		}
-	}
-
-/** m code points of their own, then n copies of a class of all of them under a drawn quantifier: arcs by colors. */
-const colorfulGen: Gen<Growth> = (source) => {
-	const points = source.draw(uniqueKeys(widePoint, { min: 2, max: 2_048 }))
-	const quantifier = source.draw(element(["", "?", "{0,255}", "{1,255}", "{255}", "*"]))
-	const spelled = Arr.join(Arr.map(points, escaped), "")
-	return { at: (n) => `${spelled}(?:[${spelled}]${quantifier}){${n}}b`, top: regexMaxRepeat }
-}
-
-/** An alternation of n hundred words of a drawn alphabet: the states a match reads, and colors as the alphabet is wide. */
-const wordsGen: Gen<Growth> = (source) => {
-	const points = source.draw(uniqueKeys(widePoint, { min: 10, max: 64 }))
-	const length = source.draw(int(2, 6))
-	const wordOf = (i: number): string =>
-		Arr.join(
-			upTo(length, (d) =>
-				escaped(defined(points[Math.floor(i / points.length ** d) % points.length], "a point"))
-			),
-			""
-		)
-	return {
-		at: (n) => `^(?:${Arr.join(upTo(n * 100, wordOf), "|")})$`,
-		top: Math.min(Math.floor(points.length ** length / 100), 1_024)
-	}
-}
-
-/** n times 64 nested optional groups, each a code point and the rest: the parser's recursion and the walks' depth. */
-const nestingGen: Gen<Growth> = (source) => {
-	const c = escaped(source.draw(widePoint))
-	return { at: (n) => `${Str.repeat(n * 64)(`(?:${c}`)}${Str.repeat(n * 64)(")?")}b`, top: 1_024 }
-}
-
-/** An alternation of an anchor on either side of a wide class's counted run, n times, two anchors to move each time. */
-const anchorsGen: Gen<Growth> = (source) => {
-	const run = `${source.draw(element([".", "[a-z]", "\\W"]))}{1,${source.draw(int(1, regexMaxRepeat))}}`
-	return { at: (n) => `(?:^|${run}|$){${n}}b`, top: 64 }
-}
-
-/** An alternation of n hundred two-character words, each a code point of its own and a common one: states times colors. */
-const colorsGen: Gen<Growth> = (source) => {
-	const base = source.draw(element([0x4e00, 0x20000]))
-	return {
-		at: (n) =>
-			`^(?:${Arr.join(
-				upTo(n * 100, (i) => `${escaped(base + i)}y`),
-				"|"
-			)})$`,
-		top: 255
-	}
-}
-
-/** A counted run of a nullable body, the shape whose empty paths copy arcs. */
-const nullableNestGen: Gen<Growth> = repeatedOf(
-	(source) =>
-		`(?:${source.draw(element(["a|", "a|b?", "a?", "(?:a|)"]))}){${source.draw(int(2, regexMaxRepeat))}}`
-)
-
-/**
- * The limits a shape grows to the edge of: every one a count binds first, the colors and the states held at once
- * binding none the match's limits leave, and a loop through an anchor growing with no count.
- */
-const edgeLimits = [
-	"depth",
-	"arcs",
-	"matchStates",
-	"matchCells",
-	"anchors"
-] as const satisfies Arr.NonEmptyReadonlyArray<RegexSpaceMeasure["kind"]>
-type EdgeLimit = (typeof edgeLimits)[number]
-
-/** Each limit's shape, the one a case whose turn aims at that pending limit draws (edgeAims). */
-const shapeOf: { readonly [K in EdgeLimit]: Gen<Growth> } = {
-	depth: nestingGen,
-	arcs: colorfulGen,
-	matchStates: wordsGen,
-	matchCells: colorsGen,
-	anchors: anchorsGen
-}
-
-/** Each limit, with the shape a case whose turn aims at it draws (aimed). */
-const edgeAims: ReadonlyArray<readonly [EdgeFeature, Gen<Growth>]> = Arr.map(
+	agreements,
+	compileWithin,
+	type EdgeFeature,
+	edgeAt,
 	edgeLimits,
-	(kind) => [kind, shapeOf[kind]] as const
-)
+	growthSpace,
+	measureAt,
+	type NestedFeature,
+	nestedRuns,
+	refine,
+	showGrowth,
+	truth
+} from "#test/pg/text/differential.fixtures.ts"
+import { assert } from "#test/support/assert.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+import { nestedPattern } from "#test/unit/text/generators.ts"
 
-/** A drawn shape, each limit's among them. */
-const growthGen: Gen<Growth> = weighted<Growth>([
-	[2, repeatedOf(nestedPattern)],
-	[2, colorfulGen],
-	[1, colorsGen],
-	[1, wordsGen],
-	[1, nestingGen],
-	[1, anchorsGen],
-	[1, nullableNestGen]
-])
+/** Regex membership: ECMAScript, the host NFA, PostgreSQL ARE and the installed domain agree on batches of randomized strings per family. */
+export const regexMembershipAgreeOnBatchesOfRandomizedStringsPerFamily = family(agreements)
 
-const loc = (family: string, i: number) => SourceLoc("str.regex", [family, i])
-/** A batch's randomized strings, and the generated patterns a case draws besides the family's own. */
-const stringsPerCase = 500
-const generatedPerFamily = 12
-/** The accepting walks a case draws over a pattern's NFA, its own members besides its finite ones. */
-const walksPerPattern = 24
-
-/**
- * A pattern's refinement, a language with no admitted text value ("empty"), or a pattern past the limits ("bound").
- */
-const refine = (
-	source: string,
-	flags: Flags,
-	at: SourceLoc
-): TextRefinement | "empty" | "bound" => {
-	const result = analyzeText([{ source, flags }], at)
-	if (result.ok) {
-		return result.value
-	}
-	if (result.error.reason._tag === "ResourceBound") {
-		return "bound"
-	}
-	const parsed = parsePattern(source, flags)
-	if (!parsed.ok) {
-		throw new Error(`/${source}/${flags} does not parse: ${parsed.error.message}`)
-	}
-	if (analyzeLanguage(parsed.value).kind === "empty") {
-		return "empty"
-	}
-	throw new Error(`/${source}/${flags}: ${result.error.message}`)
-}
-
-const truth = (value: unknown): boolean => {
-	if (value === "true") {
-		return true
-	}
-	if (value === "false") {
-		return false
-	}
-	throw new Error(`expected a boolean text, got ${String(value)}`)
-}
-
-/**
- * What a case of a family reached: a pattern enforced by an installed domain, a generated pattern admitted, a pattern
- * whose own member PostgreSQL's ARE and the domain accepted, one that refused a string of the batch, and a pattern whose
- * language is empty.
- */
-type DifferentialFeature =
-	| "domain enforced"
-	| "generated pattern admitted"
-	| "own member accepted"
-	| "member refused"
-	| "empty language"
-
-/** Whether a refinement's own members are walked over its NFA: none where its members are finite or it has none. */
-const walked = (r: TextRefinement | "empty" | "bound"): r is TextRefinement =>
-	r !== "empty" && r !== "bound" && r.check.kind !== "finite"
-
-/** The walks a case draws for a handwritten pattern's refinement: accepting walks over its NFA, where it is walked. */
-const walksFor = (r: TextRefinement | "empty" | "bound"): Gen<ReadonlyArray<string | undefined>> =>
-	walked(r)
-		? array(walkGen(buildNfa(r.members[0].ir)), { min: 0, max: walksPerPattern })
-		: constant([])
-
-/** The tapes of a generated pattern's walks, drawn before its refinement is known, each a walk's choices. */
-const walkTapes: Gen<ReadonlyArray<ReadonlyArray<number>>> = array(
-	array(pickGen, { min: 0, max: walkTape }),
-	{ min: 0, max: walksPerPattern }
-)
-
-/** A generated pattern's walks: its tapes walked over its NFA, built once, where its refinement is walked. */
-const walksOf = (
-	r: TextRefinement | "empty" | "bound",
-	tapes: ReadonlyArray<ReadonlyArray<number>>
-): ReadonlyArray<string | undefined> => {
-	if (!walked(r)) {
-		return []
-	}
-	const nfa = buildNfa(r.members[0].ir)
-	return Arr.map(tapes, (tape) => walk(nfa, tape, walkLength))
-}
-
-/**
- * One drawn case of a family: the strings, the walks of each handwritten pattern, and generated patterns with the
- * tapes of their walks.
- */
-interface FamilySketch {
-	readonly strings: ReadonlyArray<string>
-	readonly handwritten: ReadonlyArray<ReadonlyArray<string | undefined>>
-	readonly generated: ReadonlyArray<{
-		readonly source: string
-		readonly flags: Flags
-		readonly tapes: ReadonlyArray<ReadonlyArray<number>>
-	}>
-}
-
-/**
- * One pattern of a case: its text, whether a person wrote it, its refinement, its drawn walks, and its ECMAScript
- * membership, compiled once.
- */
-interface CasePattern {
-	readonly source: string
-	readonly flags: Flags
-	readonly handwritten: boolean
-	readonly r: TextRefinement | "empty" | "bound"
-	readonly walks: ReadonlyArray<string | undefined>
-	readonly ecma: (value: string) => boolean
-}
-
-/** A resolved case of a family: its strings, and every pattern it asks about them. */
-interface FamilyCase {
-	readonly strings: ReadonlyArray<string>
-	readonly patterns: ReadonlyArray<CasePattern>
-}
-
-/**
- * The family's agreement on one drawn case, inside one transaction of `db` that the case's domains are created in and
- * that is rolled back.
- */
-const agreeOn = (
-	db: RawSession,
-	schema: string,
-	fi: number,
-	family: Family,
-	patterns: ReadonlyArray<CasePattern>,
-	strings: ReadonlyArray<string>,
-	note: (feature: DifferentialFeature) => void
-) =>
-	Effect.gen(function* () {
-		yield* db.begin
-		yield* Effect.gen(function* () {
-			for (const [pi, { source, flags, handwritten, r, walks, ecma }] of patterns.entries()) {
-				const label = `${family.name} /${source}/${flags}`
-				if (r === "bound") {
-					assert.equal(handwritten, false, `${label} exceeds the limits`)
-					continue
-				}
-				if (!handwritten && r !== "empty") {
-					note("generated pattern admitted")
-				}
-				/**
-				 * The batch's strings, and the pattern's own members: its finite members, or the distinct strings of its
-				 * drawn accepting walks, so no pattern is only ever asked to refuse.
-				 */
-				const own =
-					r === "empty"
-						? []
-						: r.check.kind === "finite"
-							? [...r.check.members]
-							: [...new Set(Arr.flatMap(walks, (w) => (w === undefined ? [] : [w])))]
-				const all = ["", ...strings, ...own]
-				const js = Arr.map(all, ecma)
-				if (r === "empty") {
-					note("empty language")
-					assert.equal(
-						Arr.some(js, (x) => x),
-						false,
-						label
+/** Regex membership: PostgreSQL compiles the largest pattern the limits admit along a drawn shape, at each limit's edge. */
+export const regexMembershipCompilesTheLargestPatternTheLimitsAdmitAlongADrawnShapeAtEachLimitsEdge =
+	property.explore(growthSpace, {
+		needs: { tx: Substrate.transaction },
+		situations: edgeLimits satisfies ReadonlyArray<Reached<EdgeFeature>>,
+		/**
+		 * Its pre-conversion runs, 16 (differential.test.ts at 4fbc3e95), and the steered cases its witnesses need: the
+		 * floor and 3 steered cases reach every limit's edge, 2 do not (measured at TEST_SEED=1 on grizzle 01506d52; the
+		 * witnesses are fixed by the property's identity). The old suite ran 4 coverage cases at that seed; a whole steering
+		 * window of 16 ran 36 cases of about 1.6 CPU-s each a run.
+		 */
+		budget: { runs: 16, steered: 3 },
+		show: showGrowth,
+		check:
+			({ tx }, k: Case<EdgeFeature>) =>
+			(growth) =>
+				Effect.gen(function* () {
+					const { session: db } = yield* tx
+					const first = measureAt(growth, 1)
+					if (first.kind === "refused") {
+						k.note("a shape refused at its first count")
+						return
+					}
+					const { greatest, pattern, past } = edgeAt(growth, first.pattern)
+					k.note(past)
+					const are = toAre(pattern.ir)
+					yield* compileWithin(db, are)
+					const rows = yield* db.values(
+						"SELECT ($1::text COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text",
+						["abcd", are]
 					)
-					continue
-				}
-				const host = Arr.map(all, (v) => accepts(r, v))
-				const slug = `f${fi}_p${pi}`
-				const named = identity.textDomain(domainDigest({ slug }, everyProperty))
-				const name = named.identifier
-				let domainType = "text"
-				if (r.check.kind !== "tautology") {
-					const statement = textDomainDdl(r.check, {
-						schema,
-						name,
-						constraint: identity.domainCheck(named).identifier
-					})
-					const ddl = succeeded(emit(statement, emptyNameMap)).text
-					yield* db.query(ddl, [])
-					domainType = `${quoteIdent(schema)}.${quoteIdent(name)}`
-					note("domain enforced")
-				}
-				const payload = jsonText(Arr.map(all, (v, ord) => ({ ord, v })))
-				const rows = yield* db.values(
-					`SELECT (c.v COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text, pg_input_is_valid(c.v, $3::text)::text
-					 FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text) ORDER BY c.ord`,
-					[payload, r.members[0].are, domainType]
-				)
-				assert.equal(rows.length, all.length, label)
-				for (const [i, row] of rows.entries()) {
-					const value = Formatter.format(all[i])
-					const expected = defined(js[i], `the ECMAScript answer on ${value}`)
 					assert.equal(
-						defined(host[i], `the host answer on ${value}`),
-						expected,
-						`${label} host on ${value}`
+						truth(rows[0]?.[0]),
+						matches(pattern.nfa, "abcd"),
+						Str.slice(0, 160)(growth.at(greatest))
 					)
-					assert.equal(truth(row[0]), expected, `${label} ARE ${r.members[0].are} on ${value}`)
-					assert.equal(truth(row[1]), expected, `${label} domain on ${value}`)
-				}
-				assert.equal(Arr.every(own, ecma), true, `${label} witnesses are members`)
-				if (own.length > 0) {
-					note("own member accepted")
-				}
-				if (Arr.some(js, (x) => !x)) {
-					note("member refused")
-				}
+				}),
+		oracle: {
+			kind: "postgresql",
+			name: "PostgreSQL 19's regex compiler and ~, on the largest pattern the limits admit"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/regex/space.ts",
+				original: "\tfor (let s = 0; s < arcs.length && copies <= cap; s++) {",
+				replacement: "\tfor (let s = 0; copies <= cap; s++) {",
+				why: "Operator mutant (conjunct) at packages/engine/src/scalar/regex/space.ts:461 in emptyCopies: `s < arcs.length && copies <= cap` becomes `copies <= cap`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
-		}).pipe(Effect.ensuring(Effect.ignore(db.rollback)))
+		]
 	})
 
 /**
- * The differential searches' steering window: a constant of each search, so the same seed draws the same cases. Each of
- * its cases holds a session of its own (windowCasesAtOnce), with a schema of its own where it installs domains.
+ * Regex membership: PostgreSQL compiles generated admitted nested-quantifier patterns. Its runs are nestedRuns
+ * (differential.fixtures.ts, with their evidence); its kept cases are the counterexamples of the compile-space mutants
+ * its witnesses do not reach, each the shrunk failure of its mutant, which run first on every seed whatever the budget;
+ * the mutants are its kills.
  */
-const differentialSteerEvery = 16
-
-/**
- * The nested-quantifier search's runs: its floor stream, fixed by the suite's label and so the same on every seed, runs
- * a quarter of them, 400, past case 396 of that stream, where a compile space that counts a start anchor PostgreSQL
- * must move as staying (scalar/regex/space.ts movingAnchors, mutant 0cb12aaa70 of lane CATCH, 2026-11-16) first admits
- * a pattern PostgreSQL refuses. It was 4,800: the search reached its one required situation within its first cases
- * and found "none new in its last 4,792 cases" (TEST_SEED=604930236) and "none new in its last 4,780 cases"
- * (TEST_SEED=1); at-limit's sixteen cases at each limit's edge kill 11 of the 13 mutants this search kills (CATCH), and
- * the other two are this search's kept cases (nestedKept), which run first on every seed whatever the budget. Measured
- * on a private cluster family at TEST_SEED=1: the whole file 175.8 s of CPU and 509.7 s of PostgreSQL's at 4,800 runs
- * (lane PERF).
- */
-const nestedRuns = 1_600
-
-/**
- * What a nested-quantifier case reaches: a pattern the compile space admits and that is large enough to stress
- * PostgreSQL's compiler, or one it refuses as past PostgreSQL's limits.
- */
-type NestedFeature = "a large pattern" | "a pattern past PostgreSQL's limits"
-
-/**
- * The two counterexamples only this search finds, kept by value, so each is caught on every seed: what CATCH's
- * mutants of scalar/regex/space.ts admitted, each printed by the search's own failure at TEST_SEED=1. The compile space
- * as it stands refuses both as past PostgreSQL's limits (refine's "bound"), which each case notes and must reach; a
- * compile space that admits either has PostgreSQL refuse to compile it, and the case fails.
- */
-const nestedKept: ReadonlyArray<Kept<string, NestedFeature>> = [
+export const regexMembershipCompilesGeneratedAdmittedNestedQuantifierPatterns = property.explore(
+	nestedPattern,
 	{
-		note: "an unbounded piece of minimum two whose second copy the compile space leaves out of its NFA (space.ts rawNfa, CATCH mutant fb4323a1e8, piece.min > 2): admitted, and PostgreSQL refuses it as too complex; the rotating stream's case 1,589 at TEST_SEED=1",
-		sketch: "(?:(?:a)?){2,}(?:(?:.{1,50}|^)){255}b",
-		draws: "",
-		reaches: ["a pattern past PostgreSQL's limits"]
-	},
-	{
-		note: "a start anchor a path reaches past a consumed character, which PostgreSQL must move, counted as staying (space.ts movingAnchors, CATCH mutant 0cb12aaa70, entry(forward, from) === 0): admitted past the moving anchors PostgreSQL holds; the floor stream's case 396 on every seed",
-		sketch: "(?:(?:(?:.{1,50}|^)){0,200})*b",
-		draws: "",
-		reaches: ["a pattern past PostgreSQL's limits"]
-	}
-]
-
-layer(Substrate.layer)(
-	"regex membership: ECMAScript, host NFA, PostgreSQL ARE and installed domain",
-	(it) => {
-		it.effect("agree on batches of randomized strings per family", (ctx) =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const slots = yield* Pool.make({
-					acquire: Effect.all({
-						schema: s.schema(freshSchema),
-						db: s.session(ownerSession())
-					}),
-					size: windowCasesAtOnce(1, differentialSteerEvery)
-				})
-				for (const [fi, family] of families.entries()) {
-					/**
-					 * The family's own patterns, refined and compiled once: a handwritten pattern past the limits fails the
-					 * test.
-					 */
-					const written = Arr.map(family.patterns, ([source, flags], pi) => {
-						const r = refine(source, flags, loc(family.name, pi))
-						if (r === "bound") {
-							throw new Error(`${family.name} /${source}/${flags} exceeds the limits`)
-						}
-						return { source, flags, r, ecma: jsMatcher(source, flags) }
-					})
-					const familySketch: Gen<FamilySketch> = (source) => ({
-						strings: source.draw(
-							array(stringsOver(element(family.alphabet), 8), { min: 1, max: stringsPerCase })
-						),
-						handwritten: Arr.map(written, (w) => source.draw(walksFor(w.r))),
-						generated: source.draw(
-							array(
-								(inner) => ({
-									source: inner.draw(patternOver(family.alphabet)),
-									flags: inner.draw(flagsGen),
-									tapes: inner.draw(walkTapes)
-								}),
-								{ min: 0, max: generatedPerFamily }
-							)
-						)
-					})
-					/** A sketch's case: each generated pattern refined once, its tapes walked over its NFA where it is walked. */
-					const familyCase = (sketch: FamilySketch): FamilyCase => ({
-						strings: sketch.strings,
-						patterns: [
-							...Arr.map(written, (w, pi) => ({
-								...w,
-								handwritten: true,
-								walks: defined(sketch.handwritten[pi], `the walks of handwritten pattern ${pi}`)
-							})),
-							...Arr.map(sketch.generated, (g, gi) => {
-								const r = refine(g.source, g.flags, loc(family.name, written.length + gi))
-								return {
-									source: g.source,
-									flags: g.flags,
-									handwritten: false,
-									r,
-									walks: walksOf(r, g.tapes),
-									ecma: jsMatcher(g.source, g.flags)
-								}
-							})
-						]
-					})
-					yield* searched(
-						ctx,
-						explore(
-							{
-								oracle: {
-									kind: "second-implementation",
-									name: "ECMAScript's RegExp membership, against the host NFA, PostgreSQL's ~ and the installed domain"
-								},
-								suite: `text/differential/${family.name}`,
-								draw: sketched(familySketch, familyCase),
-								literal: Formatter.format,
-								coverage: required<DifferentialFeature>(
-									[
-										"domain enforced",
-										"generated pattern admitted",
-										"own member accepted",
-										"member refused"
-									],
-									{ cases: 10, sense: notesOnly }
-								),
-								kept: [],
-								runs: 10,
-								shrink: completeShrink,
-								concurrency: windowCasesAtOnce(1, differentialSteerEvery),
-								steerEvery: differentialSteerEvery,
-								caseHang
-							},
-							(c, k) =>
-								Effect.flatMap(Pool.get(slots), (slot) =>
-									agreeOn(slot.db, slot.schema, fi, family, c.patterns, c.strings, (f) => k.note(f))
-								)
-						)
-					)
-				}
-			})
-		)
-
-		/**
-		 * The limits of PostgreSQL's regex compiler grizzle holds a pattern to (scalar/regex/space.ts) must keep every
-		 * admitted pattern inside what PostgreSQL 19 compiles: it refuses none of them as too complex or for too many
-		 * colors. How long a compile takes is no part of the property, since the machine's load sets it; a compile that
-		 * never ends is a hang, which the case's hang guard reports.
-		 */
-		const compileWithin = (db: RawSession, are: string) =>
-			db.query("SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text", [are])
-
-		/** The at-limit search's steering window: a constant of the search, so the same seed draws the same cases. */
-		const atLimitSteerEvery = 4
-
-		it.effect(
-			"compiles the largest pattern the limits admit along a drawn shape, at each limit's edge",
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const sessions = yield* Pool.make({
-							acquire: s.session(ownerSession()),
-							size: windowCasesAtOnce(1, atLimitSteerEvery)
-						})
-						return yield* explore(
-							{
-								suite: "text/differential/at-limit",
-								draw: aimed(growthGen, edgeAims),
-								literal: (growth) => Formatter.format(Str.slice(0, 160)(growth.at(1))),
-								oracle: {
-									kind: "postgresql",
-									name: "PostgreSQL 19's regex compiler and ~, on the largest pattern the limits admit"
-								},
-								coverage: required<EdgeFeature>(edgeLimits, { cases: 96, sense: notesOnly }),
-								kept: [],
-								runs: 16,
-								shrink: completeShrink,
-								concurrency: windowCasesAtOnce(1, atLimitSteerEvery),
-								steerEvery: atLimitSteerEvery,
-								caseHang
-							},
-							(growth, k) =>
-								Effect.gen(function* () {
-									const db = yield* Pool.get(sessions)
-									const first = measureAt(growth, 1)
-									if (first.kind === "refused") {
-										k.note("a shape refused at its first count")
-										return
-									}
-									const { greatest, pattern, past } = edgeAt(growth, first.pattern)
-									k.note(past)
-									const are = toAre(pattern.ir)
-									yield* compileWithin(db, are)
-									const rows = yield* db.values(
-										"SELECT ($1::text COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text",
-										["abcd", are]
-									)
-									assert.equal(
-										truth(rows[0]?.[0]),
-										matches(pattern.nfa, "abcd"),
-										Str.slice(0, 160)(growth.at(greatest))
-									)
-								})
-						)
-					})
-				)
-		)
-
-		it.effect("compiles generated admitted nested-quantifier patterns", (ctx) =>
-			searched(
-				ctx,
+		needs: { tx: Substrate.transaction },
+		situations: ["a large pattern"] satisfies ReadonlyArray<Reached<NestedFeature>>,
+		budget: { runs: nestedRuns, steered: nestedRuns },
+		check:
+			({ tx }, k: Case<NestedFeature>) =>
+			(source) =>
 				Effect.gen(function* () {
-					const s = yield* Substrate
-					const sessions = yield* Pool.make({
-						acquire: s.session(ownerSession()),
-						size: windowCasesAtOnce(1, differentialSteerEvery)
-					})
-					return yield* explore(
-						{
-							oracle: {
-								kind: "postgresql",
-								name: "PostgreSQL 19's regex compiler, which compiles every admitted pattern"
-							},
-							suite: "text/differential/nested",
-							draw: drawn(nestedPattern),
-							literal: Formatter.format,
-							coverage: required<NestedFeature>(["a large pattern"], {
-								cases: nestedRuns,
-								sense: notesOnly
-							}),
-							kept: nestedKept,
-							runs: nestedRuns,
-							shrink: completeShrink,
-							concurrency: windowCasesAtOnce(1, differentialSteerEvery),
-							steerEvery: differentialSteerEvery,
-							caseHang
-						},
-						(source, k) =>
-							Effect.gen(function* () {
-								const r = refine(source, "u", SourceLoc("str.regex", []))
-								if (r === "bound") {
-									k.note("a pattern past PostgreSQL's limits")
-									return
-								}
-								if (r === "empty" || RegexIr.expandedSize(r.members[0].ir) < 64) {
-									return
-								}
-								k.note("a large pattern")
-								const db = yield* Pool.get(sessions)
-								const exit = yield* Effect.exit(compileWithin(db, r.members[0].are))
-								assert.equal(
-									Exit.isSuccess(exit),
-									true,
-									`/${source}/u as ${r.members[0].are}: ${Exit.isFailure(exit) ? String(exit.cause) : ""}`
-								)
-							})
+					const r = refine(source, "u", SourceLoc("str.regex", []))
+					if (r === "bound") {
+						k.note("a pattern past PostgreSQL's limits")
+						return
+					}
+					if (r === "empty" || RegexIr.expandedSize(r.members[0].ir) < 64) {
+						return
+					}
+					k.note("a large pattern")
+					const { session: db } = yield* tx
+					const exit = yield* Effect.exit(compileWithin(db, r.members[0].are))
+					assert.equal(
+						Exit.isSuccess(exit),
+						true,
+						`/${source}/u as ${r.members[0].are}: ${Exit.isFailure(exit) ? String(exit.cause) : ""}`
 					)
-				})
-			)
-		)
+				}),
+		oracle: {
+			kind: "postgresql",
+			name: "PostgreSQL 19's regex compiler, which compiles every admitted pattern"
+		},
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/text/differential.test.ts#regexMembershipCompilesGeneratedAdmittedNestedQuantifierPatterns:-:1.1.1.1.3.1.1.1.4.0.0.0.0.1.6.0"
+				),
+				reason:
+					"(?:(?:(?:a?){16})?){100}b, which PostgreSQL refuses as too complex: the compile space admits it when emptyCopies counts no copy of an empty arc a kept state reaches (space.ts:474, CATCH mutant of grizzle 0baff5d6), which no witness of the search reaches; the shrunk failure of that mutant on the rotating stream's case 277 at TEST_SEED=1",
+				since: "2026-11-17"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/text/differential.test.ts#regexMembershipCompilesGeneratedAdmittedNestedQuantifierPatterns:-:1.3.0.a.1.5.1.1.0.3.0.0.0.0.0.0.0.3.1.0"
+				),
+				reason:
+					"(?:(?:$|a|)){50}(?:(?:^)?)?(?:a){2,}b, which PostgreSQL refuses as too complex: the compile space admits it when rawNfa leaves an unbounded piece's second copy out of its NFA (space.ts piece.min > 2, CATCH mutant fb4323a1e8), which no witness of the search reaches (the old search's kept (?:(?:a)?){2,}(?:(?:.{1,50}|^)){255}b, which the space cannot be shown to draw); the shrunk failure of that mutant on the rotating stream's case 975 at TEST_SEED=1",
+				since: "2026-11-17"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/regex/space.ts",
+				original: "\t\t\t\tcopies += entry(kept, arc.to) === 1 ? weight : 0",
+				replacement: "\t\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/scalar/regex/space.ts:474 in emptyCopies: `copies += entry(kept, arc.to) === 1 ? weight : 0` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/scalar/regex/space.ts",
+				original: "\t\t\t\t\tif (piece.min > 1) {",
+				replacement: "\t\t\t\t\tif (piece.min > 2) {",
+				why: "An unbounded piece of minimum two whose second copy rawNfa leaves out of its NFA (CATCH mutant fb4323a1e8, grizzle 0baff5d6), so the compile space admits a pattern PostgreSQL refuses as too complex: the old search's kept (?:(?:a)?){2,}(?:(?:.{1,50}|^)){255}b."
+			},
+			{
+				file: "packages/engine/src/scalar/regex/space.ts",
+				original:
+					'\t\t\t\t\tarc.anchor === "start" ? entry(forward, from) === 1 : entry(backward, arc.to) === 1',
+				replacement:
+					'\t\t\t\t\tarc.anchor === "start" ? entry(forward, from) === 0 : entry(backward, arc.to) === 1',
+				why: "A start anchor a path reaches past a consumed character, which PostgreSQL must move, counted as staying by movingAnchors (CATCH mutant 0cb12aaa70, grizzle 0baff5d6), so the compile space admits a pattern past the moving anchors PostgreSQL holds: the old search's kept (?:(?:(?:.{1,50}|^)){0,200})*b."
+			}
+		]
 	}
 )

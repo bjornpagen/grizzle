@@ -176,10 +176,3 @@ export const orphanExitBound = clientCheckInterval + orphanExitSlack
  */
 export const casesAtOnce = (sessions: number): number =>
 	Math.max(1, Math.floor(testPoolMax / sessions))
-
-/**
- * How many cases of an exploration run at once, each on state of its own that holds `sessions` sessions: casesAtOnce,
- * and no more than its window of `steerEvery` cases, the most an exploration runs at once (explore.ts windowOf).
- */
-export const windowCasesAtOnce = (sessions: number, steerEvery: number): number =>
-	Math.min(steerEvery, casesAtOnce(sessions))

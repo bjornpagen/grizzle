@@ -5,7 +5,14 @@
  * configs read it without loading the runner config's services.
  */
 export const propertyModules: ReadonlyArray<string> = [
+	"test/pg/codec/**/*.test.ts",
+	"test/pg/dates/**/*.test.ts",
+	"test/pg/fields/**/*.test.ts",
+	"test/pg/input/**/*.test.ts",
 	"test/pg/laws/curriculum.test.ts",
+	"test/pg/lower-conservative/**/*.test.ts",
+	"test/pg/lower-shapes/**/*.test.ts",
+	"test/pg/null/operators.test.ts",
 	"test/pg/oracle/conservative.test.ts",
 	"test/pg/oracle/key-text-bytes.test.ts",
 	"test/pg/oracle/mutants/invalid.test.ts",
@@ -20,9 +27,13 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/oracle/reference.test.ts",
 	"test/pg/oracle/representability.test.ts",
 	"test/pg/oracle/union-take.test.ts",
+	"test/pg/parameters/**/*.test.ts",
+	"test/pg/recursion/**/*.test.ts",
+	"test/pg/scalar/**/*.test.ts",
 	"test/pg/served/clock.test.ts",
 	"test/pg/served/facts.test.ts",
 	"test/pg/served/unwritten-read-backs.test.ts",
+	"test/pg/sql/print.test.ts",
 	"test/pg/substrate/budget.test.ts",
 	"test/pg/substrate/exit.test.ts",
 	"test/pg/substrate/fill.test.ts",
@@ -31,8 +42,11 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/substrate/stopped.test.ts",
 	"test/pg/substrate/substrate.test.ts",
 	"test/pg/substrate/transaction.test.ts",
+	"test/pg/text/**/*.test.ts",
+	"test/pg/values/**/*.test.ts",
 	"test/pg/world-model/inductive.test.ts",
 	"test/pg/write/oracle/oracle.test.ts",
+	"test/types/**/*.test.ts",
 	"test/unit/adapter/**/*.test.ts",
 	"test/unit/allen/**/*.test.ts",
 	"test/unit/analysis/**/*.test.ts",
@@ -74,8 +88,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/unit/vector/**/*.test.ts",
 	"test/unit/workload/**/*.test.ts",
 	"test/unit/world-model/**/*.test.ts",
-	"test/unit/write/**/*.test.ts",
-	"test/types/**/*.test.ts"
+	"test/unit/write/**/*.test.ts"
 ]
 
 /**

@@ -1,45 +1,3 @@
-import { drawn } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { map } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter } from "effect"
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
-import { formsHold, reachableRecursions } from "#test/pg/recursion/graph/support.ts"
-import {
-	feedbackUnionAll,
-	lowerCase,
-	optimizedFeedbackUnionAll,
-	optimizedLowering,
-	withEncodedParams
-} from "#test/pg/recursion/lowering/support.ts"
-import { repeatsStates } from "#test/pg/recursion/oracle/support.ts"
-import { partRecursive } from "#test/support/compile.ts"
-import { standInNames } from "#test/support/kernel/naming.ts"
-import {
-	defaultRecursiveLimits,
-	type GraphLimits,
-	type RecursiveCase,
-	type RecursiveFeature,
-	type RecursiveLimits,
-	recursiveCaseGen,
-	vertexKinds
-} from "#test/support/oracle/gen/recursive.ts"
-import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
-
-import {
-	defaultRunOptions,
-	type Lowering,
-	oracleCheck,
-	printOutcome,
-	runOracle
-} from "#test/support/oracle/runner.ts"
-import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
-
 /**
  * The UNION ALL feedback mutant against the optimized lowering: a UNION ALL feedback mutant is killed by the diamond
  * case.
@@ -54,173 +12,70 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * recursion as a WITH RECURSIVE, observed over the whole statement AST.
  */
 
-/**
- * The diamond 0 -> {1, 2} -> 3 over integer vertices 0, 1, -1, 2 (the first value classes), its edges a pure set,
- * contained in V, rooted at the top by a literal.
- */
-const diamondLimits = (
-	overrides: Partial<Omit<RecursiveLimits, "graph">> & { readonly graph: Partial<GraphLimits> }
-): RecursiveLimits => {
-	const { graph, ...rest } = overrides
-	return {
-		...defaultRecursiveLimits,
-		graph: {
-			...defaultRecursiveLimits.graph,
-			shapes: ["diamond"],
-			kinds: ["int4"],
-			edges: "set",
-			contained: true,
-			second: false,
-			blocked: false,
-			loops: false,
-			minVertices: 4,
-			...graph
-		},
-		forms: ["reach"],
-		roots: ["literal"],
-		directions: ["forward"],
-		stepFilters: ["none"],
-		blockings: ["none"],
-		consumers: ["state"],
-		exists: false,
-		origin: false,
-		viaSecond: false,
-		oneOrMore: false,
-		leftLinear: false,
-		rootPick: { kind: "forced", vertex: 0 },
-		...rest
-	}
-}
+import type { Reached } from "@bjornpagen/testing/features"
+import type { Case } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter } from "effect"
+import { formsHold, reachableRecursions } from "#test/pg/recursion/graph/support.ts"
+import {
+	type DiamondFeature,
+	diamondCases,
+	diamondSituations,
+	NotKilled,
+	run,
+	sites
+} from "#test/pg/recursion/lowering/counterexamples.fixtures.ts"
+import {
+	optimizedFeedbackUnionAll,
+	optimizedLowering
+} from "#test/pg/recursion/lowering/support.ts"
+import { repeatsStates } from "#test/pg/recursion/oracle/support.ts"
+import { oracleProperty, printOutcome } from "#test/support/oracle/runner.ts"
 
-class NotKilled extends Data.TaggedError("NotKilled")<{ readonly message: string }> {}
-
-const run = (c: RecursiveCase, left: Lowering, right: Lowering) =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const schema = yield* s.schema({ create: false, label: "mutant" })
-		return yield* runOracle(c, left, right, {
-			...defaultRunOptions,
-			schema: { kind: "named", name: schema }
-		})
-	})
-
-/**
- * Physical names for counting a case's sites without an installation. A generated text vertex carries a regex
- * refinement, and the optimized delivery casts an unproved refined output (a relation parameter's root, a base-typed
- * recursive state column) to its structural text domain (lower/shapes/refined), so the names must name one, as an
- * installation's names do: a stand-in domain per pattern (naming.ts standInNames). A closed-id vertex's literal is its
- * handle's code under the case's own codes, a roster's history with holes (gen/recursive.ts vertexRoster), which an
- * installation of the case holds too.
- */
-const siteNames = (c: RecursiveCase): PhysicalNames => standInNames("Graph", schemaCodes(c.schema))
-
-/**
- * How many feedback unions the mutant rewrites in a case's optimized program, and whether a statement of the query
- * itself holds a WITH RECURSIVE at any depth of its AST (the lowering nests one inside a derived table under any
- * consumer node).
- */
-const sites = (c: RecursiveCase) => {
-	const program = lowerCase(c, siteNames(c))
-	if (!program.ok) {
-		throw new Error(program.error.message)
-	}
-	const mutated = feedbackUnionAll(program.value)
-	if (!mutated.ok) {
-		throw new Error(mutated.error.message)
-	}
-	return {
-		sites: mutated.value.sites,
-		recursive: Arr.some(
-			flight(program.value.roots),
-			(part) => part.role.kind !== "attachment" && partRecursive(program.value, part.answer)
-		)
-	}
-}
-
-/** What the population notes: its generator's features and each kill. */
-type DiamondFeature = RecursiveFeature | "killed"
-
-/** The population must reach every vertex type and parallel edges, and kill the mutant. */
-const situations = [
-	...Arr.map(vertexKinds, (k): RecursiveFeature => `vertex:${k}`),
-	"parallel edges",
-	"killed"
-] as const satisfies ReadonlyArray<DiamondFeature>
-
-layer(OracleSeat.layer)("the UNION ALL feedback mutant of the optimized lowering", (it) => {
-	it.effect(
-		"every generated diamond rooted at its top kills it, whatever its vertex type, edges, seed or state",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.suspend(() => {
-					const limits = diamondLimits({
-						graph: {
-							shapes: ["diamond"],
-							kinds: vertexKinds,
-							edges: "any",
-							contained: true,
-							second: false,
-							blocked: false,
-							loops: false,
-							minVertices: 4
-						},
-						forms: ["reach", "walks", "pairs"],
-						roots: ["literal", "input", "all", "arms"],
-						origin: "any",
-						exists: "any",
-						oneOrMore: "any",
-						minBound: 2,
-						maxBound: 4
-					})
-					const generator = map(recursiveCaseGen(limits), withEncodedParams)
-					return oracleCheck(
-						drawn(generator),
-						{
-							suite: "recursion/optimized-diamond-kills",
-							oracle: {
-								kind: "second-implementation",
-								name: "the optimized lowering, which the UNION ALL feedback mutant must break on the diamond"
-							},
-							literal: Formatter.format,
-							coverage: required<DiamondFeature>(situations, { cases: 300, sense: notesOnly }),
-							kept: [],
-							runs: 300,
-							shrink: completeShrink,
-							perturb: "none"
-						},
-						(c, notes) =>
-							Effect.gen(function* () {
-								notes.noteAll(c.features)
-								if (!c.features.includes("diamond") || !c.terminatesAsBag) {
-									return yield* new NotKilled({
-										message: `not a terminating diamond: ${Arr.join(c.features, ", ")}`
-									})
-								}
-								const counted = sites(c)
-								const recursions = reachableRecursions(c.query.dag.roots[0])
-								if (!formsHold(recursions, counted.recursive)) {
-									return yield* new NotKilled({
-										message: `${recursions} reachable recursions, a WITH RECURSIVE shown: ${counted.recursive}`
-									})
-								}
-								if (counted.sites === 0) {
-									return yield* new NotKilled({
-										message: "the mutant found no feedback union to rewrite"
-									})
-								}
-								const outcome = yield* run(
-									c,
-									optimizedLowering("optimized"),
-									optimizedFeedbackUnionAll
-								)
-								if (!repeatsStates(outcome)) {
-									return yield* new NotKilled({ message: `not killed:\n${printOutcome(outcome)}` })
-								}
-								notes.note("killed")
-							})
-					)
+/** Every generated diamond rooted at its top kills the optimized lowering's UNION ALL feedback mutant, whatever its vertex type, edges, seed or state. */
+export const diamondKillsTheOptimizedFeedbackUnionAll = oracleProperty(diamondCases, {
+	situations: diamondSituations satisfies ReadonlyArray<Reached<DiamondFeature>>,
+	perturb: "none",
+	oracle: {
+		kind: "second-implementation",
+		name: "the optimized lowering, which the UNION ALL feedback mutant must break on the diamond"
+	},
+	kept: [],
+	/** Its pre-conversion budget: runs 300, coverage cases 300 (counterexamples.test.ts at 4fbc3e95). */
+	budget: { runs: 300, steered: 300 },
+	kills: [
+		{
+			file: "packages/engine/src/lower/shapes/recursion/index.ts",
+			original: '\t\t\t\t\tquery: select({ kind: "setOp", op: "UNION", arms: [base, step] }),',
+			replacement:
+				'\t\t\t\t\tquery: select({ kind: "setOp", op: "UNION ALL", rows: "operand", arms: [base, step] }),',
+			why: "The optimized lowering's recursive CTE feeds back with UNION ALL, so repeated states are kept and a cycle never reaches its fixed point."
+		}
+	],
+	show: Formatter.format,
+	check: (notes: Case<DiamondFeature>) => (c) =>
+		Effect.gen(function* () {
+			notes.noteAll(c.features)
+			if (!c.features.includes("diamond") || !c.terminatesAsBag) {
+				return yield* new NotKilled({
+					message: `not a terminating diamond: ${Arr.join(c.features, ", ")}`
 				})
-			)
-	)
+			}
+			const counted = sites(c)
+			const recursions = reachableRecursions(c.query.dag.roots[0])
+			if (!formsHold(recursions, counted.recursive)) {
+				return yield* new NotKilled({
+					message: `${recursions} reachable recursions, a WITH RECURSIVE shown: ${counted.recursive}`
+				})
+			}
+			if (counted.sites === 0) {
+				return yield* new NotKilled({
+					message: "the mutant found no feedback union to rewrite"
+				})
+			}
+			const outcome = yield* run(c, optimizedLowering("optimized"), optimizedFeedbackUnionAll)
+			if (!repeatsStates(outcome)) {
+				return yield* new NotKilled({ message: `not killed:\n${printOutcome(outcome)}` })
+			}
+			notes.note("killed")
+		})
 })

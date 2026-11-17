@@ -11,233 +11,66 @@
  *
  * Features: the vocabulary Feature below, each boundary a value's length meets.
  */
-import { type Case, explore, type Steered, steered } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	array,
-	boolean,
-	codePoint,
-	constant,
-	type Gen,
-	int,
-	map,
-	string,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Function, Layer, Option, Order, Result } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Layer, Order, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { assembledIn } from "#compiler/codec/delivery.ts"
-import {
-	type DeliveredColumn,
-	deliveredRows,
-	deliveryOfColumns,
-	textColumn
-} from "#compiler/lower/delivery.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
+import { deliveredRows, deliveryOfColumns } from "#compiler/lower/delivery.ts"
 import { col, desc, lit, provedCore, table, targetAs, types } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import {
+	answered,
+	Blob,
+	Blobs,
+	blobsInstall,
+	blobsTemplate,
+	columns,
+	deliveryCases,
+	type Drawn,
+	type Feature,
+	notes,
+	sameBytes,
+	showDrawn,
+	type Stored
+} from "#test/pg/fields/delivery.fixtures.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { strictDelivered } from "#test/support/kernel/strict.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
 
-/** `length` bytes of a xorshift stream from `seed`. */
-const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {
-	const out = new Uint8Array(length)
-	let x = seed | 1
-	for (let i = 0; i < length; i += 1) {
-		x ^= x << 13
-		x ^= x >>> 17
-		x ^= x << 5
-		out[i] = x & 0xff
-	}
-	return out
-}
-
-/** A stored row: its id, its two bytes values and its text. */
-interface Stored {
-	readonly id: number
-	readonly a: Uint8Array<ArrayBuffer>
-	readonly b: Uint8Array<ArrayBuffer>
-	readonly t: string
-}
-
-/** A case: the chunk length, the rows, and the read's order and limit. */
-interface Drawn {
-	readonly chunkLength: number
-	readonly rows: ReadonlyArray<Stored>
-	readonly ordered: boolean
-	readonly limit: number | undefined
-}
-
-type Feature =
-	| "an answer of no row"
-	| "an empty value"
-	| "a value one short of its chunks"
-	| "a value of exactly its chunks"
-	| "a value one past its chunks"
-	| "a value of three chunks or more"
-	| "two values of different chunk counts in one row"
-	| "an ordered read"
-	| "a limited read"
-
-/** A length about the boundaries of chunks of `chunk` bytes: none, one either side of k chunks, or any. */
-const lengthAbout = (chunk: number): Gen<number> =>
-	weighted([
-		[1, constant(0)],
-		[3, (s) => Math.max(0, s.draw(int(1, 4)) * chunk - 1)],
-		[3, (s) => s.draw(int(1, 4)) * chunk],
-		[3, (s) => s.draw(int(1, 4)) * chunk + 1],
-		[2, int(0, 3 * chunk)]
-	])
-
-const cases: Gen<Drawn> = (s) => {
-	const chunkLength = s.draw(int(1, 8))
-	const values = s.draw(
-		array(
-			(r) => ({
-				a: streamBytes(r.draw(lengthAbout(chunkLength)), r.draw(int(1, 0x7fff_ffff))),
-				b: streamBytes(r.draw(lengthAbout(chunkLength)), r.draw(int(1, 0x7fff_ffff))),
-				t: r.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 4 }))
-			}),
-			{ min: 0, max: 6 }
-		)
-	)
-	const ordered = s.draw(boolean)
-	const limit = ordered && s.draw(boolean) ? s.draw(int(0, 6)) : undefined
-	return {
-		chunkLength,
-		rows: Arr.map(values, (v, id) => ({ id, ...v })),
-		ordered,
-		limit
-	}
-}
-
-/** The cases a witness draws: plain ones, or, while no case has answered no row (Pending `has`), each with no row
- * stored, the case it runs, prints and keeps. */
-const steeredCases: Steered<Drawn, Feature> = (steering) =>
-	Option.exists(steering, (pending) => pending.has("an answer of no row"))
-		? map(cases, (d) => ({ ...d, rows: [] }))
-		: cases
-
-const Blob = relation("Blob", { id: pg.integer, a: bytes, b: bytes, t: str.regex("^.*$", "su") }, [
-	"id"
-])
-const Blobs = schema("Delivery", [Blob], [])
-
-/** The full world's workload: Blob's rows written with the facts each call gives. */
-const programs = Object.freeze({ write: ChangeSet.empty(Blobs).insert(Blob, []) })
-
-/** The delivered columns of the read, in its order: id and t as texts, a and b as bytes. */
-const columns: ReadonlyArray<DeliveredColumn> = [
-	textColumn,
-	{ kind: "bytes" },
-	{ kind: "bytes" },
-	textColumn
-]
-
-/** A text PostgreSQL answered, as the substrate's session hands it back. */
-const answered = (cell: unknown): string => {
-	if (typeof cell !== "string") {
-		throw new Error(`a cell that is no text: ${Formatter.format(cell)}`)
-	}
-	return cell
-}
-
-/** Whether two bytes values hold the same bytes. */
-const sameBytes = (x: Uint8Array, y: Uint8Array): boolean =>
-	x.length === y.length && x.every((byte, at) => byte === y[at])
-
-const notes = (d: Drawn): ReadonlyArray<Feature> => {
-	const c = d.chunkLength
-	const lengths = Arr.flatMap(d.rows, (r) => [r.a.length, r.b.length])
-	const out: Array<Feature> = []
-	if (d.rows.length === 0 || d.limit === 0) {
-		out.push("an answer of no row")
-	}
-	if (lengths.includes(0)) {
-		out.push("an empty value")
-	}
-	if (Arr.some(lengths, (n) => n > 0 && (n + 1) % c === 0)) {
-		out.push("a value one short of its chunks")
-	}
-	if (Arr.some(lengths, (n) => n > 0 && n % c === 0)) {
-		out.push("a value of exactly its chunks")
-	}
-	if (Arr.some(lengths, (n) => n > c && (n - 1) % c === 0)) {
-		out.push("a value one past its chunks")
-	}
-	if (Arr.some(lengths, (n) => n > 2 * c)) {
-		out.push("a value of three chunks or more")
-	}
-	if (Arr.some(d.rows, (r) => Math.ceil(r.a.length / c) !== Math.ceil(r.b.length / c))) {
-		out.push("two values of different chunk counts in one row")
-	}
-	if (d.ordered) {
-		out.push("an ordered read")
-	}
-	if (d.limit !== undefined) {
-		out.push("a limited read")
-	}
-	return out
-}
-
-layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk boundaries", (it) => {
-	it.effect(
-		"reads back every row stored, in the statement's order, its chunks strictly its delivery's",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "pg/fields/delivery",
-						oracle: { kind: "second-implementation", name: "the drawn rows themselves" },
-						draw: steered(steeredCases, Function.identity),
-						literal: (d: Drawn) =>
-							Formatter.format({
-								chunkLength: d.chunkLength,
-								rows: Arr.map(d.rows, (r) => ({ a: r.a.length, b: r.b.length, t: r.t })),
-								ordered: d.ordered,
-								limit: d.limit
-							}),
-						coverage: required<Feature>(
-							[
-								"an answer of no row",
-								"an empty value",
-								"a value one short of its chunks",
-								"a value of exactly its chunks",
-								"a value one past its chunks",
-								"a value of three chunks or more",
-								"two values of different chunk counts in one row",
-								"an ordered read",
-								"a limited read"
-							],
-							{ cases: 24, sense: notesOnly }
-						),
-						kept: [],
-						runs: 24,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(d: Drawn, c: Case<Feature>) =>
+/** A delivery at chunk boundaries reads back every row stored, in the statement's order, its chunks strictly its delivery's. */
+export const aDeliveryAtChunkBoundariesReadsBackEveryRowStoredInTheStatementsOrderItsChunksStrictlyItsDeliverys =
+	property.explore(deliveryCases, {
+		needs: { blobs: Substrate.seat(blobsTemplate) },
+		situations: [
+			"an answer of no row",
+			"an empty value",
+			"a value one short of its chunks",
+			"a value of exactly its chunks",
+			"a value one past its chunks",
+			"a value of three chunks or more",
+			"two values of different chunk counts in one row",
+			"an ordered read",
+			"a limited read"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		show: showDrawn,
+		/** Its pre-conversion budget: runs 24, coverage cases 24 (delivery.test.ts at 4fbc3e95). */
+		budget: { runs: 24, steered: 24 },
+		check:
+			({ blobs }, c: Case<Feature>) =>
+			(d: Drawn) =>
+				Effect.flatMap(blobs, (taken) =>
+					Effect.provideService(
 						Effect.scoped(
 							Effect.gen(function* () {
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}
-								const o = yield* installed(Blobs, {}, { label: "delivery", programs })
+								const o = yield* openedIn(Blobs, {}, blobsInstall, taken)
 								const s = yield* Substrate
 								if (d.rows.length > 0) {
 									yield* Effect.gen(function* () {
@@ -313,8 +146,25 @@ layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk bound
 									assert.ok(t === row.t, "the text")
 								}
 							})
-						)
-				)
-			)
-	)
-})
+						),
+						Substrate,
+						taken.substrate
+					)
+				),
+		oracle: { kind: "second-implementation", name: "the drawn rows themselves" },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/codec/delivery.ts",
+				original: "\t\tconst offset = Number(rowText(row, chunkAt)) * chunkLength",
+				replacement: "\t\tconst offset = Number(rowText(row, chunkAt)) * (chunkLength - 1)",
+				why: "A delivered chunk is written at the wrong offset."
+			},
+			{
+				file: "packages/engine/src/codec/delivery.ts",
+				original: "\t\t.toSorted((a, b) => a.ord - b.ord)",
+				replacement: "\t\t.toSorted((a, b) => b.ord - a.ord)",
+				why: "The assembled rows come back in reverse order."
+			}
+		]
+	})

@@ -1,53 +1,3 @@
-import { drawn } from "@bjornpagen/testing/explore"
-import { type Coverage, noCoverage, required, type Situations } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
-import * as Result from "#compiler/core/result.ts"
-import { rooted } from "#compiler/ir/dag.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
-import {
-	formsBroken,
-	type GraphOptimizedFeature,
-	hostNormalized,
-	isGraphRule,
-	type Note,
-	optimizedFeatures,
-	optimizedLoweringWith,
-	seededStatements
-} from "#test/pg/recursion/graph/support.ts"
-import { lowerAligned } from "#test/support/compile.ts"
-import { genCatalog } from "#test/support/evidence.ts"
-import { genParamDecls } from "#test/support/oracle/gen/query.ts"
-import {
-	defaultGraphLimits,
-	defaultRecursiveLimits,
-	fixedLengthCaseGen,
-	graphShapes,
-	type RecursiveCase,
-	type RecursiveFeature,
-	type RecursiveLimits,
-	recursiveCaseGen,
-	vertexKinds
-} from "#test/support/oracle/gen/recursive.ts"
-
-import {
-	comparisonFailed,
-	conservative,
-	defaultRunOptions,
-	type Lowering,
-	oracleCheck,
-	printOutcome,
-	PropertyFailed,
-	runOracle,
-	type SentProgram
-} from "#test/support/oracle/runner.ts"
-import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
-
 /**
  * The optimized lowering with graph recognition against the conservative lowering on PostgreSQL 19.
  *
@@ -75,308 +25,166 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * @cpu-bound
  */
 
-const general = 1200
-const attached = 400
-const filtered = 400
-const fixedLength = 250
+import type { Reached } from "@bjornpagen/testing/features"
+import type { Case } from "@bjornpagen/testing/property"
+import { Effect, Formatter } from "effect"
+import {
+	agreeOn,
+	agreementOnly,
+	everyAttachmentSeeded,
+	generalRequired,
+	type GraphFeature,
+	noGraphRuleFired,
+	optimizedAt
+} from "#test/pg/recursion/graph/equivalence.fixtures.ts"
+import { formsBroken, type Note } from "#test/pg/recursion/graph/support.ts"
+import {
+	defaultGraphLimits,
+	defaultRecursiveLimits,
+	fixedLengthCaseGen
+} from "#test/support/oracle/gen/recursive.ts"
+import {
+	comparisonFailed,
+	defaultRunOptions,
+	oracleProperty,
+	printOutcome,
+	PropertyFailed,
+	runOracle
+} from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 
-/** Every feature a graph population notes: its generator's, its optimized programs', and rows. */
-type GraphFeature = RecursiveFeature | GraphOptimizedFeature | "nonempty"
-
-/**
- * What the general population must reach: every graph shape, vertex type, recursion family
- * and consumer, the recursive CTE, an attachment seeded
- * from its parents' keys, an origin filter pushed into the seed, and rows.
- */
-const generalRequired: Situations<GraphFeature> = [
-	...Arr.map(graphShapes, (s): RecursiveFeature => `shape:${s}`),
-	...Arr.map(vertexKinds, (k): RecursiveFeature => `vertex:${k}`),
-	"self-loop",
-	"parallel edges",
-	"cycle",
-	"diamond",
-	"multiple roots carrying origin",
-	"form:reach",
-	"form:walks",
-	"form:pairs",
-	"direction:both",
-	"alternative relations",
-	"negation:relation",
-	"negation:stratum",
-	"hops:int2",
-	"hops:int4",
-	"hops:int8",
-	"consumer:state",
-	"consumer:endpoints",
-	"consumer:minLength",
-	"consumer:count",
-	"consumer:edgeCount",
-	"consumer:join2",
-	"consumer:stage2",
-	"consumer:attach",
-	"consumer:unreached",
-	"consumer:endFilter",
-	"consumer:originFilter",
-	"recursive CTE",
-	"seeded attachment",
-	"graph.seedPushdown.filter",
-	"nonempty"
-]
-
-/**
- * A per-case requirement beyond agreement: a message when the case breaks it, given its program and the features its
- * lowering noted.
- * A population's own check of each agreeing case: what it finds broken, nothing where the case holds.
- */
-type CaseCheck = (agreed: {
-	readonly c: RecursiveCase
-	readonly program: SentProgram
-	readonly noted: ReadonlyArray<GraphOptimizedFeature>
-}) => ReadonlyArray<string>
-
-/** The check of a population that states none beyond the agreement. */
-const agreementOnly: CaseCheck = () => []
-
-interface Population {
-	/** The recursive population drawn: every consumer, or only the ones a population plants. */
-	readonly limits: RecursiveLimits
-	readonly runs: number
-	readonly suite: string
-	readonly coverage: Coverage<GraphFeature>
-	readonly check: CaseCheck
-}
-
-const agreeOn = (population: Population) =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const schema = yield* s.schema({ create: false, label: "graph" })
-		return yield* oracleCheck(
-			drawn(recursiveCaseGen(population.limits)),
-			{
-				suite: population.suite,
-				oracle: {
-					kind: "second-implementation",
-					name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
-				},
-				literal: Formatter.format,
-				coverage: population.coverage,
-				kept: [],
-				runs: population.runs,
-				shrink: completeShrink,
-				perturb: "all"
-			},
-			(c, notes) =>
-				Effect.gen(function* () {
-					notes.noteAll(c.features)
-					const noted: Array<GraphOptimizedFeature> = []
-					const left = optimizedLoweringWith((fs) => {
-						notes.noteAll(fs)
-						appendAll(noted, fs)
-					}, "snapshot")
-					const outcome = yield* runOracle(hostNormalized(c), left, conservative, {
-						...defaultRunOptions,
-						schema: { kind: "named", name: schema }
-					})
-					if (!outcome.comparison.equal) {
-						return yield* comparisonFailed(outcome)
-					}
-					if (Arr.some(outcome.left.run.statements, (st) => st.rows.length > 0)) {
-						notes.note("nonempty")
-					}
-					const program = outcome.left.program
-					const unseen = formsBroken(c.query.dag.roots[0], program)
-					if (unseen !== undefined) {
-						return yield* new PropertyFailed({ report: `${unseen}\n${printOutcome(outcome)}` })
-					}
-					const broken = population.check({ c, program, noted })
-					if (broken.length > 0) {
-						return yield* new PropertyFailed({
-							report: `${Arr.join(broken, "\n")}\n${printOutcome(outcome)}`
-						})
-					}
-				})
-		)
-	})
-
-/** The general population: every recursion, bounded or not, kept the recursive CTE. */
-const generalPopulation: Population = {
+/** Graph recognition agrees with the conservative lowering on seeded recursive queries of every family and consumer. */
+export const general = agreeOn({
 	limits: defaultRecursiveLimits,
-	runs: general,
-	suite: "recursion/graph",
-	coverage: required<GraphFeature>(generalRequired, { cases: general, sense: notesOnly }),
-	check: agreementOnly
-}
-
-/**
- * The optimized lowering of one root of a case's DAG: a fixed-length case carries its connected match through joins as
- * its first root and the same answer through a bounded recursive relation as its second.
- */
-const optimizedAt = (note: Note, which: 0 | 1): Lowering => ({
-	name: which === 0 ? "optimized joins" : "optimized recursive CTE",
-	lower: ({ case: c, names }) => {
-		const root = c.query.dag.roots[which]
-		if (root === undefined) {
-			throw new Error("a fixed-length case carries two roots")
+	situations: generalRequired,
+	/** Its pre-conversion budget: runs 1200, coverage cases 1200 (equivalence.test.ts `general` at 4fbc3e95). */
+	budget: { runs: 1200, steered: 1200 },
+	kills: [
+		{
+			file: "packages/engine/src/lower/shapes/recursion/index.ts",
+			original: '\t\t\t\t\tquery: select({ kind: "setOp", op: "UNION", arms: [base, step] }),',
+			replacement:
+				'\t\t\t\t\tquery: select({ kind: "setOp", op: "UNION ALL", rows: "operand", arms: [base, step] }),',
+			why: "The optimized lowering's recursive CTE feeds back with UNION ALL, so repeated states are kept and a cycle never reaches its fixed point."
 		}
-		/** The query's root first, the other root after it. */
-		const dag = rooted([root, ...Arr.filter(c.query.dag.roots, (r) => r !== root)])
-		return Result.map(
-			lowerAligned({ dag, params: genParamDecls(c.query) }, "query", {
-				names,
-				context: "snapshot",
-				catalog: genCatalog(c.schema)
-			}),
-			(p) => {
-				note(optimizedFeatures(p))
-				return p
-			}
-		)
-	}
+	],
+	check: agreementOnly
 })
 
-layer(OracleSeat.layer)("graph recognition and R37 against the conservative lowering", (it) => {
-	it.effect("agree on seeded recursive queries of every family and consumer", (ctx) =>
-		searched(ctx, agreeOn(generalPopulation))
-	)
+/** Every attached recursion is seeded from the parent keys and agrees (R37). */
+export const attached = agreeOn({
+	limits: { ...defaultRecursiveLimits, consumers: ["attach"] },
+	situations: ["seeded attachment"] satisfies ReadonlyArray<Reached<GraphFeature>>,
+	/** Its pre-conversion budget: runs 400, coverage cases 400 (equivalence.test.ts `attached` at 4fbc3e95). */
+	budget: { runs: 400, steered: 400 },
+	kills: [
+		{
+			file: "packages/engine/src/lower/shapes/attach-recursive/index.ts",
+			original: "\tif (cx.feedback.has(child.id)) {",
+			replacement: "\tif (!cx.feedback.has(child.id)) {",
+			why: 'seedDecision refuses every recursive attachment as "the recursion being lowered" (the feedback test inverted), so no attachment is seeded and the pipelined statement stands.'
+		}
+	],
+	check: everyAttachmentSeeded
+})
 
-	it.effect("seed every attached recursion from the parent keys and agree (R37)", (ctx) =>
-		searched(
-			ctx,
-			agreeOn({
-				limits: {
-					...defaultRecursiveLimits,
-					consumers: ["attach"]
-				},
-				runs: attached,
-				suite: "recursion/graph-attach",
-				coverage: required<GraphFeature>(["seeded attachment"], {
-					cases: attached,
-					sense: notesOnly
-				}),
-				check: ({ program }) => {
-					const seeded = seededStatements(program)
-					const statements = Arr.filter(
-						flight(program.roots),
-						(s) => s.role.kind === "attachment"
-					).length
-					return statements > 0 && seeded === statements
-						? []
-						: [
-								`${seeded} of ${statements} attachment statements seeded, expected every one of at least one`
-							]
-				}
+/** Origin filters are pushed into the seed. */
+export const originFilter = agreeOn({
+	limits: { ...defaultRecursiveLimits, consumers: ["originFilter"] },
+	situations: ["graph.seedPushdown.filter"] satisfies ReadonlyArray<Reached<GraphFeature>>,
+	/** Its pre-conversion budget: runs 200, coverage cases 200 (equivalence.test.ts `filtered / 2` at 4fbc3e95). */
+	budget: { runs: 200, steered: 200 },
+	kills: [
+		{
+			file: "packages/engine/src/lower/optimize/graph/index.ts",
+			original: "\trules: [seedPushdown],",
+			replacement: "\trules: [],",
+			why: "The graph pass holds no seed pushdown rule, so no predicate over a recursion's carried columns reaches its seed."
+		}
+	],
+	check: agreementOnly
+})
+
+/** No end-vertex filter or final inequality is moved. */
+export const endpointFilter = agreeOn({
+	limits: { ...defaultRecursiveLimits, consumers: ["endFilter", "endNe"] },
+	situations: [],
+	/** Its pre-conversion budget: runs 200, no coverage (equivalence.test.ts `filtered / 2` at 4fbc3e95). */
+	budget: { runs: 200, steered: 0 },
+	kills: [
+		{
+			file: "packages/engine/src/ir/expr.ts",
+			original: "\treturn was.length === now.length && was.every((a, i) => now[i] === a)",
+			replacement: "\treturn was.length === now.length && was.every((a, i) => true)",
+			why: "Operator mutant (boolean-return) at packages/engine/src/ir/expr.ts:698 in sameArgs: `now[i] === a` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	],
+	check: noGraphRuleFired
+})
+
+/** Fixed-length connected matches give the same set through joins and recursive CTEs, both optimized. */
+export const fixedLength = oracleProperty(fixedLengthCaseGen(defaultGraphLimits), {
+	situations: ["recursive CTE"] satisfies ReadonlyArray<Reached<GraphFeature>>,
+	perturb: "all",
+	oracle: {
+		kind: "universal",
+		name: "a fixed-length match through joins and through a hop-counting recursive CTE are one set, both optimized"
+	},
+	kept: [],
+	/** Its pre-conversion budget: runs 250, coverage cases 250 (equivalence.test.ts `fixedLength` at 4fbc3e95). */
+	budget: { runs: 250, steered: 250 },
+	kills: [
+		{
+			file: "packages/engine/src/core/identity.ts",
+			original:
+				"const isConversion = (text: string): boolean => parsedName(text).ok && conversionOf(text) === text",
+			replacement: "const isConversion = (text: string): boolean => false",
+			why: "Operator mutant (boolean-return) at packages/engine/src/core/identity.ts:432 in isConversion: `parsedName(text).ok && conversionOf(text) === text` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	],
+	show: Formatter.format,
+	check: (notes: Case<GraphFeature>) => (c) =>
+		Effect.gen(function* () {
+			const seat = yield* OracleSeat
+			const schema = yield* seat.schema("graphfixed")
+			/** The features each root's lowering noted, the joins' and the recursive relation's. */
+			const noting: Note = (fs) => {
+				notes.noteAll(fs)
+			}
+			const both = yield* runOracle(c, optimizedAt(noting, 0), optimizedAt(noting, 1), {
+				...defaultRunOptions,
+				schema: { kind: "named", name: schema }
 			})
-		)
-	)
-
-	it.effect("push origin filters into the seed", (ctx) =>
-		searched(
-			ctx,
-			agreeOn({
-				limits: {
-					...defaultRecursiveLimits,
-					consumers: ["originFilter"]
-				},
-				runs: filtered / 2,
-				suite: "recursion/graph-origin-filter",
-				coverage: required<GraphFeature>(["graph.seedPushdown.filter"], {
-					cases: filtered / 2,
-					sense: notesOnly
-				}),
-				check: agreementOnly
-			})
-		)
-	)
-
-	it.effect("move no end-vertex filter or final inequality", (ctx) =>
-		searched(
-			ctx,
-			agreeOn({
-				limits: {
-					...defaultRecursiveLimits,
-					consumers: ["endFilter", "endNe"]
-				},
-				runs: filtered / 2,
-				suite: "recursion/graph-endpoint-filter",
-				coverage: noCoverage,
-				check: ({ noted }) => {
-					const moved = Arr.filter(noted, isGraphRule)
-					return moved.length === 0 ? [] : [`the graph pass fired ${Arr.join(moved, ", ")}`]
-				}
-			})
-		)
-	)
-
-	it.effect(
-		"give fixed-length connected matches the same set through joins and recursive CTEs",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema({ create: false, label: "graphfixed" })
-					return yield* oracleCheck(
-						drawn(fixedLengthCaseGen(defaultGraphLimits)),
-						{
-							suite: "recursion/graph-fixed-length",
-							oracle: {
-								kind: "universal",
-								name: "a fixed-length match through joins and through a hop-counting recursive CTE are one set, both optimized"
-							},
-							literal: Formatter.format,
-							coverage: required<GraphFeature>(["recursive CTE"], {
-								cases: fixedLength,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs: fixedLength,
-							shrink: completeShrink,
-							perturb: "all"
-						},
-						(c, notes) =>
-							Effect.gen(function* () {
-								/** The features each root's lowering noted, the joins' and the recursive relation's. */
-								const noting: Note = (fs) => {
-									notes.noteAll(fs)
-								}
-								const both = yield* runOracle(c, optimizedAt(noting, 0), optimizedAt(noting, 1), {
-									...defaultRunOptions,
-									schema: { kind: "named", name: schema }
-								})
-								const cmp = both.comparison
-								if (!cmp.equal) {
-									return yield* comparisonFailed(both)
-								}
-								if (both.right.kind === "reference") {
-									return yield* new PropertyFailed({
-										report: `no optimized program of root 1\n${printOutcome(both)}`
-									})
-								}
-								/**
-								 * Each root shows the form of what it reaches: the joins no recursion, the recursive relation
-								 * its one.
-								 */
-								const sides = [
-									[0, both.left.program],
-									[1, both.right.program]
-								] as const
-								for (const [which, program] of sides) {
-									const root = c.query.dag.roots[which]
-									if (root === undefined) {
-										return yield* new PropertyFailed({
-											report: `no optimized program of root ${which}\n${printOutcome(both)}`
-										})
-									}
-									const unseen = formsBroken(root, program)
-									if (unseen !== undefined) {
-										return yield* new PropertyFailed({
-											report: `root ${which}: ${unseen}\n${printOutcome(both)}`
-										})
-									}
-								}
-							})
-					)
+			const cmp = both.comparison
+			if (!cmp.equal) {
+				return yield* comparisonFailed(both)
+			}
+			if (both.right.kind === "reference") {
+				return yield* new PropertyFailed({
+					report: `no optimized program of root 1\n${printOutcome(both)}`
 				})
-			)
-	)
+			}
+			/**
+			 * Each root shows the form of what it reaches: the joins no recursion, the recursive relation
+			 * its one.
+			 */
+			const sides = [
+				[0, both.left.program],
+				[1, both.right.program]
+			] as const
+			for (const [which, program] of sides) {
+				const root = c.query.dag.roots[which]
+				if (root === undefined) {
+					return yield* new PropertyFailed({
+						report: `no optimized program of root ${which}\n${printOutcome(both)}`
+					})
+				}
+				const unseen = formsBroken(root, program)
+				if (unseen !== undefined) {
+					return yield* new PropertyFailed({
+						report: `root ${which}: ${unseen}\n${printOutcome(both)}`
+					})
+				}
+			}
+		})
 })

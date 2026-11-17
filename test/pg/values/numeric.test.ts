@@ -19,196 +19,81 @@
  *
  * Features: "overflow by rounding", "negative scale" and "scale above precision", the coercions the typmod turns on.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { noCoverage, required } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { scalarCodec } from "#compiler/codec/scalar.ts"
-import type { ValueFault } from "#compiler/core/errors.ts"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { array } from "@bjornpagen/testing/gen"
+import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { assert, contains, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { caseHang } from "#test/support/limits.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { decimalGen, numericText, orderOf } from "#test/unit/values/support.ts"
+import {
+	caseBatch,
+	codecAnswer,
+	type CoercionFeature,
+	hostAnswer,
+	orderAgreement,
+	parsesExactly,
+	typeSql,
+	typmodSql,
+	value
+} from "#test/pg/values/numeric.fixtures.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
-interface Case {
-	readonly ord: number
-	readonly v: string
-	readonly p: number
-	readonly s: number
-}
-
-const precision = weighted([
-	[12, int(1, 40)],
-	[1, element([1, 1000])]
-])
-const scale = weighted([
-	[12, int(-12, 45)],
-	[1, element([-1000, 0, 1000])]
-])
-
-/**
- * A literal one digit past p nines at scale s: it fits when the extra digit rounds down and overflows when it rounds up.
- */
-const boundary: Gen<Omit<Case, "ord">> = (source) => {
-	const p = source.draw(precision)
-	const s = source.draw(scale)
-	const sign = source.draw(element(["", "-"]))
-	const extra = source.draw(element(["4", "5", "9", "49", "50"]))
-	const nines = source.draw(int(Math.min(Math.max(1, p - 2), 60), Math.min(p, 60)))
-	return { v: `${sign}${Str.repeat(nines)("9")}${extra}e${-s - extra.length}`, p, s }
-}
-
-const drawnCase = weighted<Omit<Case, "ord">>([
-	[
-		7,
-		(source) => ({
-			v: source.draw(numericText),
-			p: source.draw(precision),
-			s: source.draw(scale)
-		})
-	],
-	[3, boundary],
-	[1, (source) => ({ v: source.draw(element(["NaN", "Infinity", "-Infinity"])), p: 10, s: 2 })]
-])
-
-/** A batch of up to 2,500 cases, a case's one recordset, each numbered by its position. */
-const caseBatch: Gen<ReadonlyArray<Case>> = map(array(drawnCase, { min: 1, max: 2500 }), (batch) =>
-	Arr.map(batch, (c, ord) => ({ ord, ...c }))
-)
-
-/**
- * The cases of each literal search: the rotating 6 batches and the floor's 1, about the 10,000 sampled before the
- * search.
- */
-const literalRuns = 6
-
-/**
- * What a coercion case reached: an overflow the rounding alone causes, a negative scale, and a scale above the
- * precision.
- */
-type CoercionFeature = "overflow by rounding" | "negative scale" | "scale above precision"
-
-/** The refusals of a value numeric(p, s) cannot hold, which PostgreSQL raises as 22003. */
-const overflowFaults: ReadonlyArray<ValueFault> = ["numericOverflow", "numericInfinity"]
-
-/**
- * The host's answer: the coerced numeric text, or the SQLSTATE PostgreSQL raises for the refusal (22003 for
- * numeric field overflow and for an infinity under a typmod).
- */
-const hostAnswer = (c: Case): string => {
-	const normalized = normalizeNumeric(succeeded(Decimal.fromString(c.v)), {
-		precision: c.p,
-		scale: c.s
-	})
-	if (normalized.ok) {
-		return normalized.value.toString()
-	}
-	contains(overflowFaults, normalized.error)
-	return "22003"
-}
-
-/**
- * The numeric(p, s) codec's answer: the value its encoder writes for the literal, read back as its one text, or
- * "refused".
- */
-const codecAnswer = (c: Case): string => {
-	const codec = scalarCodec(
-		scalarOf({ kind: "numeric", precision: c.p, scale: c.s }, {}),
-		emptyCodebook
-	)
-	const encoded = codec.encode(succeeded(Decimal.fromString(c.v)))
-	return encoded.ok ? Decimal.fromOutput(encoded.value).toString() : "refused"
-}
-
-/**
- * Whether the codec parses exactly against PostgreSQL's coercion `host`: it writes the literal's own value only where
- * PostgreSQL stores that value unchanged, and refuses wherever PostgreSQL stores another or refuses it.
- */
-const parsesExactly = (c: Case, host: string, codec: string): boolean => {
-	const literal = succeeded(Decimal.fromString(c.v)).toString()
-	return codec === "refused" ? host !== literal : codec === literal && host === literal
-}
-
-const typmodSql = "((c.p << 16) | (c.s & 2047)) + 4"
-const typeSql = "format('numeric(%s,%s)', c.p, c.s)"
-
-layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
-	it.effect("parses every literal to the value numeric_in gives it, in its one form", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const { session } = yield* Substrate
-				const db = yield* session(ownerSession())
-				return yield* explore(
-					{
-						oracle: { kind: "postgresql", name: "numeric_in, read back by trim_scale" },
-						suite: "pg/values/numeric/parse",
-						draw: drawn(caseBatch),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: literalRuns,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(chunk) =>
-						Effect.gen(function* () {
-							const rows = yield* db.values(
-								"SELECT c.ord::text, trim_scale(c.v::numeric)::text FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text) ORDER BY c.ord",
-								[jsonText(Arr.map(chunk, ({ ord, v }) => ({ ord, v })))]
-							)
-							const mismatches = Arr.filter(
-								chunk,
-								(c, i) => rows[i]?.[1] !== succeeded(Decimal.fromString(c.v)).toString()
-							)
-							assert.deepEqual(mismatches.slice(0, 5), [])
-						})
-				)
-			})
-		)
-	)
-
-	it.effect(
-		"normalizes literals to numeric(p, s) exactly as both PostgreSQL coercion paths do, and the codec parses exactly",
-		(ctx) =>
-			searched(
-				ctx,
+/** Numeric agreement with PostgreSQL parses every literal to the value numeric_in gives it, in its one form. */
+export const numericAgreementWithPostgreSQLParsesEveryLiteralToTheValueNumericInGivesItInItsOneForm =
+	property.explore(caseBatch, {
+		needs: { tx: Substrate.transaction },
+		situations: [],
+		/** Its pre-conversion budget: runs 6, no coverage (numeric.test.ts at 4fbc3e95). */
+		budget: { runs: 6, steered: 0 },
+		check:
+			({ tx }) =>
+			(chunk) =>
 				Effect.gen(function* () {
-					const { session } = yield* Substrate
-					const db = yield* session(ownerSession())
-					return yield* explore(
-						{
-							oracle: {
-								kind: "postgresql",
-								name: "numeric_in under a typmod and the numeric(numeric, typmod) cast"
-							},
-							suite: "pg/values/numeric/coercion",
-							draw: drawn(caseBatch),
-							literal: Formatter.format,
-							coverage: required<CoercionFeature>(
-								["overflow by rounding", "negative scale", "scale above precision"],
-								{ cases: literalRuns, sense: notesOnly }
-							),
-							kept: [],
-							runs: literalRuns,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(chunk, k) =>
-							Effect.gen(function* () {
-								const rows = yield* db.values(
-									`SELECT c.ord::text,
+					const { session: db } = yield* tx
+
+					const rows = yield* db.values(
+						"SELECT c.ord::text, trim_scale(c.v::numeric)::text FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text) ORDER BY c.ord",
+						[jsonText(Arr.map(chunk, ({ ord, v }) => ({ ord, v })))]
+					)
+					const mismatches = Arr.filter(
+						chunk,
+						(c, i) => rows[i]?.[1] !== succeeded(Decimal.fromString(c.v)).toString()
+					)
+					assert.deepEqual(mismatches.slice(0, 5), [])
+				}),
+		oracle: { kind: "postgresql", name: "numeric_in, read back by trim_scale" },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: "\t\tconst exponent = written.value.value - fractionLength + (all.length - end)",
+				replacement: "\t\tconst exponent = written.value.value - fractionLength",
+				why: "fromString drops a literal's trailing zeros without raising its exponent."
+			}
+		]
+	})
+
+/** Numeric agreement with PostgreSQL normalizes literals to numeric(p, s) exactly as both PostgreSQL coercion paths do, and the codec parses exactly. */
+export const numericAgreementWithPostgreSQLNormalizesLiteralsToNumericPSExactlyAsBothPostgreSQLCoercionPathsDoAndTheCodecParsesExactly =
+	property.explore(caseBatch, {
+		needs: { tx: Substrate.transaction },
+		situations: [
+			"overflow by rounding",
+			"negative scale",
+			"scale above precision"
+		] satisfies ReadonlyArray<Reached<CoercionFeature>>,
+		/** Its pre-conversion budget: runs 6, coverage cases 6 (numeric.test.ts at 4fbc3e95). */
+		budget: { runs: 6, steered: 6 },
+		check:
+			({ tx }, k: CaseOf<CoercionFeature>) =>
+			(chunk) =>
+				Effect.gen(function* () {
+					const { session: db } = yield* tx
+
+					const rows = yield* db.values(
+						`SELECT c.ord::text,
 						CASE WHEN pg_input_is_valid(c.v, ${typeSql})
 							THEN trim_scale(numeric_in(c.v::cstring, 1700::oid, ${typmodSql}))::text
 							ELSE (pg_input_error_info(c.v, ${typeSql})).sql_error_code END,
@@ -217,135 +102,98 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 							ELSE (pg_input_error_info(c.v, ${typeSql})).sql_error_code END
 					FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text, p int4, s int4)
 					ORDER BY c.ord`,
-									[jsonText(Arr.map(chunk, ({ ord, v, p, s }) => ({ ord, v, p, s })))]
-								)
-								assert.equal(rows.length, chunk.length)
-								const mismatches: Array<unknown> = []
-								for (const [i, c] of chunk.entries()) {
-									const host = hostAnswer(c)
-									const codec = codecAnswer(c)
-									const [ord, input, cast] = defined(rows[i], `no row for case ${i}`)
-									if (
-										ord !== String(c.ord) ||
-										input !== host ||
-										cast !== host ||
-										!parsesExactly(c, host, codec)
-									) {
-										mismatches.push({ ...c, host, codec, input, cast })
-									}
-									const x = succeeded(Decimal.fromString(c.v))
-									if (host === "22003" && x.isFinite()) {
-										/** The unrounded magnitude fits, so the rounding alone overflowed. */
-										const fits = normalizeNumeric(x, { precision: 1000, scale: 0 }).ok
-										const intDigits = x.parts.coefficient.toString().length - x.parts.minScale
-										if (fits && intDigits <= c.p - c.s) {
-											k.note("overflow by rounding")
-										}
-									}
-									if (c.s < 0) {
-										k.note("negative scale")
-									}
-									if (c.s > c.p) {
-										k.note("scale above precision")
-									}
-								}
-								assert.deepEqual(mismatches.slice(0, 5), [])
-							})
+						[jsonText(Arr.map(chunk, ({ ord, v, p, s }) => ({ ord, v, p, s })))]
 					)
-				})
-			)
-	)
-
-	it.effect("orders, equates and deduplicates numerics as PostgreSQL does, NaN last", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const { session } = yield* Substrate
-				const db = yield* session(ownerSession())
-				/** A numeric spelling: a value's one text, padded by some trailing zeros, or a dictionary spelling. */
-				const value: Gen<string> = weighted([
-					[4, map(decimalGen, (d) => d.toString())],
-					[
-						2,
-						(source) => {
-							const d = source.draw(decimalGen)
-							const k = source.draw(element([1, 8, 24, 40]))
-							return d.isFinite()
-								? `${Str.includes(".")(d.text) ? d.text : `${d.text}.`}${Str.repeat(k)("0")}`
-								: d.text
+					assert.equal(rows.length, chunk.length)
+					const mismatches: Array<unknown> = []
+					for (const [i, c] of chunk.entries()) {
+						const host = hostAnswer(c)
+						const codec = codecAnswer(c)
+						const [ord, input, cast] = defined(rows[i], `no row for case ${i}`)
+						if (
+							ord !== String(c.ord) ||
+							input !== host ||
+							cast !== host ||
+							!parsesExactly(c, host, codec)
+						) {
+							mismatches.push({ ...c, host, codec, input, cast })
 						}
-					],
-					[1, element(["1.0", "1.00", "-0", "0.000", "NaN", "Infinity", "-Infinity"])]
-				])
-				return yield* explore(
-					{
-						oracle: {
-							kind: "postgresql",
-							name: "numeric's ORDER BY, DISTINCT, < and ="
-						},
-						suite: "pg/values/numeric/order",
-						draw: drawn(array(value, { min: 1, max: 3000 })),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 2,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(values) => orderAgreement(db, values)
-				)
-			})
-		)
-	)
-})
+						const x = succeeded(Decimal.fromString(c.v))
+						if (host === "22003" && x.isFinite()) {
+							/** The unrounded magnitude fits, so the rounding alone overflowed. */
+							const fits = normalizeNumeric(x, { precision: 1000, scale: 0 }).ok
+							const intDigits = x.parts.coefficient.toString().length - x.parts.minScale
+							if (fits && intDigits <= c.p - c.s) {
+								k.note("overflow by rounding")
+							}
+						}
+						if (c.s < 0) {
+							k.note("negative scale")
+						}
+						if (c.s > c.p) {
+							k.note("scale above precision")
+						}
+					}
+					assert.deepEqual(mismatches.slice(0, 5), [])
+				}),
+		oracle: {
+			kind: "postgresql",
+			name: "numeric_in under a typmod and the numeric(numeric, typmod) cast"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: "\tif (magnitude >= pow10(precision)) {",
+				replacement: "\tif (magnitude > pow10(precision)) {",
+				why: "normalizeNumeric admits a rounded magnitude of exactly 10^(p - s)."
+			},
+			{
+				file: "packages/engine/src/codec/scalar.ts",
+				original: '\t\t\treturn { carrier: "numeric", typmod: type.typmod }',
+				replacement: '\t\t\treturn { carrier: "numeric", typmod: undefined }',
+				why: "The numeric codec's carrier spec drops its typmod, so its encoder admits a value its column rounds."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: "\tnumeric: (value, spec) => decimalAt(parseNumeric)(value, spec.typmod),",
+				replacement: "\tnumeric: (value, spec) => decimalAt(normalizeNumeric)(value, spec.typmod),",
+				why: "The encoder rounds to the scale where it must refuse."
+			},
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: "\tconst units = exactUnits(d, typmod.scale)",
+				replacement: "\tconst units = exactUnits(d, typmod.scale - 1)",
+				why: "parseNumeric reads a value at one place less than its typmod's scale, so the encoder refuses a value whose fraction fills the scale, which PostgreSQL stores unchanged."
+			}
+		]
+	})
 
-/**
- * The order, equality and DISTINCT of one batch of numeric spellings on PostgreSQL against the host's values: the
- * spellings travel as written, so PostgreSQL stores their display scales, and the host reads each as its one Decimal.
- */
-const orderAgreement = (db: RawSession, spellings: ReadonlyArray<string>) =>
-	Effect.gen(function* () {
-		const values = Arr.map(spellings, (text) => Decimal.of(text))
-		const payload = jsonText(Arr.map(spellings, (v, ord) => ({ ord, v })))
-		const source = "jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text)"
-		const ascending = orderOf(values, (a, b) => a.compare(b))
-		const descending = orderOf(values, (a, b) => b.compare(a))
-		const pgAsc = yield* db.values(
-			`SELECT c.ord::text FROM ${source} ORDER BY c.v::numeric, c.ord`,
-			[payload]
-		)
-		const pgDesc = yield* db.values(
-			`SELECT c.ord::text FROM ${source} ORDER BY c.v::numeric DESC, c.ord`,
-			[payload]
-		)
-		const pgAscOrder: ReadonlyArray<number> = Arr.map(pgAsc, (r) => Number(r[0]))
-		assert.deepEqual(pgAscOrder, ascending)
-		const pgDescOrder: ReadonlyArray<number> = Arr.map(pgDesc, (r) => Number(r[0]))
-		assert.deepEqual(pgDescOrder, descending)
-		const distinct = yield* db.values(`SELECT count(DISTINCT c.v::numeric)::text FROM ${source}`, [
-			payload
-		])
-		const identities = Arr.dedupe(Arr.map(values, (d) => d.text))
-		assert.deepEqual(
-			Arr.map(distinct, (r) => Number(r[0])),
-			[identities.length]
-		)
-		/** DISTINCT keeps one value per Decimal; its trimmed text is the Decimal's one text. */
-		const kept = yield* db.values(`SELECT DISTINCT trim_scale(c.v::numeric)::text FROM ${source}`, [
-			payload
-		])
-		unorderedEqual(
-			Arr.map(kept, (r) => String(r[0])),
-			identities
-		)
-		const pairs = Arr.zip(values, Arr.reverse(values))
-		const ops = yield* db.values(
-			"SELECT (c.a::numeric < c.b::numeric)::text, (c.a::numeric = c.b::numeric)::text FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, a text, b text) ORDER BY c.ord",
-			[jsonText(Arr.map(pairs, ([a, b], ord) => ({ ord, a: a.toString(), b: b.toString() })))]
-		)
-		assert.deepEqual(
-			ops,
-			Arr.map(pairs, ([a, b]) => [String(a.compare(b) < 0), String(a.compare(b) === 0)])
-		)
+/** Numeric agreement with PostgreSQL orders, equates and deduplicates numerics as PostgreSQL does, NaN last. */
+export const numericAgreementWithPostgreSQLOrdersEquatesAndDeduplicatesNumericsAsPostgreSQLDoesNaNLast =
+	property.explore(array(value, { min: 1, max: 3000 }), {
+		needs: { tx: Substrate.transaction },
+		situations: [],
+		/** Its pre-conversion budget: runs 2, no coverage (numeric.test.ts at 4fbc3e95). */
+		budget: { runs: 2, steered: 0 },
+		check:
+			({ tx }) =>
+			(values) =>
+				Effect.gen(function* () {
+					const { session: db } = yield* tx
+					return yield* orderAgreement(db, values)
+				}),
+		oracle: {
+			kind: "postgresql",
+			name: "numeric's ORDER BY, DISTINCT, < and ="
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: "\t\t\treturn 3",
+				replacement: "\t\t\treturn 2",
+				why: "compareDecimal ranks NaN with +Infinity."
+			}
+		]
 	})

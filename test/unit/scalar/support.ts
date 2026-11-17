@@ -62,9 +62,6 @@ export const spellings: Arr.NonEmptyReadonlyArray<Spelling> = nonEmpty(
 	"the pg namespace's descriptors"
 )
 
-/** A spelling drawn from the pg namespace's descriptors (spellings), the roster the source declares. */
-export const spellingGen: Gen<Spelling> = element(spellings)
-
 /** The descriptor a spelling names. */
 export const spelled = (name: Spelling) =>
 	defined(

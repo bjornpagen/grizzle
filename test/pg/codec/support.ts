@@ -4,7 +4,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { type Codebook, codecOf } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
+import type { CaseSession } from "#test/support/substrate/session.ts"
 
 /**
  * Shared helpers for the codec tests against PostgreSQL (test/pg/codec).
@@ -19,7 +19,7 @@ export const fieldOf = (fact: Readonly<Record<string, unknown>>, name: string): 
 	fact[name]
 
 /** The pinned pgvector installation's schema, quoted (the extension lives in its own schema). */
-export const vectorSchemaOf = (db: RawSession) =>
+export const vectorSchemaOf = (db: CaseSession) =>
 	Effect.map(
 		db.values(
 			"SELECT n.nspname::text FROM pg_catalog.pg_extension e JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'vector'",
@@ -32,7 +32,7 @@ export const vectorSchemaOf = (db: RawSession) =>
  * The fixed monetary context every login carries as its defaults; a raw session sets it itself, then runs the
  * numeric money-context check admission runs.
  */
-export const monetaryContext = (db: RawSession) =>
+export const monetaryContext = (db: CaseSession) =>
 	Effect.gen(function* () {
 		yield* db.values("SET lc_monetary TO 'C.UTF-8'", [])
 		yield* db.values("SET lc_numeric TO 'C.UTF-8'", [])

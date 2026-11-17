@@ -1,23 +1,3 @@
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Formatter } from "effect"
-import {
-	type RecursionOracleFeature,
-	recursiveEquivalence
-} from "#test/pg/recursion/oracle/support.ts"
-import {
-	defaultRecursiveLimits,
-	graphShapes,
-	type RecursiveFeature,
-	recursiveCaseGen,
-	vertexKinds
-} from "#test/support/oracle/gen/recursive.ts"
-import { conservative, reference } from "#test/support/oracle/runner.ts"
-import { OracleSeat } from "#test/support/oracle/seat.ts"
-
 /**
  * The recursion equivalence suite.
  *
@@ -43,91 +23,41 @@ import { OracleSeat } from "#test/support/oracle/seat.ts"
  * @cpu-bound
  */
 
-const cases = 1600
+import type { Reached } from "@bjornpagen/testing/features"
+import { equivalenceSituations } from "#test/pg/recursion/oracle/equivalence.fixtures.ts"
+import {
+	type RecursionOracleFeature,
+	recursiveEquivalence
+} from "#test/pg/recursion/oracle/support.ts"
+import { defaultRecursiveLimits, recursiveCaseGen } from "#test/support/oracle/gen/recursive.ts"
+import { conservative, reference } from "#test/support/oracle/runner.ts"
 
-/** What the population must reach. */
-const situations = [
-	...Arr.map(graphShapes, (s): RecursiveFeature => `shape:${s}`),
-	...Arr.map(vertexKinds, (k): RecursiveFeature => `vertex:${k}`),
-	"self-loop",
-	"parallel edges",
-	"cycle",
-	"diamond",
-	"multiple roots carrying origin",
-	"keyed edges",
-	"set edges",
-	"containment",
-	"dangling edges",
-	"second edge relation",
-	"form:reach",
-	"form:walks",
-	"form:pairs",
-	"roots:param",
-	"roots:literal",
-	"roots:input",
-	"roots:all",
-	"roots:arms",
-	"zero-or-more",
-	"one-or-more",
-	"direction:forward",
-	"direction:reverse",
-	"direction:both",
-	"alternative relations",
-	"existence match",
-	"negation:relation",
-	"negation:stratum",
-	"step filter:notLiteral",
-	"step filter:increasing",
-	"hops:int2",
-	"hops:int4",
-	"hops:int8",
-	"left-linear",
-	"right-linear",
-	"consumer:state",
-	"consumer:endpoints",
-	"consumer:minLength",
-	"consumer:count",
-	"consumer:edgeCount",
-	"consumer:join2",
-	"consumer:stage2",
-	"consumer:attach",
-	"consumer:unreached",
-	"consumer:endFilter",
-	"consumer:endNe",
-	"consumer:originFilter",
-	"result filter:param",
-	"result filter:literal",
-	"relation roots over text"
-] as const satisfies ReadonlyArray<RecursionOracleFeature>
-
-const explored = recursiveEquivalence(
+/**
+ * Recursive queries agree, the conservative lowering against the reference evaluator, on seeded graph-shaped recursive
+ * queries of every shape, family, binding and consumer, with no repeated row.
+ */
+export const conservativeAgainstReference = recursiveEquivalence(
 	recursiveCaseGen(defaultRecursiveLimits),
 	conservative,
 	reference,
 	{
-		suite: "recursion/reference",
 		oracle: {
 			kind: "second-implementation",
 			name: "the reference evaluator, computing each recursion by definition"
 		},
-		literal: Formatter.format,
-		coverage: required<RecursionOracleFeature>([...situations, "nonempty"], {
-			cases: 2 * cases,
-			sense: notesOnly
-		}),
-		kept: [],
-		runs: 2 * cases,
-		shrink: completeShrink,
-		perturb: "all"
-	}
-)
-
-layer(OracleSeat.layer)(
-	"recursive queries: the conservative lowering against the reference evaluator",
-	(it) => {
-		it.effect(
-			"agree on seeded graph-shaped recursive queries of every shape, family, binding and consumer, with no repeated row",
-			(ctx) => searched(ctx, explored)
-		)
+		situations: equivalenceSituations satisfies ReadonlyArray<Reached<RecursionOracleFeature>>,
+		perturb: "all",
+		/** Its pre-conversion budget: runs 2 * cases, coverage cases 2 * cases, cases = 1600 (equivalence.test.ts at 4fbc3e95). */
+		budget: { runs: 3200, steered: 3200 },
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/recursive/index.ts",
+				original:
+					'\tconst body: Select = select({ kind: "setOp", op: "UNION", arms: [base, step] })',
+				replacement:
+					'\tconst body: Select = select({ kind: "setOp", op: "UNION", arms: [base, base] })',
+				why: "The conservative lowering's recursive CTE unions its base with itself where its step belongs (lower/conservative/recursive), so it never steps past its seeds."
+			}
+		]
 	}
 )

@@ -1,4 +1,3 @@
-import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 /**
  * A family's members carrying bytes, on PostgreSQL 19rc2: an owner of a bytes value of its own, which its nested write
  * admits once for the owner's row and once for its own insert, is inserted with members nested in order, each
@@ -12,171 +11,58 @@ import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
  *
  * Features: the vocabulary Feature below, each member value's length class about a chunk.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Layer, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import {
+	type Drawn,
+	type Feature,
+	Files,
+	notes,
+	sameBytes,
+	space,
+	streamBytes,
+	filesInstall,
+	filesTemplate
+} from "#test/pg/fields/bytes-family.fixtures.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
-/** `length` bytes of a xorshift stream from `seed`. */
-const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {
-	const out = new Uint8Array(length)
-	let x = seed | 1
-	for (let i = 0; i < length; i += 1) {
-		x ^= x << 13
-		x ^= x >>> 17
-		x ^= x << 5
-		out[i] = x & 0xff
-	}
-	return out
-}
-
-/** A member's value: its length and its seed, its bytes made when the case runs. */
-interface Value {
-	readonly length: number
-	readonly seed: number
-}
-
-/** A case: the members' values in slot order, and the slot of the one deleted. */
-interface Drawn {
-	readonly values: ReadonlyArray<Value>
-	readonly cut: number
-}
-
-const length: Gen<number> = weighted([
-	[1, () => 0],
-	[3, int(1, 64)],
-	[2, (s) => s.draw(element([1, 2])) * bytesChunkLength + s.draw(element([-1, 0, 1]))]
-])
-
-const cases: Gen<Drawn> = (s) => {
-	const values = s.draw(
-		array((r) => ({ length: r.draw(length), seed: r.draw(int(1, 0x7fff_ffff)) }), {
-			min: 1,
-			max: 4
-		})
-	)
-	return { values, cut: s.draw(int(0, values.length - 1)) }
-}
-
-type Feature =
-	| "the first member deleted"
-	| "the last member deleted"
-	| "a member re-placed"
-	| "a re-placed member of an empty value"
-	| "a re-placed member of a chunk or more"
-	| "a re-placed member of several chunks"
-
-const notes = (d: Drawn): ReadonlyArray<Feature> => {
-	const c = bytesChunkLength
-	const replaced = d.values.slice(d.cut + 1)
-	const out: Array<Feature> = []
-	if (d.cut === 0) {
-		out.push("the first member deleted")
-	}
-	if (d.cut === d.values.length - 1) {
-		out.push("the last member deleted")
-	}
-	if (replaced.length > 0) {
-		out.push("a member re-placed")
-	}
-	if (Arr.some(replaced, (x) => x.length === 0)) {
-		out.push("a re-placed member of an empty value")
-	}
-	if (Arr.some(replaced, (x) => x.length >= c)) {
-		out.push("a re-placed member of a chunk or more")
-	}
-	if (Arr.some(replaced, (x) => x.length > c)) {
-		out.push("a re-placed member of several chunks")
-	}
-	return out
-}
-
-const Owner = relation("Owner", { id: uuid, badge: bytes, members: drawnField(natural) }, ["id"])
-const Member = relation("Member", { id: uuid, owner: uuid, at: drawnField(natural), body: bytes }, [
-	"id"
-])
-const Files = schema(
-	"BytesFamily",
-	[Owner, Member],
-	[ordered(on(Member, "owner", "at"), fin(Owner, "members")), mutable(Owner)]
-)
-
-/**
- * The full world's workload: an owner written with its members nested, the owners and the members read back, and a
- * member deleted, each with the facts each call gives.
- */
-const programs = Object.freeze({
-	insertOwner: ChangeSet.empty(Files).insert(Owner, []),
-	owners: query(Files).rule((r) => {
-		const { id, badge } = v(Owner, "o")
-		return r.match(Owner, { id, badge }).find({ id, badge })
-	}),
-	members: query(Files).rule((r) => {
-		const { id, owner, at, body } = v(Member, "m")
-		return r.match(Member, { id, owner, at, body }).find({ id, at, body })
-	}),
-	deleteMember: ChangeSet.empty(Files).delete(Member, [])
-})
-
-/** Whether two bytes values hold the same bytes. */
-const sameBytes = (x: Uint8Array, y: Uint8Array): boolean =>
-	x.length === y.length && x.every((byte, at) => byte === y[at])
-
-layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members", (it) => {
-	it.effect(
-		"read their stored suffix in chunks and write each re-placed member's bytes whole",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "pg/fields/bytes-family",
-						oracle: {
-							kind: "second-implementation",
-							name: "the drawn values in slot order, less the one deleted"
-						},
-						draw: drawn(cases),
-						literal: (d: Drawn) =>
-							Formatter.format({ lengths: Arr.map(d.values, (x) => x.length), cut: d.cut }),
-						coverage: required<Feature>(
-							[
-								"the first member deleted",
-								"the last member deleted",
-								"a member re-placed",
-								"a re-placed member of an empty value",
-								"a re-placed member of a chunk or more",
-								"a re-placed member of several chunks"
-							],
-							{ cases: 12, sense: notesOnly }
-						),
-						kept: [],
-						runs: 12,
-						shrink: completeShrink,
-						steerEvery: 4,
-						caseHang
-					},
-					(d: Drawn, c: Case<Feature>) =>
+/** A family's bytes members read their stored suffix in chunks and write each re-placed member's bytes whole. */
+export const aFamilysBytesMembersReadTheirStoredSuffixInChunksAndWriteEachRePlacedMembersBytesWhole =
+	property.explore(space, {
+		needs: { fixture: Substrate.seat(filesTemplate) },
+		situations: [
+			"the first member deleted",
+			"the last member deleted",
+			"a member re-placed",
+			"a re-placed member of an empty value",
+			"a re-placed member of a chunk or more",
+			"a re-placed member of several chunks"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		/**
+		 * Its pre-conversion runs, 12 (bytes-family.test.ts at 4fbc3e95), and the steered cases its witnesses need: the
+		 * floor and 2 steered cases reach every required situation, 1 leaves a member re-placed unreached (measured at
+		 * TEST_SEED=1 on grizzle 01506d52; the witnesses are fixed by the property's identity). The old suite ran 4
+		 * coverage cases at that seed; 12 ran 27 cases a run.
+		 */
+		budget: { runs: 12, steered: 2 },
+		check:
+			({ fixture }, c: Case<Feature>) =>
+			(d: Drawn) =>
+				Effect.flatMap(fixture, (taken) =>
+					Effect.provideService(
 						Effect.scoped(
 							Effect.gen(function* () {
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}
-								const o = yield* installed(Files, {}, { label: "bytesfamily", programs })
+								const o = yield* openedIn(Files, {}, filesInstall, taken)
 								yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
 									const owner = uuidOf(1)
@@ -235,8 +121,22 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 									Effect.scoped
 								)
 							})
-						)
-				)
-			)
-	)
-})
+						),
+						Substrate,
+						taken.substrate
+					)
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the drawn values in slot order, less the one deleted"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/codec/delivery.ts",
+				original: "\t\tconst offset = Number(rowText(row, chunkAt)) * chunkLength",
+				replacement: "\t\tconst offset = Number(rowText(row, chunkAt)) * (chunkLength - 1)",
+				why: "A delivered chunk is written at the wrong offset, so a member's bytes past its first chunk read back wrong."
+			}
+		]
+	})

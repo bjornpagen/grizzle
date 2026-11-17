@@ -21,185 +21,76 @@
  *
  * Features: every candidate shape of test/support/lexical.ts.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
+
+import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { dayNumber, datePartSlices, toCalendarDate } from "#compiler/ir/date.ts"
-import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
-import { toFloat } from "#compiler/scalar/compute/cast.ts"
+import { lexicalValue } from "#compiler/scalar/lexical.ts"
 import {
-	formOctets,
-	formSource,
-	type LexicalTarget,
-	lexicalValue
-} from "#compiler/scalar/lexical.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { convertDouble } from "#compiler/scalar/values/float.ts"
-import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
-import { binary, cast, lit, numericType, tableCol, types } from "#compiler/sql/build.ts"
-import { dateOfText } from "#compiler/sql/lexical.ts"
-import { printExpr } from "#compiler/sql/print.ts"
-import { analyzeText } from "#compiler/text/refinement.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
-import {
-	type Candidate,
-	candidateGen,
-	type Shape,
-	sameValue,
-	shapes
-} from "#test/support/lexical.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+	agrees,
+	areOf,
+	memberSql,
+	parseSql,
+	roundDouble,
+	targetKey
+} from "#test/pg/scalar/lexical.fixtures.ts"
+import { assert, defined } from "#test/support/assert.ts"
+import { type Candidate, candidateGen, type Shape, shapes } from "#test/support/lexical.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const roundDouble = (negative: boolean, num: bigint, den: bigint): number =>
-	toFloat(negative, num, den, "float8")
+/** Lexical parse: the host and PostgreSQL 19 agree on every candidate's membership in its form and on the value its parse reads, under a foreign DateStyle. */
+export const lexicalParseTheHostAndPostgreSQL19AgreeOnEveryCandidatesMembershipInItsFormAndOnTheValueItsParseReadsUnderAForeignDateStyle =
+	property.explore(array(candidateGen, { min: 1, max: 160 }), {
+		needs: { tx: Substrate.transaction },
+		situations: shapes satisfies ReadonlyArray<Reached<Shape>>,
+		/** Its pre-conversion budget: runs 300, coverage cases 300 (lexical.test.ts at 4fbc3e95). */
+		budget: { runs: 300, steered: 300 },
+		check:
+			({ tx }, c: Case<Shape>) =>
+			(batch) =>
+				Effect.gen(function* () {
+					const { session: db } = yield* tx
+					yield* db.query("SET DateStyle = 'SQL, DMY'", [])
 
-/** The SQL type a target's cast names, numeric's typmod included. */
-const targetType = (
-	target: Exclude<LexicalTarget, { readonly kind: "date" | "doubleText" }>
-): TypeRef => {
-	switch (target.kind) {
-		case "integer":
-			return target.carrier === "int2"
-				? types.smallint
-				: target.carrier === "int4"
-					? types.integer
-					: types.bigint
-		case "decimal":
-			return numericType(target.typmod.precision, target.typmod.scale)
-		case "double":
-			return types.double
-		case "boolean":
-			return types.boolean
-		case "decimalText":
-			return types.numeric
-	}
-}
-
-/**
- * The parse of the column `t` as grizzle prints it, as text: the cast, for a date its day number after 0001-01-01,
- * which reads no DateStyle, and for a double's text Compute.parseDouble's form.
- */
-const parsedOf = (target: LexicalTarget, t: Expr): Expr => {
-	switch (target.kind) {
-		case "date":
-			return binary(
-				"-",
-				dateOfText(t, datePartSlices),
-				cast(lit.text("0001-01-01", types.text), types.date)
-			)
-		case "doubleText":
-			return parseDoubleForm(t)
-		case "integer":
-		case "decimal":
-		case "double":
-		case "boolean":
-		case "decimalText":
-			return cast(t, targetType(target))
-	}
-}
-
-const parseSql = (target: LexicalTarget): string =>
-	printExpr(cast(parsedOf(target, tableCol("t")), types.text))
-
-/** The ARE of a target's form, as the text analysis translates it for PostgreSQL. */
-const areOf = (target: LexicalTarget): string =>
-	succeeded(analyzeText([{ source: formSource(target), flags: "u" }], SourceLoc("lexicalForm", [])))
-		.members[0].are
-
-/** Whether PostgreSQL's text of a parsed value is the host's value of the member. */
-const agrees = (target: LexicalTarget, text: string, value: unknown): boolean => {
-	switch (target.kind) {
-		case "integer":
-			return typeof value === "bigint" && BigInt(text) === value
-		case "decimal":
-		case "decimalText":
-			return value instanceof Decimal && Decimal.fromOutput(text).equals(value)
-		case "double":
-		case "doubleText":
-			return sameValue(convertDouble(text), value)
-		case "boolean":
-			return value === (text === "true")
-		case "date":
-			return (
-				typeof value === "string" && Number(text) === dayNumber(succeeded(toCalendarDate(value)))
-			)
-	}
-}
-
-/** PostgreSQL's membership of `t` in a target's form: a match of its ARE, `$2`, within its byte bound, if any. */
-const memberSql = (target: LexicalTarget): string => {
-	const match = "u.t COLLATE pg_catalog.pg_c_utf8 ~ $2::text"
-	const octets = formOctets(target)
-	return octets === undefined ? match : `(${match} AND pg_catalog.octet_length(u.t) <= ${octets})`
-}
-
-/** A target's key, which groups a batch's candidates into one statement per target. */
-const targetKey = (target: LexicalTarget): string => Formatter.format(target)
-
-layer(Substrate.layer)("lexical parse: the host and PostgreSQL 19 agree", (it) => {
-	it.effect(
-		"on every candidate's membership in its form and on the value its parse reads, under a foreign DateStyle",
-		(ctx) =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const db = yield* s.session(ownerSession())
-				yield* db.query("SET DateStyle = 'SQL, DMY'", [])
-				return yield* searched(
-					ctx,
-					explore(
-						{
-							suite: "pg/scalar/lexical-parse",
-							draw: drawn(array(candidateGen, { min: 1, max: 160 })),
-							literal: Formatter.format,
-							coverage: required<Shape>(shapes, { cases: 300, sense: notesOnly }),
-							kept: [],
-							runs: 300,
-							shrink: completeShrink,
-							steerEvery: 4,
-							caseHang,
-							oracle: {
-								kind: "postgresql",
-								name: "the form's ARE and the printed parse, run under DateStyle SQL, DMY"
-							}
-						},
-						(batch, c) =>
-							Effect.gen(function* () {
-								const groups = Arr.groupBy(batch, (x) => targetKey(x.target))
-								for (const group of Rec.values(groups)) {
-									const target = defined(group[0], "a group's first candidate").target
-									const rows = yield* db.values(
-										`SELECT (${memberSql(target)})::text,
+					const groups = Arr.groupBy(batch, (x) => targetKey(x.target))
+					for (const group of Rec.values(groups)) {
+						const target = defined(group[0], "a group's first candidate").target
+						const rows = yield* db.values(
+							`SELECT (${memberSql(target)})::text,
 										        CASE WHEN ${memberSql(target)} THEN ${parseSql(target)} END
 										 FROM unnest($1::text[]) WITH ORDINALITY AS u(t, i) ORDER BY u.i`,
-										[Arr.map(group, (x: Candidate) => x.text), areOf(target)]
-									)
-									assert.equal(rows.length, group.length, targetKey(target))
-									for (const [i, row] of rows.entries()) {
-										const x = defined(group[i], "a row's candidate")
-										c.note(x.shape)
-										const label = `${targetKey(target)} ${Formatter.format(x.text)}`
-										const host = lexicalValue(target, x.text, roundDouble)
-										const member = row[0] === "true"
-										assert.equal(member, host !== undefined, `${label}: membership`)
-										if (member) {
-											const text = row[1]
-											assert.ok(
-												typeof text === "string" && agrees(target, text, host),
-												`${label}: PostgreSQL read ${Formatter.format(text)}, the host ${Formatter.format(host)}`
-											)
-										}
-									}
-								}
-							})
-					)
-				)
-			})
-	)
-})
+							[Arr.map(group, (x: Candidate) => x.text), areOf(target)]
+						)
+						assert.equal(rows.length, group.length, targetKey(target))
+						for (const [i, row] of rows.entries()) {
+							const x = defined(group[i], "a row's candidate")
+							c.note(x.shape)
+							const label = `${targetKey(target)} ${Formatter.format(x.text)}`
+							const host = lexicalValue(target, x.text, roundDouble)
+							const member = row[0] === "true"
+							assert.equal(member, host !== undefined, `${label}: membership`)
+							if (member) {
+								const text = row[1]
+								assert.ok(
+									typeof text === "string" && agrees(target, text, host),
+									`${label}: PostgreSQL read ${Formatter.format(text)}, the host ${Formatter.format(host)}`
+								)
+							}
+						}
+					}
+				}),
+		oracle: {
+			kind: "postgresql",
+			name: "the form's ARE and the printed parse, run under DateStyle SQL, DMY"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/lexical.ts",
+				original: '\t\t\treturn text === "true" || text === "1"',
+				replacement: '\t\t\treturn text === "true"',
+				why: 'The host\'s boolean parse reads "1" as no member.'
+			}
+		]
+	})

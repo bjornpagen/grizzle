@@ -25,6 +25,8 @@ const { active, lintConfig } = standard(toolchain)
  */
 const DICTIONARY_MINTS = [
 	"test/pg/substrate/transaction.dictionary.ts",
+	"test/pg/lower-conservative/vocabulary.dictionary.ts",
+	"test/pg/scalar/registry.dictionary.ts",
 	"test/pg/oracle/mutants/invalid.dictionary.ts",
 	"test/types/api/config.dictionary.ts",
 	"test/types/api/decoder.dictionary.ts",
@@ -674,6 +676,7 @@ export default defineConfig(
 					"test/pg/allen/table.test.ts",
 					"test/pg/page/values.test.ts",
 					"test/pg/values/money.test.ts",
+					"test/pg/values/numeric.fixtures.ts",
 					"test/pg/values/numeric.test.ts",
 					"test/pg/vector/exact/distance.test.ts",
 					"test/unit/schema/constructors.fixtures.ts",

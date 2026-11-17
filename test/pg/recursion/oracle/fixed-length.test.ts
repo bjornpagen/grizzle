@@ -1,29 +1,3 @@
-import { drawn } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { type RecursionOracleFeature, recursiveForm } from "#test/pg/recursion/oracle/support.ts"
-import {
-	defaultGraphLimits,
-	fixedLengthCaseGen,
-	graphShapes,
-	type RecursiveFeature
-} from "#test/support/oracle/gen/recursive.ts"
-
-import {
-	comparisonFailed,
-	conservative,
-	defaultRunOptions,
-	oracleCheck,
-	reference,
-	runOracle
-} from "#test/support/oracle/runner.ts"
-import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
-
 /**
  * Fixed-length connected matches give the same set through joins and through recursive CTEs.
  *
@@ -36,81 +10,70 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * repeated row on either side: distinct middles and repeated walks collapse at the projection, and walks may revisit
  * vertices, through self-loops and cycles, in both forms alike. The recursive form also agrees with the joins
  * evaluated by definition.
- *
- * @cpu-bound
+
  */
 
-const cases = 800
+import type { Reached } from "@bjornpagen/testing/features"
+import type { Case } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter } from "effect"
+import { fixedLengthSituations } from "#test/pg/recursion/oracle/fixed-length.fixtures.ts"
+import { type RecursionOracleFeature, recursiveForm } from "#test/pg/recursion/oracle/support.ts"
+import { defaultGraphLimits, fixedLengthCaseGen } from "#test/support/oracle/gen/recursive.ts"
+import {
+	comparisonFailed,
+	conservative,
+	defaultRunOptions,
+	oracleProperty,
+	reference,
+	runOracle
+} from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 
-const situations = [
-	...Arr.map(graphShapes, (s): RecursiveFeature => `shape:${s}`),
-	"length:1",
-	"length:2",
-	"length:3",
-	"roots:param",
-	"multiple roots carrying origin",
-	"existence match",
-	"direction:reverse",
-	"self-loop",
-	"parallel edges",
-	"cycle",
-	"diamond",
-	"dangling edges"
-] as const satisfies ReadonlyArray<RecursionOracleFeature>
-
-layer(OracleSeat.layer)("fixed-length connected matches: joins against recursive CTEs", (it) => {
-	it.effect(
-		"give the same set on generated graphs, and the recursive form equals the joins by definition",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema({ create: false, label: "fixedlength" })
-					return yield* oracleCheck(
-						drawn(fixedLengthCaseGen(defaultGraphLimits)),
-						{
-							suite: "recursion/fixed-length",
-							oracle: {
-								kind: "universal",
-								name: "a fixed-length match through joins and through a hop-counting recursive CTE are one set"
-							},
-							literal: Formatter.format,
-							coverage: required<RecursionOracleFeature>([...situations, "nonempty"], {
-								cases: cases,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs: cases,
-							shrink: completeShrink,
-							perturb: "all"
-						},
-						(c, notes) =>
-							Effect.gen(function* () {
-								notes.noteAll(c.features)
-								/** The joins (conservative lowering of the first root) against the recursive CTE (of the second). */
-								const joins = yield* runOracle(c, conservative, recursiveForm, {
-									...defaultRunOptions,
-									schema: { kind: "named", name: schema }
-								})
-								const cmp = joins.comparison
-								if (!cmp.equal) {
-									return yield* comparisonFailed(joins)
-								}
-								/** The recursive CTE against the joins' answer by definition. */
-								const defined = yield* runOracle(c, recursiveForm, reference, {
-									...defaultRunOptions,
-									schema: { kind: "named", name: schema }
-								})
-								if (!defined.comparison.equal) {
-									return yield* comparisonFailed(defined)
-								}
-								if (Arr.some(joins.left.run.statements, (st) => st.rows.length > 0)) {
-									notes.note("nonempty")
-								}
-							})
-					)
-				})
-			)
-	)
+/** Fixed-length matches give the same set through joins and recursive CTEs, and the recursive form equals the joins by definition. */
+export const fixedLength = oracleProperty(fixedLengthCaseGen(defaultGraphLimits), {
+	situations: fixedLengthSituations satisfies ReadonlyArray<Reached<RecursionOracleFeature>>,
+	perturb: "all",
+	oracle: {
+		kind: "universal",
+		name: "a fixed-length match through joins and through a hop-counting recursive CTE are one set"
+	},
+	kept: [],
+	/** Its pre-conversion budget: runs 800, coverage cases 800 (fixed-length.test.ts `cases` at 4fbc3e95). */
+	budget: { runs: 800, steered: 800 },
+	kills: [
+		{
+			file: "packages/engine/src/lower/conservative/recursive/index.ts",
+			original: '\tconst body: Select = select({ kind: "setOp", op: "UNION", arms: [base, step] })',
+			replacement:
+				'\tconst body: Select = select({ kind: "setOp", op: "UNION", arms: [base, base] })',
+			why: "The conservative lowering's recursive CTE unions its base with itself where its step belongs (lower/conservative/recursive), so it never steps past its seeds."
+		}
+	],
+	show: Formatter.format,
+	check: (notes: Case<RecursionOracleFeature>) => (c) =>
+		Effect.gen(function* () {
+			const seat = yield* OracleSeat
+			const schema = yield* seat.schema("fixedlength")
+			notes.noteAll(c.features)
+			/** The joins (conservative lowering of the first root) against the recursive CTE (of the second). */
+			const joins = yield* runOracle(c, conservative, recursiveForm, {
+				...defaultRunOptions,
+				schema: { kind: "named", name: schema }
+			})
+			const cmp = joins.comparison
+			if (!cmp.equal) {
+				return yield* comparisonFailed(joins)
+			}
+			/** The recursive CTE against the joins' answer by definition. */
+			const defined = yield* runOracle(c, recursiveForm, reference, {
+				...defaultRunOptions,
+				schema: { kind: "named", name: schema }
+			})
+			if (!defined.comparison.equal) {
+				return yield* comparisonFailed(defined)
+			}
+			if (Arr.some(joins.left.run.statements, (st) => st.rows.length > 0)) {
+				notes.note("nonempty")
+			}
+		})
 })

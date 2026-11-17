@@ -24,36 +24,12 @@
  * Features: the relational reads' joins, subqueries and frames; the expressions' types and a collated BETWEEN bound;
  * the catalog read's shared and apart arms; each privilege outcome; and a literal at an integer type's bound.
  */
-import { drawn, exhaust, explore, sketched } from "@bjornpagen/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"
-import {
-	array,
-	boolean,
-	codePoint,
-	constant,
-	element,
-	type Gen,
-	map,
-	oneOf,
-	option,
-	string,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import type { Source } from "@bjornpagen/testing/source"
-import { bigint, double, float } from "@bjornpagen/testing/values"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { array, element, finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
-import type {
-	AlterDefaultPrivileges,
-	Expr,
-	PlFunction,
-	RaiseOption,
-	SqlStatement,
-	TypeRef
-} from "#compiler/sql/ast.ts"
+import type { RaiseOption } from "#compiler/sql/ast.ts"
 import {
 	cast,
 	cUtf8Collation,
@@ -66,7 +42,7 @@ import {
 } from "#compiler/sql/build.ts"
 import * as C from "#compiler/sql/catalog.ts"
 import { emitCatalog } from "#compiler/sql/emit.ts"
-import { printCommands, printExpr, quoteIdent } from "#compiler/sql/print.ts"
+import { printExpr, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	aggregateCaseGen,
 	type Evaluated,
@@ -76,757 +52,511 @@ import {
 	resolveRelational,
 	setCaseGen
 } from "#test/pg/sql/evaluated.ts"
+import {
+	textOf,
+	booleanFunction,
+	catalogArmsGen,
+	decimalSpelled,
+	literalsGen,
+	type PrivilegeFeature,
+	publicDefaults,
+	raiseGen,
+	resetScopes,
+	run,
+	sql,
+	textLit,
+	zero
+} from "#test/pg/sql/print.fixtures.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { freshSchema, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/** `statement`'s commands as a driver sends them, one message each (sql/print.ts printCommands), each audited. */
-const commands = (statement: SqlStatement): ReadonlyArray<string> => {
-	assert.deepEqual(auditStatementViolations(statement), [])
-	return Arr.map(printCommands(statement), (text) => {
-		assert.deepEqual(auditTextViolations(text), [])
-		return text
-	})
-}
-
-/** The text of a statement of one command, as a driver sends it; a statement of several is the test's defect. */
-const sql = (statement: SqlStatement): string => {
-	const [only, ...more] = commands(statement)
-	assert.equal(more.length, 0, `${statement.kind} is one command`)
-	return defined(only, "a statement's first command")
-}
-
-const run = (statements: ReadonlyArray<SqlStatement>) =>
-	Effect.gen(function* () {
-		const { admin } = yield* Substrate
-		for (const statement of statements) {
-			for (const command of commands(statement)) {
-				yield* admin.query(command, [])
-			}
-		}
-	})
-
-/** A function `<schema>.<name>()` returning boolean, its body `body` then RETURN true. */
-const booleanFunction = (
-	schema: string,
-	name: string,
-	body: PlFunction["body"]["body"]
-): PlFunction => ({
-	kind: "createFunction",
-	language: "plpgsql",
-	name: objectName(schema, name),
-	params: [],
-	returns: "boolean",
-	volatility: "VOLATILE",
-	parallel: "UNSAFE",
-	security: "DEFINER",
-	body: { declare: [], body }
-})
-
-/** Where a default-privilege reset applies: one schema, or the global form, every schema of the database. */
-const resetScopes = ["schema", "global"] as const
-
-/** The kinds of object PostgreSQL grants PUBLIC a privilege on by default: EXECUTE on a function, USAGE on a type. */
-const publicDefaults: Arr.NonEmptyReadonlyArray<AlterDefaultPrivileges["on"]> = [
-	"FUNCTIONS",
-	"TYPES"
-]
-
-/** What a reset left of PUBLIC's default privilege. */
-type PrivilegeFeature = "PUBLIC kept by a schema's reset" | "PUBLIC revoked by the global reset"
-
-/**
- * A RAISE with any subset of ERRCODE, DETAIL and HINT, and the SQLSTATE and DETAIL PostgreSQL reports for it: P0001
- * when no ERRCODE is given.
- */
-const raiseGen = (source: Source) => ({
-	message: source.draw(
-		element(["refused", "it's refused", "\u00dcn\u00efc\u00f6d\u00e9 refusal", 'a "quoted" one'])
-	),
-	code: source.draw(map(option(element(["23514", "22023", "40001"])), Option.getOrUndefined)),
-	detail: source.draw(map(option(element(["a detail", '{"law": 1}'])), Option.getOrUndefined)),
-	hint: source.draw(map(option(constant("a hint")), Option.getOrUndefined))
-})
-
-/** A code point PostgreSQL stores as it is: any Unicode scalar value but NUL, as a binary string draws them. */
-const storedCodePoint: Gen<string> = oneOf([codePoint(0x01, 0xd7ff), codePoint(0xe000, 0x10_ffff)])
-
-/**
- * A grapheme a person writes: printable ASCII, a Latin letter, a letter with a combining mark, or an emoji, a joined
- * family and a flag among them.
- */
-const grapheme: Gen<string> = oneOf([
-	codePoint(0x20, 0x7e),
-	codePoint(0xa0, 0x24f),
-	(source) => `${source.draw(codePoint(0x61, 0x7a))}${source.draw(codePoint(0x300, 0x36f))}`,
-	element([
-		"\u{1f600}",
-		"\u{1f44d}\u{1f3fd}",
-		"\u{1f468}\u200d\u{1f469}\u200d\u{1f467}",
-		"\u{1f1eb}\u{1f1f7}"
-	])
-])
-
-/** Texts PostgreSQL stores as they are, well-formed and without NUL: up to twelve graphemes, or code points. */
-const textGen: Gen<string> = oneOf([
-	string(grapheme, { min: 0, max: 12 }),
-	string(storedCodePoint, { min: 0, max: 12 })
-])
-
-/** A numeric's text: a sign, a whole part up to 10^30 and, or not, a fraction of 1 to 12 digits. */
-const decimalGen: Gen<string> = (source) => {
-	const negative = source.draw(boolean)
-	const whole = source.draw(bigint(0n, 10n ** 30n))
-	const fraction = source.draw(
-		map(option(string(codePoint(0x30, 0x39), { min: 1, max: 12 })), Option.getOrUndefined)
-	)
-	return `${negative ? "-" : ""}${whole}${fraction === undefined ? "" : `.${fraction}`}`
-}
-
-/** Every double, NaN and the infinities among them. */
-const anyDouble: Gen<number> = weighted([
-	[17, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
-	[1, constant(Number.NaN)],
-	[1, constant(Number.POSITIVE_INFINITY)],
-	[1, constant(Number.NEGATIVE_INFINITY)]
-])
-
-/** The largest finite 32-bit float. */
-const maxReal = 3.4028234663852886e38
-
-/** Every 32-bit float, NaN and the infinities among them. */
-const anyReal: Gen<number> = weighted([
-	[17, float(-maxReal, maxReal)],
-	[1, constant(Number.NaN)],
-	[1, constant(Number.POSITIVE_INFINITY)],
-	[1, constant(Number.NEGATIVE_INFINITY)]
-])
-
-/** A numeric literal spelled `text`, built as the AST holds it: lit.decimal spells only a value's parts. */
-const decimalSpelled = (text: string): Expr => ({
-	kind: "literal",
-	value: { kind: "decimal", value: text },
-	type: types.numeric
-})
-
-/** Numeric spellings a printed literal trips on: the special values, negative zeros, display scale, a long negative. */
-const edgeDecimals = [
-	"NaN",
-	"Infinity",
-	"-Infinity",
-	"-0",
-	"-0.000",
-	"0.10",
-	"-170141183460469231731687303715884105728"
-] as const
-
-/** Doubles a printed literal trips on: the signed zeros, NaN, the infinities, the least and the greatest. */
-const edgeDoubles = [
-	-0,
-	0,
-	Number.NaN,
-	Number.POSITIVE_INFINITY,
-	Number.NEGATIVE_INFINITY,
-	5e-324,
-	1.7976931348623157e308
-] as const
-/** Texts a printed literal trips on: empty, a quote, non-ASCII, a double quote, astral, a backslash, NULL's spelling. */
-const edgeTexts = [
-	"",
-	"it's",
-	"\u00dcn\u00efc\u00f6d\u00e9",
-	'a"b',
-	"\u{1f600}",
-	"\\",
-	"NULL"
-] as const
-
-/** An integer type a literal is printed as, PostgreSQL's name of it, and its least and greatest values. */
-interface IntType {
-	readonly type: TypeRef
-	readonly name: string
-	readonly least: bigint
-	readonly greatest: bigint
-}
-
-/** The integer types an integer literal is printed as; numeric's bounds are a wide range, numeric has none. */
-const intTypes: Arr.NonEmptyReadonlyArray<IntType> = [
-	{ type: types.smallint, name: "smallint", least: -(2n ** 15n), greatest: 2n ** 15n - 1n },
-	{ type: types.integer, name: "integer", least: -(2n ** 31n), greatest: 2n ** 31n - 1n },
-	{ type: types.bigint, name: "bigint", least: -(2n ** 63n), greatest: 2n ** 63n - 1n },
-	{ type: types.numeric, name: "numeric", least: -(2n ** 127n), greatest: 2n ** 127n }
-]
-
-/** An integer literal: a type, and a value of it, its bounds, zero and minus one weighted beside any value. */
-const intLiteralGen: Gen<readonly [IntType, bigint]> = (source) => {
-	const t = source.draw(element(intTypes))
-	return [
-		t,
-		source.draw(
-			weighted([
-				[3, bigint(t.least, t.greatest)],
-				[1, element([t.least, t.greatest, 0n, -1n])]
-			])
-		)
-	] as const
-}
-
-/** An int4 span's text: a lower bound and a greater upper one, half-open, its canonical form. */
-const spanTextGen: Gen<string> = (source) => {
-	const lower = source.draw(bigint(-(2n ** 31n), 2n ** 31n - 2n))
-	const upper = lower + 1n + source.draw(bigint(0n, 2n ** 31n - 1n - (lower + 1n)))
-	return `[${lower},${upper})`
-}
-
-/** A drawn sample of every typed literal, each list one SELECT, the dictionaries' edges weighted beside the rest. */
-const literalsGen = (source: Source) => ({
-	texts: source.draw(
-		array(
-			weighted<string>([
-				[1, element(edgeTexts)],
-				[6, textGen]
-			]),
-			{ min: 1, max: 24 }
-		)
-	),
-	labels: source.draw(array(textGen, { min: 1, max: 8 })),
-	decimals: source.draw(
-		array(
-			weighted<string>([
-				[1, element(edgeDecimals)],
-				[6, decimalGen]
-			]),
-			{ min: 1, max: 24 }
-		)
-	),
-	doubles: source.draw(
-		array(
-			weighted<number>([
-				[1, element(edgeDoubles)],
-				[6, anyDouble]
-			]),
-			{ min: 1, max: 24 }
-		)
-	),
-	reals: source.draw(array(anyReal, { min: 1, max: 24 })),
-	ints: source.draw(array(intLiteralGen, { min: 1, max: 24 })),
-	bools: source.draw(array(boolean, { min: 1, max: 4 })),
-	spans: source.draw(array(spanTextGen, { min: 1, max: 4 }))
-})
-
-const casesPerTest = 60
-
-/** A text literal. */
-const textLit = (value: string): Expr => lit.text(value, types.text)
-
-/** The texts a catalog read's arm selects: two, so the arms of a read often share one. */
-const armTexts = ["a", "b"] as const
-
-/** A catalog read's arms: two to four, each selecting one of armTexts. */
-const catalogArmsGen = array(element(armTexts), { min: 2, max: 4 })
-
-layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
-	it.effect(
-		"reads a catalog read of several arms as the set union of their rows, a row two arms share once",
-		(ctx) =>
-			searched(
-				ctx,
+/** Printed SQL on PostgreSQL 19 reads a catalog read of several arms as the set union of their rows, a row two arms share once. */
+export const printedSQLOnPostgreSQL19ReadsACatalogReadOfSeveralArmsAsTheSetUnionOfTheirRowsARowTwoArmsShareOnce =
+	property.explore(catalogArmsGen, {
+		needs: { tx: Substrate.transaction },
+		situations: ["a row two arms share", "arms apart"] satisfies ReadonlyArray<
+			Reached<"a row two arms share" | "arms apart">
+		>,
+		/** Its pre-conversion budget: runs and coverage cases casesPerTest, 60 (print.test.ts at 4fbc3e95). */
+		budget: { runs: 60, steered: 60 },
+		check:
+			({ tx }, c: Case<"a row two arms share" | "arms apart">) =>
+			(texts) =>
 				Effect.gen(function* () {
-					const s = yield* Substrate
-					return yield* explore(
-						{
-							oracle: {
-								kind: "specification",
-								name: "a catalog read is a set (sql/catalog.ts CatalogSelect)"
-							},
-							suite: "pg/sql/catalog-union",
-							draw: drawn(catalogArmsGen),
-							literal: Formatter.format,
-							coverage: required<"a row two arms share" | "arms apart">(
-								["a row two arms share", "arms apart"],
-								{ cases: casesPerTest, sense: notesOnly }
-							),
-							kept: [],
-							runs: casesPerTest,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(texts, c) =>
-							Effect.gen(function* () {
-								const read = C.union(
-									nonEmpty(
-										Arr.map(texts, (text) => C.catalogCore([C.text(text)], [], undefined)),
-										"a read's arms"
-									)
-								)
-								const rows = yield* s.admin.queryValues(emitCatalog(read), [])
-								assert.deepEqual(
-									Arr.sort(
-										Arr.map(rows, (row) => String(row[0])),
-										Order.String
-									),
-									Arr.sort(Arr.dedupe(texts), Order.String),
-									"the read's rows, each once"
-								)
-								c.note(
-									Arr.dedupe(texts).length < texts.length ? "a row two arms share" : "arms apart"
-								)
-							})
-					)
-				})
-			)
-	)
+					const { connection: admin } = yield* tx
 
-	it.effect(
-		"evaluates generated CROSS JOINs, IN and NOT IN over a subquery, and windows over drawn ROWS frames as the host does",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					return yield* explore(
-						{
-							oracle: {
-								kind: "second-implementation",
-								name: "the host's evaluation of the relational read (evaluated.ts)"
-							},
-							suite: "pg/sql/relational",
-							draw: sketched(relationalSketchGen, resolveRelational),
-							literal: Formatter.format,
-							kept: [],
-							runs: 2 * casesPerTest,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang,
-							coverage: required<RelationalFeature>(
-								[
-									"cross join",
-									"in",
-									"not in",
-									"empty subquery",
-									"frame unboundedPreceding to currentRow",
-									"frame currentRow to unboundedFollowing",
-									"frame offset to offset",
-									"partitioned window",
-									"descending window",
-									"empty frame"
-								],
-								{ cases: 2 * casesPerTest, sense: notesOnly }
-							)
-						},
-						(c, notes) =>
-							Effect.gen(function* () {
-								const text = sql(c.statement)
-								const rows = yield* s.admin.queryValues(text, [])
-								const got: ReadonlyArray<ReadonlyArray<string | null>> = Arr.map(rows, (row) =>
-									Arr.map(row, (cell) =>
-										cell === null ? null : typeof cell === "string" ? cell : Formatter.format(cell)
-									)
-								)
-								assert.deepEqual(got, c.rows, text)
-								notes.noteAll(c.reached)
-							})
-					)
-				})
-			)
-	)
-
-	it.effect("resets PUBLIC's defaults on functions and types only in the global form", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				const q = quoteIdent(schema)
-				return yield* exhaust(
-					{
-						suite: "pg/sql/default-privileges",
-						generator: (source) =>
-							[source.draw(element(resetScopes)), source.draw(element(publicDefaults))] as const,
-						literal: Formatter.format,
-						box: "a reset in one schema and in the global form, of each kind PostgreSQL grants PUBLIC by default",
-						oracle: {
-							kind: "postgresql",
-							name: "PUBLIC's privilege on an object the role creates after the reset"
-						},
-						coverage: requiredInSpace<PrivilegeFeature>([
-							"PUBLIC kept by a schema's reset",
-							"PUBLIC revoked by the global reset"
-						]),
-						caseHang
-					},
-					([scope, on], c) =>
-						Effect.scoped(
-							Effect.gen(function* () {
-								/** A role, a function and a type of each case's own, named by its case, so no case meets another's defaults. */
-								const own = `${scope}_${Str.toLowerCase(on)}`
-								const maker = yield* s.role(schema, `maker_${own}`)
-								yield* s.admin.query(
-									`GRANT USAGE, CREATE ON SCHEMA ${q} TO ${quoteIdent(maker.role)}`,
-									[]
-								)
-								const m = yield* s.session({ ...roleSession(maker) })
-								yield* run([
-									{
-										kind: "alterDefaultPrivileges",
-										forRole: maker.role,
-										inSchema: scope === "schema" ? schema : undefined,
-										privileges: ["ALL"],
-										on,
-										from: [{ kind: "PUBLIC" }]
-									}
-								])
-								const created = `__made_${own}`
-								yield* m.query(
-									sql(
-										on === "FUNCTIONS"
-											? booleanFunction(schema, created, [
-													{ kind: "return", value: lit.bool(true) }
-												])
-											: {
-													kind: "createDomain",
-													name: objectName(schema, created),
-													base: types.smallint,
-													collation: undefined,
-													constraints: []
-												}
-									),
-									[]
-								)
-								const held = yield* s.admin.queryValues(
-									on === "FUNCTIONS"
-										? "SELECT has_function_privilege('public'::name, $1::text, 'EXECUTE'::text)"
-										: "SELECT has_type_privilege('public'::name, $1::text, 'USAGE'::text)",
-									[
-										on === "FUNCTIONS"
-											? `${q}.${quoteIdent(created)}()`
-											: `${q}.${quoteIdent(created)}`
-									]
-								)
-								assert.deepEqual(held, [[scope === "schema"]], `${scope} reset of ${on}`)
-								c.note(
-									scope === "schema"
-										? "PUBLIC kept by a schema's reset"
-										: "PUBLIC revoked by the global reset"
-								)
-							})
+					const read = C.union(
+						nonEmpty(
+							Arr.map(texts, (text) => C.catalogCore([C.text(text)], [], undefined)),
+							"a read's arms"
 						)
-				)
-			})
-		)
-	)
+					)
+					const rows = yield* admin.queryValues(emitCatalog(read), [])
+					assert.deepEqual(
+						Arr.sort(
+							Arr.map(rows, (row) => String(row[0])),
+							Order.String
+						),
+						Arr.sort(Arr.dedupe(texts), Order.String),
+						"the read's rows, each once"
+					)
+					c.note(Arr.dedupe(texts).length < texts.length ? "a row two arms share" : "arms apart")
+				}),
+		oracle: {
+			kind: "specification",
+			name: "a catalog read is a set (sql/catalog.ts CatalogSelect)"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: `\treturn \`\${ctes}\${arms.join(" UNION ")}\``,
+				replacement: `\treturn \`\${ctes}\${arms.join(" UNION ALL ")}\``,
+				why: "A catalog read's arms are joined by UNION ALL; the catalog reads property fails."
+			}
+		]
+	})
 
-	it.effect(
-		"evaluates generated expressions as the host does, so the printer's parentheses are PostgreSQL's",
-		(ctx) =>
-			searched(
-				ctx,
+/** Printed SQL on PostgreSQL 19 evaluates generated CROSS JOINs, IN and NOT IN over a subquery, and windows over drawn ROWS frames as the host does. */
+export const printedSQLOnPostgreSQL19EvaluatesGeneratedCROSSJOINsINAndNOTINOverASubqueryAndWindowsOverDrawnROWSFramesAsTheHostDoes =
+	property.explore(relationalSketchGen, {
+		needs: { tx: Substrate.transaction },
+		situations: [
+			"cross join",
+			"in",
+			"not in",
+			"empty subquery",
+			"frame unboundedPreceding to currentRow",
+			"frame currentRow to unboundedFollowing",
+			"frame offset to offset",
+			"partitioned window",
+			"descending window",
+			"empty frame"
+		] satisfies ReadonlyArray<Reached<RelationalFeature>>,
+		/** Its pre-conversion budget: runs and coverage cases 2 * casesPerTest, 120 (print.test.ts at 4fbc3e95). */
+		budget: { runs: 120, steered: 120 },
+		check:
+			({ tx }, notes: Case<RelationalFeature>) =>
+			(sketch) =>
 				Effect.gen(function* () {
-					const s = yield* Substrate
-					return yield* explore(
-						{
-							oracle: {
-								kind: "second-implementation",
-								name: "the host's evaluation of each expression (evaluated.ts)"
-							},
-							suite: "pg/sql/evaluated",
-							draw: drawn(array(evaluatedGen, { min: 1, max: 40 })),
-							literal: Formatter.format,
-							coverage: required<Evaluated["type"] | "collated between bound">(
-								["int", "bool", "text", "collated between bound"],
-								{ cases: casesPerTest, sense: notesOnly }
-							),
-							kept: [],
-							runs: casesPerTest,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(cases, c) =>
-							Effect.gen(function* () {
-								const [row] = yield* s.admin.queryValues(
-									`SELECT ${Arr.join(
-										Arr.map(cases, (entry) => printExpr(entry.item.expr)),
-										", "
-									)}`,
-									[]
-								)
-								const cells = defined(row, "the SELECT's one row")
-								for (const [i, entry] of cases.entries()) {
-									const item = entry.item
-									const got = cells[i]
-									const expected = item.type === "int" ? item.value.toString() : item.value
-									assert.deepEqual(
-										{ expr: printExpr(item.expr), value: item.type === "int" ? String(got) : got },
-										{ expr: printExpr(item.expr), value: expected }
-									)
-									c.note(item.type)
-									c.noteAll(entry.reached)
-								}
-							})
-					)
-				})
-			)
-	)
+					const { connection: admin } = yield* tx
+					const resolved = resolveRelational(sketch)
+					const c = resolved
 
-	it.effect(
-		"evaluates generated set-operation trees as SQL's set semantics do, levels nested and parenthesized",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					return yield* explore(
-						{
-							oracle: {
-								kind: "second-implementation",
-								name: "SQL's set semantics over the tree's arms (evaluated.ts)"
-							},
-							suite: "pg/sql/set-trees",
-							draw: drawn(setCaseGen),
-							literal: Formatter.format,
-							coverage: noCoverage,
-							kept: [],
-							runs: 3 * casesPerTest,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(c) =>
-							Effect.gen(function* () {
-								const text = sql(c.statement)
-								const rows = yield* s.admin.queryValues(text, [])
-								const got: ReadonlyArray<number> = Arr.sort(
-									Arr.map(rows, (row) => Number(row[0])),
-									Order.Number
-								)
-								assert.deepEqual(got, c.rows, text)
-							})
+					const text = sql(c.statement)
+					const rows = yield* admin.queryValues(text, [])
+					const got: ReadonlyArray<ReadonlyArray<string | null>> = Arr.map(rows, (row) =>
+						Arr.map(row, (cell) =>
+							cell === null ? null : typeof cell === "string" ? cell : Formatter.format(cell)
+						)
 					)
-				})
-			)
-	)
+					assert.deepEqual(got, c.rows, text)
+					notes.noteAll(c.reached)
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the host's evaluation of the relational read (evaluated.ts)"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: `\t\t\t\`ROWS BETWEEN \${printFrameBound(spec.frame.start)} AND \${printFrameBound(spec.frame.end)}\``,
+				replacement: `\t\t\t\`RANGE BETWEEN \${printFrameBound(spec.frame.start)} AND \${printFrameBound(spec.frame.end)}\``,
+				why: "A window frame is printed as RANGE; the relational property fails."
+			}
+		]
+	})
 
-	it.effect(
-		"evaluates generated aggregates with DISTINCT, their own ORDER BY and FILTER, group by group",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					return yield* explore(
-						{
-							oracle: {
-								kind: "second-implementation",
-								name: "the host's aggregation group by group (evaluated.ts)"
-							},
-							suite: "pg/sql/aggregates",
-							draw: drawn(aggregateCaseGen),
-							literal: Formatter.format,
-							coverage: noCoverage,
-							kept: [],
-							runs: 2 * casesPerTest,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(c) =>
-							Effect.gen(function* () {
-								const text = sql(c.statement)
-								const rows = yield* s.admin.queryValues(text, [])
-								const got: ReadonlyArray<ReadonlyArray<string>> = Arr.map(rows, (row) =>
-									Arr.map(row, String)
-								)
-								assert.deepEqual(got, c.rows, text)
-							})
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"raises every generated RAISE with the SQLSTATE, message and DETAIL its USING options give",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema(freshSchema)
-					let made = 0
-					return yield* explore(
-						{
-							oracle: {
-								kind: "specification",
-								name: "RAISE ... USING: the SQLSTATE of ERRCODE or P0001, the message and DETAIL given"
-							},
-							suite: "pg/sql/raise",
-							draw: drawn(raiseGen),
-							literal: Formatter.format,
-							coverage: noCoverage,
-							kept: [],
-							runs: 24,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						({ message, code, detail, hint }) =>
-							Effect.gen(function* () {
-								const using: ReadonlyArray<RaiseOption> = [
-									...(code === undefined
-										? []
-										: [{ option: "ERRCODE" as const, value: textLit(code) }]),
-									...(detail === undefined
-										? []
-										: [{ option: "DETAIL" as const, value: textLit(detail) }]),
-									...(hint === undefined ? [] : [{ option: "HINT" as const, value: textLit(hint) }])
-								]
-								made++
-								const name = `__raise_${made}`
-								yield* run([
-									booleanFunction(schema, name, [
-										{ kind: "raise", message, using },
-										{ kind: "return", value: lit.bool(true) }
-									])
-								])
-								const invoke = provedSelect(
-									"oneRow",
-									[
-										targetAs(
-											{
-												kind: "call",
-												fn: { kind: "qualified", schema, name },
-												args: [],
-												star: false,
-												distinct: false,
-												orderBy: [],
-												withinGroup: [],
-												over: undefined
-											},
-											"c1"
-										)
-									],
-									[],
-									undefined
-								)
-								const raised = yield* expectSqlstate(
-									s.admin.query(sql(invoke), []),
-									code ?? "P0001"
-								)
-								assert.equal(raised.message, message)
-								assert.deepEqual(raised.detail, Option.fromUndefinedOr(detail))
-							})
-					)
-				})
-			)
-	)
-
-	it.effect("delivers every typed literal exactly", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				yield* run([
-					{
-						kind: "createDomain",
-						name: { schema, name: "label" },
-						base: types.text,
-						collation: cUtf8Collation,
-						constraints: []
-					}
-				])
-				const label = namedType(testTypeSchema(schema), "label", [])
-				const asText = (e: Expr) => printExpr(cast(e, types.text))
-				const values = (exprs: ReadonlyArray<string>) =>
-					Effect.map(
-						s.admin.queryValues(`SELECT ${Arr.join(exprs, ", ")}`, []),
-						([row]): ReadonlyArray<string> => Arr.map(defined(row, "the SELECT's one row"), String)
-					)
-				const zero = (d: string) =>
-					Arr.every(Arr.fromIterable(d), (c) => c === "0" || c === "-" || c === ".")
-				return yield* explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "each literal's own value, read back as text, and the type it is printed as"
-						},
-						suite: "pg/sql/literals",
-						draw: drawn(literalsGen),
-						literal: Formatter.format,
-						coverage: required<"an integer type's bound">(["an integer type's bound"], {
-							cases: casesPerTest,
-							sense: notesOnly
-						}),
-						kept: [],
-						runs: casesPerTest,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(sample, c) =>
+/** Printed SQL on PostgreSQL 19 resets PUBLIC's defaults on functions and types only in the global form. */
+export const printedSQLOnPostgreSQL19ResetsPUBLICsDefaultsOnFunctionsAndTypesOnlyInTheGlobalForm =
+	property.exhaust(
+		finite(
+			(source) => [source.draw(element(resetScopes)), source.draw(element(publicDefaults))] as const
+		),
+		{
+			needs: { substrate: Substrate.fresh },
+			situations: [
+				"PUBLIC kept by a schema's reset",
+				"PUBLIC revoked by the global reset"
+			] satisfies ReadonlyArray<Reached<PrivilegeFeature>>,
+			check:
+				({ substrate }, c: Case<PrivilegeFeature>) =>
+				([scope, on]) =>
+					Effect.provideServiceEffect(
 						Effect.gen(function* () {
-							const texts = yield* values(
-								Arr.map(sample.texts, (x) => printExpr(lit.text(x, types.text)))
-							)
-							assert.deepEqual(texts, sample.texts)
-							const labels = yield* values(
-								Arr.map(sample.labels, (l) => asText(lit.text(l, label)))
-							)
-							assert.deepEqual(labels, sample.labels)
-							const decimals = yield* values(
-								Arr.map(sample.decimals, (d) => asText(decimalSpelled(d)))
-							)
-							assert.deepEqual(
-								decimals,
-								Arr.map(sample.decimals, (d) =>
-									zero(d) && Str.startsWith("-")(d) ? Str.slice(1)(d) : d
-								)
-							)
-							const doubles = yield* values(
-								Arr.map(sample.doubles, (d) => asText(lit.float(d, types.double)))
-							)
-							for (const [i, d] of sample.doubles.entries()) {
-								assert.ok(
-									Object.is(Number(doubles[i]), d),
-									`${Formatter.format(d)} came back as ${doubles[i]}`
-								)
-							}
-							const reals = yield* values(
-								Arr.map(sample.reals, (r) => asText(cast(lit.float(r, types.real), types.double)))
-							)
-							for (const [i, r] of sample.reals.entries()) {
-								assert.ok(
-									Object.is(Number(reals[i]), r),
-									`${Formatter.format(r)} came back as ${reals[i]}`
-								)
-							}
-							const ints = yield* values(
-								Arr.flatMap(sample.ints, ([t, n]) => {
-									const printed = printExpr(lit.int(n, t.type))
-									return [asText(lit.int(n, t.type)), `pg_typeof(${printed})::text`]
+							const s = yield* Substrate
+							const schema = yield* s.schema(freshSchema)
+							const q = quoteIdent(schema)
+							return yield* Effect.scoped(
+								Effect.gen(function* () {
+									/** A role, a function and a type of each case's own, named by its case, so no case meets another's defaults. */
+									const own = `${scope}_${Str.toLowerCase(on)}`
+									const maker = yield* s.role(schema, `maker_${own}`)
+									yield* s.admin.query(
+										`GRANT USAGE, CREATE ON SCHEMA ${q} TO ${quoteIdent(maker.role)}`,
+										[]
+									)
+									const m = yield* s.session({ ...roleSession(maker) })
+									yield* run(s.admin, [
+										{
+											kind: "alterDefaultPrivileges",
+											forRole: maker.role,
+											inSchema: scope === "schema" ? schema : undefined,
+											privileges: ["ALL"],
+											on,
+											from: [{ kind: "PUBLIC" }]
+										}
+									])
+									const created = `__made_${own}`
+									yield* m.query(
+										sql(
+											on === "FUNCTIONS"
+												? booleanFunction(schema, created, [
+														{ kind: "return", value: lit.bool(true) }
+													])
+												: {
+														kind: "createDomain",
+														name: objectName(schema, created),
+														base: types.smallint,
+														collation: undefined,
+														constraints: []
+													}
+										),
+										[]
+									)
+									const held = yield* s.admin.queryValues(
+										on === "FUNCTIONS"
+											? "SELECT has_function_privilege('public'::name, $1::text, 'EXECUTE'::text)"
+											: "SELECT has_type_privilege('public'::name, $1::text, 'USAGE'::text)",
+										[
+											on === "FUNCTIONS"
+												? `${q}.${quoteIdent(created)}()`
+												: `${q}.${quoteIdent(created)}`
+										]
+									)
+									assert.deepEqual(held, [[scope === "schema"]], `${scope} reset of ${on}`)
+									c.note(
+										scope === "schema"
+											? "PUBLIC kept by a schema's reset"
+											: "PUBLIC revoked by the global reset"
+									)
 								})
 							)
-							assert.deepEqual(
-								ints,
-								Arr.flatMap(sample.ints, ([t, n]) => [n.toString(), t.name])
-							)
-							if (Arr.some(sample.ints, ([t, n]) => n === t.least || n === t.greatest)) {
-								c.note("an integer type's bound")
-							}
-							const others = yield* values(
-								Arr.appendAll(
-									Arr.map(sample.bools, (b) => asText(lit.bool(b))),
-									Arr.map(sample.spans, (span) => asText(lit.text(span, types.int4range)))
-								)
-							)
-							assert.deepEqual(others, Arr.appendAll(Arr.map(sample.bools, String), sample.spans))
-						})
-				)
-			})
-		)
+						}),
+						Substrate,
+						substrate
+					),
+			oracle: {
+				kind: "postgresql",
+				name: "PUBLIC's privilege on an object the role creates after the reset"
+			},
+			box: "a reset in one schema and in the global form, of each kind PostgreSQL grants PUBLIC by default",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/sql/print.ts",
+					original: `\t\t\t\t\`ALTER DEFAULT PRIVILEGES\${statement.forRole === undefined ? "" : \` FOR ROLE \${quoteIdent(statement.forRole)}\`}\${statement.inSchema === undefined ? "" : \` IN SCHEMA \${quoteIdent(statement.inSchema)}\`} REVOKE \${statement.privileges.join(", ")} ON \${statement.on} FROM \${statement.from.map(printGrantee).join(", ")}\``,
+					replacement: `\t\t\t\t\`ALTER DEFAULT PRIVILEGES\${statement.forRole === undefined ? "" : \` FOR ROLE \${quoteIdent(statement.forRole)}\`} REVOKE \${statement.privileges.join(", ")} ON \${statement.on} FROM \${statement.from.map(printGrantee).join(", ")}\``,
+					why: "IN SCHEMA is dropped from a reset; the default privileges property fails."
+				}
+			]
+		}
 	)
-})
+
+/** Printed SQL on PostgreSQL 19 evaluates generated expressions as the host does, so the printer's parentheses are PostgreSQL's. */
+export const printedSQLOnPostgreSQL19EvaluatesGeneratedExpressionsAsTheHostDoesSoThePrintersParenthesesArePostgreSQLs =
+	property.explore(array(evaluatedGen, { min: 1, max: 40 }), {
+		needs: { tx: Substrate.transaction },
+		situations: ["int", "bool", "text", "collated between bound"] satisfies ReadonlyArray<
+			Reached<Evaluated["type"] | "collated between bound">
+		>,
+		/** Its pre-conversion budget: runs and coverage cases casesPerTest, 60 (print.test.ts at 4fbc3e95). */
+		budget: { runs: 60, steered: 60 },
+		check:
+			({ tx }, c: Case<Evaluated["type"] | "collated between bound">) =>
+			(cases) =>
+				Effect.gen(function* () {
+					const { connection: admin } = yield* tx
+
+					const [row] = yield* admin.queryValues(
+						`SELECT ${Arr.join(
+							Arr.map(cases, (entry) => printExpr(entry.item.expr)),
+							", "
+						)}`,
+						[]
+					)
+					const cells = defined(row, "the SELECT's one row")
+					for (const [i, entry] of cases.entries()) {
+						const item = entry.item
+						const got = cells[i]
+						const expected = item.type === "int" ? item.value.toString() : item.value
+						assert.deepEqual(
+							{ expr: printExpr(item.expr), value: item.type === "int" ? String(got) : got },
+							{ expr: printExpr(item.expr), value: expected }
+						)
+						c.note(item.type)
+						c.noteAll(entry.reached)
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the host's evaluation of each expression (evaluated.ts)"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: "\t\t\tconst right = wrapTighter(expr(e.right), self)",
+				replacement: "\t\t\tconst right = wrap(expr(e.right), self)",
+				why: "A right operand of equal precedence is printed bare; the expressions property fails."
+			}
+		]
+	})
+
+/** Printed SQL on PostgreSQL 19 evaluates generated set-operation trees as SQL's set semantics do, levels nested and parenthesized. */
+export const printedSQLOnPostgreSQL19EvaluatesGeneratedSetOperationTreesAsSQLsSetSemanticsDoLevelsNestedAndParenthesized =
+	property.explore(setCaseGen, {
+		needs: { tx: Substrate.transaction },
+		situations: [],
+		/** Its pre-conversion budget: runs 3 * casesPerTest, 180, no coverage (print.test.ts at 4fbc3e95). */
+		budget: { runs: 180, steered: 0 },
+		check:
+			({ tx }) =>
+			(c) =>
+				Effect.gen(function* () {
+					const { connection: admin } = yield* tx
+
+					const text = sql(c.statement)
+					const rows = yield* admin.queryValues(text, [])
+					const got: ReadonlyArray<number> = Arr.sort(
+						Arr.map(rows, (row) => Number(row[0])),
+						Order.Number
+					)
+					assert.deepEqual(got, c.rows, text)
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "SQL's set semantics over the tree's arms (evaluated.ts)"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: `const nestedSelect = (select: OperandSelect): string => \`(\${printSelectInline(select)})\``,
+				replacement:
+					"const nestedSelect = (select: OperandSelect): string => printSelectInline(select)",
+				why: "A nested set-operation level is printed without its parentheses; the set trees property fails."
+			}
+		]
+	})
+
+/** Printed SQL on PostgreSQL 19 evaluates generated aggregates with DISTINCT, their own ORDER BY and FILTER, group by group. */
+export const printedSQLOnPostgreSQL19EvaluatesGeneratedAggregatesWithDISTINCTTheirOwnORDERBYAndFILTERGroupByGroup =
+	property.explore(aggregateCaseGen, {
+		needs: { tx: Substrate.transaction },
+		situations: [],
+		/** Its pre-conversion budget: runs 2 * casesPerTest, 120, no coverage (print.test.ts at 4fbc3e95). */
+		budget: { runs: 120, steered: 0 },
+		check:
+			({ tx }) =>
+			(c) =>
+				Effect.gen(function* () {
+					const { connection: admin } = yield* tx
+
+					const text = sql(c.statement)
+					const rows = yield* admin.queryValues(text, [])
+					const got: ReadonlyArray<ReadonlyArray<string>> = Arr.map(rows, (row) =>
+						Arr.map(row, String)
+					)
+					assert.deepEqual(got, c.rows, text)
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the host's aggregation group by group (evaluated.ts)"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: `\t\treturn call.filter === undefined\n\t\t\t? \`\${inCatalog("count")}(*)\`\n\t\t\t: \`\${inCatalog("count")}(*) FILTER (WHERE \${printExpr(call.filter)})\``,
+				replacement: `\t\treturn \`\${inCatalog("count")}(*)\``,
+				why: "count(*)'s FILTER is dropped; the aggregates property fails."
+			}
+		]
+	})
+
+/** Printed SQL on PostgreSQL 19 raises every generated RAISE with the SQLSTATE, message and DETAIL its USING options give. */
+export const printedSQLOnPostgreSQL19RaisesEveryGeneratedRAISEWithTheSQLSTATEMessageAndDETAILItsUSINGOptionsGive =
+	property.explore(raiseGen, {
+		needs: { tx: Substrate.transaction },
+		situations: [],
+		/** Its pre-conversion budget: runs 24, no coverage (print.test.ts at 4fbc3e95). */
+		budget: { runs: 24, steered: 0 },
+		check:
+			({ tx }) =>
+			({ message, code, detail, hint }) =>
+				Effect.gen(function* () {
+					const { connection: admin, schema: allocate } = yield* tx
+					const schema = yield* allocate("print")
+					yield* admin.query(`CREATE SCHEMA ${quoteIdent(schema)}`, [])
+					let made = 0
+
+					const using: ReadonlyArray<RaiseOption> = [
+						...(code === undefined ? [] : [{ option: "ERRCODE" as const, value: textLit(code) }]),
+						...(detail === undefined
+							? []
+							: [{ option: "DETAIL" as const, value: textLit(detail) }]),
+						...(hint === undefined ? [] : [{ option: "HINT" as const, value: textLit(hint) }])
+					]
+					made++
+					const name = `__raise_${made}`
+					yield* run(admin, [
+						booleanFunction(schema, name, [
+							{ kind: "raise", message, using },
+							{ kind: "return", value: lit.bool(true) }
+						])
+					])
+					const invoke = provedSelect(
+						"oneRow",
+						[
+							targetAs(
+								{
+									kind: "call",
+									fn: { kind: "qualified", schema, name },
+									args: [],
+									star: false,
+									distinct: false,
+									orderBy: [],
+									withinGroup: [],
+									over: undefined
+								},
+								"c1"
+							)
+						],
+						[],
+						undefined
+					)
+					const raised = yield* expectSqlstate(admin.query(sql(invoke), []), code ?? "P0001")
+					assert.equal(raised.message, message)
+					assert.deepEqual(raised.detail, Option.fromUndefinedOr(detail))
+				}),
+		oracle: {
+			kind: "specification",
+			name: "RAISE ... USING: the SQLSTATE of ERRCODE or P0001, the message and DETAIL given"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: `\tconst head = \`RAISE EXCEPTION \${quoteString(statement.message)}\``,
+				replacement: `\tstatement = { ...statement, using: statement.using.filter((o) => o.option !== "DETAIL") }\n\tconst head = \`RAISE EXCEPTION \${quoteString(statement.message)}\``,
+				why: "A RAISE's DETAIL is dropped; the RAISE property fails."
+			}
+		]
+	})
+
+/** Printed SQL on PostgreSQL 19 delivers every typed literal exactly. */
+export const printedSQLOnPostgreSQL19DeliversEveryTypedLiteralExactly = property.explore(
+	literalsGen,
+	{
+		needs: { tx: Substrate.transaction },
+		situations: ["an integer type's bound"] satisfies ReadonlyArray<
+			Reached<"an integer type's bound">
+		>,
+		/** Its pre-conversion budget: runs and coverage cases casesPerTest, 60 (print.test.ts at 4fbc3e95). */
+		budget: { runs: 60, steered: 60 },
+		check:
+			({ tx }, c: Case<"an integer type's bound">) =>
+			(sample) =>
+				Effect.gen(function* () {
+					const { connection: admin, schema: allocate } = yield* tx
+					const schema = yield* allocate("print")
+					yield* admin.query(`CREATE SCHEMA ${quoteIdent(schema)}`, [])
+					yield* run(admin, [
+						{
+							kind: "createDomain",
+							name: { schema, name: "label" },
+							base: types.text,
+							collation: cUtf8Collation,
+							constraints: []
+						}
+					])
+					const label = namedType(testTypeSchema(schema), "label", [])
+					const values = (exprs: ReadonlyArray<string>) =>
+						Effect.map(
+							admin.queryValues(`SELECT ${Arr.join(exprs, ", ")}`, []),
+							([row]): ReadonlyArray<string> =>
+								Arr.map(defined(row, "the SELECT's one row"), String)
+						)
+
+					const texts = yield* values(
+						Arr.map(sample.texts, (x) => printExpr(lit.text(x, types.text)))
+					)
+					assert.deepEqual(texts, sample.texts)
+					const labels = yield* values(Arr.map(sample.labels, (l) => textOf(lit.text(l, label))))
+					assert.deepEqual(labels, sample.labels)
+					const decimals = yield* values(Arr.map(sample.decimals, (d) => textOf(decimalSpelled(d))))
+					assert.deepEqual(
+						decimals,
+						Arr.map(sample.decimals, (d) =>
+							zero(d) && Str.startsWith("-")(d) ? Str.slice(1)(d) : d
+						)
+					)
+					const doubles = yield* values(
+						Arr.map(sample.doubles, (d) => textOf(lit.float(d, types.double)))
+					)
+					for (const [i, d] of sample.doubles.entries()) {
+						assert.ok(
+							Object.is(Number(doubles[i]), d),
+							`${Formatter.format(d)} came back as ${doubles[i]}`
+						)
+					}
+					const reals = yield* values(
+						Arr.map(sample.reals, (r) => textOf(cast(lit.float(r, types.real), types.double)))
+					)
+					for (const [i, r] of sample.reals.entries()) {
+						assert.ok(
+							Object.is(Number(reals[i]), r),
+							`${Formatter.format(r)} came back as ${reals[i]}`
+						)
+					}
+					const ints = yield* values(
+						Arr.flatMap(sample.ints, ([t, n]) => {
+							const printed = printExpr(lit.int(n, t.type))
+							return [textOf(lit.int(n, t.type)), `pg_typeof(${printed})::text`]
+						})
+					)
+					assert.deepEqual(
+						ints,
+						Arr.flatMap(sample.ints, ([t, n]) => [n.toString(), t.name])
+					)
+					if (Arr.some(sample.ints, ([t, n]) => n === t.least || n === t.greatest)) {
+						c.note("an integer type's bound")
+					}
+					const others = yield* values(
+						Arr.appendAll(
+							Arr.map(sample.bools, (b) => textOf(lit.bool(b))),
+							Arr.map(sample.spans, (span) => textOf(lit.text(span, types.int4range)))
+						)
+					)
+					assert.deepEqual(others, Arr.appendAll(Arr.map(sample.bools, String), sample.spans))
+				}),
+		oracle: {
+			kind: "specification",
+			name: "each literal's own value, read back as text, and the type it is printed as"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: '\t\t\treturn { kind: "quoted", text: String(value.value) }',
+				replacement:
+					'\t\t\treturn { kind: "quoted", text: String(Number(value.value.toPrecision(15))) }',
+				why: "A double literal is printed to fifteen significant digits; the literals property fails."
+			}
+		]
+	}
+)

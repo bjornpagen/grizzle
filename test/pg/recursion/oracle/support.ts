@@ -1,6 +1,8 @@
-import { drawn } from "@bjornpagen/testing/explore"
+import type { Oracle } from "@bjornpagen/testing/explore"
+import type { Reached } from "@bjornpagen/testing/features"
 import type { Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect } from "effect"
+import type { Budget, Case, Kill } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
@@ -29,18 +31,18 @@ import {
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
 
 import {
-	type CheckOptions,
 	comparisonFailed,
 	conservativeProgram,
 	defaultRunOptions,
 	type Lowering,
-	oracleCheck,
 	type OracleOutcome,
+	oracleProperty,
+	type OracleSpec,
 	runOracle,
 	type RunnerSide,
 	sentConservative
 } from "#test/support/oracle/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 
 /**
  * Every feature a recursion oracle suite notes: its generator's, and rows.
@@ -69,22 +71,39 @@ export type RecursionOracleFeature = RecursiveFeature | "nonempty"
 const deliveredRows = (o: OracleOutcome): boolean =>
 	Arr.some(o.left.run.statements, (st) => st.rows.length > 0)
 
+/** What a recursion equivalence states beside its population and its two sides. */
+export interface EquivalenceSpec {
+	readonly oracle: Oracle
+	readonly situations: ReadonlyArray<Reached<RecursionOracleFeature>>
+	readonly perturb: OracleSpec<RecursiveCase, RecursionOracleFeature, never>["perturb"]
+	readonly budget: Budget
+	readonly kills: ReadonlyArray<Kill>
+}
+
 /**
  * Every case of `generator` agrees between `left` and `right`, as raw text sets, and `left` repeats no row: every
  * statement delivers a set, and recursive UNION collapses repeated complete states. Each case notes its generator's
- * features, and "nonempty" when a statement delivered a row.
+ * features, and "nonempty" when a statement delivered a row. An oracle property (runner.ts oracleProperty): each case
+ * in a database of its own, under a schema name it allocates.
  */
 export const recursiveEquivalence = <C extends RecursiveCase>(
 	generator: Gen<C>,
 	left: CaseLowering<C>,
 	right: RunnerSide,
-	options: CheckOptions<C, RecursionOracleFeature>
+	spec: EquivalenceSpec
 ) =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const schema = yield* s.schema({ create: false, label: "recursion" })
-		return yield* oracleCheck(drawn(generator), options, (c, notes) =>
+	oracleProperty(generator, {
+		situations: spec.situations,
+		perturb: spec.perturb,
+		oracle: spec.oracle,
+		kept: [],
+		kills: spec.kills,
+		budget: spec.budget,
+		show: Formatter.format,
+		check: (notes: Case<RecursionOracleFeature>) => (c) =>
 			Effect.gen(function* () {
+				const seat = yield* OracleSeat
+				const schema = yield* seat.schema("recursion")
 				notes.noteAll(c.features)
 				const outcome = yield* runOracle(c, forCase(left, c), right, {
 					...defaultRunOptions,
@@ -97,7 +116,6 @@ export const recursiveEquivalence = <C extends RecursiveCase>(
 					notes.note("nonempty")
 				}
 			})
-		)
 	})
 
 /** The conservative lowering of another root of the case's DAG. */

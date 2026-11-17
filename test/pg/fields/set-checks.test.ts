@@ -12,195 +12,93 @@
  *
  * Features: a row accepted, and a row breaking each check alone and with others.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { Bits, bits, pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { check, closed, relation, schema } from "#compiler/public/schema.ts"
-import { installed } from "#test/pg/reads/support.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { Bits } from "#compiler/public/fields.ts"
+import {
+	allSets,
+	Flag,
+	restated,
+	Sets,
+	setsInstall,
+	setsTemplate,
+	type Situation,
+	situationOf
+} from "#test/pg/fields/set-checks.fixtures.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
+import { assert } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { upTo } from "#test/support/up-to.ts"
 
-const handles = ["a", "b", "c"] as const
-type Handle = (typeof handles)[number]
-const Flag = closed("Flag", handles)
-const R = relation("R", { id: pg.integer, flags: bits(Flag) }, ["id"])
-
-/** The set value Apart holds R's flags apart from, the one Within holds them within, and Split's other side. */
-const apartFrom: ReadonlyArray<Handle> = ["a"]
-const withinOf: ReadonlyArray<Handle> = ["a", "b"]
-const otherSide: ReadonlyArray<Handle> = ["b", "c"]
-const apart = check("Apart", R, (r) =>
-	r.eq(Compute.disjoint(r.flags, Bits.of(Flag, apartFrom)), true)
-)
-const within = check("Within", R, (r) =>
-	r.eq(Compute.subset(r.flags, Bits.of(Flag, withinOf)), true)
-)
-const split = check("Split", R, (r) =>
-	r.or(
-		r.eq(Compute.subset(r.flags, Bits.of(Flag, withinOf)), true),
-		r.eq(Compute.subset(r.flags, Bits.of(Flag, otherSide)), true)
-	)
-)
-const Sets = schema("SetChecks", [Flag, R], [apart, within, split])
-
-/**
- * The full world's workload: a row of R written with the flags each call gives, and R's rows read back, whether the
- * flags miss b and their union with {c}, each against a set value.
- */
-const programs = Object.freeze({
-	write: ChangeSet.empty(Sets).insert(R, []),
-	readBack: query(Sets).rule((r) => {
-		const { id, flags } = v(R, "r")
-		return r.match(R, { id, flags }).find({
-			id,
-			apart: Compute.disjoint(flags, Bits.of(Flag, ["b"])),
-			joined: Compute.union(flags, Bits.of(Flag, ["c"]))
-		})
-	})
-})
-
-/** Every set over Flag's handles. */
-const allSets = nonEmpty(
-	upTo(2 ** handles.length, (mask) => Arr.filter(handles, (_, i) => (mask & (1 << i)) !== 0)),
-	"every set over the handles, the empty one first"
-)
-
-/**
- * R's checks restated over plain Sets, the oracle: each check's statement beside whether a row's flags hold it, and the
- * situation of a row that breaks it alone.
- */
-const restated = [
-	{
-		statement: apart,
-		holds: (flags: ReadonlySet<Handle>) => Arr.every(apartFrom, (h) => !flags.has(h)),
-		alone: "refused by Apart"
-	},
-	{
-		statement: within,
-		holds: (flags: ReadonlySet<Handle>) =>
-			Arr.every(Arr.fromIterable(flags), (h) => withinOf.includes(h)),
-		alone: "refused by Within"
-	},
-	{
-		statement: split,
-		holds: (flags: ReadonlySet<Handle>) =>
-			Arr.every(Arr.fromIterable(flags), (h) => withinOf.includes(h)) ||
-			Arr.every(Arr.fromIterable(flags), (h) => otherSide.includes(h)),
-		alone: "refused by Split"
-	}
-] as const
-
-type Restated = (typeof restated)[number]
-
-type Situation = "accepted" | Restated["alone"] | "refused by several checks"
-
-/** The situation of a row breaking `broken`, R's checks its flags break. */
-const situationOf = (broken: ReadonlyArray<Restated>): Situation => {
-	const [only, ...others] = broken
-	if (only === undefined) {
-		return "accepted"
-	}
-	return Arr.isReadonlyArrayEmpty(others) ? only.alone : "refused by several checks"
-}
-
-layer(Substrate.layer, { excludeTestServices: true })(
-	"a row check over a set and a set value",
-	(it) => {
-		it.effect(
-			"holds a row exactly when its flags are disjoint from and a subset of the set values, and a refusal names every check they break, all three at once included, for every set over the roster",
-			(ctx) =>
-				searched(
-					ctx,
+/** A row check over a set and a set value holds a row exactly when its flags are disjoint from and a subset of the set values, and a refusal names every check they break, all three at once included, for every set over the roster. */
+export const aRowCheckOverASetAndASetValueHoldsARowExactlyWhenItsFlagsAreDisjointFromAndASubsetOfTheSetValuesAndARefusalNamesEveryCheckTheyBreakAllThreeAtOnceIncludedForEverySetOverTheRoster =
+	property.exhaust(allSets, {
+		box: "every set over the roster's three handles",
+		needs: { sets: Substrate.seat(setsTemplate) },
+		situations: [
+			"accepted",
+			"refused by Apart",
+			"refused by Within",
+			"refused by several checks"
+		] satisfies ReadonlyArray<Reached<Situation>>,
+		check:
+			({ sets }, c: Case<Situation>) =>
+			(flags) =>
+				Effect.scoped(
 					Effect.gen(function* () {
-						const o = yield* installed(Sets, {}, { label: "setchecks", programs })
-						const s = yield* Substrate
+						const taken = yield* sets
+						const o = yield* openedIn(Sets, {}, setsInstall, taken)
+						const s = taken.substrate
 						const names = namesOf(o.installed)
 						return yield* Effect.gen(function* () {
 							const db = yield* Db.open(o.served.login.roles.app, {})
-							return yield* exhaust(
-								{
-									box: "every set over the roster's three handles",
-									suite: "pg/fields/set-checks",
-									generator: element(allSets),
-									literal: Formatter.format,
-									oracle: {
-										kind: "specification",
-										name: "the checks' set algebra restated over each set of the roster's handles"
-									},
-									coverage: requiredInSpace<Situation>([
-										"accepted",
-										"refused by Apart",
-										"refused by Within",
-										"refused by several checks"
-									]),
-									caseHang
-								},
-								(flags, c) =>
-									Effect.gen(function* () {
-										yield* replaceRows(s.admin, installationGroup(names), [])
-										const outcome = yield* answered(
-											db.workload.write.once({
-												params: {},
-												facts: { insert: { R: [{ id: 1, flags: Bits.of(Flag, flags) }] } }
-											})
-										)
-										const held = new Set(flags)
-										const broken = Arr.filter(restated, (r) => !r.holds(held))
-										const brokenLaws = new Set(Arr.map(broken, (r) => names.lawOf(r.statement)))
-										const named = Arr.flatMap(names.model.theory.laws, (law) =>
-											brokenLaws.has(law.id) ? [names.described(law.id)] : []
-										)
-										if (!Arr.isReadonlyArrayNonEmpty(named)) {
-											assert.equal(
-												outcome.kind,
-												"accepted",
-												`${Formatter.format(flags)} is accepted`
-											)
-											const read = yield* rowsOf(
-												db.workload.readBack.once({ params: {}, facts: {} })
-											)
-											assert.deepEqual(
-												Arr.map(read, (row) => ({
-													apart: row.apart,
-													joined: Arr.sort(Arr.fromIterable(row.joined), Order.String)
-												})),
-												[
-													{
-														apart: !flags.includes("b"),
-														joined: Arr.sort(Arr.dedupe([...flags, "c" as const]), Order.String)
-													}
-												],
-												"the query's set algebra against set values agrees with the model's"
-											)
-											c.note(situationOf(broken))
-											return
-										}
-										const refusal = `${Formatter.format(flags)} is refused naming every check it breaks, each once, in canonical order`
-										assert.ok(outcome.kind === "refused", refusal)
-										assert.equal(outcome.refused.kind, "every", refusal)
-										assert.deepEqual(refusedLaws(outcome.refused), named, refusal)
-										assert.deepEqual(
-											outcome.witness,
-											{ kind: "key", relation: "R", values: { id: 1 } },
-											refusal
-										)
-										c.note(situationOf(broken))
-									})
+							yield* replaceRows(s.admin, installationGroup(names), [])
+							const outcome = yield* answered(
+								db.workload.write.once({
+									params: {},
+									facts: { insert: { R: [{ id: 1, flags: Bits.of(Flag, flags) }] } }
+								})
 							)
+							const held = new Set(flags)
+							const broken = Arr.filter(restated, (r) => !r.holds(held))
+							const brokenLaws = new Set(Arr.map(broken, (r) => names.lawOf(r.statement)))
+							const named = Arr.flatMap(names.model.theory.laws, (law) =>
+								brokenLaws.has(law.id) ? [names.described(law.id)] : []
+							)
+							if (!Arr.isReadonlyArrayNonEmpty(named)) {
+								assert.equal(outcome.kind, "accepted", `${Formatter.format(flags)} is accepted`)
+								const read = yield* rowsOf(db.workload.readBack.once({ params: {}, facts: {} }))
+								assert.deepEqual(
+									Arr.map(read, (row) => ({
+										apart: row.apart,
+										joined: Arr.sort(Arr.fromIterable(row.joined), Order.String)
+									})),
+									[
+										{
+											apart: !flags.includes("b"),
+											joined: Arr.sort(Arr.dedupe([...flags, "c" as const]), Order.String)
+										}
+									],
+									"the query's set algebra against set values agrees with the model's"
+								)
+								c.note(situationOf(broken))
+								return
+							}
+							const refusal = `${Formatter.format(flags)} is refused naming every check it breaks, each once, in canonical order`
+							assert.ok(outcome.kind === "refused", refusal)
+							assert.equal(outcome.refused.kind, "every", refusal)
+							assert.deepEqual(refusedLaws(outcome.refused), named, refusal)
+							assert.deepEqual(
+								outcome.witness,
+								{ kind: "key", relation: "R", values: { id: 1 } },
+								refusal
+							)
+							c.note(situationOf(broken))
 						}).pipe(
 							(body) =>
 								Effect.flatMap(Layer.build(o.served.layer), (context) =>
@@ -208,8 +106,34 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								),
 							Effect.scoped
 						)
-					}).pipe(Effect.scoped)
-				)
-		)
-	}
-)
+					})
+				),
+		oracle: {
+			kind: "specification",
+			name: "the checks' set algebra restated over each set of the roster's handles"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/expr/ops.ts",
+				original:
+					'\t\t\treturn binary("=", call("bit_count", [without]), lit.int(0n, types.bigint))',
+				replacement:
+					'\t\t\treturn binary("=", call("bit_count", [binary("&", b, { kind: "complement", expr: a })]), lit.int(0n, types.bigint))',
+				why: "subset lowers as b ⊆ a."
+			},
+			{
+				file: "packages/engine/src/runtime/write/witness.ts",
+				original:
+					"\tconst [head, ...rest] = concatNonEmpty(broken.flatMap(statedLaws), statedLaws(refusing))",
+				replacement: "\tconst [head, ...rest] = concatNonEmpty([], statedLaws(refusing))",
+				why: "A refusal names only the CHECK PostgreSQL reported, as one did before a refused CHECK named every law its row breaks (runtime/write/witness.ts brokenLaws)."
+			},
+			{
+				file: "packages/engine/src/runtime/write/witness.ts",
+				original: "\t\tsortNonEmpty(once, (a, b) => order(a.law.law) - order(b.law.law)),",
+				replacement: "\t\tsortNonEmpty(once, (a, b) => order(b.law.law) - order(a.law.law)),",
+				why: "A refusal names the broken checks against the canonical order of the schema's laws (runtime/write/witness.ts brokenLaws)."
+			}
+		]
+	})
