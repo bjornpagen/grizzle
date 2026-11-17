@@ -5,6 +5,7 @@
  * configs read it without loading the runner config's services.
  */
 export const propertyModules: ReadonlyArray<string> = [
+	"test/pg/laws/curriculum.test.ts",
 	"test/pg/oracle/conservative.test.ts",
 	"test/pg/oracle/key-text-bytes.test.ts",
 	"test/pg/oracle/mutants/invalid.test.ts",
