@@ -33,19 +33,19 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
  */
 
 /** An instant, and the instants on either side of 2100-01-01 in milliseconds since the epoch. */
-export const Instant = contract("Instant", pg.bigint)
+const Instant = contract("Instant", pg.bigint)
 
 const year2100 = 4_102_444_800_000n
 
-export const Before2100 = contract("Before2100", pg.bigint, (x) => x.le(year2100))
+const Before2100 = contract("Before2100", pg.bigint, (x) => x.le(year2100))
 
-export const After2100 = contract("After2100", pg.bigint, (x) => x.ge(year2100))
+const After2100 = contract("After2100", pg.bigint, (x) => x.ge(year2100))
 
-export const Wanted = relation("Wanted", { key: pg.integer, due: Instant }, ["key"])
+const Wanted = relation("Wanted", { key: pg.integer, due: Instant }, ["key"])
 
-export const Stamp = relation("Stamp", { key: pg.integer, at: Instant }, ["key"])
+const Stamp = relation("Stamp", { key: pg.integer, at: Instant }, ["key"])
 
-export const Mark = relation("Mark", { key: pg.integer, at: Instant }, ["key"])
+const Mark = relation("Mark", { key: pg.integer, at: Instant }, ["key"])
 
 const Bounds = relation("Bounds", { key: pg.integer, before: Before2100, after: After2100 }, [
 	"key"
@@ -53,7 +53,7 @@ const Bounds = relation("Bounds", { key: pg.integer, before: Before2100, after: 
 
 export const Clock = schema("Clock", [Wanted, Stamp, Mark, Bounds], [])
 
-export type Unit = "micros" | "millis"
+type Unit = "micros" | "millis"
 
 /** How many of a unit one hour holds. */
 export const perHour: { readonly [U in Unit]: bigint } = {
