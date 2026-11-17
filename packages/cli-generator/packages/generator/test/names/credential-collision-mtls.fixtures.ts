@@ -376,7 +376,12 @@ const schemesGen =
 				kind: drawnKind,
 				env:
 					drawnKind !== "mutualTLS" && s.draw(element([0, 1, 2, 3])) === 0
-						? Option.some(`CUSTOM_${screaming(slugOf(name))}_TOKEN`)
+						? Option.some(
+								Arr.join(
+									Arr.filter(["CUSTOM", screaming(slugOf(name)), "TOKEN"], Str.isNonEmpty),
+									"_"
+								)
+							)
 						: Option.none()
 			}
 		})

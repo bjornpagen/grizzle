@@ -520,7 +520,7 @@ const operationGen =
 			(index: number): Gen<ConfigAliasSketch> =>
 			(inner) =>
 				inner.draw(element(["method", "group", "both"] as const)) === "group"
-					? { group: Option.some(inner.draw(element(w.aliasGroups))), method: Option.none() }
+					? { group: Option.some(w.aliasGroups[index] ?? ["zones"]), method: Option.none() }
 					: {
 							group: inner.draw(option(element(w.aliasGroups))),
 							method: Option.some(w.aliasMethods[index] ?? "pause")
