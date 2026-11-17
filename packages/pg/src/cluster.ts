@@ -1,4 +1,4 @@
-import { NodeRuntime } from "@effect/platform-node"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import { Console, Effect } from "effect"
 import { clusterAt, localCluster } from "#pg/local-cluster.ts"
 

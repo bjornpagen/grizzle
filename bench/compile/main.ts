@@ -1,7 +1,8 @@
 #!/usr/bin/env -S node
 import net from "node:net"
 import { timerMaxMs } from "@bjornpagen/grizzle/adapter/connection/config"
-import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import {
 	Array as Arr,
 	Console,

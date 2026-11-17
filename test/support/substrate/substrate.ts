@@ -7,7 +7,9 @@ import {
 	PgCluster,
 	Template
 } from "@bjornpagen/testing/resources"
-import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import {
 	Array as Arr,
 	Cause,

@@ -9,7 +9,7 @@ import {
 	property
 } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
-import type { NodeServices } from "@effect/platform-node"
+import type * as NodeServices from "@effect/platform-node/NodeServices"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, FileSystem, Option, Path, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"

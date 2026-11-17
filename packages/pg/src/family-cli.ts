@@ -1,4 +1,5 @@
-import { NodeFileSystem, NodeRuntime } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import { Array as Arr, Console, Effect, FileSystem, Option, String as Str } from "effect"
 import {
 	type ClusterFamily,

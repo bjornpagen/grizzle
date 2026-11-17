@@ -9,7 +9,7 @@
  * must measure, and each gate's own verdict on what it measured; the box is the bench files of the owner's directories
  * at quick scale.
  */
-import { NodeServices } from "@effect/platform-node"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, FileSystem, Order, Path } from "effect"
 import { repoRoot } from "#bench/cold/identity.ts"

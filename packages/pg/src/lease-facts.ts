@@ -1,4 +1,4 @@
-import { NodeRuntime } from "@effect/platform-node"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import { Console, Effect, Option } from "effect"
 import { liveSlotBound, substrateLeaseNames } from "#pg/lease.ts"
 

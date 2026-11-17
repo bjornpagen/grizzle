@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node
 import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
-import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Array as Arr, Console, Data, DateTime, Effect, Layer, pipe, String as Str } from "effect"
 import {
 	type RunIdentity,

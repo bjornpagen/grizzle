@@ -1,4 +1,5 @@
-import { NodeFileSystem, NodeRuntime } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import { Array as Arr, Console, Data, Effect, Runtime } from "effect"
 import { installedBuild, patchesOf, verdict } from "#pg/installation.ts"
 import { pinFile } from "#pg/pin.ts"

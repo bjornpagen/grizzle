@@ -9,7 +9,7 @@
  *
  * Oracle: TypeScript's own checker.
  */
-import { NodeServices } from "@effect/platform-node"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { layer } from "@effect/vitest"
 import { Context, Effect, FileSystem, Layer, Path, String as Str } from "effect"
 import { assert } from "#test/support/assert.ts"

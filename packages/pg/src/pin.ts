@@ -1,5 +1,5 @@
 import { homedir } from "node:os"
-import { NodeFileSystem } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import {
 	Array as Arr,
 	Config,

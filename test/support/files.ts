@@ -1,4 +1,5 @@
-import { NodeFileSystem, NodePath } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { Array as Arr, Effect, FileSystem, Layer, ManagedRuntime, Path } from "effect"
 
 /**

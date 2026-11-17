@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node --disable-proto=delete --disable-sigusr1
 import { registerHooks } from "node:module"
-import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Array as Arr, Console, Effect, FileSystem, Path } from "effect"
 import type { ConfigFile } from "#cli/config.ts"
 import {

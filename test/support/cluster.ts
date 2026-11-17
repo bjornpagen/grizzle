@@ -1,4 +1,4 @@
-import { NodeFileSystem } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import { regex } from "arkregex"
 import {
 	Array as Arr,

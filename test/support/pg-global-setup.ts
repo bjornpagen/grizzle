@@ -1,5 +1,6 @@
 import { testWorkers } from "@bjornpagen/testing/workers"
-import { NodeFileSystem, NodeServices } from "@effect/platform-node"
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Duration, Effect } from "effect"
 import { readFamily, workersOf } from "#pg/family.ts"
 import { localCluster } from "#pg/local-cluster.ts"

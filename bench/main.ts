@@ -1,7 +1,8 @@
 #!/usr/bin/env -S node
 import { availableParallelism, loadavg } from "node:os"
 import { styleText } from "node:util"
-import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Array as Arr, Console, Effect, FileSystem, Layer, Option, String as Str } from "effect"
 import { repoRoot } from "#bench/cold/identity.ts"
 import { type BenchCommand, parseBenchArgs, runSuite } from "#bench/harness/cli.ts"
