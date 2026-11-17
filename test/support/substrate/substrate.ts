@@ -1505,6 +1505,24 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 			(take) => Effect.map(take, (taken) => taken.substrate)
 		)
 	}
+	/**
+	 * A case's own substrate over the worker's own clone of the base template, held across the worker's cases, for cases
+	 * that install grizzle and commit, which Substrate.fresh would give a clone each: after each case its allocations are
+	 * released (its schemas, roles and live sources), what an installation leaves past them is undone (shared.ts
+	 * undoInstallEffects: the extensions the base does not carry, the owner's global default privileges given back to
+	 * PUBLIC), every sequence is put back, and the clone must hold the base template's catalog again, or it is replaced
+	 * and the case fails. A case that changes the database itself (its settings, its options) needs Substrate.fresh.
+	 */
+	static readonly installing: TemplateNeed<SubstrateShape> = {
+		key: "grizzle Substrate.installing",
+		template: baseTemplate,
+		open: Effect.map(
+			substrateCases("Substrate.installing", base, Database.seat(baseTemplate, []), (substrate) =>
+				undoInstallEffects(substrate.admin)
+			).open,
+			(take) => Effect.map(take, (taken) => taken.substrate)
+		)
+	}
 	/** A case's own substrate over a clone of `template`, made for the case and dropped after it, and its value. */
 	static readonly freshOf = <T>(template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> =>
 		substrateCases("Substrate.freshOf", template, Database.fresh(template.database), dropped)

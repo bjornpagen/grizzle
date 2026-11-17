@@ -60,7 +60,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * key beside its companions is inserted, and one byte more is refused by its domain.
  */
 export const exactlyKeyTextBytes = property.explore(caseGen, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.installing },
 	/** Its pre-conversion budget: runs 40, coverage cases 40 (key-text-bytes.test.ts:269,300-303 at 41df7b58^). */
 	budget: { runs: 40, steered: 40 },
 	situations: [

@@ -2,15 +2,25 @@ import { ModuleClosure, type NeedFailed } from "@bjornpagen/testing/property"
 import { type DatabaseTemplate, Template } from "@bjornpagen/testing/resources"
 import { Array as Arr, Effect, Option, Redacted, String as Str } from "effect"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import { pin } from "#pg/pin.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { configureDatabase, devSession, testDatabaseSettings } from "#test/support/pg.ts"
 import { sqlNeedFailed } from "#test/support/runner.ts"
 
 /**
+ * PUBLIC's default privileges on a database, granted as the grant that states them (its ACL then reads as PostgreSQL's
+ * default, acldefault, never NULL): an installation grants TEMPORARY on the database to its roles, which materializes the
+ * ACL, so a template whose ACL is NULL is told apart from a clone whose roles' grants were released, and a held clone's
+ * fingerprint would never settle back to its template.
+ */
+const databaseDefaultGrant = "GRANT CONNECT, TEMPORARY ON DATABASE"
+
+/**
  * The database every grizzle case starts from: grizzle_template as scripts/pg/init.sh makes it (public empty, the
  * vector extension in vector_ext, plpgsql), with the test database settings (pg.ts testDatabaseSettings) as its
- * database defaults, which the toolchain replays on every clone (a clone copies no pg_db_role_setting row). Its content
+ * database defaults, and PUBLIC's default privileges on it stated (databaseDefaultGrant), which the toolchain replays on
+ * every clone (a clone copies no pg_db_role_setting row, and its ACL is replayed as the template's). Its content
  * is what makes it: the PostgreSQL build the pin names and its patches, pgvector's version, and the settings; its build
  * only sets them, from the owner's own database, so no session is left in it.
  */
@@ -20,7 +30,8 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 	content: {
 		postgres: { tag: pin.PG_PIN_TAG, commit: pin.PG_PIN_COMMIT, patches: pin.PG_PIN_PATCHES },
 		vector: pin.PGVECTOR_PIN_VERSION,
-		settings: Arr.map(testDatabaseSettings, ([name, value]) => [name, value])
+		settings: Arr.map(testDatabaseSettings, ([name, value]) => [name, value]),
+		acl: databaseDefaultGrant
 	},
 	from: Template.cluster,
 	build: (target) =>
@@ -33,6 +44,10 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 					failed
 				)
 				yield* Effect.mapError(configureDatabase(admin, target.name), failed)
+				yield* Effect.mapError(
+					admin.query(`${databaseDefaultGrant} ${quoteIdent(target.name)} TO PUBLIC`, []),
+					failed
+				)
 			})
 		)
 })

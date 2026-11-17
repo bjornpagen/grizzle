@@ -40,7 +40,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The widest fact of every generated key the compiler accepts is one PostgreSQL's B-tree accepts. */
 export const acceptsTheWidestFact = property.explore(keyGen, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.installing },
 	/** Its pre-conversion budget: runs 150, coverage cases 150 (representability.test.ts:240,262-266 at 41df7b58^). */
 	budget: { runs: 150, steered: 150 },
 	situations: ["accepted key", "key at the computed maximum"] satisfies ReadonlyArray<
