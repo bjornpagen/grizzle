@@ -673,8 +673,9 @@ const fillLines = (items: readonly string[], indent: number): readonly string[] 
 }
 
 /**
- * A value the formatter cannot break, so its first line is all of it: one of `movesWhenLong`, an empty object or
- * array literal, or a `new` expression without arguments.
+ * A value the formatter moves below `=` or `:` whole when it does not fit: one of `movesWhenLong` (a chain among them,
+ * which still breaks in its first argument list where it is not the value itself, as a conditional's test), or one it
+ * has no point to break, an empty object or array literal or a `new` expression without arguments.
  */
 const isUnbreakable = (expr: Expr): boolean =>
 	movesWhenLong(expr) ||
@@ -683,37 +684,49 @@ const isUnbreakable = (expr: Expr): boolean =>
 	(expr._tag === "New" && expr.args.length === 0)
 
 /**
- * The text of a breakable value up to the first point the formatter can break it: a literal's opening bracket, a call's
- * or `new` expression's head up to its `(` (an inner call's for a chain), an arrow's `(` or, without parameters, its
- * head, a conditional's test (its first line when the test can break), and `left +` of a sum.
+ * Whether a call, or a member access down a chain of them, holds an argument: an argument list the formatter can break,
+ * which an empty one is not.
+ */
+const holdsArgument = (expr: Expr): boolean =>
+	expr._tag === "Call"
+		? expr.args.length > 0 || holdsArgument(expr.callee)
+		: expr._tag === "Member" && holdsArgument(expr.object)
+
+/**
+ * The text of a value up to the first point the formatter can break it, none when it has no such point (measured): a
+ * non-empty literal's opening bracket; a call's head up to the first argument list of its chain that holds an argument,
+ * an empty one being no point to break; a `new` expression's head up to its `(` when it takes an argument; an arrow's
+ * `(` or, without parameters, its head; a conditional's test up to its first point, or all of the test when it has
+ * none; and `left +` of a sum.
  */
 const firstLine = (expr: Expr): Option.Option<string> =>
 	Match.valueTags(expr, {
-		Array: () => Option.some("["),
+		Array: (list) => (list.elements.length > 0 ? Option.some("[") : Option.none()),
 		Arrow: (fn) =>
 			Option.some(fn.params.length > 0 ? "(" : `${arrowHead(fn)}${headTail(fn) > 0 ? " (" : ""}`),
 		Boolean: () => Option.none(),
 		Call: (invocation) => {
 			const { callee } = invocation
-			if (callee._tag === "Member" && callee.object._tag === "Call") {
-				return firstLine(callee.object)
+			const inner = callee._tag === "Member" ? callee.object : callee
+			if (inner._tag === "Call" && holdsArgument(inner)) {
+				return firstLine(inner)
 			}
 
-			return callee._tag === "Call"
-				? firstLine(callee)
-				: Option.map(Option.fromUndefinedOr(flat(callee)), (text) => `${text}(`)
+			return invocation.args.length > 0
+				? Option.map(Option.fromUndefinedOr(flat(callee)), (text) => `${text}(`)
+				: Option.none()
 		},
 		Conditional: (choice) =>
-			isUnbreakable(choice.test) || choice.test._tag === "Number" || choice.test._tag === "Boolean"
-				? Option.fromUndefinedOr(flat(choice.test))
-				: firstLine(choice.test),
+			Option.orElse(firstLine(choice.test), () => Option.fromUndefinedOr(flat(choice.test))),
 		DynamicImport: () => Option.none(),
 		Identifier: () => Option.none(),
 		Member: () => Option.none(),
 		New: (construct) =>
-			Option.map(Option.fromUndefinedOr(flat(construct.callee)), (text) => `new ${text}(`),
+			construct.args.length > 0
+				? Option.map(Option.fromUndefinedOr(flat(construct.callee)), (text) => `new ${text}(`)
+				: Option.none(),
 		Number: () => Option.none(),
-		Object: () => Option.some("{"),
+		Object: (literal) => (literal.entries.length > 0 ? Option.some("{") : Option.none()),
 		Plus: (sum) => Option.map(Option.fromUndefinedOr(flat(sum.left)), (text) => `${text} +`),
 		String: () => Option.none(),
 		Undefined: () => Option.none()

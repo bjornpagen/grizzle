@@ -14,7 +14,7 @@
 
 import { deepStrictEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { ScriptKind } from "typescript/ast"
 import { printJson, printModule, printPackageJson } from "#emit/printer.ts"
@@ -133,9 +133,25 @@ export const printedModule = property.explore(moduleSpace, {
 		kind: "universal",
 		name: "TypeScript's parse of the printed text reads back as the module, in a layout oxfmt leaves unchanged"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/emit/printer.test.ts#printedModule:-:0.1.0.1.0.1.0.0.0.4.1.6.0.7.b.7.5.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"a conditional beside a long key whose test, a chain of a call holding an argument and an empty one, does not fit whole but whose first argument list starts on the key's line: the formatter breaks that list and keeps the conditional beside its key (found by the push gate's rotating stream at TEST_SEED=559022411)",
+			since: "2026-11-17"
+		}
+	],
 	budget: { runs: 300, steered: 1500 },
 	kills: [
+		{
+			file: "packages/generator/src/emit/printer.ts",
+			original:
+				"Option.orElse(firstLine(choice.test), () => Option.fromUndefinedOr(flat(choice.test)))",
+			replacement: "Option.fromUndefinedOr(flat(choice.test))",
+			why: "A conditional is measured by the whole of its test, so one whose test breaks in an argument list on the key's line moves below the key, where the formatter keeps it beside; the property fails."
+		},
 		{
 			file: "packages/generator/src/emit/printer.ts",
 			original: "\tconst place = { column: indent + textWidth(key) + 2, indent, tail: 1 }",
