@@ -74,11 +74,11 @@ export const theChangeSetAlgebraBuildsTheModelsChangeSetAtEveryStepCanonicalSeal
 		{
 			kind: "planned",
 			machine,
+			mix: constant(fullSwarm(commandNames)),
 			real: (_, c: Case<AlgebraFeature>) => Effect.sync(() => algebraOf(c))
 		},
 		{
 			size: { min: 1, max: 20 },
-			mix: constant(fullSwarm(commandNames)),
 			needs: {},
 			budget: { runs: 300, steered: 400 },
 			situations: [
