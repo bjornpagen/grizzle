@@ -179,17 +179,40 @@ export const typecheckPackage = Effect.fn("cliPackage.typecheck")(function* (
 })
 
 /**
- * Runs a built bin with Node to its exit, under the testing library's hardened flags (no `__proto__` accessor, no
- * inspector on SIGUSR1, deprecations thrown, strict unhandled rejections and the rest), since a generated CLI must work
- * under them; in the package's directory, under exactly the invocation's environment. The bin runs as a child process,
- * so a server in the test process keeps answering it. Interrupting the run kills it.
+ * The flag that keeps a built bin's compiled code in Node's compile cache: a module `--import` runs before the bin's
+ * first import, which enables the cache (module.enableCompileCache) under node_modules/.cache of the run's directory,
+ * the package's own (runBin's and runBinOnTerminal's cwd), so a run reads the V8 code of every module an earlier run of
+ * the package compiled (effect, the runtime, its commands) instead of compiling it again. Node checks each entry
+ * against its module's source and the cache changes nothing a module does, only how fast a run starts; the bin's
+ * arguments and environment stay exactly its invocation's. The cache goes with the package's directory.
+ */
+const COMPILE_CACHE = `--import=data:text/javascript,${encodeURIComponent(
+	'import { enableCompileCache } from "node:module"\nenableCompileCache("node_modules/.cache/node-compile-cache")'
+)}`
+
+/**
+ * Node's arguments for a run of a built bin, before the bin's own: the testing library's hardened flags (no `__proto__`
+ * accessor, no inspector on SIGUSR1, deprecations thrown, strict unhandled rejections and the rest), since a generated
+ * CLI must work under them, and the compile cache's flag.
+ */
+const binArguments = (built: BuiltPackage, args: ReadonlyArray<string>): ReadonlyArray<string> => [
+	...HARDENED_FLAGS,
+	COMPILE_CACHE,
+	built.bin,
+	...args
+]
+
+/**
+ * Runs a built bin with Node to its exit, under binArguments' flags, in the package's directory, under exactly the
+ * invocation's environment. The bin runs as a child process, so a server in the test process keeps answering it.
+ * Interrupting the run kills it.
  */
 export const runBin = (
 	built: BuiltPackage,
 	invocation: BinInvocation
 ): Effect.Effect<Finished, PlatformError.PlatformError, ChildProcessSpawner.ChildProcessSpawner> =>
 	finished(
-		ChildProcess.make(process.execPath, [...HARDENED_FLAGS, built.bin, ...invocation.args], {
+		ChildProcess.make(process.execPath, binArguments(built, invocation.args), {
 			cwd: built.dir,
 			env: invocation.env,
 			extendEnv: false,
@@ -220,7 +243,7 @@ const shellCommand = (words: ReadonlyArray<string>): string =>
 	)
 
 /**
- * Runs a built bin under the hardened flags on a pseudo-terminal that script(1) opens, as an operator at a terminal runs
+ * Runs a built bin under binArguments' flags on a pseudo-terminal that script(1) opens, as an operator at a terminal runs
  * it: its stdin, stdout and stderr are the terminal, which a prompt needs. Once the terminal shows its first bytes, the
  * operator types `typed` and a carriage return; the run then reads the terminal until the bin exits. What the terminal
  * shows holds whatever the terminal echoes, so a secret typed without echo never appears in it.
@@ -237,7 +260,7 @@ export const runBinOnTerminal = Effect.fn("cliPackage.terminal")(function* (
 				"--quiet",
 				"--return",
 				"--command",
-				shellCommand([process.execPath, ...HARDENED_FLAGS, built.bin, ...invocation.args]),
+				shellCommand([process.execPath, ...binArguments(built, invocation.args)]),
 				"/dev/null"
 			],
 			{ cwd: built.dir, env: invocation.env, extendEnv: false, killSignal: "SIGKILL" }
