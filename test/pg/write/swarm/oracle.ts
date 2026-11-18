@@ -40,6 +40,7 @@ import {
 } from "#test/pg/write/swarm/spec.ts"
 import { defined } from "#test/support/assert.ts"
 import {
+	type FillSpec,
 	type FollowUp,
 	followUpMembers,
 	followUpRows,
@@ -119,10 +120,10 @@ export type Step =
 	| { readonly kind: "delete all"; readonly by: DeleteAllForm }
 
 /**
- * How a delete of everything states its rows: `rows`, each relation's stored rows, a family's members' among them, as
- * arrays; `selection`, each relation no ordered or counted family has as a member, every row of it by an empty
- * field-equality selection (ChangeSet.deleteWhere), whose whole delete removes every row nested under it through every
- * family, as pantry's replace deletes a package's rows.
+ * How a delete of everything states its rows, each relation holding a stored row named (deletedAll): `rows`, each such
+ * relation's stored rows, a family's members' among them, as arrays; `selection`, each such relation no ordered or
+ * counted family has as a member, every row of it by an empty field-equality selection (ChangeSet.deleteWhere), whose
+ * whole delete removes every row nested under it through every family, as pantry's replace deletes a package's rows.
  */
 export type DeleteAllForm = "rows" | "selection"
 
@@ -475,6 +476,55 @@ export const orphaned = (
 		})
 	})
 
+/**
+ * The relations a delete of everything names in its stratum: each holding a stored row, by `rows` every one, by
+ * `selection` each no ordered or counted family has as a member (DeleteAllForm). A relation holding none is not named.
+ */
+export const deletedAll = (
+	spec: SwarmSpec,
+	state: State,
+	by: DeleteAllForm
+): ReadonlyArray<number> =>
+	Arr.filter(
+		Arr.map(spec.fill.relations, (_, r) => r),
+		(r) =>
+			Arr.some(state.rows, (x) => x.relation === r) &&
+			(by === "rows" || !Arr.some(spec.fill.families, (f) => f.member === r && f.kind !== "tree"))
+	)
+
+/** Whether family `f` is relation `r`'s own tree, whose nodes are `r`'s rows. */
+const ownTree = (f: FillSpec["families"][number], r: number): boolean =>
+	f.kind === "tree" && f.owner === r && f.member === r
+
+/**
+ * Whether a stratum deleting `deleted` is refused when the ChangeSet compiles because it leaves a family's groups
+ * partial, as the README's Writing a family states it: a delete of a relation that owns a family and is no other
+ * family's member removes its rows and every row nested under them, through every family, to any depth, and "a delete
+ * whose nested rows include a member of a family whose owner it does not remove" is refused. Its whole deletes are
+ * judged together: a relation nested under them is a member of a family one of them or a relation nested under them
+ * owns, and the stratum leaves partial the groups of any other family such a relation is a member of. Which rows are
+ * stored is the call's, so the refusal is the ChangeSet's whatever the stored groups hold.
+ */
+const leavesGroupsPartial = (fill: FillSpec, deleted: ReadonlyArray<number>): boolean => {
+	const roots = Arr.filter(
+		deleted,
+		(r) =>
+			Arr.some(fill.families, (f) => f.owner === r) &&
+			Arr.every(fill.families, (f) => f.member !== r || ownTree(f, r))
+	)
+	const nested: Array<number> = [...roots]
+	for (const owner of nested) {
+		for (const f of fill.families) {
+			if (f.owner === owner && !ownTree(f, f.member) && !nested.includes(f.member)) {
+				nested.push(f.member)
+			}
+		}
+	}
+	return Arr.some(nested, (r) =>
+		Arr.some(fill.families, (f) => f.member === r && !ownTree(f, r) && !nested.includes(f.owner))
+	)
+}
+
 /** The plain writes of a step, in stratum `at`, its query's rows read from `reads`. */
 const plainIn = (step: Step, at: Placed, reads: State): ReadonlyArray<PlainOp> => {
 	if (step.kind === "delete all") {
@@ -535,7 +585,8 @@ export const familyWrites = (
  *   `refills`), or where a family member's own write reaches a value grizzle refills only from a plain relation's put
  *   (`edit`, the family one of `edits`), each naming one of the writes whose path first reaches a refill (`origins`,
  *   fill.ts writesVerdict); UnsupportedOperation where its refills fall in a
- *   stratum after another (`later`), a refill being planned from one read before the ChangeSet's writes;
+ *   stratum after another (`later`), a refill being planned from one read before the ChangeSet's writes, and where a
+ *   delete of everything leaves a family's groups partial (`partial`, leavesGroupsPartial);
  * - `refused`: invariant-rejected, naming only laws of `laws`, where two facts share a key, a family's member names no
  *   owner, an immediate law fails at the end of a stratum, or any law fails at the end;
  * - `written`: accepted, or no-change where nothing stored changes, leaving `next`.
@@ -552,6 +603,7 @@ export type StepVerdict =
 			readonly refills: ReadonlyArray<number>
 			readonly edits: ReadonlyArray<number>
 			readonly later: boolean
+			readonly partial: boolean
 			readonly origins: ReadonlyArray<{
 				readonly relation: string
 				readonly op: "insert" | "put" | "delete"
@@ -594,6 +646,9 @@ export const expectStep = (
 			refills: verdict.kind === "chained" ? verdict.refills : [],
 			edits: verdict.kind === "edit" ? verdict.families : [],
 			later: earlier && stale,
+			partial:
+				step.kind === "delete all" &&
+				leavesGroupsPartial(spec.fill, deletedAll(spec, state, step.by)),
 			origins: Arr.map(
 				verdict.kind === "written"
 					? step.kind === "query put"
@@ -610,7 +665,8 @@ export const expectStep = (
 			Arr.isReadonlyArrayNonEmpty(uncompiled.trees) ||
 			Arr.isReadonlyArrayNonEmpty(uncompiled.refills) ||
 			Arr.isReadonlyArrayNonEmpty(uncompiled.edits) ||
-			uncompiled.later
+			uncompiled.later ||
+			uncompiled.partial
 		) {
 			return uncompiled
 		}

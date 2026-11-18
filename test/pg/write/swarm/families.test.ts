@@ -86,8 +86,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  *   containment names exactly the law of its statement;
  * - a refusal when it compiles, the served compile's, is justified by the oracle's own statement: StaleDerivedRead
  *   where the reference finds a refill of an immutable relation's rows or a put from a query leaving a value stale
- *   (fill.ts writesVerdict), and UnorderableStratum where every order of its cycle is one the stratum's writes require
- *   (oracle.ts justified).
+ *   (fill.ts writesVerdict), UnorderableStratum where every order of its cycle is one the stratum's writes require
+ *   (oracle.ts justified), and UnsupportedOperation where a delete of everything names no relation owning a family
+ *   that a relation nested under its whole deletes is a member of, whose groups it would leave partial, as the README
+ *   refuses it (oracle.ts leavesGroupsPartial).
  *
  * Its kept cases are the seven downstream defects' shapes and pantry's importWrite, nested and not; planted in a
  * scratch copy, the total chain of a stratum's family statements, the pair rule's edges on a deferred owner axis, a
@@ -135,6 +137,7 @@ type Situation =
 	| "a refill of a tree's values refused"
 	| "a refill reading another refill's change refused"
 	| "a member's own write reaching another family's value refused"
+	| "a delete leaving another owner's groups partial refused"
 
 const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a lawful first insert accepted",
@@ -2093,6 +2096,54 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a follow-up accepted", "a follow-up refilling a value"]
+	},
+	{
+		note: "TEST_SEED=2978792241's rotating case 13 at grizzle 4f7ecea5: R0, its own tree, owns a counted family of R2, and R2 is also a member of R4's counted n6; two R0 rows are inserted and a delete of everything by field equality names R0 alone, since R4 holds no row. The compile refuses it as UnsupportedOperation, R2's rows nested under R0 being members of a family whose owner R4 the stratum does not delete, as the README states; the oracle expected it written",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [
+						{ generated: true, mutable: false },
+						{ generated: false, mutable: false },
+						{ generated: false, mutable: false },
+						{ generated: false, mutable: false },
+						{ generated: true, mutable: false }
+					],
+					families: [
+						{ kind: "tree", owner: 4, member: 4, fold: "none" },
+						{ kind: "counted", owner: 0, member: 2, fold: "none" },
+						{ kind: "tree", owner: 1, member: 1, fold: "none" },
+						{ kind: "counted", owner: 2, member: 1, fold: "none" },
+						{ kind: "counted", owner: 4, member: 1, fold: "none" },
+						{ kind: "tree", owner: 0, member: 0, fold: "none" },
+						{ kind: "counted", owner: 4, member: 2, fold: "sum" },
+						{ kind: "tree", owner: 2, member: 2, fold: "none" },
+						{ kind: "counted", owner: 0, member: 3, fold: "none" }
+					],
+					copies: [],
+					steps: []
+				},
+				ends: [],
+				plains: [],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 0n, memberOf: [] },
+						{ relation: 0, id: 2, v: 1n, memberOf: [{ family: 5, owner: 1, slot: 0 }] }
+					],
+					true,
+					undefined
+				),
+				{ kind: "delete all", by: "selection" }
+			]
+		},
+		draws: "",
+		reaches: [
+			"a lawful first insert accepted",
+			"a delete leaving another owner's groups partial refused"
+		]
 	}
 ]
 
@@ -2214,6 +2265,10 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 												c.note("a refill after an earlier stratum refused")
 												return
 											}
+											if (reason._tag === "UnsupportedOperation" && expected.partial) {
+												c.note("a delete leaving another owner's groups partial refused")
+												return
+											}
 											if (reason._tag === "StaleDerivedRead") {
 												const cause = reason.cause
 												assert.ok(
@@ -2248,7 +2303,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 									switch (expected.kind) {
 										case "uncompiled":
 											return assert.fail(
-												`${label}: ${outcome.kind}, where the reference finds a refill it cannot draw or plan: ${Formatter.format(expected)}`
+												`${label}: ${outcome.kind}, where the reference finds it refused when it compiles: ${Formatter.format(expected)}`
 											)
 										case "refused": {
 											assert.equal(

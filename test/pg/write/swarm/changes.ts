@@ -20,6 +20,7 @@ import {
 	type MemberInput
 } from "#compiler/write/changeset/value.ts"
 import {
+	deletedAll,
 	familyWrites,
 	orphaned,
 	ownedRows,
@@ -510,25 +511,22 @@ export const changeSetOf = (
 			case "delete all":
 				return {
 					members: [
-						...Arr.flatMap(spec.fill.relations, (_, r): ReadonlyArray<Member> => {
-							const own = Arr.filter(state.rows, (x) => x.relation === r)
-							if (!Arr.isReadonlyArrayNonEmpty(own)) {
-								return []
-							}
+						...Arr.map(deletedAll(spec, state, step.by), (r): Member => {
 							const relation = relationOf(relationName(r))
 							switch (step.by) {
 								case "rows":
-									return [
-										{
-											relation,
-											op: "delete",
-											rows: factsOf(Arr.map(own, (x) => callerFact(spec, state.rows, x)))
-										}
-									]
+									return {
+										relation,
+										op: "delete",
+										rows: factsOf(
+											Arr.map(
+												Arr.filter(state.rows, (x) => x.relation === r),
+												(x) => callerFact(spec, state.rows, x)
+											)
+										)
+									}
 								case "selection":
-									return Arr.some(spec.fill.families, (f) => f.member === r && f.kind !== "tree")
-										? []
-										: [{ relation, op: "delete", rows: { kind: "selection", fields: {} } }]
+									return { relation, op: "delete", rows: { kind: "selection", fields: {} } }
 							}
 						}),
 						...plainMembers(
