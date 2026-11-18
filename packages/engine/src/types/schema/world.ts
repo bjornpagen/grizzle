@@ -39,11 +39,11 @@ import type {
 import type {
 	AllFragmentsOf,
 	AnySchema,
+	BelowOf,
 	IsLevelOf,
 	IsRelationOf,
 	NamedBy,
 	RelationsOf,
-	Stated,
 	StatementsOf,
 	UnderName
 } from "#compiler/types/schema/schema.ts"
@@ -304,14 +304,6 @@ type FullBaseAt<Base, Unheld, Relations> = [Unheld] extends [never]
 
 /** FullBaseOf at the level below, none below a root schema, whose phantom states never: Below is distributed over. */
 type FullBaseBelow<Below, Relations> = Below extends unknown ? FullBaseOf<Below, Relations> : never
-
-/**
- * The level a schema extends, read off its phantom by key: never below a root schema, and `unknown` for a value with no
- * phantom (AnySchema), whose phantom a match of `Phantom<{ readonly extends: infer Below }>` reads as `unknown`.
- */
-type BelowOf<Base> = typeof phantom extends keyof Base
-	? Stated<PhantomOf<Base>, "extends">
-	: unknown
 
 /**
  * The fragments a role over Base holds whole: each fragment a level of the base lists whose every relation the role

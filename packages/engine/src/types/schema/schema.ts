@@ -1,4 +1,4 @@
-import type { Built, Phantom } from "#compiler/core/phantom.ts"
+import type { Built, Phantom, phantom } from "#compiler/core/phantom.ts"
 import type { Identical } from "#compiler/types/core/identical.ts"
 import type {
 	Carriers,
@@ -6,6 +6,7 @@ import type {
 	Invariant,
 	IsOneLiteral,
 	MembersTyped,
+	PhantomOf,
 	Refusal
 } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived, Derived } from "#compiler/types/derived/derived.ts"
@@ -101,7 +102,7 @@ export interface AnyFragment extends Built {
  * the item: a derived relation holds its definition, a query over the level below, and a conditional the checker
  * resolves instantiates its operands whole, every relation of that level with them, once for each item it tests.
  */
-export type Stated<X, K extends string> = K extends keyof X ? X[K] : never
+type Stated<X, K extends string> = K extends keyof X ? X[K] : never
 
 /**
  * The kind X states, read by key: its `kind`, and `unknown`, which is no kind, where it states none, so a test of the
@@ -702,29 +703,40 @@ type NamedApart<R, Names> = R extends unknown
  * S, every schema below it, and every fragment one of them lists (FragmentsOf). A query over any of them is a query
  * over S. The recursion is as deep as the extension chain, never over relations or statements.
  */
-export type LevelsOf<S> =
-	| S
-	| FragmentsOf<S>
-	| (S extends Phantom<{ readonly extends: infer B }>
-			? [B] extends [never]
-				? never
-				: LevelsOf<B>
-			: never)
+export type LevelsOf<S> = S | FragmentsOf<S> | LevelsBelow<BelowOf<S>>
+
+/** LevelsOf the level below, none below a root schema. */
+type LevelsBelow<B> = [B] extends [never] ? never : LevelsOf<B>
+
+/**
+ * What a level's phantom states under K, the level it extends or the fragments it lists, read by key (PhantomOf), each
+ * member of a union its own: never a match of `Phantom<{ readonly [K]: infer X }>`, which binds the level below, a
+ * schema, and instantiates it again, whole, every relation and statement of it, in the branch that reads it, so a walk
+ * of the chain read every level below each level once more. A value with no phantom, a Built such as AnySchema, states
+ * `unknown`, as that match reads it, and a value that is no Built states nothing.
+ */
+type LevelStated<S, K extends string> = S extends unknown
+	? typeof phantom extends keyof S
+		? Stated<PhantomOf<S>, K>
+		: S extends Built
+			? unknown
+			: never
+	: never
+
+/** The level S extends, read off its phantom by key (LevelStated): never below a root schema. */
+export type BelowOf<S> = LevelStated<S, "extends">
 
 /**
  * The fragments that are levels of S itself: a schema's, those its list holds; a role's, those of its base's levels it
  * holds whole (types/schema/world.ts Role); none for anything else.
  */
-export type FragmentsOf<S> = S extends Phantom<{ readonly fragments: infer F }> ? F : never
+export type FragmentsOf<S> = LevelStated<S, "fragments">
 
 /** The fragments every level of a schema lists, the levels below it included. */
-export type AllFragmentsOf<S> =
-	| FragmentsOf<S>
-	| (S extends Phantom<{ readonly extends: infer B }>
-			? [B] extends [never]
-				? never
-				: AllFragmentsOf<B>
-			: never)
+export type AllFragmentsOf<S> = FragmentsOf<S> | AllFragmentsBelow<BelowOf<S>>
+
+/** AllFragmentsOf the level below, none below a root schema. */
+type AllFragmentsBelow<B> = [B] extends [never] ? never : AllFragmentsOf<B>
 
 /**
  * Whether X is one of the levels of S. Each level is compared invariantly, as Query compares its schema, so a schema

@@ -56,6 +56,7 @@ import type {
 	AllFragmentsOf,
 	AnyFragment,
 	AnySchema,
+	BelowOf,
 	IsLevelOf,
 	IsRelationOf,
 	LevelsOf,
@@ -1143,19 +1144,16 @@ interface ArrayMember<in Op, in Spelled, in At, in Address> {
  * defined over and every level below that one. Every level of a schema lies at a depth of its own, so a member names
  * its level by its depth, whatever the levels' names.
  */
-type DepthOf<S> =
-	S extends Phantom<{ readonly extends: infer Below }>
-		? [Below] extends [never]
-			? readonly []
-			: readonly [unknown, ...DepthOf<Below>]
-		: readonly []
+type DepthOf<S> = S extends unknown ? DepthBelow<BelowOf<S>> : never
 
-/** The level of S at the depth Depth: S itself, or the level below it at that depth. */
-type LevelAt<S, Depth> = DepthOf<S>["length"] extends Depth
-	? S
-	: S extends Phantom<{ readonly extends: infer Below }>
-		? LevelAt<Below, Depth>
-		: never
+/** DepthOf the level below, B: none below a root schema. */
+type DepthBelow<B> = [B] extends [never] ? readonly [] : readonly [unknown, ...DepthOf<B>]
+
+/**
+ * The level of S at the depth Depth: S itself, or the level below it at that depth, each read off its phantom by key
+ * (BelowOf), so a member's level is found in a step for each level, none of which reads a level whole.
+ */
+type LevelAt<S, Depth> = DepthOf<S>["length"] extends Depth ? S : LevelAt<BelowOf<S>, Depth>
 
 /**
  * Where a ChangeSet over S finds its member's level among the levels of any ChangeSet it joins: a schema's or a role's
