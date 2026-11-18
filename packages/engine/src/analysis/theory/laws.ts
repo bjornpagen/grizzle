@@ -186,7 +186,7 @@ interface WrittenRule extends StatedRule {
 export type StatedDetail =
 	| Exclude<LawDetail, { readonly kind: "family" | "tree" | "rule" }>
 	| StatedRule
-	| { readonly kind: "family"; readonly family: FamilyShape }
+	| { readonly kind: "family"; readonly family: Omit<Family, "axes" | "folds"> }
 	| { readonly kind: "tree"; readonly family: Omit<TreeFamily, "axes" | "folds"> }
 
 /**
@@ -467,7 +467,7 @@ export interface PrimaryKeyKept {
 	readonly kept: KeptLaw
 }
 
-/** A fold's nonempty step selection, or a selected family's φ, lowered over a scan of its member's row, which `region` is. */
+/** A fold's nonempty step selection, lowered over a scan of its member's row, which `region` is. */
 interface FoldSelection {
 	readonly region: RelNode
 	readonly where: NonEmptyReadonlyArray<ScalarExpr>
@@ -764,7 +764,7 @@ export class LawSides {
 			relation: scope.relation,
 			rel: r,
 			terms,
-			selection: this.selection(r, scope.selection, loc)
+			selection: this.#selection(r, scope.selection, loc)
 		}
 	}
 
@@ -800,7 +800,7 @@ export class LawSides {
 	 * A side's selection resolved over `r` (`ResolvedSelection`): each conjunct with its canonical text and the fields it
 	 * reads, fixed where it fixes a field no other conjunct fixes, at a literal its type holds (`selector`).
 	 */
-	selection(r: TheoryRelation, selection: SelectionDesc, loc: SourceLoc): ResolvedSelection {
+	#selection(r: TheoryRelation, selection: SelectionDesc, loc: SourceLoc): ResolvedSelection {
 		const read = selection.conjuncts.map((predicate) => {
 			const equality = fieldEquality(predicate)
 			return {
@@ -1177,13 +1177,7 @@ export class Normalizer {
 				continue
 			}
 			const shape =
-				s.kind === "family"
-					? familyShape(s, this.env.relations, (member, selection) =>
-							this.#sides
-								.selection(member, selection, s.loc)
-								.conjuncts.map(({ predicate, text, reads }) => ({ predicate, text, reads }))
-						)
-					: treeShape(s, this.env.relations)
+				s.kind === "family" ? familyShape(s, this.env.relations) : treeShape(s, this.env.relations)
 			const key = familyKey(shape.id)
 			const known = this.#families.get(key)
 			if (known !== undefined) {
@@ -1912,29 +1906,12 @@ export class Normalizer {
 				...this.env.lowerEnv,
 				closed: admittedReads(
 					this.env.lowerEnv.closed,
-					exprPatternReads(
-						entries.flatMap((entry) => [
-							...entry.folds.flatMap((f) => f.where),
-							...membersSelection(entry.shape)
-						])
-					)
+					exprPatternReads(entries.flatMap((entry) => entry.folds.flatMap((f) => f.where)))
 				)
 			}
 		}
 		const families = entries.map((entry): Family => {
 			const shape = entry.shape
-			/** A selected family's φ lowered over the member's row as a fold's step selection is, with its scan. */
-			const members = ((): Family["members"] => {
-				if (shape.members.kind !== "selected") {
-					return shape.members
-				}
-				const region = b.scan(shape.member, shape.member.fields, [])
-				const where = mapNonEmpty(shape.members.conjuncts, (c) =>
-					lowerTotal(b, env, c.predicate, entry.loc, rowLeaf(shape.member, region))
-				)
-				selections.push({ region, where })
-				return Object.freeze({ ...shape.members, where: Object.freeze(where) })
-			})()
 			const folds = entry.folds.map((f): FamilyFold => {
 				const region = b.scan(shape.member, shape.member.fields, [])
 				const where = f.where.map((c) =>
@@ -1951,7 +1928,7 @@ export class Normalizer {
 					planes: Object.freeze(mapNonEmpty(f.planes, (p) => Object.freeze({ ...p })))
 				})
 			})
-			return Object.freeze({ ...shape, members, axes: entry.axes(), folds: Object.freeze(folds) })
+			return Object.freeze({ ...shape, axes: entry.axes(), folds: Object.freeze(folds) })
 		})
 		this.#resolved = new Map(families.map((f) => [familyKey(f.id), f] as const))
 		return { families: Object.freeze(families), selections }

@@ -493,8 +493,6 @@ const generationOf = (c: ColumnDef, schema: string): Generation => {
 			return { kind: "stored", calls: callsOf([c.generated.expr], schema) }
 		case "partial":
 			return { kind: "partial", calls: callsOf([c.generated.when, c.generated.expr], schema) }
-		case "membersOnly":
-			return { kind: "none" }
 	}
 }
 

@@ -1977,7 +1977,6 @@ class StatementAuditor {
 				return
 			case "uuidv7":
 			case "retirement":
-			case "membersOnly":
 				return
 			case "stored":
 				this.ddlExpr(generated.expr, tableColumns, "generated")

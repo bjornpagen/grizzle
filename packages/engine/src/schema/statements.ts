@@ -712,8 +712,8 @@ const slotsOf = (value: unknown, label: string): SlotsDesc => {
 }
 
 /**
- * A family's or a tree's member side: a side of an ordinary relation, over every fact. A selection breaks `rule`: an
- * ordered family's member side, or a tree's own shape, on(T, parent, at) over T itself.
+ * A family's or a tree's member side: a side of an ordinary relation, over every fact. A selection breaks `rule`: a
+ * family's member side, or a tree's own shape, on(T, parent, at) over T itself.
  */
 const memberSide = (value: unknown, label: string, rule: Refused): SideDesc => {
 	const side = sideOf(value, `${label} member`)
@@ -723,26 +723,16 @@ const memberSide = (value: unknown, label: string, rule: Refused): SideDesc => {
 	return side
 }
 
-/**
- * What each family statement's member side may be: a counted family's any side of an ordinary relation, every fact or
- * a selection of them; an ordered family's every fact, since its index is a field every fact holds.
- */
-const familyMember: { readonly [O in "ordered" | "counted"]: (value: unknown) => SideDesc } = {
-	ordered: (value) =>
-		memberSide(
-			value,
-			"ordered",
-			"an ordered family's member side is a relation, never a selection: its index is a field every fact holds"
-		),
-	counted: (value) => sideOf(value, "counted member")
-}
-
 const admitFamily = (
 	order: "ordered" | "counted",
 	family: unknown,
 	slots: unknown
 ): StatementDesc => {
-	const member = familyMember[order](family)
+	const member = memberSide(
+		family,
+		order,
+		"a family's member side is a relation, never a selection: its members are every fact of the relation"
+	)
 	const slotsDesc = slotsOf(slots, `${order} slots`)
 	return admitted({
 		kind: "family",

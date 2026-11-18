@@ -1313,8 +1313,7 @@ const withColumns = (
 				generated === undefined ||
 				generated.kind === "identity" ||
 				generated.kind === "uuidv7" ||
-				generated.kind === "retirement" ||
-				generated.kind === "membersOnly"
+				generated.kind === "retirement"
 					? generated
 					: generated.kind === "stored"
 						? { kind: "stored", expr: exprIn(into, generated.expr) }

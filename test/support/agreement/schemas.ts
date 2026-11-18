@@ -252,7 +252,6 @@ const schemaForms = [
 	"concatFold",
 	"concatMismatch",
 	"refinedFold",
-	"selectedCounted",
 	"refinedGenerated",
 	"roleBesideClosed",
 	"fixedByValue",
@@ -393,9 +392,9 @@ type DeclaredClass = (typeof declaredClasses)[number]
 
 /**
  * The kept faults, each a probe of a kept case every run states (keptFaultCase) and never drawn: a side over a
- * selection, by ordered and tree. A counted family's side over a selection is a form both accept (familyProbe).
+ * selection, by counted, ordered and tree.
  */
-const keptFaults = ["selectedOrdered", "selectedTree"] as const
+const keptFaults = ["selectedCounted", "selectedOrdered", "selectedTree"] as const
 export type KeptFault = (typeof keptFaults)[number]
 
 /** What a probe plants: a fault the types refuse, a kept one, or a declared class they accept. */
@@ -446,6 +445,10 @@ const structural = (engine: Expected, why: string): Refusing => ({
 /** Alternatives over a derived relation, as both sides refuse it. */
 const storedAlternatives: Refused =
 	"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws"
+
+/** A family's member side over a selection, as both sides refuse it. */
+const wholeMember: Refused =
+	"a family's member side is a relation, never a selection: its members are every fact of the relation"
 
 /** Each fault's refusal: the engine's reason, and what the types claim of it. */
 const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
@@ -793,9 +796,8 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	contractName: typed("a contract's name is one literal, the brand of its values", {
 		identity: "several"
 	}),
-	selectedOrdered: named(
-		"an ordered family's member side is a relation, never a selection: its index is a field every fact holds"
-	),
+	selectedCounted: named(wholeMember),
+	selectedOrdered: named(wholeMember),
 	selectedTree: named(
 		"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end"
 	)
@@ -4595,14 +4597,6 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 			(monoid === "concat" && fault !== "concatHidden" && fault !== "concatCounted"))
 	const valueField: ReadonlyArray<FieldSpec> =
 		value === undefined ? [] : [{ name: "v", type: value, writing: callerWriting }]
-	/** A counted family's member side over a selection of M, its facts whose flag is true: a form both accept. */
-	const selected = order === "counted" && fault === undefined && d.upTo(1) === 1
-	if (selected) {
-		d.note("selectedCounted")
-	}
-	const flagField: ReadonlyArray<FieldSpec> = selected
-		? [{ name: "flag", type: { kind: "pg", spelling: "boolean" }, writing: callerWriting }]
-		: []
 	const pairType = value === undefined ? undefined : accumulatorOf(value)
 	const pairFields: ReadonlyArray<FieldSpec> =
 		pair && pairType !== undefined
@@ -4641,8 +4635,7 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 				? { name: "at", type: { kind: "natural" }, writing: { kind: "drawn" } }
 				: { name: "k", type: { kind: "pg", spelling: "integer" }, writing: callerWriting },
 			...valueField,
-			...pairFields,
-			...flagField
+			...pairFields
 		],
 		key: order === "ordered" ? ["g", "at"] : ["g", "k"]
 	}
@@ -4654,11 +4647,7 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 	}
 	const end: SideSpec = { relation: "O", terms: ["id", ...endNames] }
 	const familySource = (mine: Ids) =>
-		`Sc.${order}(${
-			selected
-				? `Sc.on(Sc.select(${mine("M")}, (t) => t.eq(t.flag, true)), ${quoted(memberSide.terms)})`
-				: sideSource(memberSide, mine)
-		}, Sc.fin(${mine("O")}, ${jsonText(count)}))`
+		`Sc.${order}(${sideSource(memberSide, mine)}, Sc.fin(${mine("O")}, ${jsonText(count)}))`
 	return {
 		construct: "familyProbe",
 		refused: fault,
@@ -4697,17 +4686,7 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 				const family =
 					order === "ordered"
 						? orderedBuilder(sideValue(memberSide, relations), slots)
-						: countedBuilder(
-								selected
-									? onBuilder(
-											selectBuilder(got(relations, "M"), (row: Readonly<Record<string, unknown>>) =>
-												rowHelpers.eq(row["flag"], true)
-											),
-											memberSide.terms
-										)
-									: sideValue(memberSide, relations),
-								slots
-							)
+						: countedBuilder(sideValue(memberSide, relations), slots)
 				const fold = foldBuilder(
 					family,
 					monoids[monoid],
@@ -4773,8 +4752,8 @@ const countedSideProbe = (): Probe => {
 }
 
 /**
- * A family whose member side is a selection of its member relation, a kept fault: ordered of M's members in fin(O, n),
- * refused as an ordered family's member side, every fact of its relation, before the side's terms are read; or the
+ * A family whose member side is a selection of its member relation, a kept fault: counted and ordered of M's members in
+ * fin(O, n), refused as a family's member side, every fact of its relation, before the side's terms are read; or the
  * tree of T over itself, whose side over a selection breaks the tree's own shape, on(T, parent, at).
  */
 const selectedMemberProbe = (fault: KeptFault): Probe => {
@@ -4830,9 +4809,11 @@ const selectedMemberProbe = (fault: KeptFault): Probe => {
 					(r) => `export const ${own}_${r.name} = ${relationSource(r, mine, quoted(r.key))}`
 				),
 				line:
-					fault === "selectedOrdered"
-						? `export const ${own} = Sc.ordered(Sc.on(${selected(`${own}_M`)}, "g", "i"), Sc.fin(${own}_O, "n"))`
-						: `export const ${own} = Sc.tree(Sc.on(${selected(`${own}_T`)}, "parent", "at"), Sc.fin(${own}_T, "children"), { root: ["doc"] })`,
+					fault === "selectedCounted"
+						? `export const ${own} = Sc.counted(Sc.on(${selected(`${own}_M`)}, "g"), Sc.fin(${own}_O, "n"))`
+						: fault === "selectedOrdered"
+							? `export const ${own} = Sc.ordered(Sc.on(${selected(`${own}_M`)}, "g", "i"), Sc.fin(${own}_O, "n"))`
+							: `export const ${own} = Sc.tree(Sc.on(${selected(`${own}_T`)}, "parent", "at"), Sc.fin(${own}_T, "children"), { root: ["doc"] })`,
 				tail: []
 			}
 		},
@@ -4846,6 +4827,8 @@ const selectedMemberProbe = (fault: KeptFault): Probe => {
 				const m = relationValue(member, env.rosters, env.contracts)
 				const t = relationValue(node, env.rosters, env.contracts)
 				switch (fault) {
+					case "selectedCounted":
+						return countedBuilder(onBuilder(selection(m), ["g"]), finBuilder(o, "n"))
 					case "selectedOrdered":
 						return orderedBuilder(onBuilder(selection(m), ["g", "i"]), finBuilder(o, "n"))
 					case "selectedTree":

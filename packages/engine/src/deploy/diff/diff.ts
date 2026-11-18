@@ -516,7 +516,6 @@ const readsAside = (g: ColumnGeneration, aside: AsideColumns): boolean => {
 		case "identity":
 		case "uuidv7":
 		case "retirement":
-		case "membersOnly":
 			return false
 	}
 }
@@ -567,7 +566,6 @@ const asideSubcommand = (
 		case "identity":
 		case "uuidv7":
 		case "retirement":
-		case "membersOnly":
 			return { alteration: a, checked: [] }
 	}
 }
@@ -598,7 +596,6 @@ const drawOf = (column: ColumnDef): ReadonlyArray<AlterTableAction> => {
 			return [{ kind: "setRetirementDefault", column: column.name }]
 		case "stored":
 		case "partial":
-		case "membersOnly":
 		case undefined:
 			return []
 	}

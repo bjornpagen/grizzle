@@ -6,9 +6,8 @@ import { type CorruptedFeature, type Corruption } from "@bjornpagen/testing/lsw"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { familyShape, type RidingSide } from "#compiler/analysis/theory/families.ts"
-import { type LawDetail, mentions } from "#compiler/analysis/theory/laws.ts"
+import type { LawDetail } from "#compiler/analysis/theory/laws.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
-import { ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import {
 	type CompareOp,
 	compareOps,
@@ -293,20 +292,7 @@ const desc = ridingSchema(false, [])
 
 const t = theoryOf(desc)
 
-/** A conjunct as a side's selection resolves it (analysis/theory/laws.ts LawSides.selection): its canonical text. */
-export const conjunctText = (
-	predicate: ExprDesc
-): { readonly predicate: ExprDesc; readonly text: string } => ({
-	predicate,
-	text: ownedText(predicate, withoutSourceLocs)
-})
-
-export const shape = familyShape(familyStatementOf(desc), relationsOf(t), (member, selection) =>
-	Arr.map(selection.conjuncts, (predicate) => ({
-		...conjunctText(predicate),
-		reads: Arr.filter(member.fields, (x) => mentions(predicate, x.name))
-	}))
-)
+export const shape = familyShape(familyStatementOf(desc), relationsOf(t))
 
 export const fieldOf = (rel: Rel, name: string) =>
 	defined(
@@ -317,7 +303,7 @@ export const fieldOf = (rel: Rel, name: string) =>
 
 export const ridingSide = (rel: Rel, selected: boolean): RidingSide => ({
 	relation: rel,
-	selection: { conjuncts: selected ? [conjunctText(selectionOf[rel])] : [] }
+	selection: { conjuncts: selected ? [{ predicate: selectionOf[rel] }] : [] }
 })
 
 /**

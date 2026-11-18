@@ -2052,8 +2052,8 @@ const sideLinkShape = S.located(S.structWith({ left: sideDescShape, right: sideD
 const slotsDescShape: S.Shape<SlotsDesc> = S.struct({ owner: name, count: name })
 
 /**
- * A side over every fact of its relation, which no selection narrows: an ordered family's or a tree's member, whose
- * index is a field every fact holds, and an alternatives statement's parent and arms, its relations' keys.
+ * A side over every fact of its relation, which no selection narrows: a family's or a tree's member, whose slots are
+ * counted over every fact, and an alternatives statement's parent and arms, its relations' keys.
  */
 const memberShape: S.Shape<SideDesc> = S.refine(
 	sideDescShape,
@@ -2068,17 +2068,13 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 	check: S.located(S.structWith({ name, relation: name, predicate: exprDescShape }, loc)),
 	contained: sideLinkShape,
 	family: S.located(
-		S.refine(
-			S.structWith(
-				{
-					order: S.literalsShape(["ordered", "counted"]),
-					member: sideDescShape,
-					slots: slotsDescShape
-				},
-				loc
-			),
-			(f) => f.order === "counted" || f.member.selection.conjuncts.length === 0,
-			"a family whose member side is every fact of its relation, or a counted family's selection of them"
+		S.structWith(
+			{
+				order: S.literalsShape(["ordered", "counted"]),
+				member: memberShape,
+				slots: slotsDescShape
+			},
+			loc
 		)
 	),
 	tree: S.located(

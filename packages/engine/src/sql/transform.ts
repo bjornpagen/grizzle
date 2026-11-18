@@ -862,7 +862,6 @@ export class Transform {
 			}
 			case "uuidv7":
 			case "retirement":
-			case "membersOnly":
 				return g
 			case "stored": {
 				const expr = this.expr(g.expr)

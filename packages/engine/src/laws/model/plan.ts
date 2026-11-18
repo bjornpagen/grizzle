@@ -26,20 +26,13 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
-import {
-	connectiveExpr,
-	descText,
-	type ExprDesc,
-	fieldTermsOf,
-	termText
-} from "#compiler/ir/desc.ts"
+import { descText, type ExprDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
 	type ClosedTheoryRelation,
 	declaredKeyOf,
 	type Drawn,
-	type DrawnOn,
 	type FamilyId,
 	familyKey,
 	fieldNames,
@@ -121,8 +114,6 @@ export type LawColumnPlan =
 			/** The field whose values it holds, which types it and sizes an index entry over it. */
 			readonly field: LawField
 			readonly draws: Drawn
-			/** The rows the host draws it on (ir/law.ts DrawnOn): every row, or a selected family's members alone. */
-			readonly on: DrawnOn
 			/** What it is at the naming door: its family and what it draws, a hidden accumulator by its fold's law. */
 			readonly named: DrawnStatement
 	  }
@@ -2529,26 +2520,12 @@ class FamilyPlanner {
 			const i = own.column(index)
 			const n = own.column(copy)
 			own.add(
-				this.#onMembers(
-					index.kind === "field"
-						? cmp("lt", i, n)
-						: and([cmp("ge", i, naturalLiteral(0n)), cmp("lt", i, n)]),
-					[i, n]
-				)
+				index.kind === "field"
+					? cmp("lt", i, n)
+					: and([cmp("ge", i, naturalLiteral(0n)), cmp("lt", i, n)])
 			)
 		} else {
 			this.#treeConditions(own, tree, index, copy)
-		}
-		if (f.members.kind === "selected") {
-			for (const p of carried.owner) {
-				if (this.#startOf(p.from) !== undefined) {
-					refuse(
-						"UnsupportedLawFamily",
-						this.#loc,
-						`a copy along a family's owner axis into a field the family fills; ${familyText(this.#shape())} is over a selection, so a row of ${member.name} off it has no owner to copy ${plannedText(p.from)} from`
-					)
-				}
-			}
 		}
 		for (const kind of ["owner", "predecessor", "last"] as const) {
 			for (const p of carried[kind]) {
@@ -2607,35 +2584,9 @@ class FamilyPlanner {
 		draws: Drawn,
 		named: DrawnStatement
 	): LawColumnPlan {
-		const on: DrawnOn = this.#family.members.kind === "selected" ? "members" : "every"
-		const column: LawColumnPlan = { kind: "drawn", relation, field, draws, on, named }
+		const column: LawColumnPlan = { kind: "drawn", relation, field, draws, named }
 		this.#drawn.set(ident, column)
 		return column
-	}
-
-	/**
-	 * A row condition of the family's members, `holds`, over its member relation: as it is where every fact is a member;
-	 * for a selected family, `holds` where φ is true and every drawn column `absent` NULL on every other row,
-	 * `CASE WHEN φ THEN holds ELSE CASE WHEN a = a OR … THEN false ELSE true END END`. `a = a` is true at every value and
-	 * unknown only at NULL, so the inner CASE is true exactly where each of `absent` is NULL: a fact off φ belongs to no
-	 * group, and the family's keys (NULLS DISTINCT) and foreign keys (MATCH SIMPLE) pass it by.
-	 */
-	#onMembers(holds: ExprDesc, absent: NonEmptyReadonlyArray<ExprDesc>): ExprDesc {
-		const members = this.#family.members
-		if (members.kind !== "selected") {
-			return holds
-		}
-		return {
-			kind: "cond",
-			pred: and(mapNonEmpty(members.conjuncts, (c) => c.predicate)),
-			onTrue: holds,
-			onFalse: {
-				kind: "cond",
-				pred: or(mapNonEmpty(absent, (a) => cmp("eq", a, a))),
-				onTrue: connectiveExpr("or", []),
-				onFalse: connectiveExpr("and", [])
-			}
-		}
 	}
 
 	/** A drawn column of the family that is no fold's, at the naming door. */
@@ -2646,7 +2597,11 @@ class FamilyPlanner {
 
 	/** A tree's members as a resolved selection: every row whose start is above 0 (φ₀). */
 	#members(start: LawField): ResolvedSelection {
-		const conjuncts = membersSelection(this.#family)
+		const conjuncts = membersSelection({
+			...this.#family,
+			owner: this.#owner,
+			member: this.#member
+		})
 		return {
 			conjuncts: conjuncts.map((predicate): ResolvedConjunct => {
 				const text = descText(predicate)
@@ -2924,20 +2879,11 @@ class FamilyPlanner {
 		const at = axis === "predecessor" ? index : fieldColumn(this.#family.count)
 		const relation = axis === "last" ? this.#owner : this.#member
 		const conditions = this.#conditionsFor(pair.laws[0], relation)
-		const pinned = or([
-			cmp("gt", conditions.column(at), naturalLiteral(0n)),
-			cmp("eq", conditions.column(pair.from), conditions.literal(start.start, start.type))
-		])
-		const members = this.#family.members
 		conditions.add(
-			axis === "predecessor" && members.kind === "selected"
-				? {
-						kind: "cond",
-						pred: and(mapNonEmpty(members.conjuncts, (c) => c.predicate)),
-						onTrue: pinned,
-						onFalse: connectiveExpr("and", [])
-					}
-				: pinned
+			or([
+				cmp("gt", conditions.column(at), naturalLiteral(0n)),
+				cmp("eq", conditions.column(pair.from), conditions.literal(start.start, start.type))
+			])
 		)
 	}
 
@@ -2979,23 +2925,18 @@ class FamilyPlanner {
 			mapNonEmpty(afters, (a, p) => cmp("eq", a, combined[p] ?? missing("a combine per plane")))
 		)
 		const where = detail.step.selection.conjuncts.map((c) => c.predicate)
-		/** A selected family is counted, so each plane's accumulators are its hidden drawn columns, NULL off φ. */
-		const onMembers = (holds: ExprDesc): ExprDesc =>
-			this.#onMembers(holds, extendNonEmpty(befores, afters))
 		if (!isNonEmpty(where)) {
-			conditions.add(onMembers(stepped))
+			conditions.add(stepped)
 			return
 		}
-		conditions.add(
-			onMembers({
-				kind: "cond",
-				pred: and(where),
-				onTrue: stepped,
-				onFalse: and(
-					mapNonEmpty(afters, (a, p) => cmp("eq", a, befores[p] ?? missing("a before per plane")))
-				)
-			})
-		)
+		conditions.add({
+			kind: "cond",
+			pred: and(where),
+			onTrue: stepped,
+			onFalse: and(
+				mapNonEmpty(afters, (a, p) => cmp("eq", a, befores[p] ?? missing("a before per plane")))
+			)
+		})
 	}
 }
 

@@ -1309,29 +1309,11 @@ const compile = (
 			classes: classesOf(member, entryDraws(entry))
 		}
 	}
-	/** The selected families a member of the ChangeSet writes: of a relation it adds rows of or puts or deletes, or of an
-	 * owner it deletes, whose whole delete reaches the family's members. */
-	const selectedWritten = (member: MemberDesc): Family | undefined =>
-		families.find(
-			(f) =>
-				f.members.kind === "selected" &&
-				(addedBy(member).has(f.member.name) ||
-					(member.op !== "insert" && member.relation === f.member.name) ||
-					(member.op === "delete" && member.relation === f.owner.name))
-		)
 	const strataMembers = desc.strata.map((stratum) =>
 		stratum.members.map((member): CheckedMember => {
 			const loc = member.loc
 			const target = targetOf(member.relation, loc)
 			const { relation, entry } = target
-			const selected = selectedWritten(member)
-			if (selected !== undefined) {
-				refuse(
-					"UnsupportedOperation",
-					loc,
-					`a write of ${member.relation} that reaches ${selected.member.name}, the member relation of the counted family ${selected.id.owner}.${selected.id.count} over a selection: a write of a selected family's members is not yet planned`
-				)
-			}
 			if (member.op === "insert") {
 				refuseNestedOutsideRole(relation.name, loc)
 			}

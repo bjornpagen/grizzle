@@ -992,7 +992,7 @@ class ColumnLowering {
 
 	value(plan: LawColumnPlan, named: Identity<"lawColumn">, loc: SourceLoc): LawColumnValue {
 		if (plan.kind === "drawn") {
-			return { kind: "drawn", draws: plan.draws, on: plan.on }
+			return { kind: "drawn", draws: plan.draws }
 		}
 		const row = this.#row(plan.relation)
 		const known = row.values.get(named.canonical)

@@ -72,7 +72,6 @@ import type {
 	DrawnFieldOf,
 	Fin,
 	Key,
-	MemberRelationOf,
 	Mutable,
 	OrderedFamily,
 	Side,
@@ -337,6 +336,9 @@ type OwnerNameOf<Fa> = Fa extends { readonly slots: Fin<infer O, string> } ? Nam
 
 /** The sequences of S whose owner is R. */
 type SequencesOwnedBy<S, R> = SequenceIndexOf<S>[NameOf<R>]
+
+/** A family's member relation. */
+type MemberRelationOf<Fa> = Fa extends { readonly family: Side<infer F> } ? F : never
 
 /** What a member's nesting supplies: an ordered member's group, a tree member's root fields. */
 type NestedOf<Fa> =

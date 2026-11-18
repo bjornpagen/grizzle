@@ -1,11 +1,10 @@
-import { type FamilyShape, membersSelection } from "#compiler/analysis/theory/families.ts"
 import type { LawIdentity, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
 import type { QueryRule, RuleSide } from "#compiler/analysis/theory/query.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { GeneratedLawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { everyFact, type ExprDesc, type SideDesc, type TermDesc } from "#compiler/ir/desc.ts"
-import { orderOf } from "#compiler/ir/family.ts"
+import { type Family, orderOf } from "#compiler/ir/family.ts"
 import {
 	fieldNames,
 	type GeneratedLaw,
@@ -172,9 +171,8 @@ const sideDesc = (
 		selection: Object.freeze({ conjuncts: Object.freeze(conjuncts) })
 	})
 
-/** A family's member side as its statement declares it: its member's facts, every one or those a selected family's φ
- * holds of, over its group then its index. */
-const memberSide = (f: Pick<FamilyShape, "member" | "group" | "index" | "members">): SideDesc => {
+/** A family's member side as its statement declares it: every fact of its member, over its group then its index. */
+const memberSide = (f: Pick<Family, "member" | "group" | "index">): SideDesc => {
 	const group = mapNonEmpty(f.group, (p): TermDesc =>
 		Object.freeze({ kind: "field", field: p.member.name })
 	)
@@ -182,5 +180,9 @@ const memberSide = (f: Pick<FamilyShape, "member" | "group" | "index" | "members
 		f.index.kind === "field"
 			? [...group, Object.freeze({ kind: "field", field: f.index.field.name })]
 			: group
-	return sideDesc({ relation: f.member.name, terms }, [...membersSelection(f)])
+	return Object.freeze({
+		relation: f.member.name,
+		terms: Object.freeze(terms),
+		selection: everyFact
+	})
 }
