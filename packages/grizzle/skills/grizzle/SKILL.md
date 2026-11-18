@@ -783,8 +783,8 @@ The command line's own refusals, by stage:
   `const evaluate = rowEvaluator(schema)` once, which compiles (a `Result` over `CompileError`), then call
   `evaluate(R, row)` or `evaluate(select(R, φ), row)`, the row typed off R without its generated fields: it is
   `DomainRefused` naming a field PostgreSQL's domain refuses, or `{ generated, checks, selected }`, each generated
-  value (`null` for NULL), each row check's `"holds"` or `"breaks"` by name, NULL breaking a table's check and holding a
-  derived relation's as PostgreSQL does, and whether the source keeps the row, each item a `Result` whose error is
+  value (`null` for NULL), each row check's `"holds"` or `"breaks"` by name, NULL breaking a table's check and a derived
+  relation's alike, and whether the source keeps the row, each item a `Result` whose error is
   `Unevaluated`. Never restate a check, a selection or a generated expression in your own code to predict it. Two
   declared names that
   convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two

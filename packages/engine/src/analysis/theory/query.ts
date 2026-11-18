@@ -30,7 +30,7 @@ import type {
 	TermDesc,
 	VarDesc
 } from "#compiler/ir/desc.ts"
-import { connectiveExpr, exprChildren, mapExpr } from "#compiler/ir/desc.ts"
+import { connectiveExpr, exprChildren, mapExpr, refusalCondition } from "#compiler/ir/desc.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
@@ -1052,7 +1052,7 @@ const violating = (
 				ruleDesc(
 					arm.vars,
 					arm.matches.map(matchDesc),
-					[...conditionsOf(arm, loc), { kind: "not", arg: mapLeaves(rule.predicate, leaves) }],
+					[...conditionsOf(arm, loc), refusalCondition(mapLeaves(rule.predicate, leaves))],
 					termHead(arm.terms),
 					loc
 				)
@@ -1284,7 +1284,7 @@ export const violationQuery = (
 					ruleDesc(
 						one.vars,
 						[one.match],
-						[...one.where, { kind: "not", arg: mapLeaves(rule.predicate, leaves) }],
+						[...one.where, refusalCondition(mapLeaves(rule.predicate, leaves))],
 						termHead(one.terms),
 						loc
 					)

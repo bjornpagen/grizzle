@@ -1897,10 +1897,10 @@ delivers or binds:
 Each is NULL where a key value is NULL. `has` states what holds at an absent key:
 `Compute.or(Compute.not(Allowed.has(kind, flag)), Compute.ge(Allowed.at("weight", kind, flag), 1))` holds of every
 pair `Allowed` lacks, and `Compute.cond(Allowed.has(kind, flag), Allowed.at("weight", kind, flag), 0)` is the weight,
-0 where there is none. NULL follows SQL's three-valued logic: a row check refuses a row its condition leaves unknown,
-and holds where another arm of an `or` holds; a selection keeps only the rows its condition is true of; and a
-generated field's NULL term is refused by its column's NOT NULL. Every domain admits NULL, so no cast to a contract,
-pattern, roster or set refuses a read first.
+0 where there is none. NULL follows SQL's three-valued logic: a row check, over a table or a derived relation, refuses a
+row its condition leaves unknown, and holds where another arm of an `or` holds; a selection keeps only the rows its
+condition is true of; and a generated field's NULL term is refused by its column's NOT NULL. Every domain admits NULL,
+so no cast to a contract, pattern, roster or set refuses a read first.
 
 A rule over closed relations alone is checked once, by PostgreSQL, in the migration that installs them: a violating
 row refuses the migration and leaves nothing behind. A containment from a closed relation into an open one is
@@ -3584,9 +3584,9 @@ is `{ generated, checks, selected }`, each item its own `Result`:
 
 - `generated`: each generated field's value, by name, or `null` where PostgreSQL computes NULL, as a closed read at a
   key no row holds does, which the column's NOT NULL refuses;
-- `checks`: each row check of the relation, by name, `"holds"` or `"breaks"`, as the database judges it: a table's as
-  its `CHECK ((p) IS TRUE)` does, NULL breaking it; a derived relation's as its rule's violation query, `WHERE NOT (p)`
-  over the derived row, does, NULL holding it;
+- `checks`: each row check of the relation, by name, `"holds"` or `"breaks"`, as the database judges it, NULL breaking
+  it: a table's by its `CHECK ((p) IS TRUE)`, a derived relation's by its rule's violation query, `WHERE (p) IS NOT
+  TRUE` over the derived row;
 - `selected`: whether the source keeps the row, its predicate true, as `WHERE` reads it; a relation keeps every row,
   being `select(R, TRUE)`.
 

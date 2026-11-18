@@ -485,6 +485,19 @@ const connectiveUnit = (
 })
 
 /**
+ * A row check's refusal of a row, `(p) IS NOT TRUE`: true where its predicate p is false or NULL, false where p is
+ * true, as a table's `CHECK ((p) IS TRUE)` refuses a row and a derived relation's rule's violation query filters its
+ * rows, so the two discharges of one check agree at NULL (README, a row check refuses a row its condition leaves
+ * unknown). Written CASE WHEN p THEN FALSE ELSE TRUE END, a NULL p taking the ELSE arm.
+ */
+export const refusalCondition = <L, R extends Refs>(predicate: ExprDesc<L, R>): ExprDesc<L, R> => ({
+	kind: "cond",
+	pred: predicate,
+	onTrue: connectiveUnit("or"),
+	onFalse: connectiveUnit("and")
+})
+
+/**
  * The conjunction or disjunction of `args`, total: of no operand its unit, the constant true or false; of one, that
  * operand; of more, the connective over them. The one constructor of a connective from a list: no and or or holds no
  * operand.

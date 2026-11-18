@@ -8,9 +8,9 @@
  * select(R, φ). A relation is its selection of every row, select(R, TRUE), so every source states one predicate, which
  * is read once, where the source is first evaluated. Its evaluation is what PostgreSQL computes of the row:
  * - each field PostgreSQL generates, its value, NULL as null, by the generation expression its column holds;
- * - each row check of the relation, check(name, R, φ), its verdict as the installation holds it: a stored relation's
- *   by the CHECK its table holds (the law model's native), `CHECK ((φ) IS TRUE)`, which a NULL φ breaks; a derived
- *   relation's by its rule's violation query, `WHERE NOT (φ)` over the derived row, which a NULL φ holds;
+ * - each row check of the relation, check(name, R, φ), its verdict as both its discharges judge it, a NULL φ breaking
+ *   it: a stored relation's CHECK, `CHECK ((φ) IS TRUE)` (the law model's native), and a derived relation's rule's
+ *   violation query, `WHERE (φ) IS NOT TRUE` over the derived row (ir/desc.ts refusalCondition);
  * - whether the source selects it, its predicate's truth, NULL selecting no row, as `WHERE` reads it.
  *
  * Before any of it, PostgreSQL holds each value to its domain: a value outside its type's contract or pattern is
@@ -83,25 +83,25 @@ interface Prepared {
 	readonly table: JudgedTable
 	readonly refined: ReadonlyArray<JudgedField>
 	readonly generated: ReadonlyArray<{ readonly name: string; readonly expr: ExprTable }>
-	readonly checks: ReadonlyArray<HeldCheck>
+	readonly checks: ReadonlyArray<RowCheck>
 	readonly selection: Lowered
 	readonly judge: Judge
 }
 
 /**
- * A row check as the installation holds it, by name, its expression the one PostgreSQL evaluates over the row: a stored
- * relation's by its table's CHECK, `CHECK ((p) IS TRUE)`, `expr` its predicate p, which a row breaks where p is false
- * or NULL; a derived relation's by its rule's violation query, `WHERE NOT (p)` (analysis/theory/query.ts), `expr` NOT
- * p, which a row breaks where it is true, p false, a NULL p holding it.
+ * A row check of a relation, by name, its predicate p lowered over the row: a row breaks it where p is false or NULL,
+ * as both its discharges refuse the row, a table's `CHECK ((p) IS TRUE)` and a derived relation's rule's violation
+ * query, `WHERE (p) IS NOT TRUE` (ir/desc.ts refusalCondition).
  */
-type HeldCheck =
-	| { readonly held: "check"; readonly name: string; readonly expr: Lowered }
-	| { readonly held: "rule"; readonly name: string; readonly expr: Lowered }
+interface RowCheck {
+	readonly name: string
+	readonly predicate: Lowered
+}
 
 /** A relation of the schema as a source reads it: its fields as the judge reads them, and its row checks by name. */
 interface ReadRelation {
 	readonly fields: ReadonlyArray<JudgedField>
-	readonly checks: ReadonlyArray<HeldCheck>
+	readonly checks: ReadonlyArray<RowCheck>
 }
 
 /** Where a host evaluation of `relation` lowers what it reads, for its refusals. */
@@ -157,8 +157,8 @@ const rowPredicate = (
  * Every relation of the model as a source reads it, by name: a stored relation's fields as its table holds them and its
  * row checks by the CHECK each is installed as (decide.ts lawChecksOf, the witness's reading); a derived relation's,
  * live or materialized, its definition's heading as the checker types it (check/index.ts checkDefinition, the theory's
- * typing of a rule over it) and its row checks, each the violation its rule's query filters by, NOT p over the derived
- * row (rowPredicate). The model compiled, so each definition checks.
+ * typing of a rule over it) and its row checks, each its predicate over the derived row (rowPredicate). The model
+ * compiled, so each definition checks.
  */
 const readRelations = (model: LawModel): ReadonlyMap<string, ReadRelation> => {
 	const read = new Map<string, ReadRelation>()
@@ -171,9 +171,8 @@ const readRelations = (model: LawModel): ReadonlyMap<string, ReadRelation> => {
 							described.kind === "check"
 								? [
 										{
-											held: "check" as const,
 											name: described.name,
-											expr: Result.ok(test.predicate)
+											predicate: Result.ok(test.predicate)
 										}
 									]
 								: []
@@ -191,15 +190,14 @@ const readRelations = (model: LawModel): ReadonlyMap<string, ReadRelation> => {
 			throw defect(`the definition of ${derived.name}, which the compiled schema checked`)
 		}
 		const heading = admitted.value.dag.roots[0].heading
-		const checks: Array<HeldCheck> = []
+		const checks: Array<RowCheck> = []
 		for (const statement of model.owned.statements) {
 			if (statement.kind !== "check" || statement.relation !== derived.name) {
 				continue
 			}
 			checks.push({
-				held: "rule",
 				name: statement.name,
-				expr: rowPredicate(model, derived.name, heading, { kind: "not", arg: statement.predicate })
+				predicate: rowPredicate(model, derived.name, heading, statement.predicate)
 			})
 		}
 		read.set(derived.name, {
@@ -256,7 +254,7 @@ const prepare = (
 	const patterns = [
 		...fields.flatMap((f) => typePatterns(f.type)),
 		...generated.flatMap((g) => tablePatterns(g.expr)),
-		...checks.flatMap((c) => loweredPatterns(c.expr)),
+		...checks.flatMap((c) => loweredPatterns(c.predicate)),
 		...loweredPatterns(selection)
 	]
 	return {
@@ -322,18 +320,8 @@ const truthOf = (e: Evaluated): Result.Result<boolean, Unevaluated> => {
 	}
 }
 
-/**
- * A row check's verdict from its expression's value (HeldCheck): a CHECK holds where its predicate is true, as IS TRUE
- * reads it, and breaks elsewhere; a rule breaks where its violation is true, as WHERE reads it, and holds elsewhere.
- */
-const verdictOf = (check: HeldCheck, e: Evaluated): Result.Result<CheckVerdict, Unevaluated> => {
-	switch (check.held) {
-		case "check":
-			return Result.map(truthOf(e), (holds): CheckVerdict => (holds ? "holds" : "breaks"))
-		case "rule":
-			return Result.map(truthOf(e), (violated): CheckVerdict => (violated ? "breaks" : "holds"))
-	}
-}
+/** A row check's verdict from its predicate's truth: it holds where the predicate is true and breaks elsewhere. */
+const verdictOf = (truth: boolean): CheckVerdict => (truth ? "holds" : "breaks")
 
 /** A row's evaluation as the host builds it, before its keys are read off its source's type (isEvaluationOf). */
 interface BuiltEvaluation {
@@ -389,7 +377,9 @@ const evaluated = <S, R>(
 		checks: Object.fromEntries(
 			prepared.checks.map((c) => [
 				c.name,
-				Result.flatMap(c.expr, (expr) => verdictOf(c, judge.evaluate(table, expr, judged)))
+				Result.flatMap(c.predicate, (predicate) =>
+					Result.map(truthOf(judge.evaluate(table, predicate, judged)), verdictOf)
+				)
 			])
 		),
 		selected: Result.flatMap(prepared.selection, (selection) =>

@@ -24,7 +24,7 @@
  *   holds, naming one it breaks;
  * - each derived check's verdict is its rule's: a row of SrcJ is stored where the check of DJ, every row of SrcJ, holds
  *   of it, and refused at its commit by the rule's trigger (23514, named as constraintNamesOf names the check) where it
- *   breaks, its predicate false, a NULL one holding it, as the rule's violation query, WHERE NOT (p), reads it;
+ *   breaks, its predicate false or NULL, as the rule's violation query, WHERE (p) IS NOT TRUE, reads it;
  * - the selection keeps it exactly where `SELECT … WHERE φ` does, φ written in plain SQL from its meaning alone.
  *
  * Oracle: PostgreSQL itself, its domains, its stored generated column, its CHECKs and its WHERE.
@@ -101,12 +101,11 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 				why: "A generated value PostgreSQL computes as NULL is no value of the host's, where it is NULL, the NOT NULL's refusal."
 			},
 			{
-				file: "packages/engine/src/program/evaluate.ts",
+				file: "packages/engine/src/ir/desc.ts",
 				original:
-					'\t\t\t\theld: "rule",\n\t\t\t\tname: statement.name,\n\t\t\t\texpr: rowPredicate(model, derived.name, heading, { kind: "not", arg: statement.predicate })',
-				replacement:
-					'\t\t\t\theld: "check",\n\t\t\t\tname: statement.name,\n\t\t\t\texpr: rowPredicate(model, derived.name, heading, statement.predicate)',
-				why: "A derived relation's check is read as a table's CHECK, so a derived row its predicate leaves NULL breaks it, where its rule's violation query, WHERE NOT (p), holds it."
+					'\tkind: "cond",\n\tpred: predicate,\n\tonTrue: connectiveUnit("or"),\n\tonFalse: connectiveUnit("and")',
+				replacement: '\tkind: "not",\n\targ: predicate',
+				why: "A derived relation's rule refuses a row where NOT (p) holds, so a derived row its predicate leaves NULL passes it, where its table twin's CHECK ((p) IS TRUE), and the README's law, refuse that row."
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",

@@ -92,7 +92,7 @@ export type Feature =
 	| "a check breaks at NULL"
 	| "a derived check holds"
 	| "a derived check breaks at false"
-	| "a derived check holds at NULL"
+	| "a derived check breaks at NULL"
 	| "a row every check holds of stored"
 	| "a refusal naming one check of several a row breaks"
 	| "a row selected"
@@ -119,7 +119,7 @@ export const required: NonEmptyReadonlyArray<Feature> = [
 	"a check breaks at NULL",
 	"a derived check holds",
 	"a derived check breaks at false",
-	"a derived check holds at NULL",
+	"a derived check breaks at NULL",
 	"a row every check holds of stored",
 	"a refusal naming one check of several a row breaks",
 	"a row selected",
@@ -349,7 +349,7 @@ const derivedNote = (truth: Truth): Feature =>
 		? "a derived check holds"
 		: truth === false
 			? "a derived check breaks at false"
-			: "a derived check holds at NULL"
+			: "a derived check breaks at NULL"
 
 const selectionNote = (truth: Truth): Feature =>
 	truth === true

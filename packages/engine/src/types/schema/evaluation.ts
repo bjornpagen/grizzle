@@ -31,9 +31,9 @@ export type CheckNameOf<S, R> = Extract<
 >["name"]
 
 /**
- * What a row check comes to over a row, as the installation judges it: a table's check as its `CHECK ((p) IS TRUE)`
- * does, holding where p is true and breaking where it is false or NULL; a derived relation's as its rule's violation
- * query, `WHERE NOT (p)`, does, breaking where p is false and holding where it is true or NULL.
+ * What a row check comes to over a row, as both its discharges judge it, a table's `CHECK ((p) IS TRUE)` and a derived
+ * relation's rule's violation query, `WHERE (p) IS NOT TRUE`: it holds where its predicate is true, and breaks where it
+ * is false or NULL.
  */
 export type CheckVerdict = "holds" | "breaks"
 
