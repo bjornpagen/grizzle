@@ -893,6 +893,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "UnorderableStratum":
 		case "ReadBackCrossesStatements":
 		case "UnheldGroup":
+		case "RetiredUnitTouched":
 		case "NoReadCommittedForm":
 		case "UninstalledDomain":
 		case "MissingDiscriminant":

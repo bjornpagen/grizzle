@@ -37,7 +37,8 @@ import {
 	memberParamNames,
 	type QueryDesc,
 	queryParamNames,
-	renameQueryParams
+	renameQueryParams,
+	type WriteOp
 } from "#compiler/ir/desc.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -51,7 +52,6 @@ import {
 	changeSetOver as ChangeSet,
 	type ChangeSetValue,
 	isChangeSetValue,
-	type MemberOp,
 	parseChangeSet,
 	streamSlot
 } from "#compiler/write/changeset/value.ts"
@@ -265,19 +265,19 @@ const free: Binding = { kind: "free" }
 type ModelMember =
 	| {
 			readonly kind: "array"
-			readonly op: MemberOp
+			readonly op: WriteOp
 			readonly relation: Writable
 			readonly facts: ReadonlyArray<number>
 	  }
 	| {
 			readonly kind: "stream"
-			readonly op: MemberOp
+			readonly op: WriteOp
 			readonly relation: Writable
 			readonly stream: number
 	  }
 	| {
 			readonly kind: "query"
-			readonly op: MemberOp
+			readonly op: WriteOp
 			readonly shape: MemberShape
 			readonly binding: Binding
 	  }
@@ -367,7 +367,7 @@ type Fault = (typeof faults)[number]
 
 interface Params {
 	readonly begin: { readonly level: LevelName }
-	readonly write: { readonly handle: number; readonly op: MemberOp; readonly source: MemberSource }
+	readonly write: { readonly handle: number; readonly op: WriteOp; readonly source: MemberSource }
 	readonly read: {
 		readonly handle: number
 		readonly name: ReadName
@@ -515,7 +515,7 @@ const sequenceOf = (a: ModelChangeSet, b: ModelChangeSet): ModelChangeSet => ({
 const judged = (rule: Rule | undefined, next: () => Model): Verdict<Model, Refusal> =>
 	rule === undefined ? accepted(next()) : refusedVerdict(malformedTag)
 
-const memberOps: Arr.NonEmptyReadonlyArray<MemberOp> = ["insert", "delete", "put"]
+const memberOps: Arr.NonEmptyReadonlyArray<WriteOp> = ["insert", "delete", "put"]
 
 /** A handle the members and read-backs are written into: one over Work or Ext. */
 const writableHandles = (m: Model): ReadonlyArray<number> =>
@@ -877,7 +877,7 @@ interface CanonQuery {
 /** The members of one operation on one relation in one stratum. */
 interface CanonGroup {
 	readonly relation: string
-	readonly op: MemberOp
+	readonly op: WriteOp
 	/** The one array member's facts, sorted, when there is one. */
 	readonly arrays: ReadonlyArray<ReadonlyArray<number>>
 	readonly streams: ReadonlyArray<number>
@@ -923,7 +923,7 @@ const memberRelation = (m: ModelMember): string =>
 /** Where a member is: its relation and operation. */
 interface GroupKey {
 	readonly relation: string
-	readonly op: MemberOp
+	readonly op: WriteOp
 }
 
 /** A run of consecutive items of one operation on one relation. */
@@ -1111,7 +1111,10 @@ const readBackValue = (
 			"members by relation, operation, kind and text"
 		)
 		return Arr.map(
-			runsOf(stratum.members, (m) => ({ relation: m.relation, op: m.op })),
+			runsOf(
+				Arr.flatMap(stratum.members, (m) => (m.op === "retire" ? [] : [m])),
+				(m) => ({ relation: m.relation, op: m.op })
+			),
 			(run): CanonGroup => {
 				const arrays: Array<ReadonlyArray<number>> = []
 				const ids: Array<number> = []

@@ -812,6 +812,14 @@ export interface ChangeSetOf<
 	 */
 	readonly put: ChangeSetPut
 	/**
+	 * Retires the groups of the retirable unit `header` heads, each fact one group, its header's key (GroupOf): the
+	 * unit's retirement deletes every body's rows of each open group and sets its header's retirement field, once every
+	 * call that holds the group has ended; a group already retired, or with no header, is no change. Its groups are an
+	 * array or a Stream, never a query, and judged at no key, so a group stated twice is one. No other member or
+	 * read-back of the ChangeSet reads or writes a relation of the unit (RetiredUnitTouched).
+	 */
+	readonly retire: ChangeSetRetire
+	/**
 	 * A query over the post-change state and the change's own delta, delivered in the outcome under `name`. It runs
 	 * before COMMIT, so its rows are typed by immediate-constraint evidence only: they are the records its immediate
 	 * decoder assembles.
@@ -937,6 +945,47 @@ type ChangeSetDelete = <
 	>,
 	Arrays | ArrayAdded<"delete", R, M, S, Done>
 >
+
+/** ChangeSet.retire over the ChangeSet it is called on (ChangeSet). */
+type ChangeSetRetire = <
+	S,
+	Params,
+	Writes extends string,
+	Reads,
+	Cx,
+	Done extends Strata,
+	Last extends Stratum,
+	Arrays,
+	R extends AnyRelation,
+	const M extends ReadonlyArray<unknown> | Stream.Stream<unknown>
+>(
+	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	header: R & RetirableHeader<R>,
+	groups: M & DeletedCheck<M, GroupOf<R>, R>
+) => ChangeSetOf<
+	S,
+	Params,
+	Writes,
+	Reads,
+	Cx,
+	Done,
+	Last,
+	Arrays | ArrayAdded<"retire", R, M, S, Done>
+>
+
+/** A retirable unit's header: a relation with a retirement field, which only a retirable statement's header holds. */
+type RetirableHeader<R> = [RetirementFieldOf<R>] extends [never]
+	? Refusal<"ChangeSet.retire retires the groups of a retirable unit's header, a relation with a retirement field">
+	: unknown
+
+/** The retirement field of R, read off R's fields by key, none where R holds none. */
+type RetirementFieldOf<R> = RetirementFieldIn<R["fields" & keyof R]>
+type RetirementFieldIn<Fields> = {
+	[K in keyof Fields]-?: Fields[K] extends { readonly writing: "retirement" } ? K : never
+}[keyof Fields]
+
+/** A group of the retirable unit R heads: its key's fields, as a retirement's facts state each one. */
+type GroupOf<R> = Pick<Written<R>, Extract<PrimaryKeyOf<R>[number], keyof Written<R>>>
 
 /** ChangeSet.deleteWhere over the ChangeSet it is called on (ChangeSet). */
 type ChangeSetDeleteWhere = <
@@ -1107,7 +1156,7 @@ type ChangeSetPut = <
 type JointParams<A, B> = [keyof (A & B)] extends [never] ? unknown : Simplify<A & B>
 
 /** The op a ChangeSet's array member is added by, which a call's facts key it under first: insertAll's are inserts. */
-type ArrayOp = "insert" | "put" | "delete"
+type ArrayOp = "insert" | "put" | "delete" | "retire"
 
 /**
  * An array member of a ChangeSet: the relation R it writes, the type of each of its facts, Row, the facts insert,
@@ -1253,12 +1302,15 @@ type RecordOf<S, A> =
 			: never
 		: never
 
-/** The facts Op takes for R over its level L: an insert's addition, a delete's row, a put's written fact. */
+/** The facts Op takes for R over its level L: an insert's addition, a delete's row, a put's written fact, a
+ * retirement's group. */
 type RowOfOp<Op, L, R> = Op extends "insert"
 	? AdditionIn<L, R>
 	: Op extends "delete"
 		? DeletedRow<L, R>
-		: Written<R>
+		: Op extends "retire"
+			? GroupOf<R>
+			: Written<R>
 
 /** The name of a spelled relation: the name it is spelled by, or the name of the relation spelled as itself. */
 type NameOfSpelled<Spelled> = Spelled extends string ? Spelled : NameOf<Spelled>
@@ -1339,8 +1391,9 @@ type FactsRelation<A> = A["relation" & keyof A]
 /** The row an array member's facts each are (ArrayFacts), read by key: none for anything else. */
 export type FactsRow<A> = A["row" & keyof A]
 
-/** Whether an op's facts are judged at their relation's key: an insert's and a put's, never a delete's (DeletedCheck). */
-type KeyedOp<Op> = Op extends "delete" ? false : true
+/** Whether an op's facts are judged at their relation's key: an insert's and a put's, never a delete's (DeletedCheck)
+ * or a retirement's, each a group. */
+type KeyedOp<Op> = Op extends "delete" | "retire" ? false : true
 
 /**
  * What a served member's facts F must be for the array members A: under each op of A, an array under each relation of
@@ -1354,7 +1407,7 @@ export type FactsCheck<F, A> = {
 		? Op extends keyof F
 			? OpFactsCheck<F[Op], A[Op], KeyedOp<Op>>
 			: OpFactsCheck<unknown, A[Op], KeyedOp<Op>>
-		: Refusal<"a served ChangeSet's facts name only the ops of its array members: insert, put and delete">
+		: Refusal<"a served ChangeSet's facts name only the ops of its array members: insert, put, delete and retire">
 }
 
 /**

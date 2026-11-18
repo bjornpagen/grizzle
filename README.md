@@ -2366,9 +2366,11 @@ export const Flows = schema(
 - **The header** (`Flow`) holds one row per group, which is never deleted: its key is the group, and its one
   `retirement` field says whether the group is open (false, the value every insert writes) or retired (true).
 - **The bodies** (`FlowStep`, `FlowClaim`) are the rows of each group: each side names the fields that hold its row's group, in
-  the order of the header's key. Every key of a body holds them, a containment or a family into a body comes from a
-  body of the same unit carrying the group, and no other statement reads the retirement field; a schema that breaks one
-  is refused when it compiles (`MalformedDescription`). The header is immutable, no family's, tree's or alternatives
+  the order of the header's key, so every body carries the header's key as fields of its own. Every key of a body holds
+  them, a family whose owner is a body is a body of the same unit carrying the group, and no other statement reads the
+  retirement field; a schema that breaks one is refused when it compiles (`MalformedDescription`). A containment into a
+  body may come from any relation: a body of the unit carrying the group goes with it, and any other row refuses the
+  retirement of a group whose rows it references (below). The header is immutable, no family's, tree's or alternatives
   statement's relation, and no role's `write` list names it (`RoleRefused`, `writeRetirableHeader`).
 - **The fence.** The statement states, for each body, that its group is one of the header's open groups: a foreign key
   from the body's group into the header's open groups, over columns grizzle generates, whichever adds less to the
@@ -2385,6 +2387,53 @@ export const Flows = schema(
   false, and the fence's generated columns, stored, each rewriting its table once; every body row must have its header,
   or the migration's foreign key refuses it (23503), and a data step must insert the missing headers first.
 
+**Serving a unit.** Every served ChangeSet that touches a body, or reads the header's retirement field, holds the
+groups it touches before it touches them, and a role that retires them does so by a ChangeSet of its own:
+
+```ts
+export const Runner = role(Flows, "runner", wholeEntriesOf(Flows), {
+	insert: ["Flow", "FlowStep", "FlowClaim"]
+})
+export const Janitor = role(Flows, "janitor", wholeEntriesOf(Flows), { retire: ["Flow"] })
+export const flowsApp = login(Flows, "flows_app", [Runner, Janitor], {
+	workload: [
+		workload(Runner, { start: ChangeSet.empty(Flows).insert(Flow, []).insert(FlowStep, []) }),
+		workload(Janitor, { retire: ChangeSet.empty(Flows).retire(Flow, []) })
+	]
+})
+```
+
+A call of `retire` gives its groups as its facts, `{ retire: { Flow: [{ id }] } }`, each one value of the header's key.
+
+- **The hold.** A served ChangeSet's call holds every group it touches, through the unit's hold, right before its first
+  statement that reads or writes a body or reads the header's retirement field. It must state each such group: a body
+  array's facts state theirs, and a rule matching a body states one where each group field is bound to a parameter, or
+  to a variable its where equates to one. A touch at a group the ChangeSet does not state is refused when it compiles,
+  `UnheldGroup` naming the relation, the header and why. A role whose workload holds a unit holds EXECUTE on its hold.
+- **`ChangeSet.retire(Header, groups)`** retires each group of `groups`, an array or a `Stream` of the header's key
+  values, never a query: the unit's retirement waits for every call holding one of them, then removes every body row of
+  each open group and sets its header's retirement field, in one transaction. A group already retired, or with no
+  header, is no change. A ChangeSet that retires a unit reads and writes it no other way, by no member and no read-back,
+  its deltas included (`RetiredUnitTouched` when it compiles); its other members may write other relations, and where
+  its retirement stands among the strata changes nothing.
+- **The role option `retire`** names the whole entries of the headers whose groups a role retires. It grants EXECUTE on
+  each unit's retirement, a SECURITY DEFINER function, and no UPDATE or DELETE on the unit's tables, so a role that only
+  inserts stays one: a retirement is no update or delete of a unit's relations to the isolation certifier, which reads
+  each body as insert-only for the calls that hold its groups, so the unit's inserters and the retiring role all run
+  READ COMMITTED. A ChangeSet that retires a header outside its role's `retire` list is `OutsideRole` (`retire`); a
+  `retire` naming no relation of the role is `RoleRefused` (`retireOutside`), and one naming an entry that heads no unit
+  `RoleRefused` (`retireNotHeader`).
+- **The outcome** counts a retirement in the counts every write reports: each group it retired is a `put` of its header,
+  the header's fact at that key now a retired one, and each body row it removed with its group a `delete` of its body.
+  It is `accepted` where it retired a group, and `unchanged` where every group it names was retired already or has no
+  header.
+- **A retired group stays retired.** No call writes into it again: a write that holds it, a stale holder's or one that
+  inserts its header again and its bodies under the same key alike, is `refused` on the fence of the unit's first body,
+  so a key a unit retired never starts a fresh group.
+- **A row outside the unit** contained in a body refuses the retirement of a group whose rows it references: the
+  retirement is `refused` on that containment, naming the relation that blocked it, and changes nothing. Delete the
+  row first, or declare its relation a body of the unit, so it goes with the group.
+
 ## Permissions
 
 Three declarations, all in the [example](#example):
@@ -2394,9 +2443,10 @@ Three declarations, all in the [example](#example):
   boolean, the integer types, contracts over them, and closed ids, whose claim is a handle's name. An absent claim
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
-- **`role(schema, name, entries, { write?, insert?, refresh? })`**: what one kind of user sees. An entry is a table of
-  the schema, whole, or a query over it. `write` lists the entries it writes, each once (a name listed twice is a type
-  error), `refresh` the derived tables it refreshes. `insert` lists them in place of `write` for a role that only
+- **`role(schema, name, entries, { write?, insert?, refresh?, retire? })`**: what one kind of user sees. An entry is a
+  table of the schema, whole, or a query over it. `write` lists the entries it writes, each once (a name listed twice is
+  a type error), `refresh` the derived tables it refreshes, `retire` the retirable units' headers whose groups it
+  retires ([Retirable units](#retirable-units)). `insert` lists them in place of `write` for a role that only
   inserts: it holds INSERT and SELECT on what it writes and no UPDATE or DELETE, so a ChangeSet of it that deletes,
   puts, or adds a member to a mutable owner's family, which updates the owner's count, is `OutsideRole` (`insert`)
   when it compiles, naming the table and the operation. A role states one of the two. A role is no schema: `role`, `login`, `schema.extend`,
@@ -2436,7 +2486,8 @@ Roles:
   lacks, or with parameters, nested results, vector search or an `orderBy` without `take`; a `write` naming no entry of
   the role, a roster, a derived table or an unwritable query entry, or two entries over one table, and so for an
   `insert`, which also names at least one entry; both a `write` and an `insert` (`writeAndInsert`); a `refresh` naming
-  anything but a derived table.
+  anything but a derived table; a `retire` naming no relation of the role (`retireOutside`), or an entry that is no
+  whole entry of a retirable unit's header (`retireNotHeader`).
 
 **Installed names come from the values.** `roleNameOf(Web, connection)` is a login's PostgreSQL role in the
 installation `connection` names: the one its pool logs in as, a password is set on and `rds_iam` is granted to.
@@ -2734,6 +2785,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   .delete(Comment, rows)            remove these rows
   .deleteWhere({ Comment: { post: param("post", PostId) } })   remove the rows whose fields equal these values
   .put(PostViews, rows)             after the change, the row at each key is the one given
+  .retire(Flow, groups)             retire these groups of a retirable unit (Retirable units)
   .read("name", (delta) => query)   a query over the result, delivered in the outcome
   .bind({ id })                     every parameter's value, bound ahead of apply
 ```
@@ -2807,7 +2859,8 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   family's members are deleted before their owner. Writes those keys order in a cycle are refused when the ChangeSet
   compiles (`UnorderableStratum`): move one to another stratum with `ChangeSet.sequence`.
 - **A ChangeSet member's `once`** answers `accepted`, with `counts` (each written relation's `added`, `deleted` and
-  `put`, as `bigint`s) and `reads`, or `unchanged`, with `reads`; a write the laws refuse, or one that writes outside
+  `put`, as `bigint`s, a retirement's each group a put of its header and each row it removed a delete) and `reads`, or
+  `unchanged`, with `reads`; a write the laws refuse, or one that writes outside
   its role's world, fails with its `CallError`, `refused` or `outsideWorld`
   ([Errors and outcomes](#errors-and-outcomes)). Its `watch` is that outcome, then the end.
 

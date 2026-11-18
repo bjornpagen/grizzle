@@ -1971,10 +1971,19 @@ export type PlStatement =
 			readonly of: string
 	  }
 	| {
-			/** A data-modifying statement run for its effect alone: a retirement's deletes and its headers' state, one
-			 * statement; a rule capture's rows into its delta and its arming of the judge, and the judge's disarming. */
+			/** A data-modifying statement run for its effect alone: a rule capture's rows into its delta and its arming of
+			 * the judge, and the judge's disarming. */
 			readonly kind: "modify"
 			readonly statement: Insert | Update | Delete
+	  }
+	| {
+			/**
+			 * RETURN QUERY <query>: the query's rows appended to a set-returning function's result, in its order. Only a
+			 * retirement returns rows (physical/ddl/retire.ts): its deletes and its headers' state, one statement whose
+			 * data-modifying CTEs the query counts.
+			 */
+			readonly kind: "returnQuery"
+			readonly query: Select
 	  }
 	| {
 			/**
@@ -2015,10 +2024,12 @@ export interface FunctionParam {
  * A function grizzle installs, by language, each under closedSearchPath (`SET search_path = pg_catalog, pg_temp`), so
  * no caller's path reaches its body:
  *
- * - PL/pgSQL: CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS trigger | boolean | void LANGUAGE plpgsql
- *   VOLATILE [PARALLEL SAFE] SECURITY DEFINER SET search_path = pg_catalog, pg_temp: the law functions, the isolation
+ * - PL/pgSQL: CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS trigger | boolean | void | SETOF <type>
+ *   LANGUAGE plpgsql VOLATILE [PARALLEL SAFE] SECURITY DEFINER SET search_path = pg_catalog, pg_temp: the law
+ *   functions, the isolation
  *   guard, and the refusal function `<schema>.__refuse(text, text, text) RETURNS boolean`, whose body raises its
- *   arguments, and the serial advance functions, which return nothing (physical/ddl/advance.ts). A trigger function
+ *   arguments, the serial advance functions, which return nothing (physical/ddl/advance.ts), and a retirable unit's
+ *   functions, its hold returning nothing and its retirement its counts (physical/ddl/retire.ts). A trigger function
  *   takes no argument;
  * - SQL: CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
  *   SET search_path = pg_catalog, pg_temp RETURN <expr>: a writable entry's world functions, its filter that reads
@@ -2044,6 +2055,7 @@ export type CreateFunction =
 			| { readonly returns: "trigger"; readonly params: readonly [] }
 			| { readonly returns: "boolean"; readonly params: ReadonlyArray<FunctionParam> }
 			| { readonly returns: "void"; readonly params: ReadonlyArray<FunctionParam> }
+			| { readonly returns: SetOf; readonly params: ReadonlyArray<FunctionParam> }
 	  ))
 	| {
 			readonly kind: "createFunction"
@@ -2056,6 +2068,11 @@ export type CreateFunction =
 			readonly params: ReadonlyArray<FunctionParam>
 			readonly body: Expr
 	  }
+
+/** RETURNS SETOF <type>: a set-returning function's rows, each one value of `type`, which its RETURN QUERY appends. */
+export interface SetOf {
+	readonly setOf: TypeRef
+}
 
 /** A PL/pgSQL function, and an SQL one. */
 export type PlFunction = Extract<CreateFunction, { readonly language: "plpgsql" }>

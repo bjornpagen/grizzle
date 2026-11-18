@@ -290,7 +290,8 @@ const closedOfLogin = (roles: ReadonlyArray<LayerRole>): ClosedTable => {
 /**
  * The classifier of a role, as data (served/refusals.ts refusalsOf), cut to what its members' writes can raise
  * (program/schema.ts raisableOf) by what they judge (Judged): every relation its compiled writes write and every
- * relation those writes change besides them, a family's owner and members (schema/reach.ts writesOf); for each
+ * relation those writes change besides them, a family's owner and members (schema/reach.ts writesOf), and every
+ * relation of a unit they retire, whose retirement a foreign key into one of its bodies refuses; for each
  * compiled write, the type of each claim of a context the role reads and of each scalar parameter it declares, which
  * its statements cast to it; and the header of each retirable unit its writes hold, whose hold refuses on its fence. A
  * role whose members write nothing judges nothing, so it classifies nothing.
@@ -307,10 +308,14 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 	return servedRefusals(
 		role.artifacts,
 		raisableOf(role.artifacts, {
-			written: writesOf(
-				role.artifacts.owned,
-				Arr.flatMap(writes, (write) => Arr.map(write.frontend.written, (r) => r.name))
-			),
+			written: writesOf(role.artifacts.owned, [
+				...Arr.flatMap(writes, (write) => Arr.map(write.frontend.written, (r) => r.name)),
+				...Arr.flatMap(writes, (write) =>
+					Arr.flatMap(write.artifact.statements, (s) =>
+						s.step.kind === "retire" ? [s.step.header, ...s.step.bodies] : []
+					)
+				)
+			]),
 			cast: [
 				...(writes.length === 0 ? [] : claims),
 				...Arr.flatMap(params, (param) =>

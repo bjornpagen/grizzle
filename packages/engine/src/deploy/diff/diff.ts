@@ -1756,15 +1756,18 @@ class Differ {
 	 * again under another name has none until its operator sets one. */
 	/**
 	 * A retirable unit's hold or retire function whose definition changes: replaced in place by CREATE OR REPLACE where
-	 * its signature stands, which keeps its grants; dropped first where its parameters' types changed with its header's
-	 * key, since CREATE OR REPLACE would make a second function of the name, and its grantees' privileges, whose GRANT
-	 * names the function by its parameters, are granted again by their own changed statements.
+	 * its signature and its result stand, which keeps its grants; dropped first where its parameters' types changed with
+	 * its header's key, since CREATE OR REPLACE would make a second function of the name, or where what it returns
+	 * changed, which CREATE OR REPLACE refuses (42P13). A grantee's GRANT names the function by its parameters, so where
+	 * they changed its privileges are granted again by their own changed statements; the one change of a result there
+	 * has been, a retirement's from void to its counts, came while no role held EXECUTE on any retirement.
 	 */
 	unitFunction(before: ManifestObject, create: PlFunction, ddl: ManifestObject["ddl"]): void {
 		const previous = installed(before)
 		const drop: ReadonlyArray<SqlStatement> =
 			previous.kind === "unitFunction" &&
-			!sameText(functionNameOf(previous.create), functionNameOf(create))
+			(!sameText(functionNameOf(previous.create), functionNameOf(create)) ||
+				!sameText(previous.create.returns, create.returns))
 				? [{ kind: "dropFunction", name: functionNameOf(previous.create), ifExists: false }]
 				: []
 		this.sql("structure", [...drop, ...ddl])

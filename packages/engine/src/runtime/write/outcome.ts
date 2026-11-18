@@ -1,5 +1,7 @@
 import { scalarReader } from "#compiler/codec/read.ts"
 import type { RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
+import { compareCodePoints } from "#compiler/core/text.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -190,11 +192,81 @@ export const interpretRows = (
 		)
 	})
 	return {
-		counts: outcomeCounts(
-			context.written.map((w) => w.relation),
-			changes
+		counts: withRetirements(
+			outcomeCounts(
+				context.written.map((w) => w.relation),
+				changes
+			),
+			retiredCounts(statements, rowsOf)
 		)
 	}
+}
+
+/**
+ * What a write's retirements changed, by relation (RetireStep): each a unit's, its row its counts, one bigint array
+ * PostgreSQL printed, the groups it retired, then each body's rows it removed, in body order. A group retired is a put
+ * of its header, the header's fact at its key now a retired one, and a body row it removed a delete. No other statement
+ * of the write reads or writes a retired unit (RetiredUnitTouched), so its counts are no stratum's to net. The text is
+ * PostgreSQL's own output, its integers' decimal digits, converted without a check.
+ */
+const retiredCounts = (
+	statements: ReadonlyArray<{ readonly index: number; readonly step: WriteStep }>,
+	rowsOf: (position: number) => ReadonlyArray<ReadonlyArray<OutputText>>
+): ReadonlyMap<StoredRelationName, Counts> => {
+	const out = new Map<StoredRelationName, Counts>()
+	const add = (relation: StoredRelationName, counts: Counts): void => {
+		const before = out.get(relation) ?? noCounts
+		out.set(relation, {
+			added: before.added + counts.added,
+			deleted: before.deleted + counts.deleted,
+			put: before.put + counts.put
+		})
+	}
+	for (const { index, step } of statements) {
+		if (step.kind !== "retire") {
+			continue
+		}
+		const text = defined(
+			rowsOf(index)[0]?.[0],
+			`the counts row of the retirement of ${step.header}`
+		)
+		const [groups, ...removed] = text.slice(1, -1).split(",").map(BigInt)
+		add(step.header, { ...noCounts, put: defined(groups, "the count of the groups retired") })
+		step.bodies.forEach((body, at) => {
+			add(body, {
+				...noCounts,
+				deleted: defined(removed[at], `the count of ${body}'s rows removed`)
+			})
+		})
+	}
+	return out
+}
+
+/** One relation's counts, apart from its name. */
+type Counts = Omit<RelationCounts, "relation">
+
+/** No change of a relation. */
+const noCounts: Counts = Object.freeze({ added: 0n, deleted: 0n, put: 0n })
+
+/** The outcome's counts with a write's retirements' added, one entry per relation either names, in code point order. */
+const withRetirements = (
+	counts: ReadonlyArray<RelationCounts>,
+	retired: ReadonlyMap<StoredRelationName, Counts>
+): ReadonlyArray<RelationCounts> => {
+	if (retired.size === 0) {
+		return counts
+	}
+	const by = new Map(counts.map((c) => [c.relation, c] as const))
+	for (const [relation, r] of retired) {
+		const c = by.get(relation) ?? { relation, ...noCounts }
+		by.set(relation, {
+			relation,
+			added: c.added + r.added,
+			deleted: c.deleted + r.deleted,
+			put: c.put + r.put
+		})
+	}
+	return [...by.values()].toSorted((a, b) => compareCodePoints(a.relation, b.relation))
 }
 
 /** The witness decoder of a write, converting grizzle's own texts without a check into a witness:

@@ -887,6 +887,16 @@ export const Flows = schema(
 		contained(on(FlowClaim, "flow", "step"), on(FlowStep, "flow", "step"))
 	]
 )
+export const Runner = role(Flows, "runner", wholeEntriesOf(Flows), {
+	insert: ["Flow", "FlowStep", "FlowClaim"]
+})
+export const Janitor = role(Flows, "janitor", wholeEntriesOf(Flows), { retire: ["Flow"] })
+export const flowsApp = login(Flows, "flows_app", [Runner, Janitor], {
+	workload: [
+		workload(Runner, { start: ChangeSet.empty(Flows).insert(Flow, []).insert(FlowStep, []) }),
+		workload(Janitor, { retire: ChangeSet.empty(Flows).retire(Flow, []) })
+	]
+})
 
 /** README: "Queries". */
 /** Comments per author on published posts. */

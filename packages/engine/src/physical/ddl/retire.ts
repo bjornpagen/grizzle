@@ -1,6 +1,6 @@
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { rowEq } from "#compiler/ir/compare.ts"
 import type { TermDesc } from "#compiler/ir/desc.ts"
@@ -22,6 +22,9 @@ import type {
 	PlFunction,
 	PlStatement,
 	Revoke,
+	Select,
+	SetOf,
+	SetOperand,
 	Update
 } from "#compiler/sql/ast.ts"
 import {
@@ -31,15 +34,19 @@ import {
 	call,
 	col,
 	core,
+	countStar,
 	cteRefAs,
 	derived,
 	distinctCore,
 	functionNameOf,
+	grouped,
 	join,
 	lit,
 	not,
 	notExists,
 	operandSelect,
+	operandUnionAll,
+	provedSelect,
 	qualifiedCall,
 	select,
 	table,
@@ -302,17 +309,28 @@ const refuseClosed = (
 }
 
 /**
- * The retirement of the groups the locked headers head, one statement: every body's rows in them deleted, then each
- * header's retirement field set, so the fence's NO ACTION check, at the statement's end, finds no row of the group:
+ * The retirement of the groups the locked headers head, one statement, which returns its counts: every body's rows in
+ * them deleted, then each header's retirement field set, so the fence's NO ACTION check, at the statement's end, finds
+ * no row of the group; and the count of each, the header's groups retired first, then each body's rows removed, in body
+ * order, one array:
  *
+ *   RETURN QUERY
  *   WITH r1(c1, …) AS MATERIALIZED (SELECT r2.<key> FROM <header> AS r2 JOIN <groups> AS r3 ON <r2 at r3>
  *          WHERE NOT r2.<retired>),
- *        r5 AS (DELETE FROM <body 1> AS r6 USING r1 AS r7 WHERE <r6 at r7> RETURNING 1 AS c1), …
- *   UPDATE <header> AS r<n> SET <retired> = true FROM r1 AS r<n + 1> WHERE <r<n> at r<n + 1>>
+ *        r5 AS (DELETE FROM <body 1> AS r6 USING r1 AS r7 WHERE <r6 at r7> RETURNING 1 AS c1), …,
+ *        r<n> AS (UPDATE <header> AS r<n + 1> SET <retired> = true FROM r1 AS r<n + 2> WHERE <r<n + 1> at r<n + 2>>
+ *          RETURNING 1 AS c1)
+ *   SELECT r<n + 4>.c1 AS c1
+ *   FROM (SELECT array_agg(r<n + 3>.c2 ORDER BY r<n + 3>.c1) AS c1, r<n + 3>.c3 AS c2
+ *         FROM (SELECT 0 AS c1, count(*) AS c2, 0 AS c3 FROM r<n> AS r<n + 5>
+ *               UNION ALL SELECT 1, count(*), 0 FROM r5 AS r<n + 6> …) AS r<n + 3>(c1, c2, c3)
+ *         GROUP BY r<n + 3>.c3) AS r<n + 4>(c1, c2)
+ *   LIMIT 1
  *
- * the groups' unnest r4, and each body's CTE, its row and its locked groups the next three aliases, in body order.
- * It runs after the lock, under a snapshot of its own, so it reads every row of the groups any call that held them
- * committed, and the groups no call holds now.
+ * its counts grouped by the constant every count row carries, one group, so no aggregate is read over no row, and the
+ * group's one row returned; the groups' unnest is r4, and each body's CTE, its row and its locked groups take the next
+ * three aliases, in body order. It runs after the lock, under a snapshot of its own, so it reads every row of the groups
+ * any call that held them committed, and the groups no call holds now.
  */
 const retireLocked = (
 	b: InstallBuilder,
@@ -338,6 +356,7 @@ const retireLocked = (
 			)
 		)
 	}
+	const one = [targetAs(lit.int(1, types.integer), keyColumn(0))]
 	const deletes = unit.bodies.map((body, at): Cte => {
 		const [name, row, groups] = [alias(5 + 3 * at), alias(6 + 3 * at), alias(7 + 3 * at)]
 		const removal: Delete = {
@@ -347,28 +366,84 @@ const retireLocked = (
 			alias: row,
 			using: [cteRefAs(locked.name, groups)],
 			where: bodyAtGroup(b, body, row, groups),
-			returning: [targetAs(lit.int(1, types.integer), keyColumn(0))]
+			returning: one
 		}
 		return { name, columns: [], materialized: undefined, query: removal }
 	})
-	const [header, groups] = [alias(5 + 3 * deletes.length), alias(6 + 3 * deletes.length)]
-	const statement: Update = {
+	const n = 5 + 3 * deletes.length
+	const [retired, header, groups, counted] = [alias(n), alias(n + 1), alias(n + 2), alias(n + 3)]
+	const retirement: Update = {
 		kind: "update",
-		with: { recursive: false, ctes: [locked, ...deletes] },
+		with: undefined,
 		table: unit.table,
 		alias: header,
 		set: [{ column: unit.lifecycle.column, value: lit.bool(true) }],
 		from: [cteRefAs(locked.name, groups)],
 		where: atGroup(b, unit, header, groups),
-		returning: []
+		returning: one
 	}
-	return { kind: "modify", statement }
+	const [order, count, carried] = [keyColumn(0), keyColumn(1), keyColumn(2)]
+	const counts = mapNonEmpty(
+		[retired, ...deletes.map((d) => d.name)] as const,
+		(cte, at): SetOperand =>
+			core(
+				[
+					targetAs(lit.int(at, types.integer), order),
+					targetAs(countStar(), count),
+					targetAs(lit.int(0, types.integer), carried)
+				],
+				[cteRefAs(cte, alias(n + 5 + at))],
+				undefined
+			)
+	)
+	const array = alias(n + 4)
+	const aggregated = grouped(
+		core(
+			[
+				targetAs(
+					{ ...call("array_agg", [col(counted, count)]), orderBy: [asc(col(counted, order))] },
+					keyColumn(0)
+				),
+				targetAs(col(counted, carried), keyColumn(1))
+			],
+			[derived(operandSelect(operandUnionAll(counts)), counted, [order, count, carried], false)],
+			undefined
+		),
+		[col(counted, carried)]
+	)
+	const query: Select = {
+		...provedSelect(
+			"oneRow",
+			[targetAs(col(array, keyColumn(0)), keyColumn(0))],
+			[derived(operandSelect(aggregated), array, [keyColumn(0), keyColumn(1)], false)],
+			undefined
+		),
+		limit: lit.int(1, types.bigint)
+	}
+	return {
+		kind: "returnQuery",
+		query: {
+			...query,
+			with: {
+				recursive: false,
+				ctes: [
+					locked,
+					...deletes,
+					{ name: retired, columns: [], materialized: undefined, query: retirement }
+				]
+			}
+		}
+	}
 }
+
+/** What a retirement returns: one array of its counts (`retireLocked`). */
+const retirementCounts: SetOf = { setOf: defined(arrayOf(types.bigint), "bigint's array type") }
 
 /** A unit function's DDL: its CREATE FUNCTION, then its REVOKE EXECUTE ... FROM PUBLIC. */
 const unitFunctionDdl = (
 	name: ObjectName,
 	params: ReadonlyArray<FunctionParam>,
+	returns: "void" | SetOf,
 	body: NonEmptyReadonlyArray<PlStatement>
 ): readonly [PlFunction, Revoke] => {
 	const fn: PlFunction = {
@@ -376,7 +451,7 @@ const unitFunctionDdl = (
 		language: "plpgsql",
 		name,
 		params,
-		returns: "void",
+		returns,
 		volatility: "VOLATILE",
 		parallel: "UNSAFE",
 		security: "DEFINER",
@@ -409,18 +484,22 @@ export interface UnitFunctions {
  * Every retirable unit's two functions, each after the unit's tables, named for its header (identity.hold,
  * identity.retire), SECURITY DEFINER, so a role needs no privilege on a unit's table beyond what it holds to call one,
  * and PUBLIC holds none, revoked right after its creation as every grizzle function's is. A role whose served workload
- * holds the unit holds EXECUTE on its hold (physical/ddl/roles.ts addWorlds).
+ * holds the unit holds EXECUTE on its hold, and a role whose `retire` list names its header EXECUTE on its retirement
+ * (physical/ddl/roles.ts addWorlds).
  *
  * - The hold, `<hold>(keys_1 <key 1>[], …) RETURNS void`, which a change member that touches a unit's body calls before
  *   its first statement that does, with the groups it states: it locks the open header of each, KEY SHARE, in key
  *   order, until the call's transaction ends, so no retirement of them commits while the call runs; and refuses a
  *   group whose header is absent or retired (refuseClosed). Under READ COMMITTED its refusal reads under a snapshot
  *   taken after the lock, so a group it locked is open there.
- * - The retirement, `<retire>(keys_1 <key 1>[], …) RETURNS void`: it locks the open header of each group it is given,
- *   UPDATE, in key order, so it waits for every call that holds one and every insert whose foreign key check holds
- *   one, then, in a statement of its own, deletes every body's rows of the locked groups and sets their headers'
- *   retirement field (retireLocked). A group already retired or absent is no change. No role holds UPDATE or DELETE on
- *   a unit's tables for it, so a group is retired whole and only by it, and its header is never reopened.
+ * - The retirement, `<retire>(keys_1 <key 1>[], …) RETURNS SETOF bigint[]`, which a ChangeSet's retire member calls
+ *   (write/hold/statement.ts buildUnitCall): it locks the open header of each group it is given, UPDATE, in key order,
+ *   so it waits for every call that holds one and every insert whose foreign key check holds one, then, in a statement
+ *   of its own, deletes every body's rows of the locked groups and sets their headers' retirement field, and returns
+ *   one row, its counts: the groups it retired, then each body's rows it removed, in body order (retireLocked). A group
+ *   already retired or absent is no change. No role holds UPDATE or DELETE on a unit's tables for it, so a group is
+ *   retired whole and only by it, and its header is never reopened. A row outside the unit that references a row it
+ *   removes, by a containment into a body, refuses it (23503 on that containment's foreign key).
  */
 export const addUnitFunctions = (b: InstallBuilder): ReadonlyMap<string, UnitFunctions> => {
 	const out = new Map<string, UnitFunctions>()
@@ -434,11 +513,12 @@ export const addUnitFunctions = (b: InstallBuilder): ReadonlyMap<string, UnitFun
 		const add = (
 			named: Identity<"hold" | "retire">,
 			name: ObjectName,
+			returns: "void" | SetOf,
 			body: NonEmptyReadonlyArray<PlStatement>,
 			why: string
 		): UnitFunction => {
 			b.name(named)
-			const ddl = unitFunctionDdl(name, params, body)
+			const ddl = unitFunctionDdl(name, params, returns, body)
 			const node = b.add(
 				{
 					kind: "unitFunction",
@@ -454,12 +534,14 @@ export const addUnitFunctions = (b: InstallBuilder): ReadonlyMap<string, UnitFun
 		const hold = add(
 			identity.hold(unit.header),
 			b.names.hold(unit.header),
+			"void",
 			[lockOpen(b, unit, params, "KEY SHARE"), refuseClosed(b, unit, params)],
 			`the open groups of ${unit.header} a call touches`
 		)
 		const retire = add(
 			identity.retire(unit.header),
 			b.names.retire(unit.header),
+			retirementCounts,
 			[lockOpen(b, unit, params, "UPDATE"), retireLocked(b, unit, params)],
 			`the retirement of the groups of ${unit.header}`
 		)

@@ -897,6 +897,7 @@ const worldsOf = (
 			relations: whole(stored),
 			write: stored,
 			refresh: [],
+			retire: [],
 			loc
 		}),
 		(writer) =>
@@ -907,6 +908,7 @@ const worldsOf = (
 							relations: whole(read),
 							write: [],
 							refresh: [],
+							retire: [],
 							loc
 						}),
 						(reader) => admitLoginRoles(desc, { name: "server", roles: [writer, reader], loc })

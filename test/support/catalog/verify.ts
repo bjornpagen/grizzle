@@ -660,8 +660,8 @@ const advanceProblems = (
 /**
  * A SECURITY DEFINER function grizzle installs, owned by the owner, its search_path fixed: a world's function is STABLE
  * and executable by one role; every other is VOLATILE, and is an advance function, the refusal function or a retirable
- * unit's hold (EXECUTE to world roles alone), the snapshot guard (EXECUTE to every login and no role), or the isolation
- * guard, a law function or a unit's retirement (EXECUTE to no one). A function the installation does not include is
+ * unit's hold or retirement (EXECUTE to world roles alone), the snapshot guard (EXECUTE to every login and no role), or
+ * the isolation guard or a law function (EXECUTE to no one). A function the installation does not include is
  * foreign, and judged as one that grants EXECUTE to no one.
  */
 const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
@@ -718,6 +718,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 			return [...definer, ...advanceProblems(j, f, expected.table, executors)]
 		case "refusal":
 		case "hold":
+		case "retire":
 			return [...definer, ...grantProblems(j, held, allowed.function, allowed.none)]
 		case "snapshotGuard":
 			return [
@@ -727,7 +728,6 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 			]
 		case "isolationGuard":
 		case "rule":
-		case "retire":
 			return [...definer, ...grantProblems(j, held, allowed.none, allowed.none)]
 		case "names":
 		case "live":

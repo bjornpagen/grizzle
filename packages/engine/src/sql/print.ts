@@ -1560,6 +1560,10 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 		case "modify":
 			dmlStatementBlock(out, statement.statement)
 			return out.line(";")
+		case "returnQuery":
+			out.line("RETURN QUERY")
+			selectBlock(out, statement.query)
+			return out.line(";")
 		case "createSessionTable":
 			return out.line(
 				`CREATE TEMPORARY TABLE ${printTableName({ schema: temporarySchema, name: statement.name })} (${statement.columns.map(definitionText).join(", ")}) ON COMMIT DELETE ROWS;`
@@ -1640,13 +1644,17 @@ const dollarQuoted = (out: Lines, opener: "AS" | "DO", block: PlBlock): void => 
 	out.line(tag)
 }
 
+/** What a function returns, as its RETURNS clause spells it: a catalog type, or a set of one type's values. */
+const printReturns = (returns: CreateFunction["returns"]): string =>
+	typeof returns === "string" ? printCatalogType(returns) : `SETOF ${printType(returns.setOf)}`
+
 /** A function's parallel safety as its clause, after its volatility: none for UNSAFE, PostgreSQL's own default. */
 const parallelClause = (parallel: CreateFunction["parallel"]): string =>
 	parallel === "SAFE" ? " PARALLEL SAFE" : ""
 
 const createFunctionBlock = (out: Lines, fn: CreateFunction): void => {
 	out.line(
-		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${printCatalogType(fn.returns)}`
+		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${printReturns(fn.returns)}`
 	)
 	out.line(
 		`LANGUAGE ${fn.language} ${fn.volatility}${parallelClause(fn.parallel)} SECURITY ${fn.security} SET search_path = ${printedSearchPath}`

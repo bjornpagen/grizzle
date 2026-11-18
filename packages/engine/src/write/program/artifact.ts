@@ -63,7 +63,7 @@ const changeTags = (
 export const castsNothing: CarrierCasts = Object.freeze({ kind: "none" })
 
 /** The write steps of a statement: a write step itself, a single statement's and a family write's parts' steps; no other
- * step writes facts, a hold's and the admission's none. */
+ * step writes facts, a hold's, a retirement's, whose rows are its counts, and the admission's none. */
 const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 	switch (step.kind) {
 		case "write":
@@ -78,6 +78,7 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 		case "readBack":
 		case "check":
 		case "hold":
+		case "retire":
 		case "admission":
 			return []
 	}
@@ -369,7 +370,8 @@ export const settledArtifact = (
 }
 
 /** The columns a write statement's rows hold: a write's returned facts, which the outcome converts by the statement's
- * result; none for a carrier's creation, fill or analysis, a sequence advance, a hold or a query entry's check. */
+ * result; none for a carrier's creation, fill or analysis, a sequence advance, a hold, a retirement, whose one text the
+ * outcome reads as its counts (runtime/write/outcome.ts retiredCounts), or a query entry's check. */
 export const resultHeading = (result: (WriteStatement | PutStatement)["result"]): Heading => {
 	switch (result.kind) {
 		case "insert":
@@ -380,6 +382,7 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 			return result.columns
 		case "sequenceAdvance":
 		case "hold":
+		case "retire":
 		case "admission":
 		case "carrier":
 		case "analyze":

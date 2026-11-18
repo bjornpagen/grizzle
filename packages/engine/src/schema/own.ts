@@ -454,9 +454,11 @@ const selectionFields = (selection: SelectionDesc): ReadonlySet<string> =>
  *   and only its group's retirement changes its retirement field;
  * - each body's group fields are among the fields of every declared key of it, so every point read and every arbitration
  *   of a body relation binds its group;
- * - a containment or a family whose target is a body is from a body of the same unit, its group fields paired with the
- *   target's, so a retirement deletes every row that references a row it deletes; an alternatives statement touches no
- *   unit;
+ * - a family whose owner is a body is a body of the same unit, its group fields paired with its owner's, so a
+ *   retirement deletes every member of an owner it deletes; an alternatives statement touches no unit. A containment
+ *   into a body may come from anywhere: one from a body of the unit carrying the group is retired with it, and any
+ *   other's rows refuse a retirement of a group whose rows they reference, by its ordinary foreign key, NO ACTION
+ *   (physical/ddl/retire.ts), until they go;
  * - no statement but its unit's reads a retirement field: its value is its group's state, which the unit's fence alone
  *   reads.
  */
@@ -534,25 +536,6 @@ const checkUnits = (
 	}
 	const refuse = (st: OwnedStatement, why: string): never =>
 		fail("MalformedDescription", st.loc, `${ownedLabel(st)} ${why}`)
-	const grouped = (
-		source: { readonly relation: string; readonly terms: ReadonlyArray<TermDesc> },
-		target: { readonly relation: string; readonly terms: ReadonlyArray<TermDesc> }
-	): boolean => {
-		const to = roles.get(target.relation)
-		if (to?.kind !== "body") {
-			return true
-		}
-		const from = roles.get(source.relation)
-		if (from?.kind !== "body" || from.unit !== to.unit) {
-			return false
-		}
-		const sourceTerms = termFields(source)
-		const targetTerms = termFields(target)
-		return to.group.every((field, at) => {
-			const i = targetTerms.indexOf(field)
-			return i >= 0 && sourceTerms[i] === from.group[at]
-		})
-	}
 	for (const st of statements) {
 		switch (st.kind) {
 			case "retirable":
@@ -581,12 +564,6 @@ const checkUnits = (
 				const right = { ...st.right, terms: st.pairs.map((p) => p.right) }
 				if (readsLifecycle(left) || readsLifecycle(right)) {
 					refuse(st, "reading no retirement field: its group's state is its unit's to read")
-				}
-				if (!grouped(left, right)) {
-					refuse(
-						st,
-						`into a retirable body from a body of its unit, its group carried; ${st.left.relation} is none, or carries it not`
-					)
 				}
 				continue
 			}
@@ -2662,6 +2639,8 @@ export interface OwnedRole {
 	readonly writes: ReadonlyMap<string, OwnedWrite>
 	readonly writing: RoleWritingKey
 	readonly refresh: ReadonlyArray<string>
+	/** The headers whose groups it retires, each a whole entry of a retirable statement's header, in name order. */
+	readonly retire: ReadonlyArray<string>
 	readonly full: boolean
 	readonly contexts: Readonly<Record<string, ContextDesc>>
 }
@@ -2814,6 +2793,18 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			})
 		}
 	}
+	for (const h of desc.retire) {
+		const r = relations[h]
+		if (r === undefined) {
+			broken(desc.loc, { kind: "retireOutside", name: h })
+		}
+		if (
+			r.kind !== "whole" ||
+			!base.statements.some((s) => s.kind === "retirable" && s.header.relation === r.relation.name)
+		) {
+			broken(desc.loc, { kind: "retireNotHeader", name: h })
+		}
+	}
 	const full = Object.values(base.relations).every(
 		(r) => !heldRelation(r.desc) || relations[r.name]?.kind === "whole"
 	)
@@ -2829,6 +2820,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		writes: new Map([...admitted].toSorted(([a], [b]) => compareText(a, b))),
 		writing: "insert" in desc ? "insert" : "write",
 		refresh: [...desc.refresh].toSorted(compareText),
+		retire: [...desc.retire].toSorted(compareText),
 		full,
 		contexts: ownedContexts
 	}
@@ -2943,6 +2935,7 @@ export const fullRoleDesc = (
 			relations: [first, ...rest],
 			write: relations.filter((r) => r.kind === "relation").map((r) => r.name),
 			refresh: relations.filter((r) => r.kind === "derived").map((r) => r.name),
+			retire: [],
 			loc
 		})
 	})

@@ -29,7 +29,8 @@ import {
 	queryParamNames,
 	type ReadBackDesc,
 	renameEqualParams,
-	renameQueryParams
+	renameQueryParams,
+	type WriteOp
 } from "#compiler/ir/desc.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
@@ -56,7 +57,8 @@ import type { Decoders, OrderedBase, QueryBase } from "#compiler/types/query/que
 import { type BuiltOver, builtOverOf, higherOver } from "#compiler/write/changeset/levels.ts"
 import { delta, memberRelation, memberRelationNamed } from "#compiler/write/delta/source.ts"
 
-export type MemberOp = MemberDesc["op"]
+/** What any member does: a write member's op, or a retirement's (ChangeSet.retire), which an array or a Stream holds. */
+type SlotOp = MemberDesc["op"]
 
 /**
  * One member as the value holds it, with its Description, `desc`, which the ChangeSet's Description holds as it is:
@@ -66,7 +68,7 @@ export type MemberOp = MemberDesc["op"]
 type MemberState =
 	| {
 			readonly kind: "array"
-			readonly op: MemberOp
+			readonly op: SlotOp
 			readonly relation: string
 			readonly facts: ReadonlyArray<unknown>
 			/** The input its facts travel as (`arraySlot`). */
@@ -75,7 +77,7 @@ type MemberState =
 	  }
 	| {
 			readonly kind: "stream"
-			readonly op: MemberOp
+			readonly op: SlotOp
 			readonly relation: string
 			readonly stream: Stream.Stream<unknown>
 			/** The input it travels as (`streamSlot`). */
@@ -84,7 +86,7 @@ type MemberState =
 	  }
 	| {
 			readonly kind: "query"
-			readonly op: MemberOp
+			readonly op: WriteOp
 			readonly relation: string
 			readonly query: QueryDesc
 			/** The canonical identity text of the query, which orders and deduplicates query members. */
@@ -94,7 +96,7 @@ type MemberState =
 	  }
 	| {
 			readonly kind: "equal"
-			readonly op: MemberOp
+			readonly op: WriteOp
 			readonly relation: string
 			/** Each field it selects by, and the parameter or literal the field equals. */
 			readonly fields: Readonly<Record<string, EqualedDesc>>
@@ -237,6 +239,8 @@ export interface ChangeSetValue extends Built {
 		selections: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 	): ChangeSetValue
 	put(relation: unknown, facts: MemberInput): ChangeSetValue
+	/** A retirement's groups from a JavaScript caller are an array or a Stream; a query is refused. */
+	retire(header: unknown, groups: MemberInput): ChangeSetValue
 	/** A read-back from a JavaScript caller may be any value; the builder checks it is a function. */
 	read(name: unknown, readBack: unknown): ChangeSetValue
 	bind(params: unknown): ChangeSetValue
@@ -398,16 +402,12 @@ const withMember = (
 
 /** The slot of a stratum's array members of one op and relation, which are one input (`EnumeratedInput` spells
  * it). */
-export const arraySlot = (stratum: number, op: MemberOp, relation: string): string =>
+export const arraySlot = (stratum: number, op: SlotOp, relation: string): string =>
 	slotSpelling("member", stratum, op, "array", relation)
 
 /** The slot of the `stream`-th Stream member of one op and relation in a stratum: each Stream is its own input. */
-export const streamSlot = (
-	stratum: number,
-	op: MemberOp,
-	relation: string,
-	stream: number
-): string => slotSpelling("member", stratum, op, `stream${stream}`, relation)
+export const streamSlot = (stratum: number, op: SlotOp, relation: string, stream: number): string =>
+	slotSpelling("member", stratum, op, `stream${stream}`, relation)
 
 /** A source location as a Description keeps it (shape.ts sourceLoc): frozen, so a Description holding it is. */
 const keptLoc = (loc: SourceLoc): SourceLoc =>
@@ -416,7 +416,7 @@ const keptLoc = (loc: SourceLoc): SourceLoc =>
 /** The Description of an array or Stream member at `slot`, its location kept. */
 const enumeratedDesc = (
 	kind: "array" | "stream",
-	op: MemberOp,
+	op: SlotOp,
 	relation: string,
 	slot: string,
 	loc: SourceLoc
@@ -424,7 +424,7 @@ const enumeratedDesc = (
 
 /** The Description of a query member, its query a decoded Description and its location kept. */
 const queryMemberDesc = (
-	op: MemberOp,
+	op: WriteOp,
 	relation: string,
 	query: QueryDesc,
 	loc: SourceLoc
@@ -434,7 +434,7 @@ const queryMemberDesc = (
 /** A field-equality member of `op` on `relation`, its fields decoded parts and its location kept: its Description and
  * the canonical text of its fields, which order and deduplicate it. */
 const equalState = (
-	op: MemberOp,
+	op: WriteOp,
 	relation: string,
 	fields: Readonly<Record<string, EqualedDesc>>,
 	loc: SourceLoc
@@ -758,6 +758,9 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 		put(relation, facts) {
 			return addMember(stateOf(this, "ChangeSet.put"), this.reads, "put", relation, facts)
 		},
+		retire(header, groups) {
+			return addMember(stateOf(this, "ChangeSet.retire"), this.reads, "retire", header, groups)
+		},
 		read: (name, readBack) => addRead(state, decoder, name, readBack),
 		bind: (params) => bindParams(state, decoder, params)
 	}
@@ -798,7 +801,7 @@ const identityText = (desc: QueryDesc | Readonly<Record<string, EqualedDesc>>): 
  * its stratum alone names, its Stream position among the stratum's (`placed`) set when the ChangeSet is made. */
 const memberState = (
 	state: ChangeSetState,
-	op: MemberOp,
+	op: SlotOp,
 	name: string,
 	loc: SourceLoc,
 	facts: MemberInput,
@@ -829,6 +832,12 @@ const memberState = (
 	}
 	const built = queryState(facts)
 	if (built !== undefined) {
+		if (op === "retire") {
+			throw malformed(
+				label,
+				"the groups a retirement retires as an array or a Stream of its header's keys: they are values the call states, never a query"
+			)
+		}
 		if (isOrdered(built)) {
 			throw malformed(
 				label,
@@ -866,7 +875,7 @@ const scopeWith = (scope: Scope, member: MemberState): Scope => {
 const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
-	op: MemberOp,
+	op: SlotOp,
 	relation: unknown,
 	facts: MemberInput
 ): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {

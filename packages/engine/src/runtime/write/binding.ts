@@ -8,6 +8,7 @@
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import type { MemberDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
@@ -118,7 +119,7 @@ export interface FreshStratum {
 export interface MemberAt {
 	readonly slot: string
 	readonly stratum: number
-	readonly op: "insert" | "delete" | "put"
+	readonly op: MemberDesc["op"]
 	readonly relation: string
 	readonly kind: "array" | "stream"
 }

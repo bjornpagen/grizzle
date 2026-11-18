@@ -454,7 +454,8 @@ export const bindWrite = (
 	})
 	/**
 	 * The rows of a slot stated in its written relation's own words, as `fill` fills them: its facts, an owner slot's as
-	 * its insert carries the counts and ends the write draws into it, each as its statement writes it (`judgedRow`).
+	 * its insert carries the counts and ends the write draws into it, each as its statement writes it (`judgedRow`); a
+	 * retirement's, its groups, its header's key values, which no statement writes as rows, as they are.
 	 */
 	const ownRows = (
 		fill: StatedFill,
@@ -465,10 +466,17 @@ export const bindWrite = (
 		const relation = group.relation
 		const drawn = fill.kind === "unplanned" ? undefined : fill.drawn(slot.slot)
 		const facts = (drawn ?? factsOf(slot.slot)).facts
+		const op = input.kind === "single" ? input.act.op : "insert"
+		if (op === "retire") {
+			return facts.map((fact): JudgedRow => ({
+				kind: "known",
+				stated: fact,
+				filled: () => unfilled
+			}))
+		}
 		const source: ColumnsSource =
 			input.kind === "nested" ? "walk" : drawn === undefined ? "stated" : "drawn"
 		const { primary } = judgedOf(relation)
-		const op = input.kind === "single" ? input.act.op : "insert"
 		const proposal = defined(
 			binding.proposals.get(slot.slot),
 			`the proposal of member slot ${slot.slot}`
@@ -634,6 +642,7 @@ const partOf = (step: OwnStep): ExecutionPart => {
 		case "single":
 		case "familyWrite":
 		case "hold":
+		case "retire":
 		case "admission":
 			return "statement"
 	}

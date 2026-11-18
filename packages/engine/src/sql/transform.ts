@@ -1113,6 +1113,10 @@ export class Transform {
 				const statement = this.modified(s.statement)
 				return statement === s.statement ? s : { ...s, statement }
 			}
+			case "returnQuery": {
+				const query = this.setQuery(s.query)
+				return query === s.query ? s : { ...s, query }
+			}
 			case "createSessionTable": {
 				const columns = mapList(s.columns, (c) => this.columnDefinition(c))
 				return columns === s.columns ? s : { ...s, columns }
@@ -1174,6 +1178,15 @@ export class Transform {
 					return name === s.name && body === s.body ? s : { ...s, name, body }
 				}
 				const params = mapList(s.params, (p) => this.functionParam(p))
+				if (typeof s.returns !== "string") {
+					const setOf = this.type(s.returns.setOf)
+					return name === s.name &&
+						params === s.params &&
+						body === s.body &&
+						setOf === s.returns.setOf
+						? s
+						: { ...s, name, params, body, returns: { setOf } }
+				}
 				return name === s.name && params === s.params && body === s.body
 					? s
 					: { ...s, name, params, body }

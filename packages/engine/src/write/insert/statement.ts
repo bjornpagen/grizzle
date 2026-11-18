@@ -51,6 +51,8 @@ export interface WriteNames extends PhysicalNames {
 	readonly advance: (relation: string, field: string) => ObjectName
 	/** A retirable header's hold function (physical/ddl/retire.ts), which a write that touches its unit calls. */
 	readonly hold: (header: string) => ObjectName
+	/** A retirable header's retirement function (physical/ddl/retire.ts), which a write that retires its groups calls. */
+	readonly retire: (header: string) => ObjectName
 	readonly primaryKey: (relation: string) => ConstraintName
 }
 
@@ -142,6 +144,15 @@ export interface HoldResult {
 	readonly header: StoredRelationName
 }
 
+/** A retirable unit's retirement of the groups a stratum's retire members state (write/hold/statement.ts), by its
+ * header: its one row is its counts, one bigint array, the groups it retired, then each of `bodies`' rows it removed,
+ * in that order. */
+export interface RetireResult {
+	readonly kind: "retire"
+	readonly header: StoredRelationName
+	readonly bodies: ReadonlyArray<StoredRelationName>
+}
+
 /** The admission of a write's caller parameters (write/admission/statement.ts), first in its flight; its row carries
  * nothing to decode. */
 export interface AdmissionResult {
@@ -173,6 +184,7 @@ export type WriteResult =
 	| DeleteResult
 	| SequenceAdvanceResult
 	| HoldResult
+	| RetireResult
 	| AdmissionResult
 	| CarrierResult
 	| AnalyzeResult

@@ -13,6 +13,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/fields/**/*.test.ts",
 	"test/pg/input/**/*.test.ts",
 	"test/pg/laws/curriculum.test.ts",
+	"test/pg/laws/retire.test.ts",
 	"test/pg/laws/rule-net-write.test.ts",
 	"test/pg/laws/rule-whole.test.ts",
 	"test/pg/lower-conservative/**/*.test.ts",

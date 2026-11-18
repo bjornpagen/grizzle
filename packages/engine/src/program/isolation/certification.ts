@@ -97,7 +97,8 @@ const variantWrites = (variants: CompiledVariants): ReadonlyArray<CompiledWrite>
  *   the view's own;
  * - a column of a stored relation's table is its field, and none of a law column;
  * - the refusal function, each closed relation's constant functions and each serial field's advance function read no
- *   table; any other function may;
+ *   table; a retirable unit's retirement function writes its header's and its bodies' tables by a retirement; any other
+ *   function may read any;
  * - the objects an ON CONFLICT with no target arbitrates on a relation's table are its primary key's, each UNIQUE's and
  *   each span key's natives, each by the columns of its fields.
  *
@@ -155,6 +156,16 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 			}
 		}
 	}
+	const retirements = new TupleMap<readonly [string, string], ReadonlyArray<ObjectName>>()
+	for (const st of owned.base.statements) {
+		if (st.kind === "retirable") {
+			const fn = names.retire(st.header.relation)
+			retirements.set(
+				[fn.schema, fn.name],
+				[st.header.relation, ...st.bodies.map((b) => b.relation)].map((r) => names.relation(r))
+			)
+		}
+	}
 	const arbiters = new Map<string, Array<ReadonlyArray<string>>>()
 	for (const { object } of artifacts.laws.natives) {
 		const arbiter = arbiterOf(object)
@@ -169,6 +180,7 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 		relationOf: (table) => relations.get([table.schema, table.name]),
 		fieldOf: (relation, column) => columns.get([relation, column]),
 		readsNoTable: (fn) => noTable.has([fn.schema, fn.name]),
+		retirementOf: (fn) => retirements.get([fn.schema, fn.name]),
 		arbitersOf: (relation) => arbiters.get(relation) ?? []
 	}
 }

@@ -139,8 +139,8 @@ const unstated: StatementAt = Object.freeze({ kind: "unstated" })
  * actions, at its stratum; a family statement's relations; the fill of an action's member's carrier, which casts the
  * facts the action writes into its relation's types (CarrierCasts); a query entry's precheck, which casts the entry's
  * facts into its target's types; nothing for another carrier's statement, an ANALYZE, a serial advance or a hold, whose
- * refusal names its law and key in its DETAIL, the admission, whose refusal names a parameter's domain, a read-back, or
- * the COMMIT.
+ * refusal names its law and key in its DETAIL, a retirement, which states its groups and no fact of a relation it
+ * writes, the admission, whose refusal names a parameter's domain, a read-back, or the COMMIT.
  */
 const statementAt = (origin: FailureOrigin): StatementAt => {
 	if (origin.kind !== "statement") {
@@ -172,6 +172,7 @@ const statementAt = (origin: FailureOrigin): StatementAt => {
 		case "advance":
 		case "readBack":
 		case "hold":
+		case "retire":
 		case "admission":
 			return unstated
 	}
@@ -208,6 +209,8 @@ const stepText = (step: WriteStep): string => {
 			)}`
 		case "hold":
 			return `the hold of the groups of ${step.header}`
+		case "retire":
+			return `the retirement of groups of ${step.header}`
 		case "admission":
 			return "the admission of the write's parameters"
 	}

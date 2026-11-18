@@ -80,6 +80,7 @@ export type WriteStep =
 	  }
 	| { readonly kind: "readBack"; readonly name: string }
 	| HoldStep
+	| RetireStep
 	| AdmissionStep
 	| {
 			readonly kind: "check"
@@ -115,6 +116,20 @@ export interface AdmissionStep {
 export interface HoldStep {
 	readonly kind: "hold"
 	readonly header: StoredRelationName
+}
+
+/**
+ * A retirable unit's retirement of the groups a stratum's retire members state (write/hold/statement.ts), by its
+ * header: its one row is its counts (RetireResult), the groups it retired, which the outcome counts as puts of the
+ * header, each header's fact at its key now a retired one, then each of `bodies`' rows it removed with their groups,
+ * which it counts as deletes (outcome.ts retiredCounts). No other statement of the write reads or writes the unit
+ * (RetiredUnitTouched), so its rows are no delta's.
+ */
+export interface RetireStep {
+	readonly kind: "retire"
+	readonly stratum: StratumAt
+	readonly header: StoredRelationName
+	readonly bodies: ReadonlyArray<StoredRelationName>
 }
 
 /**
@@ -181,6 +196,7 @@ export const writeRows = (
 		case "readBack":
 		case "check":
 		case "hold":
+		case "retire":
 		case "admission":
 			return []
 	}
@@ -205,6 +221,7 @@ export const stratumOf = (step: WriteStep): StratumAt | undefined => {
 		case "check":
 		case "single":
 		case "familyWrite":
+		case "retire":
 			return step.stratum
 	}
 }
@@ -225,6 +242,7 @@ export const reachOf = (step: WriteStep): StepReach => {
 			return "parameters"
 		case "readBack":
 		case "hold":
+		case "retire":
 		case "carrier":
 		case "analyze":
 		case "write":

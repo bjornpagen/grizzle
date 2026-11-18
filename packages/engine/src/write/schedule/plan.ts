@@ -31,7 +31,7 @@ import {
 	familyNodeRelations
 } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
-import { type HeldUnit, storedReads } from "#compiler/write/hold/stated.ts"
+import { type HeldUnit, type RetiredUnit, storedReads } from "#compiler/write/hold/stated.ts"
 import {
 	type InputProof,
 	keyUniqueByEvidence,
@@ -127,7 +127,9 @@ export type PlannedWrite = {
  * - `family`, a family statement of the stratum (frontend/schedule.ts FamilyNode), where its schedule runs it among
  *   the stratum's writes;
  * - `hold`, the hold of the groups a write states of a retirable unit it touches, before the first statement that
- *   touches it (`placeHolds`). */
+ *   touches it (`placeHolds`);
+ * - `retire`, the retirement of the groups a stratum's retire members state of a retirable unit, after the stratum's
+ *   other statements, none of which reads or writes the unit (write/hold/stated.ts RetiredUnitTouched). */
 export type PlanStep =
 	| {
 			readonly kind: "createCarrier"
@@ -174,6 +176,7 @@ export type PlanStep =
 	  }
 	| { readonly kind: "family"; readonly stratum: StratumAt; readonly node: FamilyNode }
 	| { readonly kind: "hold"; readonly hold: HeldUnit }
+	| { readonly kind: "retire"; readonly retired: RetiredUnit }
 
 export interface WritePlan {
 	readonly steps: ReadonlyArray<PlanStep>
@@ -615,7 +618,7 @@ const sequentialSteps = (
 }
 
 /** The stored relations a step's statements change: a write's relation, a single statement's writes', a family
- * statement's; a carrier's, a check's, a sequence advance's and a hold's change none. */
+ * statement's, a retirement's unit's; a carrier's, a check's, a sequence advance's and a hold's change none. */
 const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 	switch (step.kind) {
 		case "write":
@@ -624,6 +627,8 @@ const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 			return step.writes.map((w) => w.relation.name)
 		case "family":
 			return familyNodeRelations(step.node)
+		case "retire":
+			return [step.retired.unit.header, ...step.retired.unit.bodies.keys()]
 		case "createCarrier":
 		case "fillMember":
 		case "fillShare":
@@ -755,6 +760,7 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 		case "check":
 		case "readBack":
 		case "hold":
+		case "retire":
 			return []
 	}
 }
@@ -974,6 +980,7 @@ const touchesUnit = (frontend: WriteFrontend, step: PlanStep, held: HeldUnit): b
 		case "createCarrier":
 		case "advance":
 		case "hold":
+		case "retire":
 			return false
 	}
 }
@@ -1063,7 +1070,8 @@ export const planWrite = (
 	frontend: WriteFrontend,
 	chosen: ChosenTargets,
 	evidence: PlanEvidence,
-	holds: ReadonlyArray<HeldUnit>
+	holds: ReadonlyArray<HeldUnit>,
+	retires: ReadonlyArray<RetiredUnit>
 ): WritePlan => {
 	const supply = new CarrierSupply(evidence.carrierTyping)
 	/** The strata's statements, the read-backs placed among them below. */
@@ -1154,6 +1162,12 @@ export const planWrite = (
 				appendAll(strata, sequentialSteps(s, drafted, family, shares, supply, evidence))
 				break
 		}
+		appendAll(
+			strata,
+			retires.flatMap((retired): ReadonlyArray<PlanStep> =>
+				retired.stratum === s ? [{ kind: "retire", retired }] : []
+			)
+		)
 	}
 
 	const placement = placeReadBacks(frontend, strata)

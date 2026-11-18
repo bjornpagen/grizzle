@@ -105,6 +105,13 @@ const NO_TABLE = "refuse"
 
 const READS_TABLES = "filter_rows"
 
+/** A retirable unit's retirement function, as the names know it: a call of it retires the unit of W and R, writing both
+ * tables by a retirement and reading neither (program/isolation/extract.ts ExtractNames `retirementOf`). */
+const RETIRES = "retire_w"
+
+/** The relations RETIRES's unit holds, header first. */
+const RETIRED = ["W", "R"] as const
+
 /** The objects an ON CONFLICT with no target arbitrates on each named relation's table, by their field columns: a key
  * of c_id, and a UNIQUE over c_a and the law column c_hidden, which no field is. */
 const ARBITERS: ReadonlyArray<ReadonlyArray<Column>> = [["c_id"], ["c_a", "c_hidden"]]
@@ -120,6 +127,8 @@ export const NAMES: ExtractNames = {
 	fieldOf: (relation, column) =>
 		relation === "W" || relation === "R" || relation === "S" ? FIELDS.get(column) : undefined,
 	readsNoTable: (fn) => fn.schema === "app" && fn.name === NO_TABLE,
+	retirementOf: (fn) =>
+		fn.schema === "app" && fn.name === RETIRES ? Arr.map(RETIRED, (rel) => TABLES[rel]) : undefined,
 	arbitersOf: (relation) =>
 		relation === "W" || relation === "R" || relation === "S" ? ARBITERS : []
 }
@@ -214,12 +223,13 @@ type Source =
 			readonly columns: Arr.NonEmptyReadonlyArray<Column>
 	  }
 
-/** A filter: EXISTS, IN, NOT, or a call of a schema function, one the names know reads no table or not. */
+/** A filter: EXISTS, IN, NOT, or a call of a schema function, one the names know reads no table, one that may read
+ * tables, or a retirable unit's retirement. */
 type Filter =
 	| { readonly kind: "exists"; readonly not: boolean; readonly query: QuerySpec }
 	| { readonly kind: "in"; readonly not: boolean; readonly query: QuerySpec }
 	| { readonly kind: "not"; readonly inner: Filter }
-	| { readonly kind: "call"; readonly readsNoTable: boolean }
+	| { readonly kind: "call"; readonly fn: "noTable" | "readsTables" | "retirement" }
 
 /** The calls over many rows a core may hold: PostgreSQL's aggregates, the ordered-set ones among them, and its window
  * functions, which a core calls only OVER a window. */
@@ -506,7 +516,13 @@ const filterGen = (depth: number): Gen<Filter> =>
 		[3, (s) => ({ kind: "exists", not: s.draw(boolean), query: s.draw(queryGen(depth)) })],
 		[1, (s) => ({ kind: "in", not: s.draw(boolean), query: s.draw(queryGen(depth)) })],
 		[1, (s) => ({ kind: "not", inner: s.draw(filterGen(depth)) })],
-		[1, (s) => ({ kind: "call", readsNoTable: s.draw(boolean) })]
+		[
+			1,
+			(s) => ({
+				kind: "call",
+				fn: s.draw(element(["noTable", "readsTables", "retirement"] as const))
+			})
+		]
 	])
 
 const queryGen =
@@ -1191,7 +1207,11 @@ const filterExpr = (
 		case "not":
 			return not(filterExpr(f.inner, `${path}n`, scope, env, column))
 		case "call":
-			return qualifiedCall("app", f.readsNoTable ? NO_TABLE : READS_TABLES, [column])
+			return qualifiedCall(
+				"app",
+				f.fn === "noTable" ? NO_TABLE : f.fn === "readsTables" ? READS_TABLES : RETIRES,
+				[column]
+			)
 	}
 }
 
@@ -1611,6 +1631,7 @@ export type Shape =
 	| "an ordered-set aggregate"
 	| "a window call"
 	| "a function that may read tables"
+	| "a retirement"
 	| "an ON CONFLICT arbiter over its conflict columns"
 	| "a DO UPDATE"
 	| "a target bound by its WHERE"
@@ -1663,7 +1684,7 @@ class Expect {
 	readonly tail: Array<Expected> = []
 	readonly writes: Array<{
 		readonly relation: string
-		readonly op: "insert" | "update" | "delete"
+		readonly op: "insert" | "update" | "delete" | "retire"
 	}> = []
 	readonly shapes = new Set<Shape>()
 	/** Every query CTE a source reads, by its path. */
@@ -2190,11 +2211,22 @@ class Expect {
 				)
 				return
 			case "call":
-				if (!f.readsNoTable) {
-					this.shapes.add("a function that may read tables")
-					this.opaque(`?function:app.${READS_TABLES}`, place)
+				switch (f.fn) {
+					case "noTable":
+						return
+					case "readsTables":
+						this.shapes.add("a function that may read tables")
+						this.opaque(`?function:app.${READS_TABLES}`, place)
+						return
+					case "retirement":
+						this.shapes.add("a retirement")
+						for (const rel of RETIRED) {
+							if (!Arr.some(this.writes, (w) => w.op === "retire" && w.relation === rel)) {
+								this.writes.push({ relation: rel, op: "retire" })
+							}
+						}
+						return
 				}
-				return
 		}
 	}
 

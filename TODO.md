@@ -491,13 +491,14 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   past the snapshot, which no read of the statement can name, so a met row unclassified there is an unseen occupant
   whose constraint is unknown, and the certifier reads a targetless arbitration and a met read at READ COMMITTED as
   opaque (program/isolation/extract.ts), which would lower every such role to SERIALIZABLE.
-- **Retirable units, served (RETIRE2, approved for den 2026-11-11; lane RETIRE3 building it):** a schema declares
-  units and installs their fence, hold and retire functions; every served change member that touches a unit's body
-  calls its hold before its first statement that does, refused `UnheldGroup` where it touches a group the call does not
-  state (f14a46da, 0f0d8745), and test/unit/write/hold.test.ts's property kills RETIRE2's hold-omitted and hold-after
-  and TREEORACLE's hold-header-unordered (3 of 3 on the runner, 2026-11-18). Owed: `ChangeSet.retire`, the role option
-  `retire` and its EXECUTE grant, the outcome's counts of a retirement, the certifier reading a served retirement as
-  `retire` facts, the README's served half and SKILL.md.
+- **A retirement of a group whose header is being inserted (RETIRE3, 2026-11-18):** the retirement locks the open
+  headers it is given, then removes their groups' rows in a statement of its own, which reads the open headers at its
+  groups again under a new snapshot (physical/ddl/retire.ts retireLocked). A header absent at the lock and committed
+  before that statement is retired unlocked: a holder of its group that commits rows while the statement's UPDATE waits
+  on it leaves rows the statement's DELETEs did not see, and the fence's NO ACTION check refuses the retirement (23503)
+  rather than retiring them. Nothing is lost, and den retires only groups whose work has finished, long after their
+  header committed. The fix is to carry the locked keys from the lock into the statement (PL/pgSQL variables), so the
+  retirement retires exactly the groups it locked.
 - **Reads forward PostgreSQL's bytes (WIREPASS, the owner, 2026-11-11):** the live wire decodes PostgreSQL's JSON
   (attachments are aggregated as JSON in the served statement, lower/shapes/attach) into host values, then re-encodes
   them in carrierWire's spellings (live/wire.ts): int8, numeric and money as strings, bytes as base64. That is a

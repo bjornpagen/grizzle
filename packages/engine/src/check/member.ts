@@ -1,7 +1,7 @@
 import { fail } from "#compiler/check/fail.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import type { MemberDesc } from "#compiler/ir/desc.ts"
+import type { WriteOp } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import {
@@ -48,7 +48,7 @@ export const writtenHeading = (relation: MemberRelation): Heading =>
  */
 const memberHeading = (
 	relation: MemberRelation,
-	op: MemberDesc["op"],
+	op: WriteOp,
 	serial: ReadonlyArray<string>,
 	supplied: ReadonlyArray<string>
 ): Heading => {
@@ -63,7 +63,7 @@ const names = (h: Heading): string => h.map((c) => c.name).join(", ")
 /** What a member's expected heading leaves out of its relation's, as its refusal names it. */
 const omitted = (
 	relation: MemberRelation,
-	op: MemberDesc["op"],
+	op: WriteOp,
 	serial: ReadonlyArray<string>,
 	expected: Heading
 ): string => {
@@ -115,7 +115,7 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
 export const checkMemberHeading = (
 	query: LogicalQuery,
 	relation: MemberRelation,
-	op: MemberDesc["op"],
+	op: WriteOp,
 	loc: SourceLoc
 ): void => {
 	const root = query.dag.roots[0]

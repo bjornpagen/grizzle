@@ -17,6 +17,7 @@ import type {
 } from "#compiler/ir/desc.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { familyNodeRelations } from "#compiler/write/frontend/schedule.ts"
 import type { RelationInput } from "#compiler/write/insert/input.ts"
@@ -80,6 +81,42 @@ export interface HeldUnit {
 	readonly unit: WriteUnit
 	readonly observed: ReadonlySet<string>
 	readonly stated: NonEmptyReadonlyArray<StatedGroups>
+}
+
+/**
+ * A unit a stratum of a write retires (ChangeSet.retire): the unit, the stratum, and the groups its retire members
+ * state, their slot's facts, each one group at the header's key fields (write/frontend/compile.ts RetireAct).
+ */
+export interface RetiredUnit {
+	readonly unit: WriteUnit
+	readonly stratum: StratumAt
+	readonly stated: NonEmptyReadonlyArray<StatedGroups>
+}
+
+/**
+ * Every unit the write's strata retire, by stratum, then by its header's name, as the front end's slot groups hold them:
+ * each one slot of its header's retire members' groups.
+ */
+export const retiredUnits = (frontend: WriteFrontend): ReadonlyArray<RetiredUnit> => {
+	const places = unitPlaces(frontend)
+	return frontend.slots.flatMap((group) =>
+		group.inputs.flatMap((input): ReadonlyArray<RetiredUnit> => {
+			if (input.kind !== "single" || input.act.op !== "retire") {
+				return []
+			}
+			const place = places.get(group.relation.name)
+			if (place?.kind !== "header") {
+				throw defect(`the retired ${group.relation.name}, a retirable header the law model holds`)
+			}
+			return [
+				{
+					unit: place.unit,
+					stratum: group.stratum,
+					stated: [{ kind: "slot", input: input.slot.input, group: place.group }]
+				}
+			]
+		})
+	)
 }
 
 /**
@@ -157,6 +194,23 @@ const unitPlaces = (frontend: WriteFrontend): ReadonlyMap<string, UnitPlace> => 
 		}
 	}
 	return places
+}
+
+/** Whether a touch at an unstated group writes its relation: a query member's, a sequence's, a query entry's or a
+ * nested write's; every other reads it. */
+const writes = (why: UnheldWhy): boolean => {
+	switch (why.kind) {
+		case "written":
+		case "drawn":
+		case "entry":
+		case "nested":
+		case "family":
+			return true
+		case "unbound":
+		case "derived":
+		case "filter":
+			return false
+	}
 }
 
 /** A rule's variables each a conjunct of its where equates to a parameter, by name, with that parameter's name. */
@@ -294,9 +348,26 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 	if (places.size === 0) {
 		return []
 	}
+	/** The headers of the units the write retires, which no other member or read-back of it touches. */
+	const retired = new Set(retiredUnits(frontend).map((r) => r.unit.header))
 	const gathered = new Gathered()
 	const changeSet = SourceLoc("ChangeSet", [])
+	/** A touch at `at` of `place`, written or read, refused as RetiredUnitTouched where the write retires its unit. */
+	const touched = (at: SourceLoc, place: UnitPlace, how: "written" | "read" | "delta"): void => {
+		if (retired.has(place.unit.header)) {
+			throw new Refusal(
+				CompileError.make({
+					_tag: "RetiredUnitTouched",
+					at,
+					relation: place.relation,
+					header: place.unit.header,
+					how
+				})
+			)
+		}
+	}
 	const refuse = (at: SourceLoc, place: UnitPlace, why: UnheldWhy): never => {
+		touched(at, place, writes(why) ? "written" : "read")
 		throw new Refusal(
 			CompileError.make({
 				_tag: "UnheldGroup",
@@ -387,6 +458,15 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 			}
 			return
 		}
+		if (s.kind === "delta") {
+			const read = resolved(s.relation)
+			const relation = read.kind === "base" ? read.relation : writtenBy(s.relation)?.relation
+			const place = relation === undefined ? undefined : places.get(relation)
+			if (place !== undefined) {
+				touched(at, place, "delta")
+			}
+			return
+		}
 		if (s.kind !== "relation") {
 			return
 		}
@@ -401,6 +481,7 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 		if (place === undefined) {
 			return
 		}
+		touched(at, place, "read")
 		const params = mapNonEmpty(
 			place.group,
 			(g) =>
@@ -439,8 +520,14 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 	}
 	for (const stratum of frontend.desc.strata) {
 		for (const member of stratum.members) {
+			if (member.op === "retire") {
+				continue
+			}
 			const written = writtenBy(member.relation)
 			const place = written === undefined ? undefined : places.get(written.relation)
+			if (place !== undefined) {
+				touched(member.loc, place, "written")
+			}
 			if (written?.entry !== undefined && place?.kind === "body") {
 				refuse(member.loc, place, { kind: "entry", entry: written.entry })
 			}
@@ -480,6 +567,7 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 					if (inner?.kind !== "body") {
 						continue
 					}
+					touched(memberAt(relation), inner, "written")
 					if (place?.kind !== "body" || place.unit !== inner.unit) {
 						refuse(memberAt(relation), inner, { kind: "nested", owner: relation })
 					}
@@ -527,6 +615,7 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 				const outside = frontend.laws.families.find(
 					(f) => f.member.name === relation && places.get(f.owner.name)?.unit !== place.unit
 				)
+				touched(memberAt(relation), place, "written")
 				if (outside !== undefined) {
 					refuse(memberAt(relation), place, {
 						kind: "family",

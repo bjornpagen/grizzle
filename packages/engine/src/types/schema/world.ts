@@ -427,6 +427,8 @@ export interface Role<
 	readonly statements: ReadonlyArray<KeptStatements<Base, Relations>>
 	readonly write: ReadonlyArray<Write>
 	readonly refresh: ReadonlyArray<Refresh>
+	/** The whole entries of retirable units' headers whose groups it retires (ChangeSet.retire). */
+	readonly retire: ReadonlyArray<string>
 }
 
 /**
@@ -439,13 +441,24 @@ export type DistinctWrites<W> =
 
 /**
  * The arguments after a role's relations: none, or its options, `write` naming the role relations it may write, or
- * `insert` naming the ones it may only insert into, holding no DELETE or UPDATE on any of them, and `refresh` the
- * derived whole entries it may refresh, each empty when left out. A role states `write` or `insert`, never both.
+ * `insert` naming the ones it may only insert into, holding no DELETE or UPDATE on any of them, `refresh` the derived
+ * whole entries it may refresh, and `retire` the whole entries of retirable units' headers whose groups it may retire,
+ * each empty when left out. A role states `write` or `insert`, never both.
  */
 export type RoleOptions<W, F> = readonly [] | readonly [options: RoleOptionRecord<W, F>]
 export type RoleOptionRecord<W, F> =
-	| { readonly write?: W; readonly insert?: never; readonly refresh?: F }
-	| { readonly insert: W; readonly write?: never; readonly refresh?: F }
+	| {
+			readonly write?: W
+			readonly insert?: never
+			readonly refresh?: F
+			readonly retire?: ReadonlyArray<string>
+	  }
+	| {
+			readonly insert: W
+			readonly write?: never
+			readonly refresh?: F
+			readonly retire?: ReadonlyArray<string>
+	  }
 
 /**
  * The contexts a role's relations read: never when none does, and unknown for a role whose type does not say (a role

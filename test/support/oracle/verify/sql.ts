@@ -2298,6 +2298,19 @@ class StatementAuditor {
 					})
 				})
 				return
+			case "returnQuery":
+				this.at("query", () => {
+					this.embedded(() => {
+						this.select(statement.query, {
+							scope: undefined,
+							ctes: undefined,
+							plVars: vars,
+							outermost: false,
+							topLevel: true
+						})
+					})
+				})
+				return
 			case "createSessionTable":
 				this.ident(statement.name, "table", "name")
 				for (const [i, column] of statement.columns.entries()) {

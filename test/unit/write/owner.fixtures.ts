@@ -3,6 +3,7 @@
 import { array, element, type Gen, int, option } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { identity } from "#compiler/core/identity.ts"
+import type { WriteOp } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -17,11 +18,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import {
-	changeSetOver as ChangeSet,
-	type ChangeSetValue,
-	type MemberOp
-} from "#compiler/write/changeset/value.ts"
+import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -73,8 +70,8 @@ const restatedLedger = query(Books).rule((r) => {
 type OwnerSource = "given" | "restated" | "stated"
 
 interface Stratum {
-	readonly owner: Option.Option<{ readonly op: MemberOp; readonly source: OwnerSource }>
-	readonly member: Option.Option<MemberOp>
+	readonly owner: Option.Option<{ readonly op: WriteOp; readonly source: OwnerSource }>
+	readonly member: Option.Option<WriteOp>
 }
 
 /**

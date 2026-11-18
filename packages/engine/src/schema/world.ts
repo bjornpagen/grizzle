@@ -383,11 +383,14 @@ export const admitRole = (
 		kinds.set(key, "world")
 	}
 	if (!isPlainRecord(options) && options !== undefined) {
-		throw malformed(label, "options { write?, insert?, refresh? }: lists of role relation names")
+		throw malformed(
+			label,
+			"options { write?, insert?, refresh?, retire? }: lists of role relation names"
+		)
 	}
 	const opts = options ?? {}
 	for (const k of Object.keys(opts)) {
-		if (k !== "write" && k !== "insert" && k !== "refresh") {
+		if (k !== "write" && k !== "insert" && k !== "refresh" && k !== "retire") {
 			throw malformed(label, `options without ${k}`)
 		}
 	}
@@ -401,6 +404,7 @@ export const admitRole = (
 		listed === "write" ? "a write list" : "an insert list"
 	)
 	const refresh = nameList(opts["refresh"], `${label} refresh`, "a refresh list")
+	const retire = nameList(opts["retire"], `${label} retire`, "a retire list")
 	const targets = new Map<string, string>()
 	const target = (relation: string, entry: string): void => {
 		const prior = targets.get(relation)
@@ -465,6 +469,7 @@ export const admitRole = (
 			relations: entries,
 			...writing,
 			refresh,
+			retire,
 			loc: builderLoc(label, [baseDesc.name, roleName])
 		})
 	)
@@ -521,7 +526,8 @@ const noNames: readonly [] = Object.freeze([] as const)
  *   (entry.ts) admits, at most one per base relation. `insert`, in place of `write`, names them as `write` does, and
  *   the role holds INSERT and SELECT on what they write, no DELETE or UPDATE, so a program of the role that deletes
  *   or updates there is refused (RoleAccess insert); a role stating both is refused (writeAndInsert). `refresh` names
- *   derived whole entries. The role keeps the
+ *   derived whole entries, and `retire` the whole entries of retirable units' headers whose groups the role retires,
+ *   which ownership holds to that (schema/own.ts, retireOutside and retireNotHeader). The role keeps the
  *   base's statements whose every relation is a whole entry.
  * - `login(base, name, roles, { workload? })`: one credential and one pool for roles over `base`, and the workloads it
  *   owns. Every role is in exactly one login, which the builder records (loginOfRole); role and login names are distinct
@@ -533,8 +539,8 @@ const noNames: readonly [] = Object.freeze([] as const)
  * compilation of the role runs.
  *
  * role(base, name, relations, options?). The value holds the base, the role relations (each query entry as its world
- * relation), the base's statements whose every relation is a whole entry, and frozen copies of the write (or insert)
- * and refresh lists, the insert list as `write`.
+ * relation), the base's statements whose every relation is a whole entry, and frozen copies of the write (or insert),
+ * refresh and retire lists, the insert list as `write`.
  */
 export const roleBuilder = <
 	Base extends AnySchema,
@@ -585,7 +591,8 @@ export const roleBuilder = <
 					: options?.write === undefined
 						? noNames
 						: frozenTuple(options.write),
-			refresh: options?.refresh === undefined ? noNames : frozenTuple(options.refresh)
+			refresh: options?.refresh === undefined ? noNames : frozenTuple(options.refresh),
+			retire: options?.retire === undefined ? noNames : frozenTuple(options.retire)
 		},
 		"role",
 		admitted.desc,

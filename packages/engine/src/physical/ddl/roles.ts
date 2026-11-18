@@ -1213,8 +1213,8 @@ const roleExecutes = (
  * whose policies `addRowSecurity` adds. A roster whole entry has no view: its handles are read as codes, typed by its
  * domain, which the role uses. The filter function a policy calls, then the probes, each come
  * after every relation, type and function their statements read. TEMPORARY on the database is among its grants where
- * `carriers`, its served workload creating a carrier, and EXECUTE on each hold function of `held`, the retirable units
- * its served workload holds. */
+ * `carriers`, its served workload creating a carrier, and EXECUTE on each unit function of `held`: the hold of each
+ * retirable unit its served workload holds, and the retirement of each unit its retire list names. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
@@ -1462,7 +1462,7 @@ const addLogin = (
 	advance: AdvanceFunctions,
 	carriers: ReadonlyArray<RoleOfLogin>,
 	fenced: ReadonlyArray<string>,
-	held: (role: string) => ReadonlyArray<UnitFunction>
+	held: (role: OwnedRole) => ReadonlyArray<UnitFunction>
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
@@ -1524,7 +1524,7 @@ const addLogin = (
 				{ role, object: roleObject },
 				advance,
 				carriers.some((c) => c.login === login.name && c.role === r.checked.world.role.name),
-				held(r.checked.world.role.name)
+				held(r.checked.world.role)
 			)
 		)
 	return {
@@ -1702,7 +1702,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   migration revokes it from a role whose workload no longer creates one, as it replaces any role's changed grants.
  *   EXECUTE on the hold function of each retirable unit its served workload holds (`holds`, stated by the served
  *   workload's extension; physical/ddl/retire.ts addUnitFunctions), which every served call that touches the unit
- *   calls before it touches it; no role holds EXECUTE on any other unit function.
+ *   calls before it touches it, and on the retirement function of each unit whose header its `retire` list names, which
+ *   its ChangeSets' retire members call; no role holds EXECUTE on any other unit function.
  *
  * Row security is enabled on exactly the tables some role writes through a query entry with a filter, once their
  * policies stand, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`; its owner, the migration identity, bypasses it, and FORCE
@@ -1737,12 +1738,19 @@ export const addWorlds = (
 	const views: Array<ObjectName> = []
 	const writers: Array<Writer> = []
 	for (const login of logins) {
-		const held = (role: string): ReadonlyArray<UnitFunction> =>
-			holds.flatMap((h) =>
-				h.login === login.login.name && h.role === role
+		/** The unit functions a role calls: the hold of each unit its served workload holds, and the retirement of each
+		 * unit whose header its retire list names. */
+		const held = (role: OwnedRole): ReadonlyArray<UnitFunction> => [
+			...holds.flatMap((h) =>
+				h.login === login.login.name && h.role === role.name
 					? [defined(units.get(h.header), `the hold function of retirable ${h.header}`).hold]
 					: []
+			),
+			...role.retire.map(
+				(header) =>
+					defined(units.get(header), `the retirement function of retirable ${header}`).retire
 			)
+		]
 		const added = addLogin(
 			b,
 			cx,

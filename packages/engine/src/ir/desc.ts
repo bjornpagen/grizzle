@@ -1203,6 +1203,8 @@ export type RoleDesc<L = Located> = L & {
 	readonly base: SchemaDesc<L>
 	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc<L>>
 	readonly refresh: ReadonlyArray<string>
+	/** The whole entries of retirable units' headers whose groups the role retires (ChangeSet.retire). */
+	readonly retire: ReadonlyArray<string>
 } & RoleWriting
 
 /** The role relations a role writes, by whichever of `write` and `insert` it states. */
@@ -1235,23 +1237,48 @@ export type EqualedDesc =
  * the planner holds it as the query member it is (PlannedMemberDesc).
  */
 type MemberSourceDesc<L = Located> =
-	| { readonly kind: "array"; readonly slot: string }
-	| { readonly kind: "stream"; readonly slot: string }
+	| SlotSourceDesc
 	| { readonly kind: "query"; readonly query: QueryDesc<L> }
 	| { readonly kind: "equal"; readonly fields: Readonly<Record<string, EqualedDesc>> }
 
-export type MemberDesc<L = Located> = L & {
-	readonly op: "insert" | "delete" | "put"
-	readonly relation: string
-	readonly member: MemberSourceDesc<L>
-}
+/** A member's facts as values, outside the Description: an array's or a Stream's, by the slot they travel in. */
+export type SlotSourceDesc =
+	| { readonly kind: "array"; readonly slot: string }
+	| { readonly kind: "stream"; readonly slot: string }
 
-/** A member as the planner reads it: an array, a Stream or a query, a field-equality member made its query. */
-export type PlannedMemberDesc<L = Located> = L & {
-	readonly op: MemberDesc["op"]
-	readonly relation: string
-	readonly member: Exclude<MemberSourceDesc<L>, { readonly kind: "equal" }>
-}
+/** What a member does to its relation's facts: inserts, deletes or puts them. */
+export type WriteOp = "insert" | "delete" | "put"
+
+/**
+ * A member: a write of its relation, `op` its facts' operation; or a retirement of the groups of the retirable unit its
+ * relation heads, each fact one group, a value of the header's key, which travels in a slot alone, since a retirement's
+ * groups are values the call states (ChangeSet.retire).
+ */
+export type MemberDesc<L = Located> = L &
+	(
+		| {
+				readonly op: WriteOp
+				readonly relation: string
+				readonly member: MemberSourceDesc<L>
+		  }
+		| { readonly op: "retire"; readonly relation: string; readonly member: SlotSourceDesc }
+	)
+
+/** A write member: a member of a write `op`. */
+export type WriteMemberDesc<L = Located> = Extract<MemberDesc<L>, { readonly op: WriteOp }>
+
+/** A retire member (ChangeSet.retire). */
+export type RetireMemberDesc<L = Located> = Extract<MemberDesc<L>, { readonly op: "retire" }>
+
+/** A member as the planner reads it: an array, a Stream or a query, a field-equality member made its query; a retire
+ * member as it is. */
+export type PlannedMemberDesc<L = Located> =
+	| (L & {
+			readonly op: WriteOp
+			readonly relation: string
+			readonly member: Exclude<MemberSourceDesc<L>, { readonly kind: "equal" }>
+	  })
+	| RetireMemberDesc<L>
 
 /** The parameters a field-equality member's fields name, by name. */
 export const equalParamNames = (
@@ -2475,6 +2502,7 @@ const roleRelations = S.nonEmptyUniqueArray(
 const roleWrite = S.uniqueStrings("written relations", name)
 const roleInsert = S.nonEmptyUniqueStrings("inserted relations")
 const roleRefresh = S.uniqueStrings("refreshed relations", name)
+const roleRetire = S.uniqueStrings("retired headers", name)
 
 const roleDescShape: S.Shape<RoleDesc> = S.located(
 	S.unionShape(
@@ -2484,7 +2512,8 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 				base: schemaDescShape,
 				relations: roleRelations,
 				write: roleWrite,
-				refresh: roleRefresh
+				refresh: roleRefresh,
+				retire: roleRetire
 			},
 			loc
 		),
@@ -2494,7 +2523,8 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 				base: schemaDescShape,
 				relations: roleRelations,
 				insert: roleInsert,
-				refresh: roleRefresh
+				refresh: roleRefresh,
+				retire: roleRetire
 			},
 			loc
 		)
@@ -2506,17 +2536,19 @@ type RoleParts = Located & {
 	readonly name: string
 	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc>
 	readonly refresh: ReadonlyArray<string>
+	readonly retire: ReadonlyArray<string>
 } & RoleWriting
 
 /**
- * A role's own parts as its builder holds them: its caller's name, entries, written and refreshed relations and
- * location, each query entry's query the Description the builder decoded where it took it (schema/protocol.ts
+ * A role's own parts as its builder holds them: its caller's name, entries, written, refreshed and retired relations
+ * and location, each query entry's query the Description the builder decoded where it took it (schema/protocol.ts
  * queryDescOf).
  */
 export type RoleInput = {
 	readonly name: string
 	readonly relations: ReadonlyArray<RoleEntryDesc>
 	readonly refresh: ReadonlyArray<string>
+	readonly retire: ReadonlyArray<string>
 	readonly loc: SourceLoc
 } & RoleWriting
 
@@ -2540,7 +2572,8 @@ const roleWrittenShape = S.located(
 				name,
 				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
 				write: roleWrite,
-				refresh: roleRefresh
+				refresh: roleRefresh,
+				retire: roleRetire
 			},
 			loc
 		),
@@ -2549,7 +2582,8 @@ const roleWrittenShape = S.located(
 				name,
 				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
 				insert: roleInsert,
-				refresh: roleRefresh
+				refresh: roleRefresh,
+				retire: roleRetire
 			},
 			loc
 		)
@@ -2573,20 +2607,33 @@ const equaledDescShape: S.Shape<EqualedDesc> = S.tagged("kind", {
 	literal: S.struct({ value: literalDescShape })
 })
 
+/** A write member's source: an array, a Stream, a query or a field-equality member. */
+const writeSourceShape = S.tagged("kind", {
+	array: S.struct({ slot: name }),
+	stream: S.struct({ slot: name }),
+	query: S.struct({ query: unorderedQueryShape }),
+	equal: S.struct({ fields: S.recordShape(equaledDescShape, name) })
+})
+
+/** A write member of `op`: its relation and its source. */
+const writeMemberShape = S.structWith({ relation: name, member: writeSourceShape }, loc)
+
 const memberDescShape: S.Shape<MemberDesc> = S.located(
-	S.structWith(
-		{
-			op: S.literalsShape(["insert", "delete", "put"]),
-			relation: name,
-			member: S.tagged("kind", {
-				array: S.struct({ slot: name }),
-				stream: S.struct({ slot: name }),
-				query: S.struct({ query: unorderedQueryShape }),
-				equal: S.struct({ fields: S.recordShape(equaledDescShape, name) })
-			})
-		},
-		loc
-	)
+	S.tagged("op", {
+		insert: writeMemberShape,
+		delete: writeMemberShape,
+		put: writeMemberShape,
+		retire: S.structWith(
+			{
+				relation: name,
+				member: S.tagged("kind", {
+					array: S.struct({ slot: name }),
+					stream: S.struct({ slot: name })
+				})
+			},
+			loc
+		)
+	})
 )
 
 /** Whether a member's facts travel in a slot of their own: an array's or a Stream's, never a query's or a field-equality
@@ -2810,6 +2857,7 @@ const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>
 			? { insert: Object.freeze(role.insert) }
 			: { write: Object.freeze(role.write) }),
 		refresh: Object.freeze(role.refresh),
+		retire: Object.freeze(role.retire),
 		loc: role.loc
 	})
 
@@ -2838,6 +2886,7 @@ export const decodeRoleOver = (
 				relations: deepFreeze([defined(first, "an entry of a role its decode admitted"), ...rest]),
 				...("insert" in written ? { insert: written.insert } : { write: written.write }),
 				refresh: written.refresh,
+				retire: written.retire,
 				loc: written.loc
 			})
 		}

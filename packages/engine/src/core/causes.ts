@@ -223,6 +223,8 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  * - `writeRetirableHeader`: a write list writing `relation`, a retirable statement's header, which every role only
  *   inserts: its row is kept for good, and only its group's retirement changes it.
  * - `refreshKind`: a refresh list naming an entry that is no derived whole entry.
+ * - `retireOutside`: a retire list naming `name`, no relation of the role.
+ * - `retireNotHeader`: a retire list naming `name`, an entry that is no whole entry of a retirable statement's header.
  */
 export type RoleRule =
 	| { readonly kind: "entryOrdered"; readonly entry: string }
@@ -246,6 +248,7 @@ export type RoleRule =
 			readonly name: string
 			readonly entryKind: Exclude<EntryKind, "derived">
 	  }
+	| { readonly kind: "retireOutside" | "retireNotHeader"; readonly name: string }
 
 /**
  * A rule of a login a description breaks (schema/world.ts loginBuilder at the builder, schema/own.ts ownLogin at
@@ -441,6 +444,10 @@ export const roleRuleText = (rule: RoleRule): string => {
 			return `a refresh list of the role's relations; ${rule.name} is none of them`
 		case "refreshKind":
 			return `a refresh list of derived whole entries; ${rule.name} is ${entryKindText[rule.entryKind]}`
+		case "retireOutside":
+			return `a retire list of the role's relations; ${rule.name} is none of them`
+		case "retireNotHeader":
+			return `a retire list of whole entries of retirable units' headers; ${rule.name} heads no retirable unit`
 	}
 }
 

@@ -72,8 +72,10 @@ const categorized = (
 	readonly slot: MemberSlot
 }> => {
 	switch (input.kind) {
-		case "single":
-			return [{ category: input.act.op, op: input.act.op, slot: input.slot }]
+		case "single": {
+			const op = input.act.op
+			return op === "retire" ? [] : [{ category: op, op, slot: input.slot }]
+		}
 		case "nested":
 			return [{ category: "insert", op: "insert", slot: input.slot }]
 		case "classed":

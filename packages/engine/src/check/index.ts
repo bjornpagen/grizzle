@@ -10,7 +10,7 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { InferredQuery, MemberDesc, ReadBackDesc } from "#compiler/ir/desc.ts"
+import type { InferredQuery, ReadBackDesc, WriteOp } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { admittedReads } from "#compiler/scalar/compute/lower.ts"
 import { queryPatternReads } from "#compiler/schema/walk.ts"
@@ -128,7 +128,7 @@ export const checkReadBack = (
  * which no ChangeSet writes, is refused there.
  */
 export interface DescribedMember {
-	readonly op: MemberDesc["op"]
+	readonly op: WriteOp
 	readonly relation: MemberRelation
 	readonly query: InferredQuery
 	readonly loc: SourceLoc

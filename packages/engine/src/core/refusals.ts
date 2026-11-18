@@ -5,6 +5,7 @@
  * a named refusal from an incidental mismatch.
  */
 export const refusals = [
+	"ChangeSet.retire retires the groups of a retirable unit's header, a relation with a retirement field",
 	"PostgreSQL has no cast between these types that Compute admits",
 	"a ChangeSet writes a family's members in one stratum: each stratum's family statements are proved against one stratum's edits alone",
 	"a ChangeSet writes only relations its role's write list names",
@@ -69,7 +70,7 @@ export const refusals = [
 	"a schema predicate reads no parameter",
 	"a sequence's member is written under its owner: nest it in order at the owner's count field",
 	"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one",
-	"a served ChangeSet's facts name only the ops of its array members: insert, put and delete",
+	"a served ChangeSet's facts name only the ops of its array members: insert, put, delete and retire",
 	"a served ChangeSet's facts name, under each op, only the relations of its array members of that op",
 	"a set lists each of its handles once",
 	"a side lists each term once",

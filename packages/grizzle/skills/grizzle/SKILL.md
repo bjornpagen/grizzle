@@ -103,6 +103,17 @@ export default defineConfig({
   relation's name one array, typed and checked as that member's own facts, as in
   `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`; every other member's facts are
   `{}`. Two array members of one op and one relation in two strata are refused: merge them into one.
+- A retirable unit's groups go by `ChangeSet.empty(S).retire(Header, [])`, a member of a role whose `retire` list names
+  the header, `role(S, "retirer", entries, { retire: ["Header"] })`, which grants it EXECUTE on the unit's retirement
+  and nothing on its tables; its call's facts are `{ retire: { Header: [{ id }] } }`, each a group, the header's key.
+  Keep it a role of its own beside the unit's insert-only writers: both stay READ COMMITTED. A retirement removes each
+  open group's body rows and marks its header retired, waiting for every call that holds the group; it answers
+  `accepted`, each group a `put` of its header and each body row a `delete`, or `unchanged` where every group was
+  absent or retired already. A retired group stays retired, so a write into it, a stale writer's and a re-admission
+  under its key alike, is `refused` on the fence. Nothing else of the ChangeSet may read or write the unit
+  (`RetiredUnitTouched`): retire in a ChangeSet of its own, or beside writes of other relations. A row outside the unit
+  contained in a body refuses the retirement of its group (`refused` on that containment) until it goes; declare it a
+  body of the unit to retire it with the group.
 - A delete of a tree names trees by their root value (`delete(Node, [{ package, path }])`), and a delete of a relation
   that owns a family and is no family's member names its rows; each removes every row nested under them through every
   family, so a group goes whole. A replace is `delete(...)` and `insertAll(...)` in one stratum: the delete runs first,

@@ -112,7 +112,7 @@ export type WireLevel<L> = {
  * first, a nested insert's members of the levels its families name, to any depth.
  */
 export type WireFacts<L> = {
-	readonly op: "insert" | "delete" | "put"
+	readonly op: "insert" | "delete" | "put" | "retire"
 	readonly relation: string
 	readonly levels: NonEmptyReadonlyArray<WireLevel<L>>
 }

@@ -120,8 +120,8 @@ import {
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
 import type { PlainRefill } from "#compiler/write/frontend/refill.ts"
 import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
-import { heldUnits } from "#compiler/write/hold/stated.ts"
-import { buildHold } from "#compiler/write/hold/statement.ts"
+import { heldUnits, retiredUnits } from "#compiler/write/hold/stated.ts"
+import { buildHold, buildRetire } from "#compiler/write/hold/statement.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
 import { buildInsert } from "#compiler/write/insert/protocol.ts"
 import {
@@ -724,6 +724,7 @@ const placeSpec = (
 				| "check"
 				| "familyWrite"
 				| "hold"
+				| "retire"
 				| "admission"
 		}
 	>,
@@ -919,7 +920,10 @@ const optimizedPlacement = (
 		dependsOn: ReadonlyArray<number>,
 		step: (
 			statement: S
-		) => Extract<WriteStep, { readonly kind: "write" | "advance" | "carrier" | "check" | "hold" }>
+		) => Extract<
+			WriteStep,
+			{ readonly kind: "write" | "advance" | "carrier" | "check" | "hold" | "retire" }
+		>
 	): number => {
 		const { statement, forms } = formed(build, sentOf)
 		return placeSpec(
@@ -1201,6 +1205,26 @@ const optimizedPlacement = (
 					() => buildHold(w, step.hold),
 					deps,
 					() => ({ kind: "hold", header: unit.header })
+				)
+				break
+			}
+			case "retire": {
+				/** A retirement writes its unit's header and bodies, which no other statement of the write reads or
+				 * writes. */
+				const { unit } = step.retired
+				const deps = tracker.add(
+					[],
+					[unit.header, ...unit.bodies.keys()].map((relation) => `relation:${relation}`)
+				)
+				placed(
+					() => buildRetire(w, step.retired),
+					deps,
+					(statement) => ({
+						kind: "retire",
+						stratum: step.retired.stratum,
+						header: statement.result.header,
+						bodies: statement.result.bodies
+					})
 				)
 				break
 			}
@@ -1628,7 +1652,8 @@ const compile = (
 			shares: (members) => unwrap(planStatementShares(sharing.index, members)),
 			carrierTyping: (t, at) => lowering.w.cx.typeRef(t, at)
 		},
-		heldUnits(frontend)
+		heldUnits(frontend),
+		retiredUnits(frontend)
 	)
 	const admission = buildAdmission(lowering.w, callerParams(frontend.params))
 	const optimized = optimizedArtifact(restated, plan, lowering, admission, options)

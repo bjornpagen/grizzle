@@ -98,10 +98,10 @@ export const checkMemberOf = (
 	extra: Partial<CheckOptions>
 ): Result.Result<LogicalQuery, CompileError> => {
 	const decoded = decodedMember(member)
-	const source = decoded.member
-	if (source.kind !== "query") {
+	if (decoded.op === "retire" || decoded.member.kind !== "query") {
 		throw new Error("a member described by a query")
 	}
+	const source = decoded.member
 	const relation = checked.relations.get(decoded.relation)
 	if (relation === undefined) {
 		throw new Error(`a member of an ordinary relation of the schema, not ${decoded.relation}`)

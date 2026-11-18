@@ -60,8 +60,6 @@ type Broken =
 	| "the header's retirement fields are not one"
 	| "a relation outside every header holds a retirement field"
 	| "a body's key lacks its group"
-	| "a containment into a body comes from outside the unit"
-	| "a containment into a body crosses the group"
 	| "the header is mutable"
 	| "a key reads the retirement field"
 
@@ -72,15 +70,6 @@ export const brokenOf = (d: Declared): ReadonlyArray<Broken> => {
 		...(d.lifecycles === 1 ? [] : ["the header's retirement fields are not one" as const]),
 		...(d.stray ? ["a relation outside every header holds a retirement field" as const] : []),
 		...(body("Step") && !d.stepKeyed ? ["a body's key lacks its group" as const] : []),
-		...(d.stepKeyed && body("Step") && d.claimRef !== "none" && !body("Claim")
-			? ["a containment into a body comes from outside the unit" as const]
-			: []),
-		...(d.stepKeyed && body("Step") && d.noteRef && !body("Note")
-			? ["a containment into a body comes from outside the unit" as const]
-			: []),
-		...(d.stepKeyed && body("Step") && body("Claim") && d.claimRef === "crossed"
-			? ["a containment into a body crosses the group" as const]
-			: []),
 		...(d.mutableRoot ? ["the header is mutable" as const] : []),
 		...(d.keyReadsLifecycle && d.lifecycles > 0
 			? ["a key reads the retirement field" as const]
@@ -158,4 +147,26 @@ export const owns = (d: Declared): boolean => {
 	)
 }
 
-export type UnitFeature = "owned" | `refused: ${Broken}`
+export type UnitFeature =
+	| "owned"
+	| "owned: a containment into a body from outside the unit"
+	| "owned: a containment into a body crossing the group"
+	| `refused: ${Broken}`
+
+/** How a declaration contains rows into a body beyond its unit's own carried groups: from a relation outside the unit,
+ * or crossing the group; each owns, and refuses only a retirement of a group its rows reference. */
+export const containedBeyond = (
+	d: Declared
+): ReadonlyArray<Extract<UnitFeature, `owned: ${string}`>> => {
+	const body = (name: BodyName): boolean => d.bodies.includes(name)
+	return [
+		...(d.stepKeyed &&
+		body("Step") &&
+		((d.claimRef !== "none" && !body("Claim")) || (d.noteRef && !body("Note")))
+			? ["owned: a containment into a body from outside the unit" as const]
+			: []),
+		...(d.stepKeyed && body("Step") && body("Claim") && d.claimRef === "crossed"
+			? ["owned: a containment into a body crossing the group" as const]
+			: [])
+	]
+}

@@ -461,7 +461,7 @@ const refusalNotes = {
 		"refused: a put beside a whole delete",
 	"a served ChangeSet's facts name, under each op, only the relations of its array members of that op":
 		"refused: a served fact's relation",
-	"a served ChangeSet's facts name only the ops of its array members: insert, put and delete":
+	"a served ChangeSet's facts name only the ops of its array members: insert, put, delete and retire":
 		"refused: a served fact's op",
 	"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one":
 		"refused: a repeated array"
@@ -2582,7 +2582,7 @@ const arraysOf = (
 ): ReadonlyArray<{ readonly relation: string; readonly op: Op }> =>
 	Arr.flatMap(desc.strata, (st) =>
 		Arr.flatMap(st.members, (m) =>
-			m.member.kind === "array" ? [{ relation: m.relation, op: m.op }] : []
+			m.op !== "retire" && m.member.kind === "array" ? [{ relation: m.relation, op: m.op }] : []
 		)
 	)
 
@@ -3075,7 +3075,7 @@ const servedOf = (
 						claim: {
 							kind: "refusal",
 							refusal:
-								"a served ChangeSet's facts name only the ops of its array members: insert, put and delete"
+								"a served ChangeSet's facts name only the ops of its array members: insert, put, delete and retire"
 						}
 					}
 				}

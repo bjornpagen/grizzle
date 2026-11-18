@@ -317,8 +317,9 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 /**
  * A relation access a role does not hold, an OutsideRole's: a read of a relation of the role's base the role does not
  * hold (`base` naming the base); a write of a relation outside its write list; an UPDATE or DELETE of `relation` by a
- * role that writes by its insert list, which holds neither (`insert`); a refresh of one outside its refresh list; or a
- * program over the role's base, which is one only for a role holding every relation of it whole.
+ * role that writes by its insert list, which holds neither (`insert`); a refresh of one outside its refresh list; a
+ * retirement of the groups of a header outside its retire list; or a program over the role's base, which is one only
+ * for a role holding every relation of it whole.
  */
 export type RoleAccess =
 	| { readonly kind: "read"; readonly relation: string; readonly base: string }
@@ -329,6 +330,7 @@ export type RoleAccess =
 			readonly operation: "UPDATE" | "DELETE"
 	  }
 	| { readonly kind: "refresh"; readonly relation: string }
+	| { readonly kind: "retire"; readonly relation: string }
 	| { readonly kind: "wholeBase"; readonly base: string }
 
 const accessText = (role: string, access: RoleAccess): string => {
@@ -341,6 +343,8 @@ const accessText = (role: string, access: RoleAccess): string => {
 			return `an insert by role ${role}, which writes by its insert list; the program ${access.operation === "DELETE" ? "deletes from" : "updates"} ${access.relation}`
 		case "refresh":
 			return `a derived relation in role ${role}'s refresh list; ${access.relation} is outside it`
+		case "retire":
+			return `a retirable header in role ${role}'s retire list; ${access.relation} is outside it`
 		case "wholeBase":
 			return `a program over a level of role ${role}; its base ${access.base} is one only for a role holding every relation of it whole, and ${role} does not`
 	}
@@ -455,6 +459,11 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UnheldGroup`: the ChangeSet at `at` reads or writes `relation`, a body of the retirable unit headed by `header`, or
  *   reads that header's retirement field, at a group it does not state, as `why` says (UnheldWhy): a served call holds
  *   every group it touches before it touches it (write/hold/stated.ts), so no retirement of one commits while it runs.
+ * - `RetiredUnitTouched`: the ChangeSet at `at` retires the groups of the retirable unit headed by `header` and, beside
+ *   its retirement, `how` names `relation`, a relation of that unit: a member writes it (`written`), a member or
+ *   read-back reads a body or the header's retirement field (`read`), or a read-back reads its delta (`delta`). A
+ *   retirement removes its groups whole, by its unit's function, whose rows no other statement of the call sees, so a
+ *   ChangeSet that retires a unit reads and writes it no other way (write/hold/stated.ts heldUnits).
  * - `NoReadCommittedForm`: the write at `at` inserts into `relation`, whose primary key holds a span, and is compiled for
  *   READ COMMITTED. An exclusion constraint arbitrates an INSERT by ON CONFLICT DO NOTHING alone, so no statement of the
  *   insert tells a requested fact it met from one it made, and the insert has no READ COMMITTED form: it runs
@@ -660,6 +669,13 @@ export type CompileReason =
 			readonly relation: string
 			readonly header: string
 			readonly why: UnheldWhy
+	  }
+	| {
+			readonly _tag: "RetiredUnitTouched"
+			readonly at: SourceLoc
+			readonly relation: string
+			readonly header: string
+			readonly how: "written" | "read" | "delta"
 	  }
 	| { readonly _tag: "NoReadCommittedForm"; readonly at: SourceLoc; readonly relation: string }
 	| { readonly _tag: "UninstalledDomain"; readonly at: SourceLoc; readonly domain: UninstalledType }
@@ -955,6 +971,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return readBackCrossingText(reason.read, reason.crossing)
 		case "UnheldGroup":
 			return unheldGroupText(reason.relation, reason.header, reason.why)
+		case "RetiredUnitTouched":
+			return `the ChangeSet retires the groups of ${reason.header} and ${reason.how === "written" ? "writes" : reason.how === "read" ? "reads" : "reads the delta of"} ${reason.relation}, a relation of its unit: a retirement removes its groups whole, by the unit's function, whose rows no other statement of the call sees, so retire ${reason.header} in a ChangeSet that reads and writes its unit no other way`
 		case "NoReadCommittedForm":
 			return noReadCommittedFormText(reason.relation)
 		case "UninstalledDomain":
