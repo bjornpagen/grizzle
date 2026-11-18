@@ -99,13 +99,15 @@ import { fullWorld } from "#test/support/worlds.ts"
  * token holding c, or one of two letters, and a write whose model rows hold a piece outside its bound or a running
  * value or an end outside the pattern is refused on a rule they break and changes nothing: its witness is the key of a
  * row the write states whose value breaks that rule, or `unreported` where no row it states does, as when a delete
- * re-places the members after it, or where two ordered owners it inserts break it. Coverage requires the refined cell
- * of each kind that folds it refused by each rule.
+ * re-places the members after it, where two ordered owners it inserts break it, or where every row it states that
+ * breaks it does so at a running value or an end of a member it puts, which grizzle does not hold. Coverage requires
+ * the refined cell of each kind that folds it refused by each rule.
  *
- * Two cases are kept. The downstream report's: a counted Monoid.or over a set of three codes, the owner and its members
- * {a} and {b} inserted separately, whose end was written as the empty set. And the downstream shape that once needed
- * host-written copies: a concat over pieces PostgreSQL generates at a byte bound, folded into a pattern its
- * accumulators declare, accepted, and refused once a piece holds a letter outside the pattern.
+ * Three cases are kept. The downstream report's: a counted Monoid.or over a set of three codes, the owner and its
+ * members {a} and {b} inserted separately, whose end was written as the empty set. The downstream shape that once
+ * needed host-written copies: a concat over pieces PostgreSQL generates at a byte bound, folded into a pattern its
+ * accumulators declare, accepted, and refused once a piece holds a letter outside the pattern. And a member restepped
+ * to a piece outside the pattern, refused with its witness `unreported`, where the oracle once required its key.
  *
  * A second search holds an owner's row CHECKs over the ends of its counted family, the downstream report's shape: over
  * a roster of three codes, the family's Monoid.or end checked equal to the owner's declared set, and, the control, its
@@ -736,13 +738,39 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = nonEmpty(
 )
 
 /**
+ * Whether a broken row breaks its rule at a running value or an end of a family member the write puts: the put states
+ * the member's key and steps, PostgreSQL folds its running values again from the stored members before it and keeps its
+ * ends from the stored row, so grizzle holds none of them (README, Witness) and the host judges no rule over them.
+ */
+const brokenAtPutFold = (s: FoldSchema, w: Write, b: Broken): boolean =>
+	b.law.kind === "pattern" &&
+	Arr.contains(
+		[...b.cell.ends, ...Arr.flatMap(b.cell.pairs, (p) => [p.before, p.after])],
+		b.law.field
+	) &&
+	Arr.some(
+		slotsOf(s, w),
+		(slot) =>
+			slot.op === "put" &&
+			slot.relation.name === b.relation &&
+			Arr.some(s.groups, (g) => g.member.name === slot.relation.name) &&
+			Arr.some(slot.facts, (fact) =>
+				deepEquals<ReadonlyArray<unknown>>(
+					Arr.map(memberKeyOf(s.kind), (k) => fact[k]),
+					b.key
+				)
+			)
+	)
+
+/**
  * A refused write's answer, as the model judges it: `refused` naming rules its rows break, a field's piece
  * bound or its accumulators' pattern, each field's own law: every one it names where it decides them, at least one
  * where it names `some` of a domain's; its witness the key of a row the write states whose value breaks a rule it
  * names, every one of them where it decides them, or `unreported` where the write states none (the rule broken at a
- * row only a refill writes) or where two ordered owners it inserts break one, either of which may be the row refused:
+ * row only a refill writes), where two ordered owners it inserts break one, either of which may be the row refused:
  * no read of the write looks an ordered owner's key up, so the host cannot tell a new one from a stored one inserted
- * again, which its INSERT writes nothing of. The rules it names are returned.
+ * again, which its INSERT writes nothing of; or where each row it states breaks one at a value grizzle does not hold,
+ * a running value or an end of a member it puts (`brokenAtPutFold`). The rules it names are returned.
  */
 const judgeRefused = (
 	s: FoldSchema,
@@ -794,7 +822,9 @@ const judgeRefused = (
 					)
 				: []
 		assert.ok(
-			!Arr.isReadonlyArrayNonEmpty(statedBroken) || unread.length >= 2,
+			!Arr.isReadonlyArrayNonEmpty(statedBroken) ||
+				unread.length >= 2 ||
+				Arr.every(statedBroken, (b) => brokenAtPutFold(s, w, b)),
 			`a refusal at a row the write states, ${Formatter.format(statedBroken)}, names its key`
 		)
 		return named
@@ -876,6 +906,36 @@ const pieces: Kept<Sketch, Situation> = {
 		"concat over text into another pattern in a ordered family, an owner inserted with its members nested",
 		"concat over text into another pattern in a ordered family, refused by its pattern",
 		"concat over text into another pattern in a ordered family, refused by its piece's bound"
+	]
+}
+
+/**
+ * A member restepped out of the pattern, kept: one owner and its member of piece "aa", the member then put with the
+ * token "c", whose running value "cc" breaks the accumulators' pattern. Since d11bb81b a put's running values are
+ * PostgreSQL's to fold from the stored members in the write's one flight, so the refusal's witness is `unreported`,
+ * which the oracle refused: the smallest case of TEST_SEED=1956153244's rotating case 14 at grizzle 4f7ecea5, whose
+ * restep of member 34 among 3 owners and 34 members failed the same way.
+ */
+const restepped: Kept<Sketch, Situation> = {
+	note: "a put member's running value, which grizzle does not hold, refused outside the pattern, its witness unreported",
+	sketch: {
+		kind: "ordered",
+		writes: [
+			{
+				kind: "create",
+				owners: [{ id: 1, label: 0 }],
+				members: [{ monoid: "concat", member: { id: 1, owner: 1, steps: concatSteps("", "a") } }]
+			},
+			{
+				kind: "restep",
+				members: [{ monoid: "concat", member: { id: 1, owner: 1, steps: concatSteps("a", "c") } }]
+			}
+		]
+	},
+	draws: "",
+	reaches: [
+		"concat over text into another pattern in a ordered family, an owner inserted with its members nested",
+		"concat over text into another pattern in a ordered family, refused by its pattern"
 	]
 }
 
@@ -1165,7 +1225,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								draw: drawn(caseGen),
 								literal: Formatter.format,
 								coverage: required<Situation>(situations, { cases: 320, sense: notesOnly }),
-								kept: [downstream, pieces],
+								kept: [downstream, pieces, restepped],
 								runs: 16,
 								shrink: boundedShrink(40),
 								steerEvery: 8,

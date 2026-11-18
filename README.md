@@ -3294,10 +3294,12 @@ ChangeSet states for the refused statement (an inserted or put row, a query entr
 fills them, and the witness is the key of the first that breaks the rule. Either key is in the fields you wrote it in. The
 witness is `unreported` for a foreign key, and where no row you stated breaks the rule: a row only PostgreSQL computes,
 a query's, a rule reading a value the host does not hold or over what the host does not evaluate, or a row whose key
-PostgreSQL draws. A family's owner that you insert and the write never reads, such as one with no members in the
-ChangeSet or an ordered one, could be new or a stored one you insert again, which the write leaves as it is: grizzle
-names it only where it is the one row of the refused statement that can break the rule, and where two such rows can,
-the witness is `unreported`.
+PostgreSQL draws. A family member you put is such a row: its running values are PostgreSQL's, folded again in the
+write's own statement from the stored members before it, and its counts and ends stay as stored, so grizzle holds none
+of them, and a rule only they break is refused with the witness `unreported`. A family's owner that you insert and the
+write never reads, such as one with no members in the ChangeSet or an ordered one, could be new or a stored one you
+insert again, which the write leaves as it is: grizzle names it only where it is the one row of the refused statement
+that can break the rule, and where two such rows can, the witness is `unreported`.
 
 **The parse, then PostgreSQL.** grizzle checks nothing on the host that PostgreSQL enforces. A value is parsed once, as
 its field's or parameter's type exactly ([Tables and types](#tables-and-types)), and a value no such type holds is an
@@ -3328,7 +3330,9 @@ the host to name the field, its rule spelled as that field spells its patterns:
 `str.and` field's rule lists every pattern, in order: its domain is one CHECK, which PostgreSQL refuses as a whole, so
 no outcome tells which pattern a value missed. A value PostgreSQL
 generates into a refined field, or grizzle fills into a fold's accumulator or end, is refused the same way; its witness
-is `unreported` where only a refill writes the row, such as a stored owner whose family the write appends to.
+is `unreported` where grizzle does not hold the value: where only a refill writes the row, such as a stored owner whose
+family the write appends to, and at a family member you put, whose running values PostgreSQL folds again from the
+stored members.
 
 <details>
 <summary>Every rule an outcome can name</summary>
