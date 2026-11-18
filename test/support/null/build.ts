@@ -359,21 +359,21 @@ export const buildPred = (c: Closed, row: Row, pred: Pred): unknown => {
 	}
 }
 
-/** A row's columns as the host evaluator reads them: each field's carrier value, none the row does not hold. */
+/** A row's columns as the host evaluator reads them: each field's codec host value, none the row does not hold. */
 export const hostColumns = (item: Item, id: number): ((ref: ColumnRef) => SqlValue | undefined) => {
 	const columns = new Map<string, SqlValue>([
-		["id", BigInt(id)],
+		["id", id],
 		["kind", kindOf(item.kind)],
 		["flag", flagOf(item.flag)],
 		["flags", new Set(Arr.map(item.flags, flagOf))],
-		["n", BigInt(item.n)],
-		["m", BigInt(item.m)],
+		["n", item.n],
+		["m", item.m],
 		["d", decimalOf(item.d)],
 		["t", item.t],
 		["b", item.b],
 		["x", item.x],
 		["y", item.y],
-		["s", { start: BigInt(item.s[0]), end: BigInt(item.s[1]) }]
+		["s", { start: item.s[0], end: item.s[1] }]
 	])
 	return (ref) => columns.get(ref.name)
 }
@@ -400,6 +400,7 @@ export const fromHost = (sort: Sort, value: SqlValue): Val | null => {
 	}
 	switch (sort) {
 		case "int":
+			return typeof value === "number" ? BigInt(value) : undefinedValue(sort, value)
 		case "exact":
 		case "big":
 			return typeof value === "bigint" ? value : undefinedValue(sort, value)

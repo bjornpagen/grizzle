@@ -35,12 +35,12 @@ import { predicateTree } from "#compiler/ir/expr.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { contractOf } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { compareAnswers, type EvalCase, type PgAnswer } from "#test/pg/compute/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -342,7 +342,7 @@ const valueText = (value: Value): string =>
 			: `${value.units}e${value.exponent}`
 
 /** A value as the host evaluator carries a base's value: a Decimal over numeric, a bigint over the integers. */
-const carried = (base: Base, value: Value): CarrierValue =>
+const carried = (base: Base, value: Value): ModelValue =>
 	base.kind === "numeric" ? Decimal.of(valueText(value)) : value.kind === "exact" ? value.units : 0n
 
 layer(Substrate.layer)("a fact guard over a contract on PostgreSQL 19", (it) => {

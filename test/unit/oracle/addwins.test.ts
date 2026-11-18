@@ -102,9 +102,9 @@ export const theAddWinsTransitionIsSSDAPerStratumWithKeysCheckedAfterEachStratum
 		kills: [
 			{
 				file: "packages/engine/src/ir/codes.ts",
-				original: "\t\tcodeOf.set(slot.handle, code)",
+				original: "\t\trank.set(slot.handle, code)",
 				replacement: "\t\t{}",
-				why: "Operator mutant (statement) at packages/engine/src/ir/codes.ts:69 in rosterCodec: `codeOf.set(slot.handle, code)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				why: "Operator mutant (statement) at packages/engine/src/ir/codes.ts:106 in rosterCodec: `rank.set(slot.handle, code)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	}
@@ -175,9 +175,9 @@ export const buildOrderIndependenceDoesNotDependOnMemberOrderMemberSplittingOrHo
 		kills: [
 			{
 				file: "packages/engine/src/ir/codes.ts",
-				original: "\t\tcodeOf.set(slot.handle, code)",
+				original: "\t\trank.set(slot.handle, code)",
 				replacement: "\t\t{}",
-				why: "Operator mutant (statement) at packages/engine/src/ir/codes.ts:69 in rosterCodec: `codeOf.set(slot.handle, code)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				why: "Operator mutant (statement) at packages/engine/src/ir/codes.ts:106 in rosterCodec: `rank.set(slot.handle, code)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
@@ -241,9 +241,9 @@ export const putIsSugarForADescribedDeletionOfTheOccupantsAtItsKeysPlusAnInserti
 		kills: [
 			{
 				file: "packages/engine/src/ir/codes.ts",
-				original: "\t\tcodeOf.set(slot.handle, code)",
+				original: "\t\trank.set(slot.handle, code)",
 				replacement: "\t\t{}",
-				why: "Operator mutant (statement) at packages/engine/src/ir/codes.ts:69 in rosterCodec: `codeOf.set(slot.handle, code)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				why: "Operator mutant (statement) at packages/engine/src/ir/codes.ts:106 in rosterCodec: `rank.set(slot.handle, code)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

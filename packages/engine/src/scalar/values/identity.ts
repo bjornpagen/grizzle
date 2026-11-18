@@ -5,7 +5,7 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints, compareQuotedTuples, validateText } from "#compiler/core/text.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
-import { codeOf, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
+import { codeOf, type HandleOrder, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
@@ -83,6 +83,9 @@ export interface CarrierHost {
 	readonly exactMoney: Money
 }
 
+/** A value of some carrier as the host holds it: its carrier's host value (CarrierHost). */
+export type HostValue = CarrierHost[Carrier]
+
 /** What each carrier's spec holds beside its carrier: the CarrierSpec variant's other members. */
 interface SpecExtras {
 	readonly int2: unknown
@@ -124,8 +127,47 @@ type CanonicalTexts = {
 	readonly [C in Carrier]: (value: CarrierHost[C], spec: SpecOf<C>) => string
 }
 type Comparators = {
-	readonly [C in Carrier]: (a: CarrierHost[C], b: CarrierHost[C], spec: SpecOf<C>) => -1 | 0 | 1
+	readonly [C in Carrier]: (
+		a: CarrierHost[C],
+		b: CarrierHost[C],
+		order: OrderSpecOf<C>
+	) => -1 | 0 | 1
 }
+
+/**
+ * What PostgreSQL's order of a carrier's values reads beside the values: a closed id's and a set's, their roster's
+ * order (ir/codes.ts HandleOrder), which a codec's spec holds as its installation's codes and the evaluator as the
+ * roster's declaration (scalar/compute/evaluate.ts evaluatorOrder). No other carrier's order reads anything but its
+ * values, as SpecExtras states each carrier's spec.
+ */
+interface OrderExtras {
+	readonly int2: unknown
+	readonly int4: unknown
+	readonly int8: unknown
+	readonly numeric: unknown
+	readonly float4: unknown
+	readonly float8: unknown
+	readonly money: unknown
+	readonly bool: unknown
+	readonly uuid: unknown
+	readonly date: unknown
+	readonly text: unknown
+	readonly bytes: unknown
+	readonly code: { readonly roster: HandleOrder }
+	readonly bits: { readonly roster: HandleOrder }
+	readonly vector: unknown
+	readonly range4: unknown
+	readonly range8: unknown
+	readonly rangeDate: unknown
+	readonly exactInteger: unknown
+	readonly exactMoney: unknown
+}
+
+/** What the order of one carrier's values reads, its carrier exactly C. Every carrier's spec is one (CarrierSpec). */
+export type OrderSpecOf<C extends Carrier> = { readonly carrier: C } & OrderExtras[C]
+
+/** What the order of some carrier's values reads (OrderSpecOf), a codec's spec (CarrierSpec) among them. */
+export type OrderSpec = { readonly [C in Carrier]: OrderSpecOf<C> }[Carrier]
 
 /**
  * A numeric value at its typmod by `atTypmod`: parsed exactly (decimal.ts parseNumeric) or coerced as PostgreSQL
@@ -155,9 +197,7 @@ const admitVector = (value: unknown, dimensions: number): Result.Result<Vector, 
 
 /** A closed id's handle: a string the roster holds live, whose code the codec writes. */
 const admitHandle = (value: unknown, roster: RosterCodec): Result.Result<string, ValueFault> =>
-	typeof value === "string" && roster.codeOf.has(value)
-		? Result.ok(value)
-		: Result.err("codeHandle")
+	typeof value === "string" && roster.rank.has(value) ? Result.ok(value) : Result.err("codeHandle")
 
 /**
  * A set of a roster's handles, read once into a fresh Set grizzle alone holds, so a later change to the caller's Set
@@ -181,7 +221,7 @@ const admitHandles = (
 		if (typeof member !== "string") {
 			return Result.err("bitsType")
 		}
-		if (!roster.codeOf.has(member)) {
+		if (!roster.rank.has(member)) {
 			return Result.err("bitsMember")
 		}
 		handles.add(member)
@@ -390,9 +430,11 @@ const canonicalTexts: CanonicalTexts = {
  *   its SHA-256 digest (values/bytes.ts BytesDigest), the fact identity's part and no parameter text: every bytes value
  *   travels in binary (codec/bytea.ts). Two bytes values of one digest are one only when their bytes are equal, which
  *   every host site that takes two facts of one identity as one checks (`sameFact`).
- * - `compareValues` is PostgreSQL's B-tree order for the type: float and numeric total orders with NaN last, text in
- *   code point order, uuid and bytes by bytes, closed ids by code, which is roster order, spans by start then end, vectors as
- *   vector_cmp, and sets by their bit strings, an order internal to the host, since a set has no ordering.
+ * - `compareValues` is PostgreSQL's B-tree order for the type, the host's one comparison, the evaluator's
+ *   (scalar/compute/evaluate.ts) and the stored values' alike: float and numeric total orders with NaN last, text in
+ *   code point order, uuid and bytes by bytes, closed ids by code, which is roster order (ir/codes.ts HandleOrder), spans
+ *   by start then end, vectors as vector_cmp, and sets by their bit strings, which no language order reads, since a set
+ *   has no ordering.
  * - `factIdentity` admits a whole fact against its heading and gives it its identity, each field's canonical text in
  *   field-name order, so two facts are the same fact exactly when their identities are equal element by element: the
  *   identity ChangeSet normalization and exact-repeat checks use, a key of a TupleMap (core/tuple-map.ts).
@@ -415,6 +457,37 @@ const sign = (n: number): -1 | 0 | 1 => (n < 0 ? -1 : n > 0 ? 1 : 0)
 const compareOrdered = <V extends bigint | string>(x: V, y: V): -1 | 0 | 1 =>
 	x < y ? -1 : x > y ? 1 : 0
 
+/** A handle's rank in its roster's order; the order holds every live handle, which is all a value holds. */
+const rankOf = (order: HandleOrder, handle: string): number =>
+	defined(order.rank.get(handle), "a live handle's rank in its roster's order")
+
+/**
+ * A set's order, PostgreSQL's of its bit string, bit c the handle of code c: the first handle by rank that one set holds
+ * and the other does not, the set that holds it the greater; equal sets are equal. A set has no order of the language
+ * (bits has no ordering capability), so only equality reads it beyond the host's own sorts.
+ */
+const compareSets = (
+	x: ReadonlySet<string>,
+	y: ReadonlySet<string>,
+	order: HandleOrder
+): -1 | 0 | 1 => {
+	let first: { readonly rank: number; readonly side: -1 | 1 } | undefined
+	for (const [set, other, side] of [
+		[x, y, 1],
+		[y, x, -1]
+	] as const) {
+		for (const handle of set) {
+			if (!other.has(handle)) {
+				const rank = rankOf(order, handle)
+				if (first === undefined || rank < first.rank) {
+					first = { rank, side }
+				}
+			}
+		}
+	}
+	return first === undefined ? 0 : first.side
+}
+
 const comparators: Comparators = {
 	int2: (x, y) => sign(x - y),
 	int4: (x, y) => sign(x - y),
@@ -428,8 +501,8 @@ const comparators: Comparators = {
 	date: (x, y) => compareOrdered(x, y),
 	text: (x, y) => compareCodePoints(x, y),
 	bytes: (x, y) => compareBytes(x.bytes, y.bytes),
-	code: (x, y, spec) => sign(codeOf(spec.roster, x) - codeOf(spec.roster, y)),
-	bits: (x, y, spec) => compareOrdered(handlesText(spec.roster, x), handlesText(spec.roster, y)),
+	code: (x, y, order) => sign(rankOf(order.roster, x) - rankOf(order.roster, y)),
+	bits: (x, y, order) => compareSets(x, y, order.roster),
 	range4: (x, y) => compareSpan(x, y),
 	range8: (x, y) => compareSpan(x, y),
 	rangeDate: (x, y) => compareSpan(x, y),
@@ -438,35 +511,45 @@ const comparators: Comparators = {
 	exactMoney: (x, y) => x.compare(y)
 }
 
-/** PostgreSQL's order of two admitted values of one carrier. */
+/**
+ * PostgreSQL's order of two values of one carrier, the host's one comparison of values: by `order`, a codec's spec
+ * (CarrierSpec), whose closed ids rank by the installation's codes, or the evaluator's (scalar/compute/evaluate.ts
+ * evaluatorOrder), whose rank by their roster's declaration, the same order (ir/codes.ts HandleOrder).
+ */
 export const compareValues = <C extends Carrier>(
-	spec: SpecOf<C> & CarrierSpec,
+	order: OrderSpecOf<C> & OrderSpec,
 	a: CarrierHost[C],
 	b: CarrierHost[C]
 ): -1 | 0 | 1 => {
-	const own: SpecOf<C> = spec
-	const compare: (a: CarrierHost[C], b: CarrierHost[C], spec: SpecOf<C>) => -1 | 0 | 1 =
+	const own: OrderSpecOf<C> = order
+	const compare: (a: CarrierHost[C], b: CarrierHost[C], order: OrderSpecOf<C>) => -1 | 0 | 1 =
 		comparators[own.carrier]
 	return compare(a, b, own)
 }
 
 /**
- * A value this spec already admitted, held in an admitted fact's field, as its carrier's host value. The one site of the
- * fact "an admitted fact's field holds its carrier's host value": a fact is a record keyed by its heading's runtime field
- * names, and the host type of each field's value is a function of the carrier of the field of that name in a heading held
- * apart from it. No TypeScript type is indexed by a runtime name or ties two runtime structures field by field, and a
- * spec packed with its value only moves the lookup to the reader, which reaches the field through a name from another
- * structure, so a value of another host type is a defect, and throws.
+ * A value of a carrier's host type, which a value grizzle admitted or computed at a type of that carrier is: the one site
+ * of the fact "a value held at a type holds its carrier's host value". An admitted fact is a record keyed by its
+ * heading's runtime field names, the host type of each field's value a function of the carrier of the field of that name
+ * in a heading held apart from it; an evaluated term's value is a function of the term's type, held in its expression
+ * table apart from it (scalar/compute/evaluate.ts). No TypeScript type is indexed by a runtime name or ties two runtime
+ * structures entry by entry, and a carrier packed with its value only moves the lookup to the reader, which reaches it
+ * through a name or an id from another structure, so a value of another host type is a defect, and throws.
  */
+export const hostOf = <C extends Carrier>(carrier: C, value: unknown): CarrierHost[C] => {
+	if (!isHostValue(carrier, value)) {
+		throw defect(`a ${carrier} host value`)
+	}
+	return value
+}
+
+/** A value this spec already admitted, held in an admitted fact's field, as its carrier's host value (hostOf). */
 export const admitted = <C extends Carrier>(
 	spec: SpecOf<C> & CarrierSpec,
 	value: unknown
 ): CarrierHost[C] => {
 	const own: SpecOf<C> = spec
-	if (!isHostValue(own.carrier, value)) {
-		throw defect(`an admitted ${own.carrier} host value`)
-	}
-	return value
+	return hostOf(own.carrier, value)
 }
 
 /** The canonical text of a value this spec already admitted (admitted). */

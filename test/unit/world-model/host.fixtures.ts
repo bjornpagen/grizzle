@@ -304,7 +304,7 @@ const referenceLiteral = (
 					? BigInt(value)
 					: value
 	const decoded = succeeded(S.decodeWith(literalDescShape, carried, what), `${what} is a literal`)
-	return succeeded(irLiteral(decoded, type), `${what} is a literal of its type`).literal
+	return succeeded(irLiteral(decoded, type), `${what} is a literal of its type`)
 }
 
 const referenceText = (v: ReferenceValue | undefined, at: string): string => {

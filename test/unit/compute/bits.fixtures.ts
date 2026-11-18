@@ -12,10 +12,10 @@ import { builtExpr, OpId, predicateTable, type ScalarExpr } from "#compiler/ir/e
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
+import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { assert, assertNot, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -117,7 +117,7 @@ const hostValue = (root: ScalarExpr) => {
 }
 
 /** The host's value of `root`, no operand of which is NULL. */
-const evaluated = (root: ScalarExpr): CarrierValue => {
+const evaluated = (root: ScalarExpr): HostValue => {
 	const value = hostValue(root)
 	assertNot(value, sqlNull, "the host's set is a value, no operand being NULL")
 	return value

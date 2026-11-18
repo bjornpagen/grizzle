@@ -5,8 +5,6 @@ import { convertDate } from "#compiler/ir/date.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { literalValue } from "#compiler/scalar/compute/evaluate.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -16,7 +14,12 @@ import {
 	type Interned,
 	sameIdentity
 } from "#test/support/kernel/identity.ts"
-import { type CatalogResult, compareCarried } from "#test/support/oracle/evaluate/catalog.ts"
+import {
+	type CatalogResult,
+	compareCarried,
+	type ModelValue,
+	modelLiteral
+} from "#test/support/oracle/evaluate/catalog.ts"
 
 /**
  * Why the reference states no value: a closed union, so a new way to give up is a type change, and each is a named,
@@ -57,7 +60,7 @@ export class Declined {
 /**
  * Values of the reference evaluator: exact carriers under PostgreSQL's native equality and order, each in its one form.
  *
- * A value is the exact carrier the Compute evaluators work over (compute/literal.ts CarrierValue): an integer as bigint,
+ * A value is the reference evaluator's exact carrier (evaluate/catalog.ts ModelValue): an integer as bigint,
  * numeric as Decimal, a float as a double, money as Money, booleans, text, uuids and closed ids' handles as strings, sets as Sets of handles. Every
  * value is the one form grizzle delivers: a Decimal has no display scale, and every float the reference holds has the
  * one zero, at its literal and at every operation result (evaluate/catalog.ts oneZero, aggregate.ts). A value stored
@@ -68,7 +71,7 @@ export class Declined {
  * A collapse (DISTINCT, UNION, GROUP BY, a join variable, min and max) keeps one of natively equal values, which are
  * identical, so which one it keeps is unobservable and the reference states every collapse exactly.
  */
-export type Value = CarrierValue | Declined
+export type Value = ModelValue | Declined
 export type Row = ReadonlyArray<Value>
 
 /**
@@ -153,7 +156,7 @@ export const coerce = (v: Value, type: ScalarType): Value =>
 	v instanceof Declined ? v : coerceStated(v, type)
 
 /** The value a column of `type` holds for the stated value `v` (coerce). */
-export const coerceStated = (v: CarrierValue, type: ScalarType): CarrierValue => {
+export const coerceStated = (v: ModelValue, type: ScalarType): ModelValue => {
 	const base = baseOf(type)
 	if (base.carrier !== "numeric" || base.typmod === undefined) {
 		return v
@@ -177,7 +180,7 @@ const setMembers = (v: Value, handles: ReadonlyArray<string>): ReadonlyArray<str
 
 /** The value of a typed literal of `type`, as a typed SQL literal of that type evaluates. */
 export const literalOf = (literal: TypedLiteral, type: ScalarType): Value =>
-	coerce(literalValue(literal), type)
+	coerce(modelLiteral(literal), type)
 
 /**
  * PostgreSQL's comparison of two values of one type. Two declined values compare equal only as one term, their
@@ -368,11 +371,11 @@ export const distinctRows = (
 const declined = (v: Value): v is Declined => v instanceof Declined
 
 /** A stated value itself; undefined for a declined term's, whose values are not listed. */
-export const statedValue = (v: Value): CarrierValue | undefined =>
+export const statedValue = (v: Value): ModelValue | undefined =>
 	v instanceof Declined ? undefined : v
 
 /** How a reading reads a value: a stated value is itself, and a declined term's none, which declines the reading. */
-export type CarrierRead = (v: Value) => CarrierValue | undefined
+export type CarrierRead = (v: Value) => ModelValue | undefined
 
 /**
  * The outcome of a reading: its value; its decline, named (DeclineReason): a term the oracle declines, or a reading of
@@ -382,7 +385,7 @@ export type CarrierRead = (v: Value) => CarrierValue | undefined
  * PostgreSQL evaluates it, and may be one the evaluator never reached (evaluate.ts Reference termOf).
  */
 export type ReadingOutcome =
-	| { readonly kind: "value"; readonly value: CarrierValue }
+	| { readonly kind: "value"; readonly value: ModelValue }
 	| { readonly kind: "declined"; readonly reason: DeclineReason }
 	| { readonly kind: "undefined"; readonly what: string }
 	| { readonly kind: "unsupported"; readonly what: string }

@@ -34,7 +34,6 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import { type ExprDesc, type GuardDesc, guardedExpr } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { colorsOf, rawSize } from "#compiler/scalar/regex/space.ts"
@@ -139,7 +138,7 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 					const expected = ofChosen(s)
 					const { host, reference } = values(
 						node,
-						new Map<string, CarrierValue>([
+						new Map<string, string | boolean>([
 							["v", s],
 							["p", c.pick]
 						])
@@ -159,9 +158,9 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
 				original:
-					"\t\t\treturn isString(a) && isString(b) ? Result.ok(patterns.matches(b, a)) : mismatch(op)",
+					'\t\t\treturn Result.ok(patterns.matches(hostOf("text", b()), hostOf("text", a)))',
 				replacement:
-					"\t\t\treturn isString(a) && isString(b) ? Result.ok(a.length > 0 && patterns.matches(b, a)) : mismatch(op)",
+					'\t\t\treturn Result.ok(hostOf("text", a).length > 0 && patterns.matches(hostOf("text", b()), hostOf("text", a)))',
 				why: "The host never matches the empty text; the matches property fails."
 			}
 		]
@@ -182,7 +181,7 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 		] satisfies ReadonlyArray<Reached<AffixFeature>>,
 		check: (_, k: Case<AffixFeature>) => (a) =>
 			Effect.sync(() => {
-				const row: Row = new Map<string, CarrierValue>([
+				const row: Row = new Map<string, string | boolean>([
 					["w", a.whole],
 					["p", a.part],
 					["r", a.rest]
@@ -203,8 +202,8 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 					)
 				const starts = check(computeDesc("startsWith", variable("w"), variable("p")), true)
 				const ends = check(computeDesc("endsWith", variable("w"), variable("p")), true)
-				assert.equal(starts.host, starts.reference, "startsWith on both sides")
-				assert.equal(ends.host, ends.reference, "endsWith on both sides")
+				assert.equal<unknown>(starts.host, starts.reference, "startsWith on both sides")
+				assert.equal<unknown>(ends.host, ends.reference, "endsWith on both sides")
 				if (a.kind === "prefix") {
 					assert.equal(starts.host, true, "a text begins with what it was built from")
 				}
@@ -239,10 +238,8 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
-				original:
-					"\t\t\treturn isString(a) && isString(b) ? Result.ok(a.endsWith(b)) : mismatch(op)",
-				replacement:
-					"\t\t\treturn isString(a) && isString(b) ? Result.ok(a.includes(b)) : mismatch(op)",
+				original: '\t\t\treturn Result.ok(hostOf("text", a).endsWith(hostOf("text", b())))',
+				replacement: '\t\t\treturn Result.ok(hostOf("text", a).includes(hostOf("text", b())))',
 				why: "The host evaluates endsWith as includes; the affix property fails."
 			}
 		]

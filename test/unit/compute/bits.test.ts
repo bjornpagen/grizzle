@@ -58,8 +58,10 @@ export const theHostsSetAlgebraAgreesWithAModelOfSetsOfCodesAndWritesItsSetsOneB
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
-				original: "\t\t\t\t? Result.ok(new Set([...a].filter((h) => !b.has(h))))",
-				replacement: "\t\t\t\t? Result.ok(new Set([...a].filter((h) => b.has(h))))",
+				original:
+					'\t\t\treturn Result.ok(new Set([...hostOf("bits", a)].filter((h) => !y.has(h))))',
+				replacement:
+					'\t\t\treturn Result.ok(new Set([...hostOf("bits", a)].filter((h) => y.has(h))))',
 				why: "The host evaluates a set's difference as its intersection; the model property fails."
 			}
 		]

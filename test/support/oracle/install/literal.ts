@@ -303,7 +303,7 @@ export const literalFor = (
 			}
 			return Result.succeed(literal({ kind: "text", value: `\\x${value.toHex()}` }, type))
 		case "code": {
-			const code = typeof value === "string" ? v.roster.codeOf.get(value) : undefined
+			const code = typeof value === "string" ? v.roster.rank.get(value) : undefined
 			if (code === undefined) {
 				return refuse(location, `a live handle of roster ${v.roster.roster}`, value)
 			}
@@ -312,7 +312,7 @@ export const literalFor = (
 		case "bits": {
 			const members = bitsMembers(value)
 			const codes =
-				members === undefined ? undefined : Arr.map(members, (h) => v.roster.codeOf.get(h))
+				members === undefined ? undefined : Arr.map(members, (h) => v.roster.rank.get(h))
 			if (codes === undefined || !Arr.every(codes, (c) => c !== undefined)) {
 				return refuse(location, `a set of live handles of roster ${v.roster.roster}`, value)
 			}

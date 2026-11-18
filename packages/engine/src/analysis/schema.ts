@@ -989,7 +989,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		if (!admitted.ok) {
 			return fail(admitted.error.reason, loc, admitted.error.capability)
 		}
-		return admitted.value.literal
+		return admitted.value
 	}
 
 	/**
@@ -1005,13 +1005,11 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		at: (row: number) => SourceLoc
 	): (value: LiteralDesc, row: number) => TypedLiteral {
 		if (!isRefined(type)) {
-			return (value) => admittedLiteral(value, type).literal
+			return (value) => admittedLiteral(value, type)
 		}
 		return (value, row) => {
 			const judged = refined(admittedLiteral(value, type), type, patterns)
-			return judged.ok
-				? judged.value.literal
-				: fail(judged.error.reason, at(row), judged.error.capability)
+			return judged.ok ? judged.value : fail(judged.error.reason, at(row), judged.error.capability)
 		}
 	}
 

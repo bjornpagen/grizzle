@@ -46,7 +46,6 @@ import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { textOf, textPatterns } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { charMapOf, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
@@ -139,7 +138,7 @@ export const computesTranslateAndLowerAsciiTranslateAndLowerAsciiAgreeWithTheMap
 					"lowerAscii"
 				).root.expr
 				for (const s of c.texts) {
-					const row = new Map<string, CarrierValue>([["v", s]])
+					const row = new Map<string, string>([["v", s]])
 					const expected = mapped(s, c.map.from, c.map.to)
 					const got = values(term, row)
 					assert.equal(got.host, expected, `the host over ${Formatter.format(s)}`)
@@ -627,7 +626,7 @@ export const computesTranslateAndLowerAsciiCollapseAndReplaceWhitespaceAgreeWith
 				const collapse = lowered(Compute.collapse(v("v", testPg.text)))
 				const replace = lowered(Compute.replaceWhitespace(v("v", testPg.text)))
 				for (const s of texts) {
-					const row = new Map<string, CarrierValue>([["v", s]])
+					const row = new Map<string, string>([["v", s]])
 					const expected = byDefinition(s)
 					const got = values(collapse, row)
 					assert.equal(got.host, expected, `collapse on the host over ${Formatter.format(s)}`)

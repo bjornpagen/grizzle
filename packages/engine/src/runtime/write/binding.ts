@@ -185,7 +185,6 @@ export const prepareBinding = (
 	patterns: PatternReads
 ): PreparedBinding => {
 	const evaluate = hostEvaluator(
-		codes,
 		closedLeaf(closedNamed(binding.evaluation.closed, closed)),
 		patterns
 	)

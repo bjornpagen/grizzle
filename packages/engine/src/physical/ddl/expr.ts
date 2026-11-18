@@ -20,12 +20,8 @@ import {
 	type ScalarSite
 } from "#compiler/lower/conservative/expr/index.ts"
 import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
-import {
-	type EvalLeaves,
-	evaluateTable,
-	hostLiteralOf,
-	sqlNull
-} from "#compiler/scalar/compute/evaluate.ts"
+import { type EvalLeaves, evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { literalOfHost } from "#compiler/scalar/compute/literal.ts"
 import { nativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -145,7 +141,7 @@ const foldedConstant = (
 		return undefined
 	}
 	if (value.value !== sqlNull) {
-		return lowerLiteral(names, hostLiteralOf(value.value, expr.type), expr.type)
+		return lowerLiteral(names, literalOfHost(value.value, expr.type), expr.type)
 	}
 	return baseOf(expr.type).carrier === "bool"
 		? { kind: "nullif", expr: lit.bool(true), absent: lit.bool(true) }

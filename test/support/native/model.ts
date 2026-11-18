@@ -15,8 +15,8 @@ import {
 import type { DomainCheckTerm, LawField, NativeColumn, NativeObject } from "#compiler/ir/law.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { type Atom, type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type EvalEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 
@@ -55,13 +55,13 @@ export type NativeKind = NativeObject["kind"]
  * A stored row: each field's value by its declared name, and each drawn law column's by its identifier, every column a
  * writer sends. None holds NULL.
  */
-export type NativeRow = ReadonlyMap<string, CarrierValue>
+export type NativeRow = ReadonlyMap<string, ModelValue>
 
 /** A database state: each relation's rows by its declared name, as a multiset in no order; an absent relation is empty. */
 export type NativeState = ReadonlyMap<string, ReadonlyArray<NativeRow>>
 
 /** A column's value in a stored row: a value, or NULL, which only a generated law column holds outside its guard. */
-type Cell = { readonly kind: "null" } | { readonly kind: "value"; readonly value: CarrierValue }
+type Cell = { readonly kind: "null" } | { readonly kind: "value"; readonly value: ModelValue }
 
 /** When PostgreSQL checks a constraint: at the end of the statement that writes its table, or at COMMIT. */
 type Deferral = "immediate" | "deferred"
@@ -434,7 +434,7 @@ const rowEnv = (row: NativeRow): EvalEnv => ({
 })
 
 /** An expression's value over a row: a stop is a defect of the installation or of the state, never a verdict. */
-const valueOver = (expr: ScalarExpr, env: EvalEnv, what: string): CarrierValue => {
+const valueOver = (expr: ScalarExpr, env: EvalEnv, what: string): ModelValue => {
 	const v = evaluate(expr, env)
 	if (Result.isFailure(v)) {
 		throw new Error(`${what} has no value: ${v.failure.kind} ${v.failure.what}`)
@@ -494,7 +494,7 @@ interface SpanValue {
 	readonly end: bigint
 }
 
-const spanOf = (v: CarrierValue): SpanValue => {
+const spanOf = (v: ModelValue): SpanValue => {
 	if (typeof v === "object" && "start" in v) {
 		return v
 	}
@@ -506,7 +506,7 @@ const spanOf = (v: CarrierValue): SpanValue => {
  * and integer ranges, which compare by value: its kind, then its atoms, a range's two ends, so the atoms of several
  * values in a row are self-delimiting (kernel/identity.ts). Any other carrier is a defect of the test that wrote it.
  */
-const valueAtoms = (v: CarrierValue): ValueIdentity => {
+const valueAtoms = (v: ModelValue): ValueIdentity => {
 	if (typeof v === "bigint") {
 		return ["i", v]
 	}
@@ -570,7 +570,7 @@ const covered = (s: SpanValue, spans: ReadonlyArray<SpanValue>): boolean => {
 }
 
 /** A VALUE of a domain's base as a literal of the reference evaluator, which a domain predicate reads it as. */
-const literalOf = (v: CarrierValue): TypedLiteral => {
+const literalOf = (v: ModelValue): TypedLiteral => {
 	if (typeof v === "bigint") {
 		return { kind: "int", value: v }
 	}
@@ -584,7 +584,7 @@ const literalOf = (v: CarrierValue): TypedLiteral => {
 }
 
 /** The predicate with every VALUE read as `value`, of the domain's base type. */
-const withValue = (expr: ScalarExpr, value: CarrierValue, base: ScalarType): ScalarExpr =>
+const withValue = (expr: ScalarExpr, value: ModelValue, base: ScalarType): ScalarExpr =>
 	expr.kind === "value"
 		? builtExpr(
 				{ kind: "literal", value: literalOf(value), type: base, args: [], nonNull: "literal" },
@@ -598,7 +598,7 @@ const withValue = (expr: ScalarExpr, value: CarrierValue, base: ScalarType): Sca
 /** Whether a domain's CHECK holds of a value of its base type: every term, its pattern and its predicate. */
 const domainHolds = (
 	terms: ReadonlyArray<DomainCheckTerm>,
-	value: CarrierValue,
+	value: ModelValue,
 	base: ScalarType
 ): boolean =>
 	Arr.every(terms, (term) => {
@@ -841,7 +841,7 @@ export const stateViolations = (
  * Columns' values a statement matches rows by: a row matches when it holds each listed value at its column, every
  * other column free.
  */
-export type NativeMatch = ReadonlyMap<string, CarrierValue>
+export type NativeMatch = ReadonlyMap<string, ModelValue>
 
 /**
  * One statement of a transaction over one table: an INSERT of its rows; a DELETE of every row a match holds of; or an

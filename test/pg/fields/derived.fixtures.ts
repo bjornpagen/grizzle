@@ -52,8 +52,8 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { type ClosedReadNode, evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
@@ -82,6 +82,7 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -1029,14 +1030,23 @@ const markedOf = (state: RosterState): ReadonlyArray<string> =>
 	Arr.filter(liveOf(state), (_, i) => i % 2 === 0)
 
 /** The reference evaluator's value, which an expression over a row's own fields always has. */
-const referenceValue = (result: CatalogResult, what: string): CarrierValue =>
+const referenceValue = (result: CatalogResult, what: string): ModelValue =>
 	Result.isSuccess(result)
 		? result.success
 		: assert.fail(`${what}: ${Formatter.format(result.failure)}`)
 
-/** A row's caller values as the host evaluator reads its columns: exact carriers. */
-const hostRow = (row: Row): ReadonlyMap<string, CarrierValue> =>
-	new Map<string, CarrierValue>([
+/** A row's caller values as the host evaluator reads its columns: each its codec's host value. */
+const hostRow = (row: Row): ReadonlyMap<string, HostValue> =>
+	new Map<string, HostValue>([
+		["id", row.id],
+		["tier", row.tier],
+		["a", Object.freeze(new Set(row.a))],
+		["b", Object.freeze(new Set(row.b))]
+	])
+
+/** A row's caller values as the reference evaluator reads its columns: its exact carriers, an integer a bigint. */
+const modelRow = (row: Row): ReadonlyMap<string, ModelValue> =>
+	new Map<string, ModelValue>([
 		["id", BigInt(row.id)],
 		["tier", row.tier],
 		["a", Object.freeze(new Set(row.a))],
@@ -1049,7 +1059,7 @@ const hostRow = (row: Row): ReadonlyMap<string, CarrierValue> =>
  */
 const closedReader =
 	(rows: ClosedRows) =>
-	(read: ClosedReadNode, args: ReadonlyArray<CarrierValue>): CarrierValue | undefined => {
+	(read: ClosedReadNode, args: ReadonlyArray<HostValue>): HostValue | undefined => {
 		const [key] = args
 		if (typeof key !== "string") {
 			return undefined
@@ -1061,11 +1071,7 @@ const closedReader =
 		if (read.relation !== weightName || read.kind !== "closedAt" || Option.isNone(weighed)) {
 			return undefined
 		}
-		return read.field === "w"
-			? BigInt(weighed.value.w)
-			: read.field === "v"
-				? BigInt(weighed.value.v)
-				: undefined
+		return read.field === "w" ? weighed.value.w : read.field === "v" ? weighed.value.v : undefined
 	}
 
 /**
@@ -1138,6 +1144,7 @@ export const sameAsModel = (sys: System, model: Model) =>
 				`row ${i} holds the model's caller values`
 			)
 			const host = hostRow(row)
+			const reading = modelRow(row)
 			for (const [j, name] of present.entries()) {
 				const expr = defined(model.generated[name], `the model's ${name}`)
 				const field = Option.getOrUndefined(Arr.findFirst(info.fields, (f) => f.name === name))
@@ -1164,7 +1171,7 @@ export const sameAsModel = (sys: System, model: Model) =>
 										referenceValue(
 											evaluate(writing.expr, {
 												kind: "row",
-												column: (ref) => host.get(ref.name),
+												column: (ref) => reading.get(ref.name),
 												param: () => undefined,
 												regexMember: patternMember
 											}),

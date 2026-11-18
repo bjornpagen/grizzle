@@ -8,13 +8,16 @@ import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { builtExpr, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { compareValues } from "#compiler/scalar/compute/evaluate.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
+import {
+	compareCarried,
+	constantEnv,
+	evaluate,
+	type ModelValue
+} from "#test/support/oracle/evaluate/catalog.ts"
 
 /** A type by the descriptor registry's reading of its field descriptor. */
 const typeOf = (desc: FieldDesc): ScalarType => {
@@ -252,8 +255,8 @@ export const family = (t: ScalarType): Family => {
 	}
 }
 
-export const equalValues = (a: CarrierValue, b: CarrierValue, t: ScalarType): boolean =>
-	compareValues(a, b, t) === 0
+export const equalValues = (a: ModelValue, b: ModelValue, t: ScalarType): boolean =>
+	compareCarried(a, b, t) === 0
 
 export type InjectiveFeature =
 	| `${Family}->${Family} admitted`

@@ -176,9 +176,9 @@ const witnessEntry = (entry: CheckedEntry): WitnessEntry => ({
 		if (fixed.value.kind !== "literal") {
 			return []
 		}
-		const carried = irLiteral(fixed.value.value, fixed.field.type)
-		return carried.ok
-			? [{ field: fixed.field.name, type: fixed.field.type, literal: carried.value.literal }]
+		const literal = irLiteral(fixed.value.value, fixed.field.type)
+		return literal.ok
+			? [{ field: fixed.field.name, type: fixed.field.type, literal: literal.value }]
 			: []
 	})
 })

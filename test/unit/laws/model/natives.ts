@@ -6,13 +6,13 @@ import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { AxisKind, Family } from "#compiler/ir/family.ts"
 import type { Drawn, LawRelation, NativeColumn, NativeObject, NativeOf } from "#compiler/ir/law.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { own } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { type SqlStatement, type TableConstraint, tableConstraints } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { decodedSchema, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { declinedOps, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 
@@ -212,16 +212,16 @@ export const checksOf = (
 	)
 
 /** A row's values, each field by its name and each drawn law column by its identifier. */
-export type Row = ReadonlyMap<string, CarrierValue>
+export type Row = ReadonlyMap<string, ModelValue>
 
 /** Whether an expression holds a node the reference evaluator declines by design: a set's algebra, which it leaves to
  * PostgreSQL. */
 const declines = (e: ScalarExpr): boolean =>
 	(e.kind === "op" && declinedOps.has(e.op)) || Arr.some(e.args, declines)
 
-const isSet = (v: CarrierValue | undefined): v is ReadonlySet<string> => v instanceof Set
+const isSet = (v: ModelValue | undefined): v is ReadonlySet<string> => v instanceof Set
 
-const sameValue = (a: CarrierValue, b: CarrierValue): boolean =>
+const sameValue = (a: ModelValue, b: ModelValue): boolean =>
 	isSet(a) && isSet(b) ? a.size === b.size && Arr.every([...a], (x) => b.has(x)) : a === b
 
 /**
@@ -229,7 +229,7 @@ const sameValue = (a: CarrierValue, b: CarrierValue): boolean =>
  * evaluator's; a node over a set's algebra is this second implementation's, a set of handles each: union and
  * intersection as sets, equality as set equality, and the connectives over three values.
  */
-const valueOn = (expr: ScalarExpr, row: Row): CarrierValue | undefined => {
+const valueOn = (expr: ScalarExpr, row: Row): ModelValue | undefined => {
 	if (!declines(expr)) {
 		return referenceValue(expr, row)
 	}
@@ -247,12 +247,12 @@ const valueOn = (expr: ScalarExpr, row: Row): CarrierValue | undefined => {
 		: node(args)
 }
 
-const asSet = (v: CarrierValue | undefined): ReadonlySet<string> =>
+const asSet = (v: ModelValue | undefined): ReadonlySet<string> =>
 	isSet(v) ? v : assert.fail("a set operand")
 
 /** The nodes over a set's algebra this second implementation evaluates, each over its operands' values. */
 const setNodes: Readonly<
-	Record<string, (args: ReadonlyArray<CarrierValue | undefined>) => CarrierValue | undefined>
+	Record<string, (args: ReadonlyArray<ModelValue | undefined>) => ModelValue | undefined>
 > = {
 	union: ([a, b]) => new Set([...asSet(a), ...asSet(b)]),
 	intersection: ([a, b]) => new Set(Arr.filter([...asSet(a)], (x) => asSet(b).has(x))),
@@ -276,7 +276,7 @@ const setNodes: Readonly<
 
 /** An expression's value over a row by the reference evaluator, or undefined for NULL; any other stop is a defect of
  * the test's row. */
-const referenceValue = (expr: ScalarExpr, row: Row): CarrierValue | undefined => {
+const referenceValue = (expr: ScalarExpr, row: Row): ModelValue | undefined => {
 	const v = evaluate(expr, {
 		kind: "row",
 		column: (ref) =>
@@ -299,7 +299,7 @@ export const accepts = (check: NativeOf<"TableCheck">, row: Row): boolean =>
 	valueOn(check.predicate, row) !== false
 
 /** A generated law column's value on a row: its term where every conjunct of its guard holds, and NULL elsewhere. */
-export const generatedOn = (column: NativeOf<"LawColumn">, row: Row): CarrierValue | undefined => {
+export const generatedOn = (column: NativeOf<"LawColumn">, row: Row): ModelValue | undefined => {
 	const value = column.value
 	if (value.kind !== "generated") {
 		return assert.fail(`the law column ${column.column} is generated`)
@@ -406,7 +406,7 @@ const cellOf = (
 	relation: string,
 	c: NativeColumn,
 	row: Row
-): CarrierValue | undefined => {
+): ModelValue | undefined => {
 	if (c.kind === "field") {
 		return row.has(c.field.name)
 			? row.get(c.field.name)
@@ -429,8 +429,8 @@ const tupleOf = (
 	relation: string,
 	columns: ReadonlyArray<NativeColumn>,
 	row: Row
-): ReadonlyArray<CarrierValue> | undefined => {
-	const cells: Array<CarrierValue> = []
+): ReadonlyArray<ModelValue> | undefined => {
+	const cells: Array<ModelValue> = []
 	for (const c of columns) {
 		const v = cellOf(model, relation, c, row)
 		if (v === undefined) {
@@ -441,7 +441,7 @@ const tupleOf = (
 	return cells
 }
 
-const sameTuple = (a: ReadonlyArray<CarrierValue>, b: ReadonlyArray<CarrierValue>): boolean =>
+const sameTuple = (a: ReadonlyArray<ModelValue>, b: ReadonlyArray<ModelValue>): boolean =>
 	a.length === b.length && Arr.every(a, (v, i) => sameValue(v, defined(b[i])))
 
 /**

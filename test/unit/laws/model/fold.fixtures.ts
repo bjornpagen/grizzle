@@ -11,7 +11,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { type CarrierValue, irLiteral } from "#compiler/scalar/compute/literal.ts"
+import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, defined, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
@@ -29,6 +29,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { type ModelValue, modelLiteral } from "#test/support/oracle/evaluate/catalog.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	accepts,
@@ -287,7 +288,8 @@ const checkMember = (model: LawModel, s: Shape, law: ReturnType<typeof foldLaws>
 	const [check, ...more] = checksOf(model, "Member", law)
 	assert.ok(check !== undefined && more.length === 0, "the fold states one CHECK on its member")
 	const type = fieldNamed(model, "Owner", "end0").type
-	const value = (v: bigint): CarrierValue => succeeded(irLiteral(descOf(s.carrier, v), type)).value
+	const value = (v: bigint): ModelValue =>
+		modelLiteral(succeeded(irLiteral(descOf(s.carrier, v), type)))
 	const cols = columnsOf(model, s)
 	const index = s.order === "ordered" ? "at" : drawnColumn(model, "Member", "index")
 	const values = valuesOf(s)
@@ -307,7 +309,7 @@ const checkMember = (model: LawModel, s: Shape, law: ReturnType<typeof foldLaws>
 						if (!fitsCarrier) {
 							continue
 						}
-						const row: Row = new Map<string, CarrierValue>([
+						const row: Row = new Map<string, ModelValue>([
 							[index, slot],
 							["flag", selected],
 							...(s.monoid === "count" ? [] : [["x", value(x)] as const]),
@@ -334,10 +336,11 @@ const checkOwner = (model: LawModel, s: Shape, law: ReturnType<typeof foldLaws>[
 	const [check, ...more] = checksOf(model, "Owner", law)
 	assert.ok(check !== undefined && more.length === 0, "the fold states one CHECK on its owner")
 	const type = fieldNamed(model, "Owner", "end0").type
-	const value = (v: bigint): CarrierValue => succeeded(irLiteral(descOf(s.carrier, v), type)).value
+	const value = (v: bigint): ModelValue =>
+		modelLiteral(succeeded(irLiteral(descOf(s.carrier, v), type)))
 	for (const ends of tuples(valuesOf(s), planes(s))) {
 		for (const n of [0n, 1n]) {
-			const row: Row = new Map<string, CarrierValue>([
+			const row: Row = new Map<string, ModelValue>([
 				["n", n],
 				...Arr.map(ends, (e, p) => [`end${p}`, value(e)] as const)
 			])

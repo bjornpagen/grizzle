@@ -448,18 +448,18 @@ export const renamesCase = (p: Plan, c: Case<RenameFeature>) =>
 			"the snapshot's codes of Kind"
 		)
 		assert.deepEqual<ReadonlyArray<number | undefined>>(
-			Arr.map(handlesAt(p, true), (h) => codes.codeOf.get(h)),
+			Arr.map(handlesAt(p, true), (h) => codes.rank.get(h)),
 			keptCodes(p),
 			"every handle kept keeps its code, a renamed one its old one's"
 		)
 		if (Option.isSome(p.handle)) {
 			const old = defined(handles[p.handle.value], "the renamed handle")
-			assert.equal(codes.codeOf.get(old), undefined, "the old handle is gone")
+			assert.equal(codes.rank.get(old), undefined, "the old handle is gone")
 		}
 		if (Option.isSome(p.removed)) {
 			const hole = p.removed.value
 			assert.equal(
-				codes.codeOf.get(defined(handles[hole], "the removed handle")),
+				codes.rank.get(defined(handles[hole], "the removed handle")),
 				undefined,
 				"the removed handle is gone"
 			)

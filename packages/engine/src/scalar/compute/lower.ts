@@ -123,12 +123,8 @@ import {
 } from "#compiler/scalar/compute/bounds.ts"
 import { floatNumericDigits, parseBy } from "#compiler/scalar/compute/cast.ts"
 import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
-import { admitLiteral, literalMember, literalValue } from "#compiler/scalar/compute/evaluate.ts"
-import {
-	bareLiteralKind,
-	type CarriedLiteral,
-	type CarrierValue
-} from "#compiler/scalar/compute/literal.ts"
+import { admitLiteral, literalMember } from "#compiler/scalar/compute/evaluate.ts"
+import { bareLiteralKind } from "#compiler/scalar/compute/literal.ts"
 import { nativeProof, resultBounds } from "#compiler/scalar/compute/native.ts"
 import { numericMaxDisplayScale } from "#compiler/scalar/compute/numeric.ts"
 import {
@@ -831,37 +827,45 @@ const dateBounds: Bounds = ofRange(
 	String(dayNumber(lastCalendarDate)).length
 )
 
-/** A carried literal's value in the bound domain: exact, a special, or no number at all. */
+/** A typed literal's value in the bound domain: exact, a special, or no number at all. */
 const literalNumber = (
-	value: CarrierValue
+	literal: TypedLiteral
 ): Exact | "nan" | "infinity" | "-infinity" | undefined => {
-	if (typeof value === "bigint") {
-		return exactOf(value, 0)
+	switch (literal.kind) {
+		case "int":
+			return exactOf(literal.value, 0)
+		case "float":
+			return exactOfDouble(literal.value)
+		case "floatSpecial":
+			return literal.value === "NaN"
+				? "nan"
+				: literal.value === "Infinity"
+					? "infinity"
+					: "-infinity"
+		case "numeric": {
+			const value = Decimal.fromValue(literal.value)
+			const p = value.parts
+			return p.kind === "finite" ? exactOfDecimal(value) : p.kind
+		}
+		case "money":
+			return exactOf(Money.fromValue(literal.value).minorUnits, 2)
+		case "bool":
+		case "text":
+		case "uuid":
+		case "date":
+		case "handle":
+		case "handles":
+		case "span":
+		case "vector":
+			return undefined
 	}
-	if (typeof value === "number") {
-		return Number.isNaN(value)
-			? "nan"
-			: value === Number.POSITIVE_INFINITY
-				? "infinity"
-				: value === Number.NEGATIVE_INFINITY
-					? "-infinity"
-					: exactOfDouble(value)
-	}
-	if (value instanceof Decimal) {
-		const p = value.parts
-		return p.kind === "finite" ? exactOfDecimal(value) : p.kind
-	}
-	if (value instanceof Money) {
-		return exactOf(value.minorUnits, 2)
-	}
-	return undefined
 }
 
 /** A stored literal entry's value in the bound domain. */
 const tableNumber = (
 	e: TableExpr & { readonly kind: "literal" }
 ): Exact | "nan" | "infinity" | "-infinity" | undefined =>
-	dateExact(e.value) ?? literalNumber(literalValue(e.value))
+	dateExact(e.value) ?? literalNumber(e.value)
 
 const zero: Exact = exactOf(0n, 0)
 const oneExact: Exact = exactOf(1n, 0)
@@ -2145,14 +2149,14 @@ class Lowering<R extends Refs> {
 	 * A literal node: of `type`, a computed numeric's bounded by the literal's own value, which is all it can be, with
 	 * the bounds and facts of that value.
 	 */
-	literalNode(typed: CarriedLiteral, type: ScalarType): Lowered {
-		const date = dateExact(typed.literal)
-		const n = date ?? literalNumber(typed.value)
+	literalNode(literal: TypedLiteral, type: ScalarType): Lowered {
+		const date = dateExact(literal)
+		const n = date ?? literalNumber(literal)
 		const point = n === undefined ? undefined : typeof n === "object" ? ofPoint(n) : ofSpecial(n)
 		const at = isComputedNumeric(type) ? numericOf(point) : type
 		const entry = this.env.emit({
 			kind: "literal",
-			value: typed.literal,
+			value: literal,
 			args: [],
 			type: at,
 			nonNull: "literal"
@@ -3704,10 +3708,7 @@ class Lowering<R extends Refs> {
 				? normalizeNumeric(Decimal.fromValue(literal.value), numericTypmodOf(target))
 				: undefined
 		if (coerced?.ok === true) {
-			return this.literalNode(
-				{ literal: { kind: "numeric", value: coerced.value }, value: coerced.value },
-				target
-			)
+			return this.literalNode({ kind: "numeric", value: coerced.value }, target)
 		}
 		return this.castNode(
 			value,

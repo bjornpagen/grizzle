@@ -829,11 +829,11 @@ export class LawSides {
 			if (!at.ok) {
 				return refuse("MalformedDescription", loc, `a selection on ${r.name}.${field}: ${at.error}`)
 			}
-			return { column: field, value: at.value.literal, col }
+			return { column: field, value: at.value, col }
 		}
 		const own = irLiteral(literal.value, this.type(literal.type, loc))
-		return at.ok && own.ok && identicalLiteral(own.value.literal, at.value.literal)
-			? { column: field, value: at.value.literal, col }
+		return at.ok && own.ok && identicalLiteral(own.value, at.value)
+			? { column: field, value: at.value, col }
 			: undefined
 	}
 

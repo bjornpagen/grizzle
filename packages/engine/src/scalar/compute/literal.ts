@@ -1,18 +1,25 @@
-import { floatSpecials, isFloatSpecialName, taggedValueOf } from "#compiler/core/canonical.ts"
+import {
+	floatSpecialNameOf,
+	floatSpecials,
+	isFloatSpecialName,
+	taggedValueOf
+} from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { VectorText, vectorTag } from "#compiler/ir/carriers.ts"
-import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
+import { type CalendarDate, dateOfDayNumber, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { BytesDigest } from "#compiler/scalar/values/bytes.ts"
+import { baseOf, type Carrier, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, toReal } from "#compiler/scalar/values/float.ts"
+import { type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
+import { Vector } from "#compiler/scalar/values/vector.ts"
 
 const isSafeInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isSafeInteger(value)
@@ -46,25 +53,6 @@ export const bareLiteralKind = (value: unknown): BareLiteralKind | undefined => 
 	return undefined
 }
 
-/**
- * The exact carrier value of a literal, as the evaluator holds it: integers as bigint, numeric as Decimal, floats as
- * number, money as Money, booleans, text, uuid and closed ids' handles as their primitives, a set over a roster as the
- * fresh Set of its handles, spans as { start, end } bigints, vectors as their canonical value. A bytes value, which no
- * literal is, is its identity, the SHA-256 digest of its bytes (scalar/values/bytes.ts BytesDigest), which is all
- * Compute.sha256, the one operation over it, reads.
- */
-export type CarrierValue =
-	| bigint
-	| Decimal
-	| number
-	| Money
-	| boolean
-	| string
-	| ReadonlySet<string>
-	| { readonly start: bigint; readonly end: bigint }
-	| { readonly vector: VectorText }
-	| BytesDigest
-
 /** A decoded Description's set literal: its handles, each a string. */
 const setHandles = (value: LiteralDesc): ReadonlyArray<string> | undefined => {
 	if (!isRecord(value) || !Object.hasOwn(value, "handles") || !("handles" in value)) {
@@ -72,11 +60,6 @@ const setHandles = (value: LiteralDesc): ReadonlyArray<string> | undefined => {
 	}
 	const handles: unknown = value.handles
 	return Array.isArray(handles) && handles.every((h) => typeof h === "string") ? handles : undefined
-}
-
-export interface CarriedLiteral {
-	readonly literal: TypedLiteral
-	readonly value: CarrierValue
 }
 
 /**
@@ -133,13 +116,10 @@ const taggedMoney = (value: unknown): Money | undefined => {
  * literal must be a JavaScript integer for smallint and integer and a bigint for bigint. A decimal at numeric(p, s) is
  * the value PostgreSQL's coercion stores: rounded to scale s, refused only when it then overflows.
  */
-export const irLiteral = (
-	value: LiteralDesc,
-	t: ScalarType
-): Result.Result<CarriedLiteral, string> =>
-	Result.flatMap(carriedOf(value, t), (carried) => {
-		const problem = literalProblem(carried.literal, t)
-		return problem === undefined ? Result.ok(carried) : Result.err(problem)
+export const irLiteral = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLiteral, string> =>
+	Result.flatMap(literalOf(value, t), (literal) => {
+		const problem = literalProblem(literal, t)
+		return problem === undefined ? Result.ok(literal) : Result.err(problem)
 	})
 
 /**
@@ -147,43 +127,33 @@ export const irLiteral = (
  * its admission proved it a value of the type's base, of the host kind the type reads, so it is converted and never
  * checked again. A cell no admission proved is no AdmittedClosedRelation's, so a refusal here is a defect.
  */
-export const admittedLiteral = (value: LiteralDesc, t: ScalarType): CarriedLiteral => {
-	const carried = carriedOf(value, t)
-	if (!carried.ok) {
-		throw defect(`an admitted cell is a value of its field's type: ${carried.error}`)
+export const admittedLiteral = (value: LiteralDesc, t: ScalarType): TypedLiteral => {
+	const literal = literalOf(value, t)
+	if (!literal.ok) {
+		throw defect(`an admitted cell is a value of its field's type: ${literal.error}`)
 	}
-	return carried.value
+	return literal.value
 }
 
 /**
- * The typed IR literal of `value` at `t` and its carrier value, as `value`'s host kind gives it, or why its host kind
- * is none `t` reads: irLiteral's conversion, before it is held to `t`'s base (literalProblem).
+ * The typed IR literal of `value` at `t`, as `value`'s host kind gives it, or why its host kind is none `t` reads:
+ * irLiteral's conversion, before it is held to `t`'s base (literalProblem).
  */
-const carriedOf = (value: LiteralDesc, t: ScalarType): Result.Result<CarriedLiteral, string> => {
+const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLiteral, string> => {
 	const base = baseOf(t)
-	/**
-	 * A decoded Description's span holds its two endpoints.
-	 *
-	 * A decoded Description holds only these three specials.
-	 */
-	const finish = (
-		literal: TypedLiteral,
-		carrierValue: CarrierValue
-	): Result.Result<CarriedLiteral, string> => Result.ok({ literal, value: carrierValue })
 	switch (base.carrier) {
 		case "int2":
 		case "int4": {
 			if (!isSafeInteger(value)) {
 				return Result.err(`a JavaScript integer for ${base.carrier}`)
 			}
-			const v = BigInt(value)
-			return finish({ kind: "int", value: v }, v)
+			return Result.ok({ kind: "int", value: BigInt(value) })
 		}
 		case "int8":
 			if (typeof value !== "bigint") {
 				return Result.err("a bigint for bigint; a JavaScript number is not a bigint")
 			}
-			return finish({ kind: "int", value }, value)
+			return Result.ok({ kind: "int", value })
 		case "numeric": {
 			if (typeof value === "number") {
 				return Result.err(
@@ -203,7 +173,7 @@ const carriedOf = (value: LiteralDesc, t: ScalarType): Result.Result<CarriedLite
 			 */
 			const { typmod } = base
 			if (typmod === undefined) {
-				return finish({ kind: "numeric", value: parsed.value }, parsed.value)
+				return Result.ok({ kind: "numeric", value: parsed.value })
 			}
 			const { precision, scale } = typmod
 			const coerced = normalizeNumeric(parsed.value, typmod)
@@ -214,7 +184,7 @@ const carriedOf = (value: LiteralDesc, t: ScalarType): Result.Result<CarriedLite
 						: `a value that fits numeric(${precision},${scale}) once rounded to its scale`
 				)
 			}
-			return finish({ kind: "numeric", value: coerced.value }, coerced.value)
+			return Result.ok({ kind: "numeric", value: coerced.value })
 		}
 		case "float4":
 		case "float8": {
@@ -223,61 +193,58 @@ const carriedOf = (value: LiteralDesc, t: ScalarType): Result.Result<CarriedLite
 					? value.float
 					: undefined
 			if (isFloatSpecialName(special)) {
-				return finish({ kind: "floatSpecial", value: special }, floatSpecials[special])
+				return Result.ok({ kind: "floatSpecial", value: special })
 			}
 			if (typeof value !== "number" || !Number.isFinite(value)) {
 				return Result.err(`a number for ${base.carrier}`)
 			}
 			if (base.carrier === "float8") {
-				const double = canonicalZero(value)
-				return finish({ kind: "float", value: double }, double)
+				return Result.ok({ kind: "float", value: canonicalZero(value) })
 			}
 			const real = toReal(value)
 			if (!real.ok) {
 				return Result.err("a number within real's binary32 range")
 			}
-			return finish({ kind: "float", value: real.value }, real.value)
+			return Result.ok({ kind: "float", value: real.value })
 		}
 		case "money": {
 			if (value instanceof Money) {
-				return finish({ kind: "money", value }, value)
+				return Result.ok({ kind: "money", value })
 			}
 			const revived = taggedMoney(value)
 			return revived === undefined
 				? Result.err("a Money")
-				: finish({ kind: "money", value: revived }, revived)
+				: Result.ok({ kind: "money", value: revived })
 		}
 		case "bool":
 			return typeof value === "boolean"
-				? finish({ kind: "bool", value }, value)
+				? Result.ok({ kind: "bool", value })
 				: Result.err("a boolean")
 		case "uuid": {
 			const uuid = toUuid(value)
 			return uuid.ok
-				? finish({ kind: "uuid", value: uuid.value }, uuid.value)
+				? Result.ok({ kind: "uuid", value: uuid.value })
 				: Result.err("a uuid in the hyphenated 8-4-4-4-12 form")
 		}
 		case "date": {
 			const date = toCalendarDate(value)
 			return date.ok
-				? finish({ kind: "date", value: date.value }, date.value)
+				? Result.ok({ kind: "date", value: date.value })
 				: Result.err("a calendar date written YYYY-MM-DD, from 0001-01-01 to 9999-12-31")
 		}
 		case "text":
-			return typeof value === "string"
-				? finish({ kind: "text", value }, value)
-				: Result.err("a string")
+			return typeof value === "string" ? Result.ok({ kind: "text", value }) : Result.err("a string")
 		case "bytes":
 			return Result.err("no literal: a bytes value is written and read back whole")
 		case "code":
 			return typeof value === "string"
-				? finish({ kind: "handle", handle: value }, value)
+				? Result.ok({ kind: "handle", handle: value })
 				: Result.err("a handle")
 		case "bits": {
 			const handles = setHandles(value)
 			return handles === undefined
 				? Result.err("a set's handles")
-				: finish({ kind: "handles", handles: Object.freeze([...handles]) }, new Set(handles))
+				: Result.ok({ kind: "handles", handles: Object.freeze([...handles]) })
 		}
 		case "range4":
 		case "range8":
@@ -297,18 +264,148 @@ const carriedOf = (value: LiteralDesc, t: ScalarType): Result.Result<CarriedLite
 					base.carrier === "rangeDate" ? "date span endpoints" : "integer span endpoints"
 				)
 			}
-			return finish({ kind: "span", start, end }, { start, end })
+			return Result.ok({ kind: "span", start, end })
 		}
 		case "vector": {
 			const vector = taggedVector(value)
 			return vector === undefined
 				? Result.err("a Vector of the field's dimensions")
-				: finish({ kind: "vector", value: vector }, { vector })
+				: Result.ok({ kind: "vector", value: vector })
 		}
 		case "exactInteger":
 		case "exactMoney":
 			return Result.err(
 				"a literal of an exact value's family: opposite an exact integer a bigint literal, opposite exact money a Money"
 			)
+	}
+}
+
+/**
+ * A span literal's endpoints, positions on its carrier's line (a date span's day numbers), as its host value's. A span
+ * literal is a value of a span type only (ir/expr.ts literalProblem), so another carrier is a defect.
+ */
+const spanHost = (
+	carrier: Carrier,
+	literal: Extract<TypedLiteral, { readonly kind: "span" }>
+): Span<number> | Span<bigint> | Span<CalendarDate> => {
+	if (carrier !== "range4" && carrier !== "range8" && carrier !== "rangeDate") {
+		throw defect(`a span literal is a value of a span type, not of ${carrier}`)
+	}
+	switch (carrier) {
+		case "range4":
+			return Object.freeze({ start: Number(literal.start), end: Number(literal.end) })
+		case "range8":
+			return Object.freeze({ start: literal.start, end: literal.end })
+		case "rangeDate":
+			return Object.freeze({
+				start: dateOfDayNumber(literal.start),
+				end: dateOfDayNumber(literal.end)
+			})
+	}
+}
+
+/**
+ * The host value of a typed literal at its type's carrier `carrier`, the codec's own (scalar/values/identity.ts
+ * CarrierHost): what the evaluator holds a literal as, a fill writes a literal start as and a closed relation's cell is
+ * read as. A literal over smallint or integer is a JavaScript integer and over bigint a bigint, a numeric a Decimal,
+ * money a Money, a float a number, a set the fresh Set of its handles, an int4 span's endpoints JavaScript integers and
+ * a date span's the dates its day numbers are, a vector a fresh Vector of its components. The one conversion of a
+ * literal to a host value, whose inverse is literalOfHost.
+ */
+export const hostOfLiteral = (carrier: Carrier, literal: TypedLiteral): HostValue => {
+	switch (literal.kind) {
+		case "int":
+			return carrier === "int2" || carrier === "int4" ? Number(literal.value) : literal.value
+		case "numeric":
+			return Decimal.fromValue(literal.value)
+		case "float":
+			return literal.value
+		case "floatSpecial":
+			return floatSpecials[literal.value]
+		case "money":
+			return Money.fromValue(literal.value)
+		case "bool":
+			return literal.value
+		case "text":
+		case "uuid":
+		case "date":
+			return literal.value
+		case "handle":
+			return literal.handle
+		case "handles":
+			return new Set(literal.handles)
+		case "span":
+			return spanHost(carrier, literal)
+		case "vector":
+			return Vector.fromValue(literal.value)
+	}
+}
+
+/** A float's typed literal: a finite one with its one zero, and NaN or an infinity by the word naming it. */
+const floatLiteral = (x: number): TypedLiteral => {
+	const name = floatSpecialNameOf(x)
+	return name === undefined
+		? { kind: "float", value: canonicalZero(x) }
+		: { kind: "floatSpecial", value: name }
+}
+
+/** A span's endpoints as its literal's positions: an integer itself, a date its day number. */
+const spanLiteral = <E>(span: Span<E>, position: (endpoint: E) => bigint): TypedLiteral => ({
+	kind: "span",
+	start: position(span.start),
+	end: position(span.end)
+})
+
+/**
+ * The typed literal of a host value of `type`, the inverse of hostOfLiteral: what a constant subterm the host evaluated
+ * is printed as (physical/ddl/expr.ts). A set's handles come in its roster's declared order. The evaluator's value of an
+ * expression is a value of the expression's type (hostOf), and a bytes value has no literal, so either is a defect.
+ */
+export const literalOfHost = (value: HostValue, type: ScalarType): TypedLiteral => {
+	const base = baseOf(type)
+	switch (base.carrier) {
+		case "int2":
+		case "int4":
+			return { kind: "int", value: BigInt(hostOf(base.carrier, value)) }
+		case "int8":
+		case "exactInteger":
+			return { kind: "int", value: hostOf(base.carrier, value) }
+		case "numeric":
+			return { kind: "numeric", value: hostOf("numeric", value) }
+		case "float4":
+		case "float8":
+			return floatLiteral(hostOf(base.carrier, value))
+		case "money":
+		case "exactMoney":
+			return { kind: "money", value: hostOf(base.carrier, value) }
+		case "bool":
+			return { kind: "bool", value: hostOf("bool", value) }
+		case "text":
+			return { kind: "text", value: hostOf("text", value) }
+		case "uuid":
+			return { kind: "uuid", value: hostOf("uuid", value) }
+		case "date":
+			return { kind: "date", value: hostOf("date", value) }
+		case "code":
+			return { kind: "handle", handle: hostOf("code", value) }
+		case "bits": {
+			const set = hostOf("bits", value)
+			return { kind: "handles", handles: base.roster.handles.filter((h) => set.has(h)) }
+		}
+		case "range4":
+			return spanLiteral(hostOf("range4", value), BigInt)
+		case "range8":
+			return spanLiteral(hostOf("range8", value), (endpoint) => endpoint)
+		case "rangeDate":
+			return spanLiteral(hostOf("rangeDate", value), (endpoint) => BigInt(dayNumber(endpoint)))
+		case "vector": {
+			const text = Vector.canonical(hostOf("vector", value))
+			if (!text.ok) {
+				throw defect(`a constant of ${typeLabel(type)} is a vector of finite components`)
+			}
+			return { kind: "vector", value: text.value }
+		}
+		case "bytes":
+			throw defect(`a constant of ${typeLabel(type)}: a bytes value has no literal`)
 	}
 }

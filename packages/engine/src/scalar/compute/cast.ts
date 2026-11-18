@@ -273,7 +273,8 @@ export const floatNumericDigits: { readonly [C in FloatCarrier]: number } = {
  *   whose value is XML Schema's lexical mapping of it (scalar/lexical.ts lexicalValue), read at the cast's own target,
  *   a numeric's typmod included, since the form depends on it.
  *
- * A cast's host conversion, over the host value of its source's family (literal.ts CarrierValue): each registered
+ * A cast's host conversion, over the host value of its source's family, an integer widened to a bigint
+ * (compute/evaluate.ts castOperand), its result an integer's bigint, narrowed to its target's (castHost): each registered
  * cast carries its own (registry.ts castOverloads), and the evaluator calls it on the operand's value of that family.
  */
 export type HostCast =

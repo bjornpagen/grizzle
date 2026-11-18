@@ -9,7 +9,7 @@ import {
 	parameterNormalizer,
 	positionalColumns
 } from "#compiler/codec/recordset.ts"
-import { carrierSpecOf, paramEncoder } from "#compiler/codec/scalar.ts"
+import { paramEncoder } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -35,8 +35,7 @@ import {
 	type Filler,
 	fillRefusal,
 	type GeneratedNull,
-	type HostNode,
-	literalHost
+	type HostNode
 } from "#compiler/runtime/write/fill.ts"
 import {
 	type FlightForm,
@@ -89,6 +88,7 @@ import {
 	type JudgedRow,
 	type StatedRows
 } from "#compiler/runtime/write/witness.ts"
+import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import type { OwnLaw, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
 
@@ -379,7 +379,7 @@ export const bindWrite = (
 			? { kind: "filled", value: 0n }
 			: {
 					kind: "filled",
-					value: literalHost(carrierSpecOf(owned.type, codes), owned.start)
+					value: hostOfLiteral(owned.type.carrier, owned.start)
 				}
 	/**
 	 * A row of `relation` the ChangeSet states, as its write fills it (witness.ts JudgedRow): `columns` its columns as

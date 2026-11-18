@@ -10,12 +10,14 @@
  * Bound: every monoid on every carrier it admits (count on natural; sum on int2, int4, int8, natural and numeric(4, 1);
  * or and twos on a two-handle roster's sets; max on int2, int4, int8, natural, a closed id and money), over an ordered
  * family with named accumulators or hidden ones and a counted family with hidden ones, stepping over every member or
- * those a selection holds of: 84 folds, each over every family of up to three members drawn from the carrier's small
+ * those a selection holds of, a boolean's or two vectors' comparison, v <> w, which the host evaluates over the vectors'
+ * own host values: 126 folds, each over every family of up to three members drawn from the carrier's small
  * values (three a plane, four a set), each member selected or not. A sum over money is refused at the fold's typing,
  * so it has no fill. The named mutant, the base seeded from the first member, is a first before that is no identity,
  * which the identity assertion refuses wherever the first member's value is not the identity.
  *
- * Features: each monoid, an empty family, a member stepped over, hidden accumulators, a counted family.
+ * Features: each monoid, an empty family, a member stepped over, a member a vector comparison steps over, hidden
+ * accumulators, a counted family.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -48,6 +50,7 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 			"monoid max",
 			"an empty family",
 			"a member stepped over",
+			"a member a vector comparison steps over",
 			"hidden accumulators",
 			"a counted family"
 		] satisfies ReadonlyArray<Reached<FoldFeature>>,
@@ -65,7 +68,7 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 				const m = foldMonoid(c.shape)
 				const steps = Arr.map(c.members, (member) => ({
 					x: member.x,
-					selected: !c.shape.selected || member.flag
+					selected: c.shape.selection === "none" || member.flag
 				}))
 				const expected = folded(m, steps)
 				const [fold] = fills.family.folds
@@ -102,8 +105,11 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 						BigInt(c.members.length),
 						"every member copies its owner's count"
 					)
-					if (c.shape.selected && c.members[slot]?.flag === false) {
+					if (c.shape.selection !== "none" && c.members[slot]?.flag === false) {
 						note.note("a member stepped over")
+						if (c.shape.selection === "vectors") {
+							note.note("a member a vector comparison steps over")
+						}
 					}
 				}
 				assert.deepEqual(
@@ -138,7 +144,7 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 			kind: "second-implementation",
 			name: "folded (test/support/families/fold.ts)"
 		},
-		box: "every admitted fold of the 84 shapes over every family of up to three members of each carrier's small values",
+		box: "every admitted fold of the 126 shapes over every family of up to three members of each carrier's small values",
 		kept: [],
 		kills: [
 			{
@@ -154,6 +160,13 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 				replacement:
 					'\t\tcase "predecessor": {\n\t\t\tconst after = row.layout.columns.get(rule.to)?.rule\n\t\t\tif (row.predecessor === undefined && after?.kind === "after" && after.fold.monoid === "max" && after.x !== undefined) {\n\t\t\t\treturn valueOf(row, after.x, evaluate)\n\t\t\t}\n\t\t\treturn Result.ok(\n\t\t\t\trow.predecessor === undefined ? rule.base : filledBefore(row.predecessor, rule.to, row)\n\t\t\t)\n\t\t}',
 				why: "A max fold's first before is seeded from the first member's value, not the identity; the fills disagree with the reference fold at slot 0's before."
+			},
+			{
+				file: "packages/engine/src/runtime/write/fill.ts",
+				original: "\t\t\t\t\t\t: admitted(spec, value)",
+				replacement:
+					'\t\t\t\t\t\t: spec.carrier === "vector"\n\t\t\t\t\t\t\t? undefined\n\t\t\t\t\t\t\t: admitted(spec, value)',
+				why: "The host evaluator reads no vector column, as it did before one host value form, so a fold stepping over v <> w refuses every member as factShape; the fills disagree with the reference fold."
 			}
 		]
 	})

@@ -184,7 +184,7 @@ const literalOf = (value: unknown, type: ScalarType, what: string) => {
 		S.decodeWith(literalDescShape, desc, what),
 		`${what} is a Description literal`
 	)
-	return succeeded(irLiteral(decoded, type), `${what} is a literal of its type`).literal
+	return succeeded(irLiteral(decoded, type), `${what} is a literal of its type`)
 }
 
 /**

@@ -32,7 +32,6 @@ import type { Heading } from "#compiler/ir/rel.ts"
 import type { ScalarType, SpanCarrier } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { MemberKey } from "#compiler/runtime/write/draw.ts"
-import { literalHost } from "#compiler/runtime/write/fill.ts"
 import {
 	nestedConflict,
 	type NestedFact,
@@ -46,6 +45,7 @@ import {
 } from "#compiler/runtime/write/nesting.ts"
 import { type KeyWitness, keyWitness } from "#compiler/runtime/write/outcome.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
+import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import { DigestBook, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
@@ -522,9 +522,7 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 				codes
 			})
 	const startOf = (st: StartData): unknown =>
-		st.start.kind === "zero"
-			? 0n
-			: literalHost(carrierSpecOf(st.start.type, codes), st.start.literal)
+		st.start.kind === "zero" ? 0n : hostOfLiteral(st.start.type.carrier, st.start.literal)
 	const inputOf = (input: InputData): BindInput => {
 		switch (input.kind) {
 			case "single": {

@@ -5,7 +5,6 @@ import { Array as Arr } from "effect"
 import type { AxisKind } from "#compiler/ir/family.ts"
 import type { NativeOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
@@ -18,6 +17,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import {
 	drawnColumn,
 	modelOf,
@@ -149,13 +149,13 @@ export const stateOf = (model: LawModel, m: Merge): State => {
 	const copy = drawnColumn(model, "Member", "copy")
 	const n = BigInt(m.members.length)
 	return new Map<string, ReadonlyArray<Row>>([
-		["Owner", [new Map<string, CarrierValue>([["id", 1n], ["n", n], ...m.owner])]],
+		["Owner", [new Map<string, ModelValue>([["id", 1n], ["n", n], ...m.owner])]],
 		[
 			"Member",
 			Arr.map(
 				m.members,
 				(values, k) =>
-					new Map<string, CarrierValue>([
+					new Map<string, ModelValue>([
 						["id", BigInt(10 + k)],
 						["owner", 1n],
 						["at", BigInt(k)],

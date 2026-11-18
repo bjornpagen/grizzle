@@ -248,7 +248,7 @@ export const literalPairs = oneOf(
 export type FoldFeature =
 	| `decided ${Decision}`
 	| `compared ${Typed["type"]}`
-	| "a vector membership left to PostgreSQL"
+	| "a vector membership decided"
 
 /** A filter over the postings whose predicate `pred` builds, simplified, and its decision. */
 export const decide = (pred: (q: Q, region: RelNode) => ScalarExpr, judged: Judged): Decision => {

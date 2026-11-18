@@ -110,7 +110,6 @@ const genFactsOf = (t: Theory, facts: HostFacts): GenFacts => {
 				)
 				return canonicallySpelled(
 					succeeded(irLiteral(literal, c.type), `${r.name}.${c.name} holds a literal of its type`)
-						.literal
 				)
 			})
 		)

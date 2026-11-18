@@ -131,7 +131,7 @@ const genFactsOf = (t: Theory, facts: HostFacts): GenFacts =>
 										succeeded(
 											irLiteral(literal, c.type),
 											`${r.name}.${c.name} holds a literal of its type`
-										).literal
+										)
 									)
 								})
 							)

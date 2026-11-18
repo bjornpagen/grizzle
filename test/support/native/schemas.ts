@@ -10,7 +10,6 @@ import type {
 	TermDesc
 } from "#compiler/ir/desc.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import {
 	type AuthoredStatementDesc,
@@ -39,6 +38,7 @@ import {
 	type Span
 } from "#test/support/laws/model.ts"
 import type { NativeRow, NativeState } from "#test/support/native/model.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 
 /**
  * The schemas the native-model suite draws, each stated twice from one description: as the SchemaDesc grizzle
@@ -804,7 +804,7 @@ const hostState = (relations: Relations, state: State): HostState =>
 	)
 
 /** A value as PostgreSQL's carrier: an integer as a bigint, a span as its bigint endpoints, a boolean as itself. */
-const carrierOf = (v: Value): CarrierValue =>
+const carrierOf = (v: Value): ModelValue =>
 	typeof v === "number"
 		? BigInt(v)
 		: typeof v === "boolean"

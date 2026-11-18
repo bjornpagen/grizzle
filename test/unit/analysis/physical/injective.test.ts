@@ -24,7 +24,7 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { castInjective } from "#compiler/ir/injective.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import {
 	castable,
 	castChain,
@@ -64,8 +64,8 @@ export const castInjectiveAdmitsOnlyCastsThatMergeNoTwoValuesOfTheirSourceAndEve
 						}
 						/** The source's values, distinct under its native equality, each with its image or the cast's refusal. */
 						const values: Array<{
-							readonly value: CarrierValue
-							readonly image: CarrierValue | undefined
+							readonly value: ModelValue
+							readonly image: ModelValue | undefined
 						}> = []
 						for (const d of dictionary) {
 							if (!castable(d.type, from.type)) {

@@ -200,7 +200,7 @@ export class ViolationBuilder {
 		if (!typed.ok) {
 			return refuse("MalformedDescription", this.loc, `${what}: ${typed.error}`)
 		}
-		return this.typed(typed.value.literal, type)
+		return this.typed(typed.value, type)
 	}
 
 	/** A literal already typed at `type`. */

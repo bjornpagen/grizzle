@@ -7,7 +7,7 @@
  *
  * - Literal folding compares literals under PostgreSQL's equality and order: numeric by value whatever its scale,
  *   float8's NaN above every number and equal to itself, -0 equal to 0, text by code points.
- * - BETWEEN and IN over literals are decided; IN over vectors, which the host never orders, is left to PostgreSQL.
+ * - BETWEEN and IN over literals are decided, IN over vectors by pgvector's equality, the host's vector_cmp order.
  * - Arithmetic is never evaluated on the host; a connective's deciding literal decides it, dropping the other operand.
  * - A filter over a roster's declared facts is the satisfying facts, as a set.
  * - An empty input is removed, whatever evaluations it drops.
@@ -20,7 +20,7 @@
  * The merges of filters and of projections are the rewrite population's (rewrite/generated.test.ts, which requires
  * simplify.mergeFilters and plants simplify.mergeProjections), held to the same delivery.
  *
- * Features: each decision and each type compared; a vector membership left to PostgreSQL; facts satisfying and none;
+ * Features: each decision and each type compared; a vector membership decided; facts satisfying and none;
  * each kind of branch removed; every conjunct an equality, and a conjunct left.
  */
 
@@ -99,24 +99,24 @@ export const literalFoldingComparesLiteralsUnderPostgreSQLsEqualityAndOrderNumer
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/compute/evaluate.ts",
-					original: "\t\t\treturn isNumber(a) && isNumber(b) ? compareFloat(a, b) : undefined",
+					file: "packages/engine/src/scalar/values/identity.ts",
+					original: "\tfloat8: (x, y) => compareFloat(x, y),",
 					replacement:
-						"\t\t\treturn isNumber(a) && isNumber(b)\n\t\t\t\t? Number.isNaN(a) || Number.isNaN(b)\n\t\t\t\t\t? 0\n\t\t\t\t\t: compareFloat(a, b)\n\t\t\t\t: undefined",
-					why: "The host's float comparison takes NaN as equal to every number (compute/evaluate.ts compareValues); the simplify-literal-order search fails."
+						"\tfloat8: (x, y) => (Number.isNaN(x) || Number.isNaN(y) ? 0 : compareFloat(x, y)),",
+					why: "The host's double precision order takes NaN as equal to every number (scalar/values/identity.ts compareValues, which folding reads through compute/evaluate.ts comparisonHolds); the simplify-literal-order search fails."
 				}
 			]
 		}
 	)
 
-/** Literal folding decides BETWEEN and IN over literals, and leaves IN over vectors, which the host never orders, to PostgreSQL. */
-export const literalFoldingDecidesBETWEENAndINOverLiteralsAndLeavesINOverVectorsWhichTheHostNeverOrdersToPostgreSQL =
+/** Literal folding decides BETWEEN and IN over literals, IN over vectors among them by pgvector's equality. */
+export const literalFoldingDecidesBETWEENAndINOverLiteralsINOverVectorsAmongThemByPgvectorsEquality =
 	property.exhaust(finite(forms), {
 		needs: {},
 		situations: [
 			"decided true",
 			"decided false",
-			"a vector membership left to PostgreSQL"
+			"a vector membership decided"
 		] satisfies ReadonlyArray<Reached<FoldFeature>>,
 		check: (_, c: Case<FoldFeature>) => (form) =>
 			Effect.sync(() => {
@@ -129,10 +129,10 @@ export const literalFoldingDecidesBETWEENAndINOverLiteralsAndLeavesINOverVectors
 							? form.among.includes(form.x)
 								? "true"
 								: "false"
-							: "undecided"
-				c.note(
-					form.kind === "vectors" ? "a vector membership left to PostgreSQL" : `decided ${expected}`
-				)
+							: form.same
+								? "true"
+								: "false"
+				c.note(form.kind === "vectors" ? "a vector membership decided" : `decided ${expected}`)
 				const decision = decide(
 					(q) => {
 						if (form.kind === "between") {
@@ -166,16 +166,22 @@ export const literalFoldingDecidesBETWEENAndINOverLiteralsAndLeavesINOverVectors
 			}),
 		oracle: {
 			kind: "specification",
-			name: "BETWEEN and IN decided by their bounds and members; IN over vectors left to PostgreSQL"
+			name: "BETWEEN and IN decided by their bounds and members, a vector's by its components"
 		},
 		box: "BETWEEN over three of 0..2, IN of one of 0..2 among one or two, and IN over a vector equal to the list's or not",
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/lower/optimize/simplify/boolean.ts",
-				original: "\t\t\treturn lo >= 0 && hi <= 0",
-				replacement: "\t\t\treturn lo > 0 && hi < 0",
-				why: "BETWEEN over literals decided strict on both bounds; the simplify-between-in search fails."
+				file: "packages/engine/src/scalar/compute/evaluate.ts",
+				original: "\t\t\treturn compare(a, at(1), type) >= 0 && compare(a, at(2), type) <= 0",
+				replacement: "\t\t\treturn compare(a, at(1), type) > 0 && compare(a, at(2), type) < 0",
+				why: "BETWEEN decided strict on both bounds (compute/evaluate.ts comparisonHolds, which folding reads over literals); the simplify-between-in search fails."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: "\tvector: (x, y) => Vector.compare(x, y),",
+				replacement: "\tvector: () => 0,",
+				why: "The host takes every two vectors as equal, so IN over a vector the list does not hold is decided true; the simplify-between-in search fails."
 			}
 		]
 	})

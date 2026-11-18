@@ -78,7 +78,7 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 					"a compile's parses are the same however many readers its patterns have"
 				)
 				const codes = firstCodebook(rostersOf(drawnOwned))
-				const evaluate = hostEvaluator(codes, closedLeaf(new Map()), laws.patterns)
+				const evaluate = hostEvaluator(closedLeaf(new Map()), laws.patterns)
 				const relations = Arr.map(c.relations, (fields, r) => {
 					const relation = defined(laws.checked.relations.get(`R${r}c0`), "a checked relation")
 					const fieldOf = (name: string) =>

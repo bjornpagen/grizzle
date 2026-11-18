@@ -215,8 +215,8 @@ export const generatedFieldsOnPostgreSQL19rc2EveryGeneratedColumnHoldsWhatTheHos
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
-				original: "\t\t\t\t? Result.ok(new Set([...a].filter((h) => b.has(h))))",
-				replacement: "\t\t\t\t? Result.ok(new Set([...a, ...b]))",
+				original: '\t\t\treturn Result.ok(new Set([...hostOf("bits", a)].filter((h) => y.has(h))))',
+				replacement: '\t\t\treturn Result.ok(new Set([...hostOf("bits", a), ...y]))',
 				why: "The host evaluator's set intersection is the union."
 			}
 		]

@@ -39,7 +39,6 @@ import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.
 import * as Result from "#compiler/core/result.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { dateOfDayNumber, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import { type ExprTable, tableReads, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { type FillAt, layoutKey } from "#compiler/ir/fill.ts"
@@ -52,15 +51,15 @@ import {
 } from "#compiler/ir/law.ts"
 import { type CombineBuild, type CombineStep, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import type { PatternSource, ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type PatternSource, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type EvalLeaves,
 	type EvalStop,
 	evaluateTable,
-	literalValue,
+	type SqlValue,
 	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
+import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
@@ -71,7 +70,8 @@ import {
 	type Carrier,
 	type CarrierHost,
 	type CarrierSpec,
-	compareValues
+	compareValues,
+	type HostValue
 } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
@@ -155,7 +155,7 @@ export type HostEvaluator = (
 	relation: EvaluatedRelation,
 	table: ExprTable,
 	read: (field: string) => unknown
-) => Result.Result<unknown, EvalStop>
+) => Result.Result<SqlValue, EvalStop>
 
 /**
  * Why a fill has no value for a column, the nesting's walk and a family's edit alike: an expression the host cannot
@@ -415,13 +415,13 @@ const hostRule = (rule: FillRuleData, spec: CarrierSpec): Rule => {
 		case "count":
 			return { kind: "count", family: familyKey(rule.family) }
 		case "predecessor":
-			return { kind: "predecessor", to: rule.to, base: literalHost(spec, rule.base) }
+			return { kind: "predecessor", to: rule.to, base: hostOfLiteral(spec.carrier, rule.base) }
 		case "last":
 			return {
 				kind: "last",
 				family: familyKey(rule.family),
 				to: rule.to,
-				base: literalHost(spec, rule.base)
+				base: hostOfLiteral(spec.carrier, rule.base)
 			}
 		case "after":
 			return {
@@ -485,111 +485,12 @@ const hostLayout = (layout: FillLayoutData, filled: FilledRelation, codes: Codeb
 }
 
 /**
- * A carrier value as the evaluator holds it, from a codec's host value: integers as bigint, spans of bigints, a date
- * span's endpoints as their day numbers, a bytes value as its admitted value, whose digest Compute.sha256 reads.
- */
-export const evalValue = (spec: CarrierSpec, value: unknown): CarrierValue | undefined => {
-	switch (spec.carrier) {
-		case "int2":
-		case "int4":
-			return typeof value === "number" ? BigInt(value) : undefined
-		case "range4":
-			return isSpan(value) && typeof value.start === "number" && typeof value.end === "number"
-				? { start: BigInt(value.start), end: BigInt(value.end) }
-				: undefined
-		case "rangeDate": {
-			if (!isSpan(value)) {
-				return undefined
-			}
-			const start = toCalendarDate(value.start)
-			const end = toCalendarDate(value.end)
-			return start.ok && end.ok
-				? { start: BigInt(dayNumber(start.value)), end: BigInt(dayNumber(end.value)) }
-				: undefined
-		}
-		case "vector":
-			return undefined
-		case "bytes":
-			return isAdmittedBytes(value) ? value : undefined
-		case "int8":
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "money":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "code":
-		case "bits":
-		case "range8":
-		case "exactInteger":
-		case "exactMoney":
-			return isCarrierValue(value) ? value : undefined
-	}
-}
-
-const isSpan = (value: unknown): value is { readonly start: unknown; readonly end: unknown } =>
-	typeof value === "object" && value !== null && "start" in value && "end" in value
-
-const isCarrierValue = (value: unknown): value is CarrierValue =>
-	typeof value === "bigint" ||
-	typeof value === "number" ||
-	typeof value === "boolean" ||
-	typeof value === "string" ||
-	value instanceof Decimal ||
-	value instanceof Money ||
-	value instanceof Set ||
-	isSpan(value)
-
-/**
- * A codec's host value of a carrier from the evaluator's: smallint's and integer's numbers, a range4's endpoints, a
- * date span's endpoints as the dates their day numbers are.
- */
-const hostValue = (spec: CarrierSpec, value: CarrierValue): unknown => {
-	switch (spec.carrier) {
-		case "int2":
-		case "int4":
-			return typeof value === "bigint" ? Number(value) : value
-		case "range4":
-			return isSpan(value) && typeof value.start === "bigint" && typeof value.end === "bigint"
-				? { start: Number(value.start), end: Number(value.end) }
-				: value
-		case "rangeDate":
-			return isSpan(value) && typeof value.start === "bigint" && typeof value.end === "bigint"
-				? { start: dateOfDayNumber(value.start), end: dateOfDayNumber(value.end) }
-				: value
-		case "int8":
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "money":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range8":
-		case "vector":
-		case "exactInteger":
-		case "exactMoney":
-			return value
-	}
-}
-
-/** A typed literal as a column's host value: a base, an identity or a start. */
-export const literalHost = (spec: CarrierSpec, literal: TypedLiteral): unknown =>
-	hostValue(spec, literalValue(literal))
-
-/**
  * The host evaluator over the closed relations `closed` answers and the compiled program's admitted patterns
- * (scalar/regex/patterns.ts ProgramPatterns): a row's field read through its carrier as the relation it judges holds it
- * (`EvaluatedRelation`), and the result back as the expression type's host value.
+ * (scalar/regex/patterns.ts ProgramPatterns): a row's field read as the relation it judges holds it, its codec's host
+ * value, which is the evaluator's own (scalar/compute/evaluate.ts), and the result the expression type's host value.
  */
 export const hostEvaluator =
-	(codes: Codebook, closed: EvalLeaves["closed"], patterns: PatternReads): HostEvaluator =>
+	(closed: EvalLeaves["closed"], patterns: PatternReads): HostEvaluator =>
 	(relation, table, read) => {
 		const leaves: EvalLeaves = {
 			value: undefined,
@@ -600,14 +501,11 @@ export const hostEvaluator =
 					? undefined
 					: value === sqlNull
 						? sqlNull
-						: evalValue(spec, value)
+						: admitted(spec, value)
 			},
 			closed
 		}
-		const type = defined(table.exprs[table.root], "an expression table's root").type
-		return Result.map(evaluateTable(table.exprs, table.root, leaves, patterns), (v) =>
-			v === sqlNull ? sqlNull : hostValue(carrierSpecOf(type, codes), v)
-		)
+		return evaluateTable(table.exprs, table.root, leaves, patterns)
 	}
 
 /**
@@ -643,6 +541,9 @@ export interface ClosedRows {
 	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
 }
 
+/** A closed relation's key cell as its host value: a closed id's handle, which every key field is. */
+const keyHost = (cell: TypedLiteral): HostValue => hostOfLiteral("code", cell)
+
 /**
  * The closed reads the host evaluates a generation expression's C.at, C.row and C.has by, over the closed relations
  * `closed` holds, by name: C.at's cell is the field's value at the row whose key is its arguments, NULL where no row is;
@@ -654,23 +555,23 @@ export interface ClosedRows {
 export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves["closed"] => {
 	const cells = new Map<
 		string,
-		ReadonlyTupleMap<ReadonlyArray<CarrierValue>, ReadonlyArray<TypedLiteral>>
+		ReadonlyTupleMap<ReadonlyArray<HostValue>, ReadonlyArray<TypedLiteral>>
 	>()
 	const prefixes = new Map<
 		string,
-		ReadonlyTupleMap<ReadonlyArray<CarrierValue>, ReadonlySet<string>>
+		ReadonlyTupleMap<ReadonlyArray<HostValue>, ReadonlySet<string>>
 	>()
 	const keyed = (
 		relation: string,
 		c: ClosedRows
-	): ReadonlyTupleMap<ReadonlyArray<CarrierValue>, ReadonlyArray<TypedLiteral>> => {
+	): ReadonlyTupleMap<ReadonlyArray<HostValue>, ReadonlyArray<TypedLiteral>> => {
 		const held = cells.get(relation)
 		if (held !== undefined) {
 			return held
 		}
-		const built = new TupleMap<ReadonlyArray<CarrierValue>, ReadonlyArray<TypedLiteral>>()
+		const built = new TupleMap<ReadonlyArray<HostValue>, ReadonlyArray<TypedLiteral>>()
 		for (const row of c.rows) {
-			built.set(row.slice(0, c.key).map(literalValue), row)
+			built.set(row.slice(0, c.key).map(keyHost), row)
 		}
 		cells.set(relation, built)
 		return built
@@ -678,19 +579,19 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 	const completed = (
 		relation: string,
 		c: ClosedRows
-	): ReadonlyTupleMap<ReadonlyArray<CarrierValue>, ReadonlySet<string>> => {
+	): ReadonlyTupleMap<ReadonlyArray<HostValue>, ReadonlySet<string>> => {
 		const held = prefixes.get(relation)
 		if (held !== undefined) {
 			return held
 		}
-		const built = new TupleMap<ReadonlyArray<CarrierValue>, Set<string>>()
+		const built = new TupleMap<ReadonlyArray<HostValue>, Set<string>>()
 		for (const row of c.rows) {
 			const last = row[c.key - 1]
-			const value = last === undefined ? undefined : literalValue(last)
+			const value = last === undefined ? undefined : keyHost(last)
 			if (typeof value !== "string") {
 				continue
 			}
-			const prefix = row.slice(0, c.key - 1).map(literalValue)
+			const prefix = row.slice(0, c.key - 1).map(keyHost)
 			const set = built.get(prefix) ?? new Set<string>()
 			set.add(value)
 			built.set(prefix, set)
@@ -710,7 +611,7 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 					return sqlNull
 				}
 				const cell = row[c.heading.findIndex((h) => h.name === read.field)]
-				return cell === undefined ? undefined : literalValue(cell)
+				return cell === undefined ? undefined : hostOfLiteral(baseOf(read.type).carrier, cell)
 			}
 			case "closedHas":
 				return keyed(read.relation, c).has(args)

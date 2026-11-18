@@ -25,7 +25,6 @@ import {
 	installationOver
 } from "#compiler/physical/install/compile.ts"
 import { type InstallBasis, installBasis } from "#compiler/physical/install/plan.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -40,6 +39,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { generatedOn, lawColumnsOf } from "#test/unit/laws/model/natives.ts"
 
@@ -525,7 +525,7 @@ export const objectsOf = (installation: Installation): Objects => {
 }
 
 /** A row of T in the box: each field by its name, at its carrier's value. */
-type Row = ReadonlyMap<string, CarrierValue>
+type Row = ReadonlyMap<string, ModelValue>
 
 const BITS = [0n, 1n] as const
 
@@ -537,7 +537,7 @@ const ROWS: ReadonlyArray<Row> = Arr.flatMap(BITS, (id) =>
 				Arr.map(
 					[0n, 1n, 2n],
 					(kind): Row =>
-						new Map<string, CarrierValue>([
+						new Map<string, ModelValue>([
 							["id", id],
 							["a", a],
 							["b", b],
@@ -551,7 +551,7 @@ const ROWS: ReadonlyArray<Row> = Arr.flatMap(BITS, (id) =>
 )
 
 /** A literal of the box's selections: an integer's. */
-const boxValue = (l: TypedLiteral): CarrierValue =>
+const boxValue = (l: TypedLiteral): ModelValue =>
 	l.kind === "int" ? l.value : assert.fail(`an integer literal of the box, not ${l.kind}`)
 
 /**
@@ -624,15 +624,15 @@ const valueAt = (
 	lawColumns: ReadonlyMap<ColumnIdent, NativeOf<"LawColumn">>,
 	row: Row,
 	c: NativeColumn
-): CarrierValue | undefined =>
+): ModelValue | undefined =>
 	c.kind === "field"
 		? row.get(c.field.name)
 		: generatedOn(defined(lawColumns.get(c.column), `the law column ${c.column} of T`), row)
 
 /** Whether a unique index holds two rows apart: each of its columns NULL on neither and equal. */
 const refusesTogether = (
-	x: ReadonlyArray<CarrierValue | undefined>,
-	y: ReadonlyArray<CarrierValue | undefined>
+	x: ReadonlyArray<ModelValue | undefined>,
+	y: ReadonlyArray<ModelValue | undefined>
 ): boolean => Arr.every(x, (v, i) => v !== undefined && v === y[i])
 
 /**

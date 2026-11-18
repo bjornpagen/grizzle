@@ -82,7 +82,7 @@ export const fills = Object.freeze(
 					{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
 				]),
 				codes,
-				hostEvaluator(codes, closedLeaf(new Map()), model.patterns)
+				hostEvaluator(closedLeaf(new Map()), model.patterns)
 			)
 		}
 	})

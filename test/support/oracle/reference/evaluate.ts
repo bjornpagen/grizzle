@@ -25,7 +25,6 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { type RegexRef, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
@@ -37,6 +36,7 @@ import {
 	type ValueIdentity,
 	type Interned
 } from "#test/support/kernel/identity.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { type GenFacts, rowValues } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
@@ -124,7 +124,7 @@ const appliedAtoms = (expr: ScalarExpr): ReadonlyArray<Atom> => {
  * A stated operand of a declined term, in its identity (Reference termOf): its type, which PostgreSQL's operations read
  * besides the value, then its value's identity (values.ts valueIdentity).
  */
-const statedTerm = (v: CarrierValue, type: ScalarType): ValueIdentity => [
+const statedTerm = (v: ModelValue, type: ScalarType): ValueIdentity => [
 	"stated",
 	typeLabel(type),
 	...valueIdentity(v, type)

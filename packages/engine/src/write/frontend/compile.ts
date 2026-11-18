@@ -956,7 +956,6 @@ const compile = (
 	/** The host's evaluation of the generated fields a nesting's copies, steps and selections read, over the schema's
 	 * closed relations, as PostgreSQL generates them, by the law model's compiled patterns. */
 	const evaluate = hostEvaluator(
-		codes,
 		closedLeaf(
 			new Map(
 				[...checked.closed].map(([name, c]): readonly [string, ClosedRows] => [

@@ -7,9 +7,12 @@ import {
 	type TypedLiteral,
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
+import { baseOf } from "#compiler/ir/scalar.ts"
 import type { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
-import { compareValues, literalValue } from "#compiler/scalar/compute/evaluate.ts"
-import { connectiveOps, type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { type ComparisonFn, comparisonHolds } from "#compiler/scalar/compute/evaluate.ts"
+import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
+import { connectiveOps, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import type { HostValue } from "#compiler/scalar/values/identity.ts"
 
 type Folded =
 	| { readonly kind: "value"; readonly value: boolean }
@@ -47,16 +50,11 @@ const literalOf = (e: ScalarExpr, column: ColumnValue): TypedLiteral | undefined
 	return undefined
 }
 
-/** The native functions folding decides on constant operands. */
-type Comparison = Extract<NativeFn, "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "between" | "in">
-
-/** The truth value of a comparison of constant operands, or undefined. */
-const compare = (expr: ScalarExpr, fn: Comparison, column: ColumnValue): boolean | undefined => {
-	const values = expr.args.map((a) => literalOf(a, column))
-	const literals = values.filter((v): v is TypedLiteral => v !== undefined)
-	if (literals.length !== values.length) {
-		return undefined
-	}
+/**
+ * The truth value of a comparison of constant operands, the evaluator's (scalar/compute/evaluate.ts comparisonHolds)
+ * over each operand's host value at its type, or undefined where an operand is no constant.
+ */
+const compare = (expr: ScalarExpr, fn: ComparisonFn, column: ColumnValue): boolean | undefined => {
 	const [first] = expr.args
 	if (first === undefined) {
 		throw refusal(
@@ -64,67 +62,15 @@ const compare = (expr: ScalarExpr, fn: Comparison, column: ColumnValue): boolean
 			`an operand of the comparison ${fn}`
 		)
 	}
-	const type = first.type
-	const vals = literals.map(literalValue)
-	const cmp = (i: number, j: number) => {
-		const a = vals[i]
-		const b = vals[j]
-		return a === undefined || b === undefined ? undefined : compareValues(a, b, type)
-	}
-	switch (fn) {
-		case "eq":
-		case "ne":
-		case "lt":
-		case "le":
-		case "gt":
-		case "ge": {
-			const c = cmp(0, 1)
-			if (c === undefined) {
-				return undefined
-			}
-			return fn === "eq"
-				? c === 0
-				: fn === "ne"
-					? c !== 0
-					: fn === "lt"
-						? c < 0
-						: fn === "le"
-							? c <= 0
-							: fn === "gt"
-								? c > 0
-								: c >= 0
-		}
-		case "between": {
-			const lo = cmp(0, 1)
-			const hi = cmp(0, 2)
-			if (lo === undefined || hi === undefined) {
-				return undefined
-			}
-			return lo >= 0 && hi <= 0
-		}
-		case "in":
-			return memberOf(vals.length, cmp)
-	}
-}
-
-/**
- * Whether the first of `count` values equals one of the others under `cmp`, deciding in list order: undefined at the
- * first comparison that cannot be decided before an equal one.
- */
-const memberOf = (
-	count: number,
-	cmp: (i: number, j: number) => number | undefined
-): boolean | undefined => {
-	for (let i = 1; i < count; i++) {
-		const c = cmp(0, i)
-		if (c === undefined) {
+	const values: Array<HostValue> = []
+	for (const a of expr.args) {
+		const literal = literalOf(a, column)
+		if (literal === undefined) {
 			return undefined
 		}
-		if (c === 0) {
-			return true
-		}
+		values.push(hostOfLiteral(baseOf(a.type).carrier, literal))
 	}
-	return false
+	return comparisonHolds(fn, values, first.type)
 }
 
 const boolLiteral = (editor: DagEditor, like: ScalarExpr, value: boolean): ScalarExpr =>
@@ -149,9 +95,10 @@ const boolLiteral = (editor: DagEditor, like: ScalarExpr, value: boolean): Scala
  *
  * - the boolean literals and the connectives `and`, `or` and `not`;
  * - the comparisons `=`, `<>`, `<`, `<=`, `>`, `>=`, BETWEEN and IN between operands that are literals, or columns
- *   whose value the caller fixes (a closed relation's declared fact), compared under PostgreSQL's own total orders
- *   (compute/evaluate.ts compareValues: NaN above every number and equal to itself, -0 equal to 0, numeric scale
- *   ignored, text in code-point order under C.UTF-8, closed ids in roster order).
+ *   whose value the caller fixes (a closed relation's declared fact), evaluated as the host evaluates every comparison
+ *   (compute/evaluate.ts comparisonHolds), under PostgreSQL's own total orders (scalar/values/identity.ts
+ *   compareValues: NaN above every number and equal to itself, -0 equal to 0, numeric scale ignored, text in code-point
+ *   order under C.UTF-8, closed ids in roster order, vectors as vector_cmp).
  *
  * Anything else, a parameter, an arithmetic operator, a cast, a conditional, is left to PostgreSQL. A connective whose
  * value an operand decides drops the other operands, which raise nothing: every expression is total.

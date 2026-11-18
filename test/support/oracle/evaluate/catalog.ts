@@ -4,14 +4,15 @@ import { Array as Arr, Option, Result, String as Str } from "effect"
 import type { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
-import { codePoints } from "#compiler/core/text.ts"
+import { codePoints, compareCodePoints } from "#compiler/core/text.ts"
 import type { VectorText } from "#compiler/ir/carriers.ts"
 import {
 	type ColumnRef,
 	describeOp,
 	type OpId,
 	predicateTree,
-	type ScalarExpr
+	type ScalarExpr,
+	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
@@ -23,9 +24,7 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 import type { CastValue, HostCast, IntCarrier } from "#compiler/scalar/compute/cast.ts"
-import { compareValues, literalValue } from "#compiler/scalar/compute/evaluate.ts"
 import { totalFloat } from "#compiler/scalar/compute/float.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import * as TotalNumeric from "#compiler/scalar/compute/numeric.ts"
 import {
 	castOf,
@@ -38,8 +37,9 @@ import { matches } from "#compiler/scalar/regex/match.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero } from "#compiler/scalar/values/float.ts"
+import type { BytesDigest } from "#compiler/scalar/values/bytes.ts"
+import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { canonicalZero, compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"
 import { referenceDouble } from "#test/support/oracle/evaluate/double-text.ts"
@@ -179,7 +179,60 @@ export type CatalogStop =
 			readonly what: string
 	  }
 
-export type CatalogResult = Result.Result<CarrierValue, CatalogStop>
+/**
+ * A value as the reference evaluator holds it, in exact carriers of its own, which no form of the engine's constrains:
+ * an integer, an exact integer's among them, as a bigint, numeric as Decimal, a float as a double, money as Money,
+ * booleans, and text, uuids, dates and closed ids' handles as strings, a set as the Set of its handles, a span as the
+ * { start, end } positions of its endpoints, a date span's their day numbers, a vector as its canonical components,
+ * and a bytes value as its digest, all Compute.sha256 reads.
+ */
+export type ModelValue =
+	| bigint
+	| Decimal
+	| number
+	| Money
+	| boolean
+	| string
+	| ReadonlySet<string>
+	| { readonly start: bigint; readonly end: bigint }
+	| { readonly vector: VectorText }
+	| BytesDigest
+
+/** The reference's value of a typed literal. */
+export const modelLiteral = (literal: TypedLiteral): ModelValue => {
+	switch (literal.kind) {
+		case "int":
+			return literal.value
+		case "numeric":
+			return Decimal.fromValue(literal.value)
+		case "float":
+			return literal.value
+		case "floatSpecial":
+			return literal.value === "NaN"
+				? Number.NaN
+				: literal.value === "Infinity"
+					? Number.POSITIVE_INFINITY
+					: Number.NEGATIVE_INFINITY
+		case "money":
+			return Money.fromValue(literal.value)
+		case "bool":
+			return literal.value
+		case "text":
+		case "uuid":
+		case "date":
+			return literal.value
+		case "handle":
+			return literal.handle
+		case "handles":
+			return new Set(literal.handles)
+		case "span":
+			return { start: literal.start, end: literal.end }
+		case "vector":
+			return { vector: literal.value }
+	}
+}
+
+export type CatalogResult = Result.Result<ModelValue, CatalogStop>
 
 /** Membership of a text value in a regex refinement, the caller's (reference/evaluate.ts patternMember). */
 type RegexMember = (regex: RegexRef, text: string) => boolean
@@ -192,8 +245,8 @@ export type EvalEnv =
 	| { readonly kind: "constant" }
 	| {
 			readonly kind: "row"
-			readonly column: (ref: ColumnRef) => CarrierValue | undefined
-			readonly param: (id: ParamId) => CarrierValue | undefined
+			readonly column: (ref: ColumnRef) => ModelValue | undefined
+			readonly param: (id: ParamId) => ModelValue | undefined
 			readonly regexMember: RegexMember
 	  }
 
@@ -225,11 +278,11 @@ const declined = (
 	why: string
 ): CatalogResult => Result.fail({ kind: "declined", op: op.id, evaluation, what: why })
 
-const lift = <A extends CarrierValue>(r: Result.Result<A, string>): CatalogResult =>
+const lift = <A extends ModelValue>(r: Result.Result<A, string>): CatalogResult =>
 	Result.isSuccess(r) ? Result.succeed(r.success) : undefinedAt(r.failure)
 
 /** A compiler Compute operation's answer, or the numeric port's, which answer the engine's Result. */
-const liftEngine = <A extends CarrierValue>(r: Engine.Result<A, string>): CatalogResult =>
+const liftEngine = <A extends ModelValue>(r: Engine.Result<A, string>): CatalogResult =>
 	r.ok ? Result.succeed(r.value) : undefinedAt(r.error)
 
 /**
@@ -261,7 +314,7 @@ const isHandleSet = (v: unknown): v is ReadonlySet<string> => v instanceof Set
  */
 type SetFn = "union" | "intersection" | "difference" | "cardinality" | "subset" | "disjoint"
 
-const setAlgebra = (fn: SetFn, op: NativeOp, args: ReadonlyArray<CarrierValue>): CatalogResult => {
+const setAlgebra = (fn: SetFn, op: NativeOp, args: ReadonlyArray<ModelValue>): CatalogResult => {
 	const [a, b] = args
 	if (!isHandleSet(a) || (fn !== "cardinality" && !isHandleSet(b))) {
 		return mismatch(op)
@@ -369,7 +422,7 @@ const mismatch = (op: NativeOp): CatalogResult =>
 const regexHolds = (
 	env: EvalEnv,
 	regex: RegexRef,
-	v: CarrierValue
+	v: ModelValue
 ): Result.Result<boolean, CatalogStop> => {
 	if (env.kind === "constant") {
 		return Result.fail({ kind: "unsupported", what: "regex membership, the text package's NFA" })
@@ -380,14 +433,14 @@ const regexHolds = (
 }
 
 /** A carried value's vector, where it is one. */
-const vectorOf = (v: CarrierValue): VectorText | undefined =>
+const vectorOf = (v: ModelValue): VectorText | undefined =>
 	typeof v === "object" && "vector" in v ? v.vector : undefined
 
 /**
  * pgvector's vector_cmp: component by component as binary32 values, the first that differ deciding, then the shorter
  * vector first. A vector holds the one zero, so two vectors compare 0 exactly when they are one value.
  */
-const compareVectors = (a: CarrierValue, b: CarrierValue): -1 | 0 | 1 | undefined => {
+const compareVectors = (a: ModelValue, b: ModelValue): -1 | 0 | 1 | undefined => {
 	const x = vectorOf(a)
 	const y = vectorOf(b)
 	if (x === undefined || y === undefined) {
@@ -407,22 +460,86 @@ const compareVectors = (a: CarrierValue, b: CarrierValue): -1 | 0 | 1 | undefine
 	)
 }
 
+/** Two values of one total order: -1, 0 or 1. */
+const ordered = <V extends bigint | string>(a: V, b: V): -1 | 0 | 1 => (a < b ? -1 : a > b ? 1 : 0)
+
 /**
- * PostgreSQL's comparison of two values of one type: the host's total orders (scalar/compute/evaluate.ts
- * compareValues), and pgvector's order over vectors, the extension's, which the host leaves to the database.
+ * PostgreSQL's comparison of two values of one type, by the reference's own reading of each type's B-tree order, or
+ * undefined where either is no value of it: integers, numeric (NaN last), floats (NaN last, -0 = 0) and money by
+ * value, booleans false first, uuids by their bytes, which their lowercase hex orders, dates by day, text in code point
+ * order under C.UTF-8, a closed id by its position in its roster's declared order, which is its codes' order, a set by
+ * its membership of each handle in that order, a span by its start, then its end, and a vector as pgvector's vector_cmp
+ * orders it. A bytes value has no order the reference reads: no Compute operation compares one.
  */
 export const compareCarried = (
-	a: CarrierValue,
-	b: CarrierValue,
+	a: ModelValue,
+	b: ModelValue,
 	t: ScalarType
-): -1 | 0 | 1 | undefined =>
-	baseOf(t).carrier === "vector" ? compareVectors(a, b) : compareValues(a, b, t)
+): -1 | 0 | 1 | undefined => {
+	const base = baseOf(t)
+	switch (base.carrier) {
+		case "int2":
+		case "int4":
+		case "int8":
+		case "exactInteger":
+			return isBigint(a) && isBigint(b) ? ordered(a, b) : undefined
+		case "numeric":
+			return isDecimal(a) && isDecimal(b) ? compareDecimal(a, b) : undefined
+		case "float4":
+		case "float8":
+			return isNumber(a) && isNumber(b) ? compareFloat(a, b) : undefined
+		case "money":
+		case "exactMoney":
+			return isMoney(a) && isMoney(b) ? a.compare(b) : undefined
+		case "bool":
+			return typeof a === "boolean" && typeof b === "boolean"
+				? a === b
+					? 0
+					: a
+						? 1
+						: -1
+				: undefined
+		case "uuid":
+		case "date":
+			return isString(a) && isString(b) ? ordered(a, b) : undefined
+		case "text":
+			return isString(a) && isString(b) ? compareCodePoints(a, b) : undefined
+		case "bytes":
+			return undefined
+		case "code": {
+			const i = isString(a) ? base.roster.handles.indexOf(a) : -1
+			const j = isString(b) ? base.roster.handles.indexOf(b) : -1
+			return i < 0 || j < 0 ? undefined : i < j ? -1 : i > j ? 1 : 0
+		}
+		case "bits": {
+			if (!isHandleSet(a) || !isHandleSet(b)) {
+				return undefined
+			}
+			const text = (set: ReadonlySet<string>): string =>
+				Arr.join(
+					Arr.map(base.roster.handles, (h) => (set.has(h) ? "1" : "0")),
+					""
+				)
+			return ordered(text(a), text(b))
+		}
+		case "range4":
+		case "range8":
+		case "rangeDate":
+			return isSpanValue(a) && isSpanValue(b)
+				? a.start !== b.start
+					? ordered(a.start, b.start)
+					: ordered(a.end, b.end)
+				: undefined
+		case "vector":
+			return compareVectors(a, b)
+	}
+}
 
 /** PostgreSQL's comparison of two values under `holds`, unsupported when the host claims no order between them. */
 const compared = (
 	op: NativeOp,
-	a: CarrierValue | undefined,
-	b: CarrierValue | undefined,
+	a: ModelValue | undefined,
+	b: ModelValue | undefined,
 	t: ScalarType | undefined,
 	holds: (cmp: -1 | 0 | 1) => boolean
 ): CatalogResult => {
@@ -442,8 +559,8 @@ const compared = (
 const arithmetic = (
 	op: NativeOp,
 	fn: "add" | "sub" | "mul" | "div" | "mod",
-	a: CarrierValue | undefined,
-	b: CarrierValue | undefined,
+	a: ModelValue | undefined,
+	b: ModelValue | undefined,
 	c: Carrier
 ): CatalogResult => {
 	if (isIntCarrier(c)) {
@@ -511,7 +628,7 @@ const arithmetic = (
  */
 const catalogApply = (
 	op: NativeOp,
-	args: ReadonlyArray<CarrierValue>,
+	args: ReadonlyArray<ModelValue>,
 	argTypes: ReadonlyArray<ScalarType>
 ): CatalogResult => {
 	if (evaluationOf(op) === "database") {
@@ -743,7 +860,7 @@ const converted = (r: Engine.Result<CastValue, string>): CatalogResult =>
  */
 const hostCast = (
 	host: HostCast,
-	v: CarrierValue,
+	v: ModelValue,
 	source: Carrier,
 	to: ScalarType
 ): CatalogResult => {
@@ -764,10 +881,10 @@ const hostCast = (
 }
 
 /** A native cast between the value types of two descriptors, then the target's numeric typmod coercion. */
-const castTo = (v: CarrierValue, from: ScalarType, to: ScalarType): CatalogResult => {
+const castTo = (v: ModelValue, from: ScalarType, to: ScalarType): CatalogResult => {
 	const source = baseOf(from).carrier
 	const target = baseOf(to).carrier
-	let out: CarrierValue = v
+	let out: ModelValue = v
 	if (source !== target) {
 		const native = castOf(source, target)
 		if (native === undefined) {
@@ -807,10 +924,10 @@ const castTo = (v: CarrierValue, from: ScalarType, to: ScalarType): CatalogResul
  * the host's may not agree, answer "declined" rather than an approximation, and their consumers leave them to
  * PostgreSQL.
  *
- * Values are exact carriers (src's scalar/compute/literal.ts CarrierValue), each in its one form: a Decimal has no
- * display scale and every operation and cast result's float zero is 0 (oneZero), as grizzle delivers them. They are
- * compared by PostgreSQL's total orders (src's compareValues, which constant folding reads). A regex refinement's membership is the text package's NFA, which
- * the caller supplies.
+ * Values are the reference's own exact carriers (ModelValue), each in its one form: a Decimal has no display scale and
+ * every operation and cast result's float zero is 0 (oneZero), as grizzle delivers them. They are compared by the
+ * reference's own reading of PostgreSQL's total orders (compareCarried), never by src's. A regex refinement's
+ * membership is the text package's NFA, which the caller supplies.
  *
  * Evaluates the expression tree `root` (a DAG's expression, or a contract predicate parsed from its table) under `env`,
  * over the whole catalogue.
@@ -822,7 +939,7 @@ export const evaluate = (root: ScalarExpr, env: EvalEnv): CatalogResult =>
  * A value with the one zero: a float operation's -0 (a negation, a product, a root) as 0, the value grizzle delivers
  * and every float the oracle holds; any other value as it is.
  */
-const oneZero = (v: CarrierValue): CarrierValue => (typeof v === "number" ? canonicalZero(v) : v)
+const oneZero = (v: ModelValue): ModelValue => (typeof v === "number" ? canonicalZero(v) : v)
 
 /** `root` under `env`, the VALUE (a contract predicate's only read) evaluating to `value`. */
 const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): CatalogResult => {
@@ -843,10 +960,10 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 	const operands = (
 		args: ReadonlyArray<ScalarExpr>
 	): Result.Result<
-		{ readonly values: ReadonlyArray<CarrierValue>; readonly types: ReadonlyArray<ScalarType> },
+		{ readonly values: ReadonlyArray<ModelValue>; readonly types: ReadonlyArray<ScalarType> },
 		CatalogStop
 	> => {
-		const values: Array<CarrierValue> = []
+		const values: Array<ModelValue> = []
 		const types: Array<ScalarType> = []
 		for (const a of args) {
 			const v = run(a)
@@ -871,7 +988,7 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 				return v === undefined ? unsupported(`the parameter ${expr.param}`) : Result.succeed(v)
 			}
 			case "literal":
-				return Result.succeed(literalValue(expr.value))
+				return Result.succeed(modelLiteral(expr.value))
 			case "cond": {
 				const [p, t, e] = expr.args
 				const c = run(p)
@@ -934,7 +1051,7 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
  * and regex membership as `env` reads it.
  */
 const membership = (
-	v: CarrierValue,
+	v: ModelValue,
 	t: ScalarType,
 	env: EvalEnv
 ): Result.Result<boolean, CatalogStop> => {

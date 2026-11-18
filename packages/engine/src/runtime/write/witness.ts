@@ -31,9 +31,7 @@ import {
 	type ClosedTable,
 	type ColumnKey,
 	type Evaluation,
-	evalValue,
-	fieldKey,
-	literalHost
+	fieldKey
 } from "#compiler/runtime/write/fill.ts"
 import {
 	type GroupData,
@@ -43,22 +41,23 @@ import {
 } from "#compiler/runtime/write/normalize.ts"
 import { keyWitness } from "#compiler/runtime/write/outcome.ts"
 import {
-	compareValues,
+	comparisonHolds,
 	type EvalLeaves,
 	evaluateTable,
-	literalValue,
 	type SqlValue,
 	sqlNull,
 	valueMember
 } from "#compiler/scalar/compute/evaluate.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
+import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
 	admittedText,
 	type Carrier,
-	type CarrierHost
+	type CarrierHost,
+	type HostValue,
+	hostOf
 } from "#compiler/scalar/values/identity.ts"
 import type {
 	KeyHost,
@@ -449,7 +448,7 @@ const statedKey = (
 
 /** A query entry's fact as a fact of its target: each head field under the target field it writes, a literal-fixed
  * field at its literal; a context-fixed field, whose value the claims hold, left out. */
-const targetFact = (entry: WitnessEntry, fact: HostFact, codes: Codebook): HostFact => {
+const targetFact = (entry: WitnessEntry, fact: HostFact): HostFact => {
 	const out: Record<string, unknown> = {}
 	for (const { head, field } of entry.head) {
 		if (Object.hasOwn(fact, head)) {
@@ -457,7 +456,7 @@ const targetFact = (entry: WitnessEntry, fact: HostFact, codes: Codebook): HostF
 		}
 	}
 	for (const fixed of entry.fixed) {
-		out[fixed.field] = literalHost(carrierSpecOf(fixed.type, codes), fixed.literal)
+		out[fixed.field] = hostOfLiteral(fixed.type.carrier, fixed.literal)
 	}
 	return out
 }
@@ -513,7 +512,7 @@ const slotFacts = (
 			return rows.map((written): StatedFact => {
 				const row: JudgedRow = {
 					kind: written.kind,
-					stated: targetFact(entry, written.stated, codes),
+					stated: targetFact(entry, written.stated),
 					filled: written.filled
 				}
 				const key = statedKey(relation, row, codes)
@@ -704,27 +703,21 @@ const statedFacts = (w: Witnessing, stated: StatedRows, at: StatementAt): Statem
 /** What an expression is over one row, as PostgreSQL computes it by its three-valued logic (scalar/compute/evaluate.ts
  * sqlNull): a value, NULL, or unknown to the host. */
 type Evaluated =
-	| { readonly kind: "value"; readonly value: CarrierValue }
+	| { readonly kind: "value"; readonly value: HostValue }
 	| { readonly kind: "null" }
 	| { readonly kind: "unknown" }
 
 /**
- * The judge of one installation's stated rows on the host: an expression's value over a row, a host value as the
- * evaluator holds it at a type, and whether a value is a member of a type.
+ * The judge of one installation's stated rows on the host: an expression's value over a row, and whether a value is a
+ * member of a type. A row's values are their codecs' host values, which are the evaluator's own.
  */
 interface Judge {
 	readonly evaluate: (relation: WitnessTable, expr: ExprTable, row: JudgedRow) => Evaluated
-	readonly carried: (value: unknown, type: ScalarType) => CarrierValue | undefined
-	readonly member: (value: CarrierValue, type: ScalarType) => boolean | undefined
+	readonly member: (value: HostValue, type: ScalarType) => boolean | undefined
 }
 
 /** The judge of a write's stated rows by what its witness data's evaluation reads, its patterns read from `patterns`. */
-const judgeOf = (
-	evaluation: Evaluation,
-	codes: Codebook,
-	table: ClosedTable,
-	patterns: PatternReads
-): Judge => {
+const judgeOf = (evaluation: Evaluation, table: ClosedTable, patterns: PatternReads): Judge => {
 	const closed = closedLeaf(closedNamed(evaluation.closed, table))
 	const evaluate = (relation: WitnessTable, expr: ExprTable, row: JudgedRow): Evaluated => {
 		/**
@@ -739,7 +732,7 @@ const judgeOf = (
 				const column = row.filled(key)
 				return type === undefined || column.kind === "unfilled"
 					? undefined
-					: evalValue(carrierSpecOf(type, codes), column.value)
+					: hostOf(type.carrier, column.value)
 			}
 			if (declared.writing.kind === "generated") {
 				const generated = evaluate(relation, declared.writing.expr, row)
@@ -750,7 +743,7 @@ const judgeOf = (
 						: undefined
 			}
 			const value = hostField(row, declared)
-			return value === undefined ? undefined : evalValue(carrierSpecOf(declared.type, codes), value)
+			return value === undefined ? undefined : hostOf(declared.type.carrier, value)
 		}
 		const leaves: EvalLeaves = { value: undefined, column: (ref) => valueOf(ref.name), closed }
 		const value = evaluateTable(expr.exprs, expr.root, leaves, patterns)
@@ -762,7 +755,6 @@ const judgeOf = (
 	}
 	return {
 		evaluate,
-		carried: (value, type) => evalValue(carrierSpecOf(type, codes), value),
 		member: (value, type) => valueMember(value, type, patterns)
 	}
 }
@@ -792,7 +784,7 @@ export const prepareWitness = (
 	return Object.freeze({
 		data,
 		codes,
-		judge: judgeOf(data.evaluation, codes, closed, patterns),
+		judge: judgeOf(data.evaluation, closed, patterns),
 		tables: new Map(data.tables.map((t) => [t.name, t] as const)),
 		groups,
 		slots
@@ -814,8 +806,9 @@ const domainValue = (
 		return judge.evaluate(relation, field.writing.expr, row)
 	}
 	const host = hostField(row, field)
-	const carried = host === undefined ? undefined : judge.carried(host, field.type)
-	return carried === undefined ? { kind: "unknown" } : { kind: "value", value: carried }
+	return host === undefined
+		? { kind: "unknown" }
+		: { kind: "value", value: hostOf(field.type.carrier, host) }
 }
 
 /** A row CHECK's verdict, as `CHECK ((p) IS TRUE)` judges it: FALSE and NULL break it. */
@@ -834,7 +827,7 @@ const checked = (e: Evaluated): Verdict => {
  * Whether a value breaks one level of its type, the level `at`, as that level's domain or endpoint CHECK judges it: it
  * is a value of every level below `at` and not of `at`. A value outside a lower level is that level's refusal.
  */
-const breaksLevel = (judge: Judge, value: CarrierValue, at: ScalarType): Verdict => {
+const breaksLevel = (judge: Judge, value: HostValue, at: ScalarType): Verdict => {
 	const below = contractOf(at)?.base
 	const inner = below === undefined ? true : judge.member(value, below)
 	const whole = judge.member(value, at)
@@ -856,8 +849,7 @@ const closedContainment = (
 	judge: Judge,
 	relation: WitnessTable,
 	test: Extract<CheckTest, { readonly kind: "closed" }>,
-	row: JudgedRow,
-	codes: Codebook
+	row: JudgedRow
 ): Verdict => {
 	for (const g of test.guard) {
 		const guard = checked(judge.evaluate(relation, g, row))
@@ -868,15 +860,13 @@ const closedContainment = (
 	if (test.pairs.kind === "law") {
 		return "unjudged"
 	}
-	const sources: Array<{ readonly value: CarrierValue; readonly target: HeadingColumn }> = []
+	const sources: Array<{ readonly value: HostValue; readonly target: HeadingColumn }> = []
 	for (const pair of test.pairs.pairs) {
 		const raw = hostField(row, fieldOf(relation, pair.source.name))
-		const value =
-			raw === undefined ? undefined : evalValue(carrierSpecOf(pair.source.type, codes), raw)
-		if (value === undefined) {
+		if (raw === undefined) {
 			return "unjudged"
 		}
-		sources.push({ value, target: pair.target })
+		sources.push({ value: hostOf(pair.source.type.carrier, raw), target: pair.target })
 	}
 	const cellAt = (name: string, cells: Split<TypedLiteral>): TypedLiteral | undefined => {
 		const k = test.side.key.indexOf(name)
@@ -885,7 +875,10 @@ const closedContainment = (
 	for (const cells of test.side.rows) {
 		const meets = sources.every(({ value, target }) => {
 			const cell = cellAt(target.name, cells)
-			return cell !== undefined && compareValues(value, literalValue(cell), target.type) === 0
+			return (
+				cell !== undefined &&
+				comparisonHolds("eq", [value, hostOfLiteral(target.type.carrier, cell)], target.type)
+			)
 		})
 		if (meets) {
 			return "holds"
@@ -943,37 +936,31 @@ interface LawCheck {
  * containments into closed relations, and its spans' endpoint CHECKs of a contract. Its span shape, width and date range
  * CHECKs state none: the codec refuses what they would before any SQL.
  */
-const lawChecks = (
-	judge: Judge,
-	relation: WitnessTable,
-	codes: Codebook
-): ReadonlyArray<LawCheck> =>
+const lawChecks = (judge: Judge, relation: WitnessTable): ReadonlyArray<LawCheck> =>
 	relation.checks.map(({ name, laws, test }): LawCheck => ({
 		name,
 		laws,
-		verdict: verdictOf(judge, relation, test, codes)
+		verdict: verdictOf(judge, relation, test)
 	}))
 
 /** How a law CHECK of `relation`'s table judges one of its stated rows (`CheckTest`). */
 const verdictOf = (
 	judge: Judge,
 	relation: WitnessTable,
-	test: CheckTest,
-	codes: Codebook
+	test: CheckTest
 ): ((row: JudgedRow) => Verdict) => {
 	switch (test.kind) {
 		case "row":
 			return (row) => checked(judge.evaluate(relation, test.predicate, row))
 		case "closed":
-			return (row) => closedContainment(judge, relation, test, row, codes)
+			return (row) => closedContainment(judge, relation, test, row)
 		case "endpoint": {
 			const field = fieldOf(relation, test.field)
 			return (row) =>
 				firstBreak(
-					endpointsOf(hostField(row, field)).map((endpoint) => {
-						const carried = judge.carried(endpoint, test.level)
-						return carried === undefined ? "unjudged" : breaksLevel(judge, carried, test.level)
-					})
+					endpointsOf(hostField(row, field)).map((endpoint) =>
+						breaksLevel(judge, hostOf(test.level.carrier, endpoint), test.level)
+					)
 				)
 		}
 	}
@@ -1199,7 +1186,7 @@ const refuserJudge = (w: Witnessing, refuser: Refuser): RefuserJudge => {
 			}
 		case "constraint": {
 			const table = w.data.tables.find((r) => r.ident === refuser.owner)
-			const checks = table === undefined ? [] : lawChecks(judge, table, w.codes)
+			const checks = table === undefined ? [] : lawChecks(judge, table)
 			const refusing = checks.find((c) => c.name === refuser.name)
 			if (refusing === undefined) {
 				return { row: () => unjudged, none: refusedByObject }
@@ -1325,7 +1312,7 @@ export const aboveJudgement = (
 ): AboveJudgement => {
 	const { rows, facts } = statedFacts(w, stated, at)
 	const table = w.data.tables.find((r) => r.ident === owner)
-	const checks = table === undefined ? [] : lawChecks(w.judge, table, w.codes)
+	const checks = table === undefined ? [] : lawChecks(w.judge, table)
 	for (const fact of facts) {
 		if (fact.relation.ident !== owner) {
 			continue

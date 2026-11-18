@@ -4,7 +4,6 @@ import { element, type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testin
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { appended, swapWithLast } from "#test/support/families/counted.ts"
 import {
@@ -23,6 +22,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { drawnColumn, modelOf, type Row, type State } from "#test/unit/laws/model/natives.ts"
 
@@ -85,7 +85,7 @@ export const stateOf = (drawn: Drawn, stored: FoldStored): State =>
 			Arr.map(
 				stored.owners,
 				(o) =>
-					new Map<string, CarrierValue>([
+					new Map<string, ModelValue>([
 						["id", BigInt(o.owner)],
 						["n", BigInt(o.count)],
 						["size", o.end[0]]
@@ -97,7 +97,7 @@ export const stateOf = (drawn: Drawn, stored: FoldStored): State =>
 			Arr.map(
 				stored.rows,
 				(r) =>
-					new Map<string, CarrierValue>([
+					new Map<string, ModelValue>([
 						["id", BigInt(r.member)],
 						["owner", BigInt(r.group)],
 						[drawn.index, BigInt(r.at)],

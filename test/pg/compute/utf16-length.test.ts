@@ -158,7 +158,10 @@ const unitsDesc: ExprDesc = {
 	args: [{ kind: "var", var: "v" }]
 }
 
-/** The host evaluator's value of the lowered term over a text, as a write admits it: an integer, which it holds as a bigint. */
+/**
+ * The host evaluator's value of the lowered term over a text, as a write admits it: an integer's, a JavaScript integer,
+ * as a bigint, the reading the other counts share.
+ */
 const hostUnits = (term: Lowered, text: string): bigint => {
 	const table = predicateTable(term.expr)
 	const value = succeeded(
@@ -170,8 +173,8 @@ const hostUnits = (term: Lowered, text: string): bigint => {
 		),
 		"the host evaluates utf16Length"
 	)
-	return typeof value === "bigint"
-		? value
+	return typeof value === "number"
+		? BigInt(value)
 		: assert.fail(`the host's count is an integer, not ${Formatter.format(value)}`)
 }
 

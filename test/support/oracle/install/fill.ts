@@ -252,7 +252,7 @@ export const familyRows = (
 			)
 		),
 		codes,
-		hostEvaluator(codes, closedLeaf(closed), patterns)
+		hostEvaluator(closedLeaf(closed), patterns)
 	)
 	const rows = new Map<string, Array<ReadonlyMap<ColumnKey, unknown>>>()
 	const collect = (node: FilledNode): void => {

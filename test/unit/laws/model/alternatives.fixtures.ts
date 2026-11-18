@@ -4,7 +4,6 @@ import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import {
 	alternatives,
@@ -13,6 +12,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	assertWellFormed,
@@ -112,7 +112,7 @@ const holds = (model: LawModel, a: Assignment, relation: LawRelation, c: NativeC
 		(h) =>
 			generatedOn(
 				native,
-				new Map<string, CarrierValue>([
+				new Map<string, ModelValue>([
 					["id", 7n],
 					["tag", h]
 				])

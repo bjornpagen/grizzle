@@ -3,6 +3,7 @@ import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	codePoint,
+	constant,
 	element,
 	type Gen,
 	int,
@@ -17,7 +18,7 @@ import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, generated, pg, Uuid, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, generated, pg, Uuid, uuid, Vector } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -61,14 +62,22 @@ const Account = relation.generated(
 		tier: closedId(Tier),
 		units: Units,
 		code: str.regex(codeSource, "u"),
-		alias: str.regex(codeSource, "u")
+		alias: str.regex(codeSource, "u"),
+		from: pg.vector(2),
+		to: pg.vector(2)
 	},
 	["id"],
 	(r) => ({ rate: generated(pg.integer, Rate.at("rate", r.tier)) })
 )
 const positive = check("Positive", Account, (x) => x.gt(x.units, 0))
 const withinRate = check("WithinRate", Account, (x) => x.le(Compute.base(x.units), x.rate))
-const Accounts = schema("Accounts", [Tier, Rate, Account], [positive, withinRate])
+/** An account's two vectors differ: a row CHECK over vector fields, which the host judges by vector_cmp's order. */
+const distinct = check("Distinct", Account, (x) => x.ne(x.from, x.to))
+const Accounts = schema("Accounts", [Tier, Rate, Account], [positive, withinRate, distinct])
+
+/** The vectors an account's two fields hold: east in both, or east and north. */
+const east = succeeded(Vector.from(Float32Array.from([1, 0]), 2), "a unit vector")
+const north = succeeded(Vector.from(Float32Array.from([0, 1]), 2), "a unit vector")
 
 /** The full role's workload: accounts inserted, and accounts put, each from its call's facts. */
 const programs = {
@@ -80,6 +89,7 @@ const programs = {
 const lawOf = {
 	positive: { kind: "check", relation: "Account", name: "Positive" },
 	withinRate: { kind: "check", relation: "Account", name: "WithinRate" },
+	distinct: { kind: "check", relation: "Account", name: "Distinct" },
 	units: { kind: "contract", contract: "Units" },
 	code: {
 		kind: "pattern",
@@ -100,12 +110,17 @@ type Broken = keyof typeof lawOf
 /** The rules of the one domain the code and the alias share. */
 const patternRules = ["code", "alias"] as const satisfies ReadonlyArray<Broken>
 
+/** The rules of Account's row CHECKs, every one of which the host judges, so a refusal by one names each its row breaks. */
+const checkRules = ["positive", "withinRate", "distinct"] as const satisfies ReadonlyArray<Broken>
+
 /** An account as a case draws it, its id its position's. */
 interface Stated {
 	readonly tier: TierHandle
 	readonly units: number
 	readonly code: string
 	readonly alias: string
+	/** Whether its two vectors point apart, or the same way, which Distinct refuses. */
+	readonly heading: "apart" | "same"
 }
 
 /** A code inside the pattern about half the time: lowercase letters, or printable ASCII of any length up to twelve. */
@@ -127,7 +142,13 @@ const statedGen: Gen<Stated> = (source) => ({
 	tier: source.draw(element(tiers)),
 	units: source.draw(oneOf([int(-3, 0), int(1, 120), int(400, 1000), int(1001, 1100)])),
 	code: source.draw(codeGen),
-	alias: source.draw(aliasGen)
+	alias: source.draw(aliasGen),
+	heading: source.draw(
+		weighted([
+			[3, constant("apart" as const)],
+			[1, constant("same" as const)]
+		])
+	)
 })
 
 /** A case: one write of one to four accounts, inserted or put. */
@@ -157,7 +178,9 @@ const brokenOf = (law: Law): Broken | undefined => {
 					? "positive"
 					: law.name === "WithinRate"
 						? "withinRate"
-						: undefined
+						: law.name === "Distinct"
+							? "distinct"
+							: undefined
 		case "contract":
 			return law.contract === "Units" ? "units" : undefined
 		case "pattern":
@@ -213,6 +236,9 @@ const brokenBy = (a: Stated): ReadonlySet<Broken> => {
 	if (!isCode(a.alias)) {
 		out.add("alias")
 	}
+	if (a.heading === "same") {
+		out.add("distinct")
+	}
 	return out
 }
 
@@ -221,21 +247,24 @@ type Feature =
 	| "accepted"
 	| "witnessed among several breaking accounts"
 	| "refused by the code and the alias at once"
+	| "refused by two row CHECKs at once"
 
 /**
  * A native refusal witnessed on the host, against PostgreSQL 19.
  *
  * Accounts holds, on one relation, every native refusal the host judges a stated fact against: a row CHECK over a
- * written field (Positive), a row CHECK over a generated field (WithinRate, units at most the rate), a contract's domain
+ * written field (Positive), a row CHECK over a generated field (WithinRate, units at most the rate), a row CHECK over two
+ * vector fields (Distinct, from <> to), which the host evaluates over the vectors' own host values, a contract's domain
  * (Units, at most 1000), a pattern's domain (^[a-z]{1,8}$), which the code and the alias share, each its own law, and a
  * generated column's NOT NULL (rate, Rate.at("rate", tier), which Rate holds no row of for gold). Each case writes one
  * to four accounts, inserted or put, each drawn inside or outside each rule.
  *
  * The oracle is the rules restated over the drawn fields: a write none of whose accounts breaks a rule is accepted;
  * any other is invariant-rejected, `every`, its witness the key of an account that breaks what it names, never
- * `unreported`: every account is stated, so the host holds it. It names one law, one of those the account breaks, as
- * PostgreSQL met first; or, where PostgreSQL met the pattern's domain, which names no column, exactly the pattern laws
- * of the account's fields it refuses, the code's, the alias's or both, in their columns' canonical order.
+ * `unreported`: every account is stated, so the host holds it. Where PostgreSQL met a row CHECK, every one of which the
+ * host judges, it names every row CHECK's law the account breaks, whichever PostgreSQL tried first; where it met the
+ * pattern's domain, which names no column, exactly the pattern laws of the account's fields it refuses, the code's, the
+ * alias's or both, in their columns' canonical order; and where it met any other object, one law the account breaks.
  */
 export const hostWitnessSuite = (): void => {
 	layer(Substrate.layer)("a native refusal witnessed on the host, against PostgreSQL 19", (it) => {
@@ -266,8 +295,8 @@ export const hostWitnessSuite = (): void => {
 											sketch: {
 												op: "insert",
 												accounts: [
-													{ tier: "bronze", units: 400, code: "b", alias: "b" },
-													{ tier: "gold", units: 0, code: "a", alias: "a" }
+													{ tier: "bronze", units: 400, code: "b", alias: "b", heading: "apart" },
+													{ tier: "gold", units: 0, code: "a", alias: "a", heading: "apart" }
 												]
 											},
 											draws: "",
@@ -277,7 +306,9 @@ export const hostWitnessSuite = (): void => {
 											note: "qti-pie's shape: one relation whose two fields share one pattern source, the second broken alone, so the refusal names that field and never the other",
 											sketch: {
 												op: "insert",
-												accounts: [{ tier: "bronze", units: 10, code: "a", alias: "A1" }]
+												accounts: [
+													{ tier: "bronze", units: 10, code: "a", alias: "A1", heading: "apart" }
+												]
 											},
 											draws: "",
 											reaches: ["refused by alias"]
@@ -286,10 +317,35 @@ export const hostWitnessSuite = (): void => {
 											note: "both fields of one pattern broken in one account: the domain PostgreSQL names refuses the first column it casts, and the refusal names both fields' laws",
 											sketch: {
 												op: "put",
-												accounts: [{ tier: "silver", units: 5, code: "Q", alias: "" }]
+												accounts: [
+													{ tier: "silver", units: 5, code: "Q", alias: "", heading: "apart" }
+												]
 											},
 											draws: "",
 											reaches: ["refused by the code and the alias at once"]
+										},
+										{
+											note: "one account breaking Positive and Distinct, two row CHECKs: the host judges both, the vector one over the vectors themselves, so the refusal names both whichever PostgreSQL tried first",
+											sketch: {
+												op: "insert",
+												accounts: [
+													{ tier: "bronze", units: 0, code: "a", alias: "a", heading: "same" }
+												]
+											},
+											draws: "",
+											reaches: ["refused by two row CHECKs at once"]
+										},
+										{
+											note: "a row CHECK over two vectors, the second account's equal: the host judges from <> to over the vectors themselves, so Distinct's witness is that account, never unreported (lane VALUEONE: the host read no vector column, and left every vector check unjudged)",
+											sketch: {
+												op: "insert",
+												accounts: [
+													{ tier: "bronze", units: 10, code: "a", alias: "a", heading: "apart" },
+													{ tier: "silver", units: 20, code: "b", alias: "b", heading: "same" }
+												]
+											},
+											draws: "",
+											reaches: ["refused by distinct"]
 										}
 									],
 									runs: 60,
@@ -301,9 +357,11 @@ export const hostWitnessSuite = (): void => {
 											"refused by units",
 											"refused by positive",
 											"refused by withinRate",
+											"refused by distinct",
 											"refused by code",
 											"refused by alias",
 											"refused by the code and the alias at once",
+											"refused by two row CHECKs at once",
 											"accepted",
 											"witnessed among several breaking accounts"
 										],
@@ -319,7 +377,9 @@ export const hostWitnessSuite = (): void => {
 											tier: a.tier,
 											units: Units(a.units),
 											code: a.code,
-											alias: a.alias
+											alias: a.alias,
+											from: east,
+											to: a.heading === "same" ? east : north
 										}))
 										const applied = yield* Effect.result(
 											k.op === "insert"
@@ -378,7 +438,20 @@ export const hostWitnessSuite = (): void => {
 										}
 										const breaks = defined(broken[at.value], "the witnessed account's rules")
 										const patterns = Arr.filter(named, (rule) => Arr.contains(patternRules, rule))
-										if (patterns.length === 0) {
+										const checks = Arr.filter(named, (rule) => Arr.contains(checkRules, rule))
+										if (checks.length > 0) {
+											assert.deepEqual(
+												Arr.sort(named, Order.String),
+												Arr.sort(
+													Arr.filter(checkRules, (rule) => breaks.has(rule)),
+													Order.String
+												),
+												"a row CHECK's refusal names every row CHECK's law the witnessed account breaks"
+											)
+											if (checks.length > 1) {
+												c.note("refused by two row CHECKs at once")
+											}
+										} else if (patterns.length === 0) {
 											assert.equal(named.length, 1, "one law")
 											assert.ok(
 												Arr.every(named, (rule) => breaks.has(rule)),

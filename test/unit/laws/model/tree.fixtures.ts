@@ -4,7 +4,6 @@ import { boolean, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
@@ -20,6 +19,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { assertReferencesServed } from "#test/support/laws/referencing.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { owning } from "#test/support/policy.ts"
 import {
 	accepts,
@@ -168,7 +168,7 @@ const checkFold = (model: LawModel): void => {
 				for (const a of [0n, 1n, 2n, 3n]) {
 					for (const n of [0n, 1n]) {
 						for (const size of [0n, 1n]) {
-							const row = new Map<string, CarrierValue>([
+							const row = new Map<string, ModelValue>([
 								["start", start],
 								["at", at],
 								["children", n],
@@ -277,7 +277,7 @@ const checkConditions = (model: LawModel): void => {
 				for (const start of small) {
 					for (const end of small) {
 						for (const n of small) {
-							const row = new Map<string, CarrierValue>([
+							const row = new Map<string, ModelValue>([
 								["doc", docId],
 								["parent", parent],
 								["at", at],
@@ -302,7 +302,7 @@ const checkConditions = (model: LawModel): void => {
 		assert.equal(
 			generatedOn(
 				p0,
-				new Map<string, CarrierValue>([
+				new Map<string, ModelValue>([
 					["parent", 1n],
 					["start", start]
 				])
@@ -343,7 +343,7 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 		k === 0 ? [[]] : Arr.flatMap(assignments(k - 1), (t) => Arr.map(bits, (b) => [...t, b]))
 	for (const children of bits) {
 		for (const [copyN, parent, ...values] of assignments(2 + 2 * copies.length)) {
-			const row = new Map<string, CarrierValue>([
+			const row = new Map<string, ModelValue>([
 				["doc", docId],
 				["parent", defined(parent)],
 				["at", 0n],

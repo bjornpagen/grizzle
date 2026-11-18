@@ -17,10 +17,11 @@ import * as Engine from "#compiler/core/result.ts"
 import { type ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { assert, assertNot, defined, refusalLoc, succeeded } from "#test/support/assert.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { type LeafBinding, testPg } from "#test/unit/compute/support.ts"
@@ -44,14 +45,14 @@ export const boundedColumn: LeafBinding = {
 
 export const boolColumn: LeafBinding = { kind: "column", type: testPg.boolean.scalar }
 
-/** A case's text values and its condition, by the column each binds. */
-export type Row = ReadonlyMap<string, CarrierValue>
+/** A case's text values and its condition, by the column each binds: values the host and the reference hold alike. */
+export type Row = ReadonlyMap<string, string | boolean>
 
 /** A lowered predicate's value over a row, on the host and by the reference evaluator. */
 export const values = (
 	root: ScalarExpr,
 	row: Row
-): { readonly host: CarrierValue; readonly reference: CarrierValue } => {
+): { readonly host: HostValue; readonly reference: ModelValue } => {
 	const table = predicateTable(root)
 	const host = succeeded(
 		Engine.mapError(

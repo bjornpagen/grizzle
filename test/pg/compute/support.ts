@@ -3,13 +3,13 @@ import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { describeOp } from "#compiler/ir/expr.ts"
 import { baseOf, type Carrier, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert } from "#test/support/assert.ts"
 import { strictIntegers, strictRead } from "#test/support/kernel/strict.ts"
+import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, declinedOps } from "#test/support/oracle/evaluate/catalog.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -117,7 +117,7 @@ export const runCases = (
  * prints), floats by value with the one zero, the value grizzle delivers (PostgreSQL's shortest text and JavaScript's
  * differ in exponent spelling, and PostgreSQL prints -0).
  */
-const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean => {
+const sameValue = (value: ModelValue, text: string, type: ScalarType): boolean => {
 	const c = baseOf(type).carrier
 	switch (c) {
 		case "int2":
@@ -178,7 +178,7 @@ const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean
 }
 
 /** A carrier value as a report names it: a span or a vector by Formatter, any other value by its own text. */
-export const carrierText = (value: CarrierValue): string =>
+export const carrierText = (value: ModelValue): string =>
 	typeof value === "object" && !(value instanceof Decimal) && !(value instanceof Money)
 		? Formatter.format(value)
 		: String(value)

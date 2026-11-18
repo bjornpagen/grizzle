@@ -29,19 +29,55 @@ export const noRenames: RosterRenames = new Map()
 const noHandleRenames: HandleRenames = new Map()
 
 /**
+ * A roster's order of its live handles, the one order a closed id's and a set's comparison reads
+ * (scalar/values/identity.ts compareValues): each live handle's rank, two handles comparing as their ranks do. One
+ * comparison, with two sources of one fact:
+ * - an installation's codes (RosterCodec), PostgreSQL's own order of the stored ids, every roster's. A host order of
+ *   stored values, which must meet SQL's ORDER BY over the code column, reads it: a reader's merge and a page's fetch
+ *   order, whose ties a closed id of any roster breaks by its code (scalar/registry.ts breaksTies), and a fold's max.
+ * - a roster's declaration (declaredOrder), which a schema states before any installation holds its codes, and which
+ *   the evaluator reads (scalar/compute/evaluate.ts), a contract literal's check and the optimizer's folding among its
+ *   callers. An ordered roster's declared order is its codes' order, since a declaration out of it is refused
+ *   (ir/cells.ts rosterCodes); an unordered roster's closed ids have no order of the language (scalar/native.ts
+ *   unorderedCodeCapabilities), so the evaluator reads only equality of them, which every rank gives alike.
+ */
+export interface HandleOrder {
+	readonly rank: ReadonlyMap<string, number>
+}
+
+/**
  * One roster's codes, read both ways, built only by rosterCodec. `codes` is what an installation records; `size`
  * counts every code minted, holes included, so it is one past the greatest code the roster's domain admits; `width` is
  * n of a set's bit(n), `size` rounded up to whole hex digits (core/hex.ts), so a set's one spelling is whole digits and
- * its bits past `size`, its padding, are 0; `codeOf` is each live handle's code; `names` is each code's handle in code
- * order, a hole the empty name, which no handle is.
+ * its bits past `size`, its padding, are 0; `rank` is each live handle's code, which is the roster's order
+ * (HandleOrder); `names` is each code's handle in code order, a hole the empty name, which no handle is.
  */
-export interface RosterCodec {
+export interface RosterCodec extends HandleOrder {
 	readonly roster: DeclaredName
 	readonly codes: RosterCodes
 	readonly size: number
 	readonly width: number
-	readonly codeOf: ReadonlyMap<string, number>
 	readonly names: ReadonlyArray<string>
+}
+
+/** Each declared roster's order (HandleOrder), made once per roster. */
+const declaredOrders = new WeakMap<Roster, HandleOrder>()
+
+/**
+ * A roster's declared order (HandleOrder): each live handle's position among its handles. An ordered roster's is its
+ * codes' order in every installation, since a declaration out of it is refused (rosterCodes); an unordered roster's is
+ * its handles' canonical order (ir/scalar.ts handlesInOrder), which no code follows and which only equality reads.
+ */
+export const declaredOrder = (roster: Roster): HandleOrder => {
+	const known = declaredOrders.get(roster)
+	if (known !== undefined) {
+		return known
+	}
+	const order: HandleOrder = Object.freeze({
+		rank: new Map(roster.handles.map((handle, position) => [handle, position] as const))
+	})
+	declaredOrders.set(roster, order)
+	return order
 }
 
 /**
@@ -62,12 +98,12 @@ export interface RosterReordered extends Reordered {
 
 /** The codec of `roster`'s codes, frozen: each live handle's code and each code's name, a hole the empty name. */
 export const rosterCodec = (roster: DeclaredName, codes: RosterCodes): RosterCodec => {
-	const codeOf = new Map<string, number>()
+	const rank = new Map<string, number>()
 	const names = codes.map((slot, code): string => {
 		if (slot.kind === "hole") {
 			return ""
 		}
-		codeOf.set(slot.handle, code)
+		rank.set(slot.handle, code)
 		return slot.handle
 	})
 	return Object.freeze({
@@ -75,7 +111,7 @@ export const rosterCodec = (roster: DeclaredName, codes: RosterCodes): RosterCod
 		codes: Object.freeze([...codes]),
 		size: codes.length,
 		width: wholeDigitBits(codes.length),
-		codeOf,
+		rank,
 		names: Object.freeze(names)
 	})
 }
@@ -216,7 +252,7 @@ export const codecOf = (book: Codebook, roster: Roster): RosterCodec => {
 
 /** A live handle's code. The codec admits only its roster's live handles, so a handle it does not hold is a defect. */
 export const codeOf = (codec: RosterCodec, handle: string): number => {
-	const code = codec.codeOf.get(handle)
+	const code = codec.rank.get(handle)
 	if (code === undefined) {
 		throw defect(`${JSON.stringify(handle)} is a live handle of roster ${codec.roster}`)
 	}

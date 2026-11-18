@@ -644,7 +644,7 @@ export const foldSeatOf = (spec: FoldSpec, seat: Seat): FoldSeat => {
 		(r) => r.roster === Tag.name
 	)
 	const k = Arr.reduce(K, 0n, (mask, h) => {
-		const c = Option.getOrUndefined(codec)?.codeOf.get(h)
+		const c = Option.getOrUndefined(codec)?.rank.get(h)
 		return c === undefined ? mask : mask | (1n << BigInt(c))
 	})
 	return {
@@ -1044,7 +1044,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 			{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
 		]),
 		codes,
-		hostEvaluator(codes, closedLeaf(new Map()), f.seat.model.patterns)
+		hostEvaluator(closedLeaf(new Map()), f.seat.model.patterns)
 	)
 	const node: HostNode = {
 		relation: StoredRelationName("Owner"),

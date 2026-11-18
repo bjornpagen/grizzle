@@ -19,6 +19,7 @@ import {
 } from "#compiler/runtime/write/fill.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { Vector } from "#compiler/scalar/values/vector.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -46,12 +47,21 @@ type Carrier = "int2" | "int4" | "int8" | "natural" | "numeric" | "money" | "set
 
 type Accumulators = "named" | "hidden"
 
+/**
+ * The fold's step side: every member; those whose flag is true; or those whose two vectors differ, `v <> w`, whose
+ * vectors a member's flag makes differ (nestingOf), so either selection holds of a member exactly where its flag is
+ * true.
+ */
+const selections = ["none", "flag", "vectors"] as const
+
+type Selection = (typeof selections)[number]
+
 interface Shape {
 	readonly monoid: FoldMonoid["name"]
 	readonly carrier: Carrier
 	readonly order: "ordered" | "counted"
 	readonly accumulators: Accumulators
-	readonly selected: boolean
+	readonly selection: Selection
 }
 
 /** Each monoid the reference folds, over exact integers: concat's texts are test/unit/write/concat-fill.test.ts's. */
@@ -72,7 +82,7 @@ const SHAPES: Arr.NonEmptyReadonlyArray<Shape> = nonEmpty(
 					{ order: "ordered", accumulators: "hidden" },
 					{ order: "counted", accumulators: "hidden" }
 				] as const,
-				(o) => Arr.map([false, true], (selected): Shape => ({ monoid, carrier, ...o, selected }))
+				(o) => Arr.map(selections, (selection): Shape => ({ monoid, carrier, ...o, selection }))
 			)
 		)
 	)
@@ -198,12 +208,27 @@ const schemaOf = (s: Shape): SchemaDesc => {
 		...(s.monoid === "count" ? [] : ["x"]),
 		...(named ? Arr.flatMap(planeNames, (p) => [`before${p}`, `after${p}`]) : [])
 	]
-	const selection = {
-		kind: "compare" as const,
-		op: "eq" as const,
-		left: field("flag"),
-		right: { kind: "literal" as const, value: true }
-	}
+	const vector: FieldDesc = { kind: "vector", dimensions: 3 }
+	const side = (() => {
+		switch (s.selection) {
+			case "none":
+				return on("Member", step)
+			case "flag":
+				return onWhere("Member", step, {
+					kind: "compare",
+					op: "eq",
+					left: field("flag"),
+					right: { kind: "literal", value: true }
+				})
+			case "vectors":
+				return onWhere("Member", step, {
+					kind: "compare",
+					op: "ne",
+					left: field("v"),
+					right: field("w")
+				})
+		}
+	})()
 	return {
 		name: "Folds",
 		relations: [
@@ -226,6 +251,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 					...(s.order === "ordered" ? { at: f.drawn } : {}),
 					...(s.monoid === "count" ? {} : { x: type }),
 					flag: f.boolean,
+					...(s.selection === "vectors" ? { v: vector, w: vector } : {}),
 					...(named
 						? Rec.fromEntries(
 								Arr.flatMap(planeNames, (p) => [
@@ -245,7 +271,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 			fold(
 				fin("Owner", "n"),
 				s.monoid,
-				s.selected ? onWhere("Member", step, selection) : on("Member", step),
+				side,
 				on("Owner", ["id", ...Arr.map(planeNames, (p) => `end${p}`)])
 			)
 		],
@@ -261,7 +287,7 @@ export interface Compiled {
 
 /** A shape's key: its monoid, carrier, order, accumulators and selection, which decide its fill. */
 export const shapeKey = (s: Shape): string =>
-	`${s.monoid} ${s.carrier} ${s.order} ${s.accumulators} ${String(s.selected)}`
+	`${s.monoid} ${s.carrier} ${s.order} ${s.accumulators} ${s.selection}`
 
 /** A shape's compiled fill: its family and its filler; none for a fold its typing refuses. */
 const fillOf = (s: Shape): Compiled | undefined => {
@@ -277,13 +303,13 @@ const fillOf = (s: Shape): Compiled | undefined => {
 			{ relation: StoredRelationName("Owner"), position: { kind: "top" } }
 		]),
 		codes,
-		hostEvaluator(codes, closedLeaf(new Map()), model.value.patterns)
+		hostEvaluator(closedLeaf(new Map()), model.value.patterns)
 	)
 	return { family, fill }
 }
 
 /**
- * Every shape's compiled fill, by its key (shapeKey): the box's 23,160 cases fold over the 84 shapes, so the fills are
+ * Every shape's compiled fill, by its key (shapeKey): the box's 34,740 cases fold over the 126 shapes, so the fills are
  * compiled once, when a worker readies the box (the need's open, outside every case's deadline), and every case reads
  * its shape's. A compile that fails fails the need's open, and so the property.
  */
@@ -314,7 +340,16 @@ export const caseGen: Gen<FoldCase> = (source) => {
 	return { shape, members: n === 0 ? [] : members }
 }
 
-/** The owner's nesting: its id, and its members, each its id, its value and its flag. */
+/** A unit vector of three components, each a member's v and, where its flag is false, its w. */
+const unitX = succeeded(Vector.from(Float32Array.from([1, 0, 0]), 3), "a unit vector")
+
+/** Another unit vector, a member's w where its flag is true, so its v <> w holds exactly there. */
+const unitY = succeeded(Vector.from(Float32Array.from([0, 1, 0]), 3), "a unit vector")
+
+/**
+ * The owner's nesting: its id, and its members, each its id, its value and its flag, and under the vector selection its
+ * two vectors, which differ exactly where its flag is true.
+ */
 export const nestingOf = (c: FoldCase): HostNode => ({
 	relation: StoredRelationName("Owner"),
 	values: new Map([[fieldKey("id"), uuidOf(0)]]),
@@ -326,6 +361,9 @@ export const nestingOf = (c: FoldCase): HostNode => ({
 				values: new Map<ReturnType<typeof fieldKey>, unknown>([
 					[fieldKey("id"), uuidOf(i + 1)],
 					[fieldKey("flag"), m.flag],
+					...(c.shape.selection === "vectors"
+						? [[fieldKey("v"), unitX] as const, [fieldKey("w"), m.flag ? unitY : unitX] as const]
+						: []),
 					...(c.shape.monoid === "count"
 						? []
 						: [[fieldKey("x"), hostOf(c.shape.carrier, m.x)] as const])
@@ -340,6 +378,7 @@ export type FoldFeature =
 	| `monoid ${MonoidName}`
 	| "an empty family"
 	| "a member stepped over"
+	| "a member a vector comparison steps over"
 	| "hidden accumulators"
 	| "a counted family"
 

@@ -191,7 +191,7 @@ const readExactInteger = (text: string): Result.Result<bigint, StrictFault> =>
 
 /**
  * The strict reader of each integer carrier's output text, into the bigint the text spells at every width: the
- * evaluator's one form of an integer (scalar/compute/literal.ts CarrierValue), which a computed integer is compared in.
+ * evaluator's one form of an integer (scalar/compute/literal.ts ModelValue), which a computed integer is compared in.
  * smallint's and integer's codec value is that bigint's number (readNumber).
  */
 export const strictIntegers: {
