@@ -53,7 +53,8 @@
  * only once the role runs SERIALIZABLE, so it never judges the role. Adding a capability (a privilege, a read, a
  * statement, a member, a member of a SERIALIZABLE form, a role, an insert with no insert, a trigger-held law, a foreign
  * key, a race over a relation's first key) never makes a SERIALIZABLE role READ COMMITTED, nor does removing a relation's fact, but for the first change
- * member of a role with none, which the members condition alone held. No level rests on a fence: 5c weighs no sealed
+ * member of a role with none, which the members condition alone held, and an arbitration added to a member's first
+ * statement, no capability but grizzle's own key arbitration, which fixes the row a later read of its key reads. No level rests on a fence: 5c weighs no sealed
  * check, whichever logins fence its relation, so a capability that makes a login fence one, a deletion or a pivot cause,
  * relaxes no reader (the newlyFenced shape). Such a fence changes the login's writes, each of which then locks the
  * relation IN EXCLUSIVE MODE before its snapshot; the fence is installed (the login's MAINTAIN grant on the relation,
@@ -137,6 +138,7 @@ import { assert, defined } from "#test/support/assert.ts"
 import { expanded } from "#test/support/expanded.ts"
 import {
 	absenceOfItsOwnLowering,
+	addsArbitration,
 	afterOf,
 	caseGen,
 	certifiedRoles,
@@ -412,9 +414,10 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 					if (first) {
 						k.note("a first change member given to a role with none")
 					}
+					const arbitrated = addsArbitration(c.extension)
 					const after = levelsOf(afterOf(c))
 					for (const [i, level] of levelsOf(verdicts).entries()) {
-						if (level === "serializable" && !first) {
+						if (level === "serializable" && !first && !arbitrated) {
 							assert.equal(
 								Arr.getUnsafe(after, i),
 								"serializable",

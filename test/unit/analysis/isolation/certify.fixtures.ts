@@ -2573,6 +2573,15 @@ export const givesFirstMember = (sketch: Sketch, e: Extension): boolean => {
 }
 
 /**
+ * Whether `e` adds an arbitration to a role's first statement, a read of `arbiter` mode: grizzle's own key arbitration,
+ * which adds no read another call's write can meet, and which fixes the row a later statement of the member reads at that
+ * key (certify.ts fixedFor), so it may make that read sealed and the role READ COMMITTED, as the keyMatched shape's
+ * arbitration does where keyUnmatched's does not.
+ */
+export const addsArbitration = (e: Extension): boolean =>
+	e.kind === "read" && e.read.mode === "arbiter"
+
+/**
  * The roles certification leaves READ COMMITTED once `c`'s extension is applied that rely on a fence of a relation by a
  * login that did not fence it before (Fence; `lowered`, the roles the case's certification lowered): an extension that
  * makes a login newly fence a relation may relax such a reader (the module's header).
