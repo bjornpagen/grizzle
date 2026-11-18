@@ -61,10 +61,10 @@ export const finMigrations = property.explore(
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/sql/print.ts",
-				original: '\twrite(new BlockLines(lines, sqlUnit, ""))',
-				replacement: "\t{}",
-				why: 'Operator mutant (statement) at packages/engine/src/sql/print.ts:2428 in terminated: `write(new BlockLines(lines, sqlUnit, ""))` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				file: "packages/engine/src/deploy/render/sql.ts",
+				original: '\tconst lines = filed(sqlText(spelledLoc, write)).split("\\n")',
+				replacement: "\tconst lines: Array<string> = []",
+				why: "A drafted statement's command written as no lines (deploy/render/sql.ts terminated), so the folder misses it; the property fails (lane CATCH's sql/print.ts terminated kill of grizzle 0baff5d6, re-pointed where 1fc5a519 moved the drafted file's terminator)."
 			}
 		]
 	}
