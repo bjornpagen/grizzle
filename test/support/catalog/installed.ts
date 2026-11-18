@@ -206,6 +206,33 @@ export const closedConstantsOf = (
 	)
 }
 
+/** The law functions an installation's manifest creates, each a rule's capture on a table its rules read, which a
+ * containment judged whole installs as a rule over a query does (laws/model/plan.ts containmentDischarge). */
+export const lawFunctionsOf = (
+	installation: Installation
+): ReadonlyArray<readonly [string, InstalledFunction]> =>
+	Arr.flatMap(installation.manifest.objects, (o) =>
+		o.kind === "lawFunction"
+			? Arr.flatMap(o.ddl, (s) =>
+					Arr.map(Option.toArray(functionOf(s)), (name) => [name, { kind: "rule" }] as const)
+				)
+			: []
+	)
+
+/** The law triggers an installation's manifest creates: each rule's constraint trigger and each capture on a table
+ * its rules read, as a containment judged whole installs them as a rule over a query does. */
+export const lawTriggersOf = (
+	installation: Installation
+): ReadonlyArray<readonly [string, InstalledTrigger]> =>
+	Arr.flatMap(installation.manifest.objects, (o) =>
+		o.kind === "lawTrigger"
+			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledTrigger]> => [
+					...Arr.map(Option.toArray(ruleTriggerOf(s)), (name) => [name, "rule"] as const),
+					...Arr.map(Option.toArray(captureTriggerOf(s)), (name) => [name, "capture"] as const)
+				])
+			: []
+	)
+
 /**
  * The constants the manifest's constant objects create, each as what it is: a names constant (it returns name[]) and a
  * live-codes constant (it returns bit varying as one hex literal), each with the domain whose CHECK

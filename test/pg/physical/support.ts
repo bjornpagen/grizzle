@@ -25,7 +25,11 @@ import {
 	type ProjectedGrant,
 	projectedGrants
 } from "#test/support/catalog/expected.ts"
-import { closedConstantsOf } from "#test/support/catalog/installed.ts"
+import {
+	closedConstantsOf,
+	lawFunctionsOf,
+	lawTriggersOf
+} from "#test/support/catalog/installed.ts"
 import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
 import type { ErasureExpectation } from "#test/support/catalog/verify.ts"
 import { type FixtureSchema, installationSql } from "#test/support/compile.ts"
@@ -149,8 +153,14 @@ export const worldsExpectation = (
 	const declared = declaredErasure(desc)
 	return {
 		...declared,
-		/** The description names no closed constant: the installation's, each as the verifier judges its executors. */
-		functions: new Map([...declared.functions, ...closedConstantsOf(installation)]),
+		/** The description names no closed constant and no law function: the installation's, each as the verifier
+		 * judges its executors, a rule's captures among them. */
+		functions: new Map([
+			...declared.functions,
+			...closedConstantsOf(installation),
+			...lawFunctionsOf(installation)
+		]),
+		triggers: new Map([...declared.triggers, ...lawTriggersOf(installation)]),
 		logins: new Map([
 			[writer.login, { roles: new Set([writer.role, reader.role]), fenced: new Set<string>() }]
 		]),

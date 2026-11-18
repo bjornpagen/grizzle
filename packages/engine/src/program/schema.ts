@@ -505,20 +505,24 @@ export interface Raisable {
 }
 
 /**
- * Of the constraint law `c`, what a write of `tables` can raise: a table's constraint or trigger whose owner is one of
- * them or that is a foreign key `into` names under its table; a domain's CHECK whole where its domain is one of `cast`,
- * and otherwise with its uses narrowed to `tables`, kept while one stays.
+ * Of the constraint law `c`, what a write of `tables` can raise: a table's constraint whose owner is one of them or that
+ * is a foreign key `into` names under its table; a rule's trigger under every table it names it on wherever its law is
+ * `raised`, a law that reads a written table, since its judge names one table of the rule, a whole rule its unit's
+ * holder (physical/ddl/rules.ts raiseOf), which need not be one the write wrote; a domain's CHECK whole where its domain
+ * is one of `cast`, and otherwise with its uses narrowed to `tables`, kept while one stays.
  */
 const raisableConstraint = (
 	c: ConstraintLaw,
 	tables: ReadonlySet<string>,
 	into: ReadonlyMap<string, ReadonlySet<string>>,
-	cast: ReadonlySet<string>
+	cast: ReadonlySet<string>,
+	raised: ReadonlySet<LawId>
 ): ReadonlyArray<ConstraintLaw> => {
 	switch (c.kind) {
 		case "constraint":
-		case "trigger":
 			return tables.has(c.owner) || into.get(c.owner)?.has(c.name) === true ? [c] : []
+		case "trigger":
+			return c.laws.some((l) => raised.has(l.law)) ? [c] : []
 		case "domainConstraint": {
 			if (cast.has(c.owner)) {
 				return [c]
@@ -582,7 +586,7 @@ export const raisableOf = (
 	const typed = [...decoded.flatMap((r) => r.fields.map((f) => f.type)), ...judged.cast]
 	return {
 		constraintLaws: artifacts.constraintLaws.flatMap((c) =>
-			raisableConstraint(c, tables, into, cast)
+			raisableConstraint(c, tables, into, cast, raised)
 		),
 		theoryLaws: artifacts.theoryLaws.filter((l) => raised.has(l.law)),
 		relations: decoded,
