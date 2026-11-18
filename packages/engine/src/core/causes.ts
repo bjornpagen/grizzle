@@ -29,6 +29,10 @@ type Names = ReadonlyArray<string>
  * - `nonlinearFeedback`: a recursive arm reading self `selfReads` times, at least two (scan.ts).
  * - `selfNegation`: r.not(self) in a recursive arm (scan.ts).
  * - `recursiveAggregation`: an aggregate, or r.pack, over self in a recursive arm (scan.ts).
+ * - `recursiveStep`: a recursive arm that reads self and, at any depth of a source it matches or negates, the
+ *   recursion `inner` (scan.ts).
+ * - `unionStep`: a recursive arm that reads self and, at any depth of a source it matches or negates, a union of
+ *   `rules` rules (scan.ts).
  * - `unhashableState`: a state column whose type has no hash operator class (state.ts).
  * - `stateHeading`: arms delivering another heading than the state (state.ts conform).
  * - `inexactConversion`: a state column an arm delivers at a type that converts inexactly to the declared one
@@ -66,6 +70,8 @@ export type RecursionRefusal =
 			readonly recursion: string
 			readonly fold: "count" | "sum" | "mean" | "min" | "max" | "pack"
 	  }
+	| { readonly kind: "recursiveStep"; readonly recursion: string; readonly inner: string }
+	| { readonly kind: "unionStep"; readonly recursion: string; readonly rules: number }
 	| {
 			readonly kind: "unhashableState"
 			readonly recursion: string
@@ -304,6 +310,10 @@ export const recursionRefusalText = (cause: RecursionRefusal): string => {
 			return `recursion: negation of the current relation: r.not(self) in a recursive arm of ${cause.recursion} is not monotone in the feedback; negate a fixed external relation or an earlier completed recursion instead`
 		case "recursiveAggregation":
 			return `recursion: recursive aggregation: ${cause.fold === "pack" ? "r.pack" : cause.fold} over self in a recursive arm of ${cause.recursion} would fold one working-table batch, not the fixed point; precompute independent aggregates before feedback or aggregate the completed recursion afterward`
+		case "recursiveStep":
+			return `recursion: a recursive arm of ${cause.recursion} reads the recursion ${cause.inner}, which PostgreSQL computes once as a relation with no index, so the step would read all of it for every row it extends; carry ${cause.inner}'s state as columns of ${cause.recursion}'s own walk`
+		case "unionStep":
+			return `recursion: a recursive arm of ${cause.recursion} reads a union of ${cause.rules} rules, which PostgreSQL deduplicates before any join reaches it, so the step would read every rule whole for every row it extends; match each rule's relations in a recursive arm of its own`
 		case "unhashableState":
 			return `hashing: ${cause.type} state column ${cause.column} of recursive relation ${cause.recursion} has no hash operator class, and PostgreSQL deduplicates a recursive UNION only by hashing`
 		case "stateHeading":

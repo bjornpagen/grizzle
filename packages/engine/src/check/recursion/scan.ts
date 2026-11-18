@@ -193,6 +193,78 @@ class Nested {
 const isSelf = (s: ResolvedSource): boolean => s.kind === "self"
 
 /**
+ * What a step would read whole for every row it extends, below a source it matches or negates: a recursion, which
+ * PostgreSQL computes once as a CTE, a relation with no index, and a union of several rules, which it deduplicates
+ * before any join reaches it, so neither is ever read at the row a step extends.
+ */
+type WholeRead =
+	| { readonly kind: "recursiveStep"; readonly inner: string }
+	| { readonly kind: "unionStep"; readonly rules: number }
+
+/**
+ * The first whole read of a stage, at any depth of the sources its rules match or negate and of their interiors, a
+ * recursion before a union where a stage holds both; none for a stage of one rule over stored relations and such
+ * stages alone.
+ */
+const wholeRead = (stage: ResolvedStage): WholeRead | undefined => {
+	switch (stage.kind) {
+		case "rules":
+			return rulesWhole(stage.arms)
+		case "union": {
+			const input = wholeRead(stage.input)
+			return input?.kind === "recursiveStep"
+				? input
+				: firstWhole(stage.arms, { kind: "unionStep", rules: unionRules(stage) })
+		}
+		case "recursive":
+			return { kind: "recursiveStep", inner: stage.recursive.name }
+		case "attach":
+			return wholeRead(stage.input) ?? wholeRead(stage.attach.child.stage)
+		case "named":
+		case "order":
+		case "take":
+			return wholeRead(stage.input)
+		case "approx":
+			return undefined
+	}
+}
+
+/** The rules a union stage unions: its input's, one where the input is no stage of rules, then its own. */
+const unionRules = (stage: Extract<ResolvedStage, { readonly kind: "union" }>): number => {
+	switch (stage.input.kind) {
+		case "rules":
+			return stage.input.arms.length + stage.arms.length
+		case "union":
+			return unionRules(stage.input) + stage.arms.length
+		default:
+			return 1 + stage.arms.length
+	}
+}
+
+/** The first whole read of a list of rules: a union where they are several, else the one rule's. */
+const rulesWhole = (rules: NonEmptyReadonlyArray<ResolvedRule>): WholeRead | undefined => {
+	const [only, ...more] = rules
+	return more.length > 0
+		? firstWhole(rules, { kind: "unionStep", rules: rules.length })
+		: ruleWhole(only)
+}
+
+/** A recursion read by any of `rules`, else the union they make. */
+const firstWhole = (rules: ReadonlyArray<ResolvedRule>, union: WholeRead): WholeRead =>
+	rules.map(ruleWhole).find((w) => w?.kind === "recursiveStep") ?? union
+
+/** The first whole read of one rule, below the sources it matches or negates and in its interiors. */
+const ruleWhole = (rule: ResolvedRule): WholeRead | undefined => {
+	const reads = [
+		...ownSources(rule, rule.loc).flatMap(({ source }) =>
+			source.kind === "query" || source.kind === "step" ? [wholeRead(source.query.stage)] : []
+		),
+		...rule.interiors.map((interior) => rulesWhole(interior.arms))
+	]
+	return reads.find((w) => w?.kind === "recursiveStep") ?? reads.find((w) => w !== undefined)
+}
+
+/**
  * The structural admission of a recursive definition, read from its description before any arm is checked.
  *
  * What makes a recursion admissible or not is visible in the rules the author wrote: how often a recursive arm reads
@@ -307,6 +379,15 @@ export const scanArms = (def: ResolvedRecursive): ScannedArms => {
 		}
 		nested.rule(arm.rule, arm.loc, true)
 		if (firstSelf !== undefined) {
+			for (const { source, loc } of ownSources(arm.rule, arm.loc)) {
+				const whole =
+					source.kind === "query" || source.kind === "step"
+						? wholeRead(source.query.stage)
+						: undefined
+				if (whole !== undefined) {
+					failRecursion(loc, { ...whole, recursion: name })
+				}
+			}
 			rec.push({ ...arm, self: firstSelf })
 		} else {
 			selfFree.push(arm)

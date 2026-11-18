@@ -717,3 +717,165 @@ export const mains: Gen<Main> = (source) => ({
 })
 
 export const terms = element<Term>(["the other plus one", "itself plus one", "copied", "a literal"])
+
+/**
+ * Where a definition reads a source beside self: in its base arm, in its recursive arm, which reads self, or in a
+ * recursive arm that reads no self, which joins the base.
+ */
+export type ReadPlace = "base" | "step" | "arm reading no self"
+
+/**
+ * What it reads, each source a heading of one id: a stored relation; a query of one rule over one; a union of two
+ * rules; a recursion; a query of one rule over a recursion; and a union whose first rule reads a recursion.
+ */
+export type ReadSource =
+	| "a stored relation"
+	| "one rule"
+	| "a union"
+	| "a recursion"
+	| "one rule over a recursion"
+	| "a union over a recursion"
+
+export const readSources: Arr.NonEmptyReadonlyArray<ReadSource> = [
+	"a stored relation",
+	"one rule",
+	"a union",
+	"a recursion",
+	"one rule over a recursion",
+	"a union over a recursion"
+]
+
+/** How the arm reads the source: matched at the arm's vertex, or negated there. */
+export type ReadHow = "matched" | "negated"
+
+const idsOf = (relation: string): RuleDesc =>
+	rule({
+		vars: vars(relation, "id"),
+		matches: [match(relationSource(relation), { id: ref(relation, "id") })],
+		where: [],
+		head: { id: ref(relation, "id") },
+		interiors: [],
+		attach: []
+	})
+
+/** A recursion of its own: every vertex, and every vertex an edge reaches from one, the inner walk a step may read. */
+const inner = recursive(
+	"Inner",
+	{ id: uuidField },
+	[idsOf("Vertex")],
+	[
+		rule({
+			vars: [plainVar("inner.id"), ...vars("Edge", "to")],
+			matches: [
+				match({ kind: "self" }, { id: varRef("inner.id") }),
+				match(relationSource("Edge"), { from: varRef("inner.id"), to: ref("Edge", "to") })
+			],
+			where: [],
+			head: { id: ref("Edge", "to") },
+			interiors: [],
+			attach: []
+		})
+	]
+)
+
+const overInner = (): RuleDesc =>
+	rule({
+		vars: [plainVar("over.id")],
+		matches: [match(imported(inner, {}), { id: varRef("over.id") })],
+		where: [],
+		head: { id: varRef("over.id") },
+		interiors: [],
+		attach: []
+	})
+
+const sourceOf = (read: ReadSource) => {
+	switch (read) {
+		case "a stored relation":
+			return relationSource("Blocked")
+		case "one rule":
+			return imported(queryDesc(idsOf("Blocked")), {})
+		case "a union":
+			return imported(queryDesc(idsOf("Blocked"), idsOf("Vertex")), {})
+		case "a recursion":
+			return imported(inner, {})
+		case "one rule over a recursion":
+			return imported(queryDesc(overInner()), {})
+		case "a union over a recursion":
+			return imported(queryDesc(overInner(), idsOf("Blocked")), {})
+	}
+}
+
+/** The definition: the source read at the vertex of the place's arm, matched or negated, beside the seed and the step. */
+export const readingDefinition = (place: ReadPlace, read: ReadSource, how: ReadHow): QueryDesc => {
+	const source = sourceOf(read)
+	const at = (vertex: ExprDesc) =>
+		how === "matched"
+			? { matches: [match(source, { id: vertex })], where: [] }
+			: { matches: [], where: [not(source, { id: vertex })] }
+	const seeded = seed({ node: ref("Vertex", "id"), n: zero }, [])
+	const reading = at(ref("Vertex", "id"))
+	const base =
+		place === "base"
+			? {
+					...seeded,
+					matches: [...seeded.matches, ...reading.matches],
+					where: [...seeded.where, ...reading.where]
+				}
+			: seeded
+	const stepping = at(ref("Edge", "to"))
+	const main = step(
+		["node", "n"],
+		place === "step" ? stepping.where : [],
+		{ node: ref("Edge", "to"), n: s("n") },
+		{
+			vars: [],
+			matches: place === "step" ? stepping.matches : []
+		}
+	)
+	const selfless = rule({
+		vars: vars("Vertex", "id"),
+		matches: [match(relationSource("Vertex"), { id: ref("Vertex", "id") }), ...reading.matches],
+		where: reading.where,
+		head: { node: ref("Vertex", "id"), n: zero },
+		interiors: [],
+		attach: []
+	})
+	return recursive(
+		"Reach",
+		{ node: uuidField, n: bigint },
+		[base],
+		place === "arm reading no self" ? [main, selfless] : [main]
+	)
+}
+
+/**
+ * The rule (check/recursion/scan.ts): a recursive arm that reads self reads no recursion and no union of rules, at
+ * any depth of a source it matches or negates, a recursion before a union where it reads both; a base arm and an arm
+ * reading no self read either, once.
+ */
+export const readVerdict = (
+	place: ReadPlace,
+	read: ReadSource
+): Extract<RecursionRefusal, { readonly kind: "recursiveStep" | "unionStep" }> | undefined => {
+	if (place !== "step") {
+		return undefined
+	}
+	switch (read) {
+		case "a stored relation":
+		case "one rule":
+			return undefined
+		case "a union":
+			return { kind: "unionStep", recursion: "Reach", rules: 2 }
+		case "a recursion":
+		case "one rule over a recursion":
+		case "a union over a recursion":
+			return { kind: "recursiveStep", recursion: "Reach", inner: "Inner" }
+	}
+}
+
+export type ReadFeature =
+	| `refused ${"recursiveStep" | "unionStep"} ${ReadHow}`
+	| "refused at depth"
+	| `admitted ${"a stored relation" | "one rule"} in the step`
+	| "admitted in the base"
+	| "admitted in an arm reading no self"

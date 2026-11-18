@@ -675,6 +675,8 @@ export const treeSpend = query(Resellers).rule((r) => {
 
 The recursion compiles to `WITH RECURSIVE … UNION`, and its result is a set, so a cycle in `BillsThrough` ends the walk instead of looping forever. A recursive rule reads `self` positively, never under a negation, an aggregate or a take, so the fixed point is well defined: aggregate the finished set, as `treeSpend` does. The edges' rules hold for every writer: both ends of an edge are accounts, and a second parent for one account is `refused` on `BillsThrough`'s primary key, `child`.
 
+A recursive rule joins `self` to stored relations, and to queries of one rule over them, each at the row it extends, which an index reads. It reads no other recursion and no union of rules, at any depth of what it matches or negates: PostgreSQL computes a recursion once as a relation with no index, and deduplicates a union before any join reaches it, so a step that read either would read all of it for every row it extends. Both are refused when the query compiles (`RecursionRefused`, cause `recursiveStep` or `unionStep`): carry the other recursion's state as columns of this walk, and match each rule of the union in a recursive rule of its own. A base rule, and a recursive rule that reads no `self`, which joins the base, read either: they run once.
+
 When the shape is itself a rule (one root, no cycles, children in order), declare it. `tree(...)` makes PostgreSQL's constraints hold each tree's rows to one tree, every row reachable and none on a cycle, and keeps each row's pre-order interval, so a subtree is a range scan with no recursion ([Families](#families)).
 
 ### 4. No double booking

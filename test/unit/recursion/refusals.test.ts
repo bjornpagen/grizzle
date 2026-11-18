@@ -11,6 +11,9 @@
  * - feedback read twice, self outside a recursive arm's own matches, r.not(self), an aggregate or r.pack over self,
  *   an approximate stage below an arm (scan.ts); an aggregate in the base, and a recursive arm reading no self, are
  *   admitted;
+ * - a recursion or a union of rules read by a recursive arm that reads self, matched or negated, at any depth of what
+ *   it reads, which PostgreSQL would read whole for every row the step extends (scan.ts); the same read in the base
+ *   or in an arm reading no self, and a stored relation or one rule read in the step, are admitted;
  * - a state column computed from its own value with no admitted bound, directly, through a cycle of computed columns
  *   or through an import whose bind map reads the state; a countdown seeded by data counts its carrier
  *   (termination.ts).
@@ -88,7 +91,13 @@ import {
 	type Observed,
 	observed,
 	outcomeOf,
+	type ReadFeature,
+	type ReadHow,
+	type ReadPlace,
 	readSelf,
+	readSources,
+	readVerdict,
+	readingDefinition,
 	recursive,
 	refusedFor,
 	rowPlace,
@@ -434,6 +443,93 @@ export const theFeedbacksShapeRefusesFeedbackReadTwiceNegatedAggregatedMisplaced
 					original: "\t\tif (secondSelf !== undefined) {",
 					replacement: "\t\tif (secondSelf !== undefined && selves.length > 2) {",
 					why: "Feedback read twice admitted; the feedback-shape search fails."
+				}
+			]
+		}
+	)
+
+/**
+ * A recursive arm that reads self reads no recursion and no union, at any depth of what it matches or negates, since
+ * PostgreSQL computes a recursion once as a relation with no index and deduplicates a union before any join reaches
+ * it; the base and an arm reading no self read either, and the step reads a stored relation or one rule.
+ */
+export const aStepReadsNoRecursionAndNoUnionAtAnyDepthOfWhatItMatchesOrNegatesWhileTheBaseAndAnArmReadingNoSelfReadEither =
+	property.exhaust(
+		finite(
+			(source) =>
+				[
+					source.draw(element<ReadPlace>(["base", "step", "arm reading no self"])),
+					source.draw(element(readSources)),
+					source.draw(element<ReadHow>(["matched", "negated"]))
+				] as const
+		),
+		{
+			needs: {},
+			situations: [
+				"refused recursiveStep matched",
+				"refused recursiveStep negated",
+				"refused unionStep matched",
+				"refused unionStep negated",
+				"refused at depth",
+				"admitted a stored relation in the step",
+				"admitted one rule in the step",
+				"admitted in the base",
+				"admitted in an arm reading no self"
+			] satisfies ReadonlyArray<Reached<ReadFeature>>,
+			check:
+				(_, c: Case<ReadFeature>) =>
+				([place, read, how]) =>
+					Effect.sync(() => {
+						const desc = readingDefinition(place, read, how)
+						const outcome = outcomeOf(desc)
+						const want = readVerdict(place, read)
+						if (want !== undefined) {
+							const { cause, place: at } = refusedFor(outcome)
+							assert.deepEqual(cause, want)
+							assert.deepEqual(
+								at,
+								how === "matched"
+									? armPlace(desc, "rec", "matches", 2)
+									: armPlace(desc, "rec", "where", 0),
+								"refused at the match or the negation that reads it"
+							)
+							c.note(`refused ${want.kind} ${how}`)
+							if (read === "one rule over a recursion" || read === "a union over a recursion") {
+								c.note("refused at depth")
+							}
+							return
+						}
+						lower(admitted(outcome))
+						if (place === "step") {
+							c.note(
+								read === "a stored relation"
+									? "admitted a stored relation in the step"
+									: "admitted one rule in the step"
+							)
+						} else {
+							c.note(
+								place === "base" ? "admitted in the base" : "admitted in an arm reading no self"
+							)
+						}
+					}),
+			oracle: {
+				kind: "specification",
+				name: "check/recursion/scan.ts: a recursive arm reading self reads no recursion and no union at any depth of what it matches or negates, a recursion first; the base and an arm reading no self read either"
+			},
+			box: "every place of three (the base, the step, an arm reading no self), every source of six (a stored relation, one rule, a union, a recursion, one rule over a recursion, a union over a recursion), matched or negated",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/check/recursion/scan.ts",
+					original: "\t\t\t\tif (whole !== undefined) {",
+					replacement: '\t\t\t\tif (whole?.kind === "unionStep") {',
+					why: "A recursion read in a step admitted; the read-in-step search fails at a recursion."
+				},
+				{
+					file: "packages/engine/src/check/recursion/scan.ts",
+					original: "\treturn more.length > 0",
+					replacement: "\treturn more.length > 1",
+					why: "A union of two rules read in a step admitted; the read-in-step search fails at a union."
 				}
 			]
 		}
