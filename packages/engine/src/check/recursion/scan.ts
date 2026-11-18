@@ -229,15 +229,29 @@ const wholeRead = (stage: ResolvedStage): WholeRead | undefined => {
 	}
 }
 
-/** The rules a union stage unions: its input's, one where the input is no stage of rules, then its own. */
-const unionRules = (stage: Extract<ResolvedStage, { readonly kind: "union" }>): number => {
-	switch (stage.input.kind) {
+/** The rules a union stage unions: its own arms beside the rules its input contributes (`inputRules`). */
+const unionRules = (stage: Extract<ResolvedStage, { readonly kind: "union" }>): number =>
+	stage.arms.length + inputRules(stage.input)
+
+/**
+ * The rules a union's input contributes: a stage of rules its arms, a union its own count, a name its input's, which it
+ * names without making a stage of its own; and a stage whose rows an order and its take, an attachment, an approximate
+ * search or a recursion make, one source of them.
+ */
+const inputRules = (input: ResolvedStage): number => {
+	switch (input.kind) {
 		case "rules":
-			return stage.input.arms.length + stage.arms.length
+			return input.arms.length
 		case "union":
-			return unionRules(stage.input) + stage.arms.length
-		default:
-			return 1 + stage.arms.length
+			return unionRules(input)
+		case "named":
+			return inputRules(input.input)
+		case "order":
+		case "take":
+		case "attach":
+		case "approx":
+		case "recursive":
+			return 1
 	}
 }
 
