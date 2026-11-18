@@ -28,6 +28,7 @@ import { type Identity, identity } from "#compiler/core/identity.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
+import { filed } from "#compiler/deploy/render/filed.ts"
 import { folderName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -276,7 +277,9 @@ const body = (statement: string): string =>
  * the ledger's own DDL, guard trigger and grants, the LOCK opening a residual law's Validate file, and the DO block
  * running the law's full violation query there, which reads and raises only. The snapshot guard's function names the
  * ledger in its body and the live source's publication publishes it, but each is the installation's own object, in the
- * script too, so a CREATE ... FUNCTION or a CREATE PUBLICATION is never one.
+ * script too, so a CREATE ... FUNCTION or a CREATE PUBLICATION is never one. A DO block is its command whatever its
+ * body's spelling: dollar-quoted, or the escape string a drafted file spells a body holding a control character as
+ * (deploy/render/filed.ts filed).
  */
 const leavesNoObject = (statement: string, schema: string): boolean => {
 	const text = body(statement)
@@ -285,8 +288,7 @@ const leavesNoObject = (statement: string, schema: string): boolean => {
 			!Str.startsWith("CREATE OR REPLACE FUNCTION ")(text) &&
 			!Str.startsWith("CREATE PUBLICATION ")(text)) ||
 		Str.startsWith("LOCK TABLE ")(text) ||
-		(Str.startsWith("DO $$")(text) &&
-			Str.includes("-- The full violation query of law ")(statement))
+		(Str.startsWith("DO ")(text) && Str.includes("-- The full violation query of law ")(statement))
 	)
 }
 
@@ -312,7 +314,9 @@ const isPrivilege = (statement: string): boolean => {
  * position decides nothing a catalog shows (a unit that needs an earlier one fails the apply instead). Both are read
  * as migrate sends them into `database` (filledSql), each variable filled, and split as migrate splits a file
  * (render/markers.ts splitStatements): a drafted statement may print two, as a grant on the database prints its lock
- * before it (sql/print.ts databaseWide), two on both sides.
+ * before it (sql/print.ts databaseWide), two on both sides. The script is spelled as a drafted file spells it
+ * (deploy/render/filed.ts filed): a constant holding a control character or a line or paragraph separator is the escape
+ * string of the same value, the one constant PostgreSQL reads from either spelling.
  */
 export const runsInstallScript = (
 	folders: ReadonlyArray<FolderSource>,
@@ -322,7 +326,11 @@ export const runsInstallScript = (
 	const schema = installation.names.schema
 	const script = Arr.flatMap(
 		filledSql(
-			{ statements: Arr.flatMap(migratedSql(installation).statements, splitStatements) },
+			{
+				statements: Arr.flatMap(migratedSql(installation).statements, (s) =>
+					splitStatements(filed(s))
+				)
+			},
 			database
 		),
 		(s) => unitsOf(normalized(s))
