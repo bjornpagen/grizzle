@@ -309,7 +309,10 @@ const stringToken = (
 	const read = stringFrom(text, from, state)
 	return read === undefined
 		? unclosedAt("string literal", errorAt)
-		: on(read.end, Option.some({ kind: "string", text: read.content, prefix, start }))
+		: on(
+				read.end,
+				Option.some({ kind: "string", text: read.content, prefix, start, end: read.end })
+			)
 }
 
 /** A quoted identifier's token, refused when empty, or the quoted identifier unclosed at its start. */
@@ -368,7 +371,8 @@ const dollarFrom = (text: string, start: number, tag: string): Scanned => {
 					tag,
 					body: Str.slice(bodyStart, at)(text),
 					bodyStart,
-					start
+					start,
+					end: at + read.length
 				})
 			)
 		}

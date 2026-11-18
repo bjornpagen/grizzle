@@ -35,6 +35,7 @@ export type Token =
 			readonly text: string
 			readonly prefix: string | undefined
 			readonly start: number
+			readonly end: number
 	  }
 	| {
 			readonly kind: "dollar"
@@ -42,6 +43,7 @@ export type Token =
 			readonly body: string
 			readonly bodyStart: number
 			readonly start: number
+			readonly end: number
 	  }
 	| { readonly kind: "param"; readonly index: number; readonly start: number }
 	| { readonly kind: "number"; readonly text: string; readonly start: number }
@@ -347,7 +349,7 @@ const stringConstant = (
 	errorAt: number
 ): Step =>
 	quotedToken(text, open, quoting, errorAt, "string literal", (content, end) =>
-		token({ kind: "string", text: content, prefix, start }, end)
+		token({ kind: "string", text: content, prefix, start, end }, end)
 	)
 
 /** The index after the run of identifier characters from `from`, digits and `$` among them; `from` when none is there. */
@@ -396,9 +398,10 @@ const dollar = (text: string, i: number): Step => {
 	if (close === -1) {
 		return unclosed("dollar-quoted string", i)
 	}
+	const end = close + tag.length
 	return token(
-		{ kind: "dollar", tag, body: text.slice(j + 1, close), bodyStart: j + 1, start: i },
-		close + tag.length
+		{ kind: "dollar", tag, body: text.slice(j + 1, close), bodyStart: j + 1, start: i, end },
+		end
 	)
 }
 

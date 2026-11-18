@@ -205,6 +205,7 @@ export type {
 export { lit, types } from "#compiler/sql/build.ts"
 export { explainAnalyzeOf, explainOf } from "#compiler/runtime/explain.ts"
 export { emit, emitCatalog, emitText } from "#compiler/sql/emit.ts"
+export { differenceShown, escaped } from "#compiler/sql/escape.ts"
 export {
 	looksLikeLiteralPack,
 	printCommentTarget,

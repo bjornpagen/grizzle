@@ -2457,8 +2457,8 @@ export const writeDoBlock = (out: Lines, block: PlBlock): void => dollarQuoted(o
 /** Lines commented out at the printer's indentation unit, written into `out`. */
 export const commented = (out: Lines): Lines => new CommentedLines(out, sqlUnit, "")
 
-/** The lines `write` writes, the last ending in `;`: a statement as a drafted file spells it. */
-export const terminated = (out: Lines, write: (out: Lines) => void): void => {
+/** The lines `write` writes, the last ending in `;`: each command of a statement of several but its last (writeStatement). */
+const terminated = (out: Lines, write: (out: Lines) => void): void => {
 	const lines: Array<string> = []
 	write(new BlockLines(lines, sqlUnit, ""))
 	for (const [i, line] of lines.entries()) {

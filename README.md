@@ -3126,7 +3126,11 @@ deploy.
   `snapshot.json` records: `snapshot.json` (the fingerprint, the levels, the constraints' laws and the rosters' codes)
   and `manifest.json`, the rest. Beside them, `served/<login>.json` holds each login's workloads compiled under the
   snapshot, the one file an app imports for `DbLayer.make`. Commit all of them.
-- **Plain SQL you may edit**, as long as the database ends where the snapshot says. What the schema drops is
+- **Plain SQL you may edit**, as long as the database ends where the snapshot says, and the drift check after the apply
+  judges every edit by the catalog it reaches. Any text tool may read and write a drafted file back: every constant
+  whose value holds a control character or a line or paragraph separator is written as an escape string (`E'\r'`, a
+  function body as one continued line by line), which PostgreSQL reads as the same value, so no line ending a tool
+  rewrites sits inside a value, and a file spelled otherwise before installs the same constants. What the schema drops is
   dropped in the same migration, as declared. A declared rename happens in place, as does a type change of a field its
   caller writes by a cast; any other type change sets the field aside, filled by the value you write at a
   `-- grizzle: placeholder` marker in its table's fill, which may join other tables, once every new column holds its
@@ -3214,8 +3218,9 @@ deploy.
   `snapshot.json`, `manifest.json` or `meta.json`.
 - **`migrate`** connects as the role that owns the schema and the database, applies the pending files, records each in
   the schema's ledger, and refuses an applied file edited, removed or added since. Then it refuses drift, a database
-  that is not exactly the snapshot's, so on a database changed by hand it applies its files, then refuses. `drift`
-  runs that check alone, for CI or a schedule. Both judge the database as it stands: a grant already held, or a revoke
+  that is not exactly the snapshot's, so on a database changed by hand it applies its files, then refuses, one line a
+  fact: a missing or unexpected one, or a changed one by where its two definitions first differ, at which character,
+  and each around it, every control character escaped. `drift` runs that check alone, for CI or a schedule. Both judge the database as it stands: a grant already held, or a revoke
   of a privilege never held, changes nothing. Both refuse a process environment that
   sets `PGOPTIONS` or `PGREPLICATION`, at stage `environment`.
 - **Names come from your code.** A declared name is ASCII letters, digits and underscores, starting with a letter.

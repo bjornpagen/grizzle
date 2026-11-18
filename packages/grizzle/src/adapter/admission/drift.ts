@@ -52,7 +52,9 @@ import {
 	emit,
 	malformedArtifact,
 	emitCatalog,
+	differenceShown,
 	type EmittedText,
+	escaped,
 	nominal,
 	type NonEmptyReadonlyArray,
 	type ParamText,
@@ -92,7 +94,7 @@ import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
  * pg_get_indexdef, pg_get_functiondef, pg_get_triggerdef, pg_get_viewdef, pg_get_statisticsobjdef, pg_get_expr and
  * format_type) with its owner and its state: an index not valid, a trigger not enabled, row security on a table. The
  * two descriptions are compared key by key: a key only the snapshot's has is missing, one only the installed schema's
- * has is unexpected, and a key both have with two definitions is both. Deparsed text is compared only with deparsed
+ * has is unexpected, and a key both have with two definitions differs. Deparsed text is compared only with deparsed
  * text from the same server, so no model of PostgreSQL's deparser exists anywhere. A column and a statistics object's
  * column list are read so that the attribute order a migrated table differs from a fresh one by never enters a
  * description: columns are keyed by name, and statistics columns listed by name.
@@ -128,12 +130,35 @@ import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
  * Every read is a catalog-read AST the engine prints (sql/catalog.ts). Every value read is text and never NULL: a
  * description's parts are joined by concat_ws, which leaves out a part the object lacks and returns text in any case.
  *
- * A fact the snapshot requires and the database lacks (`missing`), or one the database holds and the snapshot does
- * not (`unexpected`).
+ * A fact the snapshot requires and the database lacks (`missing`), one the database holds and the snapshot does not
+ * (`unexpected`), or a key both hold with two values (`differs`): the snapshot's `expected` and the database's
+ * `installed`, an object's two descriptions, a setting's two values or the ledger's two latest targets.
  */
-export interface DriftMismatch {
-	readonly kind: "missing" | "unexpected"
-	readonly fact: string
+export type DriftMismatch =
+	| { readonly kind: "missing" | "unexpected"; readonly fact: string }
+	| {
+			readonly kind: "differs"
+			readonly fact: string
+			readonly expected: string
+			readonly installed: string
+	  }
+
+/**
+ * A mismatch as the report prints it, one line each: its kind and its fact, every control character and line separator
+ * escaped as an escape string spells it and each backslash doubled (sql/escape.ts escaped), so nothing in a fact is
+ * invisible, moves the cursor or breaks the line; and a key with two values by where they first differ, at which
+ * character of how many on each side, and each value around it, never two whole texts.
+ */
+export const mismatchLine = (m: DriftMismatch): string => {
+	switch (m.kind) {
+		case "missing":
+		case "unexpected":
+			return `${m.kind} ${escaped(m.fact)}`
+		case "differs": {
+			const shown = differenceShown(m.expected, m.installed)
+			return `differs ${escaped(m.fact)} from character ${shown.at} (the snapshot's of ${shown.characters.first}, the database's of ${shown.characters.second}): the snapshot's ${shown.first} where the database's is ${shown.second}`
+		}
+	}
 }
 
 /** The drift check's transaction: one snapshot for every read, the scratch installation beside them, rolled back. */
@@ -952,8 +977,8 @@ const fromScratch =
 		)
 
 /**
- * The installed descriptions against the snapshot's: each key only one side has, and each key whose descriptions
- * differ, as the snapshot's missing and the installed one unexpected.
+ * The installed descriptions against the snapshot's: each key only one side has, missing or unexpected, and each key
+ * whose descriptions differ, by its two descriptions.
  */
 const compareDescriptions = (
 	expected: ReadonlyMap<string, string>,
@@ -963,12 +988,10 @@ const compareDescriptions = (
 	const fact = (key: string, description: string) => `${key} as ${description}`
 	for (const [key, want] of expected) {
 		const have = installed.get(key)
-		if (have === want) {
-			continue
-		}
-		out.push({ kind: "missing", fact: fact(key, want) })
-		if (have !== undefined) {
-			out.push({ kind: "unexpected", fact: fact(key, have) })
+		if (have === undefined) {
+			out.push({ kind: "missing", fact: fact(key, want) })
+		} else if (have !== want) {
+			out.push({ kind: "differs", fact: key, expected: want, installed: have })
 		}
 	}
 	for (const [key, have] of installed) {
@@ -989,8 +1012,12 @@ const settingFacts = (d: SettingDifference, at: string): ReadonlyArray<DriftMism
 			return [{ kind: "unexpected", fact: fact(d.value) }]
 		case "differs":
 			return [
-				{ kind: "missing", fact: fact(d.expected) },
-				{ kind: "unexpected", fact: fact(d.observed) }
+				{
+					kind: "differs",
+					fact: `${at} setting ${d.parameter}`,
+					expected: d.expected,
+					installed: d.observed
+				}
 			]
 	}
 }
@@ -1257,8 +1284,12 @@ export const ledgerMismatches = (
 ): ReadonlyArray<DriftMismatch> => {
 	const out: Array<DriftMismatch> = []
 	if (state.latest !== snapshot.fingerprint) {
-		out.push({ kind: "missing", fact: `ledger latest ${snapshot.fingerprint}` })
-		out.push({ kind: "unexpected", fact: `ledger latest ${state.latest}` })
+		out.push({
+			kind: "differs",
+			fact: "ledger latest",
+			expected: snapshot.fingerprint,
+			installed: state.latest
+		})
 	}
 	if (state.partial !== undefined) {
 		out.push({ kind: "unexpected", fact: `ledger partial ${state.partial.folder}` })

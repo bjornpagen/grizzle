@@ -11,6 +11,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import { mismatchLine } from "#adapter/admission/drift.ts"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import {
 	type MigrateError,
@@ -260,7 +261,7 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 				(l) => `  ${l.folder}/${l.file}: unresolved data loss: ${l.loses}`
 			)
 		case "Drifted":
-			return Arr.map(reason.mismatches, (m) => `  ${m.kind} ${m.fact}`)
+			return Arr.map(reason.mismatches, (m) => `  ${mismatchLine(m)}`)
 		case "ConnectRefused":
 		case "SurveyFailed":
 		case "StackTooShallow":

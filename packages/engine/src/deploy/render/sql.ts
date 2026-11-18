@@ -22,6 +22,7 @@ import {
 	type SetAside
 } from "#compiler/deploy/diff/plan.ts"
 import type { DraftFile } from "#compiler/deploy/phases/files.ts"
+import { filed } from "#compiler/deploy/render/filed.ts"
 import type { MetaFile, MetaLosses, MetaStep } from "#compiler/deploy/render/folder.ts"
 import {
 	confirmMarker,
@@ -43,7 +44,6 @@ import {
 	quoteIdent,
 	sqlText,
 	statementText,
-	terminated,
 	writeDoBlock
 } from "#compiler/sql/print.ts"
 
@@ -73,6 +73,16 @@ const lossHead = (out: Lines, loss: LossDecision): void => {
 	)
 }
 
+const spelledLoc = SourceLoc("drafted statement", [])
+
+/** A command's lines as its file holds them (filed), the last ending in its terminator. */
+const terminated = (out: Lines, write: (out: Lines) => void): void => {
+	const lines = filed(sqlText(spelledLoc, write)).split("\n")
+	for (const [i, line] of lines.entries()) {
+		out.line(i === lines.length - 1 ? `${line};` : line)
+	}
+}
+
 /** A statement as a drafted file writes it: its commands (commandsOf), each ending in its terminator. */
 const statementLines = (out: Lines, statement: SqlStatement): void => {
 	for (const command of commandsOf(statement)) {
@@ -91,13 +101,11 @@ interface Spelled {
 	readonly write: (out: Lines) => void
 }
 
-const spelledLoc = SourceLoc("drafted statement", [])
-
 /**
- * A spelled statement's text from its first token, without its terminator: what meta.json records, and what the
- * migration runner sends (sql/print.ts statementText).
+ * A spelled statement's text from its first token, without its terminator, as its file holds it (filed): what
+ * meta.json records, and what the migration runner sends (sql/print.ts statementText).
  */
-const spelledText = (s: Spelled): string => statementText(spelledLoc, s.write)
+const spelledText = (s: Spelled): string => filed(statementText(spelledLoc, s.write))
 
 const spelledLines = (out: Lines, s: Spelled): void => {
 	for (const line of s.above) {
@@ -323,9 +331,16 @@ const recordStep = (d: Draft): ReadonlyArray<MetaStep> => {
 		case "dropStatistics":
 			return spellAction(d).map((x): MetaStep => ({ kind: "statement", statement: spelledText(x) }))
 		case "confirm":
-			return [{ kind: "confirm", statements: flatMapNonEmpty(d.keep, (k) => printCommands(k)) }]
+			return [
+				{
+					kind: "confirm",
+					statements: flatMapNonEmpty(d.keep, (k) => mapNonEmpty(printCommands(k), (c) => filed(c)))
+				}
+			]
 		case "loss":
-			return [{ kind: "loss", loses: lossesOf(d.loses), statement: printStatement(d.statement) }]
+			return [
+				{ kind: "loss", loses: lossesOf(d.loses), statement: filed(printStatement(d.statement)) }
+			]
 	}
 }
 
