@@ -16,9 +16,10 @@
  *
  * The judge reads a whole rule's violation restricted to the units a transaction wrote (`restrictToUnits`): every
  * outermost rule of the query that binds a unit, from a stored relation it matches or a query that delivers one, is
- * read per unit (`perUnit`), the region of the units' keys first, then the rule as a step, a subquery PostgreSQL plans
- * apart and reads LATERAL once per unit, its unit's variables the step's channels. The unit is bound once, there:
- * every rule the step's imports and negations read reads it from the channels, joined or correlated at them, and
+ * read per unit (`perUnit`), the region of the units' keys first, a step made a set of them (`regionOf`), then the rule
+ * as a step, a subquery PostgreSQL plans apart and reads LATERAL once per unit, its unit's variables the step's
+ * channels. The unit is bound once, there: every rule the step's imports and negations read reads it from the channels,
+ * joined or correlated at them, and
  * matches no region of its own (`Restriction`), which the step would read again for each unit of the region outside
  * it, the delta's every row once per written unit, or which PostgreSQL would anti-join against a second copy of the
  * region by a nested loop. So every read of a stored relation is an index range
@@ -848,6 +849,12 @@ const sidesAt = (polarity: RelationRead["polarity"]): ReadonlyArray<DeltaSide> =
  * A written row that meets no occurrence's conditions changes no fact the query reads, so its unit is read only where
  * another row puts it there: a containment of the nodes of one kind reads the units of the nodes of that kind a
  * transaction wrote, and of the rows of its target it removed.
+ *
+ * The region is a step (ir/rel.ts Step), which no rewrite inlines into the rule that reads it, so its rows are the unit
+ * keys alone, and as the occurrence before the rule's step it is made a set of them (analysis/physical/consumers.ts):
+ * the rule's step runs once per written unit. An import would be inlined, its delta read as the occurrence itself, a set
+ * by the delta's own key that holds a unit once per row written, and the rule's step would run once per row: a package's
+ * publish would read the package once for each of its rows.
  */
 const regionOf = (
 	unit: Unit,
@@ -896,7 +903,7 @@ const regionOf = (
 	if (!isNonEmpty(rules)) {
 		return refuse("MalformedDescription", loc, "a whole rule whose captures hold a side")
 	}
-	return { kind: "query", query: queryOf(rules, loc), bind: {} }
+	return { kind: "step", query: queryOf(rules, loc), bind: {} }
 }
 
 /**

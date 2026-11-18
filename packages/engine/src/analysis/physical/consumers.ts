@@ -40,6 +40,14 @@ export interface NodeConsumer {
  * the whole input heading. A fold's bound tuple B is a key of its input (ir/rel.ts FoldInput), so its input distinct
  * over its heading holds exactly one row per B.
  *
+ * A region's occurrence before a step observes its repeats: a step is read LATERAL after the occurrences before it, once
+ * per row they deliver (ir/rel.ts Step, lower/conservative/step), so a repeat of one of them runs every step after it
+ * again, and a chain of steps navigated from the rows a transaction wrote (analysis/theory/navigate.ts), or a whole
+ * rule's step after the units it wrote (analysis/theory/unit.ts), reads each binding once only where the occurrences
+ * before it are a set. A repeat changes no row of the region's result, but its work grows with the repeats, which a
+ * rule's judge of a whole unit's write would square: the 37,578 rows a package writes of a node each deriving the
+ * package's one fact, which the next step reads again for each.
+ *
  * EXISTS is bounded: the right side of a semi- or anti-join is an emptiness test, but every
  * consumer below it still classifies its own inputs, so a bound, a grouping or a set difference under EXISTS observes
  * as it would anywhere. A node's repeats matter when some path from it upward through preserving edges reaches an
@@ -139,7 +147,11 @@ const consumerEdges = (node: RelNode, env: ClassifyEnv): ReadonlyArray<ConsumerE
 		case "SelfRef":
 			return []
 		case "MatchRegion":
-			return node.occurrences.map((o) => pass(o.source, "occurrence"))
+			return node.occurrences.map((o, at) =>
+				node.occurrences.slice(at + 1).some((later) => later.source.kind === "Step")
+					? observe(o.source, "occurrence")
+					: pass(o.source, "occurrence")
+			)
 		case "Filter":
 		case "ProjectSet":
 		case "OrderedResult":

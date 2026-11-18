@@ -2196,8 +2196,9 @@ definition too.
   or an update of a column a rule reads, of a row it added cancels the row there, so the judge reads each added row as
   the transaction leaves it and never reads it again from its table. The copy arms a deferred constraint trigger,
   `DEFERRABLE INITIALLY DEFERRED`, whose function, the judge, runs at COMMIT: each rule's violation query, compiled by
-  grizzle's own query compiler, read once over every row the transaction wrote, a chain of index lookups from those
-  rows, or, for a unit-local rule, over the set of the units those rows hold. It raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. After `SET
+  grizzle's own query compiler, read once over every row the transaction wrote, a chain of index lookups from the set of
+  bindings those rows give it, each binding read once however many rows give it, or, for a unit-local rule, over the
+  set of the units those rows hold. It raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. After `SET
   CONSTRAINTS ALL IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a
   pinned `search_path`, no role may run them, and a temporary table another role made under the judge's names is
   refused.
