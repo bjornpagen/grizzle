@@ -211,10 +211,15 @@ export const run = (c: Case, note: (feature: Feature) => void) =>
 				role: `role${r}`,
 				checked: r,
 				names: r,
-				members: Arr.map(role.members, (variants, m) => ({
-					name: `r${r}m${m}`,
-					compiled: variants
-				}))
+				members: Arr.isReadonlyArrayNonEmpty(role.members)
+					? {
+							kind: "served" as const,
+							members: Arr.map(role.members, (variants, m) => ({
+								name: `r${r}m${m}`,
+								compiled: variants
+							}))
+						}
+					: { kind: "none" as const }
 			})),
 			triggerLawsOver: (given: LawModel, relation: string) => {
 				assert.equal(given, model, "triggerLawsOver is asked over the installation's model")
@@ -331,8 +336,14 @@ export const run = (c: Case, note: (feature: Feature) => void) =>
 			const expected = Arr.flatMap(sketch.members, (_, m) =>
 				defined(recorded.facts.get(`r${r}m${m}`), `member ${m} of role ${r}`)
 			)
-			assert.equal(role.members.length, expected.length, `role ${r}: every variant of every member`)
-			for (const [i, member] of role.members.entries()) {
+			const members = role.writes.kind === "served" ? role.writes.members : []
+			assert.equal(
+				role.writes.kind,
+				sketch.members.length > 0 ? "served" : "unknown",
+				`role ${r}'s writes are served by its members' facts, unknown where it has no change member`
+			)
+			assert.equal(members.length, expected.length, `role ${r}: every variant of every member`)
+			for (const [i, member] of members.entries()) {
 				assert.ok(
 					member === expected[i],
 					`role ${r}'s member facts are memberFacts' answers, in order`

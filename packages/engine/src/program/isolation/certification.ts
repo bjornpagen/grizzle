@@ -199,7 +199,8 @@ const arbiterOf = (
  * One role of a login as certification reads it (program/isolation/input.ts RoleSource): its login's and its own
  * declared name, its checked schema over the installation's, as the installation reads it to grant it
  * (physical/install/plan.ts planInstallation), the names its statements are read back by, and its change members at
- * READ COMMITTED, none where one has no READ COMMITTED form (ReadCommittedRole `unformed`).
+ * READ COMMITTED, none where one has no READ COMMITTED form (ReadCommittedRole `unformed`), and `none` where it has no
+ * change member, whose writes are unknown (RoleWrites).
  */
 const roleSource = (
 	artifacts: SchemaArtifacts,
@@ -215,9 +216,15 @@ const roleSource = (
 		checked: checked.checked,
 		names: extractNames(role.changes),
 		members:
-			role.kind === "formed"
-				? [...role.changes.members].map(([name, compiled]) => ({ name, compiled }))
-				: []
+			role.changes.members.size === 0
+				? { kind: "none" }
+				: {
+						kind: "served",
+						members:
+							role.kind === "formed"
+								? [...role.changes.members].map(([name, compiled]) => ({ name, compiled }))
+								: []
+					}
 	}))
 
 /** The facts of one compiled write of change member `name` at `level` (extract.ts memberFacts), none where its flight

@@ -30,7 +30,8 @@
  *   `start`, `n<f>`) and twice its own slot and end past its guarded parent (`d<f>`, `d<f>p`, the parent's start, `i<f>`,
  *   `end`, then the fold's accumulator where it folds); every reference but an owner axis NO ACTION.
  * - Roles: one fact for each role, in order, its privileges grantedPrivileges' answer for its own input, and its
- *   members memberFacts' answers for its members in order, every variant of each.
+ *   writes served by memberFacts' answers for its members in order, every variant of each, or unknown where it has no
+ *   change member, so it writes by direct SQL alone.
  *
  * Features: an immutable and a mutable owner's family, an immutable tree, a role with no change member, a member of
  * several variants, a relation some trigger law reads, a member's reference to its owner.

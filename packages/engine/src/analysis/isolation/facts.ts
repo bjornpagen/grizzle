@@ -259,8 +259,20 @@ export interface Unformed {
 }
 
 /**
- * One role of one login: the privileges its grant plan holds, by relation, and its change members in the form served at
- * READ COMMITTED (`members`), the one certification judges it by. Its SERIALIZABLE form is no fact of it: certification
+ * What a role writes, as its facts know it: `served`, by its change members, whose facts in the form served at READ
+ * COMMITTED are every statement a call of them sends (none for a role whose members have no READ COMMITTED form, whose
+ * facts are its lowering's, certify.ts Candidate); or `unknown`, where it has no change member, so it writes, if at all,
+ * by direct SQL alone, which grizzle never sees. A fact grizzle cannot know is no fact that is absent: unknown writes
+ * are not writes of nothing, but any transaction its privileges permit, which the certifier bounds (certify.ts
+ * writtenFacts).
+ */
+export type RoleWrites =
+	| { readonly kind: "served"; readonly members: ReadonlyArray<MemberFacts> }
+	| { readonly kind: "unknown" }
+
+/**
+ * One role of one login: the privileges its grant plan holds, by relation, and what it writes (RoleWrites), its change
+ * members in the form served at READ COMMITTED, the one certification judges it by. Its SERIALIZABLE form is no fact of it: certification
  * takes it once the role runs SERIALIZABLE, as its lowering (certify.ts Candidate), and judges the others by it beside
  * these. Its read members run SERIALIZABLE READ ONLY whatever its verdict, DEFERRABLE where declared so, so no fact of
  * theirs is read: a read writes nothing, so it is never a pivot, and of a dangerous structure through it, PostgreSQL's
@@ -271,7 +283,7 @@ export interface RoleFacts {
 	readonly login: string
 	readonly role: string
 	readonly privileges: ReadonlyMap<string, ReadonlySet<TablePrivilege>>
-	readonly members: ReadonlyArray<MemberFacts>
+	readonly writes: RoleWrites
 }
 
 /**

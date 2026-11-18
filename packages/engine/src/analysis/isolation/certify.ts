@@ -33,7 +33,9 @@ import { TupleSet } from "#compiler/core/tuple-map.ts"
  * than its statement's.
  *
  * - `members`: the role has a change member. A role with none writes, if at all, by direct SQL alone, which no member's
- *   facts prove;
+ *   facts prove: its writes are unknown (facts.ts RoleWrites), and every other role is judged beside the one member that
+ *   bounds them (writtenFacts), which reads anything, present or absent, and writes all its privileges permit, so it is
+ *   a pivot cause of every relation it writes, and conditions 2, 3 and 5c weigh its reads of every relation;
  * - `privileges`: the role holds only INSERT and SELECT, and every relation it writes is insert-only for every role of
  *   every login (Writers.insertOnly): no role holds UPDATE or DELETE on it, no member updates or deletes it, and no
  *   update of a relation it references cascades to it. The insert protocol at READ COMMITTED rests on it: a row DO
@@ -312,6 +314,63 @@ const permitted = (p: TablePrivilege): WriteFact["op"] | undefined => {
 	}
 }
 
+/** The name of the member that bounds a role's unknown writes (writtenFacts), which reasons name it by. */
+const directSql = "(direct SQL)"
+
+/** A read of `relation` that may read anything of it, present or absent: by no group, for its absence. */
+const anyRead = (relation: string): ReadFact => ({
+	relation,
+	mode: "negated",
+	base: "negated",
+	probes: [],
+	own: false,
+	group: undefined
+})
+
+/**
+ * The member facts a role's writes are read by (RoleWrites): its served members; or, for unknown writes, one member that
+ * bounds every direct transaction its privileges permit, since a fact grizzle cannot know is no fact that is absent. Its
+ * one statement reads every relation the installation states, each by no group and for its absence (anyRead), so it
+ * reads anything, present or absent, and may miss another call's write (pivotCauseOf); and it writes each relation the
+ * role holds a writer's privilege on by each write that privilege permits, joined with no read, so it makes every row
+ * of it present or absent that the privilege lets it, with every foreign key check those writes make. A role that holds
+ * no writer's privilege writes nothing, and a transaction of it, a read member's like, is never a pivot (RoleFacts).
+ */
+const writtenFacts = (
+	relations: ReadonlyMap<string, RelationFacts>,
+	role: RoleFacts
+): ReadonlyArray<MemberFacts> => {
+	switch (role.writes.kind) {
+		case "served":
+			return role.writes.members
+		case "unknown": {
+			const writes = [...role.privileges].flatMap(([relation, privileges]) =>
+				[...privileges].flatMap((p): ReadonlyArray<WriteFact> => {
+					const op = permitted(p)
+					return op === undefined ? [] : [{ relation, op, from: [] }]
+				})
+			)
+			return isNonEmpty(writes)
+				? [
+						{
+							name: directSql,
+							statements: [
+								{
+									writes,
+									reads: [...relations.keys()].map(anyRead),
+									probes: [],
+									cores: [],
+									uses: [],
+									ctes: []
+								}
+							]
+						}
+					]
+				: []
+		}
+	}
+}
+
 /** The relations one login's roles delete and those they insert, by a privilege or a member. */
 interface LoginWrites {
 	readonly deletes: Set<string>
@@ -481,7 +540,7 @@ export const readSeal = (input: IsolationInput, read: ReadFact): ReadSeal =>
 	sealOf(
 		installationOf(
 			input.relations,
-			input.roles.map((role) => ({ role, members: role.members }))
+			input.roles.map((role) => ({ role, members: writtenFacts(input.relations, role) }))
 		),
 		read
 	)
@@ -1229,7 +1288,7 @@ export const readModes = (
 	readsOf(
 		installationOf(
 			input.relations,
-			input.roles.map((role) => ({ role, members: role.members }))
+			input.roles.map((role) => ({ role, members: writtenFacts(input.relations, role) }))
 		),
 		member
 	).map((p) => ({ statement: p.statement, at: p.at, mode: p.mode, outside: outside(p.seal) }))
@@ -1662,7 +1721,7 @@ const factReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationR
 
 /** The members condition: the role has a change member, whose facts the other conditions read. */
 const memberReasons = (role: RoleFacts): ReadonlyArray<IsolationReason> =>
-	role.members.length === 0
+	role.writes.kind === "unknown"
 		? [
 				reason(
 					"members",
@@ -2111,12 +2170,15 @@ type Judgement<R, S, E> =
  * lowered. A lowered role keeps its READ COMMITTED form among the facts it judges others by, so each round reads every
  * fact the one before it read and every reason a round gave holds at the fixpoint.
  */
-const servedOf = <R, S, E>(standing: Standing<R, S, E>): Served => ({
+const servedOf = <R, S, E>(
+	relations: ReadonlyMap<string, RelationFacts>,
+	standing: Standing<R, S, E>
+): Served => ({
 	role: standing.candidate.role,
 	members:
 		standing.kind === "judged"
-			? standing.candidate.role.members
-			: [...standing.candidate.role.members, ...standing.lowering.facts]
+			? writtenFacts(relations, standing.candidate.role)
+			: [...writtenFacts(relations, standing.candidate.role), ...standing.lowering.facts]
 })
 
 /** One role of a round, read once into its view: judged, with the reasons of its own conditions, or lowered. */
@@ -2149,7 +2211,7 @@ const round = <R, S, E>(
 	relations: ReadonlyMap<string, RelationFacts>,
 	standings: ReadonlyArray<Standing<R, S, E>>
 ): Round<R, S, E> => {
-	const forms = standings.map((standing) => ({ standing, served: servedOf(standing) }))
+	const forms = standings.map((standing) => ({ standing, served: servedOf(relations, standing) }))
 	const at = installationOf(
 		relations,
 		forms.map((f) => f.served)

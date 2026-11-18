@@ -70,7 +70,8 @@
  * run once; a pivot's write before a group read only later let through; a pivot's write after an outside read joined
  * with no row of its call let through; an unsealed read sharing a member with an outside read in another statement let
  * through; condition 5c left out; a read binding part of a declared key sealed as a point; a role with no change member
- * certified; an arbitration of no whole key sealed; an arbitration of a relation a role deletes sealed; a relation
+ * certified; a role with no change member read as writing and reading nothing, or reading rows present alone; an
+ * arbitration of no whole key sealed; an arbitration of a relation a role deletes sealed; a relation
  * another role deletes written READ COMMITTED; 5c's exemption of sealed reads restored; a read of one group per own row
  * sealed; foreign key checks left out of 5c; the checks of rows that reference a changed one left out; a cascading
  * update left out of the writers; a relation with no fact read as having no foreign key (the droppedReference shape); a
@@ -446,9 +447,27 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 			kills: [
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
-					original: "\trole.members.length === 0",
-					replacement: "\trole.members.length < 0",
+					original: '\trole.writes.kind === "unknown"',
+					replacement: '\trole.writes.kind === "unknown" && role.privileges.size < 0',
 					why: "A role with no change member certified (certify.ts memberReasons); the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original: "\t\t\treturn isNonEmpty(writes)",
+					replacement: "\t\t\treturn isNonEmpty(writes) && writes.length < 0",
+					why: "A role with no change member read as writing nothing and reading nothing, no pivot cause, so a referencer of what it deletes and inserts by direct SQL is certified READ COMMITTED (the heldCheck shape); the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original: "\t\t\t\t\t\t\t\t\treads: [...relations.keys()].map(anyRead),",
+					replacement: "\t\t\t\t\t\t\t\t\treads: [],",
+					why: "Unknown writes bounded as reading nothing, so conditions 2 and 3 never weigh what a direct writer may read; the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original: '\tmode: "negated",\n\tbase: "negated",',
+					replacement: '\tmode: "positive",\n\tbase: "positive",',
+					why: "Unknown writes bounded as reading rows present alone, so condition 3 never weighs a direct writer's read of an absence; the search fails."
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",

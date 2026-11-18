@@ -3581,7 +3581,9 @@ of a call's input it refuses: `envelope`, no record of exactly `params` and `fac
   break ([READ COMMITTED writes](#read-committed-writes)). Every other table keeps its guard, and a table no
   role writes keeps it too. A migration that changes whether a table qualifies drops or creates its guard. A role
   that writes only by direct SQL has no ChangeSet to prove, so it is SERIALIZABLE, and a grant of INSERT, UPDATE or
-  DELETE to it keeps that table's guard and makes every role writing the table SERIALIZABLE too.
+  DELETE to it keeps that table's guard and makes every role whose ChangeSets write SERIALIZABLE too: generate cannot
+  see its transactions, so it takes them as any its grants permit, which may read any relation, present or absent
+  ([READ COMMITTED writes](#read-committed-writes)).
 - **One call, one transaction, one round trip or two.** A call sends BEGIN, its statements and COMMIT in one pipelined flight.
   A write that must read stored values first (a family edit of a group already stored, or a refill of a value a change
   leaves stale) sends two flights in its one transaction: one batched read per family of the stored values the edit
@@ -3637,7 +3639,12 @@ login. A row "another call can write" is a row of a relation some role writes, o
 grizzle's own key checks of what it inserts. A foreign key check counts as a read, made at a later snapshot than its
 statement's. The role is certified READ COMMITTED when all of these hold, and stays SERIALIZABLE otherwise:
 
-- **It has a ChangeSet.** A role that writes only by direct SQL has nothing to prove.
+- **It has a ChangeSet.** A role that writes only by direct SQL has nothing to prove. Its writes are unknown, and
+  generate judges every other role beside the most a transaction of its grants can do: read every relation, for what
+  it holds and what it lacks, and insert, update or delete each relation it holds that privilege on. Such a reader of
+  everything may miss any call's write, and it reads every relation another role writes, so while a role holds
+  INSERT, UPDATE or DELETE and has no ChangeSet, no role whose ChangeSets write runs READ COMMITTED (`absence`,
+  `laws`, `writers`). A role that only reads has nothing to bound: a transaction that writes nothing is no pivot.
 - **Each of its ChangeSets has a READ COMMITTED form.** An insert into a relation whose primary key holds a span has
   none: PostgreSQL arbitrates an exclusion constraint by `ON CONFLICT ON CONSTRAINT ... DO NOTHING` alone, so no
   statement can tell a fact the insert met from one it made. A role with such an insert, or a put of such a relation,

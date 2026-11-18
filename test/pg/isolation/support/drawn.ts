@@ -289,7 +289,10 @@ const drawnFacts = (d: DrawnInstallation): IsolationInput => ({
 					new Set<TablePrivilege>(writes.has(name) ? ["SELECT", "INSERT"] : ["SELECT"])
 				])
 			),
-			members: [{ name: `m${i}`, statements: mapNonEmpty(member, statementFacts) }]
+			writes: {
+				kind: "served",
+				members: [{ name: `m${i}`, statements: mapNonEmpty(member, statementFacts) }]
+			}
 		}
 	})
 })

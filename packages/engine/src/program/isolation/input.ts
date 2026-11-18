@@ -23,8 +23,19 @@ export interface RoleSource<Checked, Names, Compiled> {
 	readonly role: string
 	readonly checked: Checked
 	readonly names: Names
-	readonly members: ReadonlyArray<{ readonly name: string; readonly compiled: Compiled }>
+	readonly members: SourceMembers<Compiled>
 }
+
+/**
+ * A role's change members as the builder takes them: `served`, each by its name with its compile, none where every one
+ * of them has no READ COMMITTED form; or `none`, where it has no change member, so its writes are unknown (RoleWrites).
+ */
+export type SourceMembers<Compiled> =
+	| {
+			readonly kind: "served"
+			readonly members: ReadonlyArray<{ readonly name: string; readonly compiled: Compiled }>
+	  }
+	| { readonly kind: "none" }
 
 /**
  * What an installation's isolation facts are built from: its whole law model, over every relation (everySlice), every
@@ -150,7 +161,8 @@ const insertsOf = (relation: OwnedRelation): InsertsFact =>
  * RelationFacts for every relation its owned schema states, at every level, stored, closed and derived alike, by its
  * declared name, each a retirable unit's header or body where a retirable statement names it, and one RoleFacts for
  * every role of `sources`, in their order, its privileges its grant plan's and its
- * members' facts the extractor's for each of its change members, in member order, every variant's.
+ * members' facts the extractor's for each of its change members, in member order, every variant's: its writes served,
+ * or unknown where it has no change member, so it writes by direct SQL alone (RoleWrites).
  */
 export const isolationInput = <Checked, Names, Compiled>(
 	sources: IsolationSources<Checked, Names, Compiled>
@@ -177,9 +189,15 @@ export const isolationInput = <Checked, Names, Compiled>(
 		login: role.login,
 		role: role.role,
 		privileges: sources.grantedPrivileges(model, role.checked),
-		members: role.members.flatMap((member) =>
-			sources.memberFacts(member.name, member.compiled, role.names)
-		)
+		writes:
+			role.members.kind === "none"
+				? { kind: "unknown" }
+				: {
+						kind: "served",
+						members: role.members.members.flatMap((member) =>
+							sources.memberFacts(member.name, member.compiled, role.names)
+						)
+					}
 	}))
 	return { relations, roles }
 }
