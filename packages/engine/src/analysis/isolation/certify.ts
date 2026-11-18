@@ -167,10 +167,10 @@ export interface RoleIsolation {
  *   where the occupant a probe saw may be replaced (the `privileges` condition's dependence);
  * - `own`: it reads only rows the call itself wrote;
  * - `unwritten`: no role writes the relation. The owner writes such a relation by its migrations only, and a migration
- *   takes the ledger's ACCESS EXCLUSIVE lock before any statement (deploy/ledger/ledger.ts:266 and :331, grizzle
- *   adapter/migrate/apply.ts:104), where every Db call holds it in ACCESS SHARE, so every call's snapshot sees one
- *   migration state of it. An owner's psql session writing it outside a migration holds no such lock and falls outside
- *   this proof, under the documented direct-SQL doctrine;
+ *   takes the ledger's ACCESS EXCLUSIVE lock before any statement (deploy/ledger/ledger.ts ledgerStatements'
+ *   `exclusive` and `fence`, grizzle adapter/migrate/apply.ts fenceOf), where every Db call holds it in ACCESS SHARE,
+ *   so every call's snapshot sees one migration state of it. An owner's psql session writing it outside a migration
+ *   holds no such lock and falls outside this proof, under the documented direct-SQL doctrine;
  * - `counted`: an outside read of one group of an insert-only relation that is a family's members under an immutable
  *   owner holding their count, a set the count law fixes, all of it or none;
  * - `point`: an outside read binding every field of a declared key of an insert-only relation, so one row at most,
