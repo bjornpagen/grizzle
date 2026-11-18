@@ -1770,9 +1770,12 @@ const probedTouches = (rule: ProbedRule, relation: string): Touches | undefined 
  * - `absent`: rows it needs absent: the matches of the negated arms of its breaking arms and of every arm of a
  *   containment's target.
  *
- * A whole rule's one witness is every occurrence its violation query reads: its positive occurrences among `rows` and
- * its negative ones among `absent`, an occurrence of both polarities in each, so a relation it reads twice counts
- * twice, as two matches of an arm do. With no positive occurrence, every occurrence stands among `rows`.
+ * A whole rule's one witness is every occurrence its violation query reads: its positive occurrences among `rows`, its
+ * negative ones among `absent`, and an occurrence of both polarities, which only an aggregate reads (RelationRead), a
+ * read of its whole group, among `present` and `absent`, never among `rows`: a count, a sum, a min or a max changes
+ * with every row of its group a write puts or takes, so no row of it is one row of a match, and its writer's row is never
+ * the one occurrence its write makes true. A relation it reads twice counts twice, as two matches of an arm do. With no
+ * positive occurrence, every occurrence stands among `rows`.
  *
  * Every violation of the rule is a violation through one of its witnesses. A write that makes a row present can break
  * the rule exactly where its relation stands among some witness's `rows` or `present`, and one that makes a row absent
@@ -1799,16 +1802,14 @@ const negatedOf = (arm: LiveArm): ReadonlyArray<string> =>
 export const witnesses = (rule: QueryRule): NonEmptyReadonlyArray<Witness> => {
 	switch (rule.kind) {
 		case "whole": {
-			const at = (polarity: "positive" | "negative"): ReadonlyArray<string> =>
-				rule.reads.flatMap((r) =>
-					r.polarity === polarity || r.polarity === "both" ? [r.relation] : []
-				)
-			const [first, ...rest] = at("positive")
+			const at = (polarities: ReadonlyArray<RelationRead["polarity"]>): ReadonlyArray<string> =>
+				rule.reads.flatMap((r) => (polarities.includes(r.polarity) ? [r.relation] : []))
+			const [first, ...rest] = at(["positive"])
 			return [
 				{
 					rows: first === undefined ? mapNonEmpty(rule.reads, (r) => r.relation) : [first, ...rest],
-					present: [],
-					absent: at("negative")
+					present: at(["both"]),
+					absent: at(["negative", "both"])
 				}
 			]
 		}

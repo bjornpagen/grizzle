@@ -3938,8 +3938,9 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   inserts or updates, or a closed relation) and the absence of rows no write takes away (of a relation no role
   deletes or updates, and no retirable unit's). A write the trigger misses can then only take a violation away, so it
   refuses more, never less: `Live = Hold where not Freed` checked against a closed count, written by a role that
-  inserts both, is one; a key over `Live`, a join of two relations roles insert, or a negation of a relation a role
-  deletes is none. No SERIALIZABLE role's ChangeSet reads a relation it writes.
+  inserts both, is one; a key over `Live`, a join of two relations roles insert, a count, sum, min or max of a relation
+  a role inserts, which reads every row of its group, or a negation of a relation a role deletes is none. No
+  SERIALIZABLE role's ChangeSet reads a relation it writes.
 - **Nothing reads the absence or a count of what it writes.** No ChangeSet of any role asks whether a row of it is
   missing (a negation, a `NOT EXISTS`) or how many there are (a count, an aggregate). grizzle's own checks inside a
   write (a duplicate within the call, a refusal of a conflicting row) don't count when every row they look at comes
