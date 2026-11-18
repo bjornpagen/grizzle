@@ -124,6 +124,12 @@ export type OriginsOf<Ev> = Ev extends { readonly origins: infer O } ? O : unkno
 export declare namespace Evidence {
 	/** What the type level falls back to when it cannot decide. */
 	type Unknown = { readonly keys: unknown; readonly card: "many" }
+	/**
+	 * A set of many facts keyed by its whole heading Row and by nothing narrower: a recursion's fixed point, which its
+	 * UNION deduplicates as complete states, as the engine keys a Recursive node (logical/props.ts: none beyond the whole
+	 * heading, a set), so a fold may read it matched at every field, and a derived relation over it is keyed so.
+	 */
+	type Set<Row> = { readonly keys: readonly [KeyOver<keyof Row & string>]; readonly card: "many" }
 }
 
 /** A key over exactly the field names in K. Field order is immaterial to a key, so a key is the union of its names. */

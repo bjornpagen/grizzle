@@ -9,6 +9,7 @@ import type { CompileReason, CompileReasonTag } from "#compiler/core/errors.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { type KeyClasses, type KeyProof, keyFactors } from "#compiler/ir/keys.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
@@ -28,7 +29,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * as types, which the type tier checks (test/types/api/recursion.test.ts). The engine is the oracle: a drawn recursion
  * typechecks exactly when the engine builds and compiles it; a refusal the types name by a Refusal names the engine's
  * reason; and an admitted recursion's records are the engine's decoded heading, its parameters the engine's, every
- * arm's joined, its evidence proves nothing, and the get of its workload member's handle, as a Db of Reader serving it
+ * arm's joined, its evidence the engine's keys of it, its whole row and no narrower key (Evidence.Set), so a fold reads
+ * it matched at every field, and the get of its workload member's handle, as a Db of Reader serving it
  * holds it (WorkloadHandles), takes it exactly where the engine proves it at most one row per binding, which a fixed
  * point never is.
  *
@@ -456,10 +458,35 @@ const builtRecursion = (spec: RecursionSpec): QueryValue =>
 		rec: Arr.map(spec.rec, (arm) => (r: RuleValue, self: unknown) => builtArm(arm, r, self))
 	})
 
-/** What the engine proves of a recursion it compiles: its records and its parameters. */
+/** What the engine proves of a recursion it compiles: its records, its parameters, and its keys as a type. */
 interface Proved {
 	readonly head: string
 	readonly params: string
+	readonly keys: string
+}
+
+/**
+ * The engine's keys of a compiled query's root as a type, each a key over the union of its columns' names, every class
+ * of equal columns among them (ir/keys.ts keyFactors), as the type evidence states a key (KeyOver).
+ */
+const keysType = (root: {
+	readonly meta: { readonly logicalKeys: ReadonlyArray<KeyProof> }
+}): string => {
+	const keys = Arr.flatMap(root.meta.logicalKeys, (k) =>
+		Arr.reduce(keyFactors(k), [[]], (chosen: ReadonlyArray<KeyClasses>, alternatives) =>
+			Arr.flatMap(chosen, (key) => Arr.map(alternatives, (a): KeyClasses => [...key, ...a]))
+		)
+	)
+	const names = Arr.map(keys, (classes) =>
+		Arr.join(
+			Arr.map(Arr.sort(Arr.flatten(classes), Str.Order), (c) => jsonText(c)),
+			" | "
+		)
+	)
+	return `readonly [${Arr.join(
+		Arr.map(names, (n) => `ReadonlyArray<${n}>`),
+		", "
+	)}]`
 }
 
 type Verdict =
@@ -487,7 +514,8 @@ const verdictOf = (spec: RecursionSpec): Verdict => {
 					template.value.heading
 				)
 			),
-			params: paramsType(template.value.params)
+			params: paramsType(template.value.params),
+			keys: keysType(template.value.analyzed.roots[0])
 		}
 	}
 }
@@ -574,14 +602,14 @@ const blockOf = (c: RecursionCase, i: number): ReadonlyArray<string> => {
 			""
 		]
 	}
-	const { head, params } = c.verdict.proved
+	const { head, params, keys } = c.verdict.proved
 	return [
 		...Arr.map(lines, (l) => l.text),
 		`export type h${i} = Expect<Equals<HeadOf<typeof q${i}>, ${head}>>`,
 		params === "unknown"
 			? `export type p${i} = Expect<Equals<keyof ParamsOf<typeof q${i}>, never>>`
 			: `export type p${i} = Expect<Equals<ParamsOf<typeof q${i}>, ${params}>>`,
-		`export type e${i} = Expect<Equals<EvidenceOfQuery<typeof q${i}>, Evidence.Unknown>>`,
+		`export type e${i} = Expect<Equals<EvidenceOfQuery<typeof q${i}>, { readonly keys: ${keys}; readonly card: "many" }>>`,
 		`export const g${i} = (h: WorkloadHandles<typeof Reader, { readonly m: typeof q${i} }>["m"]) => (input: InputOf<typeof q${i}>) =>`,
 		`\th.once(input)`,
 		""

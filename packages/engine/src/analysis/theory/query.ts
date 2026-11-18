@@ -476,7 +476,7 @@ class Flattener {
 				return this.#stage(relation, stage.input, columns)
 			case "recursive":
 				return this.#refuseKind(
-					"a rule reads a derived relation whose definition joins, selects and projects: this one recurses"
+					"a rule reads a recursion only where it is unit-local: every relation it reads immutable, every match of it within one unit, and every step carrying the unit from self into its head"
 				)
 			case "attach":
 				return this.#refuseKind(
@@ -701,30 +701,30 @@ export const liveArms = (
 /** The heading of a definition's arms: the fields every arm derives, in the first arm's order. */
 /**
  * The heading of a derived relation's definition, `relation`'s: the fields its first rule derives, every rule of a
- * definition deriving one heading (schema/own.ts admits no other).
+ * definition deriving one heading (schema/own.ts admits no other), and a recursion's its declared row, which every arm
+ * of it delivers exactly (check/recursion/scan.ts).
  */
 export const headingOf = (
 	relation: string,
 	query: InferredQuery,
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<string> => {
-	const first = (stage: InferredStage): InferredRule | undefined => {
+	const fieldsOf = (stage: InferredStage): ReadonlyArray<string> => {
 		switch (stage.kind) {
 			case "rules":
-				return stage.arms[0]
+				return Object.keys(stage.arms[0].head)
 			case "union":
 			case "named":
 			case "attach":
 			case "order":
 			case "take":
 			case "approx":
-				return first(stage.input)
+				return fieldsOf(stage.input)
 			case "recursive":
-				return undefined
+				return Object.keys(stage.recursive.row)
 		}
 	}
-	const rule = first(query.stage)
-	const [field, ...fields] = rule === undefined ? [] : Object.keys(rule.head)
+	const [field, ...fields] = fieldsOf(query.stage)
 	return field === undefined
 		? refuse("MalformedDescription", loc, `a definition of ${relation} that derives a field`)
 		: [field, ...fields]
@@ -1204,9 +1204,11 @@ const liveSource = (relation: string, definition: LiveEnv["definition"]): Inferr
 }
 
 /**
- * A definition read live: every derived relation it matches or negates, at any depth, read as its own definition, live,
- * imported (`liveSource`), and every query it imports read so in turn. Each stays a query of its own, so its rows are
- * computed at a level of their own, joined to the level that reads them by the columns that level binds.
+ * A definition read live: every derived relation it matches or negates, at any depth, a recursion's base and steps
+ * among it, read as its own definition, live, imported (`liveSource`), and every query it imports read so in turn. Each
+ * stays a query of its own, so its rows are computed at a level of their own, joined to the level that reads them by
+ * the columns that level binds; none stays a relation by its name, which a walk of the query (analysis/theory/unit.ts)
+ * would read as a closed relation, the same at every state and in no unit.
  */
 const liveQuery = (query: InferredQuery, definition: LiveEnv["definition"]): InferredQuery => {
 	const source = (s: InferredSource): InferredSource => {
@@ -1240,6 +1242,14 @@ const liveQuery = (query: InferredQuery, definition: LiveEnv["definition"]): Inf
 			case "named":
 				return { ...st, input: stage(st.input) }
 			case "recursive":
+				return {
+					...st,
+					recursive: {
+						...st.recursive,
+						base: mapNonEmpty(st.recursive.base, rule),
+						rec: mapNonEmpty(st.recursive.rec, rule)
+					}
+				}
 			case "attach":
 			case "order":
 			case "take":

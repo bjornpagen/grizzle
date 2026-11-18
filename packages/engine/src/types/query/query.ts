@@ -141,7 +141,7 @@ type BuilderRecursive = <
 ) => Query<
 	S,
 	FactOfFields<Row>,
-	Evidence.Unknown,
+	Evidence.Set<Row>,
 	Simplify<ArmParams<Base[number]> & ArmParams<Rec[number]>>,
 	FactOfFields<Row>,
 	Row,

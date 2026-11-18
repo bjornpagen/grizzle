@@ -38,17 +38,19 @@ import {
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
 import { compareText } from "#compiler/core/canonical.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
+	FieldDesc,
 	InferredExpr,
 	InferredHead,
 	InferredMatch,
 	InferredQuery,
 	InferredRule,
 	InferredSource,
-	InferredStage
+	InferredStage,
+	VarDesc
 } from "#compiler/ir/desc.ts"
 import type { RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
@@ -71,6 +73,8 @@ interface Walk {
 	readonly holders: ReadonlyMap<string, NonEmptyReadonlyArray<string>>
 	readonly region: InferredSource | undefined
 	readonly reads: Array<RelationRead>
+	/** The fields of the row of the recursion whose step the walk reads, where it reads one, that hold its unit. */
+	readonly self: ReadonlyArray<string> | undefined
 }
 
 /** Where a walk stands in its query: the polarity of what it reads there. */
@@ -198,11 +202,17 @@ const sourceUnit = (
 				}
 			}
 		}
+		case "self": {
+			if (w.self === undefined) {
+				return notLocal
+			}
+			const vars = varsAt(bindings, w.self)
+			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, stored: false, source }
+		}
 		case "step":
 		case "param":
 		case "paramOf":
 		case "interior":
-		case "self":
 		case "delta":
 		case "context":
 		case "row":
@@ -324,6 +334,8 @@ const walkedExpr = (
 interface WalkedRule {
 	readonly rule: InferredRule
 	readonly delivered: Delivered
+	/** The variables its sources bind its unit to, none where it reads no unit or a hidden one. */
+	readonly unit: ReadonlyArray<string> | undefined
 }
 
 /**
@@ -367,7 +379,11 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 		return notLocal
 	}
 	if (unit === undefined) {
-		return { rule: { ...r, matches, where }, delivered: hidden ? hiddenUnit : noUnit }
+		return {
+			rule: { ...r, matches, where },
+			delivered: hidden ? hiddenUnit : noUnit,
+			unit: undefined
+		}
 	}
 	const fields = unit.flatMap((v) => {
 		const field = Object.entries(r.head).find(([, h]) => h.kind === "var" && h.var === v)?.[0]
@@ -383,7 +399,8 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 			w.region !== undefined && (stored || r.where.some((x) => negatesHolder(x, w.holders)))
 				? perUnit(walkedText, unit, w.region)
 				: walkedText,
-		delivered
+		delivered,
+		unit
 	}
 }
 
@@ -405,19 +422,30 @@ const deliveredVar = (field: string): string => `delivered.${field}`
 
 /**
  * A rule read per unit of the region: the region's keys first, each bound to the rule's unit variables, then the rule
- * itself as a step (ir/desc.ts SourceDesc `step`), its unit variables its channels, which the step's bind map binds to
- * the region's keys, delivering its head. A step is a subquery PostgreSQL never pulls up, read LATERAL after the region
- * (lower/conservative/step), so the rule runs once per unit the transaction wrote, its every read an index range at that
- * unit's key, and an aggregate or a negation in it reads that unit alone, whatever PostgreSQL estimates of the region.
+ * itself as a step (ir/desc.ts SourceDesc `step`), its unit variables its channels (`channelled`), which the step's bind
+ * map binds to the region's keys, delivering its head (`readPerUnit`). A step is a subquery PostgreSQL never pulls up,
+ * read LATERAL after the region (lower/conservative/step), so the rule runs once per unit the transaction wrote, its
+ * every read an index range at that unit's key, and an aggregate or a negation in it reads that unit alone, whatever
+ * PostgreSQL estimates of the region.
  */
 const perUnit = (
 	r: InferredRule,
 	unit: ReadonlyArray<string>,
 	region: InferredSource
-): InferredRule => {
+): InferredRule =>
+	readPerUnit(
+		queryOf([channelled(r, unit)], r.loc),
+		r.vars.filter((v) => unit.includes(v.id)),
+		Object.keys(r.head),
+		region,
+		r.loc
+	)
+
+/** A rule with its unit's variables `unit` read as the channels a step's bind map binds them to, position by position. */
+const channelled = (r: InferredRule, unit: ReadonlyArray<string>): InferredRule => {
 	const channels = new Map(unit.map((v, j) => [v, unitParam(j)] as const))
 	const leaves: LeafRewrite = { var: (id) => channels.get(id), field: () => undefined }
-	const step: InferredRule = {
+	return {
 		...r,
 		vars: r.vars.filter((v) => !channels.has(v.id)),
 		matches: r.matches.map((m) => ({ ...m, bindings: mapBindings(m.bindings, leaves) })),
@@ -429,35 +457,43 @@ const perUnit = (
 			])
 		)
 	}
-	const fields = Object.keys(r.head)
-	return {
-		vars: [
-			...r.vars.filter((v) => channels.has(v.id)),
-			...fields.map((f) => ({ id: deliveredVar(f), origin: undefined, loc: r.loc }))
-		],
-		matches: [
-			{
-				source: region,
-				bindings: Object.fromEntries(unit.map((v, j) => [unitColumn(j), varRef(v)] as const)),
-				loc: r.loc
-			},
-			{
-				source: {
-					kind: "step",
-					query: queryOf([step], r.loc),
-					bind: Object.fromEntries(unit.map((v, j) => [`unit${j}`, varRef(v)] as const))
-				},
-				bindings: Object.fromEntries(fields.map((f) => [f, varRef(deliveredVar(f))] as const)),
-				loc: r.loc
-			}
-		],
-		where: [],
-		head: Object.fromEntries(fields.map((f) => [f, varRef(deliveredVar(f))] as const)),
-		interiors: [],
-		attach: [],
-		loc: r.loc
-	}
 }
+
+/**
+ * The query `step`, every rule of which reads the unit at the channels, read per unit of the region: the region's keys
+ * first, bound to `unit`'s variables, then `step` as a step whose bind map binds the channels to them, its facts'
+ * `fields` delivered.
+ */
+const readPerUnit = (
+	step: InferredQuery,
+	unit: ReadonlyArray<VarDesc>,
+	fields: ReadonlyArray<string>,
+	region: InferredSource,
+	loc: SourceLoc
+): InferredRule => ({
+	vars: [...unit, ...fields.map((f) => ({ id: deliveredVar(f), origin: undefined, loc }))],
+	matches: [
+		{
+			source: region,
+			bindings: Object.fromEntries(unit.map((v, j) => [unitColumn(j), varRef(v.id)] as const)),
+			loc
+		},
+		{
+			source: {
+				kind: "step",
+				query: step,
+				bind: Object.fromEntries(unit.map((v, j) => [`unit${j}`, varRef(v.id)] as const))
+			},
+			bindings: Object.fromEntries(fields.map((f) => [f, varRef(deliveredVar(f))] as const)),
+			loc
+		}
+	],
+	where: [],
+	head: Object.fromEntries(fields.map((f) => [f, varRef(deliveredVar(f))] as const)),
+	interiors: [],
+	attach: [],
+	loc
+})
 
 /** The rules of a stage walked, with how they deliver their facts' units (`walkedRules`). */
 interface WalkedStage {
@@ -504,6 +540,131 @@ const walkedRules = (
 		: { rules: mapNonEmpty([first, ...rest], (r) => r.rule), delivered }
 }
 
+/** Whether a rule reads self among its matches: a recursion's step, where the checker admits it (check/recursion). */
+const readsSelf = (r: InferredRule): boolean => r.matches.some((m) => m.source.kind === "self")
+
+/**
+ * A recursion walked where it is unit-local, the one decision of it that both the admission (`wholeRule`) and the
+ * restriction (`restrictToUnits`) read, through `walked`: its seeds, its base rules and every recursive rule that reads
+ * no self, which the checker folds into the base (check/recursion/scan.ts), each walked as any rule is and delivering
+ * the recursion's unit alike, at the fields `fields` of its row (`joinedDelivery`); and every step, a recursive rule that
+ * reads self, carrying the unit: walked with self read at those fields (`sourceUnit`), its self match and every match of
+ * a stored relation or a query binding the unit to one sequence of variables (`walkedRule`), and its head delivering
+ * exactly those variables at those same fields (`carries`). Not unit-local where a seed delivers no unit or a hidden
+ * one, or a step leaves it.
+ *
+ * Where the walk restricts, the recursion is read per unit of the region as one query (`readPerUnit`), every seed and
+ * every step reading the unit at the channels (`channelled`): each read of a stored relation is then an index range at
+ * the unit's key, the step's as well as the seed's, whatever PostgreSQL estimates of the working table. That is the
+ * whole restriction of the fixed point: every state is derived from one seed by steps, each of which delivers the unit
+ * it read from self, so every state holds its seed's unit, and the states of one unit are exactly the fixed point of the
+ * seeds at that unit under the same steps, σ(lfp(B, T)) = lfp(σB, T) for σ over the carried unit fields; a step reads
+ * the channel where it read self's unit, which every state it extends holds. No rule of the recursion is read per unit
+ * on its own (`perUnit`): a step read so would nest self inside a subquery, which no recursion admits. A seed's bare
+ * head literals are typed by the row's declared columns (`typedSeed`), as the checker types them in a recursion's arm.
+ */
+const unitLocalRecursion = (
+	st: Extract<InferredStage, { readonly kind: "recursive" }>,
+	at: At,
+	w: Walk
+): WalkedQueryStage | NotLocal => {
+	const row = st.recursive.row
+	const plain: Walk = { ...w, region: undefined }
+	const read = new Map<InferredRule, WalkedRule>()
+	let delivered: Delivered | NotLocal | undefined
+	for (const r of [...st.recursive.base, ...st.recursive.rec.filter((x) => !readsSelf(x))]) {
+		const seed = walkedRule(typedSeed(r, row), at, plain)
+		if (seed === notLocal) {
+			return notLocal
+		}
+		delivered =
+			delivered === undefined
+				? seed.delivered
+				: delivered === notLocal
+					? notLocal
+					: joinedDelivery(delivered, seed.delivered)
+		read.set(r, seed)
+	}
+	if (delivered === undefined || delivered === notLocal || delivered.kind !== "at") {
+		return notLocal
+	}
+	const fields = delivered.fields
+	const stepWalk: Walk = { ...plain, self: fields }
+	for (const r of st.recursive.rec) {
+		if (read.has(r)) {
+			continue
+		}
+		const step = walkedRule(r, at, stepWalk)
+		if (step === notLocal || !carries(step, fields)) {
+			return notLocal
+		}
+		read.set(r, step)
+	}
+	const region = w.region
+	const ruleOf = (r: InferredRule): InferredRule => {
+		const walkedOne = defined(read.get(r), "a walked rule per rule of the recursion")
+		return region === undefined || walkedOne.unit === undefined
+			? walkedOne.rule
+			: channelled(walkedOne.rule, walkedOne.unit)
+	}
+	const recursion: InferredStage = {
+		...st,
+		recursive: {
+			...st.recursive,
+			base: mapNonEmpty(st.recursive.base, ruleOf),
+			rec: mapNonEmpty(st.recursive.rec, ruleOf)
+		}
+	}
+	if (region === undefined) {
+		return { stage: recursion, delivered }
+	}
+	const unit = fields.map((_, j): VarDesc => ({
+		id: recursionUnitVar(j),
+		origin: undefined,
+		loc: st.loc
+	}))
+	return {
+		stage: {
+			kind: "rules",
+			arms: [readPerUnit({ stage: recursion }, unit, Object.keys(row), region, st.loc)],
+			loc: st.loc
+		},
+		delivered
+	}
+}
+
+/** The variable a recursion read per unit binds position `j` of the region's unit key to (`unitLocalRecursion`). */
+const recursionUnitVar = (j: number): string => `recursion.unit.${j}`
+
+/** A seed with each bare literal of its head typed by the row's declared column of its field (`unitLocalRecursion`). */
+const typedSeed = (r: InferredRule, row: Readonly<Record<string, FieldDesc>>): InferredRule => ({
+	...r,
+	head: Object.fromEntries(
+		Object.entries(r.head).map(([field, h]): readonly [string, InferredHead] => {
+			const declared = row[field]
+			return [
+				field,
+				h.kind === "literal" && h.type === undefined && declared !== undefined
+					? { ...h, type: declared }
+					: h
+			]
+		})
+	)
+})
+
+/** Whether a walked step carries its recursion's unit: its head delivers its unit's variables at exactly `fields`. */
+const carries = (step: WalkedRule, fields: ReadonlyArray<string>): boolean => {
+	const unit = step.unit
+	return (
+		unit !== undefined &&
+		unit.length === fields.length &&
+		fields.every((f, j) => {
+			const h = step.rule.head[f]
+			return h?.kind === "var" && h.var === unit[j]
+		})
+	)
+}
+
 /** A stage walked, and how it delivers its facts' units. */
 interface WalkedQueryStage {
 	readonly stage: InferredStage
@@ -512,8 +673,8 @@ interface WalkedQueryStage {
 
 /**
  * A query walked (`Walked`): each rule of its rules and union stages, through a name, walked (`walkedRule`), a union's
- * input and arms joined (`joinedDelivery`); a recursion, an order, a take, an approximation or an attachment is no
- * unit-local query.
+ * input and arms joined (`joinedDelivery`); a recursion walked where it carries its unit through every step
+ * (`unitLocalRecursion`); an order, a take, an approximation or an attachment is no unit-local query.
  */
 const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 	const stage = (st: InferredStage): WalkedQueryStage | NotLocal => {
@@ -542,6 +703,7 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 					: { stage: { ...st, input: input.stage }, delivered: input.delivered }
 			}
 			case "recursive":
+				return unitLocalRecursion(st, at, w)
 			case "attach":
 			case "order":
 			case "take":
@@ -613,7 +775,8 @@ const restrictToUnits = (
 	const read = walked(violation, top, {
 		holders: holdersOf(unit),
 		region: regionOf(unit, sides, loc),
-		reads: []
+		reads: [],
+		self: undefined
 	})
 	if (read === notLocal) {
 		throw defect("a whole rule's violation query is unit-local at its unit")
@@ -669,7 +832,12 @@ const unitAt = (
 	const held: Unit["holders"] = [h0, ...hs]
 	const unit: Unit = Object.freeze({ key, holders: held })
 	const reads: Array<RelationRead> = []
-	const read = walked(violation, top, { holders: holdersOf(unit), region: undefined, reads })
+	const read = walked(violation, top, {
+		holders: holdersOf(unit),
+		region: undefined,
+		reads,
+		self: undefined
+	})
 	const [r0, ...rs] = reads
 	return read === notLocal || r0 === undefined ? undefined : { unit, reads: [r0, ...rs] }
 }

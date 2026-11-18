@@ -37,18 +37,18 @@ export interface RuleRead<out R> {
 }
 
 /**
- * The refusal of a definition's arm a rule cannot read, or never for an arm a rule reads: a rule or a union of rules,
- * no head term a span producer. An aggregate is no refusal here: a rule over one is judged whole, over the units a
- * transaction wrote, where it is unit-local, which only the schema's compile decides (analysis/theory/unit.ts), and
- * refused there where it is not (UnsupportedLawFamily).
+ * The refusal of a definition's arm a rule cannot read, or never for an arm a rule reads: a rule, a union of rules or a
+ * recursion, no head term a span producer. An aggregate and a recursion are no refusal here: a rule over one is judged
+ * whole, over the units a transaction wrote, where it is unit-local, which only the schema's compile decides
+ * (analysis/theory/unit.ts), and refused there where it is not.
  */
 type ArmRefusal<A> =
 	A extends UnionArm<infer C, PropertyKey, infer Stage, boolean>
-		? Stage extends "rule" | "union"
+		? Stage extends "rule" | "union" | "recursive"
 			? [KeysOfCarrier<C, Producer<unknown, never>>] extends [never]
 				? never
 				: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans">
-			: Refusal<StageRefusals[Exclude<Stage, "rule" | "union">]>
+			: Refusal<StageRefusals[Exclude<Stage, "rule" | "union" | "recursive">]>
 		: never
 
 /** The refusal of a definition's arm a stage beyond a rule made. */
@@ -56,7 +56,6 @@ interface StageRefusals {
 	readonly take: "a rule reads a derived relation whose definition joins, selects and projects: this one orders and takes"
 	readonly attach: "a rule reads a derived relation whose definition joins, selects and projects: this one attaches a nested query"
 	readonly approximate: "a rule reads a derived relation whose definition joins, selects and projects: this one approximates a search"
-	readonly recursive: "a rule reads a derived relation whose definition joins, selects and projects: this one recurses"
 }
 
 /** The fields of a heading of carriers whose terms are of kind X. */

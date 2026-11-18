@@ -4,7 +4,8 @@
  * the judge reads its violation query, the one the migration that adds it runs, over the units a transaction wrote. On
  * PostgreSQL 19rc2, over WholeJudge and its twin ProbedJudge (rule-whole.fixtures.ts): nodes and expressions keyed by
  * their document first, under a containment of a join into a table, a check over a join, a key over a projection of
- * it, and, in WholeJudge alone, a check over an aggregate of each node's children, which no probe reads.
+ * it, and, in WholeJudge alone, which no probe reads: a check over an aggregate of each node's children, a containment
+ * into a recursion over the parent links, and a check over a negation of a query that negates in turn.
  *
  * - **equivalence**: a schedule of direct SQL transactions at SERIALIZABLE over two documents, each a unit, run on both
  *   schemas in lockstep: inserts and deletes of single rows, a document written whole and one dropped whole, with the
@@ -107,6 +108,12 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
 					"\t\t\tw.region !== undefined && (stored || r.where.some((x) => negatesHolder(x, w.holders)))",
 				replacement: "\t\t\tfalse",
 				why: "No rule of a whole rule's violation query matches the region of the units a transaction wrote, so the judge reads every unit stored, and a write of one document reads every document."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\tconst region = w.region",
+				replacement: "\tconst region = undefined",
+				why: "A recursion is read whole rather than per unit, its seeds and steps at no channel, so Reached's walk reads every document's nodes for a write of one."
 			}
 		]
 	})

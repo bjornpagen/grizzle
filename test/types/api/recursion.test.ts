@@ -1,6 +1,6 @@
 /**
  * The recursion agreement (test/support/agreement/recursion.ts): over drawn recursions, the types admit exactly what the
- * engine compiles, name its refusal, and infer its records and parameters. Each recursion is a block of one program a
+ * engine compiles, name its refusal, and infer its records, its parameters and its keys, its whole row. Each recursion is a block of one program a
  * batch checks disarmed. Oracle: the engine's compile of each drawn recursion. The witnesses reach every fault, both
  * declared classes and every admitted shape.
  */
@@ -32,6 +32,12 @@ export const recursion = agreement(recursionCases, {
 			original: "\t\t} & NoInfer<SomeArm<Base, Rec>>",
 			replacement: "\t\t}",
 			why: "The types admit a recursion with no base arm (types/query/query.ts drops SomeArm on the base list); the agreement's program fails."
+		},
+		{
+			file: "packages/engine/src/types/query/query.ts",
+			original: "\tEvidence.Set<Row>,",
+			replacement: "\tEvidence.Unknown,",
+			why: "A recursion's evidence states no key where the engine keys it by its whole row, so a fold over it matched at every field is refused and a derived relation over it is keyed by nothing; the agreement's program fails."
 		}
 	]
 })

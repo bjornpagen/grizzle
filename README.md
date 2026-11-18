@@ -675,7 +675,7 @@ export const treeSpend = query(Resellers).rule((r) => {
 
 The recursion compiles to `WITH RECURSIVE … UNION`, and its result is a set, so a cycle in `BillsThrough` ends the walk instead of looping forever. A recursive rule reads `self` positively, never under a negation, an aggregate or a take, so the fixed point is well defined: aggregate the finished set, as `treeSpend` does. The edges' rules hold for every writer: both ends of an edge are accounts, and a second parent for one account is `refused` on `BillsThrough`'s primary key, `child`.
 
-A recursive rule joins `self` to stored relations, and to queries of one rule over them, each at the row it extends, which an index reads. It reads no other recursion and no union of rules, at any depth of what it matches or negates: PostgreSQL computes a recursion once as a relation with no index, and deduplicates a union before any join reaches it, so a step that read either would read all of it for every row it extends. Both are refused when the query compiles (`RecursionRefused`, cause `recursiveStep` or `unionStep`): carry the other recursion's state as columns of this walk, and match each rule of the union in a recursive rule of its own. A base rule, and a recursive rule that reads no `self`, which joins the base, read either: they run once.
+A recursive rule joins `self` to stored relations, and to queries of one rule over them, each at the row it extends, which an index reads. A rule may read a recursion where the recursion keeps within one unit ([Rules over queries](#rules-over-queries)). It reads no other recursion and no union of rules, at any depth of what it matches or negates: PostgreSQL computes a recursion once as a relation with no index, and deduplicates a union before any join reaches it, so a step that read either would read all of it for every row it extends. Both are refused when the query compiles (`RecursionRefused`, cause `recursiveStep` or `unionStep`): carry the other recursion's state as columns of this walk, and match each rule of the union in a recursive rule of its own. A base rule, and a recursive rule that reads no `self`, which joins the base, read either: they run once.
 
 When the shape is itself a rule (one root, no cycles, children in order), declare it. `tree(...)` makes PostgreSQL's constraints hold each tree's rows to one tree, every row reachable and none on a cycle, and keeps each row's pre-order interval, so a subtree is a range scan with no recursion ([Families](#families)).
 
@@ -2136,9 +2136,10 @@ definition too.
   and semijoins, a union of such rules, and negations. `r.not(Q, …)`, alone or inside `r.and(...)`, negates a table, a
   query of such rules or a derived relation whose query is one, so a rule can read "the rows of R with no S" and "the
   rows of R that no join of S and U names". A negation of a union negates each of its rules. An aggregate (`r.count()`,
-  `r.min(x)` and the others) is read by a unit-local rule, below, and refused in any other: `UnsupportedLawFamily`
-  naming what the query does. `orderBy(...).take(k)`, `attach`, an approximate search or a recursion, in the query or
-  in a query it negates, and a negation inside a negated query, are refused the same way (`Refused` over a derived
+  `r.min(x)` and the others), a recursion, and a negation inside a negated query are read by a unit-local rule, below,
+  and refused in any other: an aggregate and a nested negation as `UnsupportedLawFamily` naming what the query does,
+  and a rule over a recursion as `Refused`, naming the unit-locality it lacks. `orderBy(...).take(k)`, `attach` or an
+  approximate search, in the query or in a query it negates, are refused the same way (`Refused` over a derived
   relation, its refusal the type error's words), and a type error where the query does it itself. A family and a fold
   read tables only.
 - **Unit-local rules are judged whole.** A rule is unit-local when every stored relation its query reads is immutable
@@ -2155,6 +2156,13 @@ definition too.
   widens a read past the written units. The unit is as narrow as the rule's joins allow: a rule over one relation's
   rows by their whole key is judged a row at a time. Whether a rule is unit-local is decided when the schema compiles,
   from its query; any other rule is judged by its probes, below. Its outcome and its law are the same either way.
+- **A recursion is unit-local** when its row carries the unit: every base rule delivers it from a stored relation's
+  leading key fields, and every recursive rule binds self's unit fields and those of every relation it matches to
+  the same variables and delivers them at the same fields, a derived relation it matches read through its definition.
+  Every state is then derived from a seed by steps that keep its unit, so the states of one unit are the fixed point
+  of the seeds at that unit, and the judge reads the recursion once per written unit, its base and each of its steps
+  at that unit's key. A recursion that follows a link into another unit, as a lineage of versions across packages
+  does, is no unit's, and a rule over it is refused: no probe reads a recursion.
 - **The cost of a unit-local rule** is a read of each unit the transaction wrote, whole, once per rule. A write of
   whole units, as a content package's publish is, reads the rows it wrote once more for each rule. A write of a sliver
   of a large unit, one row into a package of thousands, still reads the whole unit for each rule that reads that row's
@@ -2179,8 +2187,12 @@ definition too.
   table at the columns the steps before it bound. On a table with no statistics, a lookup at the table's key may be
   planned through a narrower index of some of the key's columns, which reads every row those columns share, until
   ANALYZE runs: PostgreSQL prices both reads at one row (selfuncs.c btcostestimate, the key's one tuple against the
-  default selectivity of each equality), and the index of the shorter tree wins. grizzle runs no ANALYZE and sets no
-  planner option; analyze a table after the first load into it.
+  default selectivity of each equality), and the index of the shorter tree wins. A unit-local rule's reads are held to
+  the written units' key ranges whatever PostgreSQL estimates, but within a unit the same holds: a recursion's step
+  that finds a node's children by `(package, path, parent)`, or a negation's lookup, may be planned through another
+  index of the unit's prefix and read the whole unit for each row it extends, so a rule over a recursion costs the
+  square of its unit on a table no ANALYZE has run on, and the first unit published into fresh tables pays it until
+  autoanalyze runs. grizzle runs no ANALYZE and sets no planner option; analyze a table after the first load into it.
 - **Outcomes.** A write's `once` fails with `refused` naming the rule, its witness `unreported`: the row that breaks
   it may be one the transaction never wrote.
 - **Concurrent writers.** Every writer is SERIALIZABLE, so PostgreSQL orders the judge's reads against the writes

@@ -66,7 +66,7 @@ export const refusals = [
 	"a rule reads a derived relation whose definition joins, selects and projects: this one attaches a nested query",
 	"a rule reads a derived relation whose definition joins, selects and projects: this one orders and takes",
 	"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans",
-	"a rule reads a derived relation whose definition joins, selects and projects: this one recurses",
+	"a rule reads a recursion only where it is unit-local: every relation it reads immutable, every match of it within one unit, and every step carrying the unit from self into its head",
 	"a schema predicate reads no parameter",
 	"a sequence's member is written under its owner: nest it in order at the owner's count field",
 	"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one",

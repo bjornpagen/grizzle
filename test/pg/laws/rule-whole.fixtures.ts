@@ -59,6 +59,12 @@ const Expr = relation("Expr", { doc: pg.integer, start: pg.integer, type: pg.int
  * - Fanout: a node has at most three children, and one of kind 2 at least two, a root its own child among them: a
  *   check over a count of each node's children, zero by a second rule for a node with none, which a node's insert and
  *   its delete both break.
+ * - Reached: every expression's node is reached from a root along parent links, at any depth: a containment into a
+ *   recursion, seeded at each root, its own parent, and stepping to each child within the document, which a node's
+ *   delete breaks below it and an expression's insert at a node no root reaches does; the parent links may cycle, and
+ *   the walk ends at a set.
+ * - Leafed: a node of kind 2 has a child that is a leaf, a node no other is a child of: a check over a negation of a
+ *   query that negates in turn, which a child's insert under the leaf and the leaf's delete both break.
  */
 const judgeSchema = (name: string, probed: boolean) => {
 	const Base = schema(name, [Node, Expr], probed ? [mutable(Node), mutable(Expr)] : [])
@@ -111,15 +117,59 @@ const judgeSchema = (name: string, probed: boolean) => {
 					.find({ doc, node: start, kind, children: 0n })
 			})
 	)
+	const reached = query(Base).recursive("Reached", {
+		row: { doc: pg.integer, node: pg.integer },
+		base: [
+			(r) => {
+				const { doc, start } = v(Node, "root")
+				return r.match(Node, { doc, start, parent: start }).find({ doc, node: start })
+			}
+		],
+		rec: [
+			(r, self) => {
+				const { doc, node } = v(self, "at")
+				const { start } = v(Node, "child")
+				return r
+					.match(self, { doc, node })
+					.match(Node, { doc, parent: node, start })
+					.where(r.ne(start, node))
+					.find({ doc, node: start })
+			}
+		]
+	})
+	const Reach = derived("Reach", reached)
+	const LeafChild = derived(
+		"LeafChild",
+		query(Base).rule((r) => {
+			const { doc, start, parent } = v(Node, "c")
+			return r
+				.match(Node, { doc, start, parent })
+				.where(r.and(r.ne(start, parent), r.not(Node, { doc, parent: start })))
+				.find({ doc, parent })
+		})
+	)
+	const Leaves = schema.extend(Base, `${name}_0`, [LeafChild], [])
+	const Barren = derived(
+		"Barren",
+		query(Leaves).rule((r) => {
+			const { doc, start, kind } = v(Node, "p")
+			return r
+				.match(Node, { doc, start, kind })
+				.where(r.not(LeafChild, { doc, parent: start }))
+				.find({ doc, start, kind })
+		})
+	)
 	return schema.extend(
-		Base,
+		Leaves,
 		`${name}_1`,
-		[Typed, Parents, Fanout],
+		[Typed, Parents, Fanout, Reach, Barren],
 		[
 			...spj,
 			check("Fanout", Fanout, (f) =>
 				f.and(f.le(f.children, 3n), f.or(f.ne(f.kind, 2), f.ge(f.children, 2n)))
-			)
+			),
+			contained(on(Expr, "doc", "start"), on(Reach, "doc", "node")),
+			check("Leafed", Barren, (b) => b.ne(b.kind, 2))
 		]
 	)
 }
@@ -218,6 +268,8 @@ export type WholeFeature =
 	| "refused by Kinded"
 	| "refused by One type"
 	| "refused by Fanout"
+	| "refused by Reached"
+	| "refused by Leafed"
 	| "a whole unit inserted"
 	| "a unit dropped whole"
 	| "an expression removed under its member"
@@ -230,6 +282,8 @@ export const wholeFeatures: Arr.NonEmptyReadonlyArray<WholeFeature> = [
 	"refused by Kinded",
 	"refused by One type",
 	"refused by Fanout",
+	"refused by Reached",
+	"refused by Leafed",
 	"a whole unit inserted",
 	"a unit dropped whole",
 	"an expression removed under its member",
@@ -274,6 +328,44 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 						{ kind: "unexpr", doc, start: 2 },
 						{ kind: "unnode", doc, start: 1 },
 						{ kind: "unnode", doc, start: 2 }
+					]
+			return { transactions: [lawful(doc, 1), changed] }
+		}
+	],
+	[
+		"refused by Reached",
+		(s) => {
+			const doc = s.draw(docGen)
+			const changed: ReadonlyArray<Op> = s.draw(boolean)
+				? [
+						{ kind: "unexpr", doc, start: 0 },
+						{ kind: "unnode", doc, start: 0 }
+					]
+				: [
+						{ kind: "node", doc, start: 3, parent: 3, nodeKind: 0 },
+						{ kind: "unnode", doc, start: 3 },
+						{ kind: "node", doc, start: 3, parent: 2, nodeKind: 0 },
+						{ kind: "unnode", doc, start: 2 },
+						{ kind: "expr", doc, start: 3, type: 1 }
+					]
+			return { transactions: [lawful(doc, 1), changed] }
+		}
+	],
+	[
+		"refused by Leafed",
+		(s) => {
+			const doc = s.draw(docGen)
+			const changed: ReadonlyArray<Op> = s.draw(boolean)
+				? [
+						{ kind: "unexpr", doc, start: 2 },
+						{ kind: "unnode", doc, start: 2 },
+						{ kind: "node", doc, start: 3, parent: 1, nodeKind: 0 }
+					]
+				: [
+						{ kind: "node", doc, start: 3, parent: 1, nodeKind: 0 },
+						{ kind: "unexpr", doc, start: 2 },
+						{ kind: "unnode", doc, start: 2 },
+						{ kind: "judge" }
 					]
 			return { transactions: [lawful(doc, 1), changed] }
 		}
@@ -367,29 +459,39 @@ const refusedLaw = (
 			)
 }
 
-/** The four rules the schemas state, by the names their features read. */
-type RuleName = "Rooted" | "Kinded" | "One type" | "Fanout"
+/** The six rules the schemas state, by the names their features read. */
+type RuleName = "Rooted" | "Kinded" | "One type" | "Fanout" | "Reached" | "Leafed"
+
+/** The rules the whole schema alone states, which no probe reads: an aggregate's, a recursion's and a nested negation's. */
+const wholeOnly: ReadonlyArray<RuleName> = ["Fanout", "Reached", "Leafed"]
 
 /** The situation a refusal by each rule reaches. */
 const refusedBy: { readonly [R in RuleName]: WholeFeature } = {
 	Rooted: "refused by Rooted",
 	Kinded: "refused by Kinded",
 	"One type": "refused by One type",
-	Fanout: "refused by Fanout"
+	Fanout: "refused by Fanout",
+	Reached: "refused by Reached",
+	Leafed: "refused by Leafed"
 }
 
-/** The name of the rule a rule over a query's law states, whichever strategy judges it. */
-const nameOfLaw = (law: {
-	readonly kind: "contained" | "key" | "check"
-	readonly name?: string
-}): RuleName => {
+/**
+ * The name of the rule a rule over a query's law states, whichever strategy judges it: a containment by the relation it
+ * is into, Expr's Rooted's and the walk's Reached's.
+ */
+const nameOfLaw = (
+	law:
+		| { readonly kind: "contained"; readonly to: { readonly relation: string } }
+		| { readonly kind: "key" }
+		| { readonly kind: "check"; readonly name: string }
+): RuleName => {
 	switch (law.kind) {
 		case "contained":
-			return "Rooted"
+			return law.to.relation === "Reach" ? "Reached" : "Rooted"
 		case "key":
 			return "One type"
 		case "check":
-			return law.name === "Fanout" ? "Fanout" : "Kinded"
+			return law.name === "Fanout" ? "Fanout" : law.name === "Leafed" ? "Leafed" : "Kinded"
 	}
 }
 
@@ -473,11 +575,17 @@ export const runEquivalence = (
 			if (unitsOf(ops).size > 1) {
 				c.note("two units written in one transaction")
 			}
-			/** Both judges at this point: the whole judge refuses exactly where the probed one does, Fanout aside. */
+			/**
+			 * Both judges at this point: the whole judge refuses exactly where the probed one does, wherever the rules
+			 * only the whole schema states hold.
+			 */
 			const both = Effect.gen(function* () {
 				const w = yield* judged(whole.installed, whole.session, where)
 				const p = yield* judged(probed.installed, probed.session, where)
-				if (!w.broken.has("Fanout") && (w.refused === undefined) !== (p.refused === undefined)) {
+				if (
+					!Arr.some(wholeOnly, (rule) => w.broken.has(rule)) &&
+					(w.refused === undefined) !== (p.refused === undefined)
+				) {
 					return yield* new Disagreed({
 						message: `the whole judge ${w.refused === undefined ? "accepted" : `refused by ${w.refused}`} where the probed judge ${p.refused === undefined ? "accepted" : `refused by ${p.refused}`}, ${where}`
 					})
