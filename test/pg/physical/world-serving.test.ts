@@ -29,8 +29,12 @@
  * PostgreSQL cannot pull into its join, reads that relation's index with no index condition, and the judge names the
  * scan. Analyzed statistics of a small load decide a plan by its rows: at forty facts a relation, a role's read of Doc
  * by its key through its view merged Doc's row with the whole of Org's one-page primary key, which cost less than a
- * descent into it. What only volume shows, a scan's buffers far past its bound and an index PostgreSQL prefers by its
- * cost, is no property here; that every created index is needed is test/pg/physical/serving.test.ts's.
+ * descent into it. Unanalyzed estimates decide a read through a view by their defaults alike, at any size: how the view
+ * joins the membership to T's row is PostgreSQL's cost choice, a merge join over an index read whole among them, so
+ * the read holds T's scans to the serving rules and the membership's to a planned index, whose reads by index at T's
+ * row the filter function's body is judged on (world-serving.ts ScanOf). What only volume shows, a scan's buffers far
+ * past its bound and an index PostgreSQL prefers by its cost, is no property here; that every created index is needed
+ * is test/pg/physical/serving.test.ts's.
  *
  * Its kept cases, restated at mostRows: a negated link from Doc into OrgDocs, joined to Share by Doc's owner, whose precheck calls three world
  * functions that PostgreSQL plans at their calls, a role session's first, each of which, over analyzed relations, read
@@ -38,7 +42,10 @@
  * by the tenant's claim, whose read by key through the role's view PostgreSQL drives from the claimed Doc into Note's
  * index on doc, rechecking no, where Note's primary key alone serves it (world-serving.ts resolveClaims); and an entry
  * over Share whose rule fixes user by the session's subject, its head doc alone, whose view a read by key names by doc
- * alone (world-serving.ts ViewKeyField).
+ * alone (world-serving.ts ViewKeyField); and a link from Doc's owner into Note's author, Note's doc joined to OrgDocs by
+ * Doc's id, whose read by key through the role's view PostgreSQL plans over the unanalyzed relations by unique-ifying
+ * Note through the whole of its index on (author, doc) and merging it with the Doc row, where with statistics it
+ * probes that index by both fields (world-serving.ts ScanOf).
  *
  * Features: every situation the witnesses reach by construction (see above).
  */
@@ -344,6 +351,47 @@ const kept: ReadonlyArray<Kept<PopulationCase, WorldServingFeature>> = [
 		reaches: [
 			"a policy row of a membership reading no other relation",
 			"a read through a view whose rule fixes a field of T's key"
+		]
+	},
+	{
+		note: "a link from Doc's owner into Note's author, Note's doc joined to OrgDocs by Doc's id: a read by key through the view semijoins Doc and OrgDocs to Note, and over unanalyzed relations PostgreSQL unique-ifies Note by reading its index on (author, doc) whole and merges it with the Doc row, as it does at 200,000 facts a relation, where analyzed it probes that index by both fields",
+		sketch: {
+			rows: mostRows,
+			world: {
+				install: {
+					base: docsBase,
+					roles: [
+						{
+							name: "alpha",
+							entries: { Org: { kind: "whole", relation: "Org" } },
+							write: [],
+							refresh: []
+						}
+					],
+					logins: [{ name: "web", roles: ["alpha"] }]
+				},
+				witnesses: [
+					{
+						target: "Doc",
+						source: "Note",
+						link: { from: "owner", to: "author" },
+						second: {
+							kind: "joined",
+							to: "doc",
+							source: "OrgDocs",
+							link: { from: "id", to: "org" },
+							field: "doc"
+						},
+						negated: false
+					}
+				]
+			}
+		},
+		draws: "",
+		reaches: [
+			"a filter function's probe bound by its argument and a joined source",
+			"a read through a narrowed entry's view calling the filter function",
+			"a read through a view joining its membership through an index read whole"
 		]
 	}
 ]

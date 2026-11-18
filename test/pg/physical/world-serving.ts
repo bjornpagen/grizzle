@@ -34,6 +34,16 @@
  * - a read through the entry's view: as the role, T's middle row asked for by its key through the role's view of the
  *   entry, as a workload program over the role reads it, judged as the policy row: the view's filter is the entry's
  *   membership, so a key's equality pushed past it reads T by its key, and the filter's call is bounded as above. The
+ *   view is the entry's definition lowered (physical/ddl/roles.ts worldView), where the policy row calls the filter
+ *   function, so PostgreSQL plans the membership's relations into the read's own join, which it orders by its
+ *   estimates over the whole statement. So each scan of T is a probe, held to the serving rules as a body's scan is,
+ *   and each scan of another relation is the membership's (ScanOf), held to reading a planned index in one descent a
+ *   loop, with or without a condition, within the statement's bound: that the membership reads each relation by its
+ *   index at the values T's row fixes is the verdict on its filter function's body at that row, which is lowered as the
+ *   view's definition is. Over unanalyzed relations, PostgreSQL read a Doc by its key, joined to OrgDocs by its id and
+ *   semijoined to Note by its owner and OrgDocs' doc, by reading Note's index on (author, doc) whole to unique-ify the
+ *   semijoin's side for a merge join with the Doc row, at 100 facts a relation (7 buffers), and at 200,000 by a hash
+ *   join over all of Note (197,026 buffers); analyzed, it probes that index by both fields (6 buffers at 200,000). The
  *   view's columns are the entry's head, so the read names each field of T's key the head carries by its head field
  *   (ViewKeyField), and a field the rule fixes by a claim or a literal not at all, which the view's filter fixes;
  * - a precheck: as the role, the statement grizzle's write compiler builds to judge an insert of one fact into a
@@ -44,7 +54,8 @@
  *   selectivity, 12 buffers a call, 36 of the 42 a precheck of three such calls touched, where their bodies read 6.
  *
  * A world function whose lowering deduplicated each relation it read, which PostgreSQL could not pull into its join,
- * reads the relation's index with no index condition on every call, which the judge names at any size.
+ * reads the relation's index with no index condition on every call, which the judge names at any size: a body's
+ * arguments are its statement's parameters, so every relation it reads is a probe of their values.
  */
 import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
@@ -182,6 +193,7 @@ export type WorldServingFeature =
 	| "a policy row calling the filter function"
 	| "a policy row of a membership reading no other relation"
 	| "a read through a narrowed entry's view calling the filter function"
+	| "a read through a view joining its membership through an index read whole"
 	| "a read through a view whose rule fixes a field of T's key"
 	| "a precheck calling the filter function"
 	| "a drawn entry's filter function"
@@ -635,11 +647,38 @@ interface Judging {
 }
 
 /**
- * One scan of a stored relation a plan ran: its relation as EXPLAIN names it, its loops, and the entries its index
- * condition matched over them, the rows it returned and those its filter removed.
+ * What a judged statement's scan of a stored relation is (see the header), and so what it is held to:
+ *
+ * - `probe`: a relation the statement reads at values it fixes, a body's at its arguments, a policy row's or a view
+ *   read's T at its key, held to the serving rules with an index condition, and its index to the claim (Unclaimed);
+ * - `membership`: another relation a read through a view joins T's row to, the entry's membership as the view's
+ *   definition lowers it, which PostgreSQL joins by its cost over the whole statement and may read an index of whole,
+ *   held to reading a planned index in one descent a loop, with or without a condition, and its index to what it read;
+ * - `input`: the statement's input, a precheck's carrier of the facts it judges, a temporary table it reads whole
+ *   through local buffers, which no rule holds and no bound counts.
+ */
+type ScanOf = "probe" | "membership" | "input"
+
+/** What a scan's index is held to beside what it read, as judgeScan takes it (serving.ts Claim). */
+type ClaimOf = Parameters<typeof judgeScan>[4]
+
+/** What judgeScan holds each kind of scan but an input to: whether it needs an index condition, and its index's claim. */
+const heldTo: Readonly<
+	Record<Exclude<ScanOf, "input">, { readonly fixes: boolean; readonly claim: ClaimOf }>
+> = {
+	probe: { fixes: true, claim: () => ({ kind: "unstated" }) },
+	membership: { fixes: false, claim: () => ({ kind: "read", conditions: [] }) }
+}
+
+/**
+ * One scan of a stored relation a plan ran: its relation as EXPLAIN names it, what it is to its statement, whether it
+ * read by an index condition, its loops, and the entries its index condition matched over them, the rows it returned
+ * and those its filter removed.
  */
 interface ScanSeen {
 	readonly relation: string
+	readonly of: Exclude<ScanOf, "input">
+	readonly conditioned: boolean
 	readonly loops: number
 	readonly entries: number
 }
@@ -680,18 +719,17 @@ interface Reading {
 const callBound = (body: Reading): number => body.bound + body.planning
 
 /**
- * A plan judged (see the header): every scan of a stored relation held to the serving rules by serving.ts's judge
- * (judgeScan), but a scan of the statement's input (`inputs`, a precheck's carriers of the facts it judges), a temporary
- * table it reads whole through local buffers, which no bound counts. Each scan's index, whichever PostgreSQL chose, is
- * held to what it read; one that does not hold the claim too is Unclaimed. Each scan's buffers are held to its own bound
- * for a statement that calls no world function (`calls` none), or, for one that does, the statement's buffers to the
- * bound of its scans and the buffers its calls may read.
+ * A plan judged (see the header): every scan of a stored relation held by serving.ts's judge (judgeScan) to what it is
+ * to the statement (`scanOf`, ScanOf), but a scan of the statement's input, which no bound counts. Each scan's index,
+ * whichever PostgreSQL chose, is held to what it read; a probe's that does not hold the claim too is Unclaimed. Each
+ * scan's buffers are held to its own bound for a statement that calls no world function (`calls` none), or, for one
+ * that does, the statement's buffers to the bound of its scans and the buffers its calls may read.
  */
 const readingOf = (
 	cx: Judging,
 	label: string,
 	explained: Explained,
-	inputs: ReadonlySet<string>,
+	scanOf: (relation: string) => ScanOf,
 	calls: Option.Option<number>
 ): Reading => {
 	const plan = explained.plan
@@ -705,15 +743,23 @@ const readingOf = (
 			continue
 		}
 		const relation = n.relation.value
-		if (inputs.has(relation)) {
+		const of = scanOf(relation)
+		if (of === "input") {
 			continue
 		}
-		scans.push({ relation, loops: n.actualLoops, entries: entriesOfScan(n) })
+		const held = heldTo[of]
+		scans.push({
+			relation,
+			of,
+			conditioned: Option.isSome(n.indexCond),
+			loops: n.actualLoops,
+			entries: entriesOfScan(n)
+		})
 		const read = judgeScan(
 			n,
 			cx.planned,
 			cx.facts,
-			true,
+			held.fixes,
 			() => ({ kind: "read", conditions: [] }),
 			bounded
 		)
@@ -725,14 +771,7 @@ const readingOf = (
 		if (read.kind === "swept") {
 			problems.push(`${label}: ${relation}: ${read.why}`)
 		} else {
-			const claimed = judgeScan(
-				n,
-				cx.planned,
-				cx.facts,
-				true,
-				() => ({ kind: "unstated" }),
-				bounded
-			)
+			const claimed = judgeScan(n, cx.planned, cx.facts, held.fixes, held.claim, bounded)
 			if (claimed.kind === "unserved") {
 				unclaimed.push({ relation, through: read.through, why: claimed.why })
 			}
@@ -754,8 +793,8 @@ const readingOf = (
 	}
 }
 
-/** No input a statement reads whole: a body's and a policy row's. */
-const noInputs: ReadonlySet<string> = new Set()
+/** A statement every scan of which is a probe: a body's at its arguments, and a policy row's of T at its key. */
+const probesOnly = (): ScanOf => "probe"
 
 /** EXPLAIN's options beside ANALYZE and BUFFERS, as the serving judge captures a probe. */
 const analyzed = { serialize: { kind: "off" }, wal: false } as const
@@ -1011,7 +1050,7 @@ const judgeCalls = (
 					statement.sql,
 					statement.params
 				)
-				const reading = readingOf(cx, statement.label, plan, noInputs, Option.none())
+				const reading = readingOf(cx, statement.label, plan, probesOnly, Option.none())
 				const unresolved = yield* resolveClaims(cx, statement, reading.unclaimed, "scan", () =>
 					note(excusedFeature)
 				)
@@ -1095,7 +1134,7 @@ const policyRow = (
 			cx,
 			statement.label,
 			plan,
-			noInputs,
+			probesOnly,
 			Option.some(entriesOf(cx, target.name, plan.plan) * each)
 		)
 		return yield* resolvedAsRole(cx, statement, reading, note)
@@ -1105,7 +1144,8 @@ const policyRow = (
  * A read through the entry's view (see the header): T's middle row asked for by its key through the view of the role's
  * world, as the role, as a workload program over the role reads the entry: the view's filter judges each entry its
  * scan of T matched, so the statement's buffers are bound by its scans' and, per entry, the filter function's body at
- * that row (`call`, none for a membership reading no other relation).
+ * that row (`call`, none for a membership reading no other relation). Its scans of T are probes at T's key; its scans
+ * of every other relation are the membership's, which the view joins to T's row (ScanOf).
  */
 const viewRow = (
 	cx: Judging,
@@ -1136,13 +1176,17 @@ const viewRow = (
 			explained(run, statement.label, statement.sql, statement.params)
 		)
 		const each = Option.match(call, { onNone: () => 0, onSome: callBound })
+		const table = cx.installed.names.relation(target.name).name
 		const reading = readingOf(
 			cx,
 			statement.label,
 			plan,
-			noInputs,
+			(relation) => (relation === table ? "probe" : "membership"),
 			Option.some(entriesOf(cx, target.name, plan.plan) * each)
 		)
+		if (Arr.some(reading.scans, (s) => s.of === "membership" && !s.conditioned)) {
+			note("a read through a view joining its membership through an index read whole")
+		}
 		return yield* resolvedAsRole(cx, statement, reading, note)
 	})
 
@@ -1235,7 +1279,13 @@ const precheck = (
 				return yield* explained(run, label, judged.sql, judged.params)
 			})
 		)
-		const reading = readingOf(cx, label, plan, inputs, Option.some(calls))
+		const reading = readingOf(
+			cx,
+			label,
+			plan,
+			(relation) => (inputs.has(relation) ? "input" : "probe"),
+			Option.some(calls)
+		)
 		return yield* resolvedAsRole(cx, judged, reading, note)
 	})
 
