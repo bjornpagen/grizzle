@@ -11,12 +11,13 @@
  * - a refill grizzle cannot draw is refused as the reference states (fill.ts `writesVerdict`): StaleDerivedRead for an
  *   immutable relation's rows, or for a put whose rows a query states;
  * - a stratum refused with UnorderableStratum names a cycle each of whose orders the stratum's writes require: the
- *   phases of one relation's statements, an immediate key between two relations (a family's owner or last axis, a
- *   containment the law model checks at each statement, every key on a cycle of such keys deferred), or a family's
- *   count between its owner's and its member's statements (`justified`).
+ *   phases of one relation's statements, an immediate key between two relations (a foreign key the installation
+ *   installs NOT DEFERRABLE, `immediateKeysOf`), or a family's count between its owner's and its member's statements
+ *   (`justified`).
  */
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Statement } from "#compiler/public/schema.ts"
 import {
 	type BuiltSwarm,
@@ -59,7 +60,6 @@ import {
 	type HostLaw,
 	type HostSchema,
 	type HostState,
-	isImmediate,
 	violations
 } from "#test/support/laws/model.ts"
 import type { StateRow } from "#test/support/substrate/state.ts"
@@ -750,10 +750,10 @@ export interface StratumWrite {
 
 /**
  * An immediate key from `from` into `to`, by what it reads of `from`: its caller's fields alone (callerColumns), which
- * only a put of `from` changes in place, or columns grizzle draws (a group, a copy, a count), which any family
- * statement may change.
+ * only a put of `from` changes in place, or columns grizzle draws (a group, a copy, a count, a selected side's law
+ * column), which any family statement may change.
  */
-interface ImmediateKey {
+export interface ImmediateKey {
 	readonly from: string
 	readonly to: string
 	readonly reads: "caller" | "drawn"
@@ -776,64 +776,37 @@ const callerColumns = (spec: SwarmSpec): ReadonlyMap<string, ReadonlyArray<strin
 	])
 
 /**
- * The immediate keys between relations, each `from` referencing `to`: every family's owner axis (its member
- * referencing its owner), a last copy's axis (its owner referencing its member), and every containment the schema
- * states that the law model checks at each statement (`host`, model.ts isImmediate), reading its source's caller fields
- * alone where it reads every fact of it; a key on a cycle of these is deferred, and left out.
+ * The immediate keys between relations, each `from` referencing `to`: every foreign key between two relations the
+ * installation installs NOT DEFERRABLE, as the compile defers its keys and no second statement of that rule here can
+ * disagree with it: a family axis its family defers (a counted predecessor and every last axis, an owner axis a cascade
+ * feeds or a refill writes around), every key on a cycle of the keys that order a write's statements, and every key into
+ * a target it does not reference whole are deferred, and so absent (README "Deferred foreign keys"). A key reads its
+ * source's caller fields alone where each column it references from is one of them, and drawn columns otherwise.
  */
-const immediateKeys = (spec: SwarmSpec, host: HostSchema): ReadonlyArray<ImmediateKey> => {
-	const core = spec.fill
+export const immediateKeysOf = (
+	spec: SwarmSpec,
+	installation: Installation
+): ReadonlyArray<ImmediateKey> => {
 	const caller = callerColumns(spec)
-	const all: ReadonlyArray<ImmediateKey> = [
-		...Arr.flatMap(core.families, (f): ReadonlyArray<ImmediateKey> =>
-			f.kind === "tree"
-				? []
-				: [{ from: relationName(f.member), to: relationName(f.owner), reads: "drawn" }]
-		),
-		...Arr.flatMap(core.copies, (c): ReadonlyArray<ImmediateKey> => {
-			const f = defined(core.families[c.family], "a copy's family")
-			return c.axis === "last" && f.kind !== "tree"
-				? [{ from: relationName(f.owner), to: relationName(f.member), reads: "drawn" }]
-				: []
-		}),
-		...Arr.flatMap(host.laws, (law): ReadonlyArray<ImmediateKey> =>
-			law.kind === "contained" && isImmediate(host, law)
-				? [
-						{
-							from: law.source.relation,
-							to: law.target.relation,
-							reads:
-								law.source.selection.kind === "every" &&
-								Arr.every(law.source.fields, (f) =>
-									defined(
-										caller.get(law.source.relation),
-										`the caller fields of ${law.source.relation}`
-									).includes(f)
-								)
-									? "caller"
-									: "drawn"
-						}
-					]
-				: []
-		)
-	]
-	const reaches = (from: string, to: string): boolean => {
-		const seen = new Set([from])
-		const pending = [from]
-		for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
-			if (at === to) {
-				return true
-			}
-			for (const k of all) {
-				if (k.from === at && !seen.has(k.to)) {
-					seen.add(k.to)
-					pending.push(k.to)
-				}
-			}
+	return Arr.flatMap(installation.laws.natives, ({ object }): ReadonlyArray<ImmediateKey> => {
+		if (
+			object.kind !== "ForeignKey" ||
+			object.deferrable ||
+			object.relation.name === object.target.name
+		) {
+			return []
 		}
-		return false
-	}
-	return Arr.filter(all, (k) => k.from !== k.to && !reaches(k.to, k.from))
+		const fields = caller.get(object.relation.name) ?? []
+		return [
+			{
+				from: object.relation.name,
+				to: object.target.name,
+				reads: Arr.every(object.columns, (c) => c.kind === "field" && fields.includes(c.field.name))
+					? "caller"
+					: "drawn"
+			}
+		]
+	})
 }
 
 /**
@@ -852,7 +825,7 @@ const immediateKeys = (spec: SwarmSpec, host: HostSchema): ReadonlyArray<Immedia
  */
 export const justified = (
 	spec: SwarmSpec,
-	host: HostSchema,
+	keys: ReadonlyArray<ImmediateKey>,
 	puts: ReadonlySet<string>,
 	a: StratumWrite,
 	b: StratumWrite
@@ -860,7 +833,6 @@ export const justified = (
 	if (a.relation === b.relation) {
 		return true
 	}
-	const keys = immediateKeys(spec, host)
 	const changes = (k: ImmediateKey, o: StratumWrite): boolean =>
 		o.op === "insert" ||
 		o.op === "delete" ||

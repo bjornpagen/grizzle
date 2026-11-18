@@ -18,6 +18,7 @@ import {
 	expectStep,
 	familyWrites,
 	hostSchema,
+	immediateKeysOf,
 	justified,
 	type Laws,
 	nothingStored,
@@ -94,7 +95,11 @@ import { fullWorld } from "#test/support/worlds.ts"
  * Its kept cases are the seven downstream defects' shapes and pantry's importWrite, nested and not; planted in a
  * scratch copy, the total chain of a stratum's family statements, the pair rule's edges on a deferred owner axis, a
  * nested fact's signature without its own texts and an action placed before the family rows it references immediately
- * each fail the search.
+ * each fail the search. The oracle reads which keys are immediate off the installation (oracle.ts immediateKeysOf), so
+ * a deferral the compile gets wrong is caught by what it does, not by a second statement of the rule: an owner axis a
+ * refill writes around installed immediate (laws/model/plan.ts, refillDeferred dropped from the owner axis's
+ * deferral) fails the drawn cases alone, the steered phase's case 4 refused as UnorderableStratum on an order its writes
+ * do not require ("R0 put before R1 delete"), and the kept refill case besides.
  */
 
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */
@@ -2371,6 +2376,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 								primaryKey: (name) => lawNames.primaryKeyLaw({ name })
 							}
 							const host = hostSchema(spec, built, laws)
+							const keys = immediateKeysOf(spec, done.installation)
 							const world = fullWorld(value, {})
 							yield* Effect.gen(function* () {
 								const db = yield* openServedDb(done, world.server.roles.app, {})
@@ -2437,7 +2443,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 													"the cycle's next write"
 												)
 												assert.ok(
-													justified(spec, host, putsOf(spec, state, step), at, next),
+													justified(spec, keys, putsOf(spec, state, step), at, next),
 													`${label}: refused with UnorderableStratum, whose order ${at.relation} ${at.op} before ${next.relation} ${next.op} no write of the stratum requires; the cycle: ${Formatter.format(cycle)}`
 												)
 											}
