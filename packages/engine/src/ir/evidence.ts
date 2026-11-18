@@ -1,5 +1,4 @@
-import type { DeclaredName } from "#compiler/core/identity.ts"
-import type { ConstraintName, NodeId, ParamId } from "#compiler/core/ids.ts"
+import type { ConstraintName, LawId, NodeId, ParamId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 
@@ -20,21 +19,11 @@ const templateContexts = ["snapshot", "transaction"] as const
 export type TemplateContext = (typeof templateContexts)[number]
 
 /**
- * The installed constraint families a premise can name. A "deferred" family holds only at commit; "uniqueIndex" is
- * a derived relation's inherited key, immediate on its materialized view.
+ * The installed constraint families a premise can name: a key's, each immediate and validated; "uniqueIndex" is a
+ * derived relation's inherited key, immediate on its materialized view. A containment's premise is its law, whatever
+ * discharges it (`ExistenceConstraint`).
  */
-export const constraintKinds = [
-	"primaryKey",
-	"unique",
-	"check",
-	"domain",
-	"rosterDomain",
-	"foreignKey",
-	"deferredForeignKey",
-	"withoutOverlaps",
-	"periodForeignKey",
-	"uniqueIndex"
-] as const
+export const constraintKinds = ["primaryKey", "unique", "uniqueIndex"] as const
 export type ConstraintKind = (typeof constraintKinds)[number]
 
 /**
@@ -50,27 +39,19 @@ export interface KeyConstraint {
 	 */
 	readonly spans: KeySet
 	readonly constraint: ConstraintName
-	readonly kind: Extract<ConstraintKind, "primaryKey" | "unique" | "uniqueIndex">
+	readonly kind: ConstraintKind
 }
 
 /**
- * What enforces a containment: an installed constraint, or the roster's domain itself, which types the field, so every
- * value is a live code of the roster, whose handles the schema fingerprint covers: no premise.
+ * A containment law proving that a referencing fact has a referenced one: its two sides, the law, which is the premise
+ * every proof that rests on it names, whatever discharges it, and the context the law model's discharge of it holds in
+ * (theory/theory.ts ContainmentEvidence): immediate where an immediate native holds it at every statement, committed
+ * snapshot where it holds at COMMIT, a deferred foreign key's or the rule judge's.
  */
-export type Enforcement =
-	| { readonly kind: "constraint"; readonly name: ConstraintName }
-	| { readonly kind: "type"; readonly roster: DeclaredName }
-
-/** An installed containment proving that a referencing fact has a referenced one. */
 export interface ExistenceConstraint {
 	readonly from: { readonly relation: string; readonly fields: ReadonlyArray<string> }
 	readonly to: { readonly relation: string; readonly fields: ReadonlyArray<string> }
-	readonly kind: Extract<
-		ConstraintKind,
-		"foreignKey" | "deferredForeignKey" | "periodForeignKey" | "rosterDomain" | "check"
-	>
-	readonly enforcement: Enforcement
-	/** The theory's validity context for the containment (theory/theory.ts ContainmentEvidence). */
+	readonly law: LawId
 	readonly context: EvidenceContext
 }
 
@@ -121,6 +102,7 @@ export type Premise =
 			readonly constraint: ConstraintName
 			readonly constraintKind: ConstraintKind
 	  }
+	| { readonly kind: "law"; readonly law: LawId }
 	| { readonly kind: "node"; readonly node: NodeId }
 	| { readonly kind: "param"; readonly param: ParamId }
 
@@ -140,6 +122,8 @@ export const premiseText = (p: Premise): string => {
 	switch (p.kind) {
 		case "constraint":
 			return `c\u0000${p.constraint}\u0000${p.constraintKind}`
+		case "law":
+			return `l\u0000${p.law}`
 		case "node":
 			return `n\u0000${p.node}`
 		case "param":
@@ -156,6 +140,8 @@ export const samePremise = (a: Premise, b: Premise): boolean => {
 				a.constraint === b.constraint &&
 				a.constraintKind === b.constraintKind
 			)
+		case "law":
+			return b.kind === "law" && a.law === b.law
 		case "node":
 			return b.kind === "node" && a.node === b.node
 		case "param":

@@ -35,6 +35,7 @@ import {
 	field,
 	key,
 	literal,
+	mutable,
 	on,
 	relation,
 	type SchemaDesc
@@ -287,7 +288,12 @@ export const restated = (s: Sketch): ReadonlyArray<SideDesc> =>
 const SOURCE_FIELDS = ["x0", "x1"] as const
 const PROBED_FIELDS = ["y0", "y1", "y2"] as const
 
-/** The schema of a case: T, K, each target's containment from U<i>, each probe's into V<j>, and the keys `restating`. */
+/**
+ * The schema of a case: T, K, each target's containment from U<i>, each probe's into V<j>, and the keys `restating`,
+ * every relation mutable: a containment between immutable relations that joins within one unit, a probe out of T at
+ * its id among them, is judged whole and installs no reverse probe (laws/model/plan.ts containmentDischarge), and this
+ * box reads the native placement of the probes.
+ */
 export const schemaOf = (s: Sketch, restating: ReadonlyArray<SideDesc>): SchemaDesc => ({
 	name: "ProbedTarget",
 	relations: [
@@ -317,7 +323,10 @@ export const schemaOf = (s: Sketch, restating: ReadonlyArray<SideDesc>): SchemaD
 				sideOfT(selectionAt(s, p.at), p.terms),
 				on(`V${j}`, Arr.take(PROBED_FIELDS, p.terms.length))
 			)
-		)
+		),
+		mutable("T"),
+		...Arr.map(s.targets, (_, i) => mutable(`U${i}`)),
+		...Arr.map(s.probes, (_, j) => mutable(`V${j}`))
 	],
 	extends: undefined
 })

@@ -28,6 +28,8 @@ const B = relation("B", { g: pg.integer, i: pg.integer, kind: pg.integer }, ["g"
 const C = relation("C", { g: pg.integer, i: pg.integer, kind: pg.integer }, ["g", "i"])
 /** A relation keyed apart from the unit. */
 const D = relation("D", { i: pg.integer, n: pg.integer }, ["i"])
+/** A relation keyed by the unit first, each of its fields one of its key's. */
+const E = relation("E", { g: pg.integer, i: pg.integer }, ["g", "i"])
 
 /**
  * The box's containments, by what decides each one's discharge (laws/model/plan.ts containmentDischarge):
@@ -36,7 +38,10 @@ const D = relation("D", { i: pg.integer, n: pg.integer }, ["i"])
  *   C, each into a selected side of H, unit-local;
  * - selected: C's facts of kind 1 in B, from a side selected by a comparison, unit-local;
  * - listed: B's facts of kind 1 or 2 in C's of kind 2, between two selected sides, unit-local;
- * - plain: C in B, neither side selected, unit-local;
+ * - plain: C in B, neither side selected, into a target holding a field its terms do not read, unit-local;
+ * - into whole: C in E, neither side selected, every field of E one of its terms, unit-local;
+ * - selected into whole: C's facts of kind 4 in E, a selected side into a target every field of which it reads,
+ *   unit-local;
  * - across: C's facts of kind 3 in D at i alone, from a selected side, joined across units;
  * - computed: C's facts whose kind plus one is at least 4 in B, a side selected by a computed value, unit-local.
  */
@@ -46,6 +51,8 @@ export const containments = [
 	"selected",
 	"listed",
 	"plain",
+	"into whole",
+	"selected into whole",
 	"across",
 	"computed"
 ] as const
@@ -77,8 +84,11 @@ const mutableOf = (m: Mutability) => {
 	}
 }
 
+/** The box's relations, by name. */
+type Name = "H" | "B" | "C" | "D" | "E"
+
 /** Whether a case declares the relation `name` mutable. */
-const isMutable = (m: Mutability, name: "H" | "B" | "C" | "D"): boolean => {
+const isMutable = (m: Mutability, name: Name): boolean => {
 	switch (m) {
 		case "none":
 			return false
@@ -91,11 +101,11 @@ const isMutable = (m: Mutability, name: "H" | "B" | "C" | "D"): boolean => {
 	}
 }
 
-/** The case's schema: H, B, C and D, every containment of the box, and its mutable relations. */
+/** The case's schema: H, B, C, D and E, every containment of the box, and its mutable relations. */
 export const schemaOf = (c: Case): AnySchema =>
 	schema(
 		"discharge",
-		[H, B, C, D],
+		[H, B, C, D, E],
 		[
 			retirable(H, [on(B, "g"), on(C, "g")]),
 			contained(
@@ -119,6 +129,15 @@ export const schemaOf = (c: Case): AnySchema =>
 				)
 			),
 			contained(on(C, "g", "i"), on(B, "g", "i")),
+			contained(on(C, "g", "i"), on(E, "g", "i")),
+			contained(
+				on(
+					select(C, (r) => r.eq(r.kind, 4)),
+					"g",
+					"i"
+				),
+				on(E, "g", "i")
+			),
 			contained(
 				on(
 					select(C, (r) => r.eq(r.kind, 3)),
@@ -143,29 +162,33 @@ export type Discharged = "whole" | "native"
 
 /**
  * The discharge the box's statement of each containment states (the specification, laws/model/plan.ts
- * ContainmentDischarge): whole exactly where a side selects by comparisons of its fields, every term a field, it is no
- * fence, every relation it reads immutable, and its two sides join within one unit, which the box's every statement
- * but `across` does; native everywhere else.
+ * ContainmentDischarge): whole exactly where it is no fence, it selects or its target holds a field its terms do not
+ * reference, each side selects by comparisons of its fields, every term a field, every relation it reads is immutable,
+ * and its two sides join within one unit, which the box's every statement but `across` does; native everywhere else.
  */
 export const expected = (c: Case, of: Containment): Discharged => {
-	const reads: { readonly [K in Containment]: ReadonlyArray<"H" | "B" | "C" | "D"> } = {
+	const reads: { readonly [K in Containment]: ReadonlyArray<Name> } = {
 		fence: ["B", "H"],
 		"second fence": ["C", "H"],
 		selected: ["C", "B"],
 		listed: ["B", "C"],
 		plain: ["C", "B"],
+		"into whole": ["C", "E"],
+		"selected into whole": ["C", "E"],
 		across: ["C", "D"],
 		computed: ["C", "B"]
 	}
 	switch (of) {
 		case "fence":
 		case "second fence":
-		case "plain":
+		case "into whole":
 		case "across":
 		case "computed":
 			return "native"
 		case "selected":
 		case "listed":
+		case "plain":
+		case "selected into whole":
 			return Arr.some(reads[of], (r) => isMutable(c.mutable, r)) ? "native" : "whole"
 	}
 }
@@ -194,6 +217,10 @@ export const lawOf = (laws: ReadonlyArray<TheoryLaw>, of: Containment): TheoryLa
 				return d.from.relation === "B" && d.to.relation === "C"
 			case "plain":
 				return d.from.relation === "C" && d.to.relation === "B" && !from
+			case "into whole":
+				return d.to.relation === "E" && !from
+			case "selected into whole":
+				return d.to.relation === "E" && from
 			case "across":
 				return d.to.relation === "D"
 			case "computed":
@@ -217,6 +244,8 @@ export const evidenced: ReadonlyArray<Containment> = [
 	"second fence",
 	"selected",
 	"plain",
+	"into whole",
+	"selected into whole",
 	"across"
 ]
 

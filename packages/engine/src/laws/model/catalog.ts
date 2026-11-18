@@ -1,105 +1,33 @@
 import { type CatalogKey, theoryCatalog } from "#compiler/analysis/physical/evidence.ts"
 import type { DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import type { EvidencedTheory } from "#compiler/analysis/theory/theory.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import type { Enforcement, EvidenceCatalog, ExistenceConstraint } from "#compiler/ir/evidence.ts"
-import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
-
-type ExistenceKind = ExistenceConstraint["kind"]
-
-/** The existence kind a native object enforces a containment as, if it is one that does. A native is either the object
- * that installs the containment, or no existence evidence at all. */
-const existenceKind = (native: NamedNative["object"]): ExistenceKind | undefined => {
-	switch (native.kind) {
-		case "ForeignKey":
-			return native.deferrable ? "deferredForeignKey" : "foreignKey"
-		case "PeriodForeignKey":
-			return "periodForeignKey"
-		case "ClosedCheck":
-			return "check"
-		case "PrimaryKey":
-		case "Unique":
-		case "Domain":
-		case "RosterDomain":
-		case "TableCheck":
-		case "LawColumn":
-		case "WithoutOverlaps":
-		case "ReverseIndex":
-			return undefined
-	}
-}
-
-/** The enforcement by an installed constraint, keyed by its installed name. */
-const constraintEnforcement = (name: ConstraintName): Enforcement => ({ kind: "constraint", name })
-
-/** The enforcement of a containment law, with its kind. */
-interface Enforced {
-	readonly enforcement: Enforcement
-	readonly kind: ExistenceKind
-}
-
-/** A native object's enforcement of `law`, when it discharges the law and is of an existence kind. A native with an
- * installed name is a constraint; a roster's domain types the field, which no constraint of the law names. */
-const nativeEnforcement = (n: NamedNative, law: LawId): Enforced | undefined => {
-	if (!n.object.lawIds.some((raised) => raised === law)) {
-		return undefined
-	}
-	switch (n.namespace) {
-		case "constraint": {
-			const kind = existenceKind(n.object)
-			return kind === undefined
-				? undefined
-				: { enforcement: constraintEnforcement(identifierOf(n.named)), kind }
-		}
-		case "unnamed":
-			return n.object.kind === "RosterDomain"
-				? { enforcement: { kind: "type", roster: n.object.name }, kind: "rosterDomain" }
-				: undefined
-		case "column":
-		case "domain":
-			return undefined
-	}
-}
+import type { EvidenceCatalog, ExistenceConstraint } from "#compiler/ir/evidence.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 
 /**
- * Each containment's existence evidence a query may rely on, from the law model's evidence and natives: its two sides,
- * the native object that enforces it with its kind, and its evidence context, the one the law model gave the
- * containment, immediate exactly when its enforcement holds at every statement (the law model's `immediate`),
- * committed-snapshot otherwise. A containment's enforcement is the first native object of an existence kind that
- * discharges its law, a containment that rides a family axis enforced by the axis's foreign key, which discharges its
- * law. A coverage law proves coverage of a span, not the existence of one matching fact, and a containment with a
- * selected side holds only for the facts its selector picks, which no catalog can say: neither gives evidence, and nor
- * does a containment no native enforces. The law model states them once (LawModel.existence).
+ * Each containment's existence evidence a query may rely on, read off the theory's containment laws alone, whatever
+ * discharges each (laws/model/plan.ts ContainmentDischarge): its two sides, the law, and the context the law model's
+ * discharge of it holds in, immediate exactly where an immediate native holds it at every statement (the law model's
+ * `immediate`), committed-snapshot where a deferred foreign key or the rule judge holds it at COMMIT. A coverage law
+ * proves coverage of a span, not the existence of one matching fact, and a containment with a selected side holds only
+ * for the facts its selector picks, which no catalog can say: neither gives evidence. The law model states them once
+ * (LawModel.existence).
  */
 export const existenceConstraints = (
-	containments: EvidencedTheory["evidence"]["containments"],
-	natives: ReadonlyArray<NamedNative>
-): ReadonlyArray<ExistenceConstraint> => {
-	const enforced = new Map<LawId, Enforced>()
-	for (const n of natives) {
-		for (const law of n.object.lawIds) {
-			const e = enforced.has(law) ? undefined : nativeEnforcement(n, law)
-			if (e !== undefined) {
-				enforced.set(law, e)
-			}
-		}
-	}
-	return containments.flatMap((c): ReadonlyArray<ExistenceConstraint> => {
-		const e = enforced.get(c.law)
-		return c.coverage || c.from.selection.length > 0 || c.to.selection.length > 0 || e === undefined
+	containments: EvidencedTheory["evidence"]["containments"]
+): ReadonlyArray<ExistenceConstraint> =>
+	containments.flatMap((c): ReadonlyArray<ExistenceConstraint> =>
+		c.coverage || c.from.selection.length > 0 || c.to.selection.length > 0
 			? []
 			: [
 					{
 						from: { relation: c.from.relation, fields: c.from.fields },
 						to: { relation: c.to.relation, fields: c.to.fields },
-						enforcement: e.enforcement,
-						kind: e.kind,
+						law: c.law,
 						context: c.context
 					}
 				]
-	})
-}
+	)
 
 /** Every derived relation's inherited keys, the first its primary one, each with the unique index its view is installed
  * with: the keys an evidence catalog resolves a view's key to (evidenceCatalog), so every

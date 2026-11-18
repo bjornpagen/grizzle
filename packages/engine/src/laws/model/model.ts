@@ -109,6 +109,7 @@ import {
 	type ReferenceChoice,
 	referenceChoice,
 	type ReverseIndexPlan,
+	referencesWhole,
 	reverseIndexOf,
 	type RuleDischarge,
 	type TargetKey
@@ -408,8 +409,8 @@ export interface LawModel {
 	/** The reference choice its recognizer read (plan.ts ReferenceChoice): what generate records for a layer that plans
 	 * only a slice, which chooses none of its own. */
 	readonly references: ReferenceChoice
-	/** Each containment's existence evidence a query may rely on, with the native object that enforces it (catalog.ts
-	 * existenceConstraints): what every evidence catalog over the model reads. */
+	/** Each containment's existence evidence a query may rely on, its law and the context its discharge holds it in
+	 * (catalog.ts existenceConstraints): what every evidence catalog over the model reads. */
 	readonly existence: ReadonlyArray<ExistenceConstraint>
 	/**
 	 * The laws that read closed relations only, in law order, discharged once by the migration that installs them: each
@@ -1363,7 +1364,7 @@ class Specializer {
 			immediate,
 			fkCycles,
 			references: this.recognizer.references,
-			existence: existenceConstraints(evidence.containments, natives),
+			existence: existenceConstraints(evidence.containments),
 			migrationLaws: plans.flatMap((plan) => (plan.discharge === "migration" ? [plan.law.id] : [])),
 			rules,
 			relations: relationLaws(keyed, natives),
@@ -1617,8 +1618,7 @@ class Specializer {
 		return {
 			onCycle,
 			rule: (fk) =>
-				onCycle(fk.relation.name, fk.target.name) ||
-				fk.target.fields.some((c) => !fk.targetFields.includes(c))
+				onCycle(fk.relation.name, fk.target.name) || !referencesWhole(fk.target, fk.targetFields)
 		}
 	}
 

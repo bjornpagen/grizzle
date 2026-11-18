@@ -2193,7 +2193,7 @@ const lawIdShape: S.Shape<LawId> = S.branded(
 	S.nonEmptyString
 )
 
-/** A premise names a constraint or unique index by its constraint name. */
+/** A premise names a constraint or unique index by its constraint name, or a containment by its law. */
 const premiseObjectShape: S.Shape<ConstraintName> = S.branded(
 	(text: string): ConstraintName => admittedIdentifier(text),
 	S.nonEmptyString
@@ -2204,6 +2204,7 @@ const premiseShape: S.Shape<Premise> = S.tagged("kind", {
 		constraint: premiseObjectShape,
 		constraintKind: S.literalsShape(constraintKinds)
 	}),
+	law: S.struct({ law: lawIdShape }),
 	node: S.struct({ node: nodeIdShape }),
 	param: S.struct({ param: paramIdShape })
 })

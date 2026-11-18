@@ -24,6 +24,7 @@ import {
 	contained,
 	key,
 	mirrors,
+	mutable,
 	on,
 	pred,
 	relation,
@@ -400,8 +401,16 @@ export const containmentsOf = (left: MirrorLeft): ReadonlyArray<Statement> =>
 				contained(on(Profile, "owner"), on(itemSource(left.selection), "id"))
 			]
 
+/**
+ * The installation of a law's statements over the box's five relations, every one mutable: a containment between
+ * immutable relations that joins within one unit is judged whole and installs no foreign key (laws/model/plan.ts
+ * containmentDischarge), and this box reads the native lowering.
+ */
 export const installed = (statements: ReadonlyArray<Statement>): Installation => {
-	const owned = owning(schema("Projections", [Owner, Item, Note, Profile, Seat], statements))
+	const relations = [Owner, Item, Note, Profile, Seat] as const
+	const owned = owning(
+		schema("Projections", relations, [...statements, ...Arr.map(relations, (r) => mutable(r))])
+	)
 	const result = compileInstallation(owned, installOptions(owned, owner))
 	if (!result.ok) {
 		throw result.error

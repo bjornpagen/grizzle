@@ -263,10 +263,11 @@ const requestsOf = (
 /**
  * The blocks of a judged read's request over `relation` by `keys` (ir/law.ts LawIndexRequest): one block of its keys for
  * a probed rule's; for a whole rule's, first the fields `relation` holds its unit's key in (ir/unit.ts Unit holders) that
- * the read binds, the longest run of them from the first in the unit key's order, then the rest. Every read of a whole
- * rule binds its unit's first field, since its judge reads the units a transaction wrote and every holder leads with that
- * key (analysis/theory/unit.ts), so an index the request asks for never reads past the unit, and none another column
- * leads serves it. A read that binds a later field of the unit key but not an earlier one is led by the bound run alone.
+ * the read's path binds, the longest run of them from the first in the unit key's order, then the rest, so an index the
+ * request asks for never reads past the unit and none another column leads serves it. Its judge reads the units a
+ * transaction wrote, every holder leading with that key (analysis/theory/unit.ts), but a path need not bind them: a key
+ * lookup by a declared key the unit does not lead reads one row by that key's own index, and a path binds no field
+ * of a type it does not index, a vector's; such a read is one block of its keys too.
  */
 const unitLead = (
 	rule: RuleTrigger,
@@ -294,16 +295,8 @@ const unitLead = (
 				}
 				bound.push(key)
 			}
-			const [first, ...more] = bound
-			const unit: NonEmptyReadonlyArray<LawIndexKey> = [
-				defined(
-					first,
-					`a read of ${relation} the whole rule ${rule.law.named.display} binds its unit's first field ${headNonEmpty(holder.fields)} at`
-				),
-				...more
-			]
-			const rest = keys.filter((k) => !unit.includes(k))
-			return isNonEmpty(rest) ? [unit, rest] : [unit]
+			const rest = keys.filter((k) => !bound.includes(k))
+			return isNonEmpty(bound) ? (isNonEmpty(rest) ? [bound, rest] : [bound]) : [keys]
 		}
 	}
 }

@@ -6,7 +6,6 @@ import {
 	type ConstraintKind,
 	contextAdmits,
 	type EvidenceCatalog,
-	type EvidenceContext,
 	type ExistenceConstraint,
 	type Grounds,
 	type KeyConstraint,
@@ -35,11 +34,12 @@ const constraintPremise = (constraint: ConstraintName, kind: ConstraintKind): Pr
  * - A PRIMARY KEY or UNIQUE, or a derived relation's unique index (immediate on its materialized view for every
  *   refreshed state), proves its key at every statement, in every execution context (keyEvidence): grizzle installs
  *   every key immediate and validated.
- * - A containment proves existence in the context the theory recorded for it, and a family that holds only at commit (a
- *   deferred or PERIOD foreign key) only at commit (containmentEvidence): inside a transaction (a read
- *   inside a write transaction, such as a read-back) it proves nothing, and a `snapshot` read admits it as lawful
- *   committed-snapshot evidence, since committed rows satisfy it. A deferred foreign key so proves no existence inside
- *   a transaction, while the referenced key still proves at most one match there.
+ * - A containment law proves existence in the context its discharge holds it in (containmentEvidence): at every
+ *   statement where an immediate native holds it, and only at commit where a deferred or PERIOD foreign key or the rule
+ *   judge does, so inside a transaction (a read inside a write transaction, such as a read-back) it then proves nothing,
+ *   and a `snapshot` read admits it as lawful committed-snapshot evidence, since committed rows satisfy it. Its premise
+ *   is the law, whatever discharges it. A deferred containment so proves no existence inside a transaction, while the
+ *   referenced key still proves at most one match there.
  * - Nothing else is a source: an ordinary nonunique index, planner statistics, a TypeScript assertion or an
  *   approximate result has no form here.
  *
@@ -53,44 +53,17 @@ export const keyEvidence = (constraint: KeyConstraint): Grounds => ({
 	context: "immediate"
 })
 
-/** Whether each containment family holds only at commit, whatever context the theory recorded. */
-const atCommit: Readonly<Record<ExistenceConstraint["kind"], boolean>> = {
-	foreignKey: false,
-	deferredForeignKey: true,
-	periodForeignKey: true,
-	rosterDomain: false,
-	check: false
-}
-
-/** The premises a containment rests on: its constraint, a table CHECK's among them, or none for a roster's domain,
- * which types the field. */
-const enforcementPremises = (constraint: ExistenceConstraint): ReadonlyArray<Premise> => {
-	const e = constraint.enforcement
-	switch (e.kind) {
-		case "constraint":
-			return [constraintPremise(e.name, constraint.kind)]
-		case "type":
-			return []
-	}
-}
-
 /**
- * What a containment proves existence with in the execution context (see the header): the premises it rests on,
- * none when its roster's domain enforces it; nothing inside a transaction when it holds only at commit.
+ * What a containment proves existence with in the execution context (see the header): its law, the one premise, in the
+ * context its discharge holds it in; nothing inside a transaction where it holds only at commit.
  */
 export const containmentEvidence = (
 	constraint: ExistenceConstraint,
 	execution: TemplateContext
-): Grounds | undefined => {
-	const context: EvidenceContext =
-		atCommit[constraint.kind] && constraint.context === "immediate"
-			? "committedSnapshot"
-			: constraint.context
-	if (!contextAdmits(execution, context)) {
-		return undefined
-	}
-	return { premises: enforcementPremises(constraint), context }
-}
+): Grounds | undefined =>
+	contextAdmits(execution, constraint.context)
+		? { premises: [{ kind: "law", law: constraint.law }], context: constraint.context }
+		: undefined
 
 /**
  * A key the catalog resolves to its installed constraint: a stored relation's declared key and the constraint

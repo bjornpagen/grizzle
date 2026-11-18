@@ -776,6 +776,21 @@ const readsAlike = (e: ExprDesc): boolean => {
 	}
 }
 
+/** Whether a foreign key into `target` at `fields` references every field the target holds, so no field of a target
+ * row may change under it unreferenced: what the schema-wide deferral (laws/model/model.ts #deferral) holds a key
+ * immediate by off a cycle, and a plain containment native by (`containmentDischarge`). */
+export const referencesWhole = (target: TheoryRelation, fields: ReadonlyArray<LawField>): boolean =>
+	target.fields.every((f) => fields.includes(f))
+
+/** Whether a containment is plain, neither side selected: the containments whose existence evidence every evidence
+ * catalog reads (laws/model/catalog.ts existenceConstraints), its foreign key's target columns its target's fields. */
+const isPlain = (d: ContainmentDetail): boolean =>
+	d.from.selection.conjuncts.length === 0 && d.to.selection.conjuncts.length === 0
+
+/** The fields a foreign key into an unselected side references (`sideColumns`): its field terms. */
+const referencedFields = (side: ResolvedSide): ReadonlyArray<LawField> =>
+	sideColumns(side).flatMap((c) => (c.kind === "field" ? [c.field] : []))
+
 /** Whether every term of a side is a field and every conjunct of its selection reads alike in a query and in a
  * generated column (`readsAlike`). */
 const sideReadsAlike = (side: ResolvedSide): boolean =>
@@ -788,16 +803,20 @@ const sideReadsAlike = (side: ResolvedSide): boolean =>
  *
  * - a fence of a retirable unit is native: a hold refuses by it and a retirement relies on it, each through its foreign
  *   key's locks and its NO ACTION check at the statement (physical/ddl/retire.ts);
- * - a containment neither of whose sides selects is native: its foreign key references a key's own columns and
- *   installs no law column, and it is the enforcement of the existence evidence an evidence catalog reads (catalog.ts
- *   existenceConstraints), which a containment with a selected side never gives;
+ * - a plain containment (`isPlain`) whose foreign key references every field of its target (`referencesWhole`) is
+ *   native: its key holds at every statement off a cycle (laws/model/model.ts #deferral), so its existence evidence,
+ *   which every evidence catalog reads (catalog.ts existenceConstraints), holds there too, as a read inside a
+ *   transaction relies on (analysis/physical/evidence.ts containmentEvidence); into a target with a field it does not
+ *   reference its key is deferred to COMMIT, which the judge holds alike, so it is whole where it is unit-local, its
+ *   evidence the law's at a committed snapshot either way. A containment with a selected side gives no existence
+ *   evidence a catalog reads, and is whole where it is unit-local whatever its target, its law columns, their UNIQUE
+ *   and their index gone with its key;
  * - a containment with a pred term, or a side whose selection computes, casts or branches
  *   (`readsAlike`), is native: its law columns compute the term or the selection in a generated column, where a
  *   judged query would negate the target at a computed value, which the checker refuses, or evaluate the selection at
  *   a query's site, which may refuse it;
- * - any other containment, of field terms with a side selected, is whole where its violation query is
- *   unit-local, every relation it reads immutable and both sides joined within one unit (unit.ts wholeRule), and native
- *   where it is not.
+ * - any other containment of field terms is whole where its violation query is unit-local, every relation it reads
+ *   immutable and both sides joined within one unit (unit.ts wholeRule), and native where it is not.
  */
 const containmentDischarge = (
 	law: TheoryLaw,
@@ -806,7 +825,7 @@ const containmentDischarge = (
 ): ContainmentDischarge => {
 	if (
 		law.source.kind === "retirable" ||
-		(d.from.selection.conjuncts.length === 0 && d.to.selection.conjuncts.length === 0) ||
+		(isPlain(d) && referencesWhole(d.to.rel, referencedFields(d.to))) ||
 		!(sideReadsAlike(d.from) && sideReadsAlike(d.to))
 	) {
 		return nativeDischarge

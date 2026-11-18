@@ -94,7 +94,7 @@ export const partialProjectionsLowerBy51sRulesEveryDrawnLawInstallsItsDDLGenerat
 			{
 				file: "packages/engine/src/laws/model/model.ts",
 				original:
-					"\t\t\t\tonCycle(fk.relation.name, fk.target.name) ||\n\t\t\t\tfk.target.fields.some((c) => !fk.targetFields.includes(c))",
+					"\t\t\t\tonCycle(fk.relation.name, fk.target.name) || !referencesWhole(fk.target, fk.targetFields)",
 				replacement: "\t\t\t\tonCycle(fk.relation.name, fk.target.name)",
 				why: "A foreign key the schema-wide rule decides is never deferred though its target holds a field beside the referenced ones (laws/model/model.ts deferral)."
 			}

@@ -7,17 +7,20 @@
  * is one law either way: its identity, its evidence and its violation query are the theory's.
  *
  * The box, exhausted: a unit's header H and its bodies B and C, grouped by g, with B's fence into H's open groups; D,
- * keyed apart; and containments from C's facts of kind 1 into B, from B's facts of kind 1 or 2
- * into C's of kind 2, from C into B, from C's facts of kind 3 into D at i alone, and from C's facts whose kind plus one
- * is at least 4 into B; with no relation mutable, or B, C, both or D; H, a header, is immutable.
+ * keyed apart; E, keyed by the unit at its every field; and containments from C's facts of kind 1 into B, from B's
+ * facts of kind 1 or 2 into C's of kind 2, from C into B, from C into E, from C's facts of kind 4 into E, from C's
+ * facts of kind 3 into D at i alone, and from C's facts whose kind plus one is at least 4 into B; with no relation
+ * mutable, or B, C, both or D; H, a header, is immutable.
  *
  * - **discharge**: the specification, the decision table: a fence native, since a hold refuses by it and a retirement
- *   relies on its foreign key's locks and its check at the statement (physical/ddl/retire.ts); a containment of two
- *   unselected sides native, the enforcement of the existence evidence a catalog reads; one with a side selected by a
- *   computed value native, its law column computing it where a query's site may refuse it; one joined across units, or
- *   over a mutable relation, native; and the box's two others whole. Each law is held exactly one way, and the laws
- *   that give containment evidence are those whose source selects by fixed fields alone (analysis/theory/theory.ts
- *   evidenceSides), whatever their discharge, a whole one's committed-snapshot.
+ *   relies on its foreign key's locks and its check at the statement (physical/ddl/retire.ts); a plain containment
+ *   whose foreign key references every field of its target native, its key immediate off a cycle, the existence
+ *   evidence a read inside a transaction relies on; one with a side selected by a computed value native, its law
+ *   column computing it where a query's site may refuse it; one joined across units, or over a mutable relation,
+ *   native; and the box's four others whole: the plain one into B, whose key would be deferred to COMMIT, and the
+ *   selected ones, into E too. Each law is held exactly one way, and the laws that give containment evidence are those
+ *   whose source selects by fixed fields alone (analysis/theory/theory.ts evidenceSides), whatever their discharge, a
+ *   whole one's committed-snapshot and the plain one into E immediate.
  * - **migration**: a migration that changes a containment's discharge checks its rows only where no previous
  *   installation held the law: the selected containment absent, native or whole before, and native or whole after,
  *   drafted from the previous version's snapshot. The law is checked over every row exactly when it is added whole,
@@ -54,21 +57,23 @@ import {
 type Feature =
 	| "a whole containment"
 	| "a native fence over immutable relations"
-	| "a native containment of unselected sides"
+	| "a native plain containment into a target its key references whole"
+	| "the immediate evidence of a plain containment into a target referenced whole"
 	| "a native containment selected by a computed value"
 	| "a native containment across units"
 	| "a native containment over a mutable relation"
 	| "the evidence of a whole containment"
 
-/** A containment between selected sides is discharged whole where it is unit-local, no fence and selected by
- * comparisons, and natively otherwise, its evidence the theory's either way. */
-export const aContainmentWithASelectedSideIsDischargedWholeWhereItIsUnitLocalAndNoFenceAndNativelyOtherwiseItsEvidenceTheSame =
+/** A containment is discharged whole where it is unit-local, no fence, selected by comparisons, and selected or into a
+ * target its key would not reference whole, and natively otherwise, its evidence the theory's either way. */
+export const aContainmentIsDischargedWholeWhereItIsUnitLocalNoFenceAndIntoATargetItsKeyWouldNotReferenceWholeAndNativelyOtherwiseItsEvidenceTheSame =
 	property.exhaust(finite(caseGen), {
 		needs: {},
 		situations: [
 			"a whole containment",
 			"a native fence over immutable relations",
-			"a native containment of unselected sides",
+			"a native plain containment into a target its key references whole",
+			"the immediate evidence of a plain containment into a target referenced whole",
 			"a native containment selected by a computed value",
 			"a native containment across units",
 			"a native containment over a mutable relation",
@@ -101,8 +106,18 @@ export const aContainmentWithASelectedSideIsDischargedWholeWhereItIsUnitLocalAnd
 								k.note("a native fence over immutable relations")
 							}
 							break
-						case "plain":
-							k.note("a native containment of unselected sides")
+						case "into whole":
+							k.note("a native plain containment into a target its key references whole")
+							for (const e of Arr.filter(theory.evidence.containments, (e) => e.law === law.id)) {
+								assert.equal(
+									e.context,
+									"immediate",
+									`the ${of} containment holds at every statement`
+								)
+								k.note(
+									"the immediate evidence of a plain containment into a target referenced whole"
+								)
+							}
 							break
 						case "computed":
 							k.note("a native containment selected by a computed value")
@@ -112,6 +127,8 @@ export const aContainmentWithASelectedSideIsDischargedWholeWhereItIsUnitLocalAnd
 							break
 						case "selected":
 						case "listed":
+						case "plain":
+						case "selected into whole":
 							k.note("a native containment over a mutable relation")
 							break
 					}
@@ -130,9 +147,9 @@ export const aContainmentWithASelectedSideIsDischargedWholeWhereItIsUnitLocalAnd
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the decision table: a fence, unselected sides, a computed selection, a join across units or a mutable relation native, every other whole; the evidence the same either way"
+			name: "the decision table: a fence, a plain containment into a target its key references whole, a computed selection, a join across units or a mutable relation native, every other whole; the evidence the same either way"
 		},
-		box: "a retirable unit H of bodies B and C, D keyed apart, seven containments between them, no relation mutable, or B, C, both or D",
+		box: "a retirable unit H of bodies B and C, D keyed apart, E keyed by the unit at its every field, nine containments between them, no relation mutable, or B, C, both or D",
 		kept: [],
 		kills: [
 			{
@@ -143,10 +160,22 @@ export const aContainmentWithASelectedSideIsDischargedWholeWhereItIsUnitLocalAnd
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original:
-					"\t\t(d.from.selection.conjuncts.length === 0 && d.to.selection.conjuncts.length === 0) ||",
+				original: "\t\t(isPlain(d) && referencesWhole(d.to.rel, referencedFields(d.to))) ||",
 				replacement: "\t\tfalse ||",
-				why: "A containment of two unselected sides is discharged whole, so no foreign key enforces the existence evidence a catalog reads; the plain containment's discharge fails."
+				why: "A plain containment into a target its key references whole is discharged whole, its immediate foreign key gone, so its existence evidence holds only at COMMIT; the into-whole containment's discharge fails."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original:
+					"\td.from.selection.conjuncts.length === 0 && d.to.selection.conjuncts.length === 0",
+				replacement: "\ttrue",
+				why: "A selected containment into a target its key references whole is native, its law columns, UNIQUE and index restored though it gives no existence evidence a catalog reads; the selected-into-whole containment's discharge fails."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\ttarget.fields.every((f) => fields.includes(f))",
+				replacement: "\ttarget.fields.some((f) => fields.includes(f))",
+				why: "A key into a target that holds a field it does not reference counts as referencing it whole: the plain containment is native, its key deferred all the same; the plain containment's discharge fails."
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",

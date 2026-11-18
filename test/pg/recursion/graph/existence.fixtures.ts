@@ -64,7 +64,6 @@ const catalog: EvidenceCatalog = {
 	...installed,
 	containments: Arr.map(installed.containments, (c) => ({
 		...c,
-		kind: "deferredForeignKey" as const,
 		context: "committedSnapshot" as const
 	}))
 }

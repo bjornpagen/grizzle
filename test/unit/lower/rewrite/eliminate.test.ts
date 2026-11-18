@@ -1,11 +1,13 @@
 /**
  * R03 (lower/optimize/eliminate): a relation is eliminated only with a complete proof. Exhausted over how the catalog
- * states the containment Posting.account -> Account.id (absent, an immediate or a deferred foreign key), the evidence
- * context, whether Account has a key, and what its occurrence does beyond the key match: the Account match goes exactly
- * when an admitted containment and a key of its target prove it neither filters nor multiplies; its certificate names
- * the context its evidence holds in and the installed constraints it rests on, as a set; and the rewritten query
- * delivers what the original does, by the reference evaluator, on every database of the candidate facts the context may
- * see under the installation (two postings of one account, a posting of no account, two accounts of one id).
+ * states the containment Posting.account -> Account.id (absent, an immediate or a deferred foreign key, or a whole rule
+ * the judge holds, its catalog the law model's for a ledger whose containment joins within an account's unit), the
+ * evidence context, whether Account has a key, and what its occurrence does beyond the key match: the Account match
+ * goes exactly when an admitted containment and a key of its target prove it neither filters nor multiplies, whichever
+ * way the containment is discharged; its certificate names the context its evidence holds in, the key constraint and
+ * the containment's law it rests on, as a set; and the rewritten query delivers what the original does, by the
+ * reference evaluator, on every database of the candidate facts the context may see under the installation (two
+ * postings of one account, a posting of no account, two accounts of one id).
  *
  * Oracle: the gate's statement as a checker (a specification), and the reference evaluator's delivery (a second
  * implementation).
@@ -22,6 +24,7 @@ import { OpId } from "#compiler/ir/expr.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
 import {
 	accountKey,
+	atCommit,
 	type Containment,
 	containmentsOf,
 	eliminated,
@@ -32,7 +35,8 @@ import {
 	keyMatch,
 	type Match,
 	seenDatabases,
-	unkeyed
+	unkeyed,
+	wholeLaw
 } from "#test/unit/lower/rewrite/eliminate.fixtures.ts"
 import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
 
@@ -40,7 +44,7 @@ import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
 export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentAndAKeyOfItsTargetProveItNeitherFiltersNorMultiplies =
 	property.exhaust(
 		finite((source) => ({
-			containment: source.draw(element<Containment>(["none", "immediate", "deferred"])),
+			containment: source.draw(element<Containment>(["none", "immediate", "deferred", "whole"])),
 			evidence: source.draw(element<Evidence>(["snapshot", "transaction"])),
 			match: source.draw(element<Match>(["key match", "fixes a column", "delivers payload"])),
 			keyed: source.draw(boolean)
@@ -52,6 +56,7 @@ export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentA
 				"eliminated in transaction",
 				"eliminated on immediate evidence",
 				"eliminated on committedSnapshot evidence",
+				"eliminated on a whole containment's evidence",
 				"held back: no admitted containment",
 				"held back: no key of the target",
 				"held back: the match does more than match a key"
@@ -64,6 +69,7 @@ export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentA
 							...(keyed ? installed : unkeyed),
 							containments: containmentsOf[containment]
 						}
+						const law = containment === "whole" ? wholeLaw() : fk.law
 						const ran = eliminated(
 							keyMatch(match),
 							catalog,
@@ -71,7 +77,7 @@ export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentA
 							seenDatabases(containment, evidence, keyed)
 						)
 						const containmentAdmitted =
-							containment === "immediate" || (containment === "deferred" && evidence === "snapshot")
+							containment === "immediate" || (atCommit(containment) && evidence === "snapshot")
 						const found = Arr.findFirst(ran.certificates, (x) => x.rule === "R03.elimination")
 						if (!containmentAdmitted) {
 							c.note("held back: no admitted containment")
@@ -88,19 +94,23 @@ export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentA
 							found,
 							() => new Error("the elimination's certificate")
 						)
-						const expectedContext = containment === "deferred" ? "committedSnapshot" : "immediate"
+						const expectedContext = atCommit(containment) ? "committedSnapshot" : "immediate"
 						c.note(`eliminated in ${evidence}`)
 						c.note(`eliminated on ${expectedContext} evidence`)
+						if (containment === "whole") {
+							c.note("eliminated on a whole containment's evidence")
+						}
 						assert.equal(cert.context, expectedContext)
 						assert.deepEqual(cert.equality, [OpId("uuid_eq")])
-						const enforcement = fk.enforcement
-						assert.ok(
-							enforcement.kind === "constraint",
-							"the installed foreign key is a named constraint"
-						)
 						unorderedEqual(
-							Arr.flatMap(cert.premises, (p) => (p.kind === "constraint" ? [p.constraint] : [])),
-							[accountKey, enforcement.name]
+							Arr.flatMap(cert.premises, (p) =>
+								p.kind === "constraint"
+									? [String(p.constraint)]
+									: p.kind === "law"
+										? [String(p.law)]
+										: []
+							),
+							[String(accountKey), String(law)]
 						)
 						assert.deepEqual(
 							Arr.map(nodesOf(ran.query.dag, "MatchRegion"), (r) => r.occurrences.length),
@@ -114,6 +124,13 @@ export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentA
 			box: "every containment statement, evidence context, key and match of the ledger's Posting and Account",
 			kept: [],
 			kills: [
+				{
+					file: "packages/engine/src/laws/model/model.ts",
+					original: "\t\t\texistence: existenceConstraints(evidence.containments),",
+					replacement:
+						"\t\t\texistence: existenceConstraints(evidence.containments.filter((c) => natives.some((n) => n.object.lawIds.includes(c.law)))),",
+					why: "A containment gives existence evidence only where a native object enforces it, as the reader of pg_constraint's foreign keys did: the containment the judge holds whole loses its committed-snapshot evidence, so its Account match stays in a snapshot; the eliminate-proof search fails."
+				},
 				{
 					file: "packages/engine/src/lower/optimize/eliminate/index.ts",
 					original: "\tconst exists = containmentEvidence(way.containment, cx.ctx.evidenceContext)",
