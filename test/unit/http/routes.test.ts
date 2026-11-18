@@ -24,7 +24,10 @@
  * route, and the streams the suite's label fixes held none, so a witness whose turn aims at it draws a sketch whose
  * case is constructed to (aimed, `no bearer`): its login's first role holds the query entry wherever a field may carry
  * a claim (served-login.ts liveLoginGen), and after its drawn probes it calls a route of a role reading a context,
- * naming the route's wire, with no Authorization header.
+ * naming the route's wire, with no Authorization header. A paged member's route is in about one drawn case in five, so a
+ * witness whose turn aims at it draws a case every read of which is ordered (oracle/public/generate.ts
+ * orderedCaseSketchGen), and its login's first role reads each of them paged (served-login.ts pagedLoginGen), rather
+ * than leave the situation to the tape: its fixed floor witnesses missed it once bbf0a29d drew a law level's order.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -45,7 +48,8 @@ import {
 	drawnLogin,
 	drawnSchema,
 	liveLoginGen,
-	loginGen
+	loginGen,
+	pagedLoginGen
 } from "#test/support/served-login.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
@@ -56,6 +60,7 @@ import {
 	heartbeatGen,
 	noBearer,
 	noBearerProbesGen,
+	pagedRoute,
 	probeRequest,
 	probesGen,
 	refusedAs,
@@ -69,104 +74,133 @@ import {
  * grizzle 4ca3036a).
  */
 export const anHTTPHandlersRoutesAreExactlyTheServedMembersAndEveryRequestIsAnsweredAsOneStreamOfEvents =
-	property.explore(aimed(sketchGen("drawn"), [[noBearer, sketchGen("no bearer")]]), {
-		needs: {},
-		situations: [
-			"a route of a role reading a context",
-			"a route of a role reading none",
-			"a paged member's route",
-			"a change member's route",
-			"a route named with no wire digest",
-			"a route named with another wire digest",
-			"a route called with no bearer token",
-			"a route called with a refused Authorization header",
-			"a route whose body is no JSON",
-			"a line of another method",
-			"a line with a query",
-			"a line naming no member",
-			"a drawn line a member names"
-		] satisfies ReadonlyArray<Reached<Feature>>,
-		check:
-			(_, notes: Case<Feature>) =>
-			([sketch, level, probing]) =>
-				Effect.gen(function* () {
-					const schema = drawnSchema(notes.draw(resolveCase(sketch)), level)
-					const aimedAtNoBearer = probing === "no bearer"
-					const shapes = notes.draw((aimedAtNoBearer ? liveLoginGen : loginGen)(schema))
-					const compiled = yield* Effect.result(
-						compiledLogin(drawnLogin(schema, shapes), schema.laws.codes)
-					)
-					if (Answered.isFailure(compiled)) {
-						return
-					}
-					const { json, back } = compiled.success
-					const printed = () =>
-						`${printCase(schema.case)}\n${Formatter.format(level)}\n${Formatter.format(shapes)}`
-					const login = served<AnyLogin>(json, back.login)
-					const routes = fileRoutes(back)
-					const lines = new Set(Arr.map(routes, (r) => r.line))
-					const listed = httpRoutes([login])
-					assert.ok(Answered.isSuccess(listed), `one login's routes are distinct\n${printed()}`)
-					assert.deepEqual(
-						Arr.sort([...listed.success.keys()], Order.String),
-						Arr.sort([...lines], Order.String),
-						`the routes are exactly the served members\n${printed()}`
-					)
-					if (!Arr.isReadonlyArrayNonEmpty(routes)) {
-						return
-					}
-					const probes = notes.draw(
-						aimedAtNoBearer ? noBearerProbesGen(routes) : probesGen(routes.length)
-					)
-					yield* Effect.gen(function* () {
-						const handler = yield* httpHandler({
-							logins: [login],
-							heartbeatMs: notes.draw(heartbeatGen)
-						})
-						for (const probe of probes) {
-							const { request, expected } = probeRequest(routes, lines, probe, notes.note)
-							const { response, read } = yield* answered(handler, request)
-							refusedAs(response, read, expected, () => `${printed()}\n${Formatter.format(probe)}`)
+	property.explore(
+		aimed(sketchGen("drawn"), [
+			[noBearer, sketchGen("no bearer")],
+			[pagedRoute, sketchGen("paged")]
+		]),
+		{
+			needs: {},
+			situations: [
+				"a route of a role reading a context",
+				"a route of a role reading none",
+				"a paged member's route",
+				"a change member's route",
+				"a route named with no wire digest",
+				"a route named with another wire digest",
+				"a route called with no bearer token",
+				"a route called with a refused Authorization header",
+				"a route whose body is no JSON",
+				"a line of another method",
+				"a line with a query",
+				"a line naming no member",
+				"a drawn line a member names"
+			] satisfies ReadonlyArray<Reached<Feature>>,
+			check:
+				(_, notes: Case<Feature>) =>
+				([sketch, level, probing]) =>
+					Effect.gen(function* () {
+						const schema = drawnSchema(notes.draw(resolveCase(sketch)), level)
+						const aimedAtNoBearer = probing === "no bearer"
+						const shapes = notes.draw(
+							(probing === "no bearer"
+								? liveLoginGen
+								: probing === "paged"
+									? pagedLoginGen
+									: loginGen)(schema)
+						)
+						const compiled = yield* Effect.result(
+							compiledLogin(drawnLogin(schema, shapes), schema.laws.codes)
+						)
+						if (Answered.isFailure(compiled)) {
+							return
 						}
-					}).pipe(
-						withLayer(
-							servedSourcedLayer(offlineDecoders, {
-								...offlineConnection,
-								pool: clusterPool,
-								login,
-								verify: testVerify
+						const { json, back } = compiled.success
+						const printed = () =>
+							`${printCase(schema.case)}\n${Formatter.format(level)}\n${Formatter.format(shapes)}`
+						const login = served<AnyLogin>(json, back.login)
+						const routes = fileRoutes(back)
+						const lines = new Set(Arr.map(routes, (r) => r.line))
+						const listed = httpRoutes([login])
+						assert.ok(Answered.isSuccess(listed), `one login's routes are distinct\n${printed()}`)
+						assert.deepEqual(
+							Arr.sort([...listed.success.keys()], Order.String),
+							Arr.sort([...lines], Order.String),
+							`the routes are exactly the served members\n${printed()}`
+						)
+						if (!Arr.isReadonlyArrayNonEmpty(routes)) {
+							return
+						}
+						const probes = notes.draw(
+							aimedAtNoBearer ? noBearerProbesGen(routes) : probesGen(routes.length)
+						)
+						yield* Effect.gen(function* () {
+							const handler = yield* httpHandler({
+								logins: [login],
+								heartbeatMs: notes.draw(heartbeatGen)
 							})
-						),
-						Effect.orDie
-					)
-				}).pipe(Effect.scoped),
-		oracle: {
-			kind: "specification",
-			name: "the served file's members, their roles' contexts, and the order of a call's checks"
-		},
-		budget: { runs: 60, steered: 0 },
-		kept: [],
-		kills: [
-			{
-				file: "packages/grizzle/src/http/routes.ts",
-				original: "\t\t\t\ttable.set(line, { route, role, member })",
-				replacement: `\t\t\t\ttable.set(line, { route, role, member })\n\t\t\t\ttable.set(\`\${line}/\`, { route, role, member })`,
-				why: "The table serves a route no member names, each route's line with a trailing slash: the routes are not the members."
+							for (const probe of probes) {
+								const { request, expected } = probeRequest(routes, lines, probe, notes.note)
+								const { response, read } = yield* answered(handler, request)
+								refusedAs(
+									response,
+									read,
+									expected,
+									() => `${printed()}\n${Formatter.format(probe)}`
+								)
+							}
+						}).pipe(
+							withLayer(
+								servedSourcedLayer(offlineDecoders, {
+									...offlineConnection,
+									pool: clusterPool,
+									login,
+									verify: testVerify
+								})
+							),
+							Effect.orDie
+						)
+					}).pipe(Effect.scoped),
+			oracle: {
+				kind: "specification",
+				name: "the served file's members, their roles' contexts, and the order of a call's checks"
 			},
-			{
-				file: "packages/grizzle/src/http/handler.ts",
-				original: "\t\t\t\t\t{ status: 200, headers: sseHeaders }",
-				replacement:
-					"\t\t\t\t\t{ status: table.has(requestLine(request)) ? 200 : 404, headers: sseHeaders }",
-				why: "A request line no route serves is answered 404: the answer is not the stream."
-			},
-			{
-				file: "packages/grizzle/src/http/handler.ts",
-				original:
-					"\t\tconst token = yield* Effect.fromResult(openingToken(route.role.held.role, given))\n\t\tconst body = yield* bodyJson(request)",
-				replacement:
-					"\t\tconst body = yield* bodyJson(request)\n\t\tconst token = yield* Effect.fromResult(openingToken(route.role.held.role, given))",
-				why: "A call's missing token is checked after its body's JSON, so a call with no bearer token and no JSON body is an `input`."
-			}
-		]
-	})
+			budget: { runs: 60, steered: 0 },
+			kept: [],
+			kills: [
+				{
+					file: "test/support/served-login.ts",
+					original: "\t\t\t\t? [{ place, query: read.query, paged: true }]",
+					replacement: "\t\t\t\t? [{ place, query: read.query, paged: false }]",
+					why: "The paged aim's login reads its ordered queries whole, so no witness pages one; the property fails on its unreached paged member's route."
+				},
+				{
+					file: "test/support/oracle/public/generate.ts",
+					original: '\t\tdecisions.draw(directedSwarm([...deliveredOn, "ordered"], deliveredOff))',
+					replacement: "\t\tdecisions.draw(directedSwarm(deliveredOn, deliveredOff))",
+					why: "The ordered aim's case orders a read only where its swarm's drawn weight keeps it, so the paged aim may hold no ordered query; the property fails on its unreached paged member's route."
+				},
+				{
+					file: "packages/grizzle/src/http/routes.ts",
+					original: "\t\t\t\ttable.set(line, { route, role, member })",
+					replacement: `\t\t\t\ttable.set(line, { route, role, member })\n\t\t\t\ttable.set(\`\${line}/\`, { route, role, member })`,
+					why: "The table serves a route no member names, each route's line with a trailing slash: the routes are not the members."
+				},
+				{
+					file: "packages/grizzle/src/http/handler.ts",
+					original: "\t\t\t\t\t{ status: 200, headers: sseHeaders }",
+					replacement:
+						"\t\t\t\t\t{ status: table.has(requestLine(request)) ? 200 : 404, headers: sseHeaders }",
+					why: "A request line no route serves is answered 404: the answer is not the stream."
+				},
+				{
+					file: "packages/grizzle/src/http/handler.ts",
+					original:
+						"\t\tconst token = yield* Effect.fromResult(openingToken(route.role.held.role, given))\n\t\tconst body = yield* bodyJson(request)",
+					replacement:
+						"\t\tconst body = yield* bodyJson(request)\n\t\tconst token = yield* Effect.fromResult(openingToken(route.role.held.role, given))",
+					why: "A call's missing token is checked after its body's JSON, so a call with no bearer token and no JSON body is an `input`."
+				}
+			]
+		}
+	)

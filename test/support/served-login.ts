@@ -332,6 +332,31 @@ export const liveLoginGen =
 		]
 	}
 
+/**
+ * The roles of a login aimed at a paged member (unit/http/routes.test.ts): its first role reads every ordered query of
+ * the case paged, beside the other reads loginGen draws for it; every other role as loginGen draws it.
+ */
+export const pagedLoginGen =
+	(drawn: DrawnSchema): Gen<Arr.NonEmptyReadonlyArray<RoleShape>> =>
+	(source) => {
+		const [first, ...rest] = source.draw(loginGen(drawn))
+		const ordered = Arr.flatMap(drawn.case.reads, (read, place): ReadonlyArray<ReadShape> =>
+			read.kind === "query" && read.query.delivery.kind === "ordered"
+				? [{ place, query: read.query, paged: true }]
+				: []
+		)
+		return [
+			{
+				...first,
+				reads: [
+					...Arr.filter(first.reads, (r) => !Arr.some(ordered, (o) => o.place === r.place)),
+					...ordered
+				]
+			},
+			...rest
+		]
+	}
+
 /** A value role(...) built, as the library recognizes one. */
 const isRole = (value: unknown): value is ReturnType<typeof role> => roleDescOf(value) !== undefined
 

@@ -19,7 +19,11 @@ import type { ServedFile } from "#compiler/served/forms.ts"
 import { type HttpHandler } from "#http/index.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { readStream, type StreamRead } from "#test/support/event-stream.ts"
-import { type CaseSketch, caseSketchGen } from "#test/support/oracle/public/generate.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	orderedCaseSketchGen
+} from "#test/support/oracle/public/generate.ts"
 import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -164,16 +168,26 @@ export const probesGen =
 /** The requirement a drawn probe seldom meets, which a case whose turn aims at it is built to meet (see the header). */
 export const noBearer: Feature = "a route called with no bearer token"
 
-/** How a case draws its login and its probes: as drawn, or aimed at a call with no bearer token (see the header). */
-type Probing = "drawn" | "no bearer"
+export const pagedRoute: Feature = "a paged member's route"
+
+/**
+ * How a case draws its login and its probes: as drawn; aimed at a call with no bearer token; or aimed at a paged
+ * member, its case's every read ordered (generate.ts orderedCaseSketchGen) and its login's first role reading each
+ * paged (served-login.ts pagedLoginGen) (see the header).
+ */
+type Probing = "drawn" | "no bearer" | "paged"
 
 /** A case's sketch: its schema's, its law level, and how it draws its login and its probes. */
 type Sketch = readonly [CaseSketch, LawLevel, Probing]
 
-/** A sketch whose login and probes are drawn as `probing` says. */
+/** A sketch whose case, login and probes are drawn as `probing` says. */
 export const sketchGen =
 	(probing: Probing): Gen<Sketch> =>
-	(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen), probing]
+	(source) => [
+		source.draw(probing === "paged" ? orderedCaseSketchGen : caseSketchGen),
+		source.draw(lawLevelGen),
+		probing
+	]
 
 /**
  * The probes of a case aimed at a call with no bearer token (see the header): its drawn ones, then a call naming its

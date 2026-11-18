@@ -1231,9 +1231,27 @@ export const plantedNameCount = plantedNames.length
  */
 export const caseSketchGen: Gen<CaseSketch> = (decisions) => {
 	const population = decisions.draw(populationGen)
-	return {
+	return caseSketchOf(population, decisions.draw(populationSwarm(population)))(decisions)
+}
+
+/**
+ * A case sketch every root read of which is delivered in order: the delivered population, its swarm holding
+ * "ordered" at full weight beside its own features, so each read whose head has columns keeps an ordered delivery
+ * (resolveRoot), never by a draw. What a suite aims at to reach a paged member or an ordered read's texts
+ * (unit/http/routes.test.ts).
+ */
+export const orderedCaseSketchGen: Gen<CaseSketch> = (decisions) =>
+	caseSketchOf(
+		"delivered",
+		decisions.draw(directedSwarm([...deliveredOn, "ordered"], deliveredOff))
+	)(decisions)
+
+/** A case sketch of `population` under `swarm`, every other part of it drawn. */
+const caseSketchOf =
+	(population: DrawnPopulation, swarm: Swarm<SwarmFeature>): Gen<CaseSketch> =>
+	(decisions) => ({
 		population,
-		swarm: decisions.draw(populationSwarm(population)),
+		swarm,
 		perturbation: decisions.draw(plannerPerturbationGen),
 		ambient: decisions.draw(ambientSessionGen),
 		restorage: decisions.draw(restorageGen),
@@ -1242,8 +1260,7 @@ export const caseSketchGen: Gen<CaseSketch> = (decisions) => {
 		relations: decisions.draw(array(relationGen, { min: 1, max: 3 })),
 		reads: decisions.draw(array(readGen, { min: 1, max: 3 })),
 		planted: decisions.draw(plantedGen)
-	}
-}
+	})
 
 /** A field kind pick that selects a kind other than prose: the pick itself, or the next kind's where it selects prose. */
 const offProse = (pick: number): number => {
