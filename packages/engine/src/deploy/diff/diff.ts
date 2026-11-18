@@ -12,6 +12,8 @@ import {
 import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
+	appendNonEmpty,
+	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray,
@@ -58,7 +60,6 @@ import {
 	type BuiltOver,
 	builtOver,
 	constraintColumns,
-	generationColumns,
 	type Installed,
 	installed,
 	keyOrCheckDefinition,
@@ -90,7 +91,6 @@ import type {
 	AlterTableAction,
 	Collation,
 	ColumnDef,
-	ColumnGeneration,
 	CreateConstant,
 	CreateDomain,
 	CreateIndex,
@@ -177,8 +177,10 @@ const ownedAside = (a: Aside): string =>
 		: ""
 
 /** What a migration does to a column of a table it keeps (ColumnFates): kept as it is; converted in place, a field
- * whose type changes; redefined, a law column whose definition changes, or a field rewritten (fieldChange), dropped and
- * added again; or dropped, a field or law column the target no longer holds. */
+ * whose type changes; redefined, a law column whose definition changes, a field rewritten (rewrittenOver), or one the
+ * target no longer holds whose generation reads a column the migration replaces (generatedOver), dropped before
+ * Structure's alteration and added again where the target holds it; or dropped, at the end of the migration, a field or
+ * law column the target no longer holds. */
 type ColumnFate =
 	| { readonly kind: "kept" }
 	| { readonly kind: "converted" }
@@ -272,6 +274,34 @@ const dropOrder: { readonly [K in Dropped]: number } = {
  * statements before it, its drops and its tables' alterations, write no row. */
 const checkedAtOnce: SqlStatement = { kind: "setConstraintsImmediate" }
 
+/**
+ * `items` in a topological order of `after`: each after every item of them it must follow (`after(item, other)`),
+ * otherwise in the order given, so a list no item of which must follow another keeps its order. A migration drafts
+ * the steps of one kind over objects that read each other so, whatever their install order: a drop after the drops
+ * of what reads it, a materialized view's (dropViews) or a removed field's (planKept), since PostgreSQL drops nothing
+ * another object still reads (2BP01); and an added column after the columns its generation reads (alterationDraft),
+ * since an ALTER TABLE adds its columns one by one, each generation read when its column is added (42703). An item
+ * reached again while its predecessors are placed closes a cycle, which no schema's columns or views form.
+ */
+const dependencyOrder = <A>(
+	items: NonEmptyReadonlyArray<A>,
+	after: (item: A, other: A) => boolean
+): NonEmptyReadonlyArray<A> => {
+	const seen = new Set<A>()
+	const place = (item: A): NonEmptyReadonlyArray<A> => {
+		seen.add(item)
+		return appendNonEmpty(
+			items.flatMap((other) => (!seen.has(other) && after(item, other) ? place(other) : [])),
+			item
+		)
+	}
+	const [head, ...tail] = items
+	return extendNonEmpty(
+		place(head),
+		tail.flatMap((item) => (seen.has(item) ? [] : place(item)))
+	)
+}
+
 /** A drop drafted with its kind's place in the drop order. */
 interface Drop {
 	readonly rank: number
@@ -331,8 +361,15 @@ const columnFate = (kept: KeptTable, column: string): ColumnFate =>
  * sequences paired by column, one the target names otherwise renamed. */
 interface KeptPlan {
 	readonly table: KeptTable
-	/** The previous declaration's fields the target no longer holds. */
-	readonly removed: ReadonlyArray<ColumnDef>
+	/** The previous declaration's fields the migration drops, each list in drop order, every field before the fields
+	 * its generation reads (dependencyOrder), otherwise in column order: `first`, before Structure's alteration
+	 * converts or adds any column, each one dropped and added again or removed over a column the migration replaces
+	 * (ColumnFate redefined); `last`, at the end of the migration, every other field the target no longer holds (ColumnFate
+	 * dropped). */
+	readonly drops: {
+		readonly first: ReadonlyArray<ColumnDef>
+		readonly last: ReadonlyArray<ColumnDef>
+	}
 	/** The target's fields in its order, each new or with the previous field of its name. */
 	readonly fields: ReadonlyArray<
 		| { readonly kind: "added"; readonly column: ColumnDef }
@@ -505,19 +542,57 @@ const rowColumns = (e: Expr): ReadonlyArray<string> => {
 	return out
 }
 
-/** Whether a generation reads a field `aside` sets aside. */
-const readsAside = (g: ColumnGeneration, aside: AsideColumns): boolean => {
-	const reads = (e: Expr) => rowColumns(e).some((c) => aside.has(c))
-	switch (g.kind) {
+/** The columns of its own row a column's generation reads: a stored one's expression's, a partial one's selection's
+ * and expression's; none of a column its caller writes, its sequence or its default draws. */
+const generationReads = (c: ColumnDef): ReadonlyArray<string> => {
+	switch (c.generated?.kind) {
 		case "stored":
-			return reads(g.expr)
+			return rowColumns(c.generated.expr)
 		case "partial":
-			return reads(g.when) || reads(g.expr)
+			return [...rowColumns(c.generated.when), ...rowColumns(c.generated.expr)]
 		case "identity":
 		case "uuidv7":
 		case "retirement":
-			return false
+		case undefined:
+			return []
 	}
+}
+
+/** The column a subcommand of a table's alteration adds, under whatever value it adds it; none for any other. */
+const addedColumn = (a: Alteration): ColumnDef | undefined => {
+	switch (a.kind) {
+		case "addColumn":
+		case "addColumnPlaceholder":
+		case "addColumnDefault":
+		case "addColumnUnchecked":
+		case "placeholderColumn":
+			return a.column
+		case "setNotNull":
+		case "dropColumn":
+		case "dropDefault":
+		case "setUuidv7Default":
+		case "setRetirementDefault":
+		case "alterColumnType":
+		case "addIdentity":
+		case "dropIdentity":
+		case "addConstraint":
+		case "addConstraintUsingIndex":
+		case "validateConstraint":
+		case "dropConstraint":
+		case "enableRowSecurity":
+		case "disableRowSecurity":
+		case "replicaIdentity":
+		case "setExpression":
+			return undefined
+	}
+}
+
+/** Whether the subcommand `a` adds a column whose generation reads the column `b` adds, so it goes after it
+ * (dependencyOrder): an ALTER TABLE adds its columns one by one, each generation read as its column is added. */
+const readsAdded = (a: Alteration, b: Alteration): boolean => {
+	const reader = addedColumn(a)
+	const read = addedColumn(b)
+	return reader !== undefined && read !== undefined && generationReads(reader).includes(read.name)
 }
 
 /**
@@ -534,7 +609,7 @@ const asideSubcommand = (
 	if (
 		a.kind !== "addColumn" ||
 		a.column.generated === undefined ||
-		!readsAside(a.column.generated, aside)
+		!generationReads(a.column).some((c) => aside.has(c))
 	) {
 		return { alteration: a, checked: [] }
 	}
@@ -574,12 +649,16 @@ const byPass = mapInput(compareNumbers, (a: Alteration) =>
 	alterTablePasses.indexOf(alterationPass(a))
 )
 
-/** The draft of a table's alteration, its subcommands in pass order: the one ALTER TABLE PostgreSQL runs as written. */
+/** The draft of a table's alteration, its subcommands in pass order, each added column after the columns its
+ * generation reads (readsAdded): the one ALTER TABLE PostgreSQL runs as written. */
 const alterationDraft = (a: TableAlteration, aside: AsideColumns): Action => ({
 	kind: "alteration",
 	table: a.table,
 	actions: sortNonEmpty(
-		mapNonEmpty([a.first, ...a.rest], (x) => asideSubcommand(x, aside).alteration),
+		dependencyOrder(
+			mapNonEmpty([a.first, ...a.rest], (x) => asideSubcommand(x, aside).alteration),
+			readsAdded
+		),
 		byPass
 	)
 })
@@ -956,25 +1035,43 @@ class Differ {
 					const { old, order } = at
 					const create = v.create
 					const key = nameKey(create.table)
-					const changes = redrawn(
-						fieldChangesOf(old.columns, create.columns, (b, c) => this.retyped(b, c)),
+					const shared = sharedFields(old.columns, create.columns)
+					const own = redrawn(
+						fieldChangesOf(shared, (b, c) => this.retyped(b, c)),
 						previousWritings.get(create.table.name) ?? noWritings,
 						targetWritings.get(create.table.name) ?? noWritings
 					)
-					const fields = old.columns.map((b): readonly [string, ColumnFate] => {
+					const changes = rewrittenOver(
+						shared,
+						own,
+						shared.some(
+							({ was, column }) =>
+								changeOf(own, column.name).kind === "converted" &&
+								this.conversion(was, { ...column, generated: undefined }).kind !==
+									"placeholderRetype"
+						)
+					)
+					const fields = old.columns.flatMap((b): ReadonlyArray<readonly [string, ColumnFate]> => {
 						const change = changes.get(b.name)
 						if (change === undefined) {
-							return [b.name, droppedColumn]
+							return []
 						}
 						return [
-							b.name,
-							change.kind === "converted"
-								? convertedColumn
-								: change.kind === "rewritten"
-									? redefinedColumn
-									: keptColumn
+							[
+								b.name,
+								change.kind === "converted"
+									? convertedColumn
+									: change.kind === "rewritten"
+										? redefinedColumn
+										: keptColumn
+							]
 						]
 					})
+					const removed = old.columns.flatMap((b) =>
+						changes.has(b.name)
+							? []
+							: [{ column: b.name, reads: generationReads(b), fate: droppedColumn }]
+					)
 					const lawColumns = (lawColumnsByTable.get(key) ?? []).map(({ object: p, column: w }) => {
 						const now = this.next.get(p.ident)
 						const fate =
@@ -994,7 +1091,7 @@ class Differ {
 								order,
 								old,
 								create,
-								fates: generatedOver(new Map(fields), lawColumns),
+								fates: generatedOver(new Map(fields), [...removed, ...lawColumns]),
 								changes
 							}
 						]
@@ -1399,26 +1496,12 @@ class Differ {
 		return out
 	}
 
-	/** `views` in drop order: every view before the views it reads, and otherwise in the order given. */
+	/** `views` in drop order: every view before the views it reads, and otherwise in the order given (dependencyOrder). */
 	topDown(views: ReadonlySet<string>): ReadonlyArray<string> {
-		const order: Array<string> = []
-		const seen = new Set<string>()
-		const visit = (key: string): void => {
-			if (seen.has(key)) {
-				return
-			}
-			seen.add(key)
-			for (const reader of views) {
-				if (this.reads.get(reader)?.has(key) === true) {
-					visit(reader)
-				}
-			}
-			order.push(key)
-		}
-		for (const key of views) {
-			visit(key)
-		}
-		return order
+		const keys = [...views]
+		return isNonEmpty(keys)
+			? dependencyOrder(keys, (key, reader) => this.reads.get(reader)?.has(key) === true)
+			: keys
 	}
 
 	/** Keys of relations that may hold rows that this migration attaches.
@@ -1819,6 +1902,13 @@ class Differ {
 	planKept(kept: KeptTable): KeptPlan {
 		const t = kept.create.table
 		const old = kept.old.columns
+		/** The fields of fate `fate`, in drop order. */
+		const dropped = (fate: "redefined" | "dropped"): ReadonlyArray<ColumnDef> => {
+			const columns = old.filter((c) => columnFate(kept, c.name).kind === fate)
+			return isNonEmpty(columns)
+				? dependencyOrder(columns, (read, reader) => generationReads(reader).includes(read.name))
+				: columns
+		}
 		const before = partsAt(this.prevParts, t).sequence
 		const after = partsAt(this.nextParts, t).sequence
 		const sequences = [...before.values()].flatMap((was) => {
@@ -1827,7 +1917,7 @@ class Differ {
 		})
 		return {
 			table: kept,
-			removed: old.filter((c) => !kept.create.columns.some((x) => x.name === c.name)),
+			drops: { first: dropped("redefined"), last: dropped("dropped") },
 			fields: kept.create.columns.map((c) => {
 				const was = old.find((x) => x.name === c.name)
 				return was === undefined
@@ -1871,18 +1961,21 @@ class Differ {
 		this.keptTable(plan)
 	}
 
-	/** A table both installations hold, as planned (KeptPlan). Each removed column, which the migration declares
-	 * dropped, is dropped at the end of the migration, once nothing reads it any longer.
+	/** A table both installations hold, as planned (KeptPlan). Each field dropped and added again, or removed over a
+	 * column the migration replaces, is dropped in structure.drop, before anything is converted or added; each other
+	 * removed column, which the migration declares dropped, is dropped at the end of the migration, once nothing reads
+	 * it any longer.
 	 *
 	 * DROP IDENTITY drops the sequence, and its privileges with it. */
-	keptTable({ table: kept, removed, fields, sequences }: KeptPlan): void {
+	keptTable({ table: kept, drops, fields, sequences }: KeptPlan): void {
 		const t = kept.create.table
-		for (const r of removed) {
-			this.removal(
-				dropOrder.column,
-				kept.order,
-				statement(alter(t, [{ kind: "dropColumn", column: r.name }]))
-			)
+		const drop = (c: ColumnDef): Action =>
+			statement(alter(t, [{ kind: "dropColumn", column: c.name }]))
+		for (const c of drops.first) {
+			this.push("structure.drop", drop(c))
+		}
+		for (const c of drops.last) {
+			this.removal(dropOrder.column, kept.order, drop(c))
 		}
 		this.sql(
 			"structure",
@@ -1909,7 +2002,7 @@ class Differ {
 	 * (changeInPlace). */
 	changeField(t: ObjectName, b: ColumnDef, c: ColumnDef, change: FieldChange): void {
 		if (change.kind === "rewritten") {
-			this.rewriteField(t, b, c)
+			this.rewriteField(t, c)
 			return
 		}
 		if (change.kind === "kept") {
@@ -1919,12 +2012,12 @@ class Differ {
 	}
 
 	/** A field of `t` dropped and added again, its writing changed between its caller and a generation, or a generated
-	 * field's type changed or a field it reads converted (fieldChange): its drop, in structure.drop, before anything is
-	 * converted, the values its caller wrote going as the schema now declares; then its addition in Structure, a
-	 * generated field by its expression and one its caller writes by the reviewer's placeholder. Every object built over
-	 * the column is dropped before it (dropReplaced) and built again as the target declares it (ColumnFate redefined). */
-	rewriteField(t: ObjectName, b: ColumnDef, c: ColumnDef): void {
-		this.sql("structure.drop", [alter(t, [{ kind: "dropColumn", column: b.name }])])
+	 * field's type changed or a field it reads converted (rewrittenOver): its drop, in structure.drop, before anything is
+	 * converted, the values its caller wrote going as the schema now declares, which its table's visit drafts with the
+	 * table's other drops there (keptTable); then its addition in Structure, a generated field by its expression and one
+	 * its caller writes by the reviewer's placeholder. Every object built over the column is dropped before it
+	 * (dropReplaced) and built again as the target declares it (ColumnFate redefined). */
+	rewriteField(t: ObjectName, c: ColumnDef): void {
 		this.alter("structure", t, [this.addedField(t, c)])
 	}
 
@@ -3177,25 +3270,58 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 			: { kind: "uuidv7Removed" }
 }
 
-/** The changes of the fields two declarations of one relation share, by name (fieldChange): a generated field that
- * reads a field converted in place is rewritten, since PostgreSQL refuses to convert a column a generated column reads. */
-const fieldChangesOf = (
+/** The fields two declarations of one relation share, each before and after. */
+type SharedField = { readonly was: ColumnDef; readonly column: ColumnDef }
+
+/** The fields `create` shares with `old`, in `create`'s order. */
+const sharedFields = (
 	old: ReadonlyArray<ColumnDef>,
-	create: ReadonlyArray<ColumnDef>,
-	retyped: Retyped
-): ReadonlyMap<string, FieldChange> => {
-	const shared = create.flatMap((c) => {
-		const b = old.find((x) => x.name === c.name)
-		return b === undefined ? [] : [{ column: c, change: fieldChange(b, c, retyped) }]
+	create: ReadonlyArray<ColumnDef>
+): ReadonlyArray<SharedField> =>
+	create.flatMap((column) => {
+		const was = old.find((x) => x.name === column.name)
+		return was === undefined ? [] : [{ was, column }]
 	})
-	const own = new Map(shared.map(({ column, change }) => [column.name, change] as const))
+
+/** Each shared field's own change, by name (fieldChange). */
+const fieldChangesOf = (
+	shared: ReadonlyArray<SharedField>,
+	retyped: Retyped
+): ReadonlyMap<string, FieldChange> =>
+	new Map(
+		shared.map(({ was, column }) => [column.name, fieldChange(was, column, retyped)] as const)
+	)
+
+/**
+ * The shared fields' changes `own` (fieldChangesOf, redrawn) with each generated field rewritten where PostgreSQL could
+ * not keep its column through the other fields' changes: where its target generation reads a field converted, in
+ * place or set aside, which it then reads through the conversion (asideSubcommand); where its previous generation
+ * reads a field converted or rewritten, which PostgreSQL converts or drops only once no generated column reads it
+ * (0A000, 2BP01), before Structure's alteration could set another expression; and where it is re-expressed on a table
+ * `convertsInPlace`, since PostgreSQL 19rc2 fails one ALTER TABLE that both converts a NOT NULL column and sets an
+ * expression (XX000, "cache lookup failed for constraint").
+ */
+const rewrittenOver = (
+	shared: ReadonlyArray<SharedField>,
+	own: ReadonlyMap<string, FieldChange>,
+	convertsInPlace: boolean
+): ReadonlyMap<string, FieldChange> => {
+	const changed =
+		(...kinds: ReadonlyArray<FieldChange["kind"]>) =>
+		(column: string): boolean => {
+			const change = own.get(column)
+			return change !== undefined && kinds.includes(change.kind)
+		}
 	return new Map(
-		shared.map(({ column, change }): readonly [string, FieldChange] =>
-			change.kind !== "rewritten" &&
-			generationColumns(column).some((r) => own.get(r)?.kind === "converted")
-				? [column.name, { kind: "rewritten" }]
-				: [column.name, change]
-		)
+		shared.map(({ was, column }): readonly [string, FieldChange] => {
+			const change = changeOf(own, column.name)
+			const rewrite =
+				change.kind !== "rewritten" &&
+				(generationReads(column).some(changed("converted")) ||
+					generationReads(was).some(changed("converted", "rewritten")) ||
+					(change.kind === "reexpressed" && convertsInPlace))
+			return [column.name, rewrite ? { kind: "rewritten" } : change]
+		})
 	)
 }
 
@@ -3243,15 +3369,16 @@ const redrawn = (
 	)
 
 /**
- * A kept table's column fates with its law columns': each its own (kept, redefined or dropped), but a generated law
- * column that reads a column the migration replaces (converted in place, or dropped and added again), through any
- * chain of generated law columns, is redefined: PostgreSQL drops a column only once every generated column that reads
- * it is gone (2BP01), so the migration drops it before the column it reads, with everything built over it, and adds it
- * again where the target holds it (dropReplaced).
+ * A kept table's column fates: those of the fields the target holds, read off their changes (rewrittenOver), and those
+ * of the columns whose fate what they read decides, the fields the target no longer holds and the law columns: each its
+ * own (kept, redefined or dropped), but one whose generation reads a column the migration replaces (converted in place,
+ * or dropped and added again), through any chain of generated columns, is redefined: PostgreSQL drops or converts a
+ * column only once every generated column that reads it is gone (2BP01, 0A000), so the migration drops it before the
+ * column it reads, with everything built over it (dropReplaced, keptTable), and adds it again where the target holds it.
  */
 const generatedOver = (
 	fields: ReadonlyMap<string, ColumnFate>,
-	lawColumns: ReadonlyArray<{
+	generated: ReadonlyArray<{
 		readonly column: string
 		readonly reads: ReadonlyArray<string>
 		readonly fate: ColumnFate
@@ -3259,14 +3386,14 @@ const generatedOver = (
 ): ColumnFates => {
 	const fates = new Map<string, ColumnFate>([
 		...fields,
-		...lawColumns.map((c) => [c.column, c.fate] as const)
+		...generated.map((c) => [c.column, c.fate] as const)
 	])
 	const replaced = (column: string): boolean => {
 		const fate = fates.get(column)?.kind
 		return fate === "converted" || fate === "redefined"
 	}
 	for (let grew = true; grew;) {
-		const reached = lawColumns.filter((c) => !replaced(c.column) && c.reads.some(replaced))
+		const reached = generated.filter((c) => !replaced(c.column) && c.reads.some(replaced))
 		for (const c of reached) {
 			fates.set(c.column, redefinedColumn)
 		}

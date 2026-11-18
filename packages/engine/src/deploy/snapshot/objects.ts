@@ -505,10 +505,6 @@ const columnsOf = (value: unknown): ReadonlyArray<string> => {
 	return [...out]
 }
 
-/** Every column a generated column's expression reads: none for a column its caller writes. */
-export const generationColumns = (c: ColumnDef): ReadonlyArray<string> =>
-	c.generated?.kind === "stored" ? columnsOf(c.generated.expr) : []
-
 /** Every column a constraint reads. */
 export const constraintColumns = (c: TableConstraint): ReadonlyArray<string> => {
 	switch (c.kind) {
