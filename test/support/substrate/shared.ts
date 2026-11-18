@@ -1,3 +1,4 @@
+import { waitingOn } from "@bjornpagen/testing/live"
 import { testWorkers } from "@bjornpagen/testing/workers"
 import { Array as Arr, Config, Effect, Exit, Option, Scope, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -169,7 +170,11 @@ const tryLock = (lock: PgConnection, table: string): Effect.Effect<boolean, SqlE
 /**
  * Locks `table` IN EXCLUSIVE MODE in a transaction left open on `lock`, waiting in the server behind every process
  * queued for it. It tries NOWAIT first, so the wait's one catalog read, the table by its name, is answered from the
- * backend's caches: a read past them would take a catalog snapshot and hold the backend's xmin while it waits.
+ * backend's caches: a read past them would take a catalog snapshot and hold the backend's xmin while it waits. The wait
+ * is a declared one (@bjornpagen/testing/live waitingOn), the one place a lease waits: a slot's holder is another
+ * process's lease, a guarded runner worker or Vitest file of this run or another, or a backend PostgreSQL ends once its
+ * client is gone, so the wait always ends, and no guard charges it to the case or the need's open that asked for the
+ * lease (SELECTWHOLE: thirteen kill trials' first cases ended as stalled behind other runs' slots).
  */
 const awaitLock = (lock: PgConnection, table: string): Effect.Effect<void, SqlError> =>
 	Effect.gen(function* () {
@@ -177,7 +182,7 @@ const awaitLock = (lock: PgConnection, table: string): Effect.Effect<void, SqlEr
 			return
 		}
 		yield* lock.query("BEGIN", [])
-		yield* lock.query(`LOCK TABLE ${leaseTable(table)} IN EXCLUSIVE MODE`, [])
+		yield* waitingOn(lock.query(`LOCK TABLE ${leaseTable(table)} IN EXCLUSIVE MODE`, []))
 	})
 
 /**
