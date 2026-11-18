@@ -682,21 +682,20 @@ export const evaluateTable = (
 				return castTo(v.value, arg.type, expr.type)
 			}
 			case "domainCast": {
+				/**
+				 * A domain cast is its coercion into the target's base: whether the value is a member of the target's
+				 * domain is the domain's to judge where the value is stored or read, PostgreSQL's CHECK on a write, by the
+				 * domain's law, and rowEvaluator's DomainRefused on a row, never this evaluation's precondition. Over a row
+				 * inside its domains a proved cast's value is a member; over a written row past its own domain, which only
+				 * PostgreSQL holds to it, the value is still the one PostgreSQL computes before its domain refuses it.
+				 */
 				const [operand] = expr.args
 				const arg = at(operand)
 				const v = run(operand)
 				if (arg === undefined || !v.ok || v.value === sqlNull) {
 					return v
 				}
-				const coerced = castTo(v.value, arg.type, baseOf(expr.type))
-				if (!coerced.ok) {
-					return coerced
-				}
-				const member = membership(coerced.value, expr.type, patterns)
-				if (!member.ok) {
-					return member
-				}
-				return member.value ? coerced : undefinedAt("contract")
+				return castTo(v.value, arg.type, baseOf(expr.type))
 			}
 			case "op": {
 				/**

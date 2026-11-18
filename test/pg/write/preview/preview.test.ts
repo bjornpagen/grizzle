@@ -12,7 +12,8 @@
  * Glow at its tone, owning Dab's counted family (a max fold over closed ids, an or fold over sets, owner copies of a
  * closed id and of the generated lum) and Stroke's ordered family (a predecessor copy of a closed id, its base a). Its
  * call states the whole instance, now and then with a fault: a handle the history dropped, two rows at one key, a tone
- * whose lum is NULL with dabs reading it and without, a dab whose swatch the call does not insert. Each refusal is aimed
+ * whose lum is NULL with dabs reading it and without, a dab whose swatch the call does not insert, a label past its
+ * domain whose tag the dabs copy. Each refusal is aimed
  * at by a case constructed to reach it.
  *
  * The schema is installed twice: fresh, through its first migration, where codes are the roster's declared order the
@@ -27,7 +28,10 @@
  *   which PostgreSQL judges after the statements run;
  * - where the preview refuses the input, the write fails as `input`; where it refuses two rows at one key or a NULL a
  *   fill reads, the write is refused by the same law with the same witness; where it refuses an orphan counted member,
- *   the write is refused by the member's counted family's law among the laws its foreign key carries.
+ *   the write is refused by the member's counted family's law among the laws its foreign key carries;
+ * - where a row the preview gives is past its domain, rowEvaluator's DomainRefused, the write is refused by that
+ *   field's domain law, which PostgreSQL judges once it stores the row: a long label, past Label, and the tag the fresh
+ *   fill draws from it and copies to its dabs, the fill never refusing a drawn value its domain judges.
  *
  * Oracle: PostgreSQL itself, which draws nothing the host does not send and proves every family value of the stored
  * rows by its natives.
@@ -74,6 +78,13 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/evaluate.ts",
+				original: "\t\t\t\treturn castTo(v.value, arg.type, baseOf(expr.type))",
+				replacement:
+					'\t\t\t\treturn Result.flatMap(castTo(v.value, arg.type, baseOf(expr.type)), (coerced) => Result.flatMap(membership(coerced, expr.type, patterns), (member) => (member ? Result.ok(coerced) : undefinedAt("contract"))))',
+				why: "A domain cast's membership is the evaluation's precondition again: the fresh fill stops on a long label's tag, past Label, and the preview and the write refuse the call as input, a refusal naming no law, where PostgreSQL refuses the row by the label's domain law."
+			},
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
 				original: "\t\t\t\t\t\tmembers: byGroup.get(familyKey(f.id))?.get(group) ?? []",

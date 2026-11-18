@@ -33,6 +33,7 @@ import type { CallError, CallErrorOf } from "#compiler/live/index.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { type PreviewRowsByName, previewOver } from "#compiler/program/preview.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	Bits,
@@ -58,6 +59,7 @@ import {
 	rowEvaluator,
 	schema
 } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import type { PreviewRefusal } from "#compiler/types/changeset/preview.ts"
@@ -105,6 +107,7 @@ export type PreviewFeature =
 	| "a generated NULL a fill reads, refused before any SQL"
 	| "a generated NULL no fill reads, refused by PostgreSQL alone"
 	| "a counted member whose owner the call does not insert, refused"
+	| "a drawn value past its target domain, refused by the domain's law"
 
 export const previewFeatures: Arr.NonEmptyReadonlyArray<PreviewFeature> = [
 	"a fresh group of several members",
@@ -119,7 +122,8 @@ export const previewFeatures: Arr.NonEmptyReadonlyArray<PreviewFeature> = [
 	"two rows at one key, refused by the key",
 	"a generated NULL a fill reads, refused before any SQL",
 	"a generated NULL no fill reads, refused by PostgreSQL alone",
-	"a counted member whose owner the call does not insert, refused"
+	"a counted member whose owner the call does not insert, refused",
+	"a drawn value past its target domain, refused by the domain's law"
 ]
 
 /**
@@ -137,11 +141,18 @@ type Hue = (typeof secondHues)[number]
 type Hues = typeof firstHues | typeof secondHues
 
 /**
+ * A label: a text of at most 4 bytes, so a swatch's longer one is past its domain, and so is the tag its dabs copy of it.
+ */
+const Label = str.bytes(4, str.regex("^[a-z]*$"))
+
+/**
  * The palette of a version: Hue, ordered; Glow, a closed relation of a lum per hue, holding none for d; Swatch(hue, id),
  * keyed by a closed id, its lum generated from Glow at its tone, NULL at d, owning Dab's counted family, with a max
  * fold of its members' shades and an or fold of their marks, and Stroke's ordered family; Dab, whose tone and lum are
  * copies of its swatch's along the counted family's owner axis, the lum a copy of a generated field the fresh fill
- * evaluates; Stroke, whose prior is a predecessor copy of its sequence's shades, a at its base.
+ * evaluates; Stroke, whose prior is a predecessor copy of its sequence's shades, a at its base. A swatch's label is a
+ * Label, its tag the label collapsed and cast into Label, as a document's id is its lexical's (generated), and each dab
+ * copies its swatch's tag along the counted family's owner axis, a copy of a generated field the fresh fill evaluates.
  */
 const paletteOf = (hues: Hues) => {
 	const Hue = closed.ordered("Hue", hues)
@@ -171,10 +182,14 @@ const paletteOf = (hues: Hues) => {
 			n: drawn(natural),
 			strokes: drawn(natural),
 			peak: accumulated(hue, "a"),
-			seen: accumulated(bits(Hue), Bits.of(Hue, []))
+			seen: accumulated(bits(Hue), Bits.of(Hue, [])),
+			label: Label
 		},
 		["hue", "id"],
-		(row) => ({ lum: generated(pg.bigint, Glow.at("lum", row.tone)) })
+		(row) => ({
+			lum: generated(pg.bigint, Glow.at("lum", row.tone)),
+			tag: generated(Label, Compute.cast(Compute.collapse(row.label), Label))
+		})
 	)
 	const Dab = relation(
 		"Dab",
@@ -185,7 +200,8 @@ const paletteOf = (hues: Hues) => {
 			shade: hue,
 			marks: bits(Hue),
 			tone: accumulated(hue, "a"),
-			lum: accumulated(pg.bigint, 0n)
+			lum: accumulated(pg.bigint, 0n),
+			tag: accumulated(Label, "")
 		},
 		["id"],
 		[]
@@ -210,6 +226,7 @@ const paletteOf = (hues: Hues) => {
 			fold(dabs, Monoid.or, on(Dab, "hue", "swatch", "marks"), on(Swatch, "hue", "id", "seen")),
 			contained(on(Dab, "hue", "swatch", "tone"), on(Swatch, "hue", "id", "tone")),
 			contained(on(Dab, "hue", "swatch", "lum"), on(Swatch, "hue", "id", "lum")),
+			contained(on(Dab, "hue", "swatch", "tag"), on(Swatch, "hue", "id", "tag")),
 			strokes,
 			contained(
 				on(Stroke, "hue", "swatch", pred("at"), "prior"),
@@ -240,9 +257,11 @@ interface SwatchRow {
  * the history dropped (InputRefused); its first swatch stated again with another tone (KeyConflict); its first swatch's
  * tone d, which Glow holds no lum of, where it has dabs, whose copy of the lum the fresh fill evaluates
  * (GeneratedNull), or where it has none, so PostgreSQL alone computes the NULL and its NOT NULL refuses it; a dab of a
- * swatch the call does not insert (OwnerAbsent).
+ * swatch the call does not insert (OwnerAbsent); its first swatch's label of 5 bytes, past Label, where it has dabs,
+ * whose copy of its tag, the label cast into Label, the fresh fill evaluates, which the domain refuses once PostgreSQL
+ * stores it (a drawn value past its target domain).
  */
-type Fault = "none" | "dropped handle" | "key conflict" | "dark tone" | "orphan dab"
+type Fault = "none" | "dropped handle" | "key conflict" | "dark tone" | "orphan dab" | "long label"
 
 /** A case: a drawn schema of families and an instance of it, the palette's swatches, and the fault its call states. */
 export interface PreviewCase {
@@ -330,7 +349,16 @@ export const caseGen = aimed(
 	caseOf(
 		weighted([
 			[12, element(["none"] as const)],
-			[1, element(["dropped handle", "key conflict", "dark tone", "orphan dab"] as const)]
+			[
+				1,
+				element([
+					"dropped handle",
+					"key conflict",
+					"dark tone",
+					"orphan dab",
+					"long label"
+				] as const)
+			]
 		])
 	),
 	[
@@ -350,6 +378,10 @@ export const caseGen = aimed(
 		[
 			"a counted member whose owner the call does not insert, refused",
 			caseOf(element(["orphan dab"] as const))
+		],
+		[
+			"a drawn value past its target domain, refused by the domain's law",
+			map(caseOf(element(["long label"] as const)), withDab)
 		]
 	] as const
 )
@@ -370,10 +402,11 @@ const paletteFacts = (
 		...s,
 		tone: fault === "dark tone" && i === 0 ? "d" : s.tone
 	}))
-	const swatchFacts = Arr.map(stated, (s) => ({
+	const swatchFacts = Arr.map(stated, (s, i) => ({
 		hue: s.hue,
 		id: paletteUuid(s.id),
 		tone: s.tone,
+		label: fault === "long label" && i === 0 ? "abcde" : "ab",
 		strokes: Arr.map(s.strokes, (st) => ({ id: paletteUuid(st.id), shade: st.shade }))
 	}))
 	const dabFacts = Arr.flatMap(stated, (s) =>
@@ -392,6 +425,7 @@ const paletteFacts = (
 						hue: first.hue,
 						id: paletteUuid(first.id),
 						tone: first.tone === "a" ? "c" : "a",
+						label: "ab",
 						strokes: []
 					}
 				]
@@ -513,6 +547,10 @@ const faultFeature = (k: PreviewCase): Option.Option<PreviewFeature> => {
 			)
 		case "orphan dab":
 			return Option.some("a counted member whose owner the call does not insert, refused")
+		case "long label":
+			return Arr.some(k.swatches.slice(0, 1), (s) => s.dabs.length > 0)
+				? Option.some("a drawn value past its target domain, refused by the domain's law")
+				: Option.none()
 	}
 }
 
@@ -615,7 +653,14 @@ export const previewCase = (k: PreviewCase, c: Case<PreviewFeature>) =>
 				"the case's schema compiles"
 			)(facts)
 			const stored = yield* storedBy(installed, at.value, relations, Rec.keys(facts), facts)
-			judged(at.value, relations, preview, stored, `${installed.schema}, ${Formatter.format(k)}`)
+			judged(
+				at.value,
+				relations,
+				k.fault,
+				preview,
+				stored,
+				`${installed.schema}, ${Formatter.format(k)}`
+			)
 		}
 		Option.map(faultFeature(k), (feature) => c.note(feature))
 	})
@@ -631,11 +676,14 @@ const refusedBy = (stored: StoredAnswer, what: string, where: string): Refused =
 /**
  * The preview held to what the store answered and stored (see preview.test.ts): rows the store stores exactly, each
  * with its generated fields as rowEvaluator computes them, where every one has a value; refused by a generated field's
- * law where one is NULL, which PostgreSQL alone judges; and each refusal the store's, its law and witness.
+ * law where one is NULL, which PostgreSQL alone judges; refused by a field's domain law where a row is past its domain,
+ * which the fill never refuses, a drawn value's included (a long label's); and each refusal the store's, its law and
+ * witness.
  */
 const judged = (
 	value: ReturnType<typeof schemaOf>["value"],
 	relations: ReadonlyArray<AnyRelation>,
+	fault: Fault,
 	preview: Engine.Result<PreviewRowsByName, PreviewRefusal>,
 	stored: {
 		readonly answer: StoredAnswer
@@ -643,6 +691,12 @@ const judged = (
 	},
 	where: string
 ): void => {
+	if (fault === "long label") {
+		assert.ok(
+			preview.ok,
+			`a drawn value past its target domain is the domain's to judge, never the fill's: the preview gives the rows, not ${Formatter.format(preview)}: ${where}`
+		)
+	}
 	if (!preview.ok) {
 		const refusal = preview.error
 		switch (refusal._tag) {
@@ -678,17 +732,17 @@ const judged = (
 	}
 	const evaluate = succeeded(rowEvaluator<AnySchema>(value), "the case's schema evaluates")
 	const nulls: Array<{ readonly relation: string; readonly field: string }> = []
+	const outside: Array<{ readonly relation: string; readonly field: string }> = []
 	const expected = new Map(
 		Arr.map(relations, (relation) => {
 			const rows = defined(preview.value[relation.name], `the preview's rows of ${relation.name}`)
 			return [
 				relation.name,
-				Arr.map(rows, (row) => {
+				Arr.flatMap(rows, (row) => {
 					const evaluation = evaluate(relation, row)
 					if (!evaluation.ok) {
-						return assert.fail(
-							`the preview's row ${Formatter.format(row)} is inside its domains: ${where}`
-						)
+						outside.push({ relation: relation.name, field: evaluation.error.field })
+						return []
 					}
 					/** Its generated fields' items by name, which an AnyRelation's type cannot name. */
 					const items: Readonly<Record<string, Engine.Result<unknown, Unevaluated>>> =
@@ -702,11 +756,28 @@ const judged = (
 						}
 						return item.value
 					})
-					return { ...row, ...generated }
+					return [{ ...row, ...generated }]
 				})
 			] as const
 		})
 	)
+	if (Arr.isReadonlyArrayNonEmpty(outside)) {
+		const refused = refusedBy(stored.answer, "a row past its domain", where)
+		assert.ok(
+			Arr.some(
+				refused.refused.laws,
+				(l) =>
+					l.law.kind === "pattern" &&
+					Arr.some(
+						outside,
+						(o) =>
+							l.law.kind === "pattern" && o.relation === l.law.relation && o.field === l.law.field
+					)
+			),
+			`the store refuses a row past its domain, ${Formatter.format(outside)}, by the field's domain law, not ${Formatter.format(refused.refused.laws)}: ${where}`
+		)
+		return
+	}
 	if (Arr.isReadonlyArrayNonEmpty(nulls)) {
 		const refused = refusedBy(stored.answer, "a generated NULL", where)
 		assert.ok(
