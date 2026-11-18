@@ -1,29 +1,24 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { floatSpecials, Refusal } from "#compiler/core/canonical.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { bitInputText } from "#compiler/core/hex.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
-import { codecOf, codeOf, handlesHex } from "#compiler/ir/codes.ts"
 import {
 	builtExpr,
 	type ColumnRef,
 	predicateTable,
 	type ScalarExpr,
-	spanLiteralText,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import { baseTypeRef, fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
+import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
+import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import {
-	baseOf,
-	type Roster,
-	rosterOf,
-	type ScalarType,
-	spanCarrierOf
-} from "#compiler/ir/scalar.ts"
-import { lowerScalar, moneyText, type ScalarSite } from "#compiler/lower/conservative/expr/index.ts"
+	lowerLiteral,
+	lowerScalar,
+	type ScalarSite
+} from "#compiler/lower/conservative/expr/index.ts"
 import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
 import {
 	type EvalLeaves,
@@ -41,60 +36,6 @@ const refusePersistent = (tag: ProseTag, loc: SourceLoc, capability: string): ne
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))
 }
 
-/** A literal typed by `type`'s base, never cast to a domain: a persistent expression compares a domain column with a
- * base-typed value, because a constant cast to the domain would be rechecked against the domain's current constraints
- * and a tightened domain would make every later insert fail.
- *
- * A money literal is a quoted literal of the exact plain amount, never a currency-formatted string, and never the
- * numeric constant cast `1.25::money` a query uses: numeric_cash is STABLE and reads lc_monetary each time it runs, so
- * in a CHECK, a domain CHECK, an index predicate or a generated column it would depend on the writing session's
- * lc_monetary, which any role can set, and PostgreSQL refuses it in an index predicate or a generated column (42P17). A
- * quoted money literal is converted once, by cash_in at DDL time under the migration identity's pinned C.UTF-8
- * monetary context, and stored as a constant count of minor units. A vector literal is pgvector's input text, its
- * canonical payload, -0 written as 0. */
-export const persistentLiteral = (
-	names: PhysicalNames,
-	literal: TypedLiteral,
-	type: ScalarType
-): Expr => {
-	const sqlType = baseTypeRef(names, type)
-	switch (literal.kind) {
-		case "int":
-			return lit.int(literal.value, sqlType)
-		case "numeric":
-			return lit.decimal(literal.value.parts, sqlType)
-		case "float":
-			return lit.float(literal.value, sqlType)
-		case "floatSpecial":
-			return lit.float(floatSpecials[literal.value], sqlType)
-		case "money":
-			return lit.text(moneyText(moneyMinorUnits(literal.value)), sqlType)
-		case "bool":
-			return lit.bool(literal.value)
-		case "text":
-		case "uuid":
-		case "date":
-			return lit.text(literal.value, sqlType)
-		case "handle":
-			return lit.int(codeOf(codecOf(names.codes, rosterAt(type)), literal.handle), sqlType)
-		case "handles":
-			return lit.bits(handlesHex(codecOf(names.codes, rosterAt(type)), literal.handles), sqlType)
-		case "span":
-			return lit.text(spanLiteralText(literal, type), sqlType)
-		case "vector":
-			return lit.text(vectorPayload(literal.value), sqlType)
-	}
-}
-
-/** The roster of a closed id's or a set's type: a handle literal meets only one, by literalProblem (ir/expr.ts). */
-const rosterAt = (type: ScalarType): Roster =>
-	rosterOf(baseOf(type)) ??
-	refusePersistent(
-		"MalformedDescription",
-		SourceLoc("persistent literal", []),
-		"a handle literal of a closed id's or a set's type"
-	)
-
 /**
  * The text an element of an array literal of `type` spells `literal` with, the text its base type's input function
  * reads: a dictionary's element. A quoted spelling's own text, a bare one's digits or word.
@@ -104,7 +45,7 @@ export const persistentText = (
 	literal: TypedLiteral,
 	type: ScalarType
 ): string => {
-	const value = persistentLiteral(names, literal, type)
+	const value = lowerLiteral(names, literal, type)
 	if (value.kind !== "literal") {
 		return refusePersistent(
 			"MalformedDescription",
@@ -204,7 +145,7 @@ const foldedConstant = (
 		return undefined
 	}
 	if (value.value !== sqlNull) {
-		return persistentLiteral(names, hostLiteralOf(value.value, expr.type), expr.type)
+		return lowerLiteral(names, hostLiteralOf(value.value, expr.type), expr.type)
 	}
 	return baseOf(expr.type).carrier === "bool"
 		? { kind: "nullif", expr: lit.bool(true), absent: lit.bool(true) }
@@ -220,7 +161,6 @@ const foldedConstant = (
  * - a column is the row's own, unqualified (`"budget"`), resolved to its installed identifier; a CHECK reads no other
  *   row;
  * - VALUE is the domain's value, admitted only in a domain CHECK;
- * - a literal is typed by its base type (`persistentLiteral`);
  * - a parameter has no meaning in the schema and is refused;
  * - a cast names its type's installed column type;
  * - a compound subterm that reads no row is its value (`foldedConstant`), and a BETWEEN whose operand reads none is the
@@ -269,7 +209,6 @@ const persistentSite = (
 			}
 		},
 		castType: (type) => fieldColumnType(names, type).type,
-		literal: (literal, type) => persistentLiteral(names, literal, type),
 		whole: (expr) =>
 			(constants.has(expr) ? foldedConstant(names, expr, scope.closed) : undefined) ??
 			(expr.kind === "op" && isConstantBetween(expr, constants)

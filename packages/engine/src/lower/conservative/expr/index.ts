@@ -1,5 +1,4 @@
 import { floatSpecials } from "#compiler/core/canonical.ts"
-import { exactParts } from "#compiler/core/decimal.ts"
 import type { ProseTag } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -36,7 +35,7 @@ import { dateOfText } from "#compiler/sql/lexical.ts"
  * Minor units as the exact decimal text of the amount, two fractional digits under the fixed C.UTF-8 monetary
  * context that admission verifies.
  */
-export const moneyText = (minor: bigint): string => {
+const moneyText = (minor: bigint): string => {
 	const negative = minor < 0n
 	const magnitude = negative ? -minor : minor
 	const unit = 10n ** BigInt(moneyFractionDigits)
@@ -58,9 +57,19 @@ const literalCodec = (names: PhysicalNames, type: ScalarType): RosterCodec => {
 }
 
 /**
- * A typed literal of `type`'s base.
+ * A typed literal of `type`'s base, the one literal spelling of every site (lowerScalar): a query's, a write's and a
+ * persistent expression's alike. A literal is never cast to a domain: its refinement was checked at compile time (the
+ * ContractLiteral check), and a persistent expression compares a domain column with a base-typed value, since a
+ * constant cast to the domain would be rechecked against the domain's current constraints and a tightened domain would
+ * make every later insert fail.
  *
- * Money enters as its exact numeric amount cast to money, never through a currency-formatted string.
+ * Money is a quoted literal of the exact plain amount, never a currency-formatted string, and never the numeric
+ * constant cast `1.25::money`: numeric_cash is STABLE and reads lc_monetary each time it runs, so in a CHECK, a domain
+ * CHECK, an index predicate or a generated column it would depend on the writing session's lc_monetary, which any role
+ * can set, and PostgreSQL refuses it in an index predicate or a generated column (42P17). A quoted money literal is
+ * converted once, by cash_in where the statement is parsed, under the fixed C.UTF-8 monetary context that admission
+ * verifies, and in a persistent expression at DDL time under the migration identity's, stored as a constant count of
+ * minor units.
  *
  * Half-open, start < end: PostgreSQL's canonical spelling of a discrete range.
  *
@@ -86,7 +95,7 @@ export const lowerLiteral = (
 		case "floatSpecial":
 			return lit.float(floatSpecials[literal.value], sqlType)
 		case "money":
-			return lit.decimal(exactParts(moneyMinorUnits(literal.value), 2), sqlType)
+			return lit.text(moneyText(moneyMinorUnits(literal.value)), sqlType)
 		case "bool":
 			return lit.bool(literal.value)
 		case "text":
@@ -111,7 +120,7 @@ const exprLabel = (expr: ScalarExpr): string => `expression ${expr.id} (${expr.k
  * its environment's columns and its declared parameters (querySite), or a persistent expression's, a CHECK's, a domain
  * CHECK's, an index predicate's or a STORED generated column's, whose leaves are its row's installed columns or a
  * domain's VALUE, which folds each constant subterm to its value (physical/ddl/expr.ts persistentSite). Every node is
- * one SQL node in both, through the one switch of lowerScalar.
+ * one SQL node in both, through the one switch of lowerScalar, and every literal one spelling (lowerLiteral).
  */
 export interface ScalarSite {
 	readonly names: PhysicalNames
@@ -121,8 +130,6 @@ export interface ScalarSite {
 	readonly leaf: (expr: ScalarExpr & { readonly kind: "column" | "value" | "param" }) => Expr
 	/** The type a cast or a domain cast into `type` names. */
 	readonly castType: (type: ScalarType, expr: ScalarExpr) => TypeRef
-	/** A literal of `type`, typed by its base. */
-	readonly literal: (literal: TypedLiteral, type: ScalarType) => Expr
 	/** The SQL of `expr` that the site writes otherwise than its node, or undefined for its node's own. */
 	readonly whole: (expr: ScalarExpr) => Expr | undefined
 }
@@ -154,7 +161,7 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 		case "param":
 			return site.leaf(expr)
 		case "literal":
-			return site.literal(expr.value, expr.type)
+			return lowerLiteral(site.names, expr.value, expr.type)
 		case "cast": {
 			const inner = lower(expr.args[0])
 			if (isDateParse(expr.cast)) {
@@ -240,7 +247,6 @@ const querySite = (cx: LowerContext, env: Env): ScalarSite => ({
 		}
 	},
 	castType: (type, expr) => cx.typeRef(type, exprLabel(expr)),
-	literal: (literal, type) => lowerLiteral(cx.names, literal, type),
 	whole: () => undefined
 })
 

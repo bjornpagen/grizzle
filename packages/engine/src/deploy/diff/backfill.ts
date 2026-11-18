@@ -74,11 +74,8 @@ import type { NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import { type Accumulation, accumulations, monoidSpecs } from "#compiler/ir/monoid.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import {
-	lowerPersistent,
-	persistentClosed,
-	persistentLiteral
-} from "#compiler/physical/ddl/expr.ts"
+import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
+import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type {
 	Cte,
@@ -191,9 +188,9 @@ const tableOf = (installation: Installation, name: string): ObjectName =>
 /** The installed column of a family's native column: a field's, or a law column's own identifier. */
 const columnOf = (c: NativeColumn): string => (c.kind === "field" ? c.field.column : c.column)
 
-/** A literal of `type` in a persistent expression: typed by its base, never cast to a domain (persistentLiteral). */
+/** A literal of `type`, typed by its base, never cast to a domain (lowerLiteral). */
 const literalOf = (installation: Installation, value: TypedLiteral, type: ScalarType): Expr =>
-	persistentLiteral(installation.names, value, type)
+	lowerLiteral(installation.names, value, type)
 
 const zero: TypedLiteral = { kind: "int", value: 0n }
 
