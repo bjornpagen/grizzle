@@ -1159,9 +1159,12 @@ export interface Merge {
 /**
  * How a column is generated: an identity from its sequence; a uuid by its `DEFAULT pg_catalog.uuidv7()`; a retirement
  * field by its `DEFAULT false`, the state of a group not yet retired, which only the group's retirement changes; a STORED
- * expression of the row; or a partial projection,
+ * expression of the row; a partial projection,
  * `GENERATED ALWAYS AS (CASE WHEN <when> THEN <expr> END) STORED`, which holds `expr` where `when` is true and NULL
- * everywhere else. A partial projection is the one form that yields NULL, so it never reaches an expression.
+ * everywhere else; or a selected family's drawn column (`membersOnly`), which the host writes on the family's members
+ * and every other row holds NULL in, as the family's CHECK holds, so it states no generation. Those two are the forms
+ * that yield NULL: a partial projection never reaches an expression, and a selected family's column only its own CHECK
+ * and its family's keys and foreign keys, which pass a NULL by.
  */
 export type ColumnGeneration =
 	| { readonly kind: "identity"; readonly sequence: ObjectName }
@@ -1169,12 +1172,14 @@ export type ColumnGeneration =
 	| { readonly kind: "retirement" }
 	| { readonly kind: "stored"; readonly expr: Expr }
 	| { readonly kind: "partial"; readonly when: Expr; readonly expr: Expr }
+	| { readonly kind: "membersOnly" }
 
 /**
  * A column. Every column is NOT NULL but a partial projection's, which is NULL outside its selection, so a key over it is
- * a key of the selected rows alone (UNIQUE NULLS DISTINCT) and a reference out of it binds only those (MATCH SIMPLE). An
- * undefined collation or generation is none, and a column has no default: a drafted ADD COLUMN's placeholder is its own
- * action (AlterTableAction addColumnPlaceholder).
+ * a key of the selected rows alone (UNIQUE NULLS DISTINCT) and a reference out of it binds only those (MATCH SIMPLE), and
+ * a selected family's drawn column, NULL off the family's members for the same reason. An undefined collation or
+ * generation is none, and a column has no default: a drafted ADD COLUMN's placeholder is its own action
+ * (AlterTableAction addColumnPlaceholder).
  */
 export interface ColumnDef {
 	readonly name: string

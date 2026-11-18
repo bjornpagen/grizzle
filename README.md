@@ -2166,7 +2166,9 @@ A family is a rule over rows the caller writes: each owner's members, counted by
   indexed by their drawn `at` exactly 0 … n − 1, in order.
 - **`counted(on(F, g…), fin(O, "n"))`**: each owner's `n` members, their group `g…` naming the owner by O's primary
   key: an unordered set, one row per member key. Its index is hidden from every field, fact and query: a coordinate,
-  never a multiplicity.
+  never a multiplicity. Its member side may be a selection, `counted(on(select(Ticket, (t) => t.eq(t.held, true)),
+  "show"), fin(Show, "held"))`: the rows the selection holds of are the members, and every other row of F belongs to
+  no group (below).
 - **`tree(on(T, "parent", "at"), fin(T, "children"), { root: ["doc"] })`**: T over itself, keyed by its root fields
   then its drawn `start` (here `["doc", "start"]`; `{ root: ["package", "path"] }` keys T `["package", "path",
   "start"]`), with drawn `parent`, `at`, `children`, `start` and `end`. Each value of the root fields is one tree: its
@@ -2208,9 +2210,28 @@ node. One count counts one family. Ordered families that nest each other in a cy
 over itself among them, are refused when the schema compiles (`UnwritableRelation`, `nestingCycle`), and so are
 families, ordered or counted, that nest relations in a cycle below a relation that owns a family and is no family's
 member (`unitCycle`): a delete of that relation removes every row nested under its rows, and through a cycle a row may
-be nested again under another of them or another unit's, so no delete could remove its groups whole. A family's or a
-tree's member side is a table, never a selection: `counted(on(select(Ticket, φ), "show"), fin(Show, "tickets"))` is a
-type error, and from JavaScript refused when you build it. A fold's step may still select the members it reads.
+be nested again under another of them or another unit's, so no delete could remove its groups whole.
+
+**A counted family over a selection.** `counted(on(select(F, φ), g…), fin(O, "n"))` counts the rows of F where φ is
+true, as a fold's step selection reads φ: a closed read at an absent key leaves φ unknown, and that row is no member.
+Every other row of F belongs to no group: it names no owner, takes no slot and adds nothing to any count. No stored copy
+of the selection is needed: its rows are F's own.
+
+- **What PostgreSQL proves.** The family's hidden columns, its index ‹i›, its copy of the count ‹n› and a fold's
+  accumulators, are NULL on every row off φ, and the family's CHECK holds that they are NULL exactly there:
+  `CHECK ((CASE WHEN φ THEN ‹i› >= 0 AND ‹i› < ‹n› ELSE <every hidden column NULL> END) IS TRUE)`. Its foreign keys
+  are `MATCH SIMPLE` and its UNIQUEs `NULLS DISTINCT`, so the owner axis, whose `ON UPDATE CASCADE` carries a count into
+  its members, the predecessor and last axes and the keys over (g…, ‹i›) pass every other row by. The group fields
+  stay F's own fields, and nothing is generated.
+- **φ reads fields the caller writes**, or fields PostgreSQL generates from them, so a row joins or leaves the family
+  only by its own write. A selection that reads a drawn or accumulated field is refused when the schema compiles
+  (`MalformedDescription`).
+- **An ordered family's or a tree's member side is a table**, never a selection: its index is a field every row
+  holds. `ordered(on(select(Ticket, φ), "show", "at"), fin(Show, "n"))` is a type error, and from JavaScript refused
+  when you build it. A fold's step may still select the members it reads, over any family.
+- **A copy along a selected family's owner axis into an accumulated field is refused** when the schema compiles
+  (`UnsupportedLawFamily`): a row off φ has no owner to copy from. A containment over `select(F, φ)` into its owner
+  that copies none still rides the axis.
 
 grizzle owns every value a family holds: each count, index, interval, copy and accumulator is drawn on the host on
 every write and proved by PostgreSQL, never written by the caller. A fold's running `after` is no generated column:
@@ -4188,6 +4209,9 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ### Families and ChangeSets
 
+- **A counted family over a selection is not yet written.** Its schema compiles and installs, but a ChangeSet that
+  inserts, puts or deletes its member relation, or deletes its owner, is refused when it compiles
+  (`UnsupportedOperation`).
 - **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted families ([Families](#families)). A tree is written whole, its root inserted with the tree nested and deleted by its root value. A put or a delete of a member that owns an ordered family or a tree is refused, since it would not reach the rows nested under it; a delete of a member that owns only counted families leaves their groups, which their owner axes refuse at commit where they hold members.
 - **A whole delete runs first in its stratum**, after only the removals of rows that reference its rows by an immediate foreign key from outside them. A whole delete from a query that reads a relation such a removal writes, and one in a stratum whose family work grizzle plans from a read flight, are `UnsupportedOperation`: state its rows as an array, or write it in a stratum of its own with `ChangeSet.sequence`.
 - **An owner inserted or put from a query cannot share a ChangeSet with appends to its counted family** (`QueriedOwnerAppend` when the ChangeSet compiles): grizzle computes the owner's final count and folds' ends from the facts the ChangeSet states, and a query's facts exist only in its statement. State the owner's facts as an array or a `Stream`, or write the owner in a ChangeSet that `ChangeSet.sequence` runs first. A write whose every fact carries a stored owner's key inserts no owner, and compiles.

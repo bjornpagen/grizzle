@@ -415,7 +415,13 @@ export type LawColumnValue =
 			readonly guard: ReadonlyArray<ScalarExpr>
 			readonly term: ScalarExpr
 	  }
-	| { readonly kind: "drawn"; readonly draws: Drawn }
+	| { readonly kind: "drawn"; readonly draws: Drawn; readonly on: DrawnOn }
+
+/**
+ * The rows the host draws a family's drawn column on: `every` row of its relation, a NOT NULL column; or `members`, a
+ * selected family's members alone (ir/family.ts Members), NULL on every other row, as the family's CHECK holds.
+ */
+export type DrawnOn = "every" | "members"
 
 /** A family by its slots: one count counts one family, so its owner relation and count field name it. */
 export interface FamilyId {

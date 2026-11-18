@@ -400,8 +400,13 @@ type MemberOf<Fa> =
 				? { readonly group: readonly [...Root, P]; readonly hidden: false }
 				: never
 
-/** The relation a family's members are rows of, which a fold's step reads. */
-export type MemberRelationOf<Fa> = Fa extends { readonly family: Side<infer R> } ? R : never
+/** The relation a family's members are rows of, which a fold's step reads: its side's relation, or the relation a
+ * selected counted family's side selects from. */
+export type MemberRelationOf<Fa> = Fa extends { readonly family: Side<infer R> }
+	? R extends Selection<infer Selected>
+		? Selected
+		: R
+	: never
 
 /** The relation a family's slots count over, which a fold's end reads. */
 export type OwnerRelationOf<Fa> = Fa extends { readonly slots: Fin<infer O, string> } ? O : never

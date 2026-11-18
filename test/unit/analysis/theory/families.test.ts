@@ -41,6 +41,7 @@ import {
 	columnText,
 	comparisonGen,
 	conjunctOf,
+	conjunctText,
 	containmentText,
 	extendedCases,
 	familyCaseGen,
@@ -316,7 +317,7 @@ export const ridingAFamilyAxis21ATreesParentCopyRidesItsOwnerAxisExactlyWhenItsS
 						{
 							relation: "T",
 							selection: {
-								conjuncts: Arr.map(conjuncts, (c) => ({ predicate: conjunctOf(c) }))
+								conjuncts: Arr.map(conjuncts, (c) => conjunctText(conjunctOf(c)))
 							}
 						},
 						{ relation: "T", selection: { conjuncts: [] } },

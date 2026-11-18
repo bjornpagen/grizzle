@@ -1255,10 +1255,12 @@ const listed = (out: Lines, items: ReadonlyArray<string>): void => {
 	}
 }
 
-/** A column's generation. STORED is always written: PostgreSQL's default is VIRTUAL, which no key or reference can
- * name. */
-const printGeneration = (g: ColumnGeneration): string => {
+/** A column's generation, none for a selected family's drawn column, which the host writes. STORED is always written:
+ * PostgreSQL's default is VIRTUAL, which no key or reference can name. */
+const printGeneration = (g: ColumnGeneration): string | undefined => {
 	switch (g.kind) {
+		case "membersOnly":
+			return undefined
 		case "identity":
 			return `GENERATED ALWAYS AS IDENTITY (SEQUENCE NAME ${printObjectName(g.sequence)})`
 		case "uuidv7":
@@ -1289,8 +1291,9 @@ const columnHead = (column: ColumnDef): string => {
 	if (column.collation !== undefined) {
 		parts.push(`COLLATE ${printObjectName(column.collation)}`)
 	}
-	if (column.generated !== undefined) {
-		parts.push(printGeneration(column.generated))
+	const generation = column.generated === undefined ? undefined : printGeneration(column.generated)
+	if (generation !== undefined) {
+		parts.push(generation)
 	}
 	return parts.join(" ")
 }
@@ -1301,9 +1304,12 @@ const columnHead = (column: ColumnDef): string => {
  */
 export const placeholderToken = "__GRIZZLE_PLACEHOLDER__"
 
-/** A column with its nullity: NOT NULL, but a partial projection, which is NULL outside its selection. */
+/** A column with its nullity: NOT NULL, but a partial projection, which is NULL outside its selection, and a selected
+ * family's drawn column, NULL off its members. */
 const printColumnDef = (column: ColumnDef): string =>
-	column.generated?.kind === "partial" ? columnHead(column) : `${columnHead(column)} NOT NULL`
+	column.generated?.kind === "partial" || column.generated?.kind === "membersOnly"
+		? columnHead(column)
+		: `${columnHead(column)} NOT NULL`
 
 /** An ALTER COLUMN ... TYPE's USING: its conversion, or the placeholder a reviewer replaces. */
 const printUsing = (using: Using): string => {

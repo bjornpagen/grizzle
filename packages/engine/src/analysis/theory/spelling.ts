@@ -2,6 +2,7 @@ import type { ResolvedSelection, ResolvedSide } from "#compiler/analysis/theory/
 import type { LawStatement, Part } from "#compiler/core/identity.ts"
 import { termText } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { MemberSelection } from "#compiler/ir/family.ts"
 import type { FamilyId, LawField, TheoryRelation } from "#compiler/ir/law.ts"
 
 /** A conjunct of a side as a law's statement spells it: its canonical text, and the names of the fields of its relation
@@ -83,12 +84,14 @@ export type FamilyKind =
 	| { readonly kind: "family"; readonly order: "ordered" | "counted" }
 
 /** What a family's or a tree's law states: its slots, its member, the member's terms (its group fields in key order,
- * then its index field where the index is a field), and its kind. */
+ * then its index field where the index is a field), its kind, and a selected counted family's φ over its member, none
+ * where every fact or a tree's every row but its roots is a member. */
 export interface FamilyStated {
 	readonly id: FamilyId
 	readonly member: string
 	readonly terms: ReadonlyArray<LawField>
 	readonly kind: FamilyKind
+	readonly selection: ({ readonly relation: TheoryRelation } & MemberSelection) | undefined
 }
 
 /**
@@ -111,10 +114,20 @@ export const familyStatement = (f: FamilyStated, spell: Spelling): LawStatement 
 			}
 		case "family": {
 			const order = f.kind.order
+			if (f.selection === undefined) {
+				return {
+					parts: ["family", order, owner, count, member, terms],
+					stem: [member, order, owner, count],
+					display: `${order} ${member}(${terms.join(", ")}) in ${slots}`
+				}
+			}
+			const conjuncts = spell.conjuncts(f.selection.relation, {
+				conjuncts: f.selection.conjuncts.map((c) => ({ kind: "general", ...c }))
+			})
 			return {
-				parts: ["family", order, owner, count, member, terms],
-				stem: [member, order, owner, count],
-				display: `${order} ${member}(${terms.join(", ")}) in ${slots}`
+				parts: ["family", order, owner, count, member, terms, conjuncts.map((c) => c.text)],
+				stem: [member, ...conjuncts.flatMap((c) => c.reads), order, owner, count],
+				display: `${order} ${member}(${terms.join(", ")}) where ${conjuncts.map((c) => c.text).join(" and ")} in ${slots}`
 			}
 		}
 	}

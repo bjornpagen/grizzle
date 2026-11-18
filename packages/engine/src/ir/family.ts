@@ -10,7 +10,7 @@
  */
 import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { MonoidName } from "#compiler/ir/desc.ts"
+import type { ExprDesc, MonoidName } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { FamilyId, LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -31,11 +31,45 @@ export interface Family {
 	readonly index: NativeColumn
 	/** ‹n›, the owner's count on each member: a drawn law column. */
 	readonly copy: ColumnIdent
-	/** Which facts are members: every fact, or a tree's every row but its roots, whose start is 0. */
-	readonly members: { readonly kind: "every" } | ({ readonly kind: "tree" } & TreeShape)
+	/** Which facts are members: every fact, the facts a selection holds of, or a tree's every row but its roots. */
+	readonly members: FamilyMembers
 	/** What each axis carries beyond its key: the formers' pairs and every containment merged into it. */
 	readonly axes: { readonly [A in AxisKind]: ReadonlyArray<AxisPair> }
 	readonly folds: ReadonlyArray<FamilyFold>
+}
+
+/**
+ * Which facts of a family's member relation are its members, `S` what a selection of them carries:
+ * - `every`: every fact;
+ * - `selected`: the facts a counted family's member side, `select(F, φ)`, holds of, φ true (a closed read at an absent
+ *   key leaves it unknown, and such a fact is none, as a fold's step selection reads it). Every other fact belongs to no
+ *   group: its family columns are NULL, so the family's keys and foreign keys pass it by;
+ * - `tree`: every row but each root, whose start is 0.
+ */
+export type Members<S extends MemberSelection> =
+	| { readonly kind: "every" }
+	| ({ readonly kind: "selected" } & S)
+	| ({ readonly kind: "tree" } & TreeShape)
+
+/** A resolved family's members (`Members`), a selection's φ lowered over the member's row. */
+export type FamilyMembers = Members<SelectedMembers>
+
+/** One conjunct of a selected family's φ as the theory resolved it: its predicate, its canonical text, which the
+ * family's identity states, and the fields of the member it reads, in declared field order. */
+export interface MemberConjunct {
+	readonly predicate: ExprDesc
+	readonly text: string
+	readonly reads: ReadonlyArray<LawField>
+}
+
+/** A selected family's φ as its statement resolves it: at least one conjunct, in canonical order. */
+export interface MemberSelection {
+	readonly conjuncts: NonEmptyReadonlyArray<MemberConjunct>
+}
+
+/** A selected family's φ once resolved: each conjunct also lowered over the member's row, which the write evaluates. */
+export interface SelectedMembers extends MemberSelection {
+	readonly where: NonEmptyReadonlyArray<ScalarExpr>
 }
 
 /**

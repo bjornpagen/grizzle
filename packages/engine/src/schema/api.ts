@@ -539,13 +539,16 @@ export const ordered = <
 		SideShows<N, C> &
 		(
 			| Side<AnyRelation>
-			| Refusal<"a family's member side is a relation, never a selection: its members are every fact of the relation">
+			| Refusal<"an ordered family's member side is a relation, never a selection: its index is a field every fact holds">
 		) &
 		OverSlots<Kind, OrderedMember<C, F["terms"], OC, OK>>,
 	slots: Fi & FinShows<ON, OC, OK, Kind> & FamilySlots<Kind>
 ): OrderedFamily<F, Fi> => orderedBuilder<F, Fi>(family, slots)
 
-/** counted(on(F, g…), fin(O, n)): each owner's n members, their index hidden. */
+/**
+ * counted(on(F, g…), fin(O, n)): each owner's n members, their index hidden. Its member side is F, every fact a member,
+ * or a selection of it, select(F, φ), the facts φ holds of the members and every other fact in no group.
+ */
 export const counted = <
 	F extends Side<AnyRelation | Selection<AnyRelation>>,
 	Fi,
@@ -556,13 +559,7 @@ export const counted = <
 	OK extends ReadonlyArray<string>,
 	Kind
 >(
-	family: F &
-		SideShows<N, C> &
-		(
-			| Side<AnyRelation>
-			| Refusal<"a family's member side is a relation, never a selection: its members are every fact of the relation">
-		) &
-		OverSlots<Kind, CountedMember<C, F["terms"], OC, OK>>,
+	family: F & SideShows<N, C> & OverSlots<Kind, CountedMember<C, F["terms"], OC, OK>>,
 	slots: Fi & FinShows<ON, OC, OK, Kind> & FamilySlots<Kind>
 ): Counted<F, Fi> => countedBuilder<F, Fi>(family, slots)
 

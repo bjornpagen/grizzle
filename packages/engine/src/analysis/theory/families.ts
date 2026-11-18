@@ -25,6 +25,9 @@ import {
 	type AxisPair,
 	type Family,
 	type FamilyFold,
+	type MemberConjunct,
+	type MemberSelection,
+	type Members,
 	orderOf,
 	type TreeShape
 } from "#compiler/ir/family.ts"
@@ -58,9 +61,14 @@ import { monoidSpecs } from "#compiler/ir/monoid.ts"
  * A family as its statement resolves it, before the containments it carries and the folds over it (ir/family.ts), its
  * owner and member the ordinary relations the checked schema typed.
  */
-export interface FamilyShape extends Omit<Family, "axes" | "folds" | "owner" | "member"> {
+export interface FamilyShape extends Omit<
+	Family,
+	"axes" | "folds" | "owner" | "member" | "members"
+> {
 	readonly owner: RelationInfo
 	readonly member: RelationInfo
+	/** Its members (ir/family.ts Members), a selection's φ resolved and not yet lowered. */
+	readonly members: Members<MemberSelection>
 }
 
 /** A tree's members: every row but its roots, its own fields beside them. */
@@ -119,14 +127,18 @@ const accumulatorColumn = (
 	)
 
 /** What a family's or tree's law states of it (spelling.ts FamilyStated): its member's terms are its group's member
- * fields, then its index where the index is a field. */
+ * fields, then its index where the index is a field, and a selected family's φ its selection. */
 export const familyStated = (
-	f: Pick<Family, "id" | "member" | "group" | "index" | "members">
+	f: Pick<FamilyShape, "id" | "member" | "group" | "index" | "members">
 ): FamilyStated => ({
 	id: f.id,
 	member: f.member.name,
 	terms: [...f.group.map((p) => p.member), ...(f.index.kind === "field" ? [f.index.field] : [])],
-	kind: f.members.kind === "tree" ? { kind: "tree" } : { kind: "family", order: orderOf(f) }
+	kind: f.members.kind === "tree" ? { kind: "tree" } : { kind: "family", order: orderOf(f) },
+	selection:
+		f.members.kind === "selected"
+			? { relation: f.member, conjuncts: f.members.conjuncts }
+			: undefined
 })
 
 /** A family's or tree's law's identifier, as the theory names the law (theory.ts lawIdentityOf). */
@@ -203,12 +215,46 @@ const groupOf = (
 
 /**
  * A family's member side reads every fact: its members are every fact of its relation, or a tree's every row but its
- * root. A selection breaks `rule`: a family's member side, or a tree's own shape.
+ * root. A selection breaks `rule`: an ordered family's member side, or a tree's own shape.
  */
 const everyMember = (side: SideDesc, loc: SourceLoc, rule: Refused): void => {
 	if (side.selection.conjuncts.length > 0) {
 		refuseNamed(loc, rule)
 	}
+}
+
+/**
+ * A counted family's members: every fact of its relation, or those its side's selection holds of, φ resolved by
+ * `resolve` over the member as every side's selection is (laws.ts Normalizer), so the family's identity reads its
+ * conjuncts' canonical texts. An ordered family's side reads every fact, its index a field every fact holds.
+ */
+const membersOf = (
+	s: FamilyStatement,
+	resolve: (selection: SideDesc["selection"]) => ReadonlyArray<MemberConjunct>
+): Members<MemberSelection> => {
+	if (s.order === "ordered") {
+		everyMember(
+			s.member,
+			s.loc,
+			"an ordered family's member side is a relation, never a selection: its index is a field every fact holds"
+		)
+		return { kind: "every" }
+	}
+	const [first, ...rest] = resolve(s.member.selection)
+	if (first === undefined) {
+		return { kind: "every" }
+	}
+	for (const c of [first, ...rest]) {
+		const drawn = c.reads.find((f) => f.writing.kind !== "caller" && f.writing.kind !== "generated")
+		if (drawn !== undefined) {
+			refuse(
+				"MalformedDescription",
+				s.loc,
+				`a counted family's selection over fields its caller writes or PostgreSQL generates from them, so a row joins or leaves its family only by its own write; ${s.member.relation}.${drawn.name} is written by ${drawn.writing.kind}`
+			)
+		}
+	}
+	return { kind: "selected", conjuncts: [first, ...rest] }
 }
 
 /**
@@ -224,14 +270,13 @@ export const familySides: { readonly [O in "ordered" | "counted" | "tree"]: Refu
 /** The shape of `ordered(on(F, g…, i), fin(O, n))` or `counted(on(F, g…), fin(O, n))`. */
 export const familyShape = (
 	s: FamilyStatement,
-	relations: ReadonlyMap<string, TheoryRelation>
+	relations: ReadonlyMap<string, TheoryRelation>,
+	resolve: (
+		member: TheoryRelation,
+		selection: SideDesc["selection"]
+	) => ReadonlyArray<MemberConjunct>
 ): FamilyShape => {
 	const loc = s.loc
-	everyMember(
-		s.member,
-		loc,
-		"a family's member side is a relation, never a selection: its members are every fact of the relation"
-	)
 	const id: FamilyId = { owner: s.slots.owner, count: s.slots.count }
 	const owner = ordinary(relations, s.slots.owner, "owner", loc)
 	const member = ordinary(relations, s.member.relation, "member", loc)
@@ -247,12 +292,14 @@ export const familyShape = (
 		s.order === "ordered" && last !== undefined
 			? drawnField(member, fieldTerm(member, last, "an ordered family's index", loc), "index", loc)
 			: undefined
-	const members = Object.freeze({ kind: "every" as const })
+	const members = Object.freeze(membersOf(s, (selection) => resolve(member, selection)))
 	const law = familyLaw({
 		id,
 		member: member.name,
 		terms: [...group.map((p) => p.member), ...(indexField === undefined ? [] : [indexField])],
-		kind: { kind: "family", order: indexField === undefined ? "counted" : "ordered" }
+		kind: { kind: "family", order: indexField === undefined ? "counted" : "ordered" },
+		selection:
+			members.kind === "selected" ? { relation: member, conjuncts: members.conjuncts } : undefined
 	})
 	const index: NativeColumn =
 		indexField === undefined
@@ -323,7 +370,8 @@ export const treeShape = (
 		id,
 		member: t.name,
 		terms: [...group.map((p) => p.member), at],
-		kind: { kind: "tree" }
+		kind: { kind: "tree" },
+		selection: undefined
 	})
 	return Object.freeze({
 		id,
@@ -349,12 +397,17 @@ export const isTree = (f: FamilyShape): f is TreeFamilyShape =>
 	f.members.kind === "tree" && f.index.kind === "field"
 
 /**
- * The predicate that selects a family's members: none for every fact, `start > 0` for a tree's every row but its root
- * (φ₀). A lemma and an axis read their member sides through it.
+ * The predicate that selects a family's members: none for every fact, a selected family's φ, `start > 0` for a tree's
+ * every row but its root (φ₀). A lemma and an axis read their member sides through it.
  */
-export const membersSelection = (f: FamilyShape): ReadonlyArray<ExprDesc> =>
-	f.members.kind === "tree"
-		? [
+export const membersSelection = (f: Pick<FamilyShape, "members">): ReadonlyArray<ExprDesc> => {
+	switch (f.members.kind) {
+		case "every":
+			return []
+		case "selected":
+			return f.members.conjuncts.map((c) => c.predicate)
+		case "tree":
+			return [
 				{
 					kind: "compare",
 					op: "gt",
@@ -362,21 +415,34 @@ export const membersSelection = (f: FamilyShape): ReadonlyArray<ExprDesc> =>
 					right: { kind: "literal", value: 0n }
 				}
 			]
-		: []
+	}
+}
 
 /** Whether a description literal is zero. */
 const isZero = (e: ExprDesc): boolean => e.kind === "literal" && (e.value === 0n || e.value === 0)
 
 /**
- * Whether a selection's conjuncts select exactly a family's members: none for a family of every fact; for a tree, one
- * conjunct that is start above zero, spelled `start > 0`, `0 < start` or, since start is natural, `start <> 0`.
+ * Whether a selection's conjuncts select exactly a family's members: none for a family of every fact; a selected
+ * family's φ, its conjuncts by their canonical texts in any order; for a tree, one conjunct that is start above zero,
+ * spelled `start > 0`, `0 < start` or, since start is natural, `start <> 0`.
  */
-const selectsMembers = (f: FamilyShape, conjuncts: ReadonlyArray<ExprDesc>): boolean => {
+const selectsMembers = (
+	f: FamilyShape,
+	conjuncts: ReadonlyArray<{ readonly text: string }>,
+	predicates: ReadonlyArray<ExprDesc>
+): boolean => {
 	if (f.members.kind === "every") {
 		return conjuncts.length === 0
 	}
+	if (f.members.kind === "selected") {
+		const texts = new Set(conjuncts.map((c) => c.text))
+		return (
+			texts.size === f.members.conjuncts.length &&
+			f.members.conjuncts.every((c) => texts.has(c.text))
+		)
+	}
 	const start = f.members.start.name
-	const [only, ...more] = conjuncts
+	const [only, ...more] = predicates
 	if (only?.kind !== "compare" || more.length > 0) {
 		return false
 	}
@@ -462,10 +528,13 @@ const axisShapes = (f: FamilyShape): ReadonlyArray<AxisShape> => {
 	]
 }
 
-/** A side as a containment states it, for the riding rule: its relation and its selection's predicates. */
+/** A side as a containment states it, for the riding rule: its relation and its selection's predicates, each with its
+ * canonical text. */
 export interface RidingSide {
 	readonly relation: string
-	readonly selection: { readonly conjuncts: ReadonlyArray<{ readonly predicate: ExprDesc }> }
+	readonly selection: {
+		readonly conjuncts: ReadonlyArray<{ readonly predicate: ExprDesc; readonly text: string }>
+	}
 }
 
 /** A containment's pair as the riding rule reads it: each term with its field's handle. */
@@ -490,6 +559,7 @@ const atEnd = (f: FamilyShape, end: AxisEnd, side: RidingSide): boolean =>
 	(end.members
 		? selectsMembers(
 				f,
+				side.selection.conjuncts,
 				side.selection.conjuncts.map((c) => c.predicate)
 			)
 		: side.selection.conjuncts.length === 0)

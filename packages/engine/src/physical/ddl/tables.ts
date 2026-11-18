@@ -21,6 +21,7 @@ import {
 	type KeyColumnSet,
 	type KeyTuple,
 	keyTuple,
+	type DrawnOn,
 	type LawField,
 	type NativeColumn,
 	type NativeOf,
@@ -829,6 +830,17 @@ const lawColumnGeneration = (
 		: { kind: "stored", expr }
 }
 
+/** A drawn law column's generation: none for one the host draws on every row, a NOT NULL column; `membersOnly` for a
+ * selected family's, NULL off its members. */
+const drawnGeneration = (on: DrawnOn): ColumnGeneration | undefined => {
+	switch (on) {
+		case "every":
+			return undefined
+		case "members":
+			return { kind: "membersOnly" }
+	}
+}
+
 /**
  * A law column's one statement, `ALTER TABLE ... ADD COLUMN` of its field's type's base (`lawColumnType`), after its
  * table: a generated one STORED from its row (`lawColumnGeneration`), and a drawn one, a family's count copy, index,
@@ -851,7 +863,7 @@ const lawColumnDdl = (b: InstallBuilder, o: NativeOf<"LawColumn">): SqlStatement
 					generated:
 						o.value.kind === "generated"
 							? lawColumnGeneration(b, o, o.value, `column ${o.column} of ${o.relation.name}`)
-							: undefined
+							: drawnGeneration(o.value.on)
 				}
 			}
 		]

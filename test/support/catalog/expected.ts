@@ -327,6 +327,8 @@ const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
 		case "stored":
 		case "partial":
 			return { kind: "computed", stored: true }
+		case "membersOnly":
+			return { kind: "given" }
 	}
 }
 
@@ -613,7 +615,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 				columns: Arr.map(t.columns, (c) => ({
 					name: c.name,
 					type: projectType(c.type),
-					notNull: c.generated?.kind !== "partial",
+					notNull: c.generated?.kind !== "partial" && c.generated?.kind !== "membersOnly",
 					collation: collationOf(c.type, c.collation),
 					generation: expectedGeneration(c.generated)
 				})),
