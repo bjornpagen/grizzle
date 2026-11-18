@@ -11,6 +11,8 @@ import {
 	type Verdict
 } from "@bjornpagen/testing/commands"
 import {
+	type Aimed,
+	aimed,
 	array,
 	constant,
 	element,
@@ -54,7 +56,7 @@ import {
 	streamSlot
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
-import { assert, defined, throwsRefused } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, throwsRefused } from "#test/support/assert.ts"
 import { type FixtureSchema } from "#test/support/compile.ts"
 import { Employer, Payroll, Reporting } from "#test/support/fixtures/api/payroll.ts"
 import {
@@ -66,7 +68,12 @@ import {
 	TaskNote,
 	Work
 } from "#test/support/fixtures/api/work.ts"
-import { dictionaryNameGenOtherThan, type IdentifierFeature } from "#test/support/kernel/dict.ts"
+import {
+	type Admitted,
+	admittedNames,
+	dictionaryNameGenOtherThan,
+	type IdentifierFeature
+} from "#test/support/kernel/dict.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	BookEntry,
@@ -1683,7 +1690,7 @@ interface LevelSubject {
 /** A role over Work holding two of its relations, built by `name`. */
 const writerRole = (name: string): FixtureSchema => role(Work, name, { Task, TaskNote })
 
-export const levelSubjects: Arr.NonEmptyReadonlyArray<LevelSubject> = [
+const levelSubjects: Arr.NonEmptyReadonlyArray<LevelSubject> = [
 	{ label: "Work", schema: Work, relation: Account },
 	{ label: "Reports", schema: Reports, relation: Account },
 	{ label: "Payroll", schema: Payroll, relation: Employer },
@@ -1750,21 +1757,37 @@ export type LevelPairFeature =
 	| "a role rebuilt"
 	| `role renamed: ${IdentifierFeature}`
 
-/** Each root with the dictionary's names other than its own, which a rename draws from: no draw renames it to itself. */
+/**
+ * Each root with the dictionary's names other than its own, which a rename draws from, every feature alike, and its plain
+ * ones alone: no draw renames it to itself.
+ */
 const renamings = Object.freeze(
 	Arr.map(levelRoots, (root) => ({
 		root,
-		names: dictionaryNameGenOtherThan(new Set([root.label]))
+		names: dictionaryNameGenOtherThan(new Set([root.label])),
+		plain: element(
+			nonEmpty(
+				Arr.filter(admittedNames, (n) => n.feature === "plain" && n.declared !== root.label),
+				`a plain name other than ${root.label}`
+			)
+		)
 	}))
 )
 
-export const namedGen: Gen<Named> = oneOf([
+type Renaming = (typeof renamings)[number]
+
+/** A root renamed to a name of those `names` gives it. */
+const renamedGen =
+	(names: (renaming: Renaming) => Gen<Admitted>): Gen<Named> =>
+	(source) => {
+		const renaming = source.draw(element(renamings))
+		const name = source.draw(names(renaming))
+		return { kind: "renamed", feature: name.feature, schema: renaming.root.renamed(name.declared) }
+	}
+
+const namedGen: Gen<Named> = oneOf([
 	map(element(levelSubjects), (subject): Named => ({ kind: "fixture", subject })),
-	(source): Named => {
-		const { root, names } = source.draw(element(renamings))
-		const name = source.draw(names)
-		return { kind: "renamed", feature: name.feature, schema: root.renamed(name.declared) }
-	},
+	renamedGen((renaming) => renaming.names),
 	map(element(levelRoots), (root): Named => ({
 		kind: "relation added",
 		schema: root.relationAdded
@@ -1780,6 +1803,22 @@ export const namedGen: Gen<Named> = oneOf([
 		schema: writerRole(name.declared)
 	}))
 ])
+
+/** A query's subject and the schema of the ChangeSet that reads it. */
+const levelPairOf =
+	(named: Gen<Named>): Gen<readonly [LevelSubject, Named]> =>
+	(source) =>
+		[source.draw(element(levelSubjects)), source.draw(named)] as const
+
+/**
+ * A subject and the schema a ChangeSet over it is named, aimed at a root renamed to a plain name, which the rename arm
+ * draws one case in seven and namedGen one in 42: the floor and steered streams of the level check's bare identity, which
+ * its kills run, reached none in 250 cases.
+ */
+export const levelPairSpace: Aimed<readonly [LevelSubject, Named], LevelPairFeature> = aimed(
+	levelPairOf(namedGen),
+	[["renamed: plain", levelPairOf(renamedGen((renaming) => renaming.plain))]]
+)
 
 /** The arm switch with a relation parameter beside its scalar ones: the notes it is bound to, inserted as they are. */
 export const withNotes = (): ChangeSetValue =>

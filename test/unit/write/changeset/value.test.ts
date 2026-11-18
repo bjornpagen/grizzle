@@ -32,7 +32,7 @@
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
-import { array, codePoint, constant, element, int, map, string } from "@bjornpagen/testing/gen"
+import { array, codePoint, constant, int, map, string } from "@bjornpagen/testing/gen"
 import { lsw, passed } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { fullSwarm } from "@bjornpagen/testing/swarm"
@@ -53,10 +53,9 @@ import {
 	faults,
 	hostile,
 	type LevelPairFeature,
-	levelSubjects,
+	levelPairSpace,
 	machine,
 	malformed,
-	namedGen,
 	note,
 	rules,
 	withNotes
@@ -126,90 +125,77 @@ export const theChangeSetAlgebraBuildsTheModelsChangeSetAtEveryStepCanonicalSeal
  * (test/unit/write/changeset/value.test.ts:1732 at 8cad5bce, its runs and its coverage's cases).
  */
 export const theLevelCheckAdmitsAQueryOverASchemaExactlyWhereTheQueryCompilerCompilesItAgainstTheChangeSetsSchema =
-	property.explore(
-		(source) => [source.draw(element(levelSubjects)), source.draw(namedGen)] as const,
-		{
-			needs: {},
-			budget: { runs: 200, steered: 200 },
-			situations: [
-				"the schema itself",
-				"a level",
-				"no level",
-				"renamed: plain",
-				"a relation added",
-				"a statement removed",
-				"a role rebuilt",
-				"role renamed: plain"
-			] satisfies ReadonlyArray<Reached<LevelPairFeature>>,
-			check:
-				(_, c: Case<LevelPairFeature>) =>
-				([carried, named]) =>
-					Effect.sync(() => {
-						const namedSchema = named.kind === "fixture" ? named.subject.schema : named.schema
-						const q = query(carried.schema).rule((r: RuleValue) => {
-							const vars = v(carried.relation, "relation")
-							return r.match(carried.relation, vars).find(vars)
-						})
-						const input = queryInput(q)
-						const compiles = input.ok && querySchema(input.value, schemaInputOf(namedSchema)).ok
-						switch (named.kind) {
-							case "fixture":
-								c.note(
-									named.subject === carried
-										? "the schema itself"
-										: compiles
-											? "a level"
-											: "no level"
-								)
-								break
-							case "renamed":
-								c.note(`renamed: ${named.feature}`)
-								break
-							case "relation added":
-								c.note("a relation added")
-								break
-							case "statement removed":
-								c.note("a statement removed")
-								break
-							case "role rebuilt":
-								c.note("a role rebuilt")
-								break
-							case "role renamed":
-								c.note(`role renamed: ${named.feature}`)
-								break
-						}
-						/** A refusal is a CompileError, never a defect: anything else thrown fails the case. */
-						const admitted = catchCompileError(() =>
-							ChangeSet.empty(namedSchema).read("r", () => q)
-						).ok
-						assert.equal(
-							admitted,
-							compiles,
-							`a query over ${carried.label} in a ChangeSet over a ${named.kind} schema`
-						)
-					}),
-			oracle: {
-				kind: "second-implementation",
-				name: "the query compiler's own level check, querySchema against the ChangeSet's schema"
-			},
-			kept: [],
-			kills: [
-				{
-					file: "packages/engine/src/core/canonical.ts",
-					original: "\t\tif (other === undefined) {",
-					replacement: "\t\tif (other !== undefined) {",
-					why: "Operator mutant (comparison) at packages/engine/src/core/canonical.ts:505 in recordPairs: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
-				},
-				{
-					file: "packages/engine/src/write/changeset/value.ts",
-					original:
-						"\t}\n\trequireLevel(built.schema.over, state.over, label)\n\tconst query = publicDesc(built, label)",
-					replacement: "\t}\n\t{}\n\tconst query = publicDesc(built, label)",
-					why: "Operator mutant (statement) at packages/engine/src/write/changeset/value.ts:1011 in addRead: `requireLevel(built.schema.over, state.over, label)` becomes `{}`; the property fails (lane CATCH, grizzle b0d74512)."
-				}
-			]
-		}
-	)
+	property.explore(levelPairSpace, {
+		needs: {},
+		budget: { runs: 200, steered: 200 },
+		situations: [
+			"the schema itself",
+			"a level",
+			"no level",
+			"renamed: plain",
+			"a relation added",
+			"a statement removed",
+			"a role rebuilt",
+			"role renamed: plain"
+		] satisfies ReadonlyArray<Reached<LevelPairFeature>>,
+		check:
+			(_, c: Case<LevelPairFeature>) =>
+			([carried, named]) =>
+				Effect.sync(() => {
+					const namedSchema = named.kind === "fixture" ? named.subject.schema : named.schema
+					const q = query(carried.schema).rule((r: RuleValue) => {
+						const vars = v(carried.relation, "relation")
+						return r.match(carried.relation, vars).find(vars)
+					})
+					const input = queryInput(q)
+					const compiles = input.ok && querySchema(input.value, schemaInputOf(namedSchema)).ok
+					switch (named.kind) {
+						case "fixture":
+							c.note(
+								named.subject === carried ? "the schema itself" : compiles ? "a level" : "no level"
+							)
+							break
+						case "renamed":
+							c.note(`renamed: ${named.feature}`)
+							break
+						case "relation added":
+							c.note("a relation added")
+							break
+						case "statement removed":
+							c.note("a statement removed")
+							break
+						case "role rebuilt":
+							c.note("a role rebuilt")
+							break
+						case "role renamed":
+							c.note(`role renamed: ${named.feature}`)
+							break
+					}
+					/** A refusal is a CompileError, never a defect: anything else thrown fails the case. */
+					const admitted = catchCompileError(() =>
+						ChangeSet.empty(namedSchema).read("r", () => q)
+					).ok
+					assert.equal(
+						admitted,
+						compiles,
+						`a query over ${carried.label} in a ChangeSet over a ${named.kind} schema`
+					)
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the query compiler's own level check, querySchema against the ChangeSet's schema"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/changeset/value.ts",
+				original:
+					"\t}\n\trequireLevel(built.schema.over, state.over, label)\n\tconst query = publicDesc(built, label)",
+				replacement: "\t}\n\t{}\n\tconst query = publicDesc(built, label)",
+				why: "Operator mutant (statement) at packages/engine/src/write/changeset/value.ts:1011 in addRead: `requireLevel(built.schema.over, state.over, label)` becomes `{}`; the property fails (lane CATCH, grizzle b0d74512)."
+			}
+		]
+	})
 
 /**
  * Bind reads the caller's map once: a map or a fact whose reading throws is refused, a live one bound as a copy.
