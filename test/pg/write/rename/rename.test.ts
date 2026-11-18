@@ -212,8 +212,8 @@ const written = (c: SwarmCase, label: string) =>
 			let state: State = nothingStored
 			for (const [i, step] of steps.entries()) {
 				const at = `${label}, step ${String(i)} (${step.kind}) of ${Formatter.format(spec)}`
-				const expected = expectStep(spec, built, laws, host, state, step)
-				const { changes, facts, params } = changeSetOf(spec, built, value, state, step)
+				const { changes, facts, params, queryPuts } = changeSetOf(spec, built, value, state, step)
+				const expected = expectStep(spec, built, laws, host, state, step, queryPuts)
 				const loaded = yield* Effect.result(db.load({ step: changes }))
 				if (Result.isFailure(loaded)) {
 					const refused = loaded.failure

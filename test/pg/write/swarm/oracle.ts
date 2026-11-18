@@ -48,6 +48,7 @@ import {
 	type InstanceRow,
 	keyOfRelation,
 	relationName,
+	type SpecWrite,
 	uuidOfRow,
 	writesVerdict,
 	writtenRows
@@ -579,8 +580,8 @@ export const familyWrites = (
 /**
  * What a step must do from a lawful `state`:
  * - `uncompiled`: refused when it compiles, for any cause that applies: StaleDerivedRead where its refills update an
- *   immutable relation's rows (its relation one of `immutable`), where a put from a query leaves a value stale
- *   (`query`), where the refills reach a family they refill again (`cycle`), where a value it leaves stale is a
+ *   immutable relation's rows (its relation one of `immutable`), where a put the step's ChangeSet states from a query,
+ *   a query member whose rows grizzle never sees (changes.ts Built `queryPuts`), leaves a value stale (`query`), where the refills reach a family they refill again (`cycle`), where a value it leaves stale is a
  *   tree's (`tree`, one of `trees`), where one reads what a refill itself changes (`chained`, the refill one of
  *   `refills`), or where a family member's own write reaches a value grizzle refills only from a plain relation's put
  *   (`edit`, the family one of `edits`), each naming one of the writes whose path first reaches a refill (`origins`,
@@ -621,18 +622,29 @@ const brokenIn = (
 		!immediateOnly || v.immediate ? [v.law] : []
 	)
 
-/** What step `step` must do from `state` (StepVerdict). */
+/**
+ * What step `step` must do from `state` (StepVerdict), its ChangeSet putting `queryPuts` by a query member, as the
+ * ChangeSet built for it states them (changes.ts Built).
+ */
 export const expectStep = (
 	spec: SwarmSpec,
 	built: BuiltSwarm,
 	laws: Laws,
 	host: HostSchema,
 	state: State,
-	step: Step
+	step: Step,
+	queryPuts: ReadonlySet<string>
 ): StepVerdict => {
 	if (step.kind !== "insert") {
 		const verdict = writesVerdict(spec.fill, familyWrites(spec, state, step))
 		const stale = Arr.isReadonlyArrayNonEmpty(verdict.stale)
+		/** The writes that leave a value stale and are puts the ChangeSet states from a query, each once. */
+		const queried = Arr.dedupeWith(
+			Arr.flatMap(verdict.stale, (st): ReadonlyArray<SpecWrite> =>
+				st.origin.op === "put" && queryPuts.has(relationName(st.origin.relation)) ? [st.origin] : []
+			),
+			(a: SpecWrite, b: SpecWrite) => a.relation === b.relation && a.op === b.op
+		)
 		const earlier =
 			step.kind !== "delete all" &&
 			(Arr.some(step.plain, (o) => o.at === "before") ||
@@ -640,7 +652,7 @@ export const expectStep = (
 		const uncompiled = {
 			kind: "uncompiled" as const,
 			immutable: verdict.kind === "refused" ? verdict.immutable : [],
-			query: step.kind === "query put" && stale,
+			query: Arr.isReadonlyArrayNonEmpty(queried),
 			cycle: verdict.kind === "cycle",
 			trees: verdict.kind === "tree" ? verdict.trees : [],
 			refills: verdict.kind === "chained" ? verdict.refills : [],
@@ -649,14 +661,10 @@ export const expectStep = (
 			partial:
 				step.kind === "delete all" &&
 				leavesGroupsPartial(spec.fill, deletedAll(spec, state, step.by)),
-			origins: Arr.map(
-				verdict.kind === "written"
-					? step.kind === "query put"
-						? [{ relation: step.relation, op: "put" as const }]
-						: []
-					: verdict.origins,
-				(w) => ({ relation: relationName(w.relation), op: w.op })
-			)
+			origins: Arr.map(verdict.kind === "written" ? queried : verdict.origins, (w) => ({
+				relation: relationName(w.relation),
+				op: w.op
+			}))
 		}
 		if (
 			Arr.isReadonlyArrayNonEmpty(uncompiled.immutable) ||

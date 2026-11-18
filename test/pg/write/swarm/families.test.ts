@@ -896,6 +896,62 @@ const inserted = (
  * value. */
 const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 	{
+		note: "VALUEONE's run at 95b9ad11: a follow-up puts R3, the mutable owner of an ordered family whose generated, immutable R4 members copy R3's caller field, stated twice, so its second put of R3 is a query member; the compile refuses it as a put from a query leaving R4's copy stale (StaleDerivedRead, cause query), checked before the immutable refill, where the reference stated the immutable R4 alone",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [
+						relationFlags(true),
+						relationFlags(false),
+						relationFlags(false),
+						relationFlags(true),
+						{ generated: true, mutable: false }
+					],
+					families: [{ kind: "ordered", owner: 3, member: 4, fold: "none" }],
+					copies: [
+						{ family: 0, axis: "owner", source: { kind: "caller" } },
+						{ family: 0, axis: "last", source: { kind: "copy", copy: 0 } }
+					],
+					steps: []
+				},
+				ends: [{ family: 0, monoid: "or" }],
+				plains: [{ kind: "referrer", mutable: true }],
+				laws: [
+					{ kind: "into members", plain: 0, family: 0 },
+					{ kind: "member key", family: 0 }
+				]
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 3, id: 1, v: 0n, memberOf: [] },
+						{ relation: 4, id: 2, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 4, id: 3, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 1 }] }
+					],
+					false,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 3,
+						row: 1,
+						put: Option.some(5n),
+						inserted: [],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: true }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a put from a query refused for a value it leaves stale"]
+	},
+	{
 		note: "pantry's importWrite (1ce7c08f, drawn alone by the deleted test/pg/write/stratum-order): R2's rows name R1's rows whole and own R3's, every owner immutable, all in one stratum; one additions statement for R1's and R3's rows could land neither before nor after R2's insert, and the stratum was refused as UnorderableStratum",
 		sketch: {
 			spec: importWrite([false, false, false, false], importWriteFamilies),
@@ -2204,14 +2260,14 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 								let state = nothingStored
 								for (const [i, step] of steps.entries()) {
 									const label = `step ${String(i)} (${step.kind}) of ${Formatter.format(spec)}`
-									const expected = expectStep(spec, built, laws, host, state, step)
-									const { changes, facts, params, queried } = changeSetOf(
+									const { changes, facts, params, queryPuts, queried } = changeSetOf(
 										spec,
 										built,
 										value,
 										state,
 										step
 									)
+									const expected = expectStep(spec, built, laws, host, state, step, queryPuts)
 									for (const ownerWrite of queried) {
 										const refusals = ownerWrite.refusals
 										const stated = `${label}: an owner's write from a query beside an append to a counted family it owns, which the compile refuses naming one of ${Formatter.format(refusals)}`

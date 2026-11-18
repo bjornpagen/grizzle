@@ -196,16 +196,19 @@ interface Served {
 	readonly facts: CallFacts
 	readonly params: ParamMap
 	readonly appends: ReadonlyArray<OwnerAppend>
+	readonly queryPuts: ReadonlySet<string>
 }
 
 /**
- * A step's ChangeSet as a served call applies it, and for each op and owner whose further facts it joins for their
- * families' appends, the same strata with those facts from queries (`Queried`).
+ * A step's ChangeSet as a served call applies it; the relations it puts by a query member (`queryPuts`), a put from a
+ * query's own or a further put of a relation, whose rows grizzle never sees; and for each op and owner whose further
+ * facts it joins for their families' appends, the same strata with those facts from queries (`Queried`).
  */
 interface Built {
 	readonly changes: ChangeSetValue
 	readonly facts: CallFacts
 	readonly params: ParamMap
+	readonly queryPuts: ReadonlySet<string>
 	readonly queried: ReadonlyArray<Queried>
 }
 
@@ -303,6 +306,7 @@ const servedOf = (
 	const arrays = new Map<Member["op"], Map<string, Array<Fact>>>()
 	const given: Array<readonly [string, ReadonlyArray<Fact>]> = []
 	const appends: Array<OwnerAppend> = []
+	const queryPuts = new Set<string>()
 	/**
 	 * The rows of `m`, a member of the stratum `stratum`, as its ChangeSet holds them, or none where its facts join its
 	 * array member's.
@@ -313,6 +317,9 @@ const servedOf = (
 		stratum: ReadonlyArray<Member>
 	): ReadonlyArray<MemberInput> => {
 		if (rows.kind === "query") {
+			if (m.op === "put") {
+				queryPuts.add(m.relation.name)
+			}
 			return [rows.query]
 		}
 		const facts = rows.facts
@@ -336,6 +343,9 @@ const servedOf = (
 		}
 		const name = `rows${String(given.length)}`
 		given.push([name, facts])
+		if (m.op === "put") {
+			queryPuts.add(m.relation.name)
+		}
 		const fields: Readonly<Record<string, FieldBase>> = Rec.fromEntries(
 			Arr.map(
 				Arr.dedupe(Arr.flatMap(facts, (f) => Rec.keys(f))),
@@ -382,7 +392,7 @@ const servedOf = (
 			]
 		)
 	)
-	return { changes, facts, params: { ...params, ...Rec.fromEntries(given) }, appends }
+	return { changes, facts, params: { ...params, ...Rec.fromEntries(given) }, appends, queryPuts }
 }
 
 /**
@@ -553,6 +563,7 @@ export const changeSetOf = (
 		changes: served.changes,
 		facts: served.facts,
 		params: served.params,
+		queryPuts: served.queryPuts,
 		queried: Arr.flatMap(writes, (write): ReadonlyArray<Queried> => {
 			const ofWrite = Arr.filter(
 				served.appends,
