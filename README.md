@@ -3611,13 +3611,16 @@ throws `CompileError` for a rule that is no check of the schema.
 
 `rowEvaluator(schema)` compiles the schema once and gives the host's evaluation of a row: what PostgreSQL computes of
 it, by the one evaluator grizzle judges a refused write's rows by. Bind it once,
-`const evaluate = rowEvaluator(Accounts)`, a `Result` whose error is the schema's `CompileError`, then
-`evaluate(Account, row)`, or `evaluate(select(Account, (a) => a.units.gt(3)), row)` for a selection. A source is any
-relation of the schema, stored, derived or closed, a roster among the closed ones, or a selection of one. The row is typed
-off the relation: every field but the generated ones, each its codec's value, so a contract's value is its brand,
-`Units(5)`. PostgreSQL's domains refuse a value outside its contract or its pattern before anything else, which a brand
-does not check, and so does the evaluation: `{ _tag: "DomainRefused", field }`, a field a domain refuses. Otherwise it
-is `{ generated, checks, selected }`, each item its own `Result`:
+`const evaluate = rowEvaluator(Accounts)`, a `Result` whose error is the schema's `CompileError`. A row is admitted
+once, `evaluate.admit(Account, row)`, then evaluated as a row of any source of its relation, `evaluate(Account,
+admitted)` or `evaluate(select(Account, (a) => a.units.gt(3)), admitted)` for a selection. A source is any relation of
+the schema, stored, derived or closed, a roster among the closed ones, or a selection of one. The row is typed off the
+relation: every field but the generated ones, each its codec's value, so a contract's value is its brand, `Units(5)`.
+PostgreSQL's domains refuse a value outside its contract or its pattern before anything else, which a brand does not
+check, and so does admit: `{ _tag: "DomainRefused", field }`, a field a domain refuses, or the `AdmittedRow`, which only
+admit makes, `admitted.row` the row as stated. Its domains judged once, an admitted row is evaluated as `{ generated,
+checks, selected }`, each item its own `Result`, computed where it is first read and kept on the admitted row, so every
+source of the relation over it shares the generated values and verdicts it reads:
 
 - `generated`: each generated field's value, by name, or `null` where PostgreSQL computes NULL, as a closed read at a
   key no row holds does, which the column's NOT NULL refuses;
@@ -3630,8 +3633,8 @@ is `{ generated, checks, selected }`, each item its own `Result`:
 A closed relation's row is evaluated as any other: its facts are rows of its heading, and a selection of it is a side a
 rule reads, by its fields' literals in a containment into it and by any predicate in one between closed relations. It
 has no generated field, since `closed.relation` refuses a field grizzle writes, and no check, since the schema refuses a
-row check over facts it fixes, so its evaluation is its domains and `selected`: `evaluate(PlanLimits, row)` of each of
-`PlanLimits.rows` gives no generated value, no verdict, and `selected` true.
+row check over facts it fixes, so its evaluation is its domains and `selected`: each of `PlanLimits.rows`, admitted and
+evaluated as a row of `PlanLimits`, gives no generated value, no verdict, and `selected` true.
 
 An item whose expression the host does not lower or evaluate, such as float arithmetic in a derived relation's check,
 is `{ _tag: "Unevaluated", why }`, the other items keeping theirs. Nothing is thrown, and nothing stands in for a value. Each source is read where it is first evaluated,
@@ -3656,7 +3659,7 @@ binding of its rows, the one every application of it runs before any SQL, so eve
 and copy the write draws, a fresh counted group's whole among them, is the preview's. It is a `Result` of
 `PreviewRows<S>`: every writable relation by name, an empty array where the write stores none of it, each row every
 field the relation stores but those PostgreSQL generates, each its codec's host value, a closed id its handle, so
-`rowEvaluator(schema)` evaluates a row as it is, its generated fields and its checks in one place. A relation's rows
+`rowEvaluator(schema)` admits and evaluates a row as it is, its generated fields and its checks in one place. A relation's rows
 are a set, each once, in no order that means anything. Or it is the refusal the write meets before any SQL, a tagged
 value, never thrown:
 

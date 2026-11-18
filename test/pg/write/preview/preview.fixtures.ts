@@ -739,11 +739,12 @@ const judged = (
 			return [
 				relation.name,
 				Arr.flatMap(rows, (row) => {
-					const evaluation = evaluate(relation, row)
-					if (!evaluation.ok) {
-						outside.push({ relation: relation.name, field: evaluation.error.field })
+					const admitted = evaluate.admit(relation, row)
+					if (!admitted.ok) {
+						outside.push({ relation: relation.name, field: admitted.error.field })
 						return []
 					}
+					const evaluation = { value: evaluate(relation, admitted.value) }
 					/** Its generated fields' items by name, which an AnyRelation's type cannot name. */
 					const items: Readonly<Record<string, Engine.Result<unknown, Unevaluated>>> =
 						evaluation.value.generated

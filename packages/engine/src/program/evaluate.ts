@@ -19,7 +19,9 @@
  * row check, since closed.relation refuses a field grizzle writes and the schema a check over facts it fixes.
  *
  * Before any of it, PostgreSQL holds each value to its domain: a value outside its type's contract or pattern is
- * refused (DomainRefused), which a brand, unchecked, does not exclude. A row inside its domains meets every partial
+ * refused (DomainRefused), which a brand, unchecked, does not exclude. That is admit's, once a row (`evaluate.admit(R,
+ * row)`): an admitted row is evaluated as a row of any source of R with no domain judged again, each item where it is
+ * first read, kept on the admitted row and shared by every source of R. A row inside its domains meets every partial
  * operation's proof, so an evaluation that finds a precondition undefined is a defect of grizzle's, never an outcome.
  * An item whose expression the host does not lower or does not evaluate is Unevaluated, its place its own.
  */
@@ -28,7 +30,7 @@ import { typingEnv } from "#compiler/analysis/theory/theory.ts"
 import { rowNode } from "#compiler/check/generated.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { connectiveExpr, type ExprDesc } from "#compiler/ir/desc.ts"
@@ -56,6 +58,7 @@ import { namedRelation } from "#compiler/schema/relation.ts"
 import type { SelectedDesc } from "#compiler/schema/statements.ts"
 import { exprPatternReads } from "#compiler/schema/walk.ts"
 import type {
+	AdmittedRow,
 	CheckVerdict,
 	DomainRefused,
 	EvaluatedRow,
@@ -65,7 +68,7 @@ import type {
 	SourceRelation,
 	Unevaluated
 } from "#compiler/types/schema/evaluation.ts"
-import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import type { AnySchema, RelationOf } from "#compiler/types/schema/schema.ts"
 import { closedTableOf, lawChecksOf, witnessField } from "#compiler/write/program/decide.ts"
 
 /**
@@ -81,6 +84,7 @@ type Lowered = Result.Result<ExprTable, Unevaluated>
  * and the judge over the patterns they read.
  */
 interface Prepared {
+	readonly relation: string
 	readonly table: JudgedTable
 	readonly refined: ReadonlyArray<JudgedField>
 	readonly generated: ReadonlyArray<{ readonly name: string; readonly expr: ExprTable }>
@@ -260,6 +264,7 @@ const prepare = (
 		...loweredPatterns(selection)
 	]
 	return {
+		relation: selected.relation,
 		table: { fields, lawColumns: new Map() },
 		refined: fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type)),
 		generated,
@@ -352,53 +357,136 @@ const isRowField = <R>(
 	field: string
 ): field is keyof EvaluatedRow<R> & string => Object.hasOwn(row, field)
 
-/** One row of a prepared source evaluated (see the header). */
-const evaluated = <S, R>(
-	prepared: Prepared,
-	row: Readonly<Record<string, unknown>>
-): Result.Result<RowEvaluation<S, R>, DomainRefused<R>> => {
-	const { judge, table } = prepared
-	for (const field of prepared.refined) {
-		const member = judge.member(hostOf(field.type.carrier, row[field.name]), field.type)
+/**
+ * What admitting a row records of it, by the admitted row's identity: its relation, read as a whole source of itself
+ * (select(R, TRUE)); the row as the judge reads it, built once; and each item evaluated so far, memoized: its relation's
+ * generated values and check verdicts, which every source of the relation shares, and each source's selection of it.
+ * A WeakMap holds nothing alive and is never enumerated, so it is no cache: it is the admitted row's state.
+ */
+interface Admission {
+	readonly relation: Prepared
+	readonly judged: JudgedRow
+	readonly generated: Map<string, Result.Result<unknown, Unevaluated>>
+	readonly checks: Map<string, Result.Result<CheckVerdict, Unevaluated>>
+	readonly selected: Map<Prepared, Result.Result<boolean, Unevaluated>>
+}
+
+const admissions = new WeakMap<object, Admission>()
+
+/** The one site of the fact "this value is an admitted row of R": admit made it, which its state records. */
+const isAdmittedRow = <R>(value: { readonly row: EvaluatedRow<R> }): value is AdmittedRow<R> =>
+	admissions.has(value)
+
+/** An item of an admitted row, evaluated where it is first read, then read from its memo. */
+const memoized = <K, A>(memo: Map<K, A>, key: K, compute: () => A): A => {
+	if (memo.has(key)) {
+		return defined(memo.get(key), "a memoized item")
+	}
+	const value = compute()
+	memo.set(key, value)
+	return value
+}
+
+/** A record whose each member is computed where it is first read (memoized). */
+const lazyRecord = <A>(
+	names: ReadonlyArray<string>,
+	read: (name: string) => A
+): Readonly<Record<string, A>> => {
+	const out: Record<string, A> = {}
+	for (const name of names) {
+		Object.defineProperty(out, name, { enumerable: true, get: () => read(name) })
+	}
+	return Object.freeze(out)
+}
+
+/**
+ * A row of R admitted (see rowEvaluator's admit): each refined field of R the row holds is held to its domain, its
+ * contract and its patterns, as PostgreSQL holds each value before it computes anything of the row; a value outside its
+ * domain is DomainRefused, the row's one refusal, and a row inside every one is admitted, its evaluation then free of any
+ * domain judgment. A brand is unchecked, so this is the only place a domain is judged.
+ */
+const admitted = <R>(
+	relation: Prepared,
+	row: EvaluatedRow<R>
+): Result.Result<AdmittedRow<R>, DomainRefused<R>> => {
+	const fields: Readonly<Record<string, unknown>> = row
+	for (const field of relation.refined) {
+		const member = relation.judge.member(hostOf(field.type.carrier, fields[field.name]), field.type)
 		if (member === undefined) {
 			throw defect(`the domain of ${field.name}, a contract and a pattern the host evaluates`)
 		}
 		if (member) {
 			continue
 		}
-		if (!isRowField<R>(row, field.name)) {
+		if (!isRowField<R>(fields, field.name)) {
 			throw defect(`the domain of a field ${field.name} the row holds`)
 		}
 		return Result.err({ _tag: "DomainRefused", field: field.name })
 	}
-	const judged = judgedRow(row)
+	const value = Object.freeze({ row })
+	admissions.set(value, {
+		relation,
+		judged: judgedRow(fields),
+		generated: new Map(),
+		checks: new Map(),
+		selected: new Map()
+	})
+	if (!isAdmittedRow<R>(value)) {
+		throw defect("an admitted row, its state recorded")
+	}
+	return Result.ok(value)
+}
+
+/**
+ * An admitted row evaluated as a row of a prepared source of its relation (see the header): each item computed where it
+ * is first read and memoized on the admitted row, its relation's generated values and verdicts by its relation's reading,
+ * which every source of the relation shares, and its selection by the source's.
+ */
+const evaluated = <S, R>(source: Prepared, row: AdmittedRow<R>): RowEvaluation<S, R> => {
+	const admission = admissions.get(row)
+	if (admission === undefined) {
+		throw defect("an admitted row, which admit made")
+	}
+	const { relation, judged } = admission
+	if (source.relation !== relation.relation) {
+		throw defect(`a source of ${relation.relation}, the relation the row was admitted to`)
+	}
+	const { judge, table } = relation
+	const generatedBy = new Map(relation.generated.map((g) => [g.name, g.expr] as const))
+	const checkedBy = new Map(relation.checks.map((c) => [c.name, c.predicate] as const))
 	const built: BuiltEvaluation = {
-		generated: Object.fromEntries(
-			prepared.generated.map((g) => [g.name, valueOf(judge.evaluate(table, g.expr, judged))])
+		generated: lazyRecord([...generatedBy.keys()], (name) =>
+			memoized(admission.generated, name, () =>
+				valueOf(judge.evaluate(table, defined(generatedBy.get(name), "a generated field"), judged))
+			)
 		),
-		checks: Object.fromEntries(
-			prepared.checks.map((c) => [
-				c.name,
-				Result.flatMap(c.predicate, (predicate) =>
+		checks: lazyRecord([...checkedBy.keys()], (name) =>
+			memoized(admission.checks, name, () =>
+				Result.flatMap(defined(checkedBy.get(name), "a row check"), (predicate) =>
 					Result.map(truthOf(judge.evaluate(table, predicate, judged)), verdictOf)
 				)
-			])
+			)
 		),
-		selected: Result.flatMap(prepared.selection, (selection) =>
-			truthOf(judge.evaluate(table, selection, judged))
-		)
+		get selected() {
+			return memoized(admission.selected, source, () =>
+				Result.flatMap(source.selection, (selection) =>
+					truthOf(source.judge.evaluate(source.table, selection, judged))
+				)
+			)
+		}
 	}
-	if (!isEvaluationOf<S, R>(built, prepared)) {
+	if (!isEvaluationOf<S, R>(built, relation)) {
 		throw defect("a row's evaluation keyed by its source's generated fields and checks")
 	}
-	return Result.ok(built)
+	return built
 }
 
 /**
  * rowEvaluator(schema): the host's evaluation of rows of the schema's sources (see the header), its schema compiled and
- * its relations read once, as a function: `const evaluate = rowEvaluator(schema)`, then `evaluate(source, row)` is the
- * row's evaluation, each source read once, where it is first evaluated. A schema that does not compile is its
- * CompileError.
+ * its relations read once: `const evaluate = rowEvaluator(schema)`, then `evaluate.admit(R, row)` admits a row of R
+ * once, holding it to its domains, and `evaluate(source, admitted)` is the admitted row's evaluation as a row of any
+ * source of R, R itself or select(R, φ), each source read once, where it is first evaluated. A schema that does not
+ * compile is its CompileError.
  */
 export const rowEvaluator = <S extends AnySchema>(
 	schema: S
@@ -416,6 +504,15 @@ export const rowEvaluator = <S extends AnySchema>(
 			sources.set(source, prepared)
 			return prepared
 		}
-		return <Src extends RowSource<S>>(source: Src, row: EvaluatedRow<SourceRelation<Src>>) =>
+		const evaluate = <Src extends RowSource<S>>(
+			source: Src,
+			row: AdmittedRow<SourceRelation<Src>>
+		): RowEvaluation<S, SourceRelation<Src>> =>
 			evaluated<S, SourceRelation<Src>>(preparedOf(source), row)
+		return Object.assign(evaluate, {
+			admit: <R extends RelationOf<S>>(
+				relation: R,
+				row: EvaluatedRow<R>
+			): Result.Result<AdmittedRow<R>, DomainRefused<R>> => admitted<R>(preparedOf(relation), row)
+		})
 	})

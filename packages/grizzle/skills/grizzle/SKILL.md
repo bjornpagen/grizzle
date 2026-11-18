@@ -798,10 +798,11 @@ The command line's own refusals, by stage:
   `constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`, and a check over a
   derived relation's is its triggers' digest name: a direct writer or a test that matches a refusal's constraint takes it
   from there, never spelling it. To know on the host what PostgreSQL computes of a row, bind
-  `const evaluate = rowEvaluator(schema)` once, which compiles (a `Result` over `CompileError`), then call
-  `evaluate(R, row)` or `evaluate(select(R, φ), row)`, R any relation of the schema, stored, derived or closed, the
-  row typed off R without its generated fields: it is
-  `DomainRefused` naming a field PostgreSQL's domain refuses, or `{ generated, checks, selected }`, each generated
+  `const evaluate = rowEvaluator(schema)` once, which compiles (a `Result` over `CompileError`), admit each row once,
+  `evaluate.admit(R, row)`, R any relation of the schema, stored, derived or closed, the row typed off R without its
+  generated fields: `DomainRefused` naming a field PostgreSQL's domain refuses, or the `AdmittedRow`; then
+  `evaluate(R, admitted)` or `evaluate(select(R, φ), admitted)` is `{ generated, checks, selected }`, each item
+  computed where it is first read and shared by every source of R over the admitted row, each generated
   value (`null` for NULL), each row check's `"holds"` or `"breaks"` by name, NULL breaking a table's check and a derived
   relation's alike, and whether the source keeps the row, each item a `Result` whose error is
   `Unevaluated`. Never restate a check, a selection or a generated expression in your own code to predict it. To know
@@ -809,7 +810,7 @@ The command line's own refusals, by stage:
   `Result` over `CompileError`), then call `preview(rows)`, insertAll's record over every top-level relation with
   every serial field stated (`PreviewInputOf`): every writable relation's rows as `ChangeSet.empty(schema).insertAll(rows)`
   stores them in an installation holding no row, an empty array where it stores none, each row every field but the
-  generated ones as host values, a closed id its handle, which `evaluate(R, row)` reads as it is; or a tagged
+  generated ones as host values, a closed id its handle, which `evaluate.admit(R, row)` reads as it is; or a tagged
   refusal, the write's before any SQL: `InputRefused`, `KeyConflict`, `GeneratedNull` or `OwnerAbsent`, a counted
   member whose owner the call does not insert. Never draw a count, an index, an interval, a fold or a copy in your own
   code to predict it. To key

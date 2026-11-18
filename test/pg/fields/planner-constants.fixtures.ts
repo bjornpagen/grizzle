@@ -410,12 +410,12 @@ export const runPlanner = (drawn: PlannerCase, c: Case<PlannerFeature>) =>
 				`SELECT ${names.column(R, "g")}, ${names.column(R, "h")} FROM ${table} WHERE ${names.column(R, "id")} = $1::integer`,
 				[id]
 			)
-			const host = evaluate(R, { id, t: row.t, n: row.n })
+			const admitted = evaluate.admit(R, { id, t: row.t, n: row.n })
 			assert.ok(
-				host.ok,
+				admitted.ok,
 				`the host evaluates row ${Formatter.format(row)} of ${Formatter.format(drawn)}`
 			)
-			const { g, h } = host.value.generated
+			const { g, h } = evaluate(R, admitted.value).generated
 			assert.ok(
 				g.ok && h.ok,
 				`the host evaluates g and h at row ${Formatter.format(row)} of ${Formatter.format(drawn)}`

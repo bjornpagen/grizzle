@@ -76,6 +76,19 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 		kills: [
 			{
 				file: "packages/engine/src/program/evaluate.ts",
+				original: "\tfor (const field of relation.refined) {",
+				replacement: "\tfor (const field of relation.refined.slice(1)) {",
+				why: "admit skips a refined field: a row its first refined field's domain refuses is admitted, where PostgreSQL's CHECK refuses it."
+			},
+			{
+				file: "packages/engine/src/program/evaluate.ts",
+				original: "\t\t\tmemoized(admission.generated, name, () =>",
+				replacement:
+					"\t\t\tmemoized(new Map<string, Result.Result<unknown, Unevaluated>>(), name, () =>",
+				why: "Each evaluation of an admitted row computes its generated values again, for every source of its relation, so two sources of Gen over one admitted row read two values of g, not the one item they share."
+			},
+			{
+				file: "packages/engine/src/program/evaluate.ts",
 				original: "\t\t\treturn Result.ok(false)",
 				replacement: "\t\t\treturn Result.ok(true)",
 				why: "A predicate NULL at a row is read as true, where IS TRUE reads it as false: a check its row leaves NULL holds, and a selection keeps a row its predicate leaves NULL."

@@ -8,7 +8,7 @@ import { array, characterOf, type Gen, int, string, weighted } from "@bjornpagen
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Result } from "#compiler/core/result.ts"
+import { map as mapResult, type Result } from "#compiler/core/result.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
 	closed,
@@ -452,19 +452,28 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 		for (const [id, row] of ec.rows.entries()) {
 			const at = `row ${id}, ${Formatter.format(row)}, of ${Formatter.format(ec)}`
 			const fact = { ...itemFact(built.c, row.item, id), p: row.p, u: Units(row.u) }
-			const ofGen = evaluate(Gen, fact)
-			const ofAll = evaluate(All, fact)
-			const ofSelection = evaluate(built.selected, fact)
-			const ofRefined = evaluate(built.Refined, {
-				kind: kindOf(row.item.kind),
-				p: row.p,
-				u: Units(row.u)
-			})
+			const asGen = evaluate.admit(Gen, fact)
+			const ofGen = mapResult(asGen, (admitted) => evaluate(Gen, admitted))
+			const ofAll = mapResult(evaluate.admit(All, fact), (admitted) => evaluate(All, admitted))
+			const ofSelection = mapResult(asGen, (admitted) => evaluate(built.selected, admitted))
+			const ofRefined = mapResult(
+				evaluate.admit(built.Refined, {
+					kind: kindOf(row.item.kind),
+					p: row.p,
+					u: Units(row.u)
+				}),
+				(admitted) => evaluate(built.Refined, admitted)
+			)
 			const judged = Arr.map(built.checks, (check) => ({
 				...check,
-				of: evaluate(check.Each, fact)
+				of: mapResult(evaluate.admit(check.Each, fact), (admitted) =>
+					evaluate(check.Each, admitted)
+				)
 			}))
-			const ruled = Arr.map(built.rules, (rule) => ({ ...rule, of: evaluate(rule.D, fact) }))
+			const ruled = Arr.map(built.rules, (rule) => ({
+				...rule,
+				of: mapResult(evaluate.admit(rule.D, fact), (admitted) => evaluate(rule.D, admitted))
+			}))
 			const domains = yield* session.values(
 				`SELECT pg_input_is_valid($1::text, $2::text), pg_input_is_valid($3::text, $4::text)`,
 				[row.p, domainOf(pattern.domain), `${row.u}`, domainOf(units.domain)]
@@ -509,9 +518,14 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 				continue
 			}
 			admitted.push([id, row.item])
-			if (!ofGen.ok || !ofAll.ok || !ofSelection.ok) {
+			if (!asGen.ok || !ofGen.ok || !ofAll.ok || !ofSelection.ok) {
 				return assert.fail(`the host admits ${at}, inside its domains`)
 			}
+			assert.ok(
+				evaluate(built.selected, asGen.value).generated.g ===
+					evaluate(Gen, asGen.value).generated.g,
+				`two sources of Gen over one admitted row share the item both read, g at ${at}`
+			)
 			assert.deepEqual(
 				ofRefined,
 				closedEvaluation,
@@ -631,13 +645,27 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 		}
 		const { c } = built
 		const closedRows = [
-			...Arr.map(c.Kind.handles, (id) => evaluate(c.Kind, { id })),
-			...Arr.map(c.Flag.handles, (id) => evaluate(c.Flag, { id })),
-			...Arr.map(c.Pick.rows, (row) => evaluate(c.Pick, row)),
-			...Arr.map(c.Wt.rows, (row) => evaluate(c.Wt, row)),
-			...Arr.map(c.Succ.rows, (row) => evaluate(c.Succ, row)),
-			...Arr.map(c.Next.rows, (row) => evaluate(c.Next, row)),
-			...Arr.map(c.Allowed.rows, (row) => evaluate(c.Allowed, row))
+			...Arr.map(c.Kind.handles, (id) =>
+				mapResult(evaluate.admit(c.Kind, { id }), (admitted) => evaluate(c.Kind, admitted))
+			),
+			...Arr.map(c.Flag.handles, (id) =>
+				mapResult(evaluate.admit(c.Flag, { id }), (admitted) => evaluate(c.Flag, admitted))
+			),
+			...Arr.map(c.Pick.rows, (row) =>
+				mapResult(evaluate.admit(c.Pick, row), (admitted) => evaluate(c.Pick, admitted))
+			),
+			...Arr.map(c.Wt.rows, (row) =>
+				mapResult(evaluate.admit(c.Wt, row), (admitted) => evaluate(c.Wt, admitted))
+			),
+			...Arr.map(c.Succ.rows, (row) =>
+				mapResult(evaluate.admit(c.Succ, row), (admitted) => evaluate(c.Succ, admitted))
+			),
+			...Arr.map(c.Next.rows, (row) =>
+				mapResult(evaluate.admit(c.Next, row), (admitted) => evaluate(c.Next, admitted))
+			),
+			...Arr.map(c.Allowed.rows, (row) =>
+				mapResult(evaluate.admit(c.Allowed, row), (admitted) => evaluate(c.Allowed, admitted))
+			)
 		]
 		for (const evaluation of closedRows) {
 			assert.deepEqual(
@@ -648,7 +676,9 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 		}
 		const hostPicked = Rec.fromEntries(
 			Arr.map(c.Pick.rows, (row) => {
-				const evaluation = evaluate(built.pickSelected, row)
+				const evaluation = mapResult(evaluate.admit(c.Pick, row), (admitted) =>
+					evaluate(built.pickSelected, admitted)
+				)
 				return evaluation.ok
 					? ([
 							row.kind,

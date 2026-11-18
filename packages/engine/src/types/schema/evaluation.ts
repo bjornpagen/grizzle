@@ -73,8 +73,31 @@ export interface RowEvaluation<S, R> {
 	readonly selected: Result<boolean, Unevaluated>
 }
 
-/** The host's evaluation of one row of a source of S (program/evaluate.ts rowEvaluator). */
-export type RowEvaluator<S> = <Src extends RowSource<S>>(
-	source: Src,
-	row: EvaluatedRow<SourceRelation<Src>>
-) => Result<RowEvaluation<S, SourceRelation<Src>>, DomainRefused<SourceRelation<Src>>>
+/**
+ * A row of R its relation's domains admit (program/evaluate.ts rowEvaluator's admit): `row` the row as the caller stated
+ * it, every value of a refined field inside its type's contract and patterns, as PostgreSQL holds the row before it
+ * computes anything of it. Only admit makes one, and each source of R evaluates it, so its domains are judged once.
+ */
+export interface AdmittedRow<R> {
+	readonly row: EvaluatedRow<R>
+	readonly [admittedOf]: R
+}
+
+/** The brand an admitted row rides under, which no value holds and only rowEvaluator's admit mints. */
+declare const admittedOf: unique symbol
+
+/**
+ * The host's evaluation of rows of S's sources (program/evaluate.ts rowEvaluator): `admit(R, row)` holds a row of R to
+ * its domains once, DomainRefused or the admitted row; the evaluator itself evaluates an admitted row of R as a row of
+ * any source of R, each item computed where it is first read and shared by every source of R over the admitted row.
+ */
+export interface RowEvaluator<S> {
+	<Src extends RowSource<S>>(
+		source: Src,
+		row: AdmittedRow<SourceRelation<Src>>
+	): RowEvaluation<S, SourceRelation<Src>>
+	readonly admit: <R extends RelationOf<S>>(
+		relation: R,
+		row: EvaluatedRow<R>
+	) => Result<AdmittedRow<R>, DomainRefused<R>>
+}
