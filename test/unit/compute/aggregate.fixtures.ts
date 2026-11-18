@@ -11,7 +11,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { computeNodes, type NativeFn, nativeOps } from "#compiler/scalar/compute/registry.ts"
+import { computeSpecs, type NativeFn, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { nonEmpty } from "#test/support/assert.ts"
@@ -90,7 +90,7 @@ export const numericLeaves = element<Leaf>(["numeric(5,1) 1.0", "numeric(5,1) 0"
 
 /**
  * The description vocabulary the registry must cover: each node a Compute function lowers to (registry.ts
- * computeNodes), every comparison, the boolean connectives and a cast, each naming a registry node. (One OpId per node
+ * computeSpecs), every comparison, the boolean connectives and a cast, each naming a registry node. (One OpId per node
  * is the registry's own load-time invariant.)
  */
 export type VocabularyWord =
@@ -114,7 +114,7 @@ const comparisons: { readonly [W in CompareOp | "between" | "in"]: W } = {
 /** Each Compute function beside each node it lowers to. */
 const functionWords = nonEmpty(
 	Arr.flatMap(computeFns, (fn) =>
-		Arr.map(computeNodes[fn], (node): VocabularyWord => ({ kind: "function", fn, node }))
+		Arr.map(computeSpecs[fn].nodes, (node): VocabularyWord => ({ kind: "function", fn, node }))
 	),
 	"the nodes the Compute functions lower to"
 )

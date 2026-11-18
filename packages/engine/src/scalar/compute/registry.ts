@@ -1,5 +1,6 @@
 import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { deepFreeze } from "#compiler/core/record.ts"
 import type { ComputeFn } from "#compiler/ir/desc.ts"
 import {
 	type DefinedOp,
@@ -177,7 +178,7 @@ type CatalogRef =
 	| { readonly kind: "construct"; readonly uses: ReadonlyArray<OpId> }
 
 /**
- * The Compute operation a native node serves (computeNodes), the comparisons, the boolean constructs, the set algebra
+ * The Compute operation a native node serves (computeSpecs), the comparisons, the boolean constructs, the set algebra
  * over a roster, the text operations, a bytes value's digest and the casts; cond has no entry, it is the IR's cond node. The complement serves
  * only the difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it;
  * right serves only the suffix test, endsWith, replace and btrim only the whiteSpace collapse, and regexp_count only a
@@ -248,61 +249,69 @@ export type NativeFn =
 	| "cast"
 
 /**
- * The nodes each Compute function lowers to (lower.ts): the node of its own name, or the nodes it composes.
- * Compute.numeric is a cast into numeric, Compute.width a span's upper endpoint less its lower, Compute.singleton a
- * set with one more handle over the empty set. Total over ComputeFn, so a new function names its nodes where it is
- * added.
+ * What a Compute function is, one record each (computeSpecs): how many arguments it takes, a count or any number of
+ * one or more (least and greatest); whether a contract predicate or a row check admits it, which is whether the host
+ * evaluates its nodes for the ContractLiteral check (evaluate.ts), beside comparisons, boolean composition,
+ * Compute.cond, Compute.when and casts; and the nodes it lowers to (lower.ts), the node of its own name or the nodes it
+ * composes: Compute.numeric is a cast into numeric, Compute.width a span's upper endpoint less its lower,
+ * Compute.singleton a set with one more handle over the empty set.
  */
-export const computeNodes: { readonly [F in ComputeFn]: NonEmptyReadonlyArray<NativeFn> } =
-	Object.freeze({
-		add: ["add"],
-		sub: ["sub"],
-		mul: ["mul"],
-		div: ["div"],
-		mod: ["mod"],
-		neg: ["neg"],
-		quot: ["quot"],
-		rem: ["rem"],
-		abs: ["abs"],
-		sign: ["sign"],
-		round: ["round"],
-		trunc: ["trunc"],
-		ceil: ["ceil"],
-		floor: ["floor"],
-		gcd: ["gcd"],
-		lcm: ["lcm"],
-		power: ["power"],
-		sqrt: ["sqrt"],
-		least: ["least"],
-		greatest: ["greatest"],
-		widthBucket: ["widthBucket"],
-		minScale: ["minScale"],
-		numeric: ["cast"],
-		lower: ["lower"],
-		upper: ["upper"],
-		width: ["upper", "lower", "sub"],
-		charLength: ["charLength"],
-		octetLength: ["octetLength"],
-		utf16Length: ["utf16Length"],
-		concat: ["concat"],
-		startsWith: ["startsWith"],
-		endsWith: ["endsWith"],
-		matches: ["matches"],
-		translate: ["translate"],
-		lowerAscii: ["lowerAscii"],
-		collapse: ["collapse"],
-		parseDouble: ["parseDouble"],
-		parseDecimal: ["parseDecimal"],
-		sha256: ["sha256"],
-		cosineDistance: ["cosineDistance"],
-		union: ["union"],
-		intersection: ["intersection"],
-		difference: ["difference"],
-		cardinality: ["cardinality"],
-		subset: ["subset"],
-		disjoint: ["disjoint"],
-		singleton: ["adjoin"]
-	})
+export interface ComputeSpec {
+	readonly arity: number | "variadic"
+	readonly check: boolean
+	readonly nodes: NonEmptyReadonlyArray<NativeFn>
+}
+
+/** Every Compute function's spec, total over ComputeFn, so a new function states each fact where it is added. */
+export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFreeze({
+	add: { arity: 2, check: true, nodes: ["add"] },
+	sub: { arity: 2, check: true, nodes: ["sub"] },
+	mul: { arity: 2, check: true, nodes: ["mul"] },
+	div: { arity: 2, check: true, nodes: ["div"] },
+	mod: { arity: 2, check: true, nodes: ["mod"] },
+	neg: { arity: 1, check: true, nodes: ["neg"] },
+	quot: { arity: 2, check: false, nodes: ["quot"] },
+	rem: { arity: 2, check: false, nodes: ["rem"] },
+	abs: { arity: 1, check: true, nodes: ["abs"] },
+	sign: { arity: 1, check: true, nodes: ["sign"] },
+	round: { arity: 1, check: false, nodes: ["round"] },
+	trunc: { arity: 1, check: false, nodes: ["trunc"] },
+	ceil: { arity: 1, check: false, nodes: ["ceil"] },
+	floor: { arity: 1, check: false, nodes: ["floor"] },
+	gcd: { arity: 2, check: false, nodes: ["gcd"] },
+	lcm: { arity: 2, check: false, nodes: ["lcm"] },
+	power: { arity: 2, check: false, nodes: ["power"] },
+	sqrt: { arity: 1, check: false, nodes: ["sqrt"] },
+	least: { arity: "variadic", check: true, nodes: ["least"] },
+	greatest: { arity: "variadic", check: true, nodes: ["greatest"] },
+	widthBucket: { arity: 4, check: false, nodes: ["widthBucket"] },
+	minScale: { arity: 1, check: false, nodes: ["minScale"] },
+	numeric: { arity: 1, check: false, nodes: ["cast"] },
+	lower: { arity: 1, check: true, nodes: ["lower"] },
+	upper: { arity: 1, check: true, nodes: ["upper"] },
+	width: { arity: 1, check: true, nodes: ["upper", "lower", "sub"] },
+	charLength: { arity: 1, check: true, nodes: ["charLength"] },
+	octetLength: { arity: 1, check: true, nodes: ["octetLength"] },
+	utf16Length: { arity: 1, check: true, nodes: ["utf16Length"] },
+	concat: { arity: 2, check: true, nodes: ["concat"] },
+	startsWith: { arity: 2, check: true, nodes: ["startsWith"] },
+	endsWith: { arity: 2, check: true, nodes: ["endsWith"] },
+	matches: { arity: 2, check: true, nodes: ["matches"] },
+	translate: { arity: 3, check: true, nodes: ["translate"] },
+	lowerAscii: { arity: 1, check: true, nodes: ["lowerAscii"] },
+	collapse: { arity: 1, check: true, nodes: ["collapse"] },
+	parseDouble: { arity: 1, check: true, nodes: ["parseDouble"] },
+	parseDecimal: { arity: 1, check: true, nodes: ["parseDecimal"] },
+	sha256: { arity: 1, check: true, nodes: ["sha256"] },
+	cosineDistance: { arity: 2, check: false, nodes: ["cosineDistance"] },
+	union: { arity: 2, check: true, nodes: ["union"] },
+	intersection: { arity: 2, check: true, nodes: ["intersection"] },
+	difference: { arity: 2, check: true, nodes: ["difference"] },
+	cardinality: { arity: 1, check: true, nodes: ["cardinality"] },
+	subset: { arity: 2, check: true, nodes: ["subset"] },
+	disjoint: { arity: 2, check: true, nodes: ["disjoint"] },
+	singleton: { arity: 1, check: true, nodes: ["adjoin"] }
+})
 
 /** Operands of one carrier each, in order, at least one. */
 interface PositionalOperands<L extends NonEmptyReadonlyArray<Carrier>> {

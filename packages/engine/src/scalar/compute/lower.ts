@@ -135,6 +135,7 @@ import {
 	type CommonTypeFn,
 	type CommonTypeOp,
 	commonTypeOf,
+	computeSpecs,
 	digestText,
 	type FixedFn,
 	type FixedOp,
@@ -644,47 +645,6 @@ export const adoptedType = (t: ScalarType, role: Role): ScalarType => {
 	}
 	return withoutSpanWidth(v)
 }
-
-/**
- * The Compute operations a check admits beside comparisons, boolean composition, Compute.cond, Compute.when and casts:
- * the ones the host evaluates for the ContractLiteral check (evaluate.ts), so a literal is judged against every
- * predicate it meets.
- */
-const checkMembers: ReadonlySet<string> = new Set([
-	"add",
-	"sub",
-	"mul",
-	"div",
-	"mod",
-	"neg",
-	"abs",
-	"sign",
-	"charLength",
-	"octetLength",
-	"utf16Length",
-	"concat",
-	"startsWith",
-	"endsWith",
-	"matches",
-	"translate",
-	"lowerAscii",
-	"collapse",
-	"parseDouble",
-	"parseDecimal",
-	"sha256",
-	"lower",
-	"upper",
-	"width",
-	"union",
-	"intersection",
-	"difference",
-	"cardinality",
-	"subset",
-	"disjoint",
-	"singleton",
-	"least",
-	"greatest"
-])
 
 /** Money's range, a signed 64-bit count of minor units. */
 const moneyLow: Exact = exactOf(int8Min, moneyFractionDigits)
@@ -3719,62 +3679,15 @@ class Lowering<R extends Refs> {
 	): Lowered {
 		const { fn } = desc
 		const here = childLoc(at, fn)
-		if (this.check && !checkMembers.has(fn)) {
+		if (this.check && !computeSpecs[fn].check) {
 			return stop(
 				"UnsupportedOperation",
 				here,
 				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Compute.cond, Compute.when, casts, charLength, octetLength, utf16Length, span endpoints, greatest and the set algebra`
 			)
 		}
-		const arity: Readonly<Record<string, number | undefined>> = {
-			neg: 1,
-			abs: 1,
-			sign: 1,
-			round: 1,
-			trunc: 1,
-			ceil: 1,
-			floor: 1,
-			sqrt: 1,
-			minScale: 1,
-			numeric: 1,
-			lower: 1,
-			upper: 1,
-			width: 1,
-			charLength: 1,
-			octetLength: 1,
-			utf16Length: 1,
-			concat: 2,
-			startsWith: 2,
-			endsWith: 2,
-			matches: 2,
-			translate: 3,
-			lowerAscii: 1,
-			collapse: 1,
-			parseDouble: 1,
-			parseDecimal: 1,
-			sha256: 1,
-			add: 2,
-			sub: 2,
-			mul: 2,
-			div: 2,
-			mod: 2,
-			quot: 2,
-			rem: 2,
-			gcd: 2,
-			lcm: 2,
-			power: 2,
-			cosineDistance: 2,
-			union: 2,
-			intersection: 2,
-			difference: 2,
-			cardinality: 1,
-			subset: 2,
-			disjoint: 2,
-			singleton: 1,
-			widthBucket: 4
-		}
-		const expected = arity[fn]
-		if (expected !== undefined && desc.args.length !== expected) {
+		const expected = computeSpecs[fn].arity
+		if (expected !== "variadic" && desc.args.length !== expected) {
 			return stop(
 				"MalformedDescription",
 				here,
@@ -5086,7 +4999,7 @@ const run = <R extends Refs>(
  * The modes differ only in what they read:
  * - "query": queries and Compute outputs, which lower the predicates of other packages.
  * - "check": contract predicates and row checks, which read only their VALUE or row and admit the operations the host
- *   evaluates for the ContractLiteral check (checkMembers); float arithmetic, whose IEEE rendering binds operands in a
+ *   evaluates for the ContractLiteral check (registry.ts computeSpecs, check); float arithmetic, whose IEEE rendering binds operands in a
  *   subquery, and money arithmetic, which reads money through its STABLE cast, are refused there, since a CHECK holds
  *   neither.
  * - "build": a builder typing the term it constructs (builders.ts), before it knows where the term is used: query

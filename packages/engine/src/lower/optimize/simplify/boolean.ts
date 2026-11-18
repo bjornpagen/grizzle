@@ -14,17 +14,32 @@ import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import { connectiveOps, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 
-type Folded =
+type Folded = FoldedAs<ScalarExpr>
+
+/**
+ * A boolean expression folded (foldAs): its truth value, or the expression with every decided sub-term folded, which
+ * is the expression itself, one of its operands, or a node the fold rebuilt, of the form `E` its Rebuild makes.
+ */
+type FoldedAs<E> =
 	| { readonly kind: "value"; readonly value: boolean }
-	| { readonly kind: "expr"; readonly expr: ScalarExpr }
+	| { readonly kind: "expr"; readonly expr: ScalarExpr | E }
+
+/**
+ * How a fold rebuilds a connective over the operands it keeps: foldBoolean's editor records a node over them; folds,
+ * which asks only whether anything folds, marks that something did.
+ */
+type Rebuild<E> = (
+	like: Extract<ScalarExpr, { readonly kind: "op" }>,
+	args: ReadonlyArray<ScalarExpr | E>
+) => E
 
 /** An operator without the operand its arity needs, which validation leaves to the operator's builder. */
 const refusal = (loc: SourceLoc, capability: string): Refusal =>
 	new Refusal(malformedDescription(loc, capability))
 
 /** The position of the first operand that folded to `decider`, the value that decides its connective, if one did. */
-const decidingPart = (
-	parts: ReadonlyArray<{ readonly folded: Folded }>,
+const decidingPart = <E>(
+	parts: ReadonlyArray<{ readonly folded: FoldedAs<E> }>,
 	decider: boolean
 ): number | undefined => {
 	for (const [i, p] of parts.entries()) {
@@ -105,7 +120,11 @@ const boolLiteral = (editor: DagEditor, like: ScalarExpr, value: boolean): Scala
  *
  * Only a comparison of constants, or a connective, is decided here.
  */
-export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnValue): Folded => {
+export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnValue): Folded =>
+	foldAs(expr, column, (like, args) => editor.expr({ ...like, args }))
+
+/** foldBoolean over a Rebuild of its own: the one fold, which foldBoolean and folds each read. */
+const foldAs = <E>(expr: ScalarExpr, column: ColumnValue, rebuild: Rebuild<E>): FoldedAs<E> => {
 	if (expr.kind === "literal" && expr.value.kind === "bool") {
 		return { kind: "value", value: expr.value.value }
 	}
@@ -120,7 +139,7 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 		case "and":
 		case "or": {
 			const decider = op.fn === "or"
-			const parts = expr.args.map((a) => ({ arg: a, folded: foldBoolean(editor, a, column) }))
+			const parts = expr.args.map((a) => ({ arg: a, folded: foldAs(a, column, rebuild) }))
 			const decided = decidingPart(parts, decider)
 			if (decided !== undefined) {
 				return { kind: "value", value: decider }
@@ -138,7 +157,7 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 			if (kept.length === expr.args.length && kept.every((k, i) => k === expr.args[i])) {
 				return { kind: "expr", expr }
 			}
-			return { kind: "expr", expr: editor.expr({ ...expr, args: kept }) }
+			return { kind: "expr", expr: rebuild(expr, kept) }
 		}
 		case "not": {
 			const [operand] = expr.args
@@ -148,14 +167,14 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 					`an operand of ${describeOp(expr.op)}`
 				)
 			}
-			const inner = foldBoolean(editor, operand, column)
+			const inner = foldAs(operand, column, rebuild)
 			if (inner.kind === "value") {
 				return { kind: "value", value: !inner.value }
 			}
 			if (inner.expr === operand) {
 				return { kind: "expr", expr }
 			}
-			return { kind: "expr", expr: editor.expr({ ...expr, args: [inner.expr] }) }
+			return { kind: "expr", expr: rebuild(expr, [inner.expr]) }
 		}
 		case "eq":
 		case "ne":
@@ -227,90 +246,10 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 export const foldedExpr = (editor: DagEditor, e: ScalarExpr, folded: Folded): ScalarExpr =>
 	folded.kind === "expr" ? folded.expr : boolLiteral(editor, e, folded.value)
 
-/**
- * Whether folding changes `expr`: foldBoolean returns a value or another expression exactly when `expr` is a boolean
- * literal, a comparison it decides, a conjunction or disjunction of no operand, or a connective over an operand folding
- * changes. What foldBoolean returns folding leaves unchanged.
- */
+/** Whether folding changes `expr`: whether foldBoolean decides its value or returns another expression. */
 export const folds = (expr: ScalarExpr, column: ColumnValue): boolean => {
-	if (expr.kind === "literal") {
-		return expr.value.kind === "bool"
-	}
-	if (expr.kind !== "op") {
-		return false
-	}
-	const op = nativeOp(expr.op)
-	if (op === undefined) {
-		return false
-	}
-	switch (op.fn) {
-		case "and":
-		case "or":
-			return expr.args.length === 0 || expr.args.some((a) => folds(a, column))
-		case "not":
-			return expr.args.some((a) => folds(a, column))
-		case "eq":
-		case "ne":
-		case "lt":
-		case "le":
-		case "gt":
-		case "ge":
-		case "between":
-		case "in":
-			return compare(expr, op.fn, column) !== undefined
-		case "add":
-		case "sub":
-		case "mul":
-		case "div":
-		case "mod":
-		case "neg":
-		case "quot":
-		case "rem":
-		case "abs":
-		case "sign":
-		case "round":
-		case "trunc":
-		case "ceil":
-		case "floor":
-		case "gcd":
-		case "lcm":
-		case "power":
-		case "sqrt":
-		case "least":
-		case "greatest":
-		case "widthBucket":
-		case "minScale":
-		case "lower":
-		case "upper":
-		case "charLength":
-		case "octetLength":
-		case "utf16Length":
-		case "regexpCount":
-		case "concat":
-		case "startsWith":
-		case "endsWith":
-		case "right":
-		case "matches":
-		case "translate":
-		case "lowerAscii":
-		case "collapse":
-		case "replace":
-		case "btrim":
-		case "parseDouble":
-		case "parseDecimal":
-		case "sha256":
-		case "cosineDistance":
-		case "union":
-		case "intersection":
-		case "difference":
-		case "complement":
-		case "cardinality":
-		case "subset":
-		case "disjoint":
-		case "adjoin":
-		case "cast":
-			return false
-	}
+	const folded = foldAs(expr, column, () => "rebuilt" as const)
+	return folded.kind === "value" || folded.expr !== expr
 }
 
 /** The conjunction of `parts`, typed like `like`: the single part, or one `and` over all of them. */

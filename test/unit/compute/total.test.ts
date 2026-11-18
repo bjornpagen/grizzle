@@ -99,10 +99,10 @@ export const contractPredicateTablesAgreeWithTheQueryModesLoweringOfTheSamePredi
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
-				original: '\t"sign",',
-				replacement: '\t"sign",\n\t"round",',
-				why: "round is a member of a check's vocabulary, so a check admits it; the check fragment's property fails."
+				file: "packages/engine/src/scalar/compute/registry.ts",
+				original: '\tround: { arity: 1, check: false, nodes: ["round"] },',
+				replacement: '\tround: { arity: 1, check: true, nodes: ["round"] },',
+				why: "round's spec says a check admits it (registry.ts computeSpecs), so a check admits it; the check fragment's property fails."
 			}
 		]
 	})

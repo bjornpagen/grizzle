@@ -415,7 +415,7 @@ const signed = (
 }
 
 /**
- * The native operations a check admits (lower.ts checkMembers) applied to their evaluated operands, each a host value
+ * The native operations a check admits (registry.ts computeSpecs, check) applied to their evaluated operands, each a host value
  * of its operand's type and the result one of `type`, each defined on every value or where its proved precondition
  * holds: integer and money arithmetic exactly (an exact integer, exact money), numeric as numeric.c computes it, floats
  * as IEEE 754, comparisons, BETWEEN and IN by the type's order (comparisonHolds), NOT, char_length, a text's UTF-16 code
@@ -938,7 +938,7 @@ interface LiteralRefusal {
  * of a comparison, BETWEEN or IN over literals (lower/optimize/simplify/boolean.ts, by comparisonHolds), a constant
  * subterm of a persistent expression (physical/ddl/expr.ts), and a write's fills and witness over its rows
  * (runtime/write/fill.ts, runtime/write/witness.ts). A contract predicate reads only its VALUE through a check's
- * vocabulary (lower.ts checkMembers), whose every operation is total or proved where it stands, so its evaluation never
+ * vocabulary (registry.ts computeSpecs, check), whose every operation is total or proved where it stands, so its evaluation never
  * meets an undefined operation, and this evaluator covers exactly that: comparisons, BETWEEN, IN, boolean composition,
  * integer arithmetic exactly, money exactly, numeric as numeric.c computes it, floats as IEEE 754, abs, sign and neg,
  * gcd and lcm of integers, char_length, a text's concatenation, prefix and suffix tests, regex match and translation,
