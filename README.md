@@ -2635,12 +2635,13 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 | aggregate | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`; a min or max is one of its values, at its type, contract included |
 | combine | a second `.rule(...)`, the union of both rules' rows. Rules of different columns need a constant that tells them apart; a rule with an attachment shares its columns with no other. A take or attachment over a union of several headings is no rule of a further union, takes once and is never paged |
 | nest | `.attach(name, (parent) => child, delivery)`, delivery `"array"`, `"option"`, `"one"` or `arm(field, name)` |
+| read several queries at once | `query(S).reads({ name: query, ... })`: one row holding each query's rows under its name, in one statement ([Nearest rows](#nearest-rows)) |
 | order and limit | `.orderBy(["title", "asc"])`, then `.take(10)`, `.take("batch")` for an integer parameter, or a `paged(query)` member's windows |
 | recurse | `query(S).recursive(...)` |
 | compare spans | `r.allen` with `ALLEN` masks, `r.pointIn`, `r.intersection`, `r.difference`, `r.pack` |
 | compute | `Compute.add`, `Compute.mul`, `Compute.round`, `Compute.cond`, `Compute.when` and the rest of `Compute` |
 | match text | `Compute.matches(x, pattern)`, `Compute.startsWith`, `Compute.endsWith`; `Compute.concat` in checks |
-| search vectors | `.approximateNearest(...)`, with pgvector |
+| search vectors | `.approximateNearest(...)`, with pgvector, from a parameter's vector or a stored row's ([Nearest rows](#nearest-rows)) |
 
 ### Differences from SQL
 
@@ -2735,6 +2736,47 @@ export const sold = query(BoxOffice)
 ```
 
 Its rows are `{ show: Uuid; sold: bigint }`, one per show, since `0n` takes the count's type, bigint.
+
+### Nearest rows
+
+```ts
+import { Compute } from "@bjornpagen/grizzle"
+
+export const Missed = relation("Missed", { id: uuid, embedding: pg.vector(1536) }, ["id"])
+export const Lesson = relation("Lesson", { id: uuid, catalog: uuid, embedding: pg.vector(1536) }, [
+	"id"
+])
+export const Seen = relation("Seen", { learner: uuid, lesson: uuid }, ["learner", "lesson"])
+export const Tutor = schema("Tutor", [Missed, Lesson, Seen], [])
+
+/** The twenty lessons of a catalog nearest a missed question's stored embedding, the question named by its key. */
+export const nearMissed = query(Tutor)
+	.rule((r) => {
+		const { id, catalog, embedding } = v(Lesson, "lesson")
+		const missed = v(Missed, "missed")
+		return r
+			.match(Missed, { id: r.param("missed", Missed.fields.id), embedding: missed.embedding })
+			.match(Lesson, { id, catalog, embedding })
+			.where(r.eq(catalog, r.param("catalog", Lesson.fields.catalog)))
+			.find({ lesson: id, distance: Compute.cosineDistance(embedding, missed.embedding) })
+	})
+	.approximateNearest({ by: "distance", take: 20 })
+
+/** The lessons a learner has seen. */
+export const seenBy = query(Tutor).rule((r) => {
+	const { lesson } = v(Seen, "seen")
+	return r
+		.match(Seen, { learner: r.param("learner", Seen.fields.learner), lesson })
+		.find({ lesson })
+})
+
+/** Both reads of a step, in one statement. */
+export const stepReads = query(Tutor).reads({ nearest: nearMissed, seen: seenBy })
+```
+
+`.approximateNearest({ by, take })` searches one rule's rows, nearest first by `by`, a `Compute.cosineDistance` between a vector the rule matches and one query vector, through the HNSW index the workload's search requests, at most `take` of them. The query vector is one value for the whole statement: a parameter, a literal, or a field of a match whose whole key the rule fixes to parameters or literals, in the match or by a `where` equality, `Missed` matched by its `id` above, which holds at most one row, so its fields are its row's. The statement reads that row by its key once, before the search, in a subquery PostgreSQL runs as an InitPlan, so the index orders by the stored vector as it orders by a parameter, in one scan. A key that holds no row leaves no candidates, an empty answer and no error, and the scan then never runs.
+
+`query(S).reads({ ... })` is a record of named queries as one query of exactly one row, which holds each query's rows under its name, an array in that query's own order: its `orderBy` or `take`, otherwise its key. `stepReads`' row is `{ nearest: ReadonlyArray<{ lesson: Uuid; distance: number }>; seen: ReadonlyArray<{ lesson: Uuid }> }`. Each query's parameters are its own under its name, `"nearest.missed"`, `"nearest.catalog"` and `"seen.learner"`, so two reads never share one by its name. The record is one statement, whatever its queries are, searches among them, so its queries read one snapshot under any isolation, and its `explain` plans that one statement. It is a query like any other: `deferrable(stepReads)` is a member of a workload. Each query is an attachment of the unit row, the one row of no columns `r.find({})` holds, and an attachment under a parent of no columns reads none of its columns; under any other parent, an attachment that reads none of the parent's columns is refused with `AttachedParentUnbound`.
 
 ## Reading
 

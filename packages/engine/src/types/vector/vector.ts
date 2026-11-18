@@ -46,8 +46,8 @@ export type Scored<A, B> = Phantom<{ readonly scored: readonly [A, B] }>
 
 /**
  * The head fields an approximate search over one rule's head of carriers Hc may rank by, as the checker traces `by`
- * (check/approximate/trace.ts): a cosineDistance output between a column of a matched relation and one query vector,
- * a parameter or a constant, in either order. Any other number, a distance of two columns among them, ranks nothing.
+ * (check/approximate/trace.ts): a cosineDistance output between a column of a matched relation and one query vector, in
+ * either order. Any other number, a distance of two columns of one scope among them, ranks nothing.
  */
 type DistanceFieldsOf<Hc> = {
 	readonly [K in keyof Hc]-?: Hc[K] extends Scored<infer A, infer B>
@@ -58,14 +58,27 @@ type DistanceFieldsOf<Hc> = {
 }[keyof Hc] &
 	string
 
-/** What a search's query vector is: a parameter, a JavaScript value or a typed constant, read once per execution. */
-type QueryVector = ParamOrigin | LiteralOrigin | ConstantOrigin
+/** What a search's query vector is that reads no row: a parameter, a JavaScript value or a typed constant. */
+type InputVector = ParamOrigin | LiteralOrigin | ConstantOrigin
 
-/** Whether one operand of a distance is a column and the other a query vector. */
-type OneColumn<A, B> = [A, B] extends [Origin, QueryVector]
+/**
+ * Whether one operand of a distance is a column and the other a query vector, read once per execution: an input
+ * (InputVector), or a column of another scope of the rule, a field of a match the checker must prove holds at most one
+ * row, its declared key fixed to inputs (check/approximate/trace.ts Anchor), which no type here states.
+ */
+type OneColumn<A, B> = [A] extends [Origin<string, string, infer N>]
+	? QueryOf<B, N>
+	: [B] extends [Origin<string, string, infer N>]
+		? QueryOf<A, N>
+		: false
+
+/** Whether Q is a query vector beside a column of the scope N: an input, or a column of another scope. */
+type QueryOf<Q, N> = [Q] extends [InputVector]
 	? true
-	: [A, B] extends [QueryVector, Origin]
-		? true
+	: [Q] extends [Origin<string, string, infer M>]
+		? [M] extends [N]
+			? false
+			: true
 		: false
 
 /** A sealed candidate source of at most `take` facts, the nearest by `by`, a distance field of the source's carriers. */

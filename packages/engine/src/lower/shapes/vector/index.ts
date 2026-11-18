@@ -2,16 +2,20 @@ import { attachmentRefusal } from "#compiler/check/approximate/attach.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import { approximateMisuse } from "#compiler/check/approximate/provenance.ts"
 import {
+	type Anchor,
 	type ApproximateTrace,
 	outerReads,
 	outerRefusal,
+	type QueryVector,
 	traceApproximate
 } from "#compiler/check/approximate/trace.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import type { NodeId } from "#compiler/core/ids.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type CertificateRule, makeCertificate } from "#compiler/ir/certificate.ts"
 import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import {
+	type ColumnMap,
 	columnIn,
 	type Env,
 	extendEnv,
@@ -23,7 +27,7 @@ import {
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type { ShapeFacts, Unique } from "#compiler/lower/shapes/share/physical.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import type { Expr, OrderItem } from "#compiler/sql/ast.ts"
+import type { Expr, FromSource, OrderItem } from "#compiler/sql/ast.ts"
 import {
 	asc,
 	conjunction,
@@ -200,29 +204,31 @@ export const approximateLowerer =
 		const scope = extendEnv(env, [[projection.input.id, input.map]])
 		/** The traced column is the score's column reference, a column of the projection's input (valid DAG). */
 		const column = columnIn(input.map, trace.column)
-		const distance: Expr = {
+		const queried = queryVectorSql(cx, env, trace.projection.input.id, trace.query, scope)
+		/** The distance where it stands, a target and the order's first item, each its own tree (queryVectorSql). */
+		const distanceAt = (): Expr => ({
 			kind: "binary",
 			op: hnswPolicy.operator,
 			left: column,
-			right: lowerExpr(cx, trace.query, scope),
+			right: queried.vector(),
 			schema: cx.names.vectorSchema
-		}
+		})
 		/**
 		 * The projected terms by name: the heading of the search, of its source and of every filter and negation the
 		 * trace passes is the projection's (valid DAG).
 		 */
 		const outputs = new Map<string, Expr>()
 		for (const o of projection.out) {
-			outputs.set(o.name, o.name === node.score ? distance : lowerExpr(cx, o.expr, scope))
+			outputs.set(o.name, o.name === node.score ? distanceAt() : lowerExpr(cx, o.expr, scope))
 		}
 		const expr = (name: string): Expr => columnIn(outputs, name)
-		const where = eligibility(cx, env, trace, outputs, at)
+		const where = [...queried.guard, ...eligibility(cx, env, trace, outputs, at)]
 		const unique = uniqueSource(facts, node, [projection, ...trace.upper])
 		const constant = new Set(
 			projection.out.filter((o) => o.expr.deps.nodes.length === 0).map((o) => o.name)
 		)
 		const orderBy: ReadonlyArray<OrderItem> = [
-			asc(distance),
+			asc(distanceAt()),
 			...tieColumns(facts, node, unique, constant).map((c) => asc(expr(c)))
 		]
 		certify(facts, node, unique === undefined ? "deduplicated" : "indexed")
@@ -239,6 +245,114 @@ export const approximateLowerer =
 			limit: cx.boundExpr({ kind: "literal", k: node.take })
 		}
 	}
+
+/**
+ * The anchors a keyed query vector reads (check/approximate/trace.ts Anchor), lowered as the parts of a subquery: each
+ * anchor's source read as a derived table; its constants, and the rule's conjuncts that fix a variable it binds, as
+ * conditions over its own columns; and each variable the vector reads as the column of its anchor that binds it, by
+ * name.
+ */
+const anchorRows = (
+	cx: LowerContext,
+	env: Env,
+	anchors: NonEmptyReadonlyArray<Anchor>
+): {
+	readonly from: NonEmptyReadonlyArray<FromSource>
+	readonly where: ReadonlyArray<Expr>
+	readonly columns: ReadonlyMap<string, Expr>
+} => {
+	const inner = cx.inSublink()
+	const placed = mapNonEmpty(anchors, (anchor) => ({
+		anchor,
+		source: inner.source(anchor.occurrence.source, env)
+	}))
+	return {
+		from: mapNonEmpty(placed, (p) => p.source.item),
+		where: placed.flatMap(({ anchor, source }) => {
+			/** The anchor's variables as its own columns: what a fixing conjunct reads of the filter's input. */
+			const bound: ColumnMap = new Map(
+				anchor.occurrence.bindings.map((b) => [b.var.name, columnIn(source.map, b.column)] as const)
+			)
+			return [
+				...anchor.occurrence.constants.map((c) =>
+					inner.equal(
+						columnType(anchor.occurrence.source.heading, c.column),
+						columnIn(source.map, c.column),
+						lowerExpr(inner, c.expr, env)
+					)
+				),
+				...anchor.conditions.map((f) =>
+					lowerExpr(inner, f.conjunct, extendEnv(env, [[f.node, bound]]))
+				)
+			]
+		}),
+		columns: new Map(
+			placed.flatMap(({ anchor, source }) =>
+				anchor.reads.map((r) => [r.name, columnIn(source.map, r.column)] as const)
+			)
+		)
+	}
+}
+
+/**
+ * The query vector as the search's ORDER BY reads it, and the guard the search's WHERE holds beside it. The vector is
+ * built anew where it stands (the projected distance, the order), since a subquery's aliases name one place each.
+ *
+ * - A constant vector is its own expression over `scope`, a placeholder or a literal, and guards nothing.
+ * - A keyed vector is read from the stored rows of its anchors, by their keys, in an uncorrelated scalar subquery,
+ *   `(SELECT e.embedding FROM item_vector e WHERE e.item = $1)`, which PostgreSQL evaluates once, as an InitPlan, before
+ *   the scan: a value that reads no row of the scan, so the HNSW index orders by `<=>` against it as against a
+ *   placeholder. The rule's region still matches the anchors, so an anchor that holds no row leaves the region, and the
+ *   search, empty. The guard states that emptiness in the plan: `EXISTS (SELECT 1 FROM item_vector e WHERE e.item =
+ *   $1)`, uncorrelated, which PostgreSQL plans as a one-time filter above the scan. Without it an absent key leaves the
+ *   subquery NULL, and pgvector scans the graph with a NULL vector, every distance zero, until hnsw.max_scan_tuples,
+ *   each row rejected by the region's join: measured on PostgreSQL 19 with pgvector 0.8.7 over 50,000 vectors of four
+ *   dimensions, 2,793 index rows and 43,325 shared buffers for an empty answer; with it the scan is never executed.
+ *   The anchors' variables are one value in every row of a region that holds any, so the subquery's one row is every
+ *   row's vector.
+ */
+const queryVectorSql = (
+	cx: LowerContext,
+	env: Env,
+	input: NodeId,
+	query: QueryVector,
+	scope: Env
+): { readonly vector: () => Expr; readonly guard: ReadonlyArray<Expr> } => {
+	switch (query.kind) {
+		case "constant": {
+			const vector = lowerExpr(cx, query.expr, scope)
+			return { vector: () => vector, guard: [] }
+		}
+		case "keyed": {
+			const vector = (): Expr => {
+				const read = anchorRows(cx, env, query.anchors)
+				return {
+					kind: "subquery",
+					query: simpleSelect(
+						[
+							target(lowerExpr(cx.inSublink(), query.expr, extendEnv(env, [[input, read.columns]])))
+						],
+						read.from,
+						conjunction(read.where)
+					)
+				}
+			}
+			const witness = anchorRows(cx, env, query.anchors)
+			return {
+				vector,
+				guard: [
+					exists(
+						simpleSelect(
+							[target(lit.int(1, types.integer))],
+							witness.from,
+							conjunction(witness.where)
+						)
+					)
+				]
+			}
+		}
+	}
+}
 
 /**
  * The rule's filters and negations above its projection, bottom-up, as conditions of the search's own WHERE over the

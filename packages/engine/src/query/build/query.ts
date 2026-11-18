@@ -1,16 +1,19 @@
-import { headingsOf, oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
+import { decoderOf, headingsOf, oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { parseNameCharacters } from "#compiler/core/identity.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { deepFreeze, isList, isPlainRecord } from "#compiler/core/record.ts"
-import type {
-	FieldDesc,
-	OrderDesc,
-	QueryDesc,
-	QueryStageDesc,
-	TakeDesc
+import {
+	type FieldDesc,
+	type OrderDesc,
+	type QueryDesc,
+	type QueryStageDesc,
+	queryParamNames,
+	renameQueryParams,
+	type TakeDesc
 } from "#compiler/ir/desc.ts"
 import type { BuilderScope, OpenBound, OpenExpr, VarScope } from "#compiler/ir/open.ts"
 
@@ -31,7 +34,7 @@ import {
 	withAttachment
 } from "#compiler/query/build/heading.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
-import { type RuleRun, runRule } from "#compiler/query/build/rule.ts"
+import { type RuleRun, type RuleValue, runRule } from "#compiler/query/build/rule.ts"
 import {
 	isCallback,
 	isObjectRecord,
@@ -79,6 +82,7 @@ import {
 	mint,
 	record,
 	sameHeadingRecord,
+	unitHeading,
 	carrierUnion as unionCarriers
 } from "#compiler/schema/record.ts"
 import type { Carrier, Carriers, Headed, Term } from "#compiler/types/core/phantom.ts"
@@ -91,6 +95,9 @@ import type {
 	Query,
 	QueryBuilder,
 	QueryConstructor,
+	ReadsCarriers,
+	ReadsChildren,
+	ReadsQuery,
 	ScopeName,
 	SelfSource,
 	UnionArms,
@@ -699,9 +706,72 @@ const builderOf = <S>(info: SchemaInfo): QueryBuilder<S> => {
 				state,
 				grouped([{ kind: "carried", carriers: spec.row, decoders: { rows, immediate: rows } }])
 			)
-		}
+		},
+		reads: (reads) => readsOf(info, reads)
 	}
 	return Object.freeze(builder)
+}
+
+/**
+ * query(S).reads(record): a record of named queries as one query of one row, the representation of several reads in
+ * one snapshot. The row is the unit rule's, `r.find({})`, a rule that matches nothing and so holds exactly one row of no
+ * columns, and each query is attached to it under its name as an array (Query.attach), its parameters renamed into the
+ * name's namespace (namespaced). An attachment under a parent of no columns reads none of its parent, and needs none
+ * (check/checker.ts #attach), so no new node, stage or lowering stands behind it: the query is one statement, whatever
+ * its queries are, and its queries read the one snapshot of that statement under any isolation. Its records decode
+ * as the attachments' do, under the type ReadsQuery states of them (core/decoder.ts decoderOf). A record that is no plain
+ * object, or holds a value that is no query or ordered query, throws CompileError MalformedDescription.
+ */
+const readsOf = <S, R extends ReadsChildren>(info: SchemaInfo, reads: R): ReadsQuery<S, R> => {
+	const label = "query.reads"
+	hostArguments(label, [reads])
+	if (!isPlainRecord(reads)) {
+		throw malformed(label, "a record of named queries, each a query or an ordered query")
+	}
+	const view: QueryBuilderValue = builderOf(info)
+	const unit = view.rule((r: RuleValue) => r.find({}))
+	const attached = Object.keys(reads).reduce<QueryValue>(
+		(parent, name) => parent.attach(name, () => namespaced(reads[name], name, label), "array"),
+		unit
+	)
+	const state = defined(queryState(attached), "an attached query has its builder state")
+	return queryOf(
+		makeState(info, state.desc.stage, state.pending, state.heading, {
+			kind: "typed",
+			carriers: unitHeading<ReadsCarriers<R>>()
+		}),
+		grouped([
+			{
+				kind: "decoded",
+				decoders: {
+					rows: decoderOf(attached.rows.form),
+					immediate: decoderOf(attached.immediate.form)
+				}
+			}
+		])
+	)
+}
+
+/**
+ * The query `child` under the name `name` of a record of reads: the same query, each of its own parameters `p` renamed
+ * `${name}.${p}` (ir/desc.ts renameQueryParams), so two reads of one record never share a parameter by sharing its
+ * name, and its records decoded by its own decoders.
+ */
+const namespaced = (child: unknown, name: string, label: string): QueryValue | OrderedValue => {
+	const state = queryState(child)
+	if (state === undefined || !(isQueryValue(child) || isOrderedValue(child))) {
+		throw malformed(label, `${name}: a query or an ordered query built with query(S)`)
+	}
+	const desc = publicDesc(state, label)
+	const renamed = renameQueryParams(
+		desc,
+		new Map([...queryParamNames(desc)].map((p) => [p, `${name}.${p}`] as const))
+	)
+	const named = makeState(state.schema, renamed.stage, state.pending, state.heading, state.carriers)
+	const records = grouped([
+		{ kind: "decoded", decoders: { rows: child.rows, immediate: child.immediate } }
+	])
+	return isOrdered(named) ? orderedOf(named, records) : queryOf(named, records)
 }
 
 /**

@@ -204,7 +204,7 @@ export const accountB = uuidOf(0xb, 1)
 export const accountC = uuidOf(0xc, 1)
 
 /** A xorshift32 generator. */
-const generator = (seed: number) => {
+export const generator = (seed: number) => {
 	const unsigned = seed >>> 0
 	let state = unsigned === 0 ? 1 : unsigned
 	return (): number => {
@@ -218,7 +218,7 @@ const generator = (seed: number) => {
 }
 
 /** A unit vector of binary32 components, written as the shortest text of each binary32 value. */
-const unitVector = (next: () => number): ReadonlyArray<number> => {
+export const unitVector = (next: () => number): ReadonlyArray<number> => {
 	const raw = Array.from({ length: dimensions }, () => next() * 2 - 1)
 	const norm = Math.sqrt(Arr.reduce(raw, 0, (s, x) => s + x * x))
 	return Arr.map(raw, (x) => Math.fround(x / norm))

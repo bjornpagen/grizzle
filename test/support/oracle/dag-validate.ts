@@ -1872,7 +1872,7 @@ class Checker {
 		const parent = this.headingOf(node.parent)
 		const childNode = nodeAt(this.table, node.child)
 		this.requireHeading(node, parent, "its parent (the parent set is unchanged)")
-		if (node.correlation.length === 0) {
+		if (node.correlation.length === 0 && parent?.length !== 0) {
 			this.report(
 				"an attachment binds a parent variable",
 				path,
@@ -2703,7 +2703,8 @@ const conformed = (table: DagTable): DagTable => {
  * - every node's heading is the one its kind defines from its inputs, and its column references exist there; a union of
  *   several heading groups has a discriminant that every arm binds to a literal, with differing literal tuples for arms
  *   of different headings (MissingDiscriminant); a Group's aggregates read only columns of its bound tuple; an
- *   attachment binds a parent variable (AttachedParentUnbound) and delivers no narrower shape than its child's
+ *   attachment under a parent of columns binds a parent variable (AttachedParentUnbound), a child under a parent of
+ *   no columns being its own result beside the parent's one row, and delivers no narrower shape than its child's
  *   evidence admits; a Recursive's origin fields lie in its state heading;
  * - literals are compared under native equality (nativeEqualityKey): numeric scale and float zero sign ignored;
  * - every order a node depends on for its rows is a completed total order: Take, OrderedResult, an attachment's order

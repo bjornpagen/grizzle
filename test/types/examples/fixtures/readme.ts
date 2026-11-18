@@ -7,6 +7,7 @@ import {
 	type AnySchema,
 	arm,
 	ChangeSet,
+	Compute,
 	check,
 	clocked,
 	closed,
@@ -967,6 +968,38 @@ export const sold = query(BoxOffice)
 			.where(r.not(Ticket, { show: id }))
 			.find({ show: id, sold: 0n })
 	})
+
+/** README: "Queries", nearest rows. */
+export const Missed = relation("Missed", { id: uuid, embedding: pg.vector(1536) }, ["id"])
+export const Lesson = relation("Lesson", { id: uuid, catalog: uuid, embedding: pg.vector(1536) }, [
+	"id"
+])
+export const Seen = relation("Seen", { learner: uuid, lesson: uuid }, ["learner", "lesson"])
+export const Tutor = schema("Tutor", [Missed, Lesson, Seen], [])
+
+/** The twenty lessons of a catalog nearest a missed question's stored embedding, the question named by its key. */
+export const nearMissed = query(Tutor)
+	.rule((r) => {
+		const { id, catalog, embedding } = v(Lesson, "lesson")
+		const missed = v(Missed, "missed")
+		return r
+			.match(Missed, { id: r.param("missed", Missed.fields.id), embedding: missed.embedding })
+			.match(Lesson, { id, catalog, embedding })
+			.where(r.eq(catalog, r.param("catalog", Lesson.fields.catalog)))
+			.find({ lesson: id, distance: Compute.cosineDistance(embedding, missed.embedding) })
+	})
+	.approximateNearest({ by: "distance", take: 20 })
+
+/** The lessons a learner has seen. */
+export const seenBy = query(Tutor).rule((r) => {
+	const { lesson } = v(Seen, "seen")
+	return r
+		.match(Seen, { learner: r.param("learner", Seen.fields.learner), lesson })
+		.find({ lesson })
+})
+
+/** Both reads of a step, in one statement. */
+export const stepReads = query(Tutor).reads({ nearest: nearMissed, seen: seenBy })
 
 /** README: "Reading", the database's clock. */
 /** The calls that ran at or before the database's instant. */

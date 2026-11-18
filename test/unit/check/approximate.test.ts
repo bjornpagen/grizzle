@@ -32,7 +32,9 @@ export const approximateNearestAdmitsExactlyASearchWhoseOneRuleReadOncePerExecut
 			"refused, an attachment binding its parent",
 			"admitted, the query",
 			"admitted, an import bound to a parameter",
-			"admitted at HNSW's bound"
+			"admitted at HNSW's bound",
+			"admitted, a keyed vector",
+			"admitted, a vector its where keys"
 		] satisfies ReadonlyArray<Reached<EligibilityFeature>>,
 		check: (_, k: Case<EligibilityFeature>) => (c) =>
 			Effect.sync(() => {
@@ -59,6 +61,9 @@ export const approximateNearestAdmitsExactlyASearchWhoseOneRuleReadOncePerExecut
 				if (c.dimensions === hnswPolicy.maxDimensions) {
 					k.note("admitted at HNSW's bound")
 				}
+				if (c.score === "a keyed vector" || c.score === "a vector its where keys") {
+					k.note(`admitted, ${c.score}`)
+				}
 				const q = succeeded(result, "the eligible search")
 				assert.equal(searches(q.dag).length, 1, "one sealed search")
 			}),
@@ -77,6 +82,25 @@ export const approximateNearestAdmitsExactlyASearchWhoseOneRuleReadOncePerExecut
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/check/approximate/trace.ts",
+				original: "\treturn anchorKeys(o.source).some((k) => k.every((field) => fixed.has(field)))",
+				replacement:
+					"\treturn anchorKeys(o.source).some((k) => k.some((field) => fixed.has(field)))",
+				why: "A match that fixes part of its source's key is taken for one row, so a search ranks by the vector of one of many G rows (check/approximate/trace.ts anchorOf); the eligibility property fails."
+			},
+			{
+				file: "packages/engine/src/check/approximate/trace.ts",
+				original: "\t\tif (anchor === undefined || unanchored) {",
+				replacement: "\t\tif (unanchored) {",
+				why: "A query vector read from any match is taken for a statement constant, so a distance between two stored vectors is admitted (check/approximate/trace.ts queryVectorOf); the eligibility property fails."
+			},
+			{
+				file: "packages/engine/src/check/approximate/trace.ts",
+				original: "\t\t\t\t\treturn [...fixed(a, b), ...fixed(b, a)]",
+				replacement: "\t\t\t\t\treturn []",
+				why: "A key a `where` fixes is not seen, so a search by the vector of the one G a rule's equalities key is refused (check/approximate/trace.ts fixingConjuncts); the eligibility property fails."
+			},
 			{
 				file: "packages/engine/src/check/approximate/trace.ts",
 				original: "\tif (dimensions > hnswPolicy.maxDimensions) {",

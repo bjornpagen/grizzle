@@ -792,7 +792,9 @@ const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
  * - An attachment is an Attach whose child delivers its correlation columns beside its heading: each parent variable the
  *   child reads becomes a variable of the child's rules, bound where a match binds it and correlated to the parent row
  *   otherwise, delivered under one name by every arm and correlated by the Attach. A child that reads no
- *   parent variable is AttachedParentUnbound; a page over a query correlated to a parent is AttachedPage.
+ *   parent variable of a parent with columns is AttachedParentUnbound, a cross product; under a parent of no columns,
+ *   which holds at most one row, it is its own result (query(S).reads); a page over a query correlated to a parent is
+ *   AttachedPage.
  *   Delivered types start at ReadonlyArray; analysis/logical narrows them by evidence.
  * - An imported query is checked in its own scope: its parameters are not the importer's but
  *   are bound by its complete bind map to the importer's parameters, variables or typed constants, so two imports bind
@@ -1509,11 +1511,18 @@ export class Checker {
 				)
 			}
 		}
-		if (use.columns.size === 0) {
+		/**
+		 * A child that reads none of a parent's columns is the same child under every parent row, a cross product of the
+		 * two, which is refused; under a parent of no columns, which holds at most one row, there is no column to read
+		 * and no product: the child is its own result, beside the parent's one row, as query(S).reads builds a record of
+		 * reads (query/build/query.ts readsOf).
+		 */
+		const crossProduct = use.columns.size === 0 && isNonEmpty(heading)
+		if (crossProduct) {
 			fail(
 				"AttachedParentUnbound",
 				loc,
-				`a child that binds a parent variable: attachment ${desc.name} reads none of ${heading.length === 0 ? "the parent's columns" : heading.map((c) => c.name).join(", ")}`
+				`a child that binds a parent variable: attachment ${desc.name} reads none of ${heading.map((c) => c.name).join(", ")}`
 			)
 		}
 		/**

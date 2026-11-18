@@ -350,3 +350,6 @@ export const levelRecordOver = <
  * mints untyped terms. Only the JavaScript view, whose carriers type is the wide Carriers, makes one.
  */
 export const describedHeading = <C extends Carriers>(): C => assembled<C, undefined>([], undefined)
+
+/** The heading of the unit row a record of reads attaches its queries to (query/build/query.ts readsOf): no column. */
+export const unitHeading = <C extends Carriers>(): C => assembled<C, undefined>([], undefined)

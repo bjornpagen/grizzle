@@ -31,7 +31,8 @@ import {
 	rule,
 	take,
 	varRef,
-	vars
+	vars,
+	varsAt
 } from "#test/unit/check/dsl.ts"
 
 import { regex } from "arkregex"
@@ -45,7 +46,8 @@ import { regex } from "arkregex"
  */
 
 /**
- * The embeddings E(id, owner, value), the scores F(id, weight, value) with a second vector of E's dimensions, and the
+ * The embeddings E(id, owner, value), the scores F(id, weight, value) with a second vector of E's dimensions, the
+ * anchors G(owner, id, value), keyed by both, whose vector a search may rank by once a match fixes the key, and the
  * owners P(id): E's vectors of `dimensions`.
  */
 export const searchSchema = (dimensions: number): SchemaDesc => ({
@@ -57,6 +59,10 @@ export const searchSchema = (dimensions: number): SchemaDesc => ({
 			{ id: f.uuid, weight: f.pg("double precision"), value: { kind: "vector", dimensions } },
 			["id"]
 		),
+		relation("G", { owner: f.uuid, id: f.uuid, value: { kind: "vector", dimensions } }, [
+			"owner",
+			"id"
+		]),
 		relation("P", { id: f.uuid }, ["id"])
 	],
 	statements: [],
@@ -71,10 +77,21 @@ const dimensionsGen: Gen<number> = element([
 ])
 
 /**
- * What a source's rule scores by: the cosine distance of E's vector to a query vector; F's double precision weight;
- * the distance between E's and F's stored vectors; or the least distance of each owner's vectors, an aggregate.
+ * What a source's rule scores by: the cosine distance of E's vector to a query vector, a parameter; its distance to
+ * the vector of the one G whose key the rule fixes to parameters, by its match's constants or by `where` equalities
+ * over the variables its match binds, or to the vector of a G whose key the rule fixes in part either way, of which
+ * there are many; F's double precision weight; the distance between E's and F's stored
+ * vectors, F bound by E's id; or the least distance of each owner's vectors, an aggregate.
  */
-export type Score = "query distance" | "a stored weight" | "two stored vectors" | "an aggregate"
+export type Score =
+	| "query distance"
+	| "a keyed vector"
+	| "a vector its where keys"
+	| "a vector half its key fixes"
+	| "a vector its where keys in part"
+	| "a stored weight"
+	| "two stored vectors"
+	| "an aggregate"
 
 /**
  * How the source is read: as the query itself; inside an attachment's child under each P, filtering or binding its
@@ -166,7 +183,10 @@ export const searchVerdict = (c: SearchCase): SearchVerdict => {
 		...(c.reading === "an import bound to an outer variable"
 			? ["a source read per outer row" as const]
 			: []),
-		...(c.score === "a stored weight" || c.score === "two stored vectors"
+		...(c.score === "a stored weight" ||
+		c.score === "two stored vectors" ||
+		c.score === "a vector half its key fixes" ||
+		c.score === "a vector its where keys in part"
 			? ["a score that is no query distance" as const]
 			: []),
 		...(c.union ? ["a union" as const] : []),
@@ -184,6 +204,26 @@ export const searchVerdict = (c: SearchCase): SearchVerdict => {
 
 const queryVector = (c: SearchCase, name: string): AuthoredExprDesc =>
 	param(name, { kind: "vector", dimensions: c.dimensions })
+
+/** The parameters of an arm that ranks by `vector`: the query vector itself, or the key of the G it ranks by. */
+const queryParams = (c: SearchCase, vector: string): Record<string, AuthoredExprDesc> => {
+	switch (c.score) {
+		case "a keyed vector":
+		case "a vector its where keys":
+			return {
+				[`${vector}Owner`]: param(`${vector}Owner`, f.uuid),
+				[`${vector}Id`]: param(`${vector}Id`, f.uuid)
+			}
+		case "a vector half its key fixes":
+		case "a vector its where keys in part":
+			return { [`${vector}Owner`]: param(`${vector}Owner`, f.uuid) }
+		case "query distance":
+		case "a stored weight":
+		case "two stored vectors":
+		case "an aggregate":
+			return { [vector]: queryVector(c, vector) }
+	}
+}
 
 /** One arm of the source, scoring by `vector`, the owner filtered or bound as its reading asks. */
 const sourceArm = (c: SearchCase, vector: string): RuleDesc => {
@@ -238,6 +278,54 @@ const sourceArm = (c: SearchCase, vector: string): RuleDesc => {
 				interiors: [],
 				attach: []
 			})
+		case "a vector its where keys":
+		case "a vector its where keys in part":
+			return rule({
+				vars: [...declared, ...vars("G", "owner", "id", "value")],
+				matches: [
+					e,
+					match(relationSource("G"), {
+						owner: ref("G", "owner"),
+						id: ref("G", "id"),
+						value: ref("G", "value")
+					})
+				],
+				where: [
+					...ownedBy,
+					eq(ref("G", "owner"), param(`${vector}Owner`, f.uuid)),
+					...(c.score === "a vector its where keys"
+						? [eq(ref("G", "id"), param(`${vector}Id`, f.uuid))]
+						: [])
+				],
+				head: {
+					id: ref("E", "id"),
+					distance: compute("cosineDistance", ref("E", "value"), ref("G", "value"))
+				},
+				interiors: [],
+				attach: []
+			})
+		case "a keyed vector":
+		case "a vector half its key fixes": {
+			const keyed = c.score === "a keyed vector"
+			return rule({
+				vars: [...declared, ...varsAt("G", keyed ? ["value"] : ["id", "value"])],
+				matches: [
+					e,
+					match(relationSource("G"), {
+						owner: param(`${vector}Owner`, f.uuid),
+						id: keyed ? param(`${vector}Id`, f.uuid) : ref("G", "id"),
+						value: ref("G", "value")
+					})
+				],
+				where: ownedBy,
+				head: {
+					id: ref("E", "id"),
+					distance: compute("cosineDistance", ref("E", "value"), ref("G", "value"))
+				},
+				interiors: [],
+				attach: []
+			})
+		}
 	}
 }
 
@@ -278,8 +366,8 @@ export const searchCaseDesc = (c: SearchCase): QueryDesc => {
 					c.reading === "an import bound to an outer variable"
 						? ref("P", "id")
 						: param("o", f.uuid),
-				q: queryVector(c, "q"),
-				...(c.union ? { other: queryVector(c, "other") } : {})
+				...queryParams(c, "q"),
+				...(c.union ? queryParams(c, "other") : {})
 			}
 			return owners([match(imported(search, bind), { [headingOf(c)[0] ?? "id"]: varRef("found") })])
 		}
@@ -293,6 +381,10 @@ export const searchCaseGen: Gen<SearchCase> = (source) => {
 	const score = source.draw(
 		weighted<Score>([
 			[12, constant("query distance")],
+			[3, constant("a keyed vector")],
+			[2, constant("a vector its where keys")],
+			[1, constant("a vector half its key fixes")],
+			[1, constant("a vector its where keys in part")],
 			[1, constant("a stored weight")],
 			[1, constant("two stored vectors")],
 			[1, constant("an aggregate")]
@@ -374,15 +466,13 @@ export const provenanceDesc = (p: Provenance): QueryDesc => {
 		case "the search":
 			return search
 		case "an import of the search":
-			return owners([
-				match(imported(search, { q: queryVector(p.search, "q") }), { id: varRef("found") })
-			])
+			return owners([match(imported(search, queryParams(p.search, "q")), { id: varRef("found") })])
 		case "a count over the search":
 			return queryDesc(
 				rule({
 					vars: [plainVar("found"), plainVar("near")],
 					matches: [
-						match(imported(search, { q: queryVector(p.search, "q") }), {
+						match(imported(search, queryParams(p.search, "q")), {
 							id: varRef("found"),
 							distance: varRef("near")
 						})
@@ -401,14 +491,17 @@ export const provenanceDesc = (p: Provenance): QueryDesc => {
 }
 
 /**
- * An admitted search read as `reading`: one rule ranking by the query distance, nearest by it, bounded by a positive
- * take, its vectors indexable, a few dimensions or HNSW's bound.
+ * An admitted search read as `reading`: one rule ranking by the distance to a query vector, a parameter or the vector of
+ * the one G its match keys, nearest by it, bounded by a positive take, its vectors indexable, a few dimensions or
+ * HNSW's bound.
  */
 export const admittedGen =
 	(reading: Reading): Gen<SearchCase> =>
 	(source) => ({
 		dimensions: source.draw(element([3, hnswPolicy.maxDimensions])),
-		score: "query distance",
+		score: source.draw(
+			element<Score>(["query distance", "a keyed vector", "a vector its where keys"])
+		),
 		union: false,
 		by: "distance",
 		take: source.draw(int(1, 10)),

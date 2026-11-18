@@ -105,7 +105,55 @@ export interface QueryBuilder<S> {
 	/** A query of one arm: its heading, read-back heading and decoders the arm's, attached or not. */
 	readonly rule: BuilderRule
 	readonly recursive: BuilderRecursive
+	readonly reads: BuilderReads
 }
+
+/**
+ * QueryBuilder.reads over the builder it is called on: a record R of named queries, each a query or ordered query over
+ * S or a level below it (Child), as one query of exactly one row (ReadsQuery). Each query's records are one array
+ * under its name, so a read that is a union of several headings is refused when it compiles, as an attached one is
+ * (lower/conservative/deliver.ts).
+ */
+type BuilderReads = <S, const R extends Readonly<Record<string, Child<S>>>>(
+	this: QueryBuilder<S>,
+	reads: R
+) => ReadsQuery<S, R>
+
+/** What a record of reads holds: named queries, each with the phantom attach reads of its child (ChildReads). */
+export type ReadsChildren = Readonly<Record<string, Phantom<ChildReads>>>
+
+/**
+ * A record of named queries R as one query over S, query(S).reads(R): its one row holds each query's records under its
+ * name, an array in that query's own order (its orderBy or take, else its key), as attach delivers an array child under
+ * the unit parent, the one row of no columns. Its evidence is that row's: the empty key, exactly one row. Its
+ * parameters are each query's own under its name, `${name}.${parameter}` (ReadsParams); it reads every context any of
+ * them reads. It is one statement, so its queries read one snapshot.
+ */
+export type ReadsQuery<S, R extends ReadsChildren> = Query<
+	S,
+	Simplify<{ readonly [K in keyof R]: ReadonlyArray<HeadOf<R[K]>> }>,
+	ReadsEvidence,
+	Simplify<ReadsParams<R>>,
+	Simplify<{ readonly [K in keyof R]: ReadonlyArray<ImmediateHeadOf<R[K]>> }>,
+	ReadsCarriers<R>,
+	{ [K in keyof R]-?: ChildContexts<R[K]> }[keyof R],
+	readonly [UnionArm<ReadsCarriers<R>, keyof R & string, "attach", false>]
+>
+
+/** The unit row's evidence: the empty key, one row. */
+interface ReadsEvidence {
+	readonly keys: readonly [ReadonlyArray<never>]
+	readonly card: "one"
+}
+
+/** The unit row's carriers: none, since it has no columns; each name of the record is an attachment, never a column. */
+export type ReadsCarriers<R> = { readonly [K in keyof R as never]: Carrier }
+
+/** The parameters of a record of reads: each query's parameter `p` as `${name}.${p}`, under the query's name. */
+type ReadsParams<R extends ReadsChildren> = UnionToIntersection<
+	{ [K in keyof R & string]-?: Namespaced<K, ChildParams<R[K]>> }[keyof R & string]
+>
+type Namespaced<N extends string, P> = { readonly [Q in keyof P & string as `${N}.${Q}`]: P[Q] }
 
 /** QueryBuilder.rule over the builder it is called on. */
 type BuilderRule = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx>(

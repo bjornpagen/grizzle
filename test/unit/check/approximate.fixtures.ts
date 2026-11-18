@@ -2,8 +2,8 @@
  * approximateNearest (check/approximate): which searches are eligible, and which results they make approximate.
  *
  * - **Eligibility:** a search is admitted exactly when its one rule, read once per execution, ranks by a query
- *   vector's cosine distance to a stored vector HNSW can index, its `by` naming a column and its `take` a positive
- *   integer; every other search is refused for one of the reasons its broken rules name (test/unit/check/approximate.ts),
+ *   vector's cosine distance to a stored vector HNSW can index, the query vector a parameter or the vector of a match
+ *   whose whole key the match fixes to parameters, its `by` naming a column and its `take` a positive integer; every other search is refused for one of the reasons its broken rules name (test/unit/check/approximate.ts),
  *   and an admitted one seals one search node.
  * - **Provenance:** a page over a result, and a derived definition of it, are misuses exactly when a search lies among
  *   what the result is computed from, whatever lies between.
@@ -45,6 +45,8 @@ export type EligibilityFeature =
 	| `refused, ${AttachedReading}`
 	| `admitted, ${Extract<Reading, "the query" | "an import bound to a parameter">}`
 	| "admitted at HNSW's bound"
+	| "admitted, a keyed vector"
+	| "admitted, a vector its where keys"
 
 export const rules: Arr.NonEmptyReadonlyArray<SearchRule> = [
 	"by naming no column",
@@ -61,5 +63,7 @@ export const rules: Arr.NonEmptyReadonlyArray<SearchRule> = [
 /** The searches, aimed at a search admitted under each reading that admits one, which a free draw seldom makes. */
 export const searchCaseSpace: Aimed<SearchCase, EligibilityFeature> = aimed(searchCaseGen, [
 	["admitted, the query", admittedGen("the query")],
-	["admitted, an import bound to a parameter", admittedGen("an import bound to a parameter")]
+	["admitted, an import bound to a parameter", admittedGen("an import bound to a parameter")],
+	["admitted, a keyed vector", admittedGen("the query")],
+	["admitted, a vector its where keys", admittedGen("the query")]
 ])

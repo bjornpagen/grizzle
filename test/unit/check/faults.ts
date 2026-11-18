@@ -127,6 +127,13 @@ const atMatch = (
 	return stage === undefined ? undefined : { stage }
 }
 
+/**
+ * Whether a rules stage's arms deliver a column: under a root of no columns, a child that reads none of them is its own
+ * result beside the root's one row (query(S).reads), no fault.
+ */
+const headed = (rules: RulesStage): boolean =>
+	!Arr.every(rules.arms, (arm) => Rec.isEmptyRecord(arm.head))
+
 const broken = (planted: Planted, at: string): Broken<Planted> => ({
 	value: planted.desc,
 	refusal: planted,
@@ -141,7 +148,7 @@ export const faults: Arr.NonEmptyReadonlyArray<Corruption<Live, Planted, FaultRu
 		weight: 1,
 		sites: (live) => {
 			const rules = rulesOf(live.desc.stage)
-			if (rules === undefined) {
+			if (rules === undefined || !headed(rules)) {
 				return []
 			}
 			const attached = (input: QueryStageDesc): QueryStageDesc => ({

@@ -855,18 +855,29 @@ const unions: ReadonlyArray<DagCorruption> = [
 	}
 ]
 
+/**
+ * Whether an attachment's parent holds no column: a child that reads none of a parent of no columns is its own result
+ * beside the parent's one row (query(S).reads), no corruption.
+ */
+const underNoColumns = (dag: DagTable, a: { readonly parent: NodeId }): boolean =>
+	nodeAt(dag, a.parent)?.heading.length === 0
+
 const attachments: ReadonlyArray<DagCorruption> = [
 	{
 		rule: "an attachment binds a parent variable",
 		from: "wild",
 		weight: 1,
 		sites: (dag) =>
-			Arr.map(ofKind(dag, "Attach"), (a) =>
-				site(
-					withNode(dag, a.id, { ...a, correlation: [] }),
-					refused(["nodes", a.id], "within", own),
-					a.delivered
-				)
+			Arr.flatMap(ofKind(dag, "Attach"), (a) =>
+				underNoColumns(dag, a)
+					? []
+					: [
+							site(
+								withNode(dag, a.id, { ...a, correlation: [] }),
+								refused(["nodes", a.id], "within", own),
+								a.delivered
+							)
+						]
 			)
 	},
 	{
