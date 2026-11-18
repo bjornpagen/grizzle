@@ -857,10 +857,10 @@ const absentOf = (n: NegatedArm, loc: SourceLoc): InferredExpr =>
 	}
 
 /** An arm's conditions as a query states them: its own, then an anti-join of each of its negated arms. */
-const conditionsOf = (arm: LiveArm, loc: SourceLoc): ReadonlyArray<InferredExpr> => [
-	...arm.where,
-	...arm.negated.map((n) => absentOf(n, loc))
-]
+const conditionsOf = (
+	arm: Pick<LiveArm, "where" | "negated">,
+	loc: SourceLoc
+): ReadonlyArray<InferredExpr> => [...arm.where, ...arm.negated.map((n) => absentOf(n, loc))]
 
 /** A side's arm as a probe meets it (`readAs`): the arm's query, and the bindings that join it to the meeting terms. */
 interface Met {
@@ -968,13 +968,21 @@ const facts = (
 		loc
 	)
 
-const headOf = (arm: ConjunctiveArm, field: string, loc: SourceLoc): InferredExpr =>
+const headOf = (arm: Pick<ConjunctiveArm, "head">, field: string, loc: SourceLoc): InferredExpr =>
 	arm.head[field] ??
 	refuse(
 		"MalformedDescription",
 		loc,
 		`a definition whose arms derive one heading; an arm derives no ${field}`
 	)
+
+/**
+ * An arm of a rule's breaking side as a probe reads it (`violating`): a side's arm, or one a NEW probe holds to the row
+ * its write touched (`newProbes`), whose matches are the arm's others, none where the arm reads that relation alone.
+ */
+interface ProbeArm extends Omit<SideArm, "matches"> {
+	readonly matches: ReadonlyArray<ArmMatch>
+}
 
 /**
  * The rules of a probe an arm of the rule's breaking side states, the arm as the probe restricts it, the side it meets
@@ -984,7 +992,7 @@ const headOf = (arm: ConjunctiveArm, field: string, loc: SourceLoc): InferredExp
  */
 const violating = (
 	rule: QueryRule,
-	arm: SideArm,
+	arm: ProbeArm,
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<InferredRule> => {
 	switch (rule.kind) {
@@ -1324,8 +1332,9 @@ export interface Probe {
 	readonly query: InferredQuery
 	/**
 	 * The query whose access paths the probe's indexes are requested by: `query` itself, or, for a NEW probe's facts,
-	 * the same rule with the touched row held to its key alone (newProbes). Holding the row by its other columns as well
-	 * filters a lookup of its key, which the key's index serves, and asks for no index of its own.
+	 * the same rule with the touched row read from its table at its key (newProbes), which the key's index serves. The
+	 * probe reads the row from the transaction's net write instead and every other relation as that rule does, so it
+	 * asks the indexes the rule asks, and the read of the row asks none of its own.
 	 */
 	readonly requested: InferredQuery
 	readonly params: ReadonlyMap<string, ProbeParam>
@@ -1588,14 +1597,14 @@ const negatedProbes = <A extends LiveArm>(
 /**
  * The probes an INSERT or an UPDATE of `relation`'s row runs at COMMIT, NEW its values:
  *
- * - for the facts it adds: one per occurrence of the relation in an arm of the rule's breaking side, the arm with that
- *   occurrence held to the row now stored at NEW's primary key, `key`, with NEW's value in every column it reads, and
- *   the rule's violation read over it. A row deleted later in the transaction is one this probe no longer finds, and so
- *   is a row changed later in a column the occurrence reads: that UPDATE is of a column the trigger fires on
- *   (`touches`, its `news`), so it queued an event of its own, whose probe judges the row as it stands at COMMIT.
- *   Reading the row by every value the probe knows of it, not by its key alone, keeps the read one row whatever index
- *   PostgreSQL takes: without statistics every equality is equally selective, and an index of a prefix of the key
- *   (a qti node's (package, path), its document) costs the same as the key's, a read of every row it holds;
+ * - for the facts it adds: one per occurrence of the relation in an arm of the rule's breaking side, the occurrence held
+ *   to NEW's values (`held`) and the arm's other matches read as they stand, and the rule's violation read over it.
+ *   NEW is a row the transaction's net write holds (physical/ddl/rules.ts addRules: its region is delta.added, the
+ *   images the relation holds at COMMIT that it did not hold before), so the probe never reads the row again from its
+ *   table: without statistics every equality is equally selective, and a read of the row by its key may take an index
+ *   of a strict subset of the key's columns, a qti attribute's (name, package), and read every row it holds. Its index
+ *   requests are the same rule with the occurrence read from its table at NEW's primary key, `key`, which the key's
+ *   index serves (Probe `requested`);
  * - for the target tuples it withdraws: one per occurrence of the relation in a negated arm of an arm of a
  *   containment's target. The negated arm is opened into the target's arm (`opened`), its occurrence held to NEW's
  *   values and its other matches read as they stand, the tuples NEW now blocks, which stand blocked at COMMIT by a fact
@@ -1621,46 +1630,51 @@ export const newProbes = (
 				return []
 			}
 			const params = new Map<string, ProbeParam>()
+			const h = held(
+				m,
+				"NEW",
+				new Set(),
+				arm.matches.filter((_, j) => j !== i),
+				[],
+				arm.where,
+				fieldOf,
+				params
+			)
+			const read: ProbeArm = {
+				vars: arm.vars.filter((v) => !h.replaced.has(v.id)),
+				matches: h.kept,
+				where: h.where,
+				negated: arm.negated.map((n) => ({ ...n, bindings: mapBindings(n.bindings, h.leaves) })),
+				head: mapBindings(arm.head, h.leaves),
+				terms: mapNonEmpty(arm.terms, (t) => mapLeaves(t, h.leaves))
+			}
 			const bindings: Record<string, InferredExpr> = { ...m.bindings }
 			const keyPins: Array<InferredExpr> = []
-			const valuePins: Array<InferredExpr> = []
-			const hold = (f: TouchedField): InferredExpr => {
-				params.set(paramName("NEW", f.name), { record: "NEW", field: f.name })
-				return paramOf("NEW", f)
-			}
 			for (const f of key) {
+				const value = paramOf("NEW", f)
+				params.set(paramName("NEW", f.name), { record: "NEW", field: f.name })
 				const bound = bindings[f.name]
 				if (bound === undefined) {
-					bindings[f.name] = hold(f)
+					bindings[f.name] = value
 				} else {
-					keyPins.push(equal(bound, hold(f)))
+					keyPins.push(equal(bound, value))
 				}
 			}
-			for (const [name, bound] of Object.entries(m.bindings)) {
-				if (!key.some((f) => f.name === name)) {
-					valuePins.push(equal(bound, hold(fieldOf(name))))
-				}
-			}
-			const restricted = (pins: ReadonlyArray<InferredExpr>): SideArm => ({
-				...arm,
-				matches: mapNonEmpty(arm.matches, (x, j) => (j === i ? { ...x, bindings } : x)),
-				where: [...arm.where, ...pins]
-			})
-			const byValues = violating(rule, restricted([...keyPins, ...valuePins]), loc)
-			const keyed = violating(rule, restricted(keyPins), loc)
-			return byValues.map((r, n) => ({
+			const keyed = violating(
+				rule,
+				{
+					...arm,
+					matches: mapNonEmpty(arm.matches, (x, j) => (j === i ? { ...x, bindings } : x)),
+					where: [...arm.where, ...keyPins]
+				},
+				loc
+			)
+			const asked = (n: number): InferredRule =>
+				keyed[n] ??
+				refuse("MalformedDescription", loc, "a probe read at its key for each read from its region")
+			return violating(rule, read, loc).map((r, n) => ({
 				query: queryOf([r], loc),
-				requested: queryOf(
-					[
-						keyed[n] ??
-							refuse(
-								"MalformedDescription",
-								loc,
-								"a probe held by its key for each held by its values"
-							)
-					],
-					loc
-				),
+				requested: queryOf([asked(n)], loc),
 				params
 			}))
 		})

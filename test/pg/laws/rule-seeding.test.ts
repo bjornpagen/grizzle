@@ -38,7 +38,8 @@
  *   The shape holds the first keys' rows, each key a chain of value 1 and two marks, then every key's. Each of the
  *   drawn key's rows on a table the rule reads, and a block of each of its links, is touched: in a transaction of its
  *   own the row stands in the judge's region: a stored row's image copied into each delta of its table as it is stored,
- *   the table unwritten, a block inserted and deleted again, which the captures take. SET CONSTRAINTS ALL IMMEDIATE
+ *   counted once put on the side of news, the table unwritten, a block inserted and deleted again, which the captures
+ *   take. SET CONSTRAINTS ALL IMMEDIATE
  *   runs the judge, the SIRead locks the transaction holds are counted by lock type and relation, and every probe of
  *   the judge over the table's deltas is explained while they hold the row's images, the transaction rolled back. The rows each probe reads, as EXPLAIN ANALYZE counts them, and
  *   the SIRead locks are the same beside every
@@ -81,6 +82,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
+import { countColumn } from "#compiler/physical/ddl/rules.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -949,7 +951,9 @@ const siReadLocks = (session: RawSession) =>
  * stored row stands in every delta of its table as it is stored: a statement of each event that writes no row runs the
  * captures, which make the session's deltas, and the row's image is copied into each, so the judge's region is the
  * row and the table is not written, which would move the row's index entries. A block is inserted and deleted again,
- * which the captures take. Then SET CONSTRAINTS ALL IMMEDIATE runs the judge over the deltas; the SIRead locks the
+ * which the captures take, and its image put back on the side of news, which the delete cancelled there, so each side
+ * holds it as each held it before the side of news was the transaction's net write. Then SET CONSTRAINTS ALL IMMEDIATE
+ * runs the judge over the deltas; the SIRead locks the
  * transaction holds are counted; and each probe of the judge over the table is explained while the deltas hold the
  * row's images.
  */
@@ -969,12 +973,32 @@ const footprintOf = (seat: Seat, touched: Touched) =>
 					`DELETE FROM ${t} WHERE false`,
 					...Arr.map(deltasOf(seat, table), (d) => {
 						const columns = Arr.join(Arr.map(d.columns, quoteIdent), ", ")
-						return `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${columns} FROM ${t} WHERE ${id} = ${touched.id}`
+						const values = Arr.join(
+							Arr.map(d.columns, (c) => (c === countColumn ? "1" : quoteIdent(c))),
+							", "
+						)
+						return `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${values} FROM ${t} WHERE ${id} = ${touched.id}`
 					})
 				]
 			: [
 					`INSERT INTO ${t} (${id}) VALUES (${touched.id})`,
-					`DELETE FROM ${t} WHERE ${id} = ${touched.id}`
+					`DELETE FROM ${t} WHERE ${id} = ${touched.id}`,
+					...Arr.flatMap(deltasOf(seat, table), (d) =>
+						Arr.contains(d.columns, countColumn)
+							? [
+									`INSERT INTO pg_temp.${quoteIdent(d.name)} (${Arr.join(Arr.map(d.columns, quoteIdent), ", ")}) SELECT ${Arr.join(
+										Arr.map(d.columns, (c) =>
+											c === countColumn
+												? "1"
+												: quoteIdent(c) === id
+													? `${touched.id}`
+													: assert.fail(`a block's delta holds ${c}`)
+										),
+										", "
+									)}`
+								]
+							: []
+					)
 				]
 		yield* session.begin
 		const footprint = yield* Effect.onError(

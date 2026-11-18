@@ -54,15 +54,22 @@ import {
 	call,
 	col,
 	cUtf8Collation,
+	derived,
+	desc,
 	eq,
 	exists,
+	gt,
+	le,
 	lit,
 	not,
 	notExists,
 	objectName,
+	or,
 	provedSelect,
 	simpleSelect,
-	types
+	targetAs,
+	types,
+	windowOf
 } from "#compiler/sql/build.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 
@@ -214,21 +221,29 @@ const compileProbe = (
 type Side = "news" | "olds"
 
 /**
- * A session's delta of one side of a table (`addRules`): the name of its table of pg_temp and its columns, its
- * relation's heading in the canonical order a query reads it in, a Delta node's (check/checker.ts), each of its field's
- * base type, so no session's table depends on a domain a
- * migration alters or drops (PostgreSQL refuses ALTER DOMAIN ... ADD CONSTRAINT over another session's temporary table,
- * and DROP DOMAIN while one names it).
+ * A session's delta of one side of a table (`addRules`): the name of its table of pg_temp, its columns, its relation's
+ * heading in the canonical order a query reads it in, a Delta node's (check/checker.ts), each of its field's base type,
+ * so no session's table depends on a domain a migration alters or drops (PostgreSQL refuses ALTER DOMAIN ... ADD
+ * CONSTRAINT over another session's temporary table, and DROP DOMAIN while one names it), and the table's own columns:
+ * the heading's, then, on the side of news, the count of each image (`countColumn`).
  */
 interface SessionDelta {
 	readonly name: string
 	readonly columns: NonEmptyReadonlyArray<ColumnDefinition>
+	readonly table: NonEmptyReadonlyArray<ColumnDefinition>
 }
+
+/**
+ * The column a side of news counts each image it holds in (`addRules`): 1 for an image a statement put, -1 for one it
+ * removed. No heading column is so named: a declared field's column never starts with `__`, and a law column's name
+ * carries its digest after its stem.
+ */
+export const countColumn = "__count"
 
 /**
  * One side of a table the judge holds: its delta, and the columns a statement's UPDATE of a row must change for the
  * row to stand in it, the key and every column a rule reads on that side (analysis/theory/query.ts Touches), none
- * where no rule's facts on that side read a column the UPDATE can change.
+ * where no rule's facts on that side read a column the UPDATE can change. A row's image is its value in those columns.
  */
 interface JudgedSide {
 	readonly side: Side
@@ -302,7 +317,7 @@ const ensured = (delta: SessionDelta): PlStatement => ({
 	branches: [
 		{
 			condition: not(standing(delta.name)),
-			body: [{ kind: "createSessionTable", name: delta.name, columns: delta.columns }]
+			body: [{ kind: "createSessionTable", name: delta.name, columns: delta.table }]
 		},
 		{ condition: not(ours(delta.name, [], [])), body: [foreign(delta.name)] }
 	],
@@ -374,11 +389,20 @@ const arming = (sentinel: string): PlStatement => ({
 	}
 })
 
+/** A row's image on a side (`JudgedSide`): its primary key's columns, then every other column the side reads. */
+const imageOf = (relation: RelationInfo, side: JudgedSide): NonEmptyReadonlyArray<string> => {
+	const [first, ...rest] = mapNonEmpty(relation.primaryFields, (f): string => f.column)
+	return [first, ...rest, ...side.read.filter((c) => c !== first && !rest.includes(c))]
+}
+
 /**
  * The rows of one side a statement wrote into its delta: every row of the transition table `rows`, or, for an UPDATE,
- * each row the other transition table holds no row of with the same key and the same value of every column the side
- * reads (`JudgedSide.read`), so an UPDATE of columns no rule reads there captures nothing. Every row stands once in a
- * transition table, and its key with it, so the rows are a set.
+ * each row the other transition table holds no row of with the same image (`imageOf`), so an UPDATE of columns no rule
+ * reads there captures nothing. Every row stands once in a transition table, and its key with it, so the rows are a
+ * set. The side of olds takes the rows a statement found as they are. The side of news counts each image: 1 for a row
+ * the statement put (`news`), -1 for one it removed (`olds`), which the judge nets (`netted`). A removal is counted
+ * only once the delta holds a row: before any image the transaction put stands there it cancels none, and an image it
+ * removed that the transaction puts again is then judged as any it put, so a write that only removes rows logs none.
  */
 const captured = (
 	relation: RelationInfo,
@@ -387,22 +411,28 @@ const captured = (
 	other: TransitionTable | undefined
 ): PlStatement => {
 	const columns = mapNonEmpty(side.delta.columns, (c) => c.name)
-	const [first, ...rest] = mapNonEmpty(relation.primaryFields, (f): string => f.column)
-	const compared: NonEmptyReadonlyArray<string> = [
-		first,
-		...rest,
-		...side.read.filter((c) => c !== first && !rest.includes(c))
-	]
 	const unchanged =
 		other === undefined
-			? undefined
-			: notExists(
-					simpleSelect(
-						[],
-						[{ kind: "transition", table: other, alias: "r2" }],
-						and(mapNonEmpty(compared, (c) => eq(col("r2", c), col("r1", c))))
+			? []
+			: [
+					notExists(
+						simpleSelect(
+							[],
+							[{ kind: "transition", table: other, alias: "r2" }],
+							and(mapNonEmpty(imageOf(relation, side), (c) => eq(col("r2", c), col("r1", c))))
+						)
 					)
-				)
+				]
+	const counted = side.side === "news"
+	const removed = rows === transitionTables.olds
+	const holding = exists(
+		simpleSelect(
+			[],
+			[{ kind: "table", table: sessionTable(side.delta.name), alias: "r3" }],
+			undefined
+		)
+	)
+	const where = [...unchanged, ...(counted && removed ? [holding] : [])]
 	const insert: Insert = {
 		kind: "insert",
 		with: undefined,
@@ -411,18 +441,90 @@ const captured = (
 		overriding: undefined,
 		onConflict: undefined,
 		returning: [],
-		columns,
+		columns: counted ? [...columns, countColumn] : columns,
 		source: {
 			kind: "query",
 			query: provedSelect(
 				"keyed",
-				columns.map((c) => ({ expr: col("r1", c), alias: undefined })),
+				[
+					...columns.map((c) => ({ expr: col("r1", c), alias: undefined })),
+					...(counted
+						? [{ expr: lit.int(removed ? -1 : 1, types.smallint), alias: undefined }]
+						: [])
+				],
 				[{ kind: "transition", table: rows, alias: "r1" }],
-				unchanged
+				isNonEmpty(where) ? and(where) : undefined
 			)
 		}
 	}
 	return { kind: "modify", statement: insert }
+}
+
+/**
+ * The side of news a delta nets (`addRules`'s judge): it deletes every row of an image whose counts sum to 0 or less,
+ * and every row but one of each other image, which stands at COMMIT and stood nowhere before the transaction, so the
+ * delta holds delta.added of its relation's images, each once: the relation's rows as the transaction leaves them minus
+ * those it found (check/checker.ts Delta). An image's sum is its puts less its removals, whatever order a statement's
+ * captures ran in: 1 where the transaction put it and it stands, -1 where it removed one it found, 0 otherwise. An image
+ * of sum -1 goes too: a removal is counted only to cancel a put, and one the transaction puts again is judged as any it
+ * put. A later statement's captures count on from what the delta holds, so the judge at SET CONSTRAINTS ALL IMMEDIATE
+ * nets it again from there.
+ */
+const netted = (relation: RelationInfo, side: JudgedSide): PlStatement => {
+	const image = mapNonEmpty(imageOf(relation, side), (c) => col("r2", c))
+	const counts = simpleSelect(
+		[
+			targetAs(col("r2", "ctid"), "c1"),
+			targetAs(
+				{
+					...call("sum", [col("r2", countColumn)]),
+					over: windowOf(image, [])
+				},
+				"c2"
+			),
+			targetAs(
+				{ ...call("row_number", []), over: windowOf(image, [desc(col("r2", countColumn))]) },
+				"c3"
+			)
+		],
+		[{ kind: "table", table: sessionTable(side.delta.name), alias: "r2" }],
+		undefined
+	)
+	return {
+		kind: "if",
+		branches: [
+			{
+				condition: standing(side.delta.name),
+				body: [
+					{
+						kind: "modify",
+						statement: {
+							kind: "delete",
+							with: undefined,
+							table: sessionTable(side.delta.name),
+							alias: "r1",
+							using: [],
+							where: {
+								kind: "inQuery",
+								expr: col("r1", "ctid"),
+								query: simpleSelect(
+									[{ expr: col("r3", "c1"), alias: undefined }],
+									[derived(counts, "r3", ["c1", "c2", "c3"], false)],
+									or([
+										le(col("r3", "c2"), lit.int(0, types.bigint)),
+										gt(col("r3", "c3"), lit.int(1, types.bigint))
+									])
+								),
+								not: false
+							},
+							returning: []
+						}
+					}
+				]
+			}
+		],
+		else: []
+	}
 }
 
 /** A rule's RAISE, today's per-row one, naming the rule's table by literals: the judge fires on its sentinel. */
@@ -490,6 +592,14 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 				const f = sideFields(t.touches, side)
 				return f === undefined ? [] : [f]
 			})
+			const table =
+				side === "news"
+					? appendNonEmpty(columns, {
+							name: countColumn,
+							type: types.smallint,
+							collation: undefined
+						})
+					: columns
 			return read.length === 0
 				? []
 				: [
@@ -501,10 +611,11 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 										headNonEmpty(b.names.levels),
 										relation.name,
 										side,
-										canonicalTextOf(columns)
+										canonicalTextOf(table)
 									)
 								),
-								columns
+								columns,
+								table
 							},
 							read: [...new Set(columnsOf(relation, read.flat()))]
 						}
@@ -521,8 +632,8 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
  * transaction leaves. A rule one of whose sides reads a derived relation is judged over the rows the transaction wrote:
  *
  * - of a table the rule's breaking side reads (a containment's source, a key's or a check's relation), the rows an
- *   INSERT or an UPDATE of a column it reads leaves, whose probes (analysis/theory/query.ts newProbes) read the side's
- *   facts each row derives at its primary key;
+ *   INSERT or an UPDATE of a column it reads leaves and that stand at COMMIT, whose probes (analysis/theory/query.ts
+ *   newProbes) read the side's facts each row derives from its image in the delta, never from the table again;
  * - of a table a containment's target reads, the rows a DELETE or such an UPDATE found, whose probes (oldProbes) read
  *   the target tuples each row may have withdrawn and the source tuples that needed them;
  * - of a table a side reads inside a negation, the other way round: inserted rows where a containment's target negates
@@ -532,23 +643,34 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
  * The parts:
  *
  * - Capture: on each table, an AFTER statement trigger per event its rules read (sql/ast.ts CreateTransitionTrigger):
- *   INSERT where a rule reads NEW, DELETE where one reads OLD, UPDATE where one reads a column on either side. Its
- *   function writes the rows the statement wrote into the session's delta of each side (`captured`): delta.added, the
- *   rows as the statement leaves them, delta.removed, as it found them, every column of the relation's heading, typed by
- *   its base type, an UPDATE's only where it changed the key or a column the side reads. Each delta is a table of
- *   pg_temp, created at the session's first capture of that side, ON COMMIT DELETE ROWS, so it lives as long as the
- *   session and holds one transaction's rows. Its columns name no domain: a session's table typed by one would block
- *   DROP DOMAIN and ALTER DOMAIN ... ADD CONSTRAINT in every other session while it lives.
- * - Arming: the capture then inserts the one row of the session's sentinel, a table of pg_temp created with it, whose
- *   DEFERRABLE INITIALLY DEFERRED constraint trigger runs the judge, so the judge runs once, at COMMIT, or at SET
- *   CONSTRAINTS ALL IMMEDIATE and after each statement from then on. A sentinel that holds its row arms nothing more.
+ *   INSERT where a rule reads NEW, DELETE where one reads either side, UPDATE where one reads a column on either side.
+ *   Its function writes the rows the statement wrote into the session's delta of each side (`captured`), every column of
+ *   the relation's heading, typed by its base type, an UPDATE's only where it changed the row's image, its key or a
+ *   column the side reads: into the side of olds, delta.removed, the rows as the statement found them; into the side of
+ *   news, the transaction's net write, each image the statement put counted 1 and each it removed counted -1. Each delta
+ *   is a table of pg_temp, created at the session's first capture of that side, ON COMMIT DELETE ROWS, so it lives as
+ *   long as the session and holds one transaction's rows. Its columns name no domain: a session's table typed by one
+ *   would block DROP DOMAIN and ALTER DOMAIN ... ADD CONSTRAINT in every other session while it lives.
+ * - Arming: a capture that writes the rows a statement put, or those it found into the side of olds, then inserts the
+ *   one row of the session's sentinel, a table of pg_temp created with it, whose DEFERRABLE INITIALLY DEFERRED
+ *   constraint trigger runs the judge, so the judge runs once, at COMMIT, or at SET CONSTRAINTS ALL IMMEDIATE and after
+ *   each statement from then on. A sentinel that holds its row arms nothing more. A DELETE that only cancels images
+ *   of news arms nothing: it can break no rule, and the images it cancels were put by a statement that armed the judge.
  * - The judge: it deletes the sentinel's row, so a later statement arms it again, and refuses a delta the definer does
- *   not own; then, for each rule in trigger-name order, each table it reads and each side it reads there, it runs each
+ *   not own; it nets each side of news to delta.added (`netted`), the images the transaction leaves that it did not
+ *   find; then, for each rule in trigger-name order, each table it reads and each side it reads there, it runs each
  *   probe of that table and side over its region (`compileProbe`), the session's delta, and raises where one returns a
  *   row: SQLSTATE 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule's trigger name as its
  *   constraint and the rule's table, with no DETAIL, since the writer may not see the rows. The deltas keep their rows
  *   until COMMIT deletes them: a probe that reads a row again after SET CONSTRAINTS ALL IMMEDIATE judges it on the state
  *   as it stands, which is sound.
+ *
+ * The side of news is the transaction's net write so that a probe of the facts a row adds never reads that row from its
+ * table, where without statistics PostgreSQL prices a read at the key's index the same as one at an index of a strict
+ * subset of the key's columns, a qti attribute's (name, package): one row each (selfuncs.c btcostestimate, the unique
+ * key's one tuple against two default equalities' clamped to one), and the shorter tree wins, reading every row of the
+ * subset at every row of the delta. A probe's lookup of any other table at its key remains PostgreSQL's choice, which
+ * statistics make (README, Rules over queries).
  * - Tamper: pg_temp is one namespace per session, which every role of it writes, so a login could create a delta or the
  *   sentinel first, own it and empty it before COMMIT. Every capture checks the sentinel and the delta it writes, and
  *   the judge every delta it reads: each must be the definer's own temporary table (`ours`), the sentinel's trigger the
@@ -688,6 +810,12 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 							],
 							else: []
 						})),
+						...tables
+							.flatMap((t) =>
+								t.sides.flatMap((s) => (s.side === "news" ? [{ name: s.delta.name, t, s }] : []))
+							)
+							.toSorted((x, y) => compareStrings(x.name, y.name))
+							.map(({ t, s }) => netted(t.relation, s)),
 						...judged.toSorted((x, y) => compareStrings(x.order, y.order)).flatMap((j) => j.body)
 					],
 					{ kind: "return", value: { kind: "plSpecial", name: "NEW" } }
@@ -746,7 +874,12 @@ const addCapture = (
 	const side = (s: Side): JudgedSide | undefined => t.sides.find((x) => x.side === s)
 	const news = side("news")
 	const olds = side("olds")
-	const writes = (
+	const armed = (writes: ReadonlyArray<PlStatement>): ReadonlyArray<PlStatement> => [
+		armedSentinel(sentinel, judge),
+		...writes,
+		arming(sentinel)
+	]
+	const into = (
 		s: JudgedSide,
 		rows: TransitionTable,
 		other: TransitionTable | undefined
@@ -755,17 +888,59 @@ const addCapture = (
 		s === undefined || s.read.length === 0
 			? []
 			: s.side === "news"
-				? writes(s, transitionTables.news, transitionTables.olds)
-				: writes(s, transitionTables.olds, transitionTables.news)
+				? [
+						...into(s, transitionTables.news, transitionTables.olds),
+						captured(relation, s, transitionTables.olds, transitionTables.news)
+					]
+				: into(s, transitionTables.olds, transitionTables.news)
 	)
+	const removedFromNews: ReadonlyArray<PlStatement> =
+		news === undefined
+			? []
+			: [
+					{
+						kind: "if",
+						branches: [
+							{
+								condition: standing(news.delta.name),
+								body: [
+									{
+										kind: "if",
+										branches: [
+											{
+												condition: not(ours(news.delta.name, [], [])),
+												body: [foreign(news.delta.name)]
+											}
+										],
+										else: []
+									},
+									captured(relation, news, transitionTables.olds, undefined)
+								]
+							}
+						],
+						else: []
+					}
+				]
 	const branches = [
 		...(news === undefined
 			? []
-			: [{ event: "insert" as const, body: writes(news, transitionTables.news, undefined) }]),
-		...(updated.length === 0 ? [] : [{ event: "update" as const, body: updated }]),
+			: [
+					{
+						event: "insert" as const,
+						body: armed(into(news, transitionTables.news, undefined))
+					}
+				]),
+		...(updated.length === 0 ? [] : [{ event: "update" as const, body: armed(updated) }]),
 		...(olds === undefined
-			? []
-			: [{ event: "delete" as const, body: writes(olds, transitionTables.olds, undefined) }])
+			? news === undefined
+				? []
+				: [{ event: "delete" as const, body: removedFromNews }]
+			: [
+					{
+						event: "delete" as const,
+						body: armed([...into(olds, transitionTables.olds, undefined), ...removedFromNews])
+					}
+				])
 	]
 	const [b0, ...bs] = branches
 	if (b0 === undefined) {
@@ -785,7 +960,6 @@ const addCapture = (
 			body: {
 				declare: [],
 				body: [
-					armedSentinel(sentinel, judge),
 					{
 						kind: "if",
 						branches: mapNonEmpty([b0, ...bs], (x) => ({
@@ -797,7 +971,6 @@ const addCapture = (
 						})),
 						else: []
 					},
-					arming(sentinel),
 					{ kind: "return", value: { kind: "plSpecial", name: "NEW" } }
 				]
 			}

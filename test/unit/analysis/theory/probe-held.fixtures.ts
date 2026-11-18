@@ -174,22 +174,11 @@ export const judged = (shape: Shape, note: (f: Feature) => void): void => {
 		const probes =
 			table.touches.kind === "olds" ? [] : newProbes(rule.rule, rel.name, key, fields, rule.law.loc)
 		for (const probe of probes) {
-			const held = heldMatches(probe, probe.query, rel.name, key)
-			assert.ok(held.length > 0, `a NEW probe of ${rel.name} holds a match of it`)
-			for (const { rule: within, bindings } of held) {
-				for (const [field, bound] of Rec.toEntries(bindings)) {
-					assert.ok(
-						heldAt(probe, within, field, bound),
-						`${rel.name}.${field}, which the held match reads, is held at NEW's value`
-					)
-					if (rel.name === "T" && !keyNames.has(field) && bound.kind === "literal") {
-						note("a non-key field held by a literal binding")
-					}
-					if (rel.name === "T" && field === "b" && shape.b === "shared") {
-						note("a non-key field held by a variable another match binds")
-					}
-				}
-			}
+			assert.deepEqual(
+				heldMatches(probe, probe.query, rel.name, key),
+				[],
+				`a NEW probe of ${rel.name} reads no match of it at NEW's key: the row is NEW's values, read from the transaction's net write`
+			)
 			const requested = heldMatches(probe, probe.requested, rel.name, key)
 			assert.ok(
 				requested.length > 0,
@@ -202,6 +191,16 @@ export const judged = (shape: Shape, note: (f: Feature) => void): void => {
 						keyNames.has(field),
 						`${rel.name}.${field} is held in the probe its indexes are requested by exactly where it is a key field`
 					)
+					assert.ok(
+						Arr.some([...probe.params.values()], (p) => p.record === "NEW" && p.field === field),
+						`${rel.name}.${field}, which the occurrence reads, is a value of NEW the probe reads from its region`
+					)
+					if (rel.name === "T" && !keyNames.has(field) && bound.kind === "literal") {
+						note("a non-key field held by a literal binding")
+					}
+					if (rel.name === "T" && field === "b" && shape.b === "shared") {
+						note("a non-key field held by a variable another match binds")
+					}
 				}
 			}
 		}

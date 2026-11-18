@@ -2131,12 +2131,21 @@ definition too.
   judged once per transaction, over the rows it wrote. On each table the query reads, an AFTER statement trigger for
   each write that can break it copies the statement's rows into a temporary table of the session: for a containment,
   a write that adds rows to its source or takes rows from its target, and so also a delete from a table its source
-  negates and an insert into one its target negates. The copy arms a deferred constraint trigger, `DEFERRABLE
-  INITIALLY DEFERRED`, whose function, the judge, runs at COMMIT: each rule's violation query, compiled by grizzle's
-  own query compiler, read once over every row the transaction wrote, a chain of index lookups from those rows. It
-  raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. After `SET CONSTRAINTS ALL
-  IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a pinned
-  `search_path`, no role may run them, and a temporary table another role made under the judge's names is refused.
+  negates and an insert into one its target negates. The rows a transaction adds are kept as its net write: a delete,
+  or an update of a column a rule reads, of a row it added cancels the row there, so the judge reads each added row as
+  the transaction leaves it and never reads it again from its table. The copy arms a deferred constraint trigger,
+  `DEFERRABLE INITIALLY DEFERRED`, whose function, the judge, runs at COMMIT: each rule's violation query, compiled by
+  grizzle's own query compiler, read once over every row the transaction wrote, a chain of index lookups from those
+  rows. It raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. After `SET
+  CONSTRAINTS ALL IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a
+  pinned `search_path`, no role may run them, and a temporary table another role made under the judge's names is
+  refused.
+- **Statistics.** Each lookup of the chain after the rows the transaction wrote is PostgreSQL's plan, a read of one
+  table at the columns the steps before it bound. On a table with no statistics, a lookup at the table's key may be
+  planned through a narrower index of some of the key's columns, which reads every row those columns share, until
+  ANALYZE runs: PostgreSQL prices both reads at one row (selfuncs.c btcostestimate, the key's one tuple against the
+  default selectivity of each equality), and the index of the shorter tree wins. grizzle runs no ANALYZE and sets no
+  planner option; analyze a table after the first load into it.
 - **Outcomes.** A write's `once` fails with `refused` naming the rule, its witness `unreported`: the row that breaks
   it may be one the transaction never wrote.
 - **Concurrent writers.** Every writer is SERIALIZABLE, so PostgreSQL orders the judge's reads against the writes
@@ -2144,8 +2153,9 @@ definition too.
   40001.
 - **Migrations.** A migration that adds a rule over a query, or changes one, runs its violation query over the stored
   rows, and fails where a row breaks it, as it validates a foreign key.
-- **TRUNCATE** fires no capture, so a rule over a query does not judge a TRUNCATE of a table it reads. grizzle
-  never truncates and no role may; a direct writer who truncates such a table answers for the rule itself.
+- **TRUNCATE** fires no capture, so a rule over a query does not judge a TRUNCATE of a table it reads, and judges
+  the rows a transaction added to it before a TRUNCATE as if they stood. grizzle never truncates and no role may; a
+  direct writer who truncates such a table answers for the rule itself.
 
 ### Families
 
