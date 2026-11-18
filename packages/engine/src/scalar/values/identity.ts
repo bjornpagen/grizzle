@@ -195,8 +195,18 @@ const decimalAt =
 const admitVector = (value: unknown, dimensions: number): Result.Result<Vector, ValueFault> =>
 	admitEncodable(value, dimensions)
 
+/**
+ * What admitting a closed id or a set reads of its roster: its declared name, which a set's stated roster is held to,
+ * and its live handles, each with its rank: an installation's codec (ir/codes.ts RosterCodec), or the roster's declared
+ * order under its name, which no installation holds (codec/scalar.ts hostText).
+ */
+export type LiveHandles = Pick<RosterCodec, "roster" | "rank">
+
 /** A closed id's handle: a string the roster holds live, whose code the codec writes. */
-const admitHandle = (value: unknown, roster: RosterCodec): Result.Result<string, ValueFault> =>
+export const admitHandle = (
+	value: unknown,
+	roster: LiveHandles
+): Result.Result<string, ValueFault> =>
 	typeof value === "string" && roster.rank.has(value) ? Result.ok(value) : Result.err("codeHandle")
 
 /**
@@ -205,9 +215,9 @@ const admitHandle = (value: unknown, roster: RosterCodec): Result.Result<string,
  * states its roster (Bits.of's), states this one. A Set cannot be frozen (Object.freeze leaves its members writable), so
  * the copy is what keeps the admitted value fixed.
  */
-const admitHandles = (
+export const admitHandles = (
 	value: unknown,
-	roster: RosterCodec
+	roster: LiveHandles
 ): Result.Result<ReadonlySet<string>, ValueFault> => {
 	if (!(value instanceof Set)) {
 		return Result.err("bitsType")

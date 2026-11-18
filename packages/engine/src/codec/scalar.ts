@@ -1,14 +1,22 @@
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
-import { type Codebook, firstCodebook, codecOf as rosterCodecOf } from "#compiler/ir/codes.ts"
+import {
+	type Codebook,
+	declaredOrder,
+	emptyCodebook,
+	codecOf as rosterCodecOf
+} from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
-import type { Carrier, Roster, ScalarType } from "#compiler/ir/scalar.ts"
+import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
+	admitHandle,
+	admitHandles,
 	admitted,
 	parseValue,
 	type CarrierHost,
@@ -181,18 +189,31 @@ export const countParam = (value: number): ParamText =>
 export const scalarCodec = (type: ScalarType, codes: Codebook): ScalarCodec =>
 	codecOf(type, carrierSpecOf(type, codes))
 
-/** The rosters a type's values are of: a closed id's or a set's roster, none for any other carrier. */
-const rostersOfType = (type: ScalarType): ReadonlyArray<Roster> =>
-	type.carrier === "code" || type.carrier === "bits" ? [type.roster] : []
-
 /**
- * The codec of a descriptor read under no installation: a closed id's and a set's under a fresh installation's codes,
- * each handle's code its position in its roster's declared order (ir/codes.ts firstCodebook), which is the order the
- * evaluator ranks them by (ir/codes.ts declaredOrder); every other carrier's, which reads no code, as any installation's.
- * Its encode is a value's one text read under no installation (program/text.ts codecText).
+ * A value's one text read under no installation (program/text.ts codecText), a function of its host value alone: a
+ * closed id's its handle, which is its host value; a set's its handles in its roster's declared order (ir/codes.ts
+ * declaredOrder) as a JSON array, a handle holding any text but NUL; each admitted against its roster's live handles as
+ * the codec admits them (scalar/values/identity.ts admitHandle, admitHandles). A code is a storage detail of one
+ * installation, so neither reads one. Every other carrier's is its codec's encode, which reads no code: the exact parse
+ * of the value and its canonical text.
  */
-export const declaredCodec = (type: ScalarType): ScalarCodec =>
-	scalarCodec(type, firstCodebook(rostersOfType(type)))
+export const hostText = (
+	type: ScalarType
+): ((value: unknown) => Result.Result<string, CodecFault>) => {
+	if (type.carrier !== "code" && type.carrier !== "bits") {
+		return scalarCodec(type, emptyCodebook).encode
+	}
+	const live = { roster: type.roster.closed, rank: declaredOrder(type.roster).rank }
+	if (type.carrier === "code") {
+		return (value) => admitHandle(value, live)
+	}
+	const rankOf = (handle: string): number =>
+		defined(live.rank.get(handle), "an admitted handle's rank")
+	return (value) =>
+		Result.map(admitHandles(value, live), (handles) =>
+			jsonText([...handles].toSorted((a, b) => rankOf(a) - rankOf(b)))
+		)
+}
 
 /**
  * The parameter encoder of a template slot (ir/products.ts Encoder, ParamSlot.encode): the codec's encode, the exact

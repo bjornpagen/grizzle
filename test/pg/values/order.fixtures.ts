@@ -29,7 +29,7 @@ import { codecOf } from "#test/unit/codec/support.ts"
 const markHandles = ["zeta", "alpha", "Mu"] as const
 
 /** The codebook of every roster a case reads: the round trip's rosters and Mark. */
-const orderCodes: Codebook = {
+export const orderCodes: Codebook = {
 	rosters: new Map([
 		...kindRosterCodes.rosters,
 		[
@@ -144,7 +144,7 @@ export const hostValueOf = (type: ScalarType, value: unknown): HostValue =>
  * A value's text as the recordset sends it: the codec's parameter text, or a bytes value's hex escape, which bytea's
  * input reads, since a bytes value travels in binary and has no parameter text.
  */
-export const wireText = (type: ScalarType, value: unknown): string =>
+const wireText = (type: ScalarType, value: unknown): string =>
 	value instanceof Uint8Array
 		? `\\x${Arr.join(
 				Arr.map(Array.from(value), (b) => Str.padStart(2, "0")(b.toString(16))),
