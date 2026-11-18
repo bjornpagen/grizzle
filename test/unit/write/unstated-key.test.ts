@@ -30,8 +30,8 @@ import { fin, mutable, on, ordered, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
@@ -97,7 +97,7 @@ export const aWriteThatNamesRowsByAPrimaryKeyRefusesAPutOrADeleteWhosePrimaryKey
 					const program = succeeded(compiled, "a write that names its rows by stated fields")
 					const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 					const bound = succeeded(
-						bindWrite(runnableWrite(program, program.frontend.codes), {
+						bindWrite(flightOf(program, program.frontend.codes), {
 							members,
 							params: {},
 							transport: inForce(bindFrame)

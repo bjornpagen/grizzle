@@ -1,5 +1,5 @@
 /**
- * What a write of large bytes values allocates on the host before any SQL (write/program/bind.ts bindWrite): a member
+ * What a write of large bytes values allocates on the host before any SQL (runtime/write/bind.ts bindWrite): a member
  * whose binary arrays no Bind message carries is refused from its values' lengths alone (ir/products.ts MessageBound),
  * before any of its bytes is read or copied, and a member that fits is copied once, into its columns' binary arrays,
  * which its every placeholder carries (ir/products.ts KeyedFacts). A case writes a member of facts that all hold one
@@ -8,7 +8,7 @@
  * holds when it returns, an admission's or an array's, is still allocated then, since nothing runs between.
  *
  * Oracle: the specification: a member whose arrays' bytes, counted from its values' lengths with each statement's own
- * fields and placeholders (write/family/order.ts inForce), pass the longest message PostgreSQL reads is refused, and
+ * fields and placeholders (runtime/write/transport.ts inForce), pass the longest message PostgreSQL reads is refused, and
  * allocates under one value's length; any other binds, and allocates its arrays' bytes once, within a 64 MiB slack,
  * each of its admitted values the caller's array itself. The memory read bounds what a bind holds from above, so a
  * collection of an earlier case's garbage meanwhile can hide a copy, never invent one; the admitted values' identity
@@ -29,8 +29,8 @@ import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { checking } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -82,7 +82,7 @@ export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsA
 							? ChangeSet.empty(Large).insert(One, facts)
 							: ChangeSet.empty(Large).insert(Two, facts)
 					const program = succeeded(compileWrite(checking(Large), descOf(change), reality))
-					const write = runnableWrite(program, program.frontend.codes)
+					const write = flightOf(program, program.frontend.codes)
 					const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
 					const before = process.memoryUsage().arrayBuffers
 					const bound = bindWrite(write, {
@@ -105,8 +105,8 @@ export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsA
 						`a bound member's ${copied(d)} bytes allocated ${grown}: a second copy of some value`
 					)
 					const normalized = normalizeChangeSet(
-						write.flight.prepared.groups,
-						{ fill: write.flight.prepared.fill, codes: write.flight.codes },
+						write.prepared.groups,
+						{ fill: write.prepared.fill, codes: write.codes },
 						members,
 						inForce(bindFrame)
 					)

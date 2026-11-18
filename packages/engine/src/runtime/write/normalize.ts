@@ -103,7 +103,7 @@ const keyedFacts = (
 
 /**
  * A slot's normal facts with each fact replaced by `facts`, their identities kept, as normalization would hold them:
- * the facts of an owner the stratum inserts with its counts and ends its members' appends draw (write/program/bind.ts).
+ * the facts of an owner the stratum inserts with its counts and ends its members' appends draw (runtime/write/bind.ts freshOwners).
  * The brand's claim, that no two facts share a key, still holds: bind refills only fields no key of the owner reads,
  * so every key value is the one the same-key checks judged.
  */

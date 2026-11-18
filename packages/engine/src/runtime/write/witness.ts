@@ -84,7 +84,7 @@ export type FilledColumn =
 	| { readonly kind: "unfilled" }
 
 /**
- * A row a refused statement writes that the ChangeSet states, as the host judges it (write/program/bind.ts): the
+ * A row a refused statement writes that the ChangeSet states, as the host judges it (runtime/write/bind.ts): the
  * fields the ChangeSet states, by name, its key and its caller's and serial fields, or a query entry's head, never a
  * count, an end or a copy; and every other column of its relation, a drawn or an accumulated field by its field key, a
  * law column by its own, as the write fills it. Its kind is what the host knows of the row the write leaves at its key:
@@ -101,7 +101,7 @@ export interface JudgedRow {
 }
 
 /**
- * One application's stated rows as its write fills them (write/program/bind.ts BoundWrite): the facts of one member
+ * One application's stated rows as its write fills them (runtime/write/bind.ts BoundWrite): the facts of one member
  * slot of a slot group's enumerated input, and a stratum's nested rows of a relation.
  */
 export interface StatedRows {
@@ -257,7 +257,7 @@ export type Refuser =
  * which casts the facts the action writes into the relation's types (artifact.ts CarrierCasts), stating every fact the
  * ChangeSet adds or puts into them there; a query entry's precheck, which casts the entry's own stated facts into its
  * target's types before any statement writes them; or a statement that states no fact the ChangeSet states: another
- * carrier's, an ANALYZE, a serial advance, a read-back, a family's stored-suffix read or the COMMIT.
+ * carrier's, an ANALYZE, a serial advance, a read-back or the COMMIT.
  */
 export type StatementAt =
 	| {

@@ -34,8 +34,7 @@ import {
 	nominal,
 	recordsReader,
 	rosterCodebook,
-	ServedPatterns,
-	servedRunnable
+	ServedPatterns
 } from "#compiler/plan/runtime.ts"
 import type {
 	ServedChange,
@@ -294,7 +293,7 @@ const loadChange = (
 ): Result.Result<LoadedChange, CompileError> => {
 	const program = change.program
 	const entry = loadedEntry({
-		program: servedRunnable(loadWrite(program, codes, closed, patterns)),
+		program: loadWrite(program, codes, closed, patterns),
 		witness,
 		readBacks: readBacks(change.readBacks, codes),
 		codecs: paramCodecs(program.params, codes),

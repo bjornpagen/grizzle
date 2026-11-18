@@ -1524,7 +1524,7 @@ type SpecChange =
  * of their parent's. A copy along a family's owner axis, a tree's aside, carries a change of what it reads into its
  * member's copy, and `g` follows `v`. A change reaches the values of the families of the row it is on (a fold summing
  * its step, and a predecessor copy, a last copy and a tree's copy of what changed): each is stale, but those the change
- * draws again itself: a write's of the written relation's own families, which the family planner draws, and a
+ * draws again itself: a write's of the written relation's own families, which its family statements draw, and a
  * refill's of its own family. An insert also edits the counted families of every counted member its nesting writes,
  * each nested row appended to them as a row of its own would be; their sequences are the walk's, under their fresh
  * owners, and change nothing stored. A relation of `replaced` has rows the ChangeSet deletes and inserts again, which no

@@ -10,8 +10,7 @@
  *   entry and the field; every other property below holds over the roles that are declared.
  * - **Exact grants:** a role's grants on an owner are exactly its grants there with no member written (the control:
  *   the same world, every member write dropped) together with the rule: column SELECT on O's key, count, ends and
- *   copies, exactly what the family's read flight reads, and, when O is mutable, column UPDATE on its count and ends,
- *   exactly what its count statement sets; nothing when the role writes O whole, and no INSERT, DELETE or UPDATE on any
+ *   copies, and, when O is mutable, column UPDATE on its count and ends, exactly what its recount sets; nothing when the role writes O whole, and no INSERT, DELETE or UPDATE on any
  *   other field of O.
  * - **The owner rows a member writer reaches:** for a role that writes a member and not its owner, the owner rows its
  *   policy on O admits (every row where O has no row security) are exactly those whose groups its policy on the member

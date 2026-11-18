@@ -6,7 +6,6 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
-import * as Result from "#compiler/core/result.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -15,8 +14,8 @@ import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, deepEquals, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
@@ -601,7 +600,7 @@ export const property = (
 			return
 		}
 		const members = yield* collectInputs(program.value.binding.groups, parsedOf(all).inputs)
-		const write = runnableWrite(program.value, program.value.frontend.codes)
+		const write = flightOf(program.value, program.value.frontend.codes)
 		const bound = bindWrite(write, {
 			members,
 			params: {},
@@ -612,18 +611,8 @@ export const property = (
 				`the instance binds to statements, not ${bound.ok ? bound.value.kind : Formatter.format(bound.error)}`
 			)
 		}
-		const flights = bound.value.flights
-		const writes =
-			flights.kind === "write"
-				? { ok: true as const, value: flights.chunks }
-				: Result.map(flights.writes(Arr.map(flights.reads, () => [])), (written) => written.chunks)
-		if (!writes.ok) {
-			return assert.fail(
-				`the instance's family writes plan from reads that find nothing stored, not ${Formatter.format(writes.error)}`
-			)
-		}
-		const chunks = writes.value
-		for (const statement of write.flight.statements) {
+		const chunks = bound.value.chunks
+		for (const statement of write.statements) {
 			const sent = chunks(statement, inForce(bindFrame))
 			if (!sent.ok) {
 				return assert.fail(`every statement's rows, not ${Formatter.format(sent.error)}`)
@@ -633,8 +622,8 @@ export const property = (
 		const byUuid = new Map(Arr.map(rows, (row) => [uuidOfRow(row.id), row] as const))
 		const normalized = succeeded(
 			normalizeChangeSet(
-				write.flight.prepared.groups,
-				{ fill: write.flight.prepared.fill, codes: write.flight.codes },
+				write.prepared.groups,
+				{ fill: write.prepared.fill, codes: write.codes },
 				members,
 				inForce(bindFrame)
 			)

@@ -62,12 +62,11 @@ const changeTags = (
 /** The carrier statement that casts nothing a ChangeSet states. */
 export const castsNothing: CarrierCasts = Object.freeze({ kind: "none" })
 
-/** The write steps of a statement: a write step itself, a single statement's parts' steps, a family step; no other step
- * writes facts, a hold's and the admission's none. */
+/** The write steps of a statement: a write step itself, a single statement's and a family write's parts' steps; no other
+ * step writes facts, a hold's and the admission's none. */
 const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 	switch (step.kind) {
 		case "write":
-		case "family":
 			return [step]
 		case "single":
 			return step.parts.map((part) => part.step)

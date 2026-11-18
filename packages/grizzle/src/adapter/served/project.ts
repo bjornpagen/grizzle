@@ -12,7 +12,7 @@ import {
 	type ClosedTable,
 	closedTableOf,
 	type CompiledWrite,
-	servedWrite
+	projectWrite
 } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
@@ -157,7 +157,7 @@ const instantReadOf = (deferrable: boolean, form: RowsForm<unknown>): ServedInst
 
 /**
  * A ChangeSet's variants, served: each compiled change its program, projected at the level it was compiled for, its
- * role's (write/program/served.ts servedWrite), its read-backs, its reads decoder's form, the values its
+ * role's (write/program/served.ts projectWrite), its read-backs, its reads decoder's form, the values its
  * declaration bound and the array members a call supplies (servedMembers), or every reason no call can serve it
  * (UnservedMember: a Stream member, a bound value with no canonical text, two array members of one relation).
  */
@@ -167,12 +167,11 @@ const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, Uns
 			const { entry, decoder } = variants.form
 			const compiled = entry.compiled
 			return Result.gen(function* () {
-				const program = yield* toResult(servedWrite(compiled))
 				const members = yield* toResult(
 					servedMembers(compiled.binding.members, entry.change.opaque)
 				)
 				const change: ServedChange = {
-					program,
+					program: projectWrite(compiled),
 					readBacks: servedReadBacks(compiled.artifact.readBacks),
 					decoder: decoder.form,
 					bound: entry.change.values,

@@ -19,7 +19,6 @@ import { typedColumnArray } from "#compiler/runtime/write/arrays.ts"
 import type { MemberCell } from "#compiler/runtime/write/draw.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import type { Unsendable } from "#compiler/write/family/order.ts"
 
 /**
  * One carrier of a staged statement: its creation, its fill, and the positions among the inline form's placeholders
@@ -100,6 +99,14 @@ export interface NestedCells {
 	readonly rows: ReadonlyArray<ReadonlyArray<MemberCell>>
 }
 
+/**
+ * Why a nested row goes in no insert of its relation even alone: its column at `column` would make an array literal
+ * longer than `limit` code units, or its Bind message would be `bytes` long, past `limit`.
+ */
+export type Unsendable =
+	| { readonly kind: "literal"; readonly column: number; readonly limit: number }
+	| { readonly kind: "message"; readonly bytes: number; readonly limit: number }
+
 /** A nested row no fill carries even alone, as the relation it is a row of names it. */
 export interface NestedRowBound {
 	readonly _tag: "NestedRowBound"
@@ -116,7 +123,7 @@ const cellAt = (row: ReadonlyArray<MemberCell>, part: number): MemberCell =>
 	defined(row[part], "a nested row holds each column of its sent layout")
 
 /**
- * The array of column `part` of `rows` as a nested rows placeholder carries it (write/family/order.ts
+ * The array of column `part` of `rows` as a nested rows placeholder carries it (runtime/write/arrays.ts
  * typedColumnArray): a text column's binary text[], a bytes column's binary bytea[], any other's text array literal.
  */
 export const nestedColumn = (
@@ -255,7 +262,7 @@ const chunksOf = (
 			return Result.err({
 				_tag: "NestedRowBound",
 				relation: cells.relation,
-				row: { kind: "literal", column: widePart, limit: literalUnits, statement: "insert" }
+				row: { kind: "literal", column: widePart, limit: literalUnits }
 			})
 		}
 		const bytes = alone.reduce((sum, m) => sum + m.bytes, fixed)
@@ -263,7 +270,7 @@ const chunksOf = (
 			return Result.err({
 				_tag: "NestedRowBound",
 				relation: cells.relation,
-				row: { kind: "message", bytes, limit: messageBytes, statement: "insert" }
+				row: { kind: "message", bytes, limit: messageBytes }
 			})
 		}
 		const grown =

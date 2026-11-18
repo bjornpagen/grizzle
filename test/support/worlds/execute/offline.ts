@@ -8,9 +8,9 @@ import { memberFactsOf } from "#compiler/runtime/write/members.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { servedMembers } from "#compiler/write/program/served-members.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
@@ -91,7 +91,7 @@ export const offlineServedBind = (
 	Engine.flatMap(servedMembers(program.binding.members, change.opaque), (members) =>
 		Engine.flatMap(memberFactsOf(facts, members), (read) =>
 			withinMessage(
-				bindWrite(runnableWrite(program, program.frontend.codes), {
+				bindWrite(flightOf(program, program.frontend.codes), {
 					members: read,
 					params: {},
 					transport: inForce(bindFrame)
@@ -110,7 +110,7 @@ export const offlineBind = (
 ): Effect.Effect<Engine.Result<BindResult, EncodingFailure | CompileError>> =>
 	Effect.map(collectInputs(program.binding.groups, change.inputs), (members) =>
 		withinMessage(
-			bindWrite(runnableWrite(program, program.frontend.codes), {
+			bindWrite(flightOf(program, program.frontend.codes), {
 				members,
 				params: {},
 				transport: inForce(bindFrame)

@@ -241,8 +241,8 @@ const nestedRefusal = (
  * (NestedGeneratedNull, the first such fact's) only once every other fact has filled, so an encoding failure of any
  * fact is the write's refusal instead. A fact `into` holds already, at its key with every row it nests, adds nothing.
  * A level's row whose binary arrays no Bind message of `transport` carries alone, with the row's placeholders, is
- * refused as its MessageBound before any of its bytes is read, since a family write's statements are cut row by row
- * (write/family/order.ts).
+ * refused as its MessageBound before any of its bytes is read, since a nested write's rows are cut row by row into its
+ * statement's fills (runtime/write/staged.ts executionsOf).
  */
 export const nestedRows = (
 	nesting: NestingData,

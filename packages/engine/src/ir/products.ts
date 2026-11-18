@@ -256,7 +256,7 @@ export type PageFill = SizeFill | BoundaryFill
  *
  * A relation input's placeholders in one statement, one per array (ArrayTexts), each carry an encoder over the columns
  * they share and their `part`, the position of their array among the input's arrays: a binder writes each
- * placeholder's array by its own encoder at its part (write/program/bind.ts), the input's facts encoded once in all.
+ * placeholder's array by its own encoder at its part (runtime/write/bind.ts), the input's facts encoded once in all.
  */
 export type ParamSlot =
 	| { readonly kind: "scalar"; readonly param: ParamId; readonly encode: Encoder }

@@ -10,6 +10,7 @@ import {
 	type RoleWrite
 } from "#compiler/analysis/schema.ts"
 import { refuse } from "#compiler/analysis/theory/build.ts"
+import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -121,7 +122,7 @@ import { printExpr, printStartupOptions } from "#compiler/sql/print.ts"
 import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
 import { filterFields, renderMembership } from "#compiler/write/entry/render.ts"
-import { endColumns, ownerReadColumns } from "#compiler/write/family/statements.ts"
+import { endColumns } from "#compiler/write/family/statements.ts"
 import {
 	type OutsideProbe,
 	probeIdentity,
@@ -975,12 +976,35 @@ const drawnColumnsOf = (b: InstallBuilder, relation: string): ReadonlyArray<stri
 	)
 
 /**
+ * The owner columns a member's writer selects on its owner beside its key (`OwnerHold`): its count, its ends
+ * (`endColumns`), every column its owner axis carries into its members, which an appended or refilled member copies,
+ * and every field a generated one among them is computed from (withGenerationInputs).
+ */
+const ownerReadColumns = (family: Family): ReadonlyArray<LawField> => {
+	const out: Array<LawField> = [family.count]
+	const add = (f: LawField): void => {
+		if (!out.some((g) => g.name === f.name)) {
+			out.push(f)
+		}
+	}
+	for (const f of endColumns(family)) {
+		add(f)
+	}
+	for (const pair of family.axes.owner) {
+		if (pair.to.kind === "field") {
+			add(pair.to.field)
+		}
+	}
+	return withGenerationInputs(family.owner, out)
+}
+
+/**
  * What a role that writes a member of a family holds on the family's owner O, beside what its own
- * entries grant, and nothing wider. Column SELECT on exactly what the family's read flight reads of O
- * (write/family/statements.ts suffixReadSql): its key, the owner fields the group pairs with, and `ownerReadColumns`:
- * its count, its ends and the fields its owner axis copies into members, which the role writes into its own member rows.
- * Column UPDATE, when O is mutable and the role writes by its write list, on exactly what the family's count statement
- * sets (countStatement): its count and `endColumns`. No UPDATE on an immutable O, whose family is fixed when it is
+ * entries grant, and nothing wider. Column SELECT on its key, the owner fields the group pairs with, and
+ * `ownerReadColumns`: its count, its ends and the fields its owner axis copies into members, which the role writes into
+ * its own member rows. Column UPDATE, when O is mutable and the role writes by its write list, on exactly what the
+ * family's recount sets (write/family/additions.ts, removals.ts): its count and `endColumns`. No UPDATE on an immutable
+ * O, whose family is fixed when it is
  * inserted, nor for a role that writes by its insert list, which holds no UPDATE and whose program is refused a recount
  * (write/program/insert-only.ts). None of O's other fields. A role that writes O whole holds all of O already and takes
  * none. `families` are the families of O whose member it writes, in
@@ -1656,9 +1680,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   EXECUTE on the advance function of every serial field of T (`addAdvanceFunctions`), the one way a write moves the field's
  *   identity sequence past explicit values, since no role holds a privilege on a sequence; EXECUTE on its filter
  *   functions and key and unique probes. For each family whose member it writes, on the family's owner O, unless it
- *   writes O whole (`ownerHolds`): column SELECT on what the family's read flight reads, O's key, count, ends and the
- *   fields its owner axis copies into members, and, when O is mutable, column UPDATE on what its count statement
- *   sets, O's count and ends, none on an immutable O, whose family is fixed at insert; USAGE on those fields' domains.
+ *   writes O whole (`ownerHolds`): column SELECT on O's key, count, ends and the fields its owner axis copies into
+ *   members, and, when O is mutable, column UPDATE on what its recount sets, O's count and ends, none on an immutable O, whose family is fixed at insert; USAGE on those fields' domains.
  *   EXECUTE on the refusal function, to every role, whatever it writes: a write's statements refuse through it, a
  *   context source refuses an unreadable claims setting through it, and a read-back checks each bare child and option
  *   it delivers through it (lower/conservative/deliver.ts checkedAttachment), on any role, one that writes nothing among

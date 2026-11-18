@@ -77,8 +77,8 @@ import type {
 import { type Proposal, proposalOf } from "#compiler/write/insert/statement.ts"
 import { insertArbitered } from "#compiler/write/insert/unique.ts"
 
-/** Whether a stratum's family statements are its additions and removals, computed in SQL within the call's flight
- * (write/family/additions.ts, removals.ts), rather than planned on the host from a read flight. */
+/** Whether a stratum writes its family members' rows, by its additions and removals (write/family/additions.ts,
+ * removals.ts), beside a unit delete or with none. */
 const familyWrittenInFlight = (frontend: WriteFrontend, stratum: StratumAt): boolean =>
 	defined(frontend.ir.strata[stratum], "a stratum").family.some(
 		({ node }) => node.kind === "additions" || node.kind === "removals"
@@ -104,7 +104,7 @@ const proposalAt = (frontend: WriteFrontend, stratum: StratumAt, slot: ParamId):
 
 /** The slots of an owner relation in a stratum that carry its counts and ends: a plain insert's or an enumerated
  * put's that starts them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */
-export const ownerSlots = (
+const ownerSlots = (
 	frontend: WriteFrontend,
 	stratum: StratumAt,
 	relation: StoredRelationName
@@ -515,7 +515,7 @@ const nestedAts = (frontend: WriteFrontend): ReadonlyArray<NestedAt> => {
 }
 
 /** A family as a row of it no statement carries is reported by (binding.ts FamilyNames). */
-export const familyNames = (family: Family): FamilyNames => ({
+const familyNames = (family: Family): FamilyNames => ({
 	owner: family.owner.name,
 	count: family.count.name,
 	member: family.member.name

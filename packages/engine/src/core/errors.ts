@@ -445,8 +445,8 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   again by refilling the family (analysis/theory/refill.ts) for `cause` (StaleCause).
  * - `UnorderableStratum`: a stratum's writes `cycle`, each of which an immediate key or foreign key between them must
  *   run before the next, and the last before the first (write/frontend/schedule.ts), so no order of the stratum's
- *   statements keeps every key at every statement: an action's insert, put or delete, or a family statement's insert,
- *   update in place or delete of a member's rows, or count of an owner's.
+ *   statements keeps every key at every statement: an action's insert, put or delete, or a family statement's: an
+ *   additions' insert of its member's rows, or its count of an owner's where it appends none, or a removals' delete.
  * - `ReadBackCrossesStatements`: the ChangeSet's read-back `read` reads a delta no one statement of the write holds
  *   whole with the state it reads, as `crossing` says (ReadBackCrossing): a read-back is evaluated inside the statement
  *   that makes its delta, whose rows exist nowhere else (write/schedule/plan.ts placeReadBacks).
@@ -645,7 +645,7 @@ export type CompileReason =
 			readonly at: SourceLoc
 			readonly cycle: NonEmptyReadonlyArray<{
 				readonly relation: string
-				readonly op: "insert" | "put" | "delete" | "update" | "count"
+				readonly op: "insert" | "put" | "delete" | "count"
 			}>
 	  }
 	| {

@@ -20,9 +20,9 @@ import { paramDomainsOf } from "#compiler/plan/catalog.ts"
 import {
 	type ChangeEntry,
 	compileParsed,
+	flightOf,
 	parsedChange,
 	type ParsedChangeSet,
-	runnableWrite,
 	type WriteNames
 } from "#compiler/plan/change.ts"
 import {
@@ -280,7 +280,7 @@ export const runtimeEntry = (
 	bind: BindContext
 ): CompiledEntry =>
 	installedEntry(entry, ({ compiled, schema, names, change }) => ({
-		program: runnableWrite(compiled, codes),
+		program: flightOf(compiled, codes),
 		compiled,
 		schema,
 		names,

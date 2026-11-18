@@ -136,13 +136,13 @@ export const evaluatedRelation = (
  * fields that table reads of the row (ir/expr.ts tableReads), found once where the selection is built, so a fold reads
  * them as a field at every row it steps over.
  */
-export interface Selection {
+interface Selection {
 	readonly table: ExprTable
 	readonly reads: ReadonlyArray<string>
 }
 
 /** The conjunct `table` of a fold's selection, its reads found (`Selection`). */
-export const selection = (table: ExprTable): Selection => ({ table, reads: tableReads(table) })
+const selection = (table: ExprTable): Selection => ({ table, reads: tableReads(table) })
 
 /**
  * The host's evaluation of an expression's table over one row of `relation`, a generated field's generation expression
@@ -214,7 +214,7 @@ export const fillRefusal = (
  * true, NULL holding of no row. `read` gives each field a conjunct reads, or why the row has none, which stops the
  * selection there; `unevaluated` is the stop of a conjunct the host cannot evaluate.
  */
-export const selects = <E>(
+const selects = <E>(
 	relation: EvaluatedRelation,
 	where: ReadonlyArray<Selection>,
 	evaluate: HostEvaluator,
@@ -724,7 +724,7 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
  * A fold plane's after at a row its selection holds of: `combine(before, x)` (`combineHost`), admitted to the plane's
  * carrier as PostgreSQL would store it; stopped where it leaves the carrier, as PostgreSQL would refuse its row (22003).
  */
-export const stepped = (
+const stepped = (
 	fold: { readonly monoid: MonoidName },
 	family: FamilyId,
 	plane: 0 | 1,

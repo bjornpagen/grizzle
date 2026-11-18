@@ -26,12 +26,12 @@ import {
 	tree
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { bindWrite, type RunnableWrite } from "#compiler/runtime/write/bind.ts"
-import type { FlightStatement } from "#compiler/runtime/write/flight.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
+import type { FlightStatement, FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
@@ -233,13 +233,11 @@ export type Feature =
 	| "a row past one fill alone"
 	| "an owner of no member"
 
-/** The form and the chunks of a write a case's facts bind: lawful by construction, it binds, and it reads nothing first,
- * every group it writes its own new owner's or a stored owner's its one flight recounts. */
+/** The form and the chunks of a write a case's facts bind: lawful by construction, it binds. */
 const boundOf = (result: ReturnType<typeof bindWrite>) => {
 	const bound = succeeded(result, "the case's facts bind")
 	assertVariant(bound, "kind", "bound", "the case's facts are lawful")
-	assertVariant(bound.flights, "kind", "write", "a nested insert reads nothing first")
-	return { form: bound.form, chunks: bound.flights.chunks }
+	return { form: bound.form, chunks: bound.chunks }
 }
 
 /** The header's property over one case. */
@@ -248,18 +246,15 @@ export const property = (sketch: Sketch, c: Case<Feature>) =>
 		const value = changeOf(sketch)
 		const program = succeeded(compileWrite(checking(Sources), descOf(value), reality))
 		const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-		const runnable = runnableWrite(program, program.frontend.codes)
-		const bind = (write: RunnableWrite) =>
+		const flight = flightOf(program, program.frontend.codes)
+		const bind = (write: FlightWrite) =>
 			boundOf(bindWrite(write, { members, params: {}, transport: inForce(bindFrame) }))
-		const whole = bind(runnable)
+		const whole = bind(flight)
 		const transport = transportOf(sketch.cut)
 		const alone = (statement: FlightStatement) =>
-			bind({ ...runnable, flight: { ...runnable.flight, statements: [statement] } }).chunks(
-				statement,
-				transport
-			)
+			bind({ ...flight, statements: [statement] }).chunks(statement, transport)
 		const sources = new Set<string>()
-		for (const statement of runnable.flight.statements) {
+		for (const statement of flight.statements) {
 			const sent = Arr.flatMap(whole.form(statement).paramSlots, (slot) =>
 				slot.kind === "nestedRows" ? [`${slot.stratum} ${slot.relation}`] : []
 			)

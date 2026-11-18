@@ -9,10 +9,9 @@ import type { Binding } from "#compiler/runtime/write/binding.ts"
 import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import { legacyFlights, runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { evaluationOf, hostFillOf } from "#compiler/write/program/decide.ts"
-import { servedWrite } from "#compiler/write/program/served.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
@@ -98,12 +97,8 @@ const sent = (flight: FlightWrite, bound: ReturnType<typeof bindWrite>): unknown
 	if (value.kind !== "bound") {
 		return value
 	}
-	const flights = value.flights
-	if (flights.kind !== "write") {
-		return { reads: Arr.map(flights.reads, (r) => r.params) }
-	}
 	return Arr.map(flight.statements, (s) => {
-		const executions = flights.chunks(s, inForce(bindFrame))
+		const executions = value.chunks(s, inForce(bindFrame))
 		return executions.ok ? executions.value : { refused: executions.error }
 	})
 }
@@ -137,21 +132,11 @@ export const property = (
 		const members = yield* collectInputs(program.binding.groups, parsedOf(all).inputs)
 		const inputs = { members, params: {}, transport: inForce(bindFrame) }
 		const wide = widened(program)
-		const write = runnableWrite(program, program.frontend.codes)
-		const wideWrite = runnableWrite(wide, wide.frontend.codes)
+		const write = flightOf(program, program.frontend.codes)
+		const wideWrite = flightOf(wide, wide.frontend.codes)
 		assert.deepEqual(
-			sent(write.flight, bindWrite(write, inputs)),
-			sent(wideWrite.flight, bindWrite(wideWrite, inputs)),
+			sent(write, bindWrite(write, inputs)),
+			sent(wideWrite, bindWrite(wideWrite, inputs)),
 			"the write binds by its slice as by the whole fill order"
 		)
-		if (servedWrite(program).ok) {
-			assert.deepEqual(
-				sent(write.flight, bindWrite(write, inputs)),
-				sent(
-					write.flight,
-					bindWrite({ flight: write.flight, flights: legacyFlights(program) }, inputs)
-				),
-				"a served write binds in its one flight as the read-flight planner binds it"
-			)
-		}
 	})

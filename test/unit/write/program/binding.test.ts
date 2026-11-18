@@ -9,9 +9,6 @@
  * - **The slice binds as the whole does**: the write bound by its binding and bound by one whose fill is every layout
  *   of the schema's fill order and whose evaluator reads every closed relation send the same statements with the same
  *   placeholder texts, or refuse alike, so nothing the slice leaves out is one the write reads.
- * - **A served write binds without its front end as the planner binds it with it**: a write a served file holds
- *   (write/program/served.ts servedWrite), bound from its flight alone, sends what the read-flight planner over its
- *   compiled front end sends, or refuses alike (runtime/write/bind.ts RunnableWrite).
  *
  * Features: a nested write, a fresh owner's counts drawn, a write with no family.
  */

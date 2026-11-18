@@ -34,27 +34,16 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { canonicalActionOrder, scheduleStratum } from "#compiler/write/frontend/schedule.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import {
 	actionOf,
-	edgeKey,
-	edgeOf,
-	hasCycle,
 	instancesOf,
 	keeps,
 	nameOf,
-	noRefills,
 	orders,
 	phase,
-	requiredEdges,
 	shapeGen,
-	type Situation,
-	strataDraw,
-	stratumShapes,
-	type StratumSituation,
-	stratumSituations,
-	writeId,
-	writtenInPlace
+	type Situation
 } from "#test/unit/write/schedule.fixtures.ts"
 
 /** A stratum's schedule keeps an immediate foreign key into a relation it references whole, and both keys, at every statement, and reaches the stratum's final state, or names a cycle no order keeps. */
@@ -92,7 +81,6 @@ export const aStratumsScheduleKeepsAnImmediateForeignKeyIntoARelationItReference
 						new Set()
 					),
 					[],
-					[],
 					[
 						{
 							from: nameOf(shape, "C"),
@@ -102,7 +90,6 @@ export const aStratumsScheduleKeepsAnImmediateForeignKeyIntoARelationItReference
 							toColumns: ["field:id"]
 						}
 					],
-					noRefills,
 					[]
 				)
 				if (schedule.kind === "ordered") {
@@ -188,123 +175,13 @@ export const aStratumsScheduleKeepsAnImmediateForeignKeyIntoARelationItReference
 					'const followsOnRelation = (a: Scheduled, b: Scheduled): boolean =>\n\tphaseOf(a.action) < phaseOf(b.action) &&\n\t!(a.meeting === "nowhere" && a.action.op === "delete" && !isGenerated(b.action))',
 				replacement: "const followsOnRelation = (a: Scheduled, b: Scheduled): boolean => false",
 				why: "Two actions of one relation are left unordered by their phases (write/frontend/schedule.ts followsOnRelation)."
-			}
-		]
-	})
-
-/**
- * A stratum's schedule orders every generated stratum exactly when the writes' required order holds no cycle, and
- * keeps every required order.
- *
- * Budget: 300 runs and 400 steered cases, what its suite stated before it became a property
- * (test/unit/write/schedule.test.ts:1325 at 8cad5bce, its runs and its coverage's cases).
- */
-export const aStratumsScheduleOrdersEveryGeneratedStratumExactlyWhenTheWritesRequiredOrderHoldsNoCycleAndKeepsEveryRequiredOrder =
-	property.explore(strataDraw, {
-		needs: {},
-		budget: { runs: 300, steered: 400 },
-		situations: stratumSituations satisfies ReadonlyArray<Reached<StratumSituation>>,
-		check: (_, c: Case<StratumSituation>) => (stratum) =>
-			Effect.sync(() => {
-				c.noteAll(stratumShapes(stratum))
-				for (const { relation, edit } of stratum.edits) {
-					const update = Arr.findFirst(
-						stratum.family,
-						(f) => f.kind === "rows" && f.relation === relation && f.statement === "update"
-					).pipe(Option.getOrUndefined)
-					const expected = writtenInPlace(edit)
-					assert.ok(
-						update?.kind === "rows" &&
-							update.statement === "update" &&
-							update.changes.length === expected.size &&
-							Arr.every(update.changes, (c) => expected.has(c)),
-						`the update in place of ${relation} changes exactly what its edits ${Formatter.format(edit.ops)} write, ${Formatter.format([...expected])}`
-					)
-				}
-				const required = requiredEdges(stratum)
-				const cyclic = hasCycle(stratum, required)
-				const schedule = scheduleStratum(
-					canonicalActionOrder(stratum.actions, new Set()),
-					stratum.family,
-					stratum.pairs,
-					stratum.references,
-					stratum.refills,
-					[]
-				)
-				if (schedule.kind === "cycle") {
-					assert.ok(cyclic, "the schedule refuses only a stratum whose required order has a cycle")
-					const cycle = Arr.map(schedule.cycle, (w) => writeId(stratum, w))
-					for (const [i, at] of cycle.entries()) {
-						const next = defined(cycle[(i + 1) % cycle.length], "a cycle's next write")
-						assert.ok(
-							required.has(edgeKey(at, next)),
-							`the cycle's ${String(at)} before ${String(next)} is required`
-						)
-					}
-					c.note("refused: a required cycle")
-					return
-				}
-				assert.ok(!cyclic, "the schedule orders every stratum whose required order has no cycle")
-				const position = new Map<number, number>()
-				let next = 0
-				for (let i = 0; i <= schedule.actions.length; i += 1) {
-					for (const f of schedule.family) {
-						if (f.at === i) {
-							position.set(writeId(stratum, { kind: "family", node: f.node }), next)
-							next += 1
-						}
-					}
-					const action = schedule.actions[i]
-					if (action !== undefined) {
-						position.set(writeId(stratum, { kind: "action", action: action.scheduled }), next)
-						next += 1
-					}
-				}
-				for (const edge of required) {
-					const [from, to] = edgeOf(edge)
-					assert.ok(
-						defined(position.get(from), "a placed write") <
-							defined(position.get(to), "a placed write"),
-						`the required order ${String(from)} before ${String(to)} holds`
-					)
-				}
-				c.note("ordered")
-			}),
-		oracle: {
-			kind: "second-implementation",
-			name: "the required order of a stratum's writes, stated edge by edge from the keys and the family planner's rules, and what each update in place writes, stated operation by operation"
-		},
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/write/frontend/schedule.ts",
-				original:
-					'\tfor (const { node, vertex } of statements) {\n\t\tif (node.kind === "unit") {\n',
-				replacement:
-					'\tfor (const [at, { node, vertex }] of statements.entries()) {\n\t\tbefore(statements[at - 1]?.vertex, vertex)\n\t\tif (node.kind === "unit") {\n',
-				why: "A stratum's family statements are chained into one total order, which no key requires (write/frontend/schedule.ts scheduleStratum, e9227af's chain before 8310ede1), so an import's shape of a plain owner inserted beside its family's member updated and another owner's count closes a cycle and is refused as UnorderableStratum; the kept case of the import's shape pinned it."
-			},
-			{
-				file: "packages/engine/src/write/frontend/schedule.ts",
-				original:
-					'\tfor (const pair of pairs) {\n\t\tconst member = nodeOf(pair.member, "update")\n',
-				replacement:
-					'\tfor (const pair of pairs) {\n\t\tif (pair.owner !== pair.member) {\n\t\t\tbefore(rowsOf(pair.member, "delete"), rowsOf(pair.owner, "delete"))\n\t\t\tbefore(rowsOf(pair.owner, "insert"), rowsOf(pair.member, "insert"))\n\t\t}\n\t\tconst member = nodeOf(pair.member, "update")\n',
-				why: "Every family's owner insertion is ordered before its member's, and the member's deletion before the owner's, whether or not the owner axis is immediate (write/frontend/schedule.ts, 8310ede1's pair edges before 75fed883), so a cycle of families with both axes deferred is refused; the kept case of a cycle of families pinned it."
-			},
-			{
-				file: "packages/engine/src/write/frontend/schedule.ts",
-				original:
-					"\t\t[...(put ? edit.own : []), ...(moves ? [...edit.placed, ...edit.refreshed] : [])],\n",
-				replacement: "\t\t[...edit.own, ...(moves ? [...edit.placed, ...edit.refreshed] : [])],\n",
-				why: "A member's update in place counts as changing its caller fields whatever its edits write (write/frontend/schedule.ts updateChanges, before 73360caa), so a deletion of an ordered member or an insertion of a counted one meets a key over a it never writes; the kept case of edits beside a pure set pinned it."
 			},
 			{
 				file: "packages/engine/src/write/frontend/schedule.ts",
 				original:
 					"\t\tconst ready = remaining.find((v) => [...v.follows].every((u) => placed.has(u)))",
 				replacement: "\t\tconst ready = remaining.find((v) => [...v.follows].every((u) => false))",
-				why: "Operator mutant (boolean-return) at packages/engine/src/write/frontend/schedule.ts:672 in scheduleStratum: `placed.has(u)` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				why: "Operator mutant (boolean-return) at packages/engine/src/write/frontend/schedule.ts in scheduleStratum: `placed.has(u)` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

@@ -81,7 +81,7 @@ export const readsOf = (expr: ScalarExpr): ReadonlyArray<string> => tableReads(p
 
 /**
  * `fields` of `relation`, then every field a generated one among them reads, transitively, each once: every field the
- * host needs of a row to evaluate again each generated field it reads of it (write/family/edit.ts valueAt).
+ * host needs of a row to evaluate again each generated field it reads of it.
  */
 export const withGenerationInputs = (
 	relation: LawRelation,

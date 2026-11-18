@@ -32,7 +32,7 @@ import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inputSlotsOf, type MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn } from "#test/support/compile.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -78,7 +78,7 @@ export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefu
 					parsedOf(value).inputs
 				)
 				const bound = succeeded(
-					bindWrite(runnableWrite(program, program.frontend.codes), {
+					bindWrite(flightOf(program, program.frontend.codes), {
 						members,
 						params: {},
 						transport: inForce(bindFrame)
@@ -151,21 +151,15 @@ export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefu
 					return
 				}
 				assertVariant(bound, "kind", "bound", "a set with one fact at each id binds")
-				assertVariant(
-					bound.flights,
-					"kind",
-					"write",
-					"a nested write reads nothing first: every group it writes is its own new owner's"
-				)
 				const group = defined(program.binding.groups[0], "the owners' slot group")
 				const [input] = group.inputs
 				const [slot] = inputSlotsOf(input)
 				assert.equal(
-					bound.flights.stated.slot(group, input, slot).length,
+					bound.stated.slot(group, input, slot).length,
 					distinct.length,
 					"each distinct Owner is written once"
 				)
-				const written = nestedRowsColumn(program, bound.flights.chunks, "Member", 0)
+				const written = nestedRowsColumn(program, bound.chunks, "Member", 0)
 				assert.deepEqual(
 					Arr.sort(written, Str.Order),
 					Arr.sort(

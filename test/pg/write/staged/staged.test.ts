@@ -355,8 +355,8 @@ const searchOn = <A, E, R>(
 				 * its Tag, whose texts its rows' values do not change.
 				 */
 				const limit = Math.max(
-					textBound(changeOf(nested).entry.program.flight),
-					textBound(changeOf(tagged).entry.program.flight)
+					textBound(changeOf(nested).entry.program),
+					textBound(changeOf(tagged).entry.program)
 				)
 				const fresh = Effect.gen(function* () {
 					yield* Effect.orDie(replaceRows(s.admin, installationGroup(names), []))
@@ -395,7 +395,7 @@ const searchOn = <A, E, R>(
 						).pipe(Effect.ensuring(sketch.temporary ? Effect.void : database(true)))
 						const stagedRows = yield* state
 						return {
-							statements: changeOf(written).entry.program.flight.statements,
+							statements: changeOf(written).entry.program.statements,
 							inline,
 							inlineRows,
 							staged,

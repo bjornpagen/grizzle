@@ -27,7 +27,7 @@ import { fieldKey } from "#compiler/runtime/write/fill.ts"
 import { inputSlotsOf } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn } from "#test/support/compile.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -75,7 +75,7 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 				const program = nestedCompiled(value)
 				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const bound = succeeded(
-					bindWrite(runnableWrite(program, program.frontend.codes), {
+					bindWrite(flightOf(program, program.frontend.codes), {
 						members,
 						params: {},
 						transport: inForce(bindFrame)
@@ -85,13 +85,7 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 				if (bound.kind !== "bound") {
 					return
 				}
-				assertVariant(
-					bound.flights,
-					"kind",
-					"write",
-					"a nested write reads nothing first: every group it writes is its own new owner's"
-				)
-				const { chunks } = bound.flights
+				const { chunks } = bound
 				const statements = program.artifact.statements
 				const additions = defined(
 					Option.getOrUndefined(
@@ -116,7 +110,7 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 				const group = defined(program.binding.groups[0], "the owner's slot group")
 				const [input] = group.inputs
 				const [slot] = inputSlotsOf(input)
-				const tops = bound.flights.stated.slot(group, input, slot)
+				const tops = bound.stated.slot(group, input, slot)
 				for (const doc of docs) {
 					const top = defined(
 						Option.getOrUndefined(Arr.findFirst(tops, (t) => t.stated["id"] === doc.id)),
@@ -166,9 +160,9 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 		kills: [
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
-				original: "\t\t\t\twhole ? keyOf(ctx, layout, columns) : undefined,",
-				replacement: "\t\t\t\twhole ? undefined : keyOf(ctx, layout, columns),",
-				why: "Operator mutant (arm-swap) at packages/engine/src/runtime/write/bind.ts:680 in ownRows: `whole ? keyOf(ctx, layout, columns) : undefined` becomes `whole ? undefined : keyOf(ctx, layout, columns)`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				original: "\t\t\t\tprimary.every((name) => columns.has(fieldKey(name))),",
+				replacement: "\t\t\t\t!primary.every((name) => columns.has(fieldKey(name))),",
+				why: "Operator mutant (negation) at packages/engine/src/runtime/write/bind.ts in ownRows, the arm-swap of its keyed check before LEGACYFLIGHTS: a row that states its whole key is judged unkeyed and one that states part of it keyed; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
@@ -194,7 +188,7 @@ export const aNestedWritesFactsAreASetByIdentityRule0Ruling1WritesAFactStatedTwi
 				const setShaped = nestedCompiled(value)
 				const members = yield* collectInputs(setShaped.binding.groups, parsedOf(value).inputs)
 				const bound = succeeded(
-					bindWrite(runnableWrite(setShaped, setShaped.frontend.codes), {
+					bindWrite(flightOf(setShaped, setShaped.frontend.codes), {
 						members,
 						params: {},
 						transport: inForce(bindFrame)
@@ -237,13 +231,7 @@ export const aNestedWritesFactsAreASetByIdentityRule0Ruling1WritesAFactStatedTwi
 					return
 				}
 				assertVariant(bound, "kind", "bound", "a set with one fact at each key binds")
-				assertVariant(
-					bound.flights,
-					"kind",
-					"write",
-					"a nested write reads nothing first: every group it writes is its own new owner's"
-				)
-				const written = nestedRowsColumn(setShaped, bound.flights.chunks, "Line", 0)
+				const written = nestedRowsColumn(setShaped, bound.chunks, "Line", 0)
 				assert.deepEqual(
 					Arr.sort(written, Str.Order),
 					Arr.sort(
@@ -268,12 +256,6 @@ export const aNestedWritesFactsAreASetByIdentityRule0Ruling1WritesAFactStatedTwi
 				original: "\t\t\t\tsignature.push(held)\n",
 				replacement: "",
 				why: "A fact's signature is its own row's texts alone, never the rows it nests, so two owners at one key with different lines are one fact, not a key conflict; the set-by-identity property fails."
-			},
-			{
-				file: "packages/engine/src/write/frontend/compile.ts",
-				original: "\t\t\t\tn.object.target.name === f.owner.name &&",
-				replacement: "\t\t\t\tn.object.target.name !== f.owner.name &&",
-				why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:990 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
@@ -297,15 +279,14 @@ export const aNestedTreeAtDepthAndWidthNumbersAChainsAndAStarsNodesInPreOrderAtS
 					const treeShaped = nestedCompiled(value)
 					const members = yield* collectInputs(treeShaped.binding.groups, parsedOf(value).inputs)
 					const bound = succeeded(
-						bindWrite(runnableWrite(treeShaped, treeShaped.frontend.codes), {
+						bindWrite(flightOf(treeShaped, treeShaped.frontend.codes), {
 							members,
 							params: {},
 							transport: inForce(bindFrame)
 						})
 					)
 					assertVariant(bound, "kind", "bound", "a tree binds")
-					assertVariant(bound.flights, "kind", "write", "a fresh tree reads nothing first")
-					const { chunks } = bound.flights
+					const { chunks } = bound
 					const starts = nestedRowsColumn(treeShaped, chunks, "Node", 1)
 					const ends = nestedRowsColumn(treeShaped, chunks, "Node", 5)
 					assert.equal(starts.length, box.n, "every node is written once")
@@ -340,12 +321,6 @@ export const aNestedTreeAtDepthAndWidthNumbersAChainsAndAStarsNodesInPreOrderAtS
 					original: "\t\t\treturn { start, end: start + size }",
 					replacement: "\t\t\treturn { start, end: start + 1 }",
 					why: "A tree node's end is its start plus one, never plus its subtree's size; the depth-and-width property fails on a chain's end."
-				},
-				{
-					file: "packages/engine/src/write/frontend/compile.ts",
-					original: "\t\t\t\tn.object.target.name === f.owner.name &&",
-					replacement: "\t\t\t\tn.object.target.name !== f.owner.name &&",
-					why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:990 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 				}
 			]
 		}

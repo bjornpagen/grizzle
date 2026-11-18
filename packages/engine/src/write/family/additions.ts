@@ -26,7 +26,7 @@
  * recounted by one UPDATE of its relation, where its count or an end changes: each family's count, and each end from
  * its last member, which the owner axis cascades into its stored members at the statement's end; a stratum that
  * appends nothing still writes this statement for those puts. An owner the stratum inserts
- * carries its counts and ends in its own insert, which its appends meet (write/program/bind.ts), and an immutable
+ * carries its counts and ends in its own insert, which its appends meet (runtime/write/bind.ts freshOwners), and an immutable
  * owner's family is fixed when it is inserted, so no role holds UPDATE on it and this statement writes none.
  * Immediate foreign keys are checked at the statement's end, so a member and its owner's new count are judged together.
  *
@@ -34,8 +34,7 @@
  * part's rows behind its tag, which the outcome reads as a family statement's. PostgreSQL runs a data-modifying CTE as
  * the statement reads its rows, so every recount runs before any insert: a write appending to a stored group writes its
  * owner's row first, and of two writes appending to one group at once the later meets that row and fails with 40001,
- * never at the (group, index) key both drew from their snapshots, as the family planner's count statement before its
- * inserts did.
+ * never at the (group, index) key both drew from their snapshots.
  */
 import { appendAll } from "#compiler/core/array.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -175,7 +174,7 @@ import { refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
  * - the rows a nested write of its stratum fills (write/family/nesting.ts), every column of its row layout but those
  *   its counted families fill after the walk (`sentLayout`), those no stored row repeats at every field the walk fills
  *   (`walked`), which they state: a nested owner's counts and ends of its counted families are drawn as its stratum's
- *   appends to it would leave a fresh owner (write/program/bind.ts freshOwners), and where it is stored, they are its
+ *   appends to it would leave a fresh owner (runtime/write/bind.ts freshOwners), and where it is stored, they are its
  *   stored group's, which its counted families' appends recount. Its counted families draw them, and the walk drew its
  *   sequences'.
  */
@@ -546,7 +545,7 @@ const withDrawn = (
  *
  * A slot's rows hold every count and end of the member's own counted families (`ownedColumns`): an insert's row is a
  * fresh owner, by its key law, and holds them as its slot carries them, drawn from the stratum's appends to it
- * (write/program/bind.ts freshOwners), or at their starts. A put's row may be a stored one the stratum moves to another
+ * (runtime/write/bind.ts freshOwners), or at their starts. A put's row may be a stored one the stratum moves to another
  * group, which the removals deleted (write/family/removals.ts) and its families' members still name, so it holds each
  * as its group's members hold it, every member's copy of the count and the last member's column an end is carried
  * from, and as an insert's row does where its group holds no member.

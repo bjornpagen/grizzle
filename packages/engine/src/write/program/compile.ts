@@ -13,7 +13,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { type FillColumn, layoutKey } from "#compiler/ir/fill.ts"
-import { type FamilyId, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
+import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	type CallerParamDecl,
@@ -87,7 +87,7 @@ import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { Binding } from "#compiler/runtime/write/binding.ts"
 import { noExclusion, type WriteExclusion } from "#compiler/runtime/write/flight.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
-import type { FamilyStep, FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
+import type { FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { buildAdmission } from "#compiler/write/admission/statement.ts"
@@ -99,7 +99,6 @@ import {
 	type PutOwner,
 	type RowSource
 } from "#compiler/write/family/additions.ts"
-import type { EditTarget } from "#compiler/write/family/edit.ts"
 import {
 	type Deferring,
 	type EditedMember,
@@ -107,32 +106,19 @@ import {
 	type RefillRoot,
 	removalsSql
 } from "#compiler/write/family/removals.ts"
-import {
-	type ChainSql,
-	chainReadSql,
-	countStatement,
-	type FamilySql,
-	memberFamilies,
-	type ReadSql,
-	type RowLayout,
-	readShape,
-	rowLayout,
-	rowStatement,
-	suffixReadSql
-} from "#compiler/write/family/statements.ts"
+import { memberFamilies, type RowLayout, rowLayout } from "#compiler/write/family/statements.ts"
 import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
 	compileClockedChangeSet,
 	type EnumeratedInput,
 	type MemberSlot,
 	type SlotGroup,
-	type StratumEdit,
 	type WriteFrontend,
 	type WrittenRelation,
 	writingSlots
 } from "#compiler/write/frontend/compile.ts"
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
-import { plainRefills, type StratumRefill } from "#compiler/write/frontend/refill.ts"
+import type { PlainRefill } from "#compiler/write/frontend/refill.ts"
 import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
 import { heldUnits } from "#compiler/write/hold/stated.ts"
 import { buildHold } from "#compiler/write/hold/statement.ts"
@@ -228,10 +214,6 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	 */
 	readonly exclusion: WriteExclusion
 	readonly frontend: WriteFrontend
-	/** Each stratum's edits of a family's member relation, with their reads, built once. */
-	readonly edits: ReadonlyArray<EditProgram>
-	/** Each stratum's refills, with their reads, built once. */
-	readonly refills: ReadonlyArray<RefillProgram>
 	readonly choices: ReadonlyArray<PutChoice>
 	readonly plan: WritePlan
 	/** The optimized artifact, the one an application runs. */
@@ -340,21 +322,12 @@ const insertingSlots = (input: EnumeratedInput): ReadonlyArray<MemberSlot> => {
 
 /** One family statement of a stratum, built once over the installed names (`familyProgram`), which the plan's step of
  * its node places where the stratum's schedule runs it. */
-export type FamilyPlacement =
-	| {
-			readonly kind: "statement"
-			readonly stratum: StratumAt
-			readonly node: FamilyNode
-			readonly step: FamilyStep
-			readonly sql: FamilySql
-	  }
-	| {
-			readonly kind: "write"
-			readonly stratum: StratumAt
-			readonly node: FamilyNode
-			readonly step: FamilyWriteStep
-			readonly sql: FamilyWriteSql
-	  }
+export interface FamilyPlacement {
+	readonly stratum: StratumAt
+	readonly node: FamilyNode
+	readonly step: FamilyWriteStep
+	readonly sql: FamilyWriteSql
+}
 
 /**
  * The columns `family` draws on a row of `relation`, its member, in fill order: its fill layout's at the member's position
@@ -387,49 +360,23 @@ const memberSlotOf = (frontend: WriteFrontend, slot: ParamId): MemberSlot =>
 	defined(frontend.slotsById.get(slot), `the member slot ${slot}, an edit's`).slot
 
 /** The relations a family placement reads and writes, which orders it against the artifact's other statements. */
-const placementRelations = (placement: FamilyPlacement): ReadonlyArray<string> =>
-	placement.kind === "statement"
-		? [placement.step.relation]
-		: [...new Set(placement.step.parts.map((p) => p.relation))]
-
-/** A stratum's edits of one member relation as the program runs them: its slots, its row layout and families, and each
- * family's read, built once (write/family/edit.ts). */
-export interface EditProgram {
-	readonly edit: StratumEdit
-	readonly target: EditTarget
-	readonly reads: ReadonlyArray<{ readonly family: Family; readonly sql: ReadSql }>
-}
+const placementRelations = (placement: FamilyPlacement): ReadonlyArray<string> => [
+	...new Set(placement.step.parts.map((p) => p.relation))
+]
 
 /**
- * A stratum's refills as the program runs them (write/frontend/refill.ts): its refill, each of its reads' statement, and
- * each relation a refill rewrites as an edit's target, its row layout and its families with their reads' shapes.
+ * A program's family statements (write/family/additions.ts, removals.ts, write/delete/unit.ts), built once over the
+ * installed names: each family statement the schedule placed among a stratum's writes (frontend/schedule.ts
+ * FamilyNode).
  */
-export interface RefillProgram {
-	readonly stratum: StratumAt
-	readonly refill: StratumRefill
-	readonly reads: ReadonlyArray<ChainSql>
-	readonly targets: ReadonlyArray<EditTarget>
-}
-
-/** The family statements of a program, by stratum, and its edits and refills with their reads. */
-interface FamilyProgram {
-	readonly placements: ReadonlyArray<FamilyPlacement>
-	readonly edits: ReadonlyArray<EditProgram>
-	readonly refills: ReadonlyArray<RefillProgram>
-}
-
-/**
- * A program's family statements (write/family/statements.ts), built once over the installed names: each family
- * statement the schedule placed among a stratum's writes (frontend/schedule.ts FamilyNode), the rows of a member
- * relation its nested writes reach or its edits write, or the counts of an edited relation's family. A nested write's
- * owners are inserted by the changeset, so it deletes nothing and counts nothing: a sequence's count rides its owner's
- * own row.
- */
-const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram => {
+const familyProgram = (
+	frontend: WriteFrontend,
+	w: WriteContext
+): ReadonlyArray<FamilyPlacement> => {
 	const all = frontend.laws.families
-	/** Every stored relation of the schema, beyond the role's world: a family's read and its count statement name its
-	 * owner, which a member's writer reads and counts through exactly the columns its installation grants it (the
-	 * owner's key, count, ends and copies), whether or not its world holds the owner. */
+	/** Every stored relation of the schema, beyond the role's world: a family's statement names its owner, which a
+	 * member's writer reads and counts through exactly the columns its installation grants it (the owner's key, count,
+	 * ends and copies), whether or not its world holds the owner. */
 	const stored: ReadonlyMap<string, RelationInfo> = new Map(
 		[...frontend.laws.relations].map(([name, laws]) => [name, laws.relation] as const)
 	)
@@ -437,72 +384,8 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 		const info = defined(frontend.schema.relations.get(name), `the family relation ${name}`)
 		return rowLayout(info, all)
 	}
-	/** The strata whose family work is one additions statement, which plans nothing on the host. */
-	const added = new Set(
-		strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
-			stratum.family.some(({ node }) => node.kind === "additions" || node.kind === "removals")
-				? [s]
-				: []
-		)
-	)
-	const edits = frontend.edits
-		.filter((edit) => !added.has(edit.stratum))
-		.map((edit): EditProgram => {
-			const layout = layoutOf(edit.relation.name)
-			const families = memberFamilies(edit.relation.name, all).filter(
-				(f) => !isTreeOf(f, edit.relation.name)
-			)
-			const reads = families.map((family) => ({
-				family,
-				sql: unwrap(suffixReadSql(family, layout, w, stored))
-			}))
-			return Object.freeze({
-				edit,
-				target: Object.freeze({
-					relation: edit.relation,
-					layout,
-					families: reads.map((r) => ({
-						family: r.family,
-						shape: r.sql.shape,
-						fixed: !r.family.owner.mutable
-					}))
-				}),
-				reads
-			})
-		})
-	const refills = frontend.refills
-		.filter(({ stratum }) => !added.has(stratum))
-		.map(({ stratum, refill }): RefillProgram =>
-			Object.freeze({
-				stratum,
-				refill,
-				reads: refill.reads.map((read) =>
-					chainReadSql(read, w, (relation) => rowLayout(relation, all))
-				),
-				targets: refill.relations.map((name): EditTarget => {
-					const relation = defined(stored.get(name), `the refilled relation ${name}`)
-					const layout = layoutOf(name)
-					return Object.freeze({
-						relation,
-						layout,
-						families: memberFamilies(name, all)
-							.filter((f) => !isTreeOf(f, name))
-							.map((family) => ({
-								family,
-								shape: readShape(family, layout),
-								fixed: !family.owner.mutable
-							}))
-					})
-				})
-			})
-		)
 	const info = (name: string) => defined(stored.get(name), `the family relation ${name}`)
-	const familyOf = (id: FamilyId): Family =>
-		defined(
-			all.find((f) => familyKey(f.id) === familyKey(id)),
-			`the family ${id.owner}.${id.count} a count statement counts`
-		)
-	const placements = strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
+	return strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
 		stratum.family.map(({ node }): FamilyPlacement => {
 			if (node.kind === "unit") {
 				/** The rows the stratum adds of a unit's relation, which a doomed row is kept as: the rows its nested writes
@@ -531,321 +414,260 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 					statement: "unit",
 					parts: sql.parts
 				}
-				return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
+				return Object.freeze({ stratum: s, node, step: Object.freeze(step), sql })
 			}
-			if (node.kind === "additions" || node.kind === "removals") {
-				const stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)
-				/** The families a family write draws its rows of `relation` by: every one it is a member of but its own tree,
-				 * whose nodes the host's walk draws (write/family/nesting.ts). */
-				const familiesOf = (relation: RelationInfo) =>
-					memberFamilies(relation.name, all)
-						.filter((f) => !isTreeOf(f, relation.name))
-						.map((family) => ({
-							family,
-							drawn: familyDrawn(frontend, relation.name, family),
-							inputs: familyInputs(family, relation)
-						}))
-				/** The stratum's refills its family statements draw, by member relation (frontend/refill.ts plainRefills). */
-				const refilled = new Map(
-					frontend.refills.flatMap((r) =>
-						r.stratum === s
-							? [
-									...defined(
-										plainRefills(
-											r.refill,
-											(name) => all.some((f) => f.member.name === name),
-											new Set(
-												stratumEdits.flatMap((e) =>
-													e.puts === undefined && e.deletes === undefined ? [] : [e.relation.name]
-												)
-											)
-										),
-										"the refills of a stratum whose family statements draw them"
-									)
-								]
+			const stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)
+			/** The families a family write draws its rows of `relation` by: every one it is a member of but its own tree,
+			 * whose nodes the host's walk draws (write/family/nesting.ts). */
+			const familiesOf = (relation: RelationInfo) =>
+				memberFamilies(relation.name, all)
+					.filter((f) => !isTreeOf(f, relation.name))
+					.map((family) => ({
+						family,
+						drawn: familyDrawn(frontend, relation.name, family),
+						inputs: familyInputs(family, relation)
+					}))
+			/** The stratum's refills its family statements draw, by member relation (frontend/refill.ts StratumRefill). */
+			const refilled: ReadonlyMap<string, ReadonlyArray<PlainRefill>> = frontend.refills.find(
+				(r) => r.stratum === s
+			)?.refill.members ?? new Map()
+			/** The families a removals statement redraws its rows of `relation` by, at least one, each with the ways the
+			 * stratum's puts of plain relations reach its members. */
+			const removedFamilies = (relation: RelationInfo) => {
+				const ways = refilled.get(relation.name) ?? []
+				const own = familiesOf(relation).map((f) => ({
+					...f,
+					refills: (
+						ways.find((r) => familyKey(r.family.id) === familyKey(f.family.id))?.ways ?? []
+					).flatMap((way) =>
+						way.root.kind === "recount" ? [] : [{ root: way.root, hops: way.hops }]
+					)
+				}))
+				if (!isNonEmpty(own)) {
+					throw defect(
+						`the families of ${relation.name}, which a family removals statement redraws`
+					)
+				}
+				return own
+			}
+			const slotOf = (slot: ParamId | undefined): MemberSlot | undefined =>
+				slot === undefined ? undefined : memberSlotOf(frontend, slot)
+			const ownerSlots = (op: "put" | "delete") =>
+				frontend.slots.flatMap((group) =>
+					group.stratum === s
+						? group.inputs.flatMap((input) =>
+								input.kind === "single" && input.act.op === op
+									? [{ relation: group.relation.name, slot: input.slot }]
+									: []
+							)
+						: []
+				)
+			const w0 = { ...w, start: ownStatement }
+			/** The slots of the stratum that leave a group's recount to its additions (removals.ts Deferring). */
+			const deferring: ReadonlyArray<Deferring> = [
+				...stratumEdits.flatMap((edit) => [
+					...(edit.inserts === undefined
+						? []
+						: [
+								{
+									relation: edit.relation.name,
+									slot: memberSlotOf(frontend, edit.inserts),
+									as: "inserts" as const
+								}
+							]),
+					...(edit.puts === undefined
+						? []
+						: [
+								{
+									relation: edit.relation.name,
+									slot: memberSlotOf(frontend, edit.puts),
+									as: "puts" as const
+								}
+							])
+				]),
+				...[...ownerSlots("put"), ...ownerSlots("delete")].map((o) => ({
+					...o,
+					as: "owners" as const
+				}))
+			]
+			/** The members an edit's refills rewrite in the statement (FamilyRemovals and FamilyAdditions `riders`). */
+			const ridersOf = (names: ReadonlyArray<string>) =>
+				names.map((name): EditedMember => {
+					const rider = info(name)
+					return {
+						relation: rider,
+						layout: layoutOf(name),
+						puts: undefined,
+						deletes: undefined,
+						families: removedFamilies(rider)
+					}
+				})
+			/**
+			 * The members an additions statement of `appended` refills (FamilyAdditions `riders`), each from the rows it
+			 * appends of it alone: the ways its edit's refills take into the rider, and a way along each counted family it
+			 * owns whose member the rider is, which carries a moved row's counts and ends into its members' copies of them
+			 * as the row is inserted again. Every such way starts at the append scan of a family `appended` is a member of,
+			 * which holds every appended row whole.
+			 */
+			const appendRidersOf = (appended: RelationInfo, names: ReadonlyArray<string>) => {
+				const root = memberFamilies(appended.name, all).find((f) => !isTreeOf(f, appended.name))
+				return names.map((name): EditedMember => {
+					const rider = info(name)
+					return {
+						relation: rider,
+						layout: layoutOf(name),
+						puts: undefined,
+						deletes: undefined,
+						families: mapNonEmpty(removedFamilies(rider), (f) => {
+							const editWays = f.refills.filter(
+								(way) => way.root.kind === "edit" && way.root.relation === appended.name
+							)
+							const owned =
+								root !== undefined && f.family.owner.name === appended.name && !isSequence(f.family)
+							return {
+								...f,
+								refills: owned
+									? [
+											...editWays.filter((way) =>
+												way.hops.some((hop) => familyKey(hop.id) !== familyKey(f.family.id))
+											),
+											{
+												root: { kind: "edit" as const, relation: appended.name, family: root },
+												hops: [f.family] as const
+											}
+										]
+									: editWays
+							}
+						})
+					}
+				})
+			}
+			if (node.kind === "additions") {
+				/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout), with
+				 * the columns of them the walk fills, which they state. */
+				const nestedRows = new Map(
+					frontend.nested.flatMap((n) =>
+						n.stratum === s
+							? [...n.nesting.layouts].map(([relation, at]) => {
+									const source: Extract<RowSource, { readonly kind: "nestedRows" }> = {
+										kind: "nestedRows",
+										stratum: s,
+										layout: sentLayout(at),
+										walked: at.walked
+									}
+									return [relation, source] as const
+								})
 							: []
 					)
 				)
-				/** The families a removals statement redraws its rows of `relation` by, at least one, each with the ways the
-				 * stratum's puts of plain relations reach its members. */
-				const removedFamilies = (relation: RelationInfo) => {
-					const ways = refilled.get(relation.name) ?? []
-					const own = familiesOf(relation).map((f) => ({
-						...f,
-						refills: (
-							ways.find((r) => familyKey(r.family.id) === familyKey(f.family.id))?.ways ?? []
-						).flatMap((way) =>
-							way.root.kind === "recount" ? [] : [{ root: way.root, hops: way.hops }]
-						)
-					}))
-					if (!isNonEmpty(own)) {
-						throw defect(
-							`the families of ${relation.name}, which a family removals statement redraws`
-						)
-					}
-					return own
-				}
-				const slotOf = (slot: ParamId | undefined): MemberSlot | undefined =>
-					slot === undefined ? undefined : memberSlotOf(frontend, slot)
-				const ownerSlots = (op: "put" | "delete") =>
-					frontend.slots.flatMap((group) =>
-						group.stratum === s
-							? group.inputs.flatMap((input) =>
-									input.kind === "single" && input.act.op === op
-										? [{ relation: group.relation.name, slot: input.slot }]
-										: []
-								)
-							: []
-					)
-				const w0 = { ...w, start: ownStatement }
-				/** The slots of the stratum that leave a group's recount to its additions (removals.ts Deferring). */
-				const deferring: ReadonlyArray<Deferring> = [
-					...stratumEdits.flatMap((edit) => [
+				/** Each appended relation's row sources: its slots, then its nested rows. */
+				const sourced = new Map<string, [RowSource, ...Array<RowSource>]>()
+				for (const edit of stratumEdits) {
+					const slots = [
 						...(edit.inserts === undefined
 							? []
-							: [
-									{
-										relation: edit.relation.name,
-										slot: memberSlotOf(frontend, edit.inserts),
-										as: "inserts" as const
-									}
-								]),
+							: [{ as: "inserts" as const, slot: memberSlotOf(frontend, edit.inserts) }]),
 						...(edit.puts === undefined
 							? []
-							: [
-									{
-										relation: edit.relation.name,
-										slot: memberSlotOf(frontend, edit.puts),
-										as: "puts" as const
-									}
-								])
-					]),
-					...[...ownerSlots("put"), ...ownerSlots("delete")].map((o) => ({
-						...o,
-						as: "owners" as const
-					}))
-				]
-				/** The members an edit's refills rewrite in the statement (FamilyRemovals and FamilyAdditions `riders`). */
-				const ridersOf = (names: ReadonlyArray<string>) =>
-					names.map((name): EditedMember => {
-						const rider = info(name)
-						return {
-							relation: rider,
-							layout: layoutOf(name),
-							puts: undefined,
-							deletes: undefined,
-							families: removedFamilies(rider)
-						}
-					})
-				/**
-				 * The members an additions statement of `appended` refills (FamilyAdditions `riders`), each from the rows it
-				 * appends of it alone: the ways its edit's refills take into the rider, and a way along each counted family it
-				 * owns whose member the rider is, which carries a moved row's counts and ends into its members' copies of them
-				 * as the row is inserted again. Every such way starts at the append scan of a family `appended` is a member of,
-				 * which holds every appended row whole.
-				 */
-				const appendRidersOf = (appended: RelationInfo, names: ReadonlyArray<string>) => {
-					const root = memberFamilies(appended.name, all).find((f) => !isTreeOf(f, appended.name))
-					return names.map((name): EditedMember => {
-						const rider = info(name)
-						return {
-							relation: rider,
-							layout: layoutOf(name),
-							puts: undefined,
-							deletes: undefined,
-							families: mapNonEmpty(removedFamilies(rider), (f) => {
-								const editWays = f.refills.filter(
-									(way) => way.root.kind === "edit" && way.root.relation === appended.name
-								)
-								const owned =
-									root !== undefined &&
-									f.family.owner.name === appended.name &&
-									!isSequence(f.family)
-								return {
-									...f,
-									refills: owned
-										? [
-												...editWays.filter((way) =>
-													way.hops.some((hop) => familyKey(hop.id) !== familyKey(f.family.id))
-												),
-												{
-													root: { kind: "edit" as const, relation: appended.name, family: root },
-													hops: [f.family] as const
-												}
-											]
-										: editWays
-								}
-							})
-						}
-					})
+							: [{ as: "puts" as const, slot: memberSlotOf(frontend, edit.puts) }])
+					]
+					if (isNonEmpty(slots)) {
+						sourced.set(edit.relation.name, [{ kind: "slots", slots }])
+					}
 				}
-				if (node.kind === "additions") {
-					/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout), with
-					 * the columns of them the walk fills, which they state. */
-					const nestedRows = new Map(
-						frontend.nested.flatMap((n) =>
-							n.stratum === s
-								? [...n.nesting.layouts].map(([relation, at]) => {
-										const source: Extract<RowSource, { readonly kind: "nestedRows" }> = {
-											kind: "nestedRows",
-											stratum: s,
-											layout: sentLayout(at),
-											walked: at.walked
-										}
-										return [relation, source] as const
-									})
-								: []
+				for (const [name, source] of nestedRows) {
+					const known = sourced.get(name)
+					if (known === undefined) {
+						sourced.set(name, [source])
+					} else {
+						known.push(source)
+					}
+				}
+				const member = node.member
+				const appended = [...sourced].flatMap(([name, sources]): ReadonlyArray<AppendedMember> => {
+					if (name !== member) {
+						return []
+					}
+					const relation = info(name)
+					return [
+						{
+							relation,
+							uniques: relationUniques(
+								defined(frontend.laws.relations.get(name), `the laws of ${name}`)
+							),
+							layout: layoutOf(name),
+							sources,
+							families: familiesOf(relation),
+							owns: all.filter((f) => f.owner.name === name && !isSequence(f)),
+							riders: appendRidersOf(relation, node.appends === "rows" ? node.riders : [])
+						}
+					]
+				})
+				const putOwners = ownerSlots("put").flatMap(
+					({ relation, slot }): ReadonlyArray<PutOwner> => {
+						const recounted = all.filter(
+							(f) =>
+								f.owner.name === relation && f.members.kind !== "tree" && f.member.name === member
 						)
-					)
-					/** Each appended relation's row sources: its slots, then its nested rows. */
-					const sourced = new Map<string, [RowSource, ...Array<RowSource>]>()
-					for (const edit of stratumEdits) {
-						const slots = [
-							...(edit.inserts === undefined
-								? []
-								: [{ as: "inserts" as const, slot: memberSlotOf(frontend, edit.inserts) }]),
-							...(edit.puts === undefined
-								? []
-								: [{ as: "puts" as const, slot: memberSlotOf(frontend, edit.puts) }])
-						]
-						if (isNonEmpty(slots)) {
-							sourced.set(edit.relation.name, [{ kind: "slots", slots }])
-						}
+						const owner = info(relation)
+						return isNonEmpty(recounted) && owner.mutable
+							? [{ owner, slot, families: recounted }]
+							: []
 					}
-					for (const [name, source] of nestedRows) {
-						const known = sourced.get(name)
-						if (known === undefined) {
-							sourced.set(name, [source])
-						} else {
-							known.push(source)
-						}
-					}
-					const member = node.member
-					const appended = [...sourced].flatMap(
-						([name, sources]): ReadonlyArray<AppendedMember> => {
-							if (name !== member) {
-								return []
-							}
-							const relation = info(name)
-							return [
-								{
-									relation,
-									uniques: relationUniques(
-										defined(frontend.laws.relations.get(name), `the laws of ${name}`)
-									),
-									layout: layoutOf(name),
-									sources,
-									families: familiesOf(relation),
-									owns: all.filter((f) => f.owner.name === name && !isSequence(f)),
-									riders: appendRidersOf(relation, node.appends === "rows" ? node.riders : [])
-								}
-							]
-						}
-					)
-					const putOwners = ownerSlots("put").flatMap(
-						({ relation, slot }): ReadonlyArray<PutOwner> => {
-							const recounted = all.filter(
-								(f) =>
-									f.owner.name === relation && f.members.kind !== "tree" && f.member.name === member
+				)
+				const ownerCopies = node.appends === "rows" ? node.ownerCopies : []
+				/** The rows of each owner whose copies the statement reads from its parameters (schedule.ts CopySource
+				 * `held`): its slots' facts at the stratum and its nested rows. */
+				const ownerRows = new Map(
+					[...new Set(ownerCopies.flatMap((c) => (c.source === "held" ? [c.owner] : [])))].map(
+						(owner) => {
+							const fromSlots = frontend.slots.flatMap((group) =>
+								group.stratum === s && group.relation.name === owner
+									? group.inputs.flatMap((input) =>
+											writingSlots(input).map((slot): OwnerRows => ({ kind: "slot", slot }))
+										)
+									: []
 							)
-							const owner = info(relation)
-							return isNonEmpty(recounted) && owner.mutable
-								? [{ owner, slot, families: recounted }]
-								: []
+							const rows = nestedRows.get(owner)
+							return [owner, rows === undefined ? fromSlots : [...fromSlots, rows]] as const
 						}
 					)
-					const ownerCopies = node.appends === "rows" ? node.ownerCopies : []
-					/** The rows of each owner whose copies the statement reads from its parameters (schedule.ts CopySource
-					 * `held`): its slots' facts at the stratum and its nested rows. */
-					const ownerRows = new Map(
-						[...new Set(ownerCopies.flatMap((c) => (c.source === "held" ? [c.owner] : [])))].map(
-							(owner) => {
-								const fromSlots = frontend.slots.flatMap((group) =>
-									group.stratum === s && group.relation.name === owner
-										? group.inputs.flatMap((input) =>
-												writingSlots(input).map((slot): OwnerRows => ({ kind: "slot", slot }))
-											)
-										: []
-								)
-								const rows = nestedRows.get(owner)
-								return [owner, rows === undefined ? fromSlots : [...fromSlots, rows]] as const
-							}
-						)
-					)
-					const sql = additionsSql(
-						w0,
-						appended,
-						putOwners,
-						ownerCopies,
-						ownerRows,
-						deferring,
-						stored
-					)
-					const step: FamilyWriteStep = {
-						kind: "familyWrite",
-						stratum: s,
-						statement: "additions",
-						parts: sql.parts
-					}
-					return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
-				}
-				const relation = info(node.member)
-				const memberEdit = stratumEdits.find((e) => e.relation.name === node.member)
-				const removing: EditedMember = {
-					relation,
-					layout: layoutOf(relation.name),
-					puts: slotOf(memberEdit?.puts),
-					deletes: slotOf(memberEdit?.deletes),
-					families: removedFamilies(relation)
-				}
-				const roots = node.refilledFrom.map((root): RefillRoot => ({
-					relation: info(root),
-					slot: defined(
-						ownerSlots("put").find((o) => o.relation === root),
-						`the put of ${root} a refill reads`
-					).slot
-				}))
-				const sql = removalsSql(w0, [removing, ...ridersOf(node.riders)], roots, deferring, stored)
+				)
+				const sql = additionsSql(w0, appended, putOwners, ownerCopies, ownerRows, deferring, stored)
 				const step: FamilyWriteStep = {
 					kind: "familyWrite",
 					stratum: s,
-					statement: "removals",
+					statement: "additions",
 					parts: sql.parts
 				}
-				return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
+				return Object.freeze({ stratum: s, node, step: Object.freeze(step), sql })
 			}
-			const sql: FamilySql =
-				node.kind === "owners"
-					? unwrap(countStatement(familyOf(node.family), w, stored))
-					: unwrap(
-							rowStatement(
-								info(node.relation),
-								layoutOf(node.relation),
-								relationUniques(
-									defined(
-										frontend.laws.relations.get(node.relation),
-										`the laws of ${node.relation}`
-									)
-								),
-								node.statement,
-								w
-							)
-						)
-			const step: FamilyStep = {
-				kind: "family",
+			const relation = info(node.member)
+			const memberEdit = stratumEdits.find((e) => e.relation.name === node.member)
+			const removing: EditedMember = {
+				relation,
+				layout: layoutOf(relation.name),
+				puts: slotOf(memberEdit?.puts),
+				deletes: slotOf(memberEdit?.deletes),
+				families: removedFamilies(relation)
+			}
+			const roots = node.refilledFrom.map((root): RefillRoot => ({
+				relation: info(root),
+				slot: defined(
+					ownerSlots("put").find((o) => o.relation === root),
+					`the put of ${root} a refill reads`
+				).slot
+			}))
+			const sql = removalsSql(w0, [removing, ...ridersOf(node.riders)], roots, deferring, stored)
+			const step: FamilyWriteStep = {
+				kind: "familyWrite",
 				stratum: s,
-				target:
-					node.kind === "owners"
-						? { kind: "owners", family: node.family }
-						: { kind: "rows", relation: node.relation },
-				statement: sql.kind,
-				relation: sql.result.relation,
-				result: sql.result
+				statement: "removals",
+				parts: sql.parts
 			}
-			return Object.freeze({ kind: "statement", stratum: s, node, step: Object.freeze(step), sql })
+			return Object.freeze({ stratum: s, node, step: Object.freeze(step), sql })
 		})
 	)
-	return { placements, edits, refills }
 }
 
 /**
@@ -862,52 +684,29 @@ export const placeFamily = (
 		placements.find((p) => p.stratum === stratum && sameNode(p.node, node)),
 		"a family statement the schedule placed, built once"
 	)
-	switch (placement.kind) {
-		case "statement": {
-			const { step, sql } = placement
-			placeSpec(
-				b,
-				step,
-				Object.freeze({
-					sql: sql.sql.text,
-					paramSlots: Object.freeze([]),
-					heading: resultHeading(sql.result),
-					role: "member",
-					dependsOn: Object.freeze([...deps(placement)])
-				}),
-				sql.ast,
-				sql.sql.nameMap,
-				oneForm,
-				[]
-			)
-			return
-		}
-		case "write": {
-			const { step, sql } = placement
-			const width = maxOf(
-				step.parts.map((p) => p.width),
-				0
-			)
-			placeSpec(
-				b,
-				step,
-				Object.freeze({
-					sql: sql.sql.text,
-					paramSlots: sql.params,
-					heading: [
-						{ name: "tag", type: plainType("int4") },
-						...indices(width).map((i) => ({ name: `column ${i + 1}`, type: wildcardText }))
-					],
-					role: "member",
-					dependsOn: Object.freeze([...deps(placement)])
-				}),
-				sql.ast,
-				sql.sql.nameMap,
-				oneForm,
-				[]
-			)
-		}
-	}
+	const { step, sql } = placement
+	const width = maxOf(
+		step.parts.map((p) => p.width),
+		0
+	)
+	placeSpec(
+		b,
+		step,
+		Object.freeze({
+			sql: sql.sql.text,
+			paramSlots: sql.params,
+			heading: [
+				{ name: "tag", type: plainType("int4") },
+				...indices(width).map((i) => ({ name: `column ${i + 1}`, type: wildcardText }))
+			],
+			role: "member",
+			dependsOn: Object.freeze([...deps(placement)])
+		}),
+		sql.ast,
+		sql.sql.nameMap,
+		oneForm,
+		[]
+	)
 }
 
 /** A statement placed at the next position: its step, its spec, its audited AST, its forms and the read-backs riding
@@ -923,7 +722,6 @@ const placeSpec = (
 				| "carrier"
 				| "single"
 				| "check"
-				| "family"
 				| "familyWrite"
 				| "hold"
 				| "admission"
@@ -1178,13 +976,10 @@ const optimizedPlacement = (
 		]
 	}
 	/** The family statements, each placed where its stratum's schedule runs it (plan step `family`). */
-	const families = familyProgram(frontend, w).placements
+	const families = familyProgram(frontend, w)
 	const familyDeps = (placement: FamilyPlacement): ReadonlyArray<number> => {
 		const relations = placementRelations(placement).map((r) => `relation:${r}`)
-		return tracker.add(
-			placement.kind === "write" || placement.step.target.kind === "owners" ? relations : [],
-			relations
-		)
+		return tracker.add(relations, relations)
 	}
 	for (const step of plan.steps) {
 		switch (step.kind) {
@@ -1838,12 +1633,9 @@ const compile = (
 	const admission = buildAdmission(lowering.w, callerParams(frontend.params))
 	const optimized = optimizedArtifact(restated, plan, lowering, admission, options)
 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
-	const family = familyProgram(restated, lowering.w)
 	const program: CompiledWrite = {
 		level: options.level,
 		exclusion: noExclusion,
-		edits: family.edits,
-		refills: family.refills,
 		kind: "write",
 		context: "transaction",
 		optimized: optimized.specs,
@@ -1852,7 +1644,7 @@ const compile = (
 		choices: chosen.choices,
 		plan,
 		artifact: optimized,
-		placements: family.placements,
+		placements: familyProgram(restated, lowering.w),
 		admission,
 		params: callerParams(frontend.params),
 		clocked: clockedParams(frontend.params),

@@ -96,8 +96,8 @@ export interface FreshOwner {
 }
 
 /**
- * A stratum whose family statements run in the call's one flight, as its fresh owners' counts and ends are drawn on
- * the host (write/program/bind.ts freshOwners): the member slots its edits append from, each with its relation; every
+ * A stratum with family statements, as its fresh owners' counts and ends are drawn on the host (runtime/write/bind.ts
+ * freshOwners): the member slots its edits append from, each with its relation; every
  * counted family whose member relation its appends or nested writes reach, in the law model's order, of which an
  * application counts those its members name; and each owner of those families, by name.
  */

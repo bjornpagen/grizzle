@@ -464,18 +464,12 @@ export const callStatements = (
 		if (inputs.kind !== "bound") {
 			return [hostRefused] as const
 		}
-		const flights = inputs.bound.flights
-		if (flights.kind !== "write") {
-			return yield* Effect.die(
-				new Error(`the isolation shapes read no family before writing: ${call.member}`)
-			)
-		}
 		const statements: Array<string> = []
-		for (const statement of change.entry.program.flight.statements) {
+		for (const statement of change.entry.program.statements) {
 			if (inputs.bound.skip.has(statement.index) || reachOf(statement.step) === "parameters") {
 				continue
 			}
-			const executions = flights.chunks(statement, inForce(bindFrame))
+			const executions = inputs.bound.chunks(statement, inForce(bindFrame))
 			if (!executions.ok) {
 				return yield* Effect.fail(valuesFailure(executions.error))
 			}
@@ -503,7 +497,7 @@ const exclusionOf = (s: InstalledShape, call: ChangeCall): ReadonlyArray<RaceSta
 	const exclusion = defined(
 		s.changes.get(call.role)?.get(call.member),
 		`member ${call.member} of role ${call.role}`
-	).entry.program.flight.exclusion
+	).entry.program.exclusion
 	return exclusion.kind === "lock" ? [{ sql: exclusion.text.sql, footprint: everyRelation }] : []
 }
 

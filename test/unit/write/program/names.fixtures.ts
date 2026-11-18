@@ -6,8 +6,8 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
@@ -34,10 +34,9 @@ export const bound = Effect.fn("bound")(function* (name: string) {
 		name
 	)
 	const members = yield* membersOf(program, value)
-	const write = runnableWrite(program, program.frontend.codes)
-	const flight = write.flight
+	const flight = flightOf(program, program.frontend.codes)
 	const b = succeeded(
-		bindWrite(write, {
+		bindWrite(flight, {
 			members,
 			params: { [name]: [fact(1), fact(2)] },
 			transport: inForce(bindFrame)

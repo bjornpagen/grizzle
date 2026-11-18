@@ -594,7 +594,7 @@ const applyChange = (
 				(session) =>
 					runWrite(
 						session,
-						dbChangeFrame(ctx, change.entry.program.flight.exclusion),
+						dbChangeFrame(ctx, change.entry.program.exclusion),
 						change.entry,
 						inputs,
 						change.reads
@@ -825,7 +825,7 @@ export const memberExplains = (
 							Effect.fromResult(changeInput(change, input)),
 							(reason) => new ReadFailure({ reason })
 						),
-						(host) => explainChange(ctx, installed, member.name, change, host)
+						(host) => explainChange(ctx, installed, change, host)
 					)
 			}
 		}

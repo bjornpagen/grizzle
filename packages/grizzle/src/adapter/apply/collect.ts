@@ -46,6 +46,6 @@ export const collectInputs = (
  * values, and its members' facts, a Stream member's collected whole (`collectInputs`). */
 export const changeCall = (compiled: CompiledChange, params: unknown): Effect.Effect<HostCall> =>
 	Effect.map(
-		collectInputs(compiled.program.flight.binding.groups, compiled.change.inputs),
+		collectInputs(compiled.program.binding.groups, compiled.change.inputs),
 		(members): HostCall => ({ params, bound: compiled.change.values, members })
 	)

@@ -1,8 +1,8 @@
 /**
  * Counted put and delete through grizzle's own apply, on PostgreSQL 19rc2 (rows-first §2, §3): a counted family's
- * members are rows, and grizzle plans every edit to them. A member put that changes its step value refills the fold
- * from its slot, and a member delete swaps the last member into the freed slot and refills from there, each one suffix
- * rewrite after the read flight of the stored suffix.
+ * members are rows, and grizzle draws every edit to them in SQL. A member put that changes its step value refills the
+ * fold from its slot, and a member delete swaps the last member into the freed slot and refills from there, each one
+ * suffix rewrite in the write's own statements.
  *
  * - **Two implementations agreeing:** the families model (test/support/families/counted.ts `stepPut`, `swapWithLast`)
  *   and the reference fold (fold.ts) state what each edit leaves, every slot and every hidden accumulator, and what

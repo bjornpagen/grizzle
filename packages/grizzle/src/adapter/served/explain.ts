@@ -20,8 +20,8 @@ import {
 	type Transaction
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import type { Chunks, ExecutionPart } from "#compiler/plan/change.ts"
-import { defect, explainAnalyzeOf, explainOf } from "#compiler/plan/runtime.ts"
+import type { ExecutionPart } from "#compiler/plan/change.ts"
+import { explainAnalyzeOf, explainOf } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 
 /**
@@ -172,13 +172,11 @@ export const explainReadAnalyzed = (
  * A change member's program for `call`, each statement planned against empty carriers, rolled back: its write
  * statements, then its read-backs' (change.reads), each read-back's statement as apply's flight sends it behind the
  * writes (apply/readback.ts readBackFlight), over the same inputs, in the artifact's order; a riding read-back's is a
- * part of the write statement it rides, planned with it. A served write's statements all go in its one flight
- * (runtime/write/bind.ts servedFlights), so a flight that reads before it writes is a defect of the file's load.
+ * part of the write statement it rides, planned with it.
  */
 export const explainChange = (
 	ctx: ServedDbContext,
 	installed: ServedTables,
-	name: string,
 	change: LoadedChange,
 	host: HostCall
 ): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError> =>
@@ -204,22 +202,13 @@ export const explainChange = (
 			(reason) => new ReadFailure({ reason })
 		)
 		const backs = Arr.map(readBacks, (s) => planned(s, explainOf))
-		const skip = inputs.bound.skip
-		const flights = inputs.bound.flights
-		if (flights.kind === "read") {
-			return yield* Effect.die(
-				defect(
-					`a served write ${name} whose flight reads before it writes, which no served file holds`
-				)
-			)
-		}
+		const { skip, chunks } = inputs.bound
 		const explainedOf = (
-			chunks: Chunks,
 			session: Session
 		): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
 			const transport = sessionTransport(session)
 			const statements: Array<Explained> = []
-			for (const s of entry.program.flight.statements) {
+			for (const s of entry.program.statements) {
 				if (skip.has(s.index)) {
 					continue
 				}
@@ -241,10 +230,7 @@ export const explainChange = (
 			}
 			return Result.succeed(Arr.appendAll(statements, backs))
 		}
-		return yield* plansOf(
-			ctx,
-			changeFrame,
-			(session) => explainedOf(flights.chunks, session),
-			(statement, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement, plan }))
+		return yield* plansOf(ctx, changeFrame, explainedOf, (statement, cell) =>
+			Result.map(decodePlan(cell, installed), (plan) => ({ statement, plan }))
 		)
 	})

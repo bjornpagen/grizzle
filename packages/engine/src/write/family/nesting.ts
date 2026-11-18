@@ -12,9 +12,10 @@
  * its drawn counts and its accumulated ends (`NestingRoot` plain), or, a tree's roots or a counted family's members,
  * with the rest of the rows the nesting writes.
  *
- * A row of a counted family's member, at any depth, is written whole only once that family's own fill completes it
- * (write/family/edit.ts planEdits), from the stored family the read flight finds: the walk fills every other column of
- * it and leaves those the counted family fills (`NestedLayout` pending), which the fill order lets no walked column read.
+ * A row of a counted family's member, at any depth, is written whole only once that family's own fill completes it, in
+ * its stratum's additions (write/family/additions.ts), from the stored family its statement finds: the walk fills every
+ * other column of it and leaves those the counted family fills (`NestedLayout` pending), which the fill order lets no
+ * walked column read.
  *
  * What a nested fact states is every column the walk fills of its row (`walkedAt`): its key and its caller's fields,
  * and each column a sequence draws from where the nesting places the row, an owner's count and ends of each sequence it
@@ -60,7 +61,7 @@ export type NestingRoot =
  * A relation whose rows a nesting's family statements write: its row layout (statements.ts rowLayout), the columns of it
  * the counted families it is a member of fill after the walk, none for a relation of no counted family, the columns of
  * it the walk fills, which its rows state (`walkedAt`), and where its rows stand in the walk, at which the counts and
- * ends of the counted families they own are filled (write/program/bind.ts freshOwners).
+ * ends of the counted families they own are filled (runtime/write/bind.ts freshOwners).
  */
 export interface NestedLayout {
 	readonly layout: RowLayout

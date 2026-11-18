@@ -1427,12 +1427,12 @@ type EditsTwice<St, Seen extends boolean = false> = St extends readonly [
 	: false
 
 /**
- * A family's members are written in one stratum: a family write grizzle cannot serve is planned on the host from one read
- * before the ChangeSet's writes (write/program/bind.ts legacyFlights), and a ChangeSet's type cannot tell whether it is
- * served.
+ * A family's members are written in one stratum, as write/frontend/compile.ts refuses (`editingStrata`): each stratum's
+ * family statements are drawn from the state the strata before it leave, which no property of grizzle's holds beside
+ * another stratum's edits of a family's members yet (TODO.md, "One stratum per family's members").
  */
 type EditsRefusal<Twice> = Twice extends true
-	? Refusal<"a ChangeSet writes a family's members in one stratum: a family write grizzle cannot serve is planned on the host from one read before the ChangeSet's writes">
+	? Refusal<"a ChangeSet writes a family's members in one stratum: each stratum's family statements are proved against one stratum's edits alone">
 	: unknown
 type EditsInOneStratum<St> = EditsRefusal<EditsTwice<St>>
 /** A last stratum that edits, after strata of which none may. */

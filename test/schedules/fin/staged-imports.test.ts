@@ -135,7 +135,7 @@ const importOf = (id: Key, name: number, limit: number) => ({
  */
 const textBoundOf = (member: LoadedMember): number | undefined =>
 	member.kind === "change" && member.variants.kind === "change"
-		? textBound(member.variants.change.entry.program.flight)
+		? textBound(member.variants.change.entry.program)
 		: undefined
 
 /** A pool whose sessions hold the planted message bound `limit`. */

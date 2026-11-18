@@ -15,7 +15,6 @@ import {
 	type WrittenAt
 } from "#adapter/witness/classify.ts"
 import type {
-	FamilyId,
 	Refused,
 	StatementAt,
 	UniqueAbort,
@@ -90,18 +89,16 @@ export type Classified =
 	| { readonly kind: "defect"; readonly defect: Error }
 
 /**
- * Where in a write's flights the server raised what is classified, by its statement's index across them: a family's
- * read of its stored members, which a write whose plan reads sends first, in a flight of its own in the same
- * transaction; the write statement at `index`, an execution of its step, a family step's chunk; a read-back statement,
- * which follows the write statements; or the COMMIT.
+ * Where in a write's flight the server raised what is classified, by its statement's index in it: the write statement
+ * at `index`, an execution of its step; a read-back statement, which follows the write statements; or the COMMIT.
  */
 export type FailureOrigin =
-	| { readonly kind: "read"; readonly index: number; readonly family: FamilyId }
 	| {
 			readonly kind: "statement"
 			readonly index: number
 			readonly step: WriteStep
-			/** Which execution of its step it is: 0 for a step sent once, a family step's chunk in its plan's order. */
+			/** Which execution of its step it is: 0 for a step sent once, else its place among its staged form's
+			 * executions (runtime/write/staged.ts executionsOf). */
 			readonly chunk: number
 	  }
 	| { readonly kind: "readBack"; readonly index: number }
@@ -139,11 +136,11 @@ const unstated: StatementAt = Object.freeze({ kind: "unstated" })
 
 /**
  * What the statement at `origin` states, as the host reads it: a write statement's action, a single statement's parts'
- * actions, at its stratum; a family statement's relation; the fill of an action's member's carrier, which casts the
+ * actions, at its stratum; a family statement's relations; the fill of an action's member's carrier, which casts the
  * facts the action writes into its relation's types (CarrierCasts); a query entry's precheck, which casts the entry's
  * facts into its target's types; nothing for another carrier's statement, an ANALYZE, a serial advance or a hold, whose
- * refusal names its law and key in its DETAIL, the admission, whose refusal names a parameter's domain, a read-back, a
- * family's stored-suffix read, or the COMMIT.
+ * refusal names its law and key in its DETAIL, the admission, whose refusal names a parameter's domain, a read-back, or
+ * the COMMIT.
  */
 const statementAt = (origin: FailureOrigin): StatementAt => {
 	if (origin.kind !== "statement") {
@@ -159,8 +156,6 @@ const statementAt = (origin: FailureOrigin): StatementAt => {
 				stratum: step.stratum,
 				actions: Arr.map(step.parts, (p) => p.step.action)
 			}
-		case "family":
-			return { kind: "write", stratum: step.stratum, relations: [step.relation] }
 		case "familyWrite":
 			return {
 				kind: "write",
@@ -206,8 +201,6 @@ const stepText = (step: WriteStep): string => {
 			return `read-back ${step.name}`
 		case "check":
 			return `the precheck of entry ${step.entry}`
-		case "family":
-			return `a family's ${step.statement} of ${step.relation}`
 		case "familyWrite":
 			return `the family ${step.statement} writing ${Arr.join(
 				Arr.dedupe(Arr.map(step.parts, (p) => p.relation)),
@@ -223,8 +216,6 @@ const stepText = (step: WriteStep): string => {
 /** Where `origin` is in its flight, as a defect names it. */
 const originText = (origin: FailureOrigin): string => {
 	switch (origin.kind) {
-		case "read":
-			return `the write's statement ${origin.index}, the stored-suffix read of family ${origin.family.owner}.${origin.family.count}`
 		case "statement":
 			return `the write's statement ${origin.index}, ${stepText(origin.step)}${origin.chunk === 0 ? "" : ` (its execution ${origin.chunk + 1})`}`
 		case "readBack":

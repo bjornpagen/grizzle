@@ -2326,8 +2326,12 @@ narrowed into its column's type unproved.
   (`StaleDerivedRead`) only where grizzle cannot draw it: a put whose rows a query states; refills that reach a family
   they refill again; a refill of an immutable relation's rows or an immutable owner's family; a refill of a tree's
   values; a refill of a value that reads what another refill changes; a refill of a value a family member's own write
-  reaches beyond the two it refills. A role refills only relations it holds whole: the members it rewrites in its
-  `write` list, and every relation the refill's read passes among its entries (`OutsideRole`).
+  reaches beyond the two it refills; and a refill no statement of its stratum draws: a put's cascade that passes a
+  member the same stratum puts or deletes (cause `passed`), a member's write whose refilled member the same stratum
+  puts or deletes (cause `rewritten`), and a member the edits of two relations reach (cause `edits`). Every refill is
+  drawn by the write's own statements, in process exactly as in a served file. A role refills only relations it holds
+  whole: the members it rewrites in its `write` list, and every relation the refill's cascade passes among its entries
+  (`OutsideRole`).
 - **An immutable owner's family is fixed when the owner is inserted**, and deleted with its owner. Declare
   `mutable(Owner)` for a family that changes later, or an owner you put. A delete of a member of an immutable owner's
   family and a put of an immutable owner are type errors, and from JavaScript refused when the ChangeSet compiles. An insert of such a member in a
@@ -4235,7 +4239,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 ### Families and ChangeSets
 
 - **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted families ([Families](#families)). A tree is written whole, its root inserted with the tree nested and deleted by its root value. A put or a delete of a member that owns an ordered family or a tree is refused, since it would not reach the rows nested under it; a delete of a member that owns only counted families leaves their groups, which their owner axes refuse at commit where they hold members.
-- **A whole delete runs first in its stratum**, after only the removals of rows that reference its rows by an immediate foreign key from outside them. A whole delete from a query that reads a relation such a removal writes, and one in a stratum whose family work grizzle plans from a read flight, are `UnsupportedOperation`: state its rows as an array, or write it in a stratum of its own with `ChangeSet.sequence`.
+- **A whole delete runs first in its stratum**, after only the removals of rows that reference its rows by an immediate foreign key from outside them. A whole delete from a query that reads a relation such a removal writes is `UnsupportedOperation`: state its rows as an array, or write it in a stratum of its own with `ChangeSet.sequence`.
 - **An owner inserted or put from a query cannot share a ChangeSet with appends to its counted family** (`QueriedOwnerAppend` when the ChangeSet compiles): grizzle computes the owner's final count and folds' ends from the facts the ChangeSet states, and a query's facts exist only in its statement. State the owner's facts as an array or a `Stream`, or write the owner in a ChangeSet that `ChangeSet.sequence` runs first. A write whose every fact carries a stored owner's key inserts no owner, and compiles.
 - **A put names its rows by their primary key, and a delete names its rows exactly**: a delete removes a stored row only where that row equals one it states at every field a fact carries, its caller's and its serial ones, the primary key's among them, so a row unlike the stored one at its key changes nothing ([Writes](#writes)); a tree's delete names trees by their root value instead ([Families](#families)). So no ChangeSet puts or deletes a relation whose primary key holds a field grizzle writes, such as a sequence member keyed by its owner and drawn index. A put also compares its facts at every declared key, so a declared key over such a field refuses puts but not deletes. Such a write is a type error, and from JavaScript `UnstatedKey` when the ChangeSet compiles, naming the key. Key such a member by a field its caller writes, such as an id, declare no key over a field grizzle writes, and insert a sequence nested under its owner.
 

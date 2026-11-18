@@ -204,7 +204,7 @@ export const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, N
 			return Result.err({
 				_tag: "NestedRowBound",
 				relation: entryRelation,
-				row: { kind: "message", bytes: alone, limit: r.transport.messageBytes, statement: "insert" }
+				row: { kind: "message", bytes: alone, limit: r.transport.messageBytes }
 			})
 		}
 		let to = from + 1

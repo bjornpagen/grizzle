@@ -119,7 +119,7 @@ export const runEntry = <R>(
 				(session) =>
 					runWrite(
 						session,
-						dbChangeFrame(ctx, entry.program.flight.exclusion),
+						dbChangeFrame(ctx, entry.program.exclusion),
 						entry,
 						inputs,
 						reads.success

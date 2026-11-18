@@ -1,6 +1,6 @@
 /**
- * A row's and a group's key texts on the host, as a write's statements and reads carry them: each key field's value
- * admitted in its type's carrier under the installation's codes.
+ * A group's key texts on the host, as a write's statements carry them: each key field's value admitted in its type's
+ * carrier under the installation's codes.
  */
 import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -8,7 +8,7 @@ import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import type { MemberKey, Owner } from "#compiler/runtime/write/draw.ts"
+import type { Owner } from "#compiler/runtime/write/draw.ts"
 import { type ColumnKey, fieldKey, type HostEvaluator } from "#compiler/runtime/write/fill.ts"
 
 /** A row's host values by column key: the values a codec admits (scalar/values/identity.ts CarrierHost). */
@@ -24,32 +24,18 @@ export interface FillContext {
 }
 
 /** A type's carrier spec under the installation's codes. */
-export const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecOf(type, ctx.codes)
+const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecOf(type, ctx.codes)
 
 /**
- * A host value's parameter text in its type's carrier: a key's, which the read and the delete send and which its
- * relation's rows are a set by, and a count's, written once at its statement; a row's other columns are cells
- * (codec/scalar.ts admittedCell), a bytes value travelling as itself. No text it writes is read back: what PostgreSQL
- * holds comes back through decodeRead, from PostgreSQL's own output.
+ * A host value's parameter text in its type's carrier: a group key field's, which a family's rows are grouped by; a
+ * row's other columns are cells (codec/scalar.ts admittedCell), a bytes value travelling as itself.
  */
-export const textOf = (ctx: FillContext, type: LawField["type"], value: unknown): ParamText =>
+const textOf = (ctx: FillContext, type: LawField["type"], value: unknown): ParamText =>
 	admittedParam(specOf(ctx, type), value)
 
 /** A fact's values by column key. */
 export const valuesOfFact = (fact: Fact): Map<ColumnKey, unknown> =>
 	new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))
-
-/** A row's key texts in its layout. */
-export const keyOf = (
-	ctx: FillContext,
-	layout: {
-		readonly key: NonEmptyReadonlyArray<{
-			readonly key: ColumnKey
-			readonly type: LawField["type"]
-		}>
-	},
-	values: Values
-): MemberKey => mapNonEmpty(layout.key, (c) => textOf(ctx, c.type, values.get(c.key)))
 
 /** A family by its group alone: each member field with the owner key field it pairs with, in key order, by name and
  * type. A Family is one. */

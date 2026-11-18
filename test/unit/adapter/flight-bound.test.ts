@@ -12,9 +12,7 @@
  * short of it, at it or past it, and must be refused exactly when the flight is longer than its bound, with the
  * flight's bytes and the bound, its server reading none of the flight; an admitted flight's server reads exactly what
  * the first one read. A refused call then runs again under the production bound and writes
- * exactly what the first session wrote, so the refusal changed nothing of the session. A call of two
- * flights refused at its second rolls the first one's transaction back, and one refused at its first sends nothing at
- * all.
+ * exactly what the first session wrote, so the refusal changed nothing of the session, and sent nothing at all.
  *
  * A flight whose write fails before its last byte left the process (session.ts flightEnd) never carried its last
  * message, COMMIT where it ends a transaction, to the server: the call is ConnectionLost, never CommitLost. Each case
@@ -27,8 +25,8 @@
  * certificate authority is the test's own (test/support/memory-tls.ts tlsMaterial), and answers every query as
  * PostgreSQL answers one that returns no rows.
  *
- * Features: a bound short of, at and past a flight, and one byte short of it; a call of one flight and of two, refused at either; each way the
- * connection breaks; and each message the parse reads.
+ * Features: a bound short of, at and past a flight, and one byte short of it; each runner's call, admitted and refused;
+ * each way the connection breaks; and each message the parse reads.
  */
 
 import { Buffer } from "node:buffer"
@@ -36,15 +34,13 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { InputTooLarge } from "#adapter/errors/failures.ts"
-import { controlText, type Session } from "#adapter/wire/session.ts"
-import { servedSession } from "#compiler/program/served.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import type { Session } from "#adapter/wire/session.ts"
+import { assert } from "#test/support/assert.ts"
 import {
 	boundCallOf,
 	caseGen,
 	typedFailureOf,
 	features,
-	firstFlightOf,
 	type BoundFeature,
 	historied,
 	lengthOf,
@@ -65,8 +61,8 @@ import {
  *
  * Budget: its suite's count before the conversion (unit/adapter/flight-bound: 160 independent cases and 16 steered,
  * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (refused one byte
- * past the bound, refused at the second flight; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps
- * the runner's cap of 200, which it stops short of once every situation is reached.
+ * past the bound; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which
+ * it stops short of once every situation is reached.
  */
 export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteOfItIsWrittenAndWritesEveryOtherWhole =
 	property.explore(caseGen, {
@@ -78,15 +74,7 @@ export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteO
 					const twin = yield* historied
 					yield* boundCallOf(c, twin.session)
 					const wire = twin.server.read.slice(twin.mark)
-					const flights =
-						c.runner === "framedTwice"
-							? [firstFlightOf(c, wire), wire.slice(firstFlightOf(c, wire).length)]
-							: [wire]
-					const drawnBy = defined(
-						flights[c.by === "second" && c.runner === "framedTwice" ? 1 : 0],
-						"the flight the bound is drawn by"
-					)
-					const measured = newConnectionBytesOf(drawnBy, wire)
+					const measured = newConnectionBytesOf(wire, wire)
 					const limit =
 						c.at === "short of"
 							? Math.max(0, measured - c.distance)
@@ -98,65 +86,33 @@ export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteO
 					const exit = yield* Effect.exit(boundCallOf(c, bounded))
 					const failure = typedFailureOf(exit)
 					const read = subject.server.read.slice(subject.mark)
-					const refusedAt = Arr.findFirstIndex(
-						flights,
-						(flight) => newConnectionBytesOf(flight, wire) > limit
-					)
-					if (Option.isNone(refusedAt)) {
-						assert.ok(
-							Option.isNone(failure),
-							`a call whose every flight fits ${limit} bytes is admitted`
-						)
+					if (measured <= limit) {
+						assert.ok(Option.isNone(failure), `a call whose flight fits ${limit} bytes is admitted`)
 						assert.deepEqual(read, wire, "an admitted call is written whole, as the twin's")
 						k.note(`${c.runner}: admitted`)
-						if (Arr.some(flights, (flight) => newConnectionBytesOf(flight, wire) === limit)) {
+						if (measured === limit) {
 							k.note("admitted at exactly the bound")
 						}
 						return
 					}
-					const refused = defined(flights[refusedAt.value], "the refused flight")
 					assert.ok(
 						Option.isSome(failure) && failure.value instanceof InputTooLarge,
 						"a flight past its bound is refused as InputTooLarge"
 					)
 					if (Option.isSome(failure) && failure.value instanceof InputTooLarge) {
-						assert.deepEqual(failure.value.bound, {
-							kind: "flight",
-							bytes: newConnectionBytesOf(refused, wire),
-							limit
-						})
+						assert.deepEqual(failure.value.bound, { kind: "flight", bytes: measured, limit })
 					}
 					k.note(`${c.runner}: refused`)
-					if (newConnectionBytesOf(refused, wire) === limit + 1) {
+					if (measured === limit + 1) {
 						k.note("refused one byte past the bound")
 					}
-					if (refusedAt.value === 0) {
-						assert.deepEqual(
-							read,
-							[],
-							"a refused flight writes nothing, and no ROLLBACK follows it"
-						)
-						yield* boundCallOf(c, subject.session)
-						assert.deepEqual(
-							subject.server.read.slice(subject.mark),
-							wire,
-							"the refusal left the session's statements as they were"
-						)
-						return
-					}
-					k.note("refused at the second flight")
-					const opened = defined(flights[0], "the first flight")
+					assert.deepEqual(read, [], "a refused flight writes nothing, and no ROLLBACK follows it")
+					yield* boundCallOf(c, subject.session)
 					assert.deepEqual(
-						read.slice(0, opened.length),
-						[...opened],
-						"the first flight is written whole"
+						subject.server.read.slice(subject.mark),
+						wire,
+						"the refusal left the session's statements as they were"
 					)
-					assert.deepEqual(
-						Arr.map(read.slice(opened.length), (m) => [m.type, m.text]),
-						[["Q", controlText(servedSession, { kind: "end", end: "ROLLBACK" })]],
-						"the refused second flight writes nothing, and its transaction is rolled back"
-					)
-					assert.ok(!subject.server.open, "no transaction is left open")
 				})
 			),
 		oracle: {
@@ -194,9 +150,8 @@ export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteO
  * commit of unknown fate only once COMMIT could have run.
  *
  * Budget: its suite's count before the conversion (unit/adapter/flight-reset: 120 independent cases and 32 steered,
- * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (framedTwice:
- * reset after COMMIT ran; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of
- * 200, which it stops short of once every situation is reached.
+ * Vitest at grizzle 4ca3036a). Its steered phase keeps the runner's cap of 200, which it stops short of once every
+ * situation is reached.
  */
 export const aFlightWhoseConnectionIsResetIsALostConnectionWhenItsWriteFailedBeforeItsLastByteLeftAndACommitOfUnknownFateOnlyOnceCOMMITCouldHaveRun =
 	property.explore(resetGen, {
@@ -334,27 +289,7 @@ export const aStatementsParseMessageIsRefusedBeforeAnyByteOfItsFlightIsWrittenEx
 					if (Buffer.byteLength(refused.value.text, "utf8") <= limit) {
 						k.note("refused within the Parse's fields")
 					}
-					const opened = c.runner === "framedTwice" ? firstFlightOf(c, wire) : []
-					if (wire.indexOf(refused.value) < opened.length || opened.length === 0) {
-						assert.deepEqual(
-							read,
-							[],
-							"a refused flight writes nothing, and no ROLLBACK follows it"
-						)
-						return
-					}
-					k.note("refused at the second flight")
-					assert.deepEqual(
-						read.slice(0, opened.length),
-						[...opened],
-						"the first flight is written whole"
-					)
-					assert.deepEqual(
-						Arr.map(read.slice(opened.length), (m) => [m.type, m.text]),
-						[["Q", controlText(servedSession, { kind: "end", end: "ROLLBACK" })]],
-						"the refused second flight writes nothing, and its transaction is rolled back"
-					)
-					assert.ok(!subject.server.open, "no transaction is left open")
+					assert.deepEqual(read, [], "a refused flight writes nothing, and no ROLLBACK follows it")
 				})
 			),
 		oracle: {
@@ -363,14 +298,5 @@ export const aStatementsParseMessageIsRefusedBeforeAnyByteOfItsFlightIsWrittenEx
 		},
 		budget: { runs: 160, steered: 0 },
 		kept: [],
-		kills: [
-			{
-				file: "packages/grizzle/src/adapter/wire/batch.ts",
-				original:
-					'\t\t\tif (Result.isFailure(early) || transaction.end === "ROLLBACK" || !spanCloses(span)) {',
-				replacement:
-					'\t\t\tif (Result.isFailure(early) || transaction.end === "ROLLBACK" || spanCloses(span)) {',
-				why: "Operator mutant (negation) at packages/grizzle/src/adapter/wire/batch.ts:1044 in runEntered: `!spanCloses(span)` becomes `spanCloses(span)`; the property fails (lane CATCH, grizzle b0d74512)."
-			}
-		]
+		kills: []
 	})

@@ -35,9 +35,9 @@ import { hostJudgement, type StatedRows } from "#compiler/runtime/write/witness.
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { closedTableOf } from "#compiler/write/program/decide.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
@@ -282,7 +282,7 @@ export const outcomeOn = (path: Path, value: unknown, missing: boolean) =>
 	Effect.map(
 		collectInputs(path.program.binding.groups, parsedOf(value).inputs),
 		(members): Outcome => {
-			const bound = bindWrite(runnableWrite(path.program, path.program.frontend.codes), {
+			const bound = bindWrite(flightOf(path.program, path.program.frontend.codes), {
 				members,
 				params: {},
 				transport: inForce(bindFrame)
@@ -296,19 +296,8 @@ export const outcomeOn = (path: Path, value: unknown, missing: boolean) =>
 					return { kind: "other", what: "a key law" }
 				case "generated-rejected":
 					return { kind: "invariant-rejected", law: b.rejection.law, witness: b.rejection.witness }
-				case "bound": {
-					const flights = b.flights
-					if (flights.kind === "write") {
-						return statementOutcome(path, flights.stated, missing)
-					}
-					const planned = flights.writes(Arr.map(flights.reads, () => []))
-					if (planned.ok) {
-						return statementOutcome(path, planned.value.stated, missing)
-					}
-					return planned.error._tag === "GeneratedRejection"
-						? { kind: "invariant-rejected", law: planned.error.law, witness: planned.error.witness }
-						: { kind: "other", what: planned.error._tag }
-				}
+				case "bound":
+					return statementOutcome(path, b.stated, missing)
 			}
 		}
 	)

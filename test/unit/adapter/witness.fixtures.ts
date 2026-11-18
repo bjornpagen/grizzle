@@ -52,8 +52,8 @@ import { type DrawnSchema } from "#test/support/served-login.ts"
  * table or domain, a law's identity, a name of no installation, or none; the schema it reports, the installation's,
  * another or none; the table or data type, the constraint's owner, another of the installation, another domain or
  * none; and a DETAIL grizzle's refusal or concurrent change encodes, prose, or none. It is raised at a drawn origin of a
- * write's flights: a stored-suffix read, a statement of each step kind writing drawn relations, with the unique aborts
- * its statement lists, a read-back, or the COMMIT.
+ * write's flight: a statement of each step kind writing drawn relations, with the unique aborts its statement lists, a
+ * read-back, or the COMMIT.
  *
  * The oracle is the classification rules (outcomes/index.ts and witness/classify.ts) restated over the installation's
  * constraint list, its laws and its rosters: SERIALIZABLE's 40001 and 40P01, and a 23505 or 23P01 on a constraint the
@@ -173,10 +173,9 @@ export const keyValueGen = (
 
 /** Where the statement that raised a report sits in a write's flights, and what it writes. */
 type OriginKind =
-	| "a stored-suffix read"
 	| "a write statement"
 	| "a single statement"
-	| "a family statement"
+	| "a family write"
 	| "a carrier's create"
 	| "a member's carrier fill"
 	| "an ANALYZE"
@@ -279,10 +278,9 @@ const pick = int(0, 0xffff)
 const originGen: Gen<OriginSketch> = (source) => ({
 	kind: source.draw(
 		element<OriginKind>([
-			"a stored-suffix read",
 			"a write statement",
 			"a single statement",
-			"a family statement",
+			"a family write",
 			"a carrier's create",
 			"a member's carrier fill",
 			"an ANALYZE",
@@ -523,11 +521,6 @@ export const originOf = (
 		written
 	})
 	switch (o.kind) {
-		case "a stored-suffix read":
-			return {
-				origin: { kind: "read", index: 0, family: { owner: first, count: "n" } },
-				written: []
-			}
 		case "a write statement":
 			return statement(writeOf(first, aborts), [first])
 		case "a single statement": {
@@ -542,22 +535,27 @@ export const originOf = (
 				written
 			)
 		}
-		case "a family statement":
+		case "a family write":
 			return statement(
 				{
-					kind: "family",
+					kind: "familyWrite",
 					stratum: firstStratum,
-					target: { kind: "rows", relation: first },
-					statement: "delete",
-					relation: first,
-					result: {
-						kind: "delete",
-						relation: first,
-						mode: "exact",
-						columns: [],
-						fields: ["id"],
-						key: ["id"]
-					}
+					statement: "removals",
+					parts: [
+						{
+							relation: first,
+							result: {
+								kind: "delete",
+								relation: first,
+								mode: "exact",
+								columns: [],
+								fields: ["id"],
+								key: ["id"]
+							},
+							rows: "facts",
+							width: 1
+						}
+					]
 				},
 				[first]
 			)

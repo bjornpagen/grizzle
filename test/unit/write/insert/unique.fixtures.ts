@@ -9,8 +9,8 @@ import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
@@ -50,7 +50,7 @@ export const bind = Effect.fn("bind")(function* (value: ReturnType<typeof Change
 	const p = program(value)
 	const members = yield* collectInputs(p.binding.groups, parsedOf(value).inputs)
 	return succeeded(
-		bindWrite(runnableWrite(p, p.frontend.codes), {
+		bindWrite(flightOf(p, p.frontend.codes), {
 			members,
 			params: {},
 			transport: inForce(bindFrame)

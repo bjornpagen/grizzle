@@ -1147,7 +1147,7 @@ const inputValues = (
 
 /**
  * The form each statement of the optimized artifact whose take is a per-execution choice sends in the application
- * (write/program/bind.ts BoundWrite.form): its whole-relation form or its LATERAL form, by the parameter's distinct
+ * (runtime/write/bind.ts BoundWrite.form): its whole-relation form or its LATERAL form, by the parameter's distinct
  * facts. A ChangeSet the host refuses before any SQL sends none.
  */
 type TakeForm = "LATERAL" | "whole-relation"
@@ -1162,7 +1162,7 @@ const takesOf = (
 			if (ready.kind !== "bound") {
 				return []
 			}
-			return Arr.flatMap(entry.program.flight.statements, (st): ReadonlyArray<TakeForm> =>
+			return Arr.flatMap(entry.program.statements, (st): ReadonlyArray<TakeForm> =>
 				st.forms.kind === "chosen"
 					? [
 							ready.bound.form(st).text.sql === st.forms.large.text.sql

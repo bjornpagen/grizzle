@@ -1,13 +1,12 @@
 /**
  * The one SQL form of a statement's delivered rows (codec/delivery.ts): every outermost select grizzle sends whose rows
- * the host reads, a query's, an attachment's, a write's RETURNING, a family's read, is built here from its columns'
- * delivery, so a bytes column is never cast to a text, and the host's reader reads exactly the form sent.
+ * the host reads, a query's, an attachment's, a write's RETURNING, is built here from its columns' delivery, so a bytes column is never cast to a text, and the host's reader reads exactly the form sent.
  */
-import { type CellKind, type Delivery, deliveryOf, resultWidth } from "#compiler/codec/delivery.ts"
+import { type CellKind, type Delivery, deliveryOf } from "#compiler/codec/delivery.ts"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { Expr, FromItem, FromSource, Select, SetCore, Target } from "#compiler/sql/ast.ts"
+import type { Expr, FromSource, Select, SetCore, Target } from "#compiler/sql/ast.ts"
 import {
 	binary,
 	call,
@@ -239,61 +238,5 @@ export const deliveredRows = (
 		orderBy: [],
 		limit: undefined,
 		offset: undefined
-	}
-}
-
-/** One arm of a UNION ALL of tagged deliveries: its tag, its columns' values with their deliveries, and its rows. */
-export interface TaggedArm {
-	readonly tag: string
-	readonly columns: ReadonlyArray<{ readonly expr: Expr; readonly delivered: DeliveredColumn }>
-	readonly from: ReadonlyArray<FromItem>
-	readonly where: Expr | undefined
-}
-
-/** The cells of the result rows of columns `columns`, an arm's after its tag (codec/delivery.ts resultWidth). */
-export const deliveredWidth = (columns: ReadonlyArray<DeliveredColumn>): number =>
-	resultWidth(deliveryOfColumns(columns))
-
-/**
- * One arm of a UNION ALL of tagged deliveries, disjoint by its tag, a text under `tagColumn`: its rows delivered after
- * the tag (deliveredRows), its i-th cell named `column(i)`, padded with empty texts to `width` cells, the widest arm's
- * (deliveredWidth). The host splits the rows by tag and reads each arm's by its own delivery.
- */
-export const taggedArm = (
-	arm: TaggedArm,
-	tagColumn: string,
-	column: (at: number) => string,
-	width: number,
-	supply: NameSupply,
-	chunkLength: number
-): PlainCore => {
-	const delivered = deliveredRows(
-		{
-			kind: "select",
-			with: undefined,
-			body: provedCore(
-				"keyed",
-				arm.columns.map((c, at) => targetAs(c.expr, column(at))),
-				arm.from,
-				arm.where
-			),
-			orderBy: [],
-			limit: undefined,
-			offset: undefined
-		},
-		arm.columns.map((c) => c.delivered),
-		[targetAs(lit.text(arm.tag, types.text), tagColumn)],
-		supply,
-		chunkLength
-	).body
-	const own = deliveredWidth(arm.columns.map((c) => c.delivered))
-	return {
-		...delivered,
-		targets: [
-			...delivered.targets,
-			...Array.from({ length: width - own }, (_, j) =>
-				targetAs(lit.text("", types.text), column(own + j))
-			)
-		]
 	}
 }

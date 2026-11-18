@@ -17,7 +17,7 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { paramArrayElements } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -53,10 +53,9 @@ export const aWritesEnumeratedMembersLowerToArraysAndAnInputOfAnyCountBindsEvery
 				const changes = ChangeSet.empty(Shop).insert(Item, rows)
 				const compiled = program(changes)
 				const members = yield* collectInputs(compiled.binding.groups, parsedOf(changes).inputs)
-				const write = runnableWrite(compiled, compiled.frontend.codes)
-				const flight = write.flight
+				const flight = flightOf(compiled, compiled.frontend.codes)
 				const bound = succeeded(
-					bindWrite(write, { members, params: {}, transport: inForce(bindFrame) })
+					bindWrite(flight, { members, params: {}, transport: inForce(bindFrame) })
 				)
 				if (bound.kind !== "bound") {
 					return assert.fail(`the input binds, not ${bound.kind}`)

@@ -32,7 +32,7 @@ export {
 } from "#compiler/write/changeset/value.ts"
 export { outcomeKind, type RelationCounts } from "#compiler/runtime/write/net.ts"
 export { type BindFrame, inForce, type Transport } from "#compiler/runtime/write/transport.ts"
-export type { Unsendable } from "#compiler/write/family/order.ts"
+export type { Unsendable } from "#compiler/runtime/write/staged.ts"
 export type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 export { entryKey, fillContexts } from "#compiler/write/frontend/entry.ts"
 export {
@@ -56,12 +56,8 @@ export {
 	type BoundWrite,
 	type Chunks,
 	type FamilyRowBound,
-	type GeneratedRejection,
-	type Raw,
-	type RunnableWrite,
-	servedRunnable
+	type GeneratedRejection
 } from "#compiler/runtime/write/bind.ts"
-export { runnableWrite } from "#compiler/write/program/bind.ts"
 export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 export { closedTableOf } from "#compiler/write/program/decide.ts"
 export type { ExecutionPart } from "#compiler/runtime/write/staged.ts"
@@ -74,7 +70,7 @@ export {
 	type WriteExclusion
 } from "#compiler/runtime/write/flight.ts"
 export { type ArrayMember, memberFactsOf } from "#compiler/runtime/write/members.ts"
-export { projectWrite, servedWrite } from "#compiler/write/program/served.ts"
+export { flightOf, projectWrite } from "#compiler/write/program/served.ts"
 export {
 	interpretRows,
 	type KeyDecoder,

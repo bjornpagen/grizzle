@@ -2,9 +2,9 @@
  * A generated field with no value refuses its write as one outcome, `invariant-rejected` on the field's law
  * (analysis/theory/description.ts generatedLaw) witnessed by the key of the first stated row whose term has no value,
  * whatever the write's shape and whoever finds the NULL: the nesting's walk, which evaluates every generated field of
- * each row it fills (runtime/write/fill.ts `filler`); a family's edit, which evaluates those its fill reads, a fold's
- * selection or step (write/family/edit.ts `planEdits`); or PostgreSQL, whose NOT NULL refuses a row whose field no fill
- * reads (23502), judged by the host as the shell judges it (runtime/write/witness.ts hostJudgement).
+ * each row it fills (runtime/write/fill.ts `filler`); or PostgreSQL, whose NOT NULL refuses a row whose field no fill
+ * reads (23502), a family's edit's among them, which its additions statement draws in SQL, judged by the host as the
+ * shell judges it (runtime/write/witness.ts hostJudgement).
  *
  * The schema is an ordered family of members, each of a kind whose weight a closed relation gives, a generated field
  * that is NULL at the kind the relation lacks. One fold sums the members' quantities over a selection, another sums

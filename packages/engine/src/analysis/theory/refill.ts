@@ -232,7 +232,7 @@ interface Reached {
  * one `replaced` names, every owner axis that carries it is a reader too, a count among them, which its family's
  * members copy as ‹n›; and so is a counted family's owner axis that carries it into a relation `replaced` names, whose
  * re-placed rows no cascade reaches either. A sequence re-places its own members and draws each from its owner as the
- * stratum leaves it, and a re-placed counted member's ‹n› is its edit's to draw (write/family/edit.ts).
+ * stratum leaves it, and a re-placed counted member's ‹n› is its edit's to draw (write/family/removals.ts, additions.ts).
  */
 const reachedBy = (
 	families: ReadonlyArray<Family>,

@@ -188,10 +188,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									}
 									const change = variantOf(ctx, loaded.variants)
 									const write = change.entry.program
-									const found = Arr.findFirst(
-										write.flight.statements,
-										(st) => st.step.kind === "write"
-									)
+									const found = Arr.findFirst(write.statements, (st) => st.step.kind === "write")
 									if (Option.isNone(found)) {
 										throw new Error("no insert statement")
 									}
@@ -287,7 +284,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												const explained = yield* explainChange(
 													ctx,
 													tables,
-													loaded.name,
 													change,
 													change.call.call({ accounts: Arr.map(parents, (n) => ({ id: uid(n) })) })
 												)

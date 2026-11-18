@@ -1088,31 +1088,28 @@ const factsOf = (op: GrizzleOp): CallFacts => {
  * displaces, the pair's first half.
  */
 const putTargetsOf = (change: RoleChange): ReadonlyArray<RaceFeature> =>
-	Arr.flatMap(
-		change.change.entry.program.flight.statements,
-		({ step }): ReadonlyArray<RaceFeature> => {
-			const writes =
-				step.kind === "write"
-					? [step]
-					: step.kind === "single"
-						? Arr.map(step.parts, (p) => p.step)
-						: []
-			return Arr.flatMap(writes, ({ result }): ReadonlyArray<RaceFeature> => {
-				switch (result.kind) {
-					case "upsert":
-						return ["put target onConflictDoUpdate"]
-					case "update":
-						return ["put target updateFrom"]
-					case "merge":
-						return ["put target merge"]
-					case "delete":
-						return result.mode === "displacing" ? ["put target deleteThenInsert"] : []
-					case "insert":
-						return []
-				}
-			})
-		}
-	)
+	Arr.flatMap(change.change.entry.program.statements, ({ step }): ReadonlyArray<RaceFeature> => {
+		const writes =
+			step.kind === "write"
+				? [step]
+				: step.kind === "single"
+					? Arr.map(step.parts, (p) => p.step)
+					: []
+		return Arr.flatMap(writes, ({ result }): ReadonlyArray<RaceFeature> => {
+			switch (result.kind) {
+				case "upsert":
+					return ["put target onConflictDoUpdate"]
+				case "update":
+					return ["put target updateFrom"]
+				case "merge":
+					return ["put target merge"]
+				case "delete":
+					return result.mode === "displacing" ? ["put target deleteThenInsert"] : []
+				case "insert":
+					return []
+			}
+		})
+	})
 
 /** Why a race's ChangeSets do not serve: a compile's refusal at its place, or the refusal of loading what it served. */
 const refusalText = (refused: ServedRefusal | CompileError | OpenError): string =>

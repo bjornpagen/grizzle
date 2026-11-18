@@ -1,7 +1,7 @@
 /**
  * Binding one application of a write before any SQL is sent (`bindWrite`): its declared parameters admitted, its
- * members normalized, each statement's placeholder values encoded, and its statements' flights planned by the write
- * (`RunnableWrite`), from the write's loaded flight and binding alone.
+ * members normalized, each statement's placeholder values encoded, and its statements' executions in its one flight,
+ * from the write's loaded flight and binding alone.
  */
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
@@ -10,29 +10,25 @@ import {
 	positionalColumns
 } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf, paramEncoder } from "#compiler/codec/scalar.ts"
-import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
+import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Prepared } from "#compiler/core/prepared.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { isIterable } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
-import type { OutputText, Param, ParamText } from "#compiler/core/wire.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
+import { TupleMap } from "#compiler/core/tuple-map.ts"
+import type { Param } from "#compiler/core/wire.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
-import { type FamilyId, familyKey, type GeneratedLaw } from "#compiler/ir/law.ts"
+import { familyKey, type GeneratedLaw } from "#compiler/ir/law.ts"
 import type { LiteralBound, MessageBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { runsLargeForm } from "#compiler/runtime/lower/take.ts"
 import type {
-	Binding,
 	FamilyNames,
 	FreshStratum,
 	JudgedRelation,
 	OwnedColumn
 } from "#compiler/runtime/write/binding.ts"
-import { type MemberKey, type Owner, type Recount, rowTexts } from "#compiler/runtime/write/draw.ts"
+import { type Owner, rowTexts } from "#compiler/runtime/write/draw.ts"
 import {
 	type ColumnKey,
 	fieldKey,
@@ -54,7 +50,6 @@ import {
 	type FillContext,
 	groupOf,
 	groupOfOwner,
-	keyOf,
 	type Values,
 	valuesOfFact
 } from "#compiler/runtime/write/keys.ts"
@@ -69,7 +64,6 @@ import {
 	type InputData,
 	type MemberFacts,
 	normalizeChangeSet,
-	type Normalized,
 	type NormalizedSlot,
 	refilledSlot,
 	type SlotData
@@ -84,6 +78,7 @@ import {
 	type NestedPlaceholder,
 	type NestedRowBound,
 	type NestedSource,
+	type Unsendable,
 	nestedSource
 } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
@@ -94,10 +89,7 @@ import {
 	type JudgedRow,
 	type StatedRows
 } from "#compiler/runtime/write/witness.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { OwnLaw, Witness } from "#compiler/types/changeset/changeset.ts"
-import type { Unsendable } from "#compiler/write/family/order.ts"
-import type { RowState } from "#compiler/write/family/state.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
 
 interface BindInputs {
@@ -106,28 +98,20 @@ interface BindInputs {
 	/** The declared parameters' values, by name: the caller's, and the values ChangeSet.bind closed under the private
 	 * names the Description lists. */
 	readonly params: Readonly<Record<string, unknown>>
-	/** What one statement carries, which a family's statements are cut to (write/family/order.ts inForce over the
-	 * wire's Bind frame). */
+	/** What one statement carries, which a staged statement's nested rows are cut to (runtime/write/transport.ts
+	 * inForce over the wire's Bind frame). */
 	readonly transport: Transport
 }
 
-/** A row of a family write that no statement can carry even alone, as its family names it. */
+/** A row of a nested write that no statement can carry even alone, as its family names it. */
 export interface FamilyRowBound {
 	readonly _tag: "FamilyRowBound"
 	readonly family: FamilyNames
 	readonly row: Unsendable
 }
 
-/** A read's rows as PostgreSQL answered them: each cell its output text. */
-export type Raw = ReadonlyArray<ReadonlyArray<OutputText>>
-
 export interface BoundWrite {
 	readonly kind: "bound"
-	/**
-	 * The rows the ChangeSet states before its plan is drawn, every column its write fills unfilled: what a refusal the
-	 * read flight meets judges, which states none of them.
-	 */
-	readonly unplanned: StatedRows
 	/** The positions of the write's statements the runtime may skip: their enumerated member holds no fact. */
 	readonly skip: ReadonlySet<number>
 	/** The form of a statement of the write this application sends (runtime/write/flight.ts sentForm). */
@@ -139,61 +123,25 @@ export interface BoundWrite {
 	readonly values: (
 		statement: FlightStatement
 	) => Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound>
-	/** How the application's statements reach the server: one flight, or a read flight first (`Flights`). */
-	readonly flights: Flights
+	/** Each statement's executions in the write's one flight (`Chunks`). */
+	readonly chunks: Chunks
+	/** The rows the ChangeSet states as the write fills them (runtime/write/witness.ts StatedRows), which a refusal of
+	 * one of its statements judges. */
+	readonly stated: StatedRows
 }
 
 /**
  * The executions of a statement under `transport`, the message bound of the session that sends them, in the order they
- * are sent (write/program/staged.ts Execution): a family step's one per statement of its kind in its family's plan
- * (write/family/order.ts plan), each its rows' arrays under the statement's one text, none when the application writes
- * no row of that kind; any other statement's its one, its `values`, or, where its nested rows' arrays are past the
+ * are sent (write/program/staged.ts Execution): its one, its `values`, or, where its nested rows' arrays are past the
  * transport's message, its staged form's: its carriers created and filled chunk by chunk, their ANALYZE where the
- * staged statement needs one, then the staged statement (write/program/staged.ts executionsOf). Its rows are every execution's, in order. A row no
- * statement or fill carries even alone is its family's FamilyRowBound, and a change an immutable owner's stored family
- * refuses its CompileError (write/family/edit.ts planEdits), before any write statement is sent: the read flight has
- * found the stored groups.
+ * staged statement needs one, then the staged statement (write/program/staged.ts executionsOf). Its rows are every
+ * execution's, in order. A nested row no statement or fill carries even alone is its family's FamilyRowBound, before
+ * any statement is sent.
  */
 export type Chunks = (
 	statement: FlightStatement,
 	transport: Transport
-) => Result.Result<
-	ReadonlyArray<Execution>,
-	EncodingFailure | LiteralBound | FamilyRowBound | CompileError
->
-
-/**
- * One family's read as one execution sends it (write/family/statements.ts ReadSql): its text, named where its write
- * compiles, so the read flight binds it by that name, and its placeholders' texts.
- */
-export interface ReadStatement {
-	/** The family whose stored suffixes it reads, which a failure the read meets is attributed to. */
-	readonly family: FamilyId
-	readonly text: Prepared<EmittedText>
-	readonly params: ReadonlyArray<ParamText>
-}
-
-/**
- * How one application's statements reach the server, in its one transaction:
- * - `write`: one flight of the artifact's statements, when the changeset names no member of any family, so no family
- *   write needs a stored row;
- * - `read`: first a flight of the family reads, one batched SELECT per family of the stored suffixes and the owners'
- *   counts and ends of every touched group, then the artifact's statements, whose family writes `writes` plans from the
- *   reads' rows, one array of rows per read in order. Under SERIALIZABLE a concurrent writer to a group the reads read
- *   meets 40001 at one of the two, and grizzle does not retry.
- */
-export type Flights =
-	| ({ readonly kind: "write" } & PlanWrites)
-	| {
-			readonly kind: "read"
-			readonly reads: NonEmptyReadonlyArray<ReadStatement>
-			readonly writes: (
-				rows: ReadonlyArray<Raw>
-			) => Result.Result<
-				PlanWrites,
-				EncodingFailure | FamilyRowBound | CompileError | GeneratedRejection
-			>
-	  }
+) => Result.Result<ReadonlyArray<Execution>, EncodingFailure | LiteralBound | FamilyRowBound>
 
 /**
  * A write the host refuses before any write statement, filling a row whose generated field has no value
@@ -208,39 +156,12 @@ export interface GeneratedRejection {
 }
 
 /**
- * An application's write statements under one plan: each statement's executions (`Chunks`), and the rows the ChangeSet
- * states as that plan fills them (runtime/write/witness.ts StatedRows), which a refusal of one of them judges.
+ * The fill an application's stated rows are judged at: `drawn`, each owner slot as its insert carries the counts and
+ * ends its stratum's appends draw into it (`freshOwners`); or none, before they are drawn, when no write statement is
+ * sent.
  */
-export interface PlanWrites {
-	readonly chunks: Chunks
-	readonly stated: StatedRows
-}
-
-/**
- * What one stratum's plan leaves: each counted family's recounts, by family key, the count and ends each owner whose
- * members the stratum changes ends at; every row its reads found, stored, by relation and key; and every row its reads
- * found and its writes leave.
- */
-export interface StratumFill {
-	readonly recounts: ReadonlyMap<string, ReadonlyTupleMap<Owner, Recount>>
-	readonly found: RowState
-	readonly rows: RowState
-}
-
-/**
- * The plan an application's stated rows are judged at: `planned`, its strata's fills, a stratum absent filling nothing,
- * and `drawn`, each owner slot as its insert carries the counts and ends the write draws into it, the plan's or, where
- * the stratum's family work is one additions statement, the fresh fill's; `flight`, a write whose family work all runs
- * in its one flight, its fresh fill's `drawn` alone; or none, before the plan is drawn or where it is refused, when no
- * write statement is sent.
- */
-export type StatedFill =
-	| {
-			readonly kind: "planned"
-			readonly strata: ReadonlyMap<StratumAt, StratumFill>
-			readonly drawn: (slot: ParamId) => NormalizedSlot | undefined
-	  }
-	| { readonly kind: "flight"; readonly drawn: (slot: ParamId) => NormalizedSlot | undefined }
+type StatedFill =
+	| { readonly kind: "drawn"; readonly drawn: (slot: ParamId) => NormalizedSlot | undefined }
 	| { readonly kind: "unplanned" }
 
 /**
@@ -272,69 +193,6 @@ export type BindResult =
 	  }
 	| { readonly kind: "generated-rejected"; readonly rejection: GeneratedRejection }
 
-/**
- * What binding one application found before its flights are planned (`FlightsOf`): the transport its statements are
- * cut to, the installation's codes, the write's binding, each stratum's nested rows as normalization left them, each
- * member slot's normal facts, each fresh owner slot's facts with the counts and ends its fill drew, the form of each
- * statement the application sends, the rows it states as a fill fills them (`StatedFill`), a generated field's refusal at a
- * stratum, and the executions of a statement no family step plans, each member slot's facts by `slotFacts`.
- */
-export interface Applied {
-	readonly transport: Transport
-	readonly codes: Codebook
-	readonly binding: Binding
-	readonly nested: Normalized["nested"]
-	readonly factsOf: (slot: ParamId) => NormalizedSlot
-	readonly fresh: ReadonlyMap<ParamId, NormalizedSlot>
-	readonly form: (statement: FlightStatement) => FlightForm
-	readonly statedRowsOf: (fill: StatedFill) => StatedRows
-	readonly generatedRejection: (stratum: StratumAt, stop: GeneratedNull) => GeneratedRejection
-	readonly statementChunks: (
-		statement: FlightStatement,
-		transport: Transport,
-		slotFacts: (slot: ParamId) => NormalizedSlot
-	) => Result.Result<ReadonlyArray<Execution>, EncodingFailure | LiteralBound | FamilyRowBound>
-}
-
-/** How a write's statements reach the server (`Flights`), from what binding one application found, or a generated
- * field's refusal before any statement. */
-export type FlightsOf = (applied: Applied) => Result.Result<Flights, GeneratedRejection>
-
-/**
- * A write as binding runs it: its flight, loaded under the installation's codes (runtime/write/flight.ts loadWrite),
- * and how its statements reach the server: in its one flight (`servedFlights`), or, for a write whose family work the
- * host plans from a read flight, which no served file holds (served/unserved.ts UnservedMember), as the planner over
- * its compiled write plans them (write/program/bind.ts legacyFlights).
- */
-export interface RunnableWrite {
-	readonly flight: FlightWrite
-	readonly flights: FlightsOf
-}
-
-/**
- * The flights of a write whose family work all runs in its one flight (runtime/write/flight.ts ServedWrite), which
- * holds no family step: each statement's executions, an owner slot's facts with the counts and ends its fresh fill
- * drew, and the stated rows as that fill fills them.
- */
-const servedFlights: FlightsOf = ({ fresh, factsOf, statementChunks, statedRowsOf }) => {
-	const slotFacts = (slot: ParamId): NormalizedSlot => fresh.get(slot) ?? factsOf(slot)
-	return Result.ok({
-		kind: "write",
-		chunks: (statement, transport) => {
-			const step = statement.step
-			if (step.kind === "family") {
-				throw defect(`a family step of stratum ${step.stratum}, which no served write holds`)
-			}
-			return statementChunks(statement, transport, slotFacts)
-		},
-		stated: statedRowsOf({ kind: "flight", drawn: (slot) => fresh.get(slot) })
-	})
-}
-
-/** A served write as binding runs it: its flight, every statement in it (`servedFlights`). */
-export const servedRunnable = (flight: FlightWrite): RunnableWrite =>
-	Object.freeze({ flight, flights: servedFlights })
-
 /** Normalizes and encodes one application's inputs.
  *
  * Binding one application's inputs to a WriteProgram, before any SQL is sent.
@@ -352,10 +210,9 @@ export const servedRunnable = (flight: FlightWrite): RunnableWrite =>
  *    fact produces no statement, so the runtime may skip it. A column whose array would be longer than one string
  *    holds is refused as its LiteralBound, which the shell raises as InputTooLarge. */
 export const bindWrite = (
-	runnable: RunnableWrite,
+	flight: FlightWrite,
 	inputs: BindInputs
-): Result.Result<BindResult, EncodingFailure | MessageBound | LiteralBound | CompileError> => {
-	const flight = runnable.flight
+): Result.Result<BindResult, EncodingFailure | MessageBound | LiteralBound> => {
 	const { binding, prepared, codes } = flight
 	/** The declared parameters' values; each relation parameter's distinct fact count, which chooses the form of a
 	 * statement whose take its rows bound (`sentForm`). */
@@ -525,50 +382,20 @@ export const bindWrite = (
 					value: literalHost(carrierSpecOf(owned.type, codes), owned.start)
 				}
 	/**
-	 * What the stratum's reads found at the key of `relation`'s row `columns`, `key` its key's texts: `stored`, a row
-	 * they found; `fresh`, none, the owner of a group a counted family of it recounts, which its read looked up
-	 * (order.ts OwnerWrite); `unread`, a row no read looked up, which a stored row may hold.
-	 */
-	const foundAt = (
-		at: StratumFill | undefined,
-		relation: StoredRelationName,
-		judged: JudgedRelation,
-		columns: Values,
-		key: MemberKey
-	): "stored" | "fresh" | "unread" => {
-		if (at === undefined) {
-			return "unread"
-		}
-		if (at.found.get(relation)?.get(key) !== undefined) {
-			return "stored"
-		}
-		return [...judged.owned.values()].some(
-			(owned) =>
-				at.recounts
-					.get(familyKey(owned.family.id))
-					?.has(groupOfOwner(ctx, owned.family, columns)) === true
-		)
-			? "fresh"
-			: "unread"
-	}
-	/**
-	 * A row of `relation` the ChangeSet states in `stratum`, as its write fills it (witness.ts JudgedRow): `columns` its
-	 * columns as `source` gives them, `op` how its statement writes it, `key` its primary key's texts where they are
-	 * known, and `proposal` which of its facts the statement that writes it proposes (insert/statement.ts Proposal), an
-	 * action's INSERT into a family owner only those no stored row holds the key of. It states its caller's and serial
-	 * fields; every other column is, in turn, a count or an end its stratum's recount draws, the value the plan's rows
-	 * hold at its key, unfilled for a row the reads found stored, an owner's count or end as its insert carries it where
-	 * the write drew it into the row's facts, else at its empty family's where the reads found none stored or, for an
-	 * insert, looked up none, the walk's value, and otherwise unfilled. A row no read looked up that its statement
-	 * proposes only where no stored row holds its key is `ifFresh`.
+	 * A row of `relation` the ChangeSet states, as its write fills it (witness.ts JudgedRow): `columns` its columns as
+	 * `source` gives them, `op` how its statement writes it, `keyed` whether they hold its whole primary key, and
+	 * `proposal` which of its facts the statement that writes it proposes (insert/statement.ts Proposal), an action's
+	 * INSERT into a family owner only those no stored row holds the key of. It states its caller's and serial fields;
+	 * every other column is, in turn, an owner's count or end as its insert carries it where the write drew it into the
+	 * row's facts, else, for an insert, at its empty family's, the walk's value, and otherwise unfilled. A row whose
+	 * statement proposes it only where no stored row holds its key is `ifFresh`.
 	 */
 	const judgedRow = (
 		fill: StatedFill,
-		stratum: StratumAt,
 		relation: StoredRelationName,
 		columns: Values,
 		op: "insert" | "put" | "delete",
-		key: MemberKey | undefined,
+		keyed: boolean,
 		source: ColumnsSource,
 		proposal: Proposal
 	): JudgedRow => {
@@ -581,41 +408,19 @@ export const bindWrite = (
 				})
 			)
 		)
-		if (fill.kind === "unplanned" || key === undefined) {
+		if (fill.kind === "unplanned" || !keyed) {
 			return { kind: "known", stated, filled: () => unfilled }
 		}
-		const at = fill.kind === "planned" ? fill.strata.get(stratum) : undefined
-		const found = foundAt(at, relation, judged, columns, key)
-		const empty = found === "fresh" || (found === "unread" && op === "insert")
 		return {
-			kind: found === "unread" && proposal === "unstored" ? "ifFresh" : "known",
+			kind: proposal === "unstored" ? "ifFresh" : "known",
 			stated,
 			filled: (column) => {
 				const owned = judged.owned.get(column)
-				const recount =
-					owned === undefined
-						? undefined
-						: at?.recounts
-								.get(familyKey(owned.family.id))
-								?.get(groupOfOwner(ctx, owned.family, columns))
-				if (owned !== undefined && recount !== undefined) {
-					return {
-						kind: "filled",
-						value: owned.kind === "count" ? BigInt(recount.count) : recount.ends.get(owned.name)
-					}
-				}
-				const held = at === undefined ? undefined : at.rows.get(relation)?.get(key)
-				if (held?.has(column) === true) {
-					return { kind: "filled", value: held.get(column) }
-				}
-				if (found === "stored") {
-					return unfilled
-				}
 				if (owned !== undefined) {
 					if (source === "drawn" && columns.has(column)) {
 						return { kind: "filled", value: columns.get(column) }
 					}
-					return empty ? emptyOf(owned) : unfilled
+					return op === "insert" ? emptyOf(owned) : unfilled
 				}
 				return source === "walk" && columns.has(column)
 					? { kind: "filled", value: columns.get(column) }
@@ -644,7 +449,7 @@ export const bindWrite = (
 		},
 		nested: (stratum: StratumAt, relation: StoredRelationName) =>
 			[...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])].map((row) =>
-				judgedRow(fill, stratum, relation, row.values, "insert", row.key, "walk", "every")
+				judgedRow(fill, relation, row.values, "insert", true, "walk", "every")
 			)
 	})
 	/**
@@ -662,7 +467,7 @@ export const bindWrite = (
 		const facts = (drawn ?? factsOf(slot.slot)).facts
 		const source: ColumnsSource =
 			input.kind === "nested" ? "walk" : drawn === undefined ? "stated" : "drawn"
-		const { layout, primary } = judgedOf(relation)
+		const { primary } = judgedOf(relation)
 		const op = input.kind === "single" ? input.act.op : "insert"
 		const proposal = defined(
 			binding.proposals.get(slot.slot),
@@ -670,14 +475,12 @@ export const bindWrite = (
 		)
 		return facts.map((fact) => {
 			const columns = new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))
-			const whole = primary.every((name) => columns.has(fieldKey(name)))
 			return judgedRow(
 				fill,
-				group.stratum,
 				relation,
 				columns,
 				op,
-				whole ? keyOf(ctx, layout, columns) : undefined,
+				primary.every((name) => columns.has(fieldKey(name))),
 				source,
 				proposal
 			)
@@ -770,16 +573,15 @@ export const bindWrite = (
 			}
 		}
 	}
+	/** A member slot's facts as its statements send them: an owner slot's with the counts and ends its fresh fill drew
+	 * (`freshOwners`), any other's normal facts. */
+	const slotFacts = (slot: ParamId): NormalizedSlot => fresh.get(slot) ?? factsOf(slot)
 	/**
-	 * The executions under `transport` of a statement no family step plans, each member slot's facts by `slotFacts`: its
-	 * one, or, where its nested rows' arrays are past the transport's message, its staged form's (`Chunks`); each
-	 * placeholder of nested rows sends its source as the write built it (`sources`).
+	 * The executions under `transport` of a statement: its one, or, where its nested rows' arrays are past the
+	 * transport's message, its staged form's (`Chunks`); each placeholder of nested rows sends its source as the write
+	 * built it (`sources`).
 	 */
-	const statementChunks = (
-		statement: FlightStatement,
-		transport: Transport,
-		slotFacts: (slot: ParamId) => NormalizedSlot
-	): Result.Result<ReadonlyArray<Execution>, EncodingFailure | LiteralBound | FamilyRowBound> => {
+	const chunks: Chunks = (statement, transport) => {
 		const sent = form(statement)
 		const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>
 			slot.kind === "nestedRows"
@@ -809,29 +611,13 @@ export const bindWrite = (
 		const refused = executions.error
 		return Result.err(refused._tag === "NestedRowBound" ? nestedRowBound(refused) : refused)
 	}
-	const flown = runnable.flights({
-		transport: inputs.transport,
-		codes,
-		binding,
-		nested: normalized.nested,
-		factsOf,
-		fresh,
-		form,
-		statedRowsOf,
-		generatedRejection,
-		statementChunks
-	})
-	if (!flown.ok) {
-		return Result.ok({ kind: "generated-rejected", rejection: flown.error })
-	}
-	const flights = flown.value
 	return Result.ok({
 		kind: "bound",
-		unplanned: statedRowsOf(unplannedFill),
 		skip,
 		form,
 		values,
-		flights
+		chunks,
+		stated: statedRowsOf({ kind: "drawn", drawn: (slot) => fresh.get(slot) })
 	})
 }
 
@@ -846,7 +632,6 @@ const partOf = (step: OwnStep): ExecutionPart => {
 		case "advance":
 		case "check":
 		case "single":
-		case "family":
 		case "familyWrite":
 		case "hold":
 		case "admission":

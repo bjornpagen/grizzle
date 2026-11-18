@@ -29,7 +29,6 @@ import {
 	runAlongside,
 	runApart,
 	runFramed,
-	runFramedTwice,
 	runTransaction,
 	type Transaction,
 	type Uncommitting,
@@ -376,27 +375,19 @@ const statementGen: Gen<StatementSpec> = statementOf(
 )
 
 /** How the case's call sends its statements (wire/batch.ts). */
-type Runner = "apart" | "transaction" | "alongside" | "framed" | "framedTwice"
+type Runner = "apart" | "transaction" | "alongside" | "framed"
 
-const runners: Arr.NonEmptyReadonlyArray<Runner> = [
-	"apart",
-	"transaction",
-	"alongside",
-	"framed",
-	"framedTwice"
-]
+const runners: Arr.NonEmptyReadonlyArray<Runner> = ["apart", "transaction", "alongside", "framed"]
 
 /** Where the bound falls about the flight it is drawn by: a drawn distance short of its bytes, at them, or past them. */
 type LimitAt = "short of" | "at" | "past"
 
 interface FlightCase {
 	readonly runner: Runner
-	/** The call's statements: alone for apart and alongside, and the first flight's for framedTwice. */
+	/** The call's statements: alone for apart and alongside. */
 	readonly first: Arr.NonEmptyReadonlyArray<StatementSpec>
-	/** The transaction's statements for alongside, and the second flight's for framedTwice. */
+	/** The transaction's statements for alongside. */
 	readonly second: ReadonlyArray<StatementSpec>
-	/** The flight of framedTwice the bound is drawn by. */
-	readonly by: "first" | "second"
 	readonly at: LimitAt
 	readonly distance: number
 }
@@ -405,7 +396,6 @@ export const caseGen: Gen<FlightCase> = (source) => ({
 	runner: source.draw(element(runners)),
 	first: [source.draw(statementGen), ...source.draw(array(statementGen, { min: 0, max: 3 }))],
 	second: source.draw(array(statementGen, { min: 0, max: 3 })),
-	by: source.draw(element<FlightCase["by"]>(["first", "second"])),
 	at: source.draw(element<LimitAt>(["short of", "at", "past"])),
 	distance: source.draw(int(1, 64))
 })
@@ -451,42 +441,7 @@ export const boundCallOf = (
 					Arr.map(c.first, servedOfSpec)
 				)
 			)
-		case "framedTwice":
-			return Effect.asVoid(
-				runFramedTwice(
-					session,
-					writeFrame(flightPrologue, "serializable", excludesNothing),
-					Arr.map(c.first, servedOfSpec),
-					() => Effect.succeed(Arr.map(c.second, servedOfSpec))
-				)
-			)
 	}
-}
-
-/** The queries a framed flight opens with: BEGIN, then the prologue's fence and its entry. */
-const opening: ReadonlyArray<"begin" | BatchStatement> = [
-	"begin",
-	flightPrologue.fence,
-	flightPrologue.enter
-]
-
-/**
- * The messages of a framedTwice call's first flight, from the server's record of the whole call: its opening and its
- * statements, through the Sync of the last of them; each query ends with a Sync, or is one Query.
- */
-export const firstFlightOf = (c: FlightCase, read: ReadonlyArray<Read>): ReadonlyArray<Read> => {
-	let ends = opening.length + c.first.length
-	const out: Array<Read> = []
-	for (const message of read) {
-		if (ends === 0) {
-			break
-		}
-		out.push(message)
-		if (message.type === "S" || message.type === "Q") {
-			ends -= 1
-		}
-	}
-	return out
 }
 
 /** A session over a new server, in the case's scope, its server's record marked. */
@@ -532,12 +487,10 @@ export type BoundFeature =
 	| `${Runner}: admitted`
 	| "admitted at exactly the bound"
 	| "refused one byte past the bound"
-	| "refused at the second flight"
 
 export const features: Arr.NonEmptyReadonlyArray<BoundFeature> = [
 	"admitted at exactly the bound",
 	"refused one byte past the bound",
-	"refused at the second flight",
 	...Arr.flatMap(runners, (r): ReadonlyArray<BoundFeature> => [`${r}: refused`, `${r}: admitted`])
 ]
 
@@ -586,22 +539,19 @@ export const outcomes: {
 		apart: ["ConnectionLost"],
 		alongside: ["ConnectionLost"],
 		transaction: ["ConnectionLost"],
-		framed: ["ConnectionLost"],
-		framedTwice: ["ConnectionLost"]
+		framed: ["ConnectionLost"]
 	},
 	"reset before the flight": {
 		apart: ["ConnectionLost"],
 		alongside: ["ConnectionLost"],
 		transaction: ["ConnectionLost", "CommitLost"],
-		framed: ["ConnectionLost", "CommitLost"],
-		framedTwice: ["ConnectionLost"]
+		framed: ["ConnectionLost", "CommitLost"]
 	},
 	"reset after COMMIT ran": {
 		apart: ["answered"],
 		alongside: ["ConnectionLost", "CommitLost"],
 		transaction: ["CommitLost"],
-		framed: ["CommitLost"],
-		framedTwice: ["CommitLost"]
+		framed: ["CommitLost"]
 	}
 }
 
@@ -631,7 +581,6 @@ export const parseCaseGen: Gen<FlightCase> = (source) => {
 		runner: source.draw(element(runners)),
 		first: [source.draw(padded), ...source.draw(array(padded, { min: 0, max: 3 }))],
 		second: source.draw(array(padded, { min: 0, max: 3 })),
-		by: "first",
 		at: source.draw(element<LimitAt>(["short of", "at", "past"])),
 		distance: source.draw(int(1, 64))
 	}
@@ -645,12 +594,10 @@ export type ParseFeature =
 	| `${Runner}: Parse admitted`
 	| "refused within the Parse's fields"
 	| "admitted at exactly the bound"
-	| "refused at the second flight"
 
 export const parseFeatures: Arr.NonEmptyReadonlyArray<ParseFeature> = [
 	"refused within the Parse's fields",
 	"admitted at exactly the bound",
-	"refused at the second flight",
 	...Arr.flatMap(runners, (r): ReadonlyArray<ParseFeature> => [
 		`${r}: Parse refused`,
 		`${r}: Parse admitted`

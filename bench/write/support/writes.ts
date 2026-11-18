@@ -309,19 +309,7 @@ export type StatementLabel =
 			readonly position: number
 			readonly parts: ReadonlyArray<WriteLabel>
 	  }
-	| FamilyLabel
 	| { readonly kind: "commit" }
-
-/**
- * A family's statement of one kind (write/program/artifact.ts FamilyStep): its member's deletes, a tree's whole delete,
- * its owner's count update, its member's inserts, or its member's in-place updates, by the relation it writes.
- */
-interface FamilyLabel {
-	readonly kind: "family"
-	readonly position: number
-	readonly relation: string
-	readonly statement: "delete" | "deleteTree" | "count" | "insert" | "refill" | "update"
-}
 
 export type WriteLabel = {
 	readonly kind: "write"
@@ -361,8 +349,6 @@ const statementLabel = (statement: ArtifactStatement): StatementLabel => {
 					result: p.step.result
 				}))
 			}
-		case "family":
-			return { kind: "family", position, relation: step.relation, statement: step.statement }
 		case "familyWrite":
 			return {
 				kind: "single",
@@ -417,8 +403,6 @@ export const labelText = (label: StatementLabel): string => {
 				Arr.map(label.parts, (p) => writeText(p.relation, p.result)),
 				", "
 			)})`
-		case "family":
-			return `family ${label.statement} ${label.relation}`
 		case "commit":
 			return "COMMIT"
 	}
@@ -993,7 +977,7 @@ const appliedChange = (
 				(session) =>
 					runWrite(
 						session,
-						dbChangeFrame(ctx, change.entry.program.flight.exclusion),
+						dbChangeFrame(ctx, change.entry.program.exclusion),
 						change.entry,
 						inputs,
 						change.reads
@@ -1148,8 +1132,7 @@ const explainPlans = (label: StatementLabel): boolean =>
  * statements each run under EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) in its place in the
  * transaction that writes, a carrier's creation and an ANALYZE as they are (`explainPlans`), which ends by ROLLBACK
  * (explainingSession), with no parameters but the ChangeSet's own facts.
- * The attempt's outcome is no ChangeSet's: its statements answered plans, which it cannot read, so it is not kept. A
- * read flight before the writes runs as served, since the writes read its rows.
+ * The attempt's outcome is no ChangeSet's: its statements answered plans, which it cannot read, so it is not kept.
  */
 export const explainedChange = (
 	opened: OpenedDb,

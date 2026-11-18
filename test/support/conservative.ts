@@ -28,7 +28,6 @@ import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { servedReadBacks, servedSpine } from "#compiler/served/spine.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
 import {
 	type CompiledWrite,
 	type CompileWriteOptions,
@@ -42,6 +41,7 @@ import {
 	placeReadBack,
 	uniqueAbortsOf
 } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { type ConservativeWrite, realizeConservative } from "#test/support/oracle/write/realize.ts"
 
 /**
@@ -152,7 +152,7 @@ export const conservativeChange = (
 				conservativeWrite(entry.compiled, { names: entry.names, reads: artifacts.reads }),
 				(program) => ({
 					...entry,
-					program: runnableWrite(program, entry.names.codes),
+					program: flightOf(program, entry.names.codes),
 					compiled: program,
 					readBacks: readBacks(servedReadBacks(program.artifact.readBacks), entry.names.codes)
 				})

@@ -341,20 +341,18 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   packages/experiments/fk-delete (a2f0e371, census.py, measure.py, variant.py), deleted at this verdict; numbers in
   ~/.cache/grizzle-release/FKDELETE/out. BULKLOAD-BATCH's record corrected: its class "rule probes 5.3M calls 27.4 s" is
   these RI queries; its judge's 2.5 s stands. Not built.
-- **One stratum per family's members, until no family write is unserved (PLANTS-PGWRITE, main's ruling 2026-11-15):** a
-  ChangeSet writes a family's members in one stratum, refused by its type (types/changeset/changeset.ts:1261, the
-  vocabulary core/refusals.ts:9) and when it compiles (write/frontend/compile.ts:2866), and a refill only in the first
-  stratum beside every edit (compile.ts:2871). The reason is a family write grizzle cannot serve (served/unserved.ts
-  UnservedReason: an edit, a refill or a nested write the host fills from a read flight): write/program/bind.ts:109
-  runnableWrite falls back to legacyFlights (bind.ts:123), which plans every stratum's family work on the host from one
-  read before the ChangeSet's writes. A served write's family statements are per-stratum SQL, each planned from its
-  own stratum's edits (write/program/compile.ts familyProgram) and reading the state its statement finds, so two
-  editing strata are believed, unverified, to be lawful and servable there. A ChangeSet's type cannot tell whether it
-  is served, so the rule goes only with its reason: eliminating legacy flights means serving every UnservedReason of
-  kind edit, refill and nested as SQL, then deleting bind.ts legacyFlights and the host family planner it drives
-  (write/family/edit.ts planEdits, family/state.ts), then lifting both refusals and the refill-first rule, with a
-  served two-strata edit drawn by test/pg/write/strata-families, whose behaviour cannot see an edit planned in a stratum
-  not its own today.
+- **One stratum per family's members, until a property holds two editing strata (PLANTS-PGWRITE, 2026-11-15;
+  LEGACYFLIGHTS, 2026-11-18):** a ChangeSet writes a family's members in one stratum, refused by its type
+  (types/changeset/changeset.ts, the vocabulary core/refusals.ts) and when it compiles (write/frontend/compile.ts
+  `editingStrata`), and a refill only in the first stratum beside every edit (`refilledAt`). Their old reason is gone:
+  LEGACYFLIGHTS deleted the host family planner (write/program/bind.ts legacyFlights, write/family/edit.ts planEdits),
+  which planned every stratum's family work from one read before the ChangeSet's writes, so every family write is now
+  per-stratum SQL (write/program/compile.ts familyProgram), each planned from its own stratum's edits and refills and
+  reading the state its statement finds, and a write no statement draws is refused when it compiles (StaleDerivedRead
+  `passed`, `rewritten`, `edits`). Two editing strata, and a refill after an earlier stratum, are believed lawful there,
+  unverified. Lift both refusals, the type's refusal and its vocabulary entry together, with test/pg/write/strata-families
+  drawing two strata that edit one family's members and a refill in a later stratum against its model; then the
+  refusals' advice (`a ChangeSet of its own`) becomes ChangeSet.sequence.
 - **A SERIALIZABLE writer that only withdraws a rule's violations still holds a READ COMMITTED prober (MONOTONE,
   2026-11-14):** pivotCauseOf (analysis/isolation/certify.ts) counts any SERIALIZABLE role that writes a relation a
   rule over a query reads as one that may miss another call's write, and 5c then holds every READ COMMITTED role whose
@@ -600,18 +598,11 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   recount-rooted riders, the additions statement's recount (450d0984) and the removals statement's own recount feeding
   rider members updated in the same statement, about 200 to 300 lines. They are the chained refills' parts (1) and (3)
   (the entry above): whoever builds one builds both together, which leaves only the chained part (2), a redraw order
-  within one relation, apart. fill.ts writesVerdict's `edit` arm turns back into refills when they land.
-- **FamilyStep outlives the served port (PATTERNS):** the served artifact's step type still holds FamilyStep
-  (runtime/write/steps.ts), which only the legacy planner builds: runtime/write/bind.ts servedFlights throws a defect on
-  it, and bench/write/support/writes.ts FamilyLabel and bench/queue/support/queue.ts's `family` case mirror it.
-  Deleting write/program/bind.ts legacyFlights, once the refills above move into the one flight, deletes FamilyStep, the
-  throw and both bench mirrors; no type split before that.
-- **An owner's put beside its member's put has no served form (REDSWEEP, 2026-11-14):** README says a refill is planned
-  "in the first stratum, beside every edit of a family's members", yet `put(Owner).put(Member)` compiles and generate
-  refuses it as UnservedMember. Repro: a counted family plus `contained(on(Member,"g","c"), on(Owner,"id","v"))`, then
-  that ChangeSet. The owner's put reaches the member's owner-copy reader (kind "owner"), and write/frontend/refill.ts:167
-  flightWay draws only fold, predecessor and last readers, so the stratum is planned on the host, which no served file
-  holds. Same area as the entry above.
+  within one relation, apart. fill.ts writesVerdict's `edit` arm turns back into refills when they land. Its riders
+  serve the three ways no statement draws today too, refused when they compile since LEGACYFLIGHTS deleted the host
+  planner that drew them in process only (write/frontend/refill.ts stratumRefill): a plain put whose cascade passes a
+  member its stratum puts or deletes (StaleDerivedRead `passed`), a member's write whose refilled member its stratum
+  puts or deletes (`rewritten`), and a member two edited relations reach (`edits`).
 - **Query oracle remainder (CULLQ):** the approved codemod deleting RunOptions' dead "fresh" kind and defaultRunOptions
   (test/support/oracle/runner.ts) and its callers' spreads, after CULLR's runSides primitive (one install, several
   judged sides), which is not on main; pipelining captureRows' describe and capture pair (oracle/install/capture.ts) and

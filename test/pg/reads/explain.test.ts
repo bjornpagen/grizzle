@@ -919,7 +919,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 													"change",
 													"the changes member is a ChangeSet's"
 												)
-												const flight = variantOf(context, change.variants).entry.program.flight
+												const flight = variantOf(context, change.variants).entry.program
 												const staged = flightSlotCarriers(flight)
 												assert.deepEqual(
 													Arr.filter(
@@ -1113,9 +1113,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 								if (boxes.kind !== "change") {
 									return assert.fail("a ChangeSet loads as a change member")
 								}
-								const limit = explainedTextBound(
-									variantOf(served, boxes.variants).entry.program.flight
-								)
+								const limit = explainedTextBound(variantOf(served, boxes.variants).entry.program)
 								const bound = { ...served, pool: boundPool(served.pool, limit) }
 								const handle = onceCalls(bound, boxes)
 								if (handle.shape !== "write") {

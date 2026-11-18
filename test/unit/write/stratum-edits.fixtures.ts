@@ -151,16 +151,7 @@ const changeOf = (sketch: Sketch): ChangeSetValue => {
 /** A family statement as the model names it: its stratum, what it does, and the relation it does it to. */
 interface Planned {
 	readonly stratum: number
-	readonly statement:
-		| "additions"
-		| "recount"
-		| "removals"
-		| "delete"
-		| "insert"
-		| "refill"
-		| "update"
-		| "count"
-		| "unit"
+	readonly statement: "additions" | "recount" | "removals" | "unit"
 	readonly relation: string
 }
 
@@ -175,10 +166,6 @@ const plannedOf = (stratum: StratumAt, node: FamilyNode): Planned => {
 			}
 		case "removals":
 			return { stratum, statement: "removals", relation: node.member }
-		case "rows":
-			return { stratum, statement: node.statement, relation: node.relation }
-		case "owners":
-			return { stratum, statement: "count", relation: node.relation }
 		case "unit":
 			return { stratum, statement: "unit", relation: node.units[0].relation.name }
 	}
@@ -249,34 +236,32 @@ const nestedSource = (stratum: StratumAt, relation: string): string => `${stratu
 /** Every source the program's family statements read. */
 const readsOf = (program: CompiledWrite): ReadonlyArray<Read> =>
 	Arr.flatMap(program.placements, (placement) =>
-		placement.kind === "statement"
-			? []
-			: Arr.flatMap(placement.sql.params, (param): ReadonlyArray<Read> => {
-					switch (param.kind) {
-						case "scalar":
-						case "relation":
-							return []
-						case "member":
-							return [
-								{
-									source: param.slot,
-									of: defined(
-										program.frontend.slotsById.get(param.slot),
-										"a member slot of the front end"
-									).group.stratum,
-									at: placement.stratum
-								}
-							]
-						case "nestedRows":
-							return [
-								{
-									source: nestedSource(param.stratum, param.relation),
-									of: param.stratum,
-									at: placement.stratum
-								}
-							]
-					}
-				})
+		Arr.flatMap(placement.sql.params, (param): ReadonlyArray<Read> => {
+			switch (param.kind) {
+				case "scalar":
+				case "relation":
+					return []
+				case "member":
+					return [
+						{
+							source: param.slot,
+							of: defined(
+								program.frontend.slotsById.get(param.slot),
+								"a member slot of the front end"
+							).group.stratum,
+							at: placement.stratum
+						}
+					]
+				case "nestedRows":
+					return [
+						{
+							source: nestedSource(param.stratum, param.relation),
+							of: param.stratum,
+							at: placement.stratum
+						}
+					]
+			}
+		})
 	)
 
 export type Feature =

@@ -95,8 +95,8 @@ export const memberOf: { readonly [O in Owner]: Member } = { Store: "Item", Shel
 const familyOf: { readonly [O in Owner]: string } = { Store: "Store.items", Shelf: "Shelf.slots" }
 
 /**
- * The rule restated per owner, by field: what the read flight reads (the key, the count, the ends and the copies) and
- * what the count statement sets (the count and the ends). Store's label and seq are written fields no member writer
+ * The rule restated per owner, by field: what a member's writer selects (the key, the count, the ends and the copies)
+ * and what its recount sets (the count and the ends). Store's label and seq are written fields no member writer
  * reaches.
  */
 export const readFlight: { readonly [O in Owner]: ReadonlyArray<string> } = {

@@ -20,7 +20,7 @@ import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
  * site of the fact that a column's cells are of one kind: every row of a statement is in its relation's row layout,
  * whose column is a bytes column in every row or in none, so a column of both is a defect.
  */
-export const columnArray = (
+const columnArray = (
 	input: string,
 	column: string,
 	cells: ReadonlyArray<MemberCell>

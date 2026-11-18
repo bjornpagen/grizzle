@@ -1728,7 +1728,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						Effect.gen(function* () {
 							const installed = yield* installShape(fencedShape, generate)
 							const exclusionOf = (member: string) =>
-								installed.changes.get("publisher")?.get(member)?.entry.program.flight.exclusion
+								installed.changes.get("publisher")?.get(member)?.entry.program.exclusion
 							const fenced = Arr.every(
 								["replace", "remove", "publish"],
 								(member) => exclusionOf(member)?.kind === "lock"

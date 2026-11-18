@@ -695,8 +695,7 @@ const movedSequenceCopy: ClusterCase = {
  * two counted families of R0, the first's owner axis copying R0's `v` into R1's c0. A follow-up puts an R0 row and
  * deletes R1's first member under it, re-placing the second: a re-placed counted member's copy of its owner's column is
  * a value the put leaves stale (analysis/theory/refill.ts), whose rows its own family's owner axis reaches, so R1's
- * removals statement draws it in the call's one flight, ahead of the put, where the stratum's family work once went to
- * the host's read flight, which no served file holds.
+ * removals statement draws it in the call's one flight, ahead of the put.
  */
 const ownerPutBesideReplacedCountedMember: ClusterCase = {
 	spec: {

@@ -325,7 +325,7 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 					})
 					/**
 					 * Where the host's witness is asked: a statement of a stratum's actions, a write step's or a single
-					 * statement's parts', a family statement that writes stored relations, a member's carrier fill, which
+					 * statement's parts', a family write that writes stored relations, a member's carrier fill, which
 					 * casts its action's facts into its relation, or a query entry's precheck, which casts its facts into
 					 * its target; none elsewhere.
 					 */
@@ -344,7 +344,7 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 											stratum: origin.step.stratum,
 											actions: Arr.map(origin.step.parts, (p) => p.step.action)
 										}
-									: origin.step.kind === "family"
+									: origin.step.kind === "familyWrite"
 										? { kind: "write", stratum: origin.step.stratum, relations: written }
 										: origin.step.kind === "carrier" && origin.step.casts.kind === "member"
 											? {

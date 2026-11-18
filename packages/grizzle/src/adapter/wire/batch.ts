@@ -405,22 +405,9 @@ const exclusionSteps = (
 	exclusion.kind === "lock" ? [{ statement: exclusion.statement, step: "exclude" }] : []
 
 /**
- * How much of its transaction a flight carries: all of it, from BEGIN through its prologue and statements to its end;
- * its opening, BEGIN, the prologue and the statements, leaving the transaction open for the flight that closes it; or
- * that closing, the statements and the end (runFramedTwice).
- */
-type Span = "whole" | "opening" | "closing"
-
-/** Whether a flight of `span` begins its transaction, with BEGIN and its principal's prologue. */
-const spanOpens = (span: Span): boolean => span !== "closing"
-
-/** Whether a flight of `span` ends its transaction. */
-const spanCloses = (span: Span): boolean => span !== "opening"
-
-/**
  * A transaction's flight as planned: the statements alone in front of it (runAlongside) at the first pipeline
- * positions, then, as its span carries them, BEGIN and the prologue of its principal (none for the login), its
- * statements and its end, each a position of `steps`.
+ * positions, then BEGIN and the prologue of its principal (none for the login), its statements and its end, each a
+ * position of `steps`.
  */
 interface Plan<P, F> {
 	readonly pipeline: ReadonlyArray<WireQuery>
@@ -430,33 +417,29 @@ interface Plan<P, F> {
 	readonly steps: ReadonlyArray<Position<P>>
 	readonly refused: Principal<P, F>["refused"]
 	readonly transaction: Transaction
-	readonly span: Span
 }
 
 const planOf = <P, F>(
 	alone: ReadonlyArray<BatchStatement>,
 	principal: Principal<P, F>,
 	statements: ReadonlyArray<BatchStatement>,
-	transaction: Transaction,
-	span: Span
+	transaction: Transaction
 ): Plan<P, F> => {
 	const before = planAll(alone)
 	const pipeline = queriesOf(before)
 	const steps: Array<Position<P>> = []
 	const prologue: Array<Planned> = []
 	const framed: Array<PlannedStatement> = []
-	if (spanOpens(span)) {
-		steps.push(beginStep)
-		pipeline.push({
-			_tag: "control",
-			control: beginOf(transaction)
-		})
-		for (const { statement, step } of principal.prologue) {
-			const planned = plannedOf(statement)
-			prologue.push(planned)
-			steps.push({ kind: "prologue", planned, step })
-			pipeline.push(planned.query)
-		}
+	steps.push(beginStep)
+	pipeline.push({
+		_tag: "control",
+		control: beginOf(transaction)
+	})
+	for (const { statement, step } of principal.prologue) {
+		const planned = plannedOf(statement)
+		prologue.push(planned)
+		steps.push({ kind: "prologue", planned, step })
+		pipeline.push(planned.query)
 	}
 	for (const statement of statements) {
 		const planned: PlannedStatement = {
@@ -468,10 +451,8 @@ const planOf = <P, F>(
 		steps.push(planned)
 		pipeline.push(planned.query)
 	}
-	if (spanCloses(span)) {
-		steps.push(endStep)
-		pipeline.push({ _tag: "control", control: { kind: "end", end: transaction.end } })
-	}
+	steps.push(endStep)
+	pipeline.push({ _tag: "control", control: { kind: "end", end: transaction.end } })
 	return {
 		pipeline,
 		before,
@@ -479,17 +460,12 @@ const planOf = <P, F>(
 		statements: framed,
 		steps,
 		refused: principal.refused,
-		transaction,
-		span
+		transaction
 	}
 }
 
-/**
- * The pipeline position of a transaction's first statement: behind the statements alone, and BEGIN and the prologue
- * where its flight opens the transaction.
- */
-const offsetOf = <P, F>(plan: Plan<P, F>): number =>
-	plan.before.length + (spanOpens(plan.span) ? 1 + plan.prologue.length : 0)
+/** The pipeline position of a transaction's first statement: behind the statements alone, BEGIN and the prologue. */
+const offsetOf = <P, F>(plan: Plan<P, F>): number => plan.before.length + 1 + plan.prologue.length
 
 /**
  * What a pipeline position holds once its flight has drained: the server's answer, or none, because the connection
@@ -553,7 +529,7 @@ const failureAt = <P, F>(
 	answer: Unanswered,
 	cut: boolean
 ): BatchFailure | F => {
-	const commits = spanCloses(plan.span) && plan.transaction.end === "COMMIT"
+	const commits = plan.transaction.end === "COMMIT"
 	if (
 		commits &&
 		!cut &&
@@ -595,8 +571,7 @@ const failureAt = <P, F>(
 
 /**
  * The fate of a transaction's flight from every answer it got (TransactionFate), in pipeline order: BEGIN's, its
- * statements', then its end's. An opening leaves its end to the flight that closes it, and its runner rolls the
- * transaction back whenever the opening fails (runFramedTwice), so nothing it ran commits.
+ * statements', then its end's.
  *
  * The connection broke: COMMIT may have run, as failureAt's CommitLost says.
  */
@@ -604,9 +579,6 @@ const transactionFate = <P, F>(
 	plan: Plan<P, F>,
 	answers: ReadonlyArray<Received>
 ): TransactionFate => {
-	if (!spanCloses(plan.span)) {
-		return "rolledBack"
-	}
 	const endAt = plan.pipeline.length - 1
 	for (let index = plan.before.length; index < endAt; index++) {
 		const answer = receivedAt(answers, index)
@@ -616,7 +588,7 @@ const transactionFate = <P, F>(
 				continue
 			case "refused":
 			case "terminated":
-				return index === plan.before.length && spanOpens(plan.span) ? "noTransaction" : "aborted"
+				return index === plan.before.length ? "noTransaction" : "aborted"
 			case "failed":
 			case "unanswered":
 				return "unknown"
@@ -1006,11 +978,10 @@ const sendPlan = <P, F>(
 	alone: ReadonlyArray<BatchStatement>,
 	principal: Principal<P, F>,
 	statements: ReadonlyArray<BatchStatement>,
-	transaction: Transaction,
-	span: Span
+	transaction: Transaction
 ): Effect.Effect<{ readonly plan: Plan<P, F>; readonly sent: Sent }, InputTooLarge> =>
 	Effect.suspend(() => {
-		const plan = planOf(alone, principal, statements, transaction, span)
+		const plan = planOf(alone, principal, statements, transaction)
 		return Effect.fromResult(
 			Result.map(send(session, plan.pipeline, lastStatement(plan)), (sent) => ({
 				plan,
@@ -1021,8 +992,7 @@ const sendPlan = <P, F>(
 
 /**
  * Sends `statements`, run as `principal`, in one transaction behind its prologue, as one flight, and returns each
- * statement's outcome, in order: the whole transaction, its opening, or its closing, as `span` says. An opening has
- * no end to await: it drains, and leaves the transaction open on the session.
+ * statement's outcome, in order.
  *
  * COMMIT committed: an unreadable answer is the flight's failure now.
  *
@@ -1033,19 +1003,18 @@ const runEntered = <P, F>(
 	session: Session,
 	principal: Principal<P, F>,
 	statements: ReadonlyArray<BatchStatement>,
-	transaction: Transaction,
-	span: Span
+	transaction: Transaction
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, BatchFailure | F | InputTooLarge> =>
 	onSession(session, (restore) =>
 		Effect.gen(function* () {
-			const { plan, sent } = yield* sendPlan(session, [], principal, statements, transaction, span)
+			const { plan, sent } = yield* sendPlan(session, [], principal, statements, transaction)
 			yield* execute(session, restore, sent, sent.statements)
 			const early = decide(session, plan, sent, lastStatement(plan) + 1)
-			if (Result.isFailure(early) || transaction.end === "ROLLBACK" || !spanCloses(span)) {
+			if (Result.isFailure(early) || transaction.end === "ROLLBACK") {
 				/**
-				 * The answers decided a failure, a ROLLBACK frame awaits its end, or an opening has none: the flight
-				 * drains, and an interruption meanwhile cancels nothing and takes effect once it has drained.
-				 * An early failure is settled already; a ROLLBACK frame and an opening settle once they have drained.
+				 * The answers decided a failure, or a ROLLBACK frame awaits its end: the flight drains, and an
+				 * interruption meanwhile cancels nothing and takes effect once it has drained. An early failure is
+				 * settled already; a ROLLBACK frame settles once it has drained.
 				 */
 				const settled = Result.isFailure(early)
 					? Effect.fail(early.failure)
@@ -1164,7 +1133,7 @@ export const runTransaction = (
 	statements: ReadonlyArray<BatchStatement>,
 	transaction: Transaction
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, BatchFailure | InputTooLarge> =>
-	runEntered(session, asLogin, statements, transaction, "whole")
+	runEntered(session, asLogin, statements, transaction)
 
 /**
  * What one flight of statements alone and a transaction returned (runAlongside): each statement alone's outcome or
@@ -1191,14 +1160,7 @@ export const runAlongside = (
 ): Effect.Effect<Alongside, ConnectionLost | DriverFailure | InputTooLarge> =>
 	onSession(session, (restore) =>
 		Effect.gen(function* () {
-			const { plan, sent } = yield* sendPlan(
-				session,
-				alone,
-				asLogin,
-				statements,
-				transaction,
-				"whole"
-			)
+			const { plan, sent } = yield* sendPlan(session, alone, asLogin, statements, transaction)
 			yield* execute(session, restore, sent, sent.drained)
 			const answers: Array<Result.Result<BatchOutcome, ServerError>> = []
 			for (let index = 0; index < plan.before.length; index++) {
@@ -1284,9 +1246,9 @@ const bindFields = {
 const bindParamFields = { format: 2, length: 4 } as const
 
 /**
- * The bytes of a Bind message beside its parameters' texts, as the engine's family planner measures its statements by
- * (write/family/order.ts inForce, BindFrame): `statement`, its fields of fixed size (bindFields) and a served
- * statement's name (core/prepared.ts statementNameBytes), since every statement the planner cuts is one;
+ * The bytes of a Bind message beside its parameters' texts, as the engine measures the statements it cuts by
+ * (runtime/write/transport.ts inForce, BindFrame): `statement`, its fields of fixed size (bindFields) and a served
+ * statement's name (core/prepared.ts statementNameBytes), since every statement it cuts is one;
  * `parameter`, each parameter's fields of fixed size (bindParamFields). A Bind message bindLength measures is never
  * longer than the frame and its texts.
  */
@@ -1459,126 +1421,9 @@ export const runFramed = (
 	Effect.suspend((): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> => {
 		const overrun = bindOverrun(statements, session.messageMaxBytes)
 		return overrun === undefined
-			? runEntered(session, asDb(frame), statements, frame, "whole")
+			? runEntered(session, asDb(frame), statements, frame)
 			: Effect.fail(overrun)
 	})
-
-/**
- * A failure of a call's second flight as the call counts its statements: each statement's index past the first
- * flight's `by` statements, so one index space spans both (runFramedTwice).
- */
-const shifted = (failure: FlightFailure, by: number): FlightFailure => {
-	switch (failure._tag) {
-		case "BatchRefused":
-			return new BatchRefused({ index: failure.index + by, failure: failure.failure })
-		case "UnreadableAnswer":
-			return new UnreadableAnswer({ index: failure.index + by, fate: failure.fate })
-		case "InputTooLarge":
-			return failure.bound.kind === "message"
-				? new InputTooLarge({
-						bound: { ...failure.bound, statement: failure.bound.statement + by }
-					})
-				: failure
-		case "CommitRefused":
-		case "CommitLost":
-		case "ConnectionLost":
-		case "DriverFailure":
-		case "PrologueRefused":
-		case "StaleSnapshot":
-			return failure
-	}
-}
-
-/**
- * Whether a transaction flight failed with its refusal before any byte of it was written (send), so it ran nothing and
- * an opening opened no transaction: the one InputTooLarge a flight meets once its statements' Binds were admitted.
- */
-const unwritten = (failure: FlightFailure): boolean => failure._tag === "InputTooLarge"
-
-/** `transaction` ended by ROLLBACK: the same access and level. */
-const rolledBack = (transaction: Transaction): Transaction =>
-	transaction.access === "readOnly"
-		? { access: "readOnly", deferrable: transaction.deferrable, end: "ROLLBACK" }
-		: { access: "readWrite", isolation: transaction.isolation, end: "ROLLBACK" }
-
-/**
- * Ends the transaction an opening left open on `session`, for a call that will not close it: a flight of ROLLBACK
- * alone. A session already retired or ended needs none, since its connection, and the transaction with it, ends when
- * it is released; a ROLLBACK that fails retires it the same way. It never fails.
- */
-const rollbackOpening = (session: Session, frame: Frame): Effect.Effect<void> =>
-	session.state() === "open"
-		? Effect.catch(
-				Effect.asVoid(runEntered(session, asLogin, [], rolledBack(frame), "closing")),
-				() =>
-					Effect.sync(() => {
-						session.retire()
-					})
-			)
-		: Effect.void
-
-/**
- * A Db call's two flights in one transaction of `frame`: `first` behind BEGIN and the prologue, then the statements
- * `second` makes from `first`'s outcomes, and the frame's end. A write whose plan reads before it writes runs so: the
- * reads and the writes see one snapshot, and under SERIALIZABLE a concurrent writer of what the reads read meets
- * 40001 at a statement or at COMMIT, which the call reports and never retries. Its reads are named statements
- * (PreparedStatement), each parsed once per session, as every statement of a write is.
- *
- * The outcomes are both flights', `first`'s then `second`'s, and a failure counts statements across both: a statement
- * of the second flight is numbered after every statement of the first (`shifted`), as the call sent them. Whatever
- * ends the call between the flights ends the transaction: `second`'s failure, a Bind message of its statements
- * PostgreSQL would not read, and a second flight longer than one write carries, refused unwritten (send), roll it back
- * (rollbackOpening) and fail the call with it; an interruption retires the session, so the transaction ends with its
- * connection. A failed first flight rolls back the same way, unless it was refused unwritten and opened nothing, and the
- * second flight's other failures are runFramed's.
- */
-export const runFramedTwice = <E>(
-	session: Session,
-	frame: Frame,
-	first: ReadonlyArray<PreparedStatement>,
-	second: (outcomes: ReadonlyArray<BatchOutcome>) => Effect.Effect<ReadonlyArray<BatchStatement>, E>
-): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure | E> =>
-	Effect.uninterruptibleMask((restore) =>
-		Effect.gen(function* () {
-			const overrun = bindOverrun(first, session.messageMaxBytes)
-			if (overrun !== undefined) {
-				return yield* overrun
-			}
-			const read = yield* Effect.exit(
-				restore(runEntered(session, asDb(frame), first, frame, "opening"))
-			)
-			if (Exit.isFailure(read)) {
-				if (!Option.exists(Cause.findErrorOption(read.cause), unwritten)) {
-					yield* rollbackOpening(session, frame)
-				}
-				return yield* Effect.failCause(read.cause)
-			}
-			const made = yield* Effect.exit(restore(second(read.value)))
-			if (Exit.isFailure(made)) {
-				if (Cause.hasInterrupts(made.cause)) {
-					session.retire()
-				} else {
-					yield* rollbackOpening(session, frame)
-				}
-				return yield* Effect.failCause(made.cause)
-			}
-			const statements = made.value
-			const tooLarge = bindOverrun(statements, session.messageMaxBytes)
-			if (tooLarge !== undefined) {
-				yield* rollbackOpening(session, frame)
-				return yield* shifted(tooLarge, first.length)
-			}
-			const written = yield* Effect.mapError(
-				restore(runEntered(session, asDb(frame), statements, frame, "closing")).pipe(
-					Effect.tapError((failure) =>
-						unwritten(failure) ? rollbackOpening(session, frame) : Effect.void
-					)
-				),
-				(failure) => shifted(failure, first.length)
-			)
-			return [...read.value, ...written]
-		})
-	)
 
 /**
  * The answer of the statement a sender sent `index`th. The one site of the fact that a flight or a step apart answers

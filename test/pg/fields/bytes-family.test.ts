@@ -3,8 +3,8 @@
  * admits once for the owner's row and once for its own insert, is inserted with members nested in order, each
  * member's bytes value empty, short, or one short of, at or one past a chunk of the delivery in force
  * (bytesChunkLength), or of several chunks; then one member is deleted, which re-places every later
- * sibling: grizzle reads the stored suffix, its bytes values in chunks (write/family/decode.ts), and writes each
- * re-placed member again whole, its bytes value in its column's binary array (write/family/order.ts columnArray).
+ * sibling: grizzle's removals statement re-places each later member in SQL, its bytes value read and written again
+ * whole by PostgreSQL.
  * Every member reads back at its slot with its bytes, before and after.
  *
  * Oracle: the drawn values, in slot order, less the one deleted.

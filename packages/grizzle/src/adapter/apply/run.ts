@@ -38,15 +38,13 @@ import { readParams, relationStreams } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import {
-	type BatchOutcome,
 	type BatchStatement,
 	bindFrame,
 	type FlightFailure,
 	type Frame,
 	joinFlights,
 	preparedStatement,
-	runFramed,
-	runFramedTwice
+	runFramed
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { WrittenAt } from "#adapter/witness/classify.ts"
@@ -54,23 +52,20 @@ import type {
 	BoundWrite,
 	Chunks,
 	ExecutionPart,
-	FamilyId,
 	FamilyRowBound,
 	FlightStatement,
 	FlightWrite,
-	GeneratedRejection,
 	MemberFacts,
-	Raw,
 	RefusedLaw,
 	StatementAt,
 	Transport,
 	Witness
 } from "#compiler/plan/change.ts"
 import type {
-	CompileError,
 	EncodingFailure,
 	LiteralBound,
 	MessageBound,
+	OutputRows,
 	CallerParamDecl,
 	ParamValue,
 	Row
@@ -90,7 +85,7 @@ import {
 } from "#compiler/plan/runtime.ts"
 
 /** The rows of a statement the flight did not send. */
-const noRows: Raw = []
+const noRows: OutputRows = []
 
 /**
  * What a write's failure is classified with: the installation's violation classifier, the layer's, and what a refused
@@ -117,24 +112,21 @@ type HostInputs =
 	| { readonly kind: "rejected"; readonly refused: RefusedLaw; readonly witness: Witness }
 
 /**
- * How readying an application's inputs fails, before any SQL: a codec refused an input, an input's texts are past a
- * bound of their transport, or the WriteProgram refused the binding (its CompileError), which each caller reports in
- * its own channel.
+ * How readying an application's inputs fails, before any SQL: a codec refused an input, or an input's texts are past a
+ * bound of their transport, which each caller reports in its own channel.
  */
-export type InputFailure = EncodingFailure | InputTooLarge | CompileError
+export type InputFailure = EncodingFailure | InputTooLarge
 
 /**
- * A statement's placeholder texts refused (write/program/bind.ts BoundWrite.chunks): a codec's refusal as itself, a
- * column whose array no string can hold as the InputTooLarge of its bound, a family's row no statement of its plan
- * can carry as the InputTooLarge naming its family and statement (errors/failures.ts familyRowBound), and a change an
- * immutable owner's family refuses, which only the run time could decide, as the same CompileError its static form is.
+ * A statement's placeholder texts refused (runtime/write/bind.ts BoundWrite chunks): a codec's refusal as itself, a
+ * column whose array no string can hold as the InputTooLarge of its bound, and a nested row no insert of its relation
+ * can carry as the InputTooLarge naming its family (errors/failures.ts familyRowBound).
  */
 export const valuesFailure = (
-	failure: EncodingFailure | LiteralBound | MessageBound | FamilyRowBound | CompileError
+	failure: EncodingFailure | LiteralBound | MessageBound | FamilyRowBound
 ): InputFailure => {
 	switch (failure._tag) {
 		case "EncodingFailure":
-		case "CompileError":
 			return failure
 		case "LiteralBound":
 			return literalBound(failure)
@@ -220,16 +212,13 @@ export const sessionTransport = (session: Pick<Session, "messageMaxBytes">): Tra
 	messageBytes: session.messageMaxBytes
 })
 
-/**
- * The first half of an application: everything before any SQL (see the header). A binding the WriteProgram refuses is
- * its CompileError, which each caller reports in its own error channel.
- */
+/** The first half of an application: everything before any SQL (see the header). */
 export const hostInputs = (
 	entry: WriteEntry,
 	call: HostCall
 ): Effect.Effect<HostInputs, InputFailure> =>
 	Effect.gen(function* () {
-		const host = yield* declaredParams(entry.program.flight.params, call.params, call.bound)
+		const host = yield* declaredParams(entry.program.params, call.params, call.bound)
 		/**
 		 * `host` holds every bound value under its private name with its Stream collected, so the statements bind the
 		 * same values the read-backs read; the raw bindings would hand them an uncollected Stream.
@@ -287,30 +276,24 @@ const outcomeOf = <R>(classified: Classified): Effect.Effect<ApplyOutcome<R>, Ap
 }
 
 /**
- * A statement a write sends, by its index across its flights: a family's stored-suffix read, in the read flight a plan
- * that reads sends first, or the `chunk`th execution of an artifact statement (BoundWrite chunks), its `part` what the
- * execution is: the statement itself, or one of its staged carriers' creation, fills or ANALYZE.
+ * A statement a write sends, by its index in its flight: the `chunk`th execution of an artifact statement (BoundWrite
+ * chunks), its `part` what the execution is: the statement itself, or one of its staged carriers' creation, fills or
+ * ANALYZE.
  */
-type SentStatement =
-	| { readonly kind: "read"; readonly family: FamilyId }
-	| {
-			readonly kind: "statement"
-			readonly statement: FlightStatement
-			readonly chunk: number
-			readonly part: ExecutionPart
-	  }
+interface SentStatement {
+	readonly statement: FlightStatement
+	readonly chunk: number
+	readonly part: ExecutionPart
+}
 
 /**
- * The origin of the write's statement at `index`: the read or write statement sent there, or a read-back, whose
- * statements follow every sent one.
+ * The origin of the write's statement at `index`: the statement sent there, or a read-back, whose statements follow
+ * every sent one.
  */
 const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): FailureOrigin => {
 	const one = sent[index]
-	if (one === undefined) {
-		return { kind: "readBack", index }
-	}
-	return one.kind === "read"
-		? { kind: "read", index, family: one.family }
+	return one === undefined
+		? { kind: "readBack", index }
 		: { kind: "statement", index, step: one.statement.step, chunk: one.chunk }
 }
 
@@ -329,8 +312,7 @@ const flightFailure = <R>(
 	switch (failure._tag) {
 		case "BatchRefused": {
 			const at = sent[failure.index]
-			const temporary =
-				at?.kind === "statement" ? temporaryRefusal(at.part, failure.failure) : undefined
+			const temporary = at === undefined ? undefined : temporaryRefusal(at.part, failure.failure)
 			return temporary === undefined
 				? outcomeOf(
 						classifyServerError(failure.failure, {
@@ -397,7 +379,7 @@ const writeStatements = (
 			return Result.fail(valuesFailure(executions.error))
 		}
 		for (const [chunk, execution] of executions.value.entries()) {
-			sent.push({ kind: "statement", statement: s, chunk, part: execution.part })
+			sent.push({ statement: s, chunk, part: execution.part })
 			statements.push(preparedStatement(execution.text, execution.params))
 		}
 	}
@@ -413,9 +395,9 @@ export const runWrite = <R>(
 	reads: BoundReads<R>
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.gen(function* () {
-		const flight = entry.program.flight
-		/** The rows the ChangeSet states as the plan of the write statements sent fills them: none filled before them. */
-		let stated = inputs.bound.unplanned
+		const flight = entry.program
+		/** The rows the ChangeSet states as the write statements fill them, which a refusal of one of them judges. */
+		const stated = inputs.bound.stated
 		const context: WitnessContext = {
 			violation: entry.witness.classify,
 			statement: (at) => ({
@@ -431,99 +413,27 @@ export const runWrite = <R>(
 			inputApplyError
 		)
 		const backs = joinFlights(readBackFlights)
-		const flights = inputs.bound.flights
-		/** Every statement the write sends but the read-backs, by its index across its flights. */
-		let sent: ReadonlyArray<SentStatement> = []
-		/** How many statements precede the read-backs: the read flight's and the write statements. */
-		let written = 0
-		const transport = sessionTransport(session)
-		/** The write statements and the read-backs behind them, the flight that ends the transaction. */
-		const closing = (
-			chunks: Chunks,
-			before: ReadonlyArray<SentStatement>
-		): Result.Result<ReadonlyArray<BatchStatement>, InputFailure> =>
-			Result.map(writeStatements(flight, inputs, chunks, transport), (w) => {
-				sent = [...before, ...w.sent]
-				written = sent.length
-				return [...w.statements, ...backs.statements]
-			})
-		let ran: Result.Result<
-			ReadonlyArray<BatchOutcome>,
-			FlightFailure | EncodingFailure | CompileError | GeneratedRejection
-		>
-		if (flights.kind === "write") {
-			stated = flights.stated
-			const one = closing(flights.chunks, [])
-			if (Result.isFailure(one)) {
-				return yield* Effect.fail(inputApplyError(one.failure))
-			}
-			ran = yield* Effect.result(runFramed(session, frame, one.success))
-		} else {
-			/**
-			 * The read flight first, in the same transaction: each family's stored suffixes, whose rows the plan fills
-			 * the write statements from (BoundWrite flights).
-			 */
-			const read: ReadonlyArray<SentStatement> = Arr.map(flights.reads, (r) => ({
-				kind: "read",
-				family: r.family
-			}))
-			ran = yield* Effect.result(
-				runFramedTwice(
-					session,
-					frame,
-					Arr.map(flights.reads, (r) => preparedStatement(r.text, r.params)),
-					(outcomes) => {
-						sent = read
-						const filled = flights.writes(Arr.map(outcomes, (o) => o.rows))
-						if (filled.ok) {
-							stated = filled.value.stated
-						}
-						const second: Result.Result<
-							ReadonlyArray<BatchStatement>,
-							InputFailure | GeneratedRejection
-						> = filled.ok
-							? closing(filled.value.chunks, read)
-							: filled.error._tag === "GeneratedRejection"
-								? Result.fail(filled.error)
-								: Result.fail(valuesFailure(filled.error))
-						return Effect.fromResult(second)
-					}
-				)
-			)
+		const writes = writeStatements(flight, inputs, inputs.bound.chunks, sessionTransport(session))
+		if (Result.isFailure(writes)) {
+			return yield* Effect.fail(inputApplyError(writes.failure))
 		}
+		/** Every statement the write sends but the read-backs, by its index in its flight. */
+		const sent = writes.success.sent
+		/** How many statements precede the read-backs. */
+		const written = sent.length
+		const ran = yield* Effect.result(
+			runFramed(session, frame, [...writes.success.statements, ...backs.statements])
+		)
 		if (Result.isFailure(ran)) {
-			const failure = ran.failure
-			if (failure._tag === "GeneratedRejection") {
-				return applyOutcome.invariantRejected(
-					{
-						kind: "every",
-						laws: [
-							entry.witness.laws.hostRefused({
-								kind: "generated",
-								relation: failure.law.relation,
-								field: failure.law.field
-							})
-						]
-					},
-					failure.witness
-				)
-			}
-			return yield* failure._tag === "EncodingFailure"
-				? Effect.fail(failure)
-				: failure._tag === "CompileError"
-					? Effect.fail(inputApplyError(failure))
-					: flightFailure<R>(failure, sent, context)
+			return yield* flightFailure<R>(ran.failure, sent, context)
 		}
 		const outcomes = ran.success
 		/**
 		 * The rows of each sent write statement, by its position in the artifact, its executions' in the order they
 		 * ran; a statement not sent answered none.
 		 */
-		const raws = new Map<number, Raw>()
+		const raws = new Map<number, OutputRows>()
 		for (const [one, outcome] of Arr.zip(sent, outcomes)) {
-			if (one.kind !== "statement") {
-				continue
-			}
 			const s = one.statement
 			const before = raws.get(s.index)
 			raws.set(s.index, before === undefined ? outcome.rows : [...before, ...outcome.rows])
@@ -547,10 +457,7 @@ export const runWrite = <R>(
 			}
 			const ridden = run.riding.statement
 			const at = Option.getOrThrowWith(
-				Arr.findLastIndex(
-					sent,
-					(one) => one.kind === "statement" && one.statement.index === ridden
-				),
+				Arr.findLastIndex(sent, (one) => one.statement.index === ridden),
 				() => defect(`the write statement ${ridden} the read-back ${run.name} rides`)
 			)
 			return riddenRows(

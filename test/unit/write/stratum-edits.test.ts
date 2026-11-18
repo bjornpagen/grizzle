@@ -1,5 +1,5 @@
 /**
- * Each stratum's family statements are its own (write/frontend/compile.ts familyWritesOf, write/program/compile.ts
+ * Each stratum's family statements are its own (write/frontend/compile.ts familyWorkOf, write/program/compile.ts
  * familyProgram): a stratum plans an additions or removals statement of a member relation for its own edits of it and
  * its own nested writes alone, and every member slot and nested rows a family statement reads are of its stratum. A
  * stratum that planned another stratum's edits again would change nothing a lawful ChangeSet stores: a family's members
@@ -63,9 +63,8 @@ export const aChangeSetsFamilyStatementsPlanEachStratumsOwnEditsAndNestedWritesI
 			},
 			{
 				file: "packages/engine/src/write/program/compile.ts",
-				original:
-					"\t\t\t\tconst stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)",
-				replacement: "\t\t\t\tconst stratumEdits = frontend.edits",
+				original: "\t\t\tconst stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)",
+				replacement: "\t\t\tconst stratumEdits = frontend.edits",
 				why: "A family write's program reads every stratum's edits, not its stratum's (write/program/compile.ts), the program half of the recorded plant strata-families-every-stratum-plans-every-edit."
 			}
 		]

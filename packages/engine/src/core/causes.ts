@@ -649,7 +649,10 @@ const derivedReaderText = (reader: DerivedReader): string => {
  * (`tree`); the value reads what the refill of `refill` itself changes, an owner's end or last copy or a member's
  * predecessor copy or fold, which grizzle does not refill again in turn (`chained`); or the value is one of `family`'s,
  * which a family member's put or delete reaches through an owner axis, or an edit's or an append's recount of its owner
- * reaches beyond its own family's members' copies (`edit`).
+ * reaches beyond its own family's members' copies (`edit`). Or no statement of the stratum draws it: a plain relation's
+ * put reaches it by a cascade through the rows of `relation`, a member the stratum puts or deletes too (`passed`); a
+ * member's write reaches it on rows of `relation`, which the stratum puts or deletes too (`rewritten`); or it is reached
+ * from the edits of both `relations`, and a member is refilled in the statement of one edited relation (`edits`).
  */
 export type StaleCause =
 	| { readonly kind: "query" }
@@ -658,6 +661,9 @@ export type StaleCause =
 	| { readonly kind: "tree"; readonly tree: FamilyName }
 	| { readonly kind: "chained"; readonly refill: FamilyName }
 	| { readonly kind: "edit"; readonly family: FamilyName }
+	| { readonly kind: "passed"; readonly relation: string }
+	| { readonly kind: "rewritten"; readonly relation: string }
+	| { readonly kind: "edits"; readonly relations: readonly [string, string] }
 
 /** Why a StaleDerivedRead's value cannot be drawn again, of a write of `member`. */
 const staleCauseText = (member: string, cause: StaleCause): string => {
@@ -674,6 +680,12 @@ const staleCauseText = (member: string, cause: StaleCause): string => {
 			return `it reads what the refill of ${familyNameText(cause.refill)} itself changes, which grizzle does not refill again in turn`
 		case "edit":
 			return `it is a value of ${familyNameText(cause.family)}, which a family member's own write reaches through an owner axis or its owner's recount, and grizzle refills only a plain relation's put that way`
+		case "passed":
+			return `the cascade passes the rows of ${cause.relation}, which the stratum also puts or deletes, and grizzle refills a value along members its stratum neither puts nor deletes: put or delete ${cause.relation} in a ChangeSet of its own`
+		case "rewritten":
+			return `the refill rewrites rows of ${cause.relation}, which the stratum also puts or deletes, and grizzle refills a member's rows only where its stratum neither puts nor deletes them: put or delete ${cause.relation} in a ChangeSet of its own`
+		case "edits":
+			return `an edit of ${cause.relations[1]} reaches it as well as one of ${cause.relations[0]}, and grizzle refills a member in the statement of one edited relation: write the edits of ${cause.relations[0]} and ${cause.relations[1]} in ChangeSets of their own`
 	}
 }
 

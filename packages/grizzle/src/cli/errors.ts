@@ -7,7 +7,6 @@ import {
 } from "#adapter/errors/failures.ts"
 import type { WorkloadPlace } from "#adapter/served/compile.ts"
 import type { DeclarationRefused } from "#cli/renames.ts"
-import type { FamilyId } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
 	compileReasonText,
@@ -721,23 +720,10 @@ export class ServedRefused extends Data.TaggedError("ServedRefused")<{
 	}
 }
 
-/** Families as a refusal names them: each by its owner relation and count field. */
-const familiesText = (families: ReadonlyArray<FamilyId>): string =>
-	`${families.length === 1 ? "the family" : "the families"} ${Arr.join(
-		Arr.map(families, (family) => `${family.owner}.${family.count}`),
-		", "
-	)}`
-
-/** Why no served file can hold a workload ChangeSet: one reason's text, what is refused, the work it needs and what to
- * change where a declaration can (served/unserved.ts UnservedReason). */
+/** Why no served file can hold a workload ChangeSet: one reason's text, what is refused and what to change (served/
+ * unserved.ts UnservedReason). */
 const unservedReasonText = (reason: UnservedReason): string => {
 	switch (reason.kind) {
-		case "edit":
-			return `stratum ${reason.stratum} edits ${reason.relation}, a member relation of ${familiesText(reason.families)}: each group it touches is rewritten from the group's stored suffix, which the host reads and fills before the write, and a served file holds no host fill`
-		case "refill":
-			return `stratum ${reason.stratum} refills ${familiesText(reason.families)}${reason.tree ? " through a tree" : ""}${reason.hops > 1 ? ` across ${reason.hops} owner hops` : ""}: their stale values are drawn again from the rows a read flight finds, which the host fills before the write, and a served file holds no host fill`
-		case "nested":
-			return `stratum ${reason.stratum} writes nested rows of ${familiesText(reason.families)}: the host walks each nested fact and fills those families' rows before the write, and a served file holds no host fill`
 		case "stream":
 			return `${reason.relation}'s Stream member (slot ${reason.slot}) supplies its facts as code, and a served call supplies arrays: give it an array member or a query member over parameters`
 		case "opaqueBinding":

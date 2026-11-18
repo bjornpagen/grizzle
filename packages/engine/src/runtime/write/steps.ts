@@ -9,11 +9,8 @@ import type { TransientReason } from "#compiler/core/errors.ts"
 import type { ConstraintName, EntryName, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
-import type { FamilyId } from "#compiler/ir/law.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { RemovedTag } from "#compiler/runtime/write/net.ts"
-import type { FamilyStatement } from "#compiler/write/family/order.ts"
-import type { FamilySql } from "#compiler/write/family/statements.ts"
 import type { FamilyPart } from "#compiler/write/family/written.ts"
 import type { DeleteResult, InsertResult } from "#compiler/write/insert/statement.ts"
 import type { PutResult } from "#compiler/write/put/statement.ts"
@@ -97,7 +94,6 @@ export type WriteStep =
 			/** Every part's unique aborts: each part writes its own relation, so a violation names its part's constraint. */
 			readonly uniqueAborts: ReadonlyArray<UniqueAbort>
 	  }
-	| FamilyStep
 	| FamilyWriteStep
 
 /**
@@ -135,26 +131,6 @@ export interface FamilyWriteStep {
 	readonly parts: NonEmptyReadonlyArray<FamilyPart>
 }
 
-/**
- * The statements of one kind of one family of a stratum's nested writes (write/family/statements.ts): its text is
- * sent once per chunk of its plan's statements of that kind (write/family/order.ts plan), each chunk binding its own
- * arrays (bind.ts BoundWrite chunks), and its rows are every chunk's, in order. It writes `relation`, the family's
- * member, or its owner for a count, and its rows are facts as `result` says, as a write step's are. A chunk's violation
- * is a family law's native, which the installation's classifier names; it aborts nothing.
- */
-export interface FamilyStep {
-	readonly kind: "family"
-	readonly stratum: StratumAt
-	/** What its statements write: a member relation's rows, or a family's owners' counts. */
-	readonly target:
-		| { readonly kind: "rows"; readonly relation: StoredRelationName }
-		| { readonly kind: "owners"; readonly family: FamilyId }
-	readonly statement: FamilyStatement["kind"]
-	/** The relation its rows are facts of: the member relation, or the counted family's owner. */
-	readonly relation: StoredRelationName
-	readonly result: FamilySql["result"]
-}
-
 /** One write action of a single statement: its step, whose rows are the statement's rows tagged with the part's index,
  * each the tag and then the step's `width` columns, the rest of the row padding. */
 interface WritePart {
@@ -165,8 +141,8 @@ interface WritePart {
 /** What a statement's rows are read as: the relation they are facts of, and their result. */
 export type RowsStep = Pick<Extract<WriteStep, { readonly kind: "write" }>, "relation" | "result">
 
-/** The write steps a statement's rows are read as, each with its own rows: a write step's and a family step's are the
- * statement's, a single statement's parts' are its rows of their tag, cut to their width; no other step has rows the
+/** The write steps a statement's rows are read as, each with its own rows: a write step's are the statement's, a single
+ * statement's and a family write's parts' are its rows of their tag, cut to their width; no other step has rows the
  * outcome reads. */
 export const writeRows = (
 	step: WriteStep,
@@ -181,8 +157,6 @@ export const writeRows = (
 	switch (step.kind) {
 		case "write":
 			return [{ step, rows, counts: false }]
-		case "family":
-			return [{ step, rows, counts: step.statement === "count" }]
 		case "single":
 			return step.parts.map((part, tag) => {
 				const own = String(tag)
@@ -230,7 +204,6 @@ export const stratumOf = (step: WriteStep): StratumAt | undefined => {
 		case "advance":
 		case "check":
 		case "single":
-		case "family":
 		case "familyWrite":
 			return step.stratum
 	}
@@ -258,7 +231,6 @@ export const reachOf = (step: WriteStep): StepReach => {
 		case "advance":
 		case "check":
 		case "single":
-		case "family":
 		case "familyWrite":
 			return "state"
 	}

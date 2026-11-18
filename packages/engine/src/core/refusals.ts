@@ -6,7 +6,7 @@
  */
 export const refusals = [
 	"PostgreSQL has no cast between these types that Compute admits",
-	"a ChangeSet writes a family's members in one stratum: a family write grizzle cannot serve is planned on the host from one read before the ChangeSet's writes",
+	"a ChangeSet writes a family's members in one stratum: each stratum's family statements are proved against one stratum's edits alone",
 	"a ChangeSet writes only relations its role's write list names",
 	"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes",
 	"a bind map names only the imported query's parameters",

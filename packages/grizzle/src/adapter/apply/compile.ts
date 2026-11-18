@@ -4,8 +4,8 @@ import type { InstallationWitness } from "#adapter/witness/index.ts"
 import type {
 	ChangeEntry,
 	CompiledWrite,
-	ParsedChangeSet,
-	RunnableWrite
+	FlightWrite,
+	ParsedChangeSet
 } from "#compiler/plan/change.ts"
 import { type BindContext, type InstalledSource, nominal } from "#compiler/plan/common.ts"
 
@@ -28,8 +28,8 @@ declare const installedBrand: unique symbol
  * HostRefusal); its read-backs and its parameters' codecs. The layer builds each once, when it loads its served file (served/load.ts).
  */
 export interface WriteEntry {
-	/** The program as an application runs it, loaded as a served one is (write/program/bind.ts RunnableWrite). */
-	readonly program: RunnableWrite
+	/** The program as an application runs it, loaded as a served one is (runtime/write/flight.ts FlightWrite). */
+	readonly program: FlightWrite
 	readonly witness: InstallationWitness
 	/** The read-backs of the program's artifact, ready to run, built with the program. */
 	readonly readBacks: ReadBackRuns

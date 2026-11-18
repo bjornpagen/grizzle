@@ -14,7 +14,7 @@ import type { ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { servedWrite } from "#compiler/plan/change.ts"
+import { projectWrite } from "#compiler/plan/change.ts"
 import { servedReadBacks } from "#compiler/plan/read.ts"
 import { defect } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
@@ -136,16 +136,14 @@ const conservativeVariants = (
 	switch (variants.kind) {
 		case "change":
 			return Result.flatMap(compiledWrite(role, changes, claims), (entry) =>
-				Result.flatMap(toResult(conservativeChange(entry, role)), (conservative) =>
-					Result.map(toResult(servedWrite(conservative.compiled)), (program) => ({
-						kind: "change",
-						change: {
-							...variants.change,
-							program,
-							readBacks: servedReadBacks(conservative.compiled.artifact.readBacks)
-						}
-					}))
-				)
+				Result.map(toResult(conservativeChange(entry, role)), (conservative) => ({
+					kind: "change",
+					change: {
+						...variants.change,
+						program: projectWrite(conservative.compiled),
+						readBacks: servedReadBacks(conservative.compiled.artifact.readBacks)
+					}
+				}))
 			)
 		case "split":
 			return Result.flatMap(

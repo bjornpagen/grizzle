@@ -679,9 +679,8 @@ export class ParamRejected extends Data.TaggedError("ParamRejected")<{
  *   so none can carry it (ir/products.ts LiteralBound): a text array longer than the longest string the host builds,
  *   `limit` UTF-16 code units (maxStringLength), or a bytes column's binary array longer than the longest
  *   message PostgreSQL reads, `limit` bytes (messageMaxBytes);
- * - familyRow: one row a family write places, vacates or recounts, a `member` row of the family `owner.count`, is past
- *   one of those bounds alone, so no `statement` of the write's plan can carry it however its rows are cut
- *   (write/family/order.ts Unsendable);
+ * - familyRow: one row a nested write inserts, a `member` row of the family `owner.count`, is past one of those bounds
+ *   alone, so no insert of its relation can carry it however its rows are cut (runtime/write/staged.ts Unsendable);
  * - flight: the flight's messages, every byte pg writes for it in its one corked write, would be `bytes` long, past the
  *   most one write over TLS carries, `limit` (flightMaxBytes), past which the write fails whole and the
  *   connection with it, its end unsent;
@@ -754,8 +753,8 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 				const past =
 					row.kind === "literal"
 						? `its column ${row.column} would be an array longer than ${row.limit} UTF-16 code units, the longest string the host builds`
-						: `its ${row.statement} statement would send a Bind message of ${row.bytes} bytes, past PostgreSQL's limit of ${row.limit}`
-				return `a ${bound.member} row of the family ${bound.owner}.${bound.count} fits no ${row.statement} statement even alone: ${past}; shorten the row's values`
+						: `its insert statement would send a Bind message of ${row.bytes} bytes, past PostgreSQL's limit of ${row.limit}`
+				return `a ${bound.member} row of the family ${bound.owner}.${bound.count} fits no insert statement even alone: ${past}; shorten the row's values`
 			}
 			case "flight":
 				return `the flight would write ${bound.bytes} bytes, past the ${bound.limit} one write over TLS carries; split the input across calls`
@@ -797,7 +796,8 @@ export const temporaryRefusal = (
 		? new TemporaryRefused({ privilege: "TEMPORARY", error })
 		: undefined
 
-/** A family write's row no statement of its plan can carry (write/family/order.ts plan), as the family names it. */
+/** A nested write's row no insert of its relation can carry (runtime/write/staged.ts NestedRowBound), as the family
+ * names it. */
 export const familyRowBound = ({ family, row }: FamilyRowBound): InputTooLarge =>
 	new InputTooLarge({
 		bound: {

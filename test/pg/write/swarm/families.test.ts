@@ -198,6 +198,10 @@ const statesCause = (
 			return among(expected.refills, cause.refill)
 		case "edit":
 			return among(expected.edits, cause.family)
+		case "passed":
+		case "rewritten":
+		case "edits":
+			return false
 	}
 }
 
@@ -216,6 +220,12 @@ const causeNote = (cause: StaleCause): Situation => {
 			return "a refill reading another refill's change refused"
 		case "edit":
 			return "a member's own write reaching another family's value refused"
+		case "passed":
+		case "rewritten":
+		case "edits":
+			return assert.fail(
+				`refused as stale (${cause.kind}), a way the swarm's ChangeSets, which write a family's members in one stratum beside no member they reach, never draw`
+			)
 	}
 }
 
