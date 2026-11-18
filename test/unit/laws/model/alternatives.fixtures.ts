@@ -9,6 +9,7 @@ import {
 	alternatives,
 	closed,
 	f,
+	mutable,
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
@@ -67,6 +68,8 @@ export const armsOf = (
 		return handles.length === 0 ? [] : [{ arm, handles }]
 	})
 
+/** The assignment's schema, its relations mutable, so its alternatives' containments are the natives this box reads, never
+ * judged whole (laws/model/plan.ts ContainmentDischarge). */
 const schemaOf = (a: Assignment): SchemaDesc => {
 	const arms = armsOf(a)
 	const roster = { name: "Tag", handles: handlesOf(a) }
@@ -90,7 +93,9 @@ const schemaOf = (a: Assignment): SchemaDesc => {
 							: [[h, { name: arm, primaryKey: ["id"] }] as const]
 					})
 				)
-			)
+			),
+			mutable("Parent"),
+			...Arr.map(arms, (x) => mutable(x.arm))
 		],
 		extends: undefined
 	}

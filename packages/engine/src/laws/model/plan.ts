@@ -9,7 +9,16 @@ import {
 	type ResolvedTerm,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
+import {
+	type LawSide,
+	type LiveEnv,
+	type QueryRule,
+	type RuleLaw,
+	violationQuery,
+	type WholeRule
+} from "#compiler/analysis/theory/query.ts"
 import { type RefillDeferral, refillDeferral } from "#compiler/analysis/theory/refill.ts"
+import { wholeRule } from "#compiler/analysis/theory/unit.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
@@ -667,20 +676,149 @@ export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): P
 	}
 }
 
-export interface LawPlan {
+/**
+ * A law's plan: its native objects, and where the law is discharged: on every write, by its natives; for a law that
+ * reads closed relations alone, once by PostgreSQL in the migration that installs them, as its violation query over
+ * their rows, so it installs nothing; or at every COMMIT by the rule judge (physical/ddl/rules.ts addRules) as `rule`
+ * states it, and once by its violation query in the migration that adds it: a rule over a query, or a containment the
+ * law model discharges whole (`ContainmentDischarge`), either installing nothing.
+ */
+export type LawPlan = {
 	readonly law: TheoryLaw
 	readonly natives: ReadonlyArray<NativePlan>
-	/**
-	 * Where the law is discharged: on every write, by its natives; for a law that reads closed relations alone, once by
-	 * PostgreSQL in the migration that installs them, as its violation query over their rows, so it installs nothing;
-	 * or, for a rule over a query, at every COMMIT by the deferred constraint triggers the law model plans for it, and
-	 * once by its violation query in the migration that adds it.
-	 */
-	readonly discharge: "write" | "migration" | "trigger"
-}
+} & (
+	| { readonly discharge: "write" | "migration" }
+	| { readonly discharge: "trigger"; readonly rule: QueryRule }
+)
 
 /** A law that reads closed relations alone, discharged by the migration: no native. */
 const migrationPlan = (law: TheoryLaw): LawPlan => ({ law, natives: [], discharge: "migration" })
+
+/** A law the rule judge discharges at every COMMIT as `rule` states it: no native. */
+const judgedPlan = (law: TheoryLaw, rule: QueryRule): LawPlan => ({
+	law,
+	natives: [],
+	discharge: "trigger",
+	rule
+})
+
+/** A containment law's detail. */
+type ContainmentDetail = Extract<TheoryLaw["detail"], { readonly kind: "containment" }>
+
+/**
+ * How the law model discharges a scalar containment between sides of ordinary relations that rides no family axis,
+ * decided once when the schema compiles (`containmentDischarge`), the law itself the same either way, its identity,
+ * its evidence and its violation query the theory's:
+ *
+ * - `native`: at every write, by its foreign key (`#scalarContainment`), the UNIQUE it references, the reverse index
+ *   over its source's columns, and the law columns either side lowers to;
+ * - `whole`: at every COMMIT, by the rule judge, its violation read over the units a transaction wrote, as every
+ *   unit-local rule over a query is (analysis/theory/unit.ts wholeRule, physical/ddl/rules.ts addRules), installing
+ *   nothing on either relation.
+ */
+type ContainmentDischarge =
+	| { readonly kind: "native" }
+	| { readonly kind: "whole"; readonly rule: WholeRule }
+
+const nativeDischarge: ContainmentDischarge = { kind: "native" }
+
+/** A containment law's sides read no definition: each is a stored relation's. */
+const storedSides: LiveEnv["definition"] = () => undefined
+
+/** A side of a containment law as the violation query of a rule over a query reads it (query.ts LawSide). */
+const lawSideOf = (side: ResolvedSide): LawSide => ({
+	relation: side.relation,
+	terms: mapNonEmpty(side.terms, (t) => ({ kind: t.kind, field: t.field })),
+	selection: { conjuncts: side.selection.conjuncts.map((c) => c.predicate) },
+	texts: side.selection.conjuncts.map((c) => c.text),
+	heading: mapNonEmpty(side.rel.heading, (f) => f.name)
+})
+
+/**
+ * Whether a predicate reads alike in a query and in a generated column: a field, a literal, a closed relation's
+ * constants at such terms, and comparisons, ranges and literal lists of them under and, or and not. A predicate that
+ * computes, casts or branches may not: a query refuses some a generated column admits, such as a pattern's match over
+ * a text no pattern bounds (check/checker.ts), and a generated column some a query admits, such as an IEEE 754
+ * rounding.
+ */
+const readsAlike = (e: ExprDesc): boolean => {
+	switch (e.kind) {
+		case "field":
+		case "literal":
+			return true
+		case "compare":
+			return readsAlike(e.left) && readsAlike(e.right)
+		case "between":
+			return readsAlike(e.arg) && readsAlike(e.low) && readsAlike(e.high)
+		case "in":
+		case "not":
+			return readsAlike(e.arg)
+		case "and":
+		case "or":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
+			return e.args.every(readsAlike)
+		case "var":
+		case "value":
+		case "parent":
+		case "param":
+		case "compute":
+		case "cast":
+		case "base":
+		case "guarded":
+		case "cond":
+		case "when":
+		case "allen":
+		case "pointIn":
+		case "absent":
+			return false
+	}
+}
+
+/** Whether every term of a side is a field and every conjunct of its selection reads alike in a query and in a
+ * generated column (`readsAlike`). */
+const sideReadsAlike = (side: ResolvedSide): boolean =>
+	side.terms.every((t) => t.kind === "field") &&
+	side.selection.conjuncts.every((c) => readsAlike(c.predicate))
+
+/**
+ * The discharge of the scalar containment `d`, the detail of `law` (`ContainmentDischarge`), from what the schema
+ * states, in order:
+ *
+ * - a fence of a retirable unit is native: a hold refuses by it and a retirement relies on it, each through its foreign
+ *   key's locks and its NO ACTION check at the statement (physical/ddl/retire.ts);
+ * - a containment neither of whose sides selects is native: its foreign key references a key's own columns and
+ *   installs no law column, and it is the enforcement of the existence evidence an evidence catalog reads (catalog.ts
+ *   existenceConstraints), which a containment with a selected side never gives;
+ * - a containment with a pred term, or a side whose selection computes, casts or branches
+ *   (`readsAlike`), is native: its law columns compute the term or the selection in a generated column, where a
+ *   judged query would negate the target at a computed value, which the checker refuses, or evaluate the selection at
+ *   a query's site, which may refuse it;
+ * - any other containment, of field terms with a side selected, is whole where its violation query is
+ *   unit-local, every relation it reads immutable and both sides joined within one unit (unit.ts wholeRule), and native
+ *   where it is not.
+ */
+const containmentDischarge = (
+	law: TheoryLaw,
+	d: ContainmentDetail,
+	relations: ReadonlyMap<string, TheoryRelation>
+): ContainmentDischarge => {
+	if (
+		law.source.kind === "retirable" ||
+		(d.from.selection.conjuncts.length === 0 && d.to.selection.conjuncts.length === 0) ||
+		!(sideReadsAlike(d.from) && sideReadsAlike(d.to))
+	) {
+		return nativeDischarge
+	}
+	const stated: RuleLaw<LawSide> = {
+		kind: "contained",
+		from: lawSideOf(d.from),
+		to: lawSideOf(d.to)
+	}
+	const whole = wholeRule(stated, violationQuery(stated, storedSides, law.loc), relations, law.loc)
+	return whole === undefined ? nativeDischarge : { kind: "whole", rule: whole }
+}
 
 /** The handles of each declared key's fields, the primary key's first. */
 const declaredFields = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<LawField>> => [
@@ -864,7 +1002,7 @@ interface ScalarPart {
 type RuleRoute =
 	| { readonly kind: "migration" }
 	| { readonly kind: "write"; readonly parts: NonEmptyReadonlyArray<ScalarPart> }
-	| { readonly kind: "trigger" }
+	| { readonly kind: "trigger"; readonly rule: QueryRule }
 
 /**
  * A rule's route: once by the migration, where it reads no ordinary relation; at every write by the foreign keys of its
@@ -882,28 +1020,38 @@ const ruleRoute = (
 	}
 	return d.lowering.kind === "foreignKeys" && discharge === "native"
 		? { kind: "write", parts: d.lowering.parts }
-		: { kind: "trigger" }
+		: { kind: "trigger", rule: d.rule }
 }
 
 /**
  * The containments a law lowers by `#scalarContainment` (`plan`), each to a foreign key, the UNIQUE it references and
  * the reverse index over its source's columns: a stated containment of scalar pairs between ordinary relations that
- * rides no family axis, and each part of a rule over a query its foreign keys discharge.
+ * rides no family axis and that the law model discharges natively (`containmentDischarge`), and each part of a rule
+ * over a query its foreign keys discharge.
  */
 const scalarParts = (
 	law: TheoryLaw,
 	relations: Readonly<Record<string, TheoryRelation>>,
+	relationMap: ReadonlyMap<string, TheoryRelation>,
 	discharge: RuleDischarge
 ): ReadonlyArray<ScalarPart> => {
 	const d = law.detail
 	switch (d.kind) {
 		case "containment":
-			return d.from.rel.kind === "closed" ||
+			if (
+				d.from.rel.kind === "closed" ||
 				d.to.rel.kind === "closed" ||
 				d.lowers.kind === "rides" ||
 				d.pairing.kind === "span"
-				? []
-				: [d]
+			) {
+				return []
+			}
+			switch (containmentDischarge(law, d, relationMap).kind) {
+				case "native":
+					return [d]
+				case "whole":
+					return []
+			}
 		case "rule": {
 			const route = ruleRoute(law, d, relations, discharge)
 			return route.kind === "write" ? route.parts : []
@@ -1319,8 +1467,9 @@ export const referenceChoice = (
 		}
 	}
 	const fixed: Array<FixedUse> = []
+	const relationMap = new Map(Object.entries(relations))
 	for (const law of laws) {
-		for (const [i, part] of scalarParts(law, relations, discharge).entries()) {
+		for (const [i, part] of scalarParts(law, relations, relationMap, discharge).entries()) {
 			const source = sideColumns(part.from)
 			appendAll(at(part.from.relation).columns, source)
 			const run = btreeRun(source)
@@ -1692,6 +1841,8 @@ export class Recognizer {
 	/** Each relation's keys over projected sides, by relation name, which a containment's target may contain. */
 	readonly #projectedKeys: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>
 	readonly #relations: Readonly<Record<string, TheoryRelation>>
+	/** The same relations by name, as a containment's discharge reads them (`containmentDischarge`). */
+	readonly #relationMap: ReadonlyMap<string, TheoryRelation>
 	readonly #families: ReadonlyMap<string, Family>
 	/** Each family's or tree's own law, by family key. */
 	readonly #familyLaws: ReadonlyMap<string, TheoryLaw>
@@ -1744,6 +1895,7 @@ export class Recognizer {
 		}
 		this.#projectedKeys = projectedKeysOf(laws)
 		this.#relations = relations
+		this.#relationMap = new Map(Object.entries(relations))
 		this.#families = new Map(families.map((f) => [familyKey(f.id), f] as const))
 		this.#familyLaws = familyLaws
 		this.#foldLaws = foldLaws
@@ -1847,7 +1999,7 @@ export class Recognizer {
 					)
 				)
 			case "trigger":
-				return { law, natives: [], discharge: "trigger" }
+				return judgedPlan(law, route.rule)
 		}
 	}
 
@@ -1966,8 +2118,17 @@ export class Recognizer {
 		switch (d.pairing.kind) {
 			case "span":
 				return done(this.#coverage(d, d.pairing, loc))
-			case "scalar":
-				return done(this.#scalarContainment(d.from, d.to, "rule", loc, { law: law.id, part: 0 }))
+			case "scalar": {
+				const discharge = containmentDischarge(law, d, this.#relationMap)
+				switch (discharge.kind) {
+					case "native":
+						return done(
+							this.#scalarContainment(d.from, d.to, "rule", loc, { law: law.id, part: 0 })
+						)
+					case "whole":
+						return judgedPlan(law, discharge.rule)
+				}
+			}
 		}
 	}
 

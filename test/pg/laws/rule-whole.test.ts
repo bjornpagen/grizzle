@@ -4,8 +4,9 @@
  * the judge reads its violation query, the one the migration that adds it runs, over the units a transaction wrote. On
  * PostgreSQL 19rc2, over a whole judge and its probed twin of each unit shape (rule-whole.fixtures.ts): nodes and
  * expressions keyed by their document's place first, one, two or three fields of it, declared in the key's order or
- * reversed, under a containment of a join into a table, a check over a join, a key over a projection of it, and, in
- * the whole judge alone, which no probe reads: a check over an aggregate of each node's children, a containment into
+ * reversed, under a containment of a join into a table, a check over a join, a key over a projection of it, two
+ * containments between selected sides of the stored relations, whole in the whole judge and native foreign keys in
+ * its twin (laws/model/plan.ts ContainmentDischarge), and, in the whole judge alone, which no probe reads: a check over an aggregate of each node's children, a containment into
  * a recursion over the parent links, and a check over a negation of a query that negates in turn.
  *
  * - **equivalence**: a schedule of direct SQL transactions at SERIALIZABLE over two documents, each a unit, run on both
@@ -63,9 +64,8 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original:
-					'\t\t\t...(of.some((r) => r.polarity !== "positive") ? ["removed" as const] : [])',
-				replacement: "\t\t\t...[]",
+				original: '\t\t\treturn ["removed"]',
+				replacement: "\t\t\treturn []",
 				why: "The region holds no unit a delete removed rows of, so an expression's delete under its member, or a child's under a node of kind 2, is never judged, and a transaction that breaks Rooted or Fanout commits."
 			},
 			{
@@ -73,6 +73,18 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 				original: '\tp === "positive" ? "negative" : p === "negative" ? "positive" : "both"',
 				replacement: "\tp",
 				why: "A relation a negation reads keeps its polarity, so a containment's target is read on its side of news alone and its delete captures nothing: an expression removed under its member is never judged."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\t\t\t\t\t\treturn judgedPlan(law, discharge.rule)",
+				replacement: "\t\t\t\t\t\treturn done([])",
+				why: "A containment discharged whole installs nothing and the judge holds nothing of it, so a transaction that breaks Expressed or Parented commits, which its native twin refuses."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\t\tconditions.push(mapLeaves(c, leaves))",
+				replacement: '\t\t\tconditions.push({ kind: "not", arg: mapLeaves(c, leaves) })',
+				why: "The region keeps the written rows an occurrence's conditions refuse in place of those it reads, so the units of the nodes of kind 1 or 2 a transaction wrote, and of the expressions of type 0, are never judged, and a transaction that breaks Expressed or Parented commits."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",

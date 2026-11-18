@@ -20,7 +20,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	select
 } from "#compiler/public/schema.ts"
 import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
 import { exists } from "#compiler/sql/build.ts"
@@ -125,11 +126,17 @@ const placed = (doc: number): string => `${doc}, ${doc + 1000000}, ${doc + 20000
 type Judge = "whole" | "probed"
 
 /**
- * The schema the properties judge of shape `shape`, by its rules over queries, every one unit-local: each relation keyed
- * by its document's place first, every rule joining within one document. The probed judge's Node and Expr are mutable,
- * so no rule is unit-local and each is probed; the whole judge's immutable, so each is judged whole over the documents
- * a transaction wrote, the unit, and the aggregate's rule beside them, which no probe reads.
+ * The schema the properties judge of shape `shape`, by its rules over queries and its containments between selected
+ * sides, every one unit-local: each relation keyed by its document's place first, every rule joining within one
+ * document. The probed judge's Node and Expr are mutable, so no rule is unit-local and each is probed, and each
+ * containment is native, its foreign key deferred since the two close a cycle (laws/model/model.ts FkCycles); the
+ * whole judge's immutable, so each rule and each containment is judged whole over the documents a transaction wrote,
+ * the unit, and the aggregate's rule beside them, which no probe reads.
  *
+ * - Expressed: a node of kind 1 or 2 is an expression: a containment from a side selected by a list of kinds, which
+ *   a node's insert breaks and an expression's delete does.
+ * - Parented: an expression of type 0 stands at a node whose parent is the root's place: a containment between two
+ *   selected sides, which an expression's insert breaks and a node's delete does.
  * - Rooted: every expression's parent is an expression: a containment of a join into a table, which a node's insert
  *   breaks and an expression's delete does.
  * - Kinded: a node of kind 1 that is an expression is of type 1: a check over a join.
@@ -150,7 +157,39 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 	const { Node, Expr } = relationsOf[shape]
 	const ordered = inOrder(order)
 	const probed = judge === "probed"
-	const Base = schema(name, [Node, Expr], probed ? [mutable(Node), mutable(Expr)] : [])
+	const Base = schema(
+		name,
+		[Node, Expr],
+		[
+			contained(
+				on(
+					select(Node, (n) => n.in(n.kind, [1, 2])),
+					"doc",
+					"sub",
+					"part",
+					"start"
+				),
+				on(Expr, "doc", "sub", "part", "start")
+			),
+			contained(
+				on(
+					select(Expr, (e) => e.eq(e.type, 0)),
+					"doc",
+					"sub",
+					"part",
+					"start"
+				),
+				on(
+					select(Node, (n) => n.eq(n.parent, 0)),
+					"doc",
+					"sub",
+					"part",
+					"start"
+				)
+			),
+			...(probed ? [mutable(Node), mutable(Expr)] : [])
+		]
+	)
 	const Typed = derived(
 		"Typed",
 		query(Base).rule((r) => {
@@ -397,6 +436,8 @@ export type WholeFeature =
 	| "refused by Fanout"
 	| "refused by Reached"
 	| "refused by Leafed"
+	| "refused by Expressed"
+	| "refused by Parented"
 	| "a whole unit inserted"
 	| "a unit dropped whole"
 	| "an expression removed under its member"
@@ -428,6 +469,8 @@ export const wholeFeatures: Arr.NonEmptyReadonlyArray<WholeFeature> = [
 	"refused by Fanout",
 	"refused by Reached",
 	"refused by Leafed",
+	"refused by Expressed",
+	"refused by Parented",
 	"a whole unit inserted",
 	"a unit dropped whole",
 	"an expression removed under its member",
@@ -514,6 +557,53 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 		})
 	],
 	[
+		"refused by Kinded",
+		shaped((s) => {
+			const doc = s.draw(docGen)
+			return [
+				[
+					...lawful(doc, 0),
+					{ kind: "unexpr", doc, start: 1 },
+					{ kind: "expr", doc, start: 1, type: 0 }
+				]
+			]
+		})
+	],
+	[
+		"refused by Rooted",
+		shaped((s) => {
+			const doc = s.draw(docGen)
+			return [
+				lawful(doc, 1),
+				[
+					{ kind: "unexpr", doc, start: 2 },
+					{ kind: "node", doc, start: 3, parent: 2, nodeKind: 0 },
+					{ kind: "expr", doc, start: 3, type: 1 }
+				]
+			]
+		})
+	],
+	[
+		"refused by Expressed",
+		shaped((s) => {
+			const doc = s.draw(docGen)
+			return [lawful(doc, 1), [{ kind: "unexpr", doc, start: 1 }]]
+		})
+	],
+	[
+		"refused by Parented",
+		shaped((s) => {
+			const doc = s.draw(docGen)
+			return [
+				lawful(doc, 1),
+				[
+					{ kind: "node", doc, start: 3, parent: 1, nodeKind: 0 },
+					{ kind: "expr", doc, start: 3, type: 0 }
+				]
+			]
+		})
+	],
+	[
 		"an expression removed under its member",
 		shaped((s) => {
 			const doc = s.draw(docGen)
@@ -593,11 +683,22 @@ const refusedLaw = (
 			)
 }
 
-/** The six rules the schemas state, by the names their features read. */
-type RuleName = "Rooted" | "Kinded" | "One type" | "Fanout" | "Reached" | "Leafed"
+/** The rules and containments the schemas state, by the names their features read. */
+type RuleName =
+	| "Rooted"
+	| "Kinded"
+	| "One type"
+	| "Fanout"
+	| "Reached"
+	| "Leafed"
+	| "Expressed"
+	| "Parented"
 
 /** The rules the whole schema alone states, which no probe reads: an aggregate's, a recursion's and a nested negation's. */
 const wholeOnly: ReadonlyArray<RuleName> = ["Fanout", "Reached", "Leafed"]
+
+/** The containments between selected sides, each the whole judge's and its twin's native foreign key. */
+const containments: ReadonlyArray<RuleName> = ["Expressed", "Parented"]
 
 /** The situation a refusal by each rule reaches. */
 const refusedBy: { readonly [R in RuleName]: WholeFeature } = {
@@ -606,7 +707,9 @@ const refusedBy: { readonly [R in RuleName]: WholeFeature } = {
 	"One type": "refused by One type",
 	Fanout: "refused by Fanout",
 	Reached: "refused by Reached",
-	Leafed: "refused by Leafed"
+	Leafed: "refused by Leafed",
+	Expressed: "refused by Expressed",
+	Parented: "refused by Parented"
 }
 
 /**
@@ -629,13 +732,17 @@ const nameOfLaw = (
 	}
 }
 
-/** The rule law `law` of an installation states, by its name. */
+/** The rule or containment law `law` of an installation states, by its name, whichever strategy discharges it. */
 const ruleNameOf = (installation: Installation, law: LawId): RuleName => {
-	const rule = defined(
-		Arr.findFirst(installation.laws.rules, (r) => r.law.id === law).pipe(Option.getOrUndefined),
-		`the rule of law ${law}`
-	).rule
-	return nameOfLaw(rule.kind === "whole" ? rule.law : rule)
+	const detail = defined(
+		Arr.findFirst(installation.laws.theory.laws, (l) => l.id === law).pipe(Option.getOrUndefined),
+		`the law ${law}`
+	).detail
+	if (detail.kind === "containment") {
+		return detail.from.relation === "Node" ? "Expressed" : "Parented"
+	}
+	assert.ok(detail.kind === "rule", `the law ${law} is a rule or a containment`)
+	return nameOfLaw(detail.rule.kind === "whole" ? detail.rule.law : detail.rule)
 }
 
 /** What one installation's judge made of a state: the laws its whole checks find broken, and the law it refused by. */
@@ -645,14 +752,20 @@ interface Verdict {
 }
 
 /**
- * Judges the state `session`'s transaction leaves against every rule's whole check, then runs the judge (SET
- * CONSTRAINTS ALL IMMEDIATE): it must refuse exactly when a whole check finds the state broken, naming a rule it finds
- * broken under that rule's SQLSTATE.
+ * Judges the state `session`'s transaction leaves against every check of the laws its judge holds, the violation
+ * queries a migration runs over every row, and `held`, the laws found broken in the same state that it holds natively,
+ * then runs the judge and every deferred foreign key (SET CONSTRAINTS ALL IMMEDIATE): it must refuse exactly when a
+ * check finds the state broken, naming a law it finds broken under that law's SQLSTATE.
  */
-const judged = (installed: Installed, session: RawSession, where: string) =>
+const judged = (
+	installed: Installed,
+	session: RawSession,
+	where: string,
+	held: ReadonlySet<RuleName>
+) =>
 	Effect.gen(function* () {
 		const installation = installed.installation
-		const broken = new Set<RuleName>()
+		const broken = new Set<RuleName>(held)
 		for (const lawCheck of lawChecks(installation).rules) {
 			const found = yield* session.values(`SELECT EXISTS (${printStatement(lawCheck.query)})`, [])
 			if (found[0]?.[0] === true) {
@@ -715,11 +828,17 @@ export const runEquivalence = (
 			}
 			/**
 			 * Both judges at this point: the whole judge refuses exactly where the probed one does, wherever the rules
-			 * only the whole schema states hold.
+			 * only the whole schema states hold, the probed one's containments, its native foreign keys, judged by the
+			 * whole one's checks of the same state.
 			 */
 			const both = Effect.gen(function* () {
-				const w = yield* judged(whole.installed, whole.session, where)
-				const p = yield* judged(probed.installed, probed.session, where)
+				const w = yield* judged(whole.installed, whole.session, where, new Set())
+				const p = yield* judged(
+					probed.installed,
+					probed.session,
+					where,
+					new Set(Arr.filter(containments, (r) => w.broken.has(r)))
+				)
 				if (
 					!Arr.some(wholeOnly, (rule) => w.broken.has(rule)) &&
 					(w.refused === undefined) !== (p.refused === undefined)
@@ -885,6 +1004,7 @@ const rerunsOf = (installed: Installed, connection: PgConnection) =>
 
 /** The statements writing lawful documents `from` to `to` through the captures, as a publish writes them whole. */
 const writtenWhole = ({ node, expr }: Tables, from: number, to: number): ReadonlyArray<string> => [
+	"SET CONSTRAINTS ALL DEFERRED",
 	`INSERT INTO ${node} (doc, sub, part, start, parent, kind) SELECT d, d + 1000000, d + 2000000, s, 0, CASE WHEN s = 0 THEN 2 WHEN s = 1 THEN 1 ELSE 0 END FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
 	`INSERT INTO ${expr} (doc, sub, part, start, type) SELECT d, d + 1000000, d + 2000000, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
 	"SET CONSTRAINTS ALL IMMEDIATE"

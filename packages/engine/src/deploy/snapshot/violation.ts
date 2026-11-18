@@ -68,10 +68,21 @@ const checkOf = (
 	return { law, query, digest: d.value }
 }
 
-/** An installation's checks (lawChecks): its migration-discharged laws' and its rules over queries'. */
+/**
+ * The check of a law the rule judge holds (laws/model/model.ts RuleTrigger), with what a previous installation that held
+ * the law by native objects proves of its rows (`meaning`): `stated`, for a containment the law model discharges whole
+ * (laws/model/plan.ts ContainmentDischarge), whose statement, two sides of stored relations, is the law whole, so the
+ * natives that held it at every write held this very law; `defined`, for a rule over a query, whose identity names its
+ * sides and not the definitions they read, so the natives that held it held the definitions of then.
+ */
+export interface RuleCheck extends MigrationCheck {
+	readonly meaning: "stated" | "defined"
+}
+
+/** An installation's checks (lawChecks): its migration-discharged laws' and the rule judge's laws'. */
 export interface LawChecks {
 	readonly migrations: ReadonlyArray<MigrationCheck>
-	readonly rules: ReadonlyArray<MigrationCheck>
+	readonly rules: ReadonlyArray<RuleCheck>
 }
 
 /**
@@ -91,6 +102,9 @@ export const lawChecks = (installation: Installation): LawChecks => {
 		migrations: installation.laws.migrationLaws.map((law) =>
 			checkOf(installation, violations.value, law)
 		),
-		rules: installation.laws.rules.map((r) => checkOf(installation, violations.value, r.law.id))
+		rules: installation.laws.rules.map((r): RuleCheck => ({
+			...checkOf(installation, violations.value, r.law.id),
+			meaning: r.law.detail.kind === "containment" ? "stated" : "defined"
+		}))
 	}
 }

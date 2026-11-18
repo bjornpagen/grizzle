@@ -41,7 +41,7 @@ import {
 	varRef,
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
-import { compareText } from "#compiler/core/canonical.ts"
+import { compareText, sameText } from "#compiler/core/canonical.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -96,6 +96,8 @@ interface Walk {
 	readonly holders: ReadonlyMap<string, NonEmptyReadonlyArray<string>>
 	readonly restrict: Restriction
 	readonly reads: Array<RelationRead>
+	/** Every occurrence of a unit's holder the walk meets, with the conditions on its own row (`RegionRead`). */
+	readonly regions: Array<RegionRead>
 	/** The fields of the row of the recursion whose step the walk reads, where it reads one, that hold its unit. */
 	readonly self: ReadonlyArray<string> | undefined
 }
@@ -170,6 +172,97 @@ type SourceUnit =
 	| { readonly kind: "vars"; readonly vars: ReadonlyArray<string> }
 	| { readonly kind: "hidden" }
 
+/**
+ * One occurrence of a unit's holder in a whole rule's violation query, as the region reads its writes: its relation,
+ * the polarity it is read at, and the conditions its reading states of its row alone, over the row's fields: a field
+ * its match binds to a literal, two it binds to one variable, and each condition of the rule that reads only
+ * variables the match binds. A row of the relation that fails them gives the occurrence no fact, so writing it changes
+ * nothing the occurrence reads, and its unit is no unit the occurrence needs judged.
+ */
+interface RegionRead {
+	readonly relation: string
+	readonly polarity: RelationRead["polarity"]
+	readonly where: ReadonlyArray<InferredExpr>
+}
+
+/** A field of the row a region reads, as a condition of it names it. */
+const rowField = (field: string): InferredExpr => ({ kind: "field", field })
+
+/** Whether `e` reads only the variables `bound` holds, and no parameter or source. */
+const readsOnly = (e: InferredExpr, bound: ReadonlyMap<string, string>): boolean => {
+	switch (e.kind) {
+		case "absent":
+		case "param":
+			return false
+		case "var":
+			return bound.has(e.var)
+		case "field":
+		case "value":
+		case "parent":
+		case "literal":
+		case "compute":
+		case "cast":
+		case "base":
+		case "guarded":
+		case "cond":
+		case "when":
+		case "compare":
+		case "between":
+		case "in":
+		case "and":
+		case "or":
+		case "not":
+		case "allen":
+		case "pointIn":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
+			return exprChildren(e).every((c) => readsOnly(c.term, bound))
+	}
+}
+
+/**
+ * The conditions an occurrence's reading states of its row alone (`RegionRead`), from its bindings and `where`, the
+ * conditions of the rule that matches it, none for a negation's beyond its bindings.
+ */
+const rowConditions = (
+	bindings: Readonly<Record<string, InferredExpr>>,
+	where: ReadonlyArray<InferredExpr>
+): ReadonlyArray<InferredExpr> => {
+	const fieldOf = new Map<string, string>()
+	const conditions: Array<InferredExpr> = []
+	for (const [field, e] of Object.entries(bindings)) {
+		if (e.kind === "literal") {
+			conditions.push({ kind: "compare", op: "eq", left: rowField(field), right: e })
+		} else if (e.kind === "var") {
+			const first = fieldOf.get(e.var)
+			if (first === undefined) {
+				fieldOf.set(e.var, field)
+			} else {
+				conditions.push({
+					kind: "compare",
+					op: "eq",
+					left: rowField(first),
+					right: rowField(field)
+				})
+			}
+		}
+	}
+	const leaves: LeafRewrite = {
+		var: (id) => {
+			const field = fieldOf.get(id)
+			return field === undefined ? undefined : rowField(field)
+		},
+		field: () => undefined
+	}
+	for (const c of where) {
+		if (readsOnly(c, fieldOf)) {
+			conditions.push(mapLeaves(c, leaves))
+		}
+	}
+	return conditions
+}
+
 /** What a source delivers to the rule that reads it: its unit, and its text walked. */
 interface SourceRead {
 	readonly unit: SourceUnit
@@ -177,13 +270,15 @@ interface SourceRead {
 }
 
 /**
- * A source read where a rule matches or negates it with `bindings`, at `at` (`SourceRead`): a stored relation by its
- * leading key fields; an imported query of no bind map walked, by the head fields that deliver its unit; a closed
- * relation by none; not unit-local for any other source. Every occurrence of a stored or closed relation is read.
+ * A source read where a rule matches or negates it with `bindings`, at `at` (`SourceRead`), the reading rule stating
+ * `where` of it: a stored relation by its leading key fields; an imported query of no bind map walked, by the head
+ * fields that deliver its unit; a closed relation by none; not unit-local for any other source. Every occurrence of a
+ * stored or closed relation is read, and every occurrence of a holder with the conditions on its row (`RegionRead`).
  */
 const sourceUnit = (
 	source: InferredSource,
 	bindings: Readonly<Record<string, InferredExpr>>,
+	where: ReadonlyArray<InferredExpr>,
 	at: At,
 	w: Walk
 ): SourceRead | NotLocal => {
@@ -198,6 +293,11 @@ const sourceUnit = (
 			if (fields === undefined) {
 				return { unit: { kind: "none" }, source }
 			}
+			w.regions.push({
+				relation: source.name,
+				polarity: at.polarity,
+				where: rowConditions(bindings, where)
+			})
 			const vars = varsAt(bindings, fields)
 			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, source }
 		}
@@ -271,7 +371,7 @@ const walkedExpr = (
 	w: Walk
 ): InferredExpr | NotLocal => {
 	if (e.kind === "absent") {
-		const read = sourceUnit(e.source, e.bindings, { polarity: flipped(at.polarity) }, w)
+		const read = sourceUnit(e.source, e.bindings, [], { polarity: flipped(at.polarity) }, w)
 		if (read === notLocal) {
 			return notLocal
 		}
@@ -318,7 +418,7 @@ const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBo
 	const units: Array<SourceUnit> = []
 	const matches: Array<InferredMatch> = []
 	for (const match of r.matches) {
-		const read = sourceUnit(match.source, match.bindings, at, w)
+		const read = sourceUnit(match.source, match.bindings, r.where, at, w)
 		if (read === notLocal) {
 			return notLocal
 		}
@@ -725,39 +825,74 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 const holdersOf = (unit: Unit): ReadonlyMap<string, NonEmptyReadonlyArray<string>> =>
 	new Map(unit.holders.map((h) => [h.relation, h.fields] as const))
 
+/** The variable a region's rule binds `field` of a written row to, beside its unit key's (`regionOf`). */
+const rowVar = (field: string): string => `row.${field}`
+
+/** The sides of a relation's writes an occurrence read at `polarity` needs: what it gains where it is read positively,
+ * what it loses where negatively, both where either changes it. */
+const sidesAt = (polarity: RelationRead["polarity"]): ReadonlyArray<DeltaSide> => {
+	switch (polarity) {
+		case "positive":
+			return ["added"]
+		case "negative":
+			return ["removed"]
+		case "both":
+			return ["added", "removed"]
+	}
+}
+
 /**
- * The region of a unit's keys: the union, over each of its holders and each side `sides` gives it, delta.added for a
- * side of news and delta.removed for one of olds, of the leading key fields of the rows the side holds, a set of unit
- * keys under `u0`…`u(k-1)`.
+ * The region of a unit's keys: the union, over each occurrence of a holder (`RegionRead`) and each side its polarity
+ * reads, delta.added for a side of news and delta.removed for one of olds, of the leading key fields of the rows the
+ * side holds that meet the occurrence's conditions on its row, a set of unit keys under `u0`…`u(k-1)`, each rule once.
+ * A written row that meets no occurrence's conditions changes no fact the query reads, so its unit is read only where
+ * another row puts it there: a containment of the nodes of one kind reads the units of the nodes of that kind a
+ * transaction wrote, and of the rows of its target it removed.
  */
 const regionOf = (
 	unit: Unit,
-	sides: (relation: string) => ReadonlyArray<DeltaSide>,
+	regions: ReadonlyArray<RegionRead>,
 	loc: SourceLoc
 ): InferredSource => {
-	const rules = unit.holders.flatMap((h) =>
-		sides(h.relation).map((side) =>
-			ruleDesc(
-				h.fields.map((field, j) => ({
-					id: regionVar(j),
-					origin: { relation: h.relation, field },
-					loc
-				})),
+	const holders = holdersOf(unit)
+	const rules: Array<InferredRule> = []
+	for (const r of regions) {
+		const key = defined(holders.get(r.relation), "a region read's relation, a holder of its unit")
+		const read = new Set<string>()
+		for (const c of r.where) {
+			mapLeaves(c, {
+				var: () => undefined,
+				field: (f) => {
+					read.add(f)
+					return undefined
+				}
+			})
+		}
+		const varOf = (field: string): string => {
+			const j = key.indexOf(field)
+			return j >= 0 ? regionVar(j) : rowVar(field)
+		}
+		const fields = [...new Set([...key, ...[...read].toSorted(compareText)])]
+		const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(varOf(f)) }
+		for (const side of sidesAt(r.polarity)) {
+			const rule = ruleDesc(
+				fields.map((field) => ({ id: varOf(field), origin: { relation: r.relation, field }, loc })),
 				[
 					{
-						source: { kind: "delta", side, relation: h.relation },
-						bindings: Object.fromEntries(
-							h.fields.map((f, j) => [f, varRef(regionVar(j))] as const)
-						),
+						source: { kind: "delta", side, relation: r.relation },
+						bindings: Object.fromEntries(fields.map((f) => [f, varRef(varOf(f))] as const)),
 						loc
 					}
 				],
-				[],
-				Object.fromEntries(h.fields.map((_, j) => [unitColumn(j), varRef(regionVar(j))] as const)),
+				r.where.map((c) => mapLeaves(c, leaves)),
+				Object.fromEntries(key.map((_, j) => [unitColumn(j), varRef(regionVar(j))] as const)),
 				loc
 			)
-		)
-	)
+			if (!rules.some((held) => sameText(held, rule))) {
+				rules.push(rule)
+			}
+		}
+	}
 	if (!isNonEmpty(rules)) {
 		return refuse("MalformedDescription", loc, "a whole rule whose captures hold a side")
 	}
@@ -766,20 +901,21 @@ const regionOf = (
 
 /**
  * `violation` restricted to the units a transaction wrote, the one restriction of every whole rule (see the header):
- * the region of `unit`'s keys, read from the sides `sides` gives each holder, matched in every rule of the query that
- * reads a stored relation itself, bound to that rule's unit. A defect where the query is not unit-local
- * at `unit`, which `wholeRule` decides before it restricts.
+ * the region of `unit`'s keys, read from the occurrences of its holders `regions` (`regionOf`), matched in every
+ * outermost rule of the query that binds a unit. A defect where the query is not unit-local at `unit`, which
+ * `wholeRule` decides before it restricts.
  */
 const restrictToUnits = (
 	violation: InferredQuery,
 	unit: Unit,
-	sides: (relation: string) => ReadonlyArray<DeltaSide>,
+	regions: ReadonlyArray<RegionRead>,
 	loc: SourceLoc
 ): InferredQuery => {
 	const read = walked(violation, top, {
 		holders: holdersOf(unit),
-		restrict: { kind: "region", region: regionOf(unit, sides, loc) },
+		restrict: { kind: "region", region: regionOf(unit, regions, loc) },
 		reads: [],
+		regions: [],
 		self: undefined
 	})
 	if (read === notLocal) {
@@ -787,17 +923,6 @@ const restrictToUnits = (
 	}
 	return read.query
 }
-
-/** The sides of a relation's writes a whole rule's captures hold, by the polarities its occurrences read. */
-const sidesOf =
-	(reads: ReadonlyArray<RelationRead>) =>
-	(relation: string): ReadonlyArray<DeltaSide> => {
-		const of = reads.filter((r) => r.relation === relation)
-		return [
-			...(of.some((r) => r.polarity !== "negative") ? ["added" as const] : []),
-			...(of.some((r) => r.polarity !== "positive") ? ["removed" as const] : [])
-		]
-	}
 
 /**
  * The unit of a query at width `k` over the stored relations it reads, `stored`, where it is unit-local there: its
@@ -807,7 +932,13 @@ const unitAt = (
 	violation: InferredQuery,
 	stored: NonEmptyReadonlyArray<RelationInfo>,
 	k: number
-): { readonly unit: Unit; readonly reads: NonEmptyReadonlyArray<RelationRead> } | undefined => {
+):
+	| {
+			readonly unit: Unit
+			readonly reads: NonEmptyReadonlyArray<RelationRead>
+			readonly regions: ReadonlyArray<RegionRead>
+	  }
+	| undefined => {
 	const [first] = stored
 	const key = first.primaryFields.slice(0, k).map((f) => f.type)
 	if (!isNonEmpty(key) || key.length !== k) {
@@ -836,14 +967,16 @@ const unitAt = (
 	const held: Unit["holders"] = [h0, ...hs]
 	const unit: Unit = Object.freeze({ key, holders: held })
 	const reads: Array<RelationRead> = []
+	const regions: Array<RegionRead> = []
 	const read = walked(violation, top, {
 		holders: holdersOf(unit),
 		restrict: deciding,
 		reads,
+		regions,
 		self: undefined
 	})
 	const [r0, ...rs] = reads
-	return read === notLocal || r0 === undefined ? undefined : { unit, reads: [r0, ...rs] }
+	return read === notLocal || r0 === undefined ? undefined : { unit, reads: [r0, ...rs], regions }
 }
 
 /**
@@ -876,7 +1009,7 @@ export const wholeRule = (
 				law,
 				reads: found.reads,
 				unit: found.unit,
-				judged: restrictToUnits(violation, found.unit, sidesOf(found.reads), loc)
+				judged: restrictToUnits(violation, found.unit, found.regions, loc)
 			})
 		}
 	}

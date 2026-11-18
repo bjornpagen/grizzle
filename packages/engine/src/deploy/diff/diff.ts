@@ -75,10 +75,11 @@ import {
 import type {
 	DeploySnapshot,
 	SnapshotContent,
+	SnapshotLaw,
 	SnapshotTheory,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import type { LawChecks, MigrationCheck } from "#compiler/deploy/snapshot/violation.ts"
+import type { LawChecks, MigrationCheck, RuleCheck } from "#compiler/deploy/snapshot/violation.ts"
 import { keptRosters, type PreviousRoster, type RosterFate } from "#compiler/ir/codes.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
@@ -273,6 +274,25 @@ const dropOrder: { readonly [K in Dropped]: number } = {
  * Structure transaction, which every data step, the reviewer's, a fill's and the backfill's, runs after: Structure's
  * statements before it, its drops and its tables' alterations, write no row. */
 const checkedAtOnce: SqlStatement = { kind: "setConstraintsImmediate" }
+
+/**
+ * Whether the previous installation held the law of `check` on every row, as the previous snapshot records it (`was`):
+ * by the rule judge under the same check, or by its native objects at every write where the law's statement is its
+ * meaning (RuleCheck `meaning`). A law it did not state, or checked once by its migration, it did not hold.
+ */
+const heldBefore = (was: SnapshotLaw | undefined, check: RuleCheck): boolean => {
+	if (was === undefined) {
+		return false
+	}
+	switch (was.kind) {
+		case "trigger":
+			return was.digest === check.digest
+		case "native":
+			return check.meaning === "stated"
+		case "migration":
+			return false
+	}
+}
 
 /**
  * `items` in a topological order of `after`: each after every item of them it must follow (`after(item, other)`),
@@ -1325,18 +1345,16 @@ class Differ {
 		}
 	}
 
-	/** The checks of the rules over queries (violation.ts lawChecks), in Validate, once every row the migration writes
-	 * is written and before the rules' triggers are created: each rule's violation query over every row, raising with the
-	 * rule's identity when it returns a row. A rule is checked exactly when the previous snapshot does not record its
-	 * check as it is, so a rule that is new, or whose definition changed, is checked once, and a regenerate checks
-	 * nothing. */
-	ruleChecks(checks: ReadonlyArray<MigrationCheck>): void {
+	/** The checks of the laws the rule judge holds (violation.ts lawChecks), in Validate, once every row the migration
+	 * writes is written and before the rules' triggers are created: each law's violation query over every row, raising
+	 * with the law's identity when it returns a row. A law is checked exactly when the previous installation did not hold
+	 * it on every row (`heldBefore`), so a rule that is new, or whose definition changed, is checked once, a regenerate
+	 * checks nothing, and neither does a containment its natives held, now discharged whole. */
+	ruleChecks(checks: ReadonlyArray<RuleCheck>): void {
 		for (const c of checks) {
-			const was = this.input.previous.theory.laws[c.law]
-			if (was?.kind === "trigger" && was.digest === c.digest) {
-				continue
+			if (!heldBefore(this.input.previous.theory.laws[c.law], c)) {
+				this.push("validate", { kind: "violation", law: c.law, query: c.query })
 			}
-			this.push("validate", { kind: "violation", law: c.law, query: c.query })
 		}
 	}
 

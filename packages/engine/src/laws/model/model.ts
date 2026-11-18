@@ -360,10 +360,11 @@ export const constraintLawMap = (entries: ReadonlyArray<ConstraintLaw>): Constra
 }
 
 /**
- * A rule over a query and the deferred constraint triggers that hold it (analysis/theory/query.ts): its law, its
- * triggers' one name, minted from its law, which PostgreSQL scopes to each table, and each ordinary relation it reads,
- * what that relation's writes can break of it and the function its trigger there runs. A closed relation it reads
- * changes with no write, so it carries none.
+ * A law the rule judge holds at every COMMIT (physical/ddl/rules.ts addRules) and the captures that feed it: a rule
+ * over a query (analysis/theory/query.ts), or a containment the law model discharges whole (plan.ts
+ * ContainmentDischarge), with the rule it is judged as; its triggers' one name, minted from its law, which PostgreSQL
+ * scopes to each table; and each ordinary relation it reads, what that relation's writes can break of it and the
+ * function its trigger there runs. A closed relation it reads changes with no write, so it carries none.
  */
 export interface RuleTrigger {
 	readonly law: TheoryLaw
@@ -1337,7 +1338,7 @@ class Specializer {
 
 		const rules = plans.flatMap((plan) =>
 			plan.discharge === "trigger" && plan.law.reads.some((r) => this.writes.has(r))
-				? [this.#ruleTrigger(plan.law)]
+				? [this.#ruleTrigger(plan.law, plan.rule)]
 				: []
 		)
 		for (const r of rules) {
@@ -1477,19 +1478,15 @@ class Specializer {
 	}
 
 	/**
-	 * The triggers of a rule over a query: one name for the rule, minted from its law, and on each ordinary relation it
-	 * reads, a function of its own. A check's own name is no trigger's: its triggers stand on every table it reads, beside
+	 * The triggers of a law the rule judge holds as `rule`: one name for the rule, minted from its law, and on each
+	 * ordinary relation it reads, a function of its own. A check's own name is no trigger's: its triggers stand on every table it reads, beside
 	 * each table's own constraints, so its name is unique in no table's namespace.
 	 */
-	#ruleTrigger(law: TheoryLaw): RuleTrigger {
-		const d = law.detail
-		if (d.kind !== "rule") {
-			return missing(`the rule over a query ${law.id} plans its triggers`)
-		}
+	#ruleTrigger(law: TheoryLaw, rule: QueryRule): RuleTrigger {
 		const named = this.#named(identity.lawTrigger(law.named))
 		const tables = law.reads.flatMap((name): ReadonlyArray<RuleTable> => {
 			const relation = this.theory.relations[name]
-			const touched = touches(d.rule, name)
+			const touched = touches(rule, name)
 			return relation?.kind === "relation" && touched !== undefined
 				? [
 						{
@@ -1504,7 +1501,7 @@ class Specializer {
 		if (first === undefined) {
 			return missing(`a rule over a query discharged by triggers reads an ordinary relation`)
 		}
-		return { law, rule: d.rule, named, tables: [first, ...rest] }
+		return { law, rule, named, tables: [first, ...rest] }
 	}
 
 	/** The law `id` names, which the theory states. */

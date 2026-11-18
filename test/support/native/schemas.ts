@@ -18,6 +18,7 @@ import {
 	f,
 	key,
 	mirrors,
+	mutable,
 	on,
 	onWhere,
 	pred,
@@ -597,7 +598,10 @@ const spanOf = (
 /**
  * The schema of `laws` over `relations`, and both readings of it: the description grizzle compiles, and the host law
  * model's laws, each named by the law the compiler gives its statement. Every relation's primary key is a law, and so
- * is the natural contract wherever a natural field holds a value.
+ * is the natural contract wherever a natural field holds a value. Every relation is mutable, so every law is one
+ * PostgreSQL enforces natively, which the native model evaluates: a containment with a selected side between immutable
+ * relations of one unit is judged whole at COMMIT instead (laws/model/plan.ts ContainmentDischarge), which no native
+ * model reads.
  */
 export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compiled => {
 	const reading = new Reading(relations)
@@ -614,7 +618,10 @@ export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compil
 				spec.key
 			)
 		}),
-		statements: Arr.flatMap(laws, (law) => reading.statements(law)),
+		statements: [
+			...Arr.flatMap(laws, (law) => reading.statements(law)),
+			...Arr.map(names, (name) => mutable(name))
+		],
 		extends: undefined
 	}
 	const lawNames = lawNamesOf(desc)
@@ -730,7 +737,7 @@ export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compil
 		})),
 		key,
 		serial: [],
-		mutable: false
+		mutable: true
 	})
 	return {
 		relations,

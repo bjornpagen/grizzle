@@ -2169,6 +2169,19 @@ definition too.
   whole units, as a content package's publish is, reads the rows it wrote once more for each rule. A write of a sliver
   of a large unit, one row into a package of thousands, still reads the whole unit for each rule that reads that row's
   relation: a relation written row by row into large units is better declared `mutable`, whose rules are probed.
+- **A containment with a selected side is judged whole where it is unit-local.** A containment between two tables is a
+  foreign key; one whose side is a selection, `on(select(T, φ), …)`, is a foreign key over STORED generated columns
+  (`CASE WHEN φ THEN key END`), the UNIQUE it references and an index, kept on every row of the table. Where its tables
+  are immutable, its two sides join within one unit and each selection compares fields with literals (`eq`, `in`,
+  ranges, `and`, `or`, `not` and a closed relation's constants), grizzle judges it whole instead, as a unit-local rule:
+  no column, no UNIQUE, no index and no foreign key, its violation read at COMMIT over the units of the rows the
+  transaction wrote that its sides read, refused with 23503 naming the containment. It is the same law, with the same
+  identity and the same evidence; it holds at COMMIT rather than at each statement. A fence of a retirable unit stays a
+  foreign key, since a hold and a retirement rely on its locks and its check at the statement, and so does a
+  containment of two unselected sides, the existence a query's rewrite relies on, one whose selection computes (a
+  pattern's match, an arithmetic), whose generated column a query cannot always restate, and any containment over a
+  mutable table. A migration that moves a containment from its foreign key to the judge checks no row: the foreign
+  key held this very law on every write.
 - **Judged live.** A rule reads its query as the tables stand at commit, `derived.materialized(...)` included: never
   its view's rows, and never as of a refresh.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is
