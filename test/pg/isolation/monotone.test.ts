@@ -252,14 +252,15 @@ const change =
 	(role: string, member: string, params: ParamMap): Call =>
 	(session) => ({ kind: "change", session, role, member, input: { kind: "params", params } })
 
-/** The owner's retirement of group `g` of H, the unit's function no role holds. */
+/** The owner's retirement of group `g` of H, the unit's function no role holds, its counts each a bigint[] row
+ * (physical/ddl/retire.ts), read as text, as a schedule compares rows (schedules/actors.ts textOfValue). */
 const retire =
 	(g: number): Call =>
 	(session) => ({
 		kind: "owner",
 		session,
 		statements: (s) => [
-			`SELECT ${printObjectName({ schema: s.installed.names.relation("H").schema, name: identifierOf(identity.retire("H")) })}(ARRAY[${g}]::int4[])`
+			`SELECT "c"::text AS "counts" FROM ${printObjectName({ schema: s.installed.names.relation("H").schema, name: identifierOf(identity.retire("H")) })}(ARRAY[${g}]::int4[]) AS "c"`
 		]
 	})
 
