@@ -4,9 +4,9 @@ import type { CodecFault } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
-import { type Codebook, codecOf as rosterCodecOf } from "#compiler/ir/codes.ts"
+import { type Codebook, firstCodebook, codecOf as rosterCodecOf } from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
-import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import type { Carrier, Roster, ScalarType } from "#compiler/ir/scalar.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
@@ -180,6 +180,19 @@ export const countParam = (value: number): ParamText =>
 /** The codec of a descriptor under an installation's codes: every descriptor has one, its carrier's. */
 export const scalarCodec = (type: ScalarType, codes: Codebook): ScalarCodec =>
 	codecOf(type, carrierSpecOf(type, codes))
+
+/** The rosters a type's values are of: a closed id's or a set's roster, none for any other carrier. */
+const rostersOfType = (type: ScalarType): ReadonlyArray<Roster> =>
+	type.carrier === "code" || type.carrier === "bits" ? [type.roster] : []
+
+/**
+ * The codec of a descriptor read under no installation: a closed id's and a set's under a fresh installation's codes,
+ * each handle's code its position in its roster's declared order (ir/codes.ts firstCodebook), which is the order the
+ * evaluator ranks them by (ir/codes.ts declaredOrder); every other carrier's, which reads no code, as any installation's.
+ * Its encode is a value's one text read under no installation (program/text.ts codecText).
+ */
+export const declaredCodec = (type: ScalarType): ScalarCodec =>
+	scalarCodec(type, firstCodebook(rostersOfType(type)))
 
 /**
  * The parameter encoder of a template slot (ir/products.ts Encoder, ParamSlot.encode): the codec's encode, the exact

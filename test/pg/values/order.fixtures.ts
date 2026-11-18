@@ -144,7 +144,7 @@ export const hostValueOf = (type: ScalarType, value: unknown): HostValue =>
  * A value's text as the recordset sends it: the codec's parameter text, or a bytes value's hex escape, which bytea's
  * input reads, since a bytes value travels in binary and has no parameter text.
  */
-const wireText = (type: ScalarType, value: unknown): string =>
+export const wireText = (type: ScalarType, value: unknown): string =>
 	value instanceof Uint8Array
 		? `\\x${Arr.join(
 				Arr.map(Array.from(value), (b) => Str.padStart(2, "0")(b.toString(16))),
@@ -156,7 +156,7 @@ const wireText = (type: ScalarType, value: unknown): string =>
  * The expression PostgreSQL orders a recordset's value by: the value at its wire type, a text under pg_c_utf8, the
  * collation every text column holds (codec/scalar.ts).
  */
-const orderedBy = (type: ScalarType, expr: string): string =>
+export const orderedBy = (type: ScalarType, expr: string): string =>
 	type.carrier === "text" ? `(${expr}) COLLATE pg_catalog.pg_c_utf8` : expr
 
 /**

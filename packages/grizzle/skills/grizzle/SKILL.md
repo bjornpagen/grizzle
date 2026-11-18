@@ -785,7 +785,9 @@ The command line's own refusals, by stage:
   `DomainRefused` naming a field PostgreSQL's domain refuses, or `{ generated, checks, selected }`, each generated
   value (`null` for NULL), each row check's `"holds"` or `"breaks"` by name, NULL breaking a table's check and a derived
   relation's alike, and whether the source keeps the row, each item a `Result` whose error is
-  `Unevaluated`. Never restate a check, a selection or a generated expression in your own code to predict it. Two
+  `Unevaluated`. Never restate a check, a selection or a generated expression in your own code to predict it. To key
+  rows by their values, take each field's text from `codecText(field)`, bound once, never `String()` of a host value:
+  one text per value under PostgreSQL's equality, a closed id's and a set's under a fresh installation's codes. Two
   declared names that
   convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two
   relations of a role, two logins or roles of a schema, a contract a context names beside a relation, roster or

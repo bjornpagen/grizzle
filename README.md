@@ -3594,6 +3594,16 @@ An item whose expression the host does not lower or evaluate, such as float arit
 is `{ _tag: "Unevaluated", why }`, the other items keeping theirs. Nothing is thrown, and nothing stands in for a value. Each source is read where it is first evaluated,
 and once.
 
+`codecText(field)` reads a field descriptor once and gives the codec's own text of each value of its type: bind
+`const startText = codecText(Node.fields.start)`, then `startText(row.start)` is a `Result` of the value's one text, or
+the `CodecFault` of a value the codec does not admit. Two values have one text exactly when PostgreSQL's equality of
+the type holds them equal (numeric 1.0 and 1.00, NaN and NaN, -0 and +0), and PostgreSQL's input function reads the
+text as the value: an integer's digits, a numeric's `numeric_out` text, a double's shortest round-trip decimal,
+`true` or `false`, a date's ISO 8601 text, a text itself. A closed id and a set are stored as an installation's codes,
+which no schema alone holds, so theirs are a fresh installation's, each handle coded by its position in its roster's
+declared order: one text per value, read under no installation, where a closed id's own host value, its handle, is its
+name. Key a set or a map of rows by these texts, and never by `String()` of a host value. A bytes field is a type error.
+
 **Errors**: `DbLayer.make` and `Db.open` fail with `OpenError` in the Effect's error channel; every call of a member
 fails with its `CallError`, by kind:
 
