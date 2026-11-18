@@ -3,20 +3,21 @@ import { captureLoc, childLoc } from "#compiler/core/loc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { formSource, type LexicalTarget, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
-import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
+import { describeDeclared } from "#compiler/schema/relation.ts"
 import { textBytesBeside } from "#compiler/schema/representability.ts"
 import { type RegexText, regexField } from "#compiler/text/field.ts"
-import type { Field, FieldBase } from "#compiler/types/fields/field.ts"
+import type { Field, FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 
 /**
- * The lexical form of a field descriptor's type (lexicalForm(T), lexical(T)): its pattern under flags "u" types a
- * lexical field and guards a parse, so a text of the form casts into T total (Compute.cast). A contract's form is its
- * base's, which a cast into the contract parses, then enters the contract by its predicate's proof: date's, whose range
- * is the form's own. A type with no form is refused, UnsupportedOperation.
+ * The lexical form of a field descriptor's type (lexicalForm(T), lexical(T)), a relation's field read as its declared
+ * type (schema/relation.ts describeDeclared): its pattern under flags "u" types a lexical field and guards a parse, so a
+ * text of the form casts into T total (Compute.cast). A contract's form is its base's, which a cast into the contract
+ * parses, then enters the contract by its predicate's proof: date's, whose range is the form's own. A type with no form
+ * is refused, UnsupportedOperation.
  */
 export const lexicalTargetOfField = (type: unknown): LexicalTarget => {
 	const loc = captureLoc("lexicalForm", [])
-	const target = lexicalTargetOf(baseOf(describeFieldOrThrow(type, loc).scalar))
+	const target = lexicalTargetOf(baseOf(describeDeclared(type, loc).scalar))
 	if (target === undefined) {
 		throw unsupported(
 			loc,
@@ -46,7 +47,7 @@ type ParseSql =
  * lexicalForm(T): the pattern of T's lexical form, XML Schema's lexical space of T's datatype cut to the values T holds
  * exactly, a Pattern for Compute.matches to guard a parse with, whose source `str.regex` types a lexical field by
  * (lexical(T)): a text of the form's language, or of a language inside it, casts into T total (Compute.cast). A
- * contract's form is its base's.
+ * contract's form is its base's, and a relation's field's its declared type's: a drawn natural's is a bigint's.
  */
 export const lexicalForm = (type: Field<unknown, ParseSql, unknown>): Pattern =>
 	Pattern.ofForm(lexicalTargetOfField(type))
@@ -86,16 +87,19 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
  * selection; for a family axis that carries the text, its group fields, its natural index, the other values it carries
  * and a tree's `end`. A text field whose contract bounds it there,
  * `contract("KeyText", str.regex("^.*$", "su"), (v) => Compute.octetLength(v).le(keyTextBytes(fields)))`, sits in any of
- * them. It throws CompileError (UnrepresentableKey) for fields of no byte bound, such as an unbounded text, for more
- * fields than an index holds beside a text, and for fields that leave a text no byte.
+ * them. A field of a relation is read as its declared type (schema/relation.ts describeDeclared), a drawn index or a
+ * generated field among them. It throws CompileError (UnrepresentableKey) for fields of no byte bound, such as an
+ * unbounded text, for more fields than an index holds beside a text, and for fields that leave a text no byte.
  */
-export const keyTextBytes = (fields: ReadonlyArray<FieldBase>): number => {
+export const keyTextBytes = (
+	fields: ReadonlyArray<FieldBase | GeneratedField<FieldBase>>
+): number => {
 	const loc = captureLoc("keyTextBytes", [])
 	const key = fields.map((_, i) => `fields[${i}]`)
 	const room = textBytesBeside(
 		fields.map((field, i) => ({
 			field: `fields[${i}]`,
-			desc: describeFieldOrThrow(field, childLoc(loc, i)).desc
+			desc: describeDeclared(field, childLoc(loc, i)).desc
 		}))
 	)
 	if (!room.ok) {

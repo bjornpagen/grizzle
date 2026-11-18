@@ -62,6 +62,7 @@ import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import {
 	carrierSql,
 	type Described,
+	describeFieldOrThrow,
 	isOwnedDescriptor,
 	type ScalarEnv,
 	scalarTypeOf
@@ -137,8 +138,8 @@ const descriptorRecord = (fields: unknown, label: string): Readonly<Record<strin
 }
 
 /**
- * The fields of a record of descriptors, each a descriptor a builder made as the registry reads it: its Description
- * for the relation's, its column for the relation's fact decoder.
+ * The fields of a record of descriptors, each as describeDeclared reads it: its Description for the relation's, its
+ * column for the relation's fact decoder.
  */
 const describedFields = (
 	fields: Readonly<Record<string, unknown>>,
@@ -146,7 +147,7 @@ const describedFields = (
 ): Readonly<Record<string, Described>> => {
 	const out: Record<string, Described> = {}
 	for (const [name, descriptor] of Object.entries(fields)) {
-		out[name] = describedField(declaredDescriptorOf(descriptor), `${label} field ${name}`)
+		out[name] = describeDeclared(descriptor, builderLoc(`${label} field ${name}`, []))
 	}
 	return Object.freeze(out)
 }
@@ -1175,10 +1176,9 @@ export const fieldRoster = (
 
 /**
  * The descriptor a field value was built from: its own, or a drawn, accumulated, retirement, slot or generated field's
- * declared type's. It is the one reading of a field value as a type: a relation's column is described by it
- * (describedFields), and codecText (program/text.ts) reads a field's text through it.
+ * declared type's.
  */
-export const declaredDescriptorOf = (value: unknown): unknown => {
+const declaredDescriptorOf = (value: unknown): unknown => {
 	const recorded = writtenByOf(value) ?? slottedOf(value)
 	if (recorded !== undefined) {
 		return recorded.type
@@ -1187,6 +1187,16 @@ export const declaredDescriptorOf = (value: unknown): unknown => {
 		typeof value === "object" && value !== null ? generatedEntries.get(value) : undefined
 	return entry === undefined ? value : hasProperties(value) ? value["type"] : value
 }
+
+/**
+ * The description of a field value, any field of a relation or a descriptor itself: its declared type's descriptor
+ * (declaredDescriptorOf) as the registry reads it, its FieldDesc, ScalarType and column, or MalformedDescription at
+ * `loc` for a value that is neither. It is the one reading of a field value as a type: a relation's column is described
+ * by it (describedFields), and every public reading of a field reads it, codecText (program/text.ts), keyTextBytes,
+ * lexicalForm and lexical (public/text.ts), so none of them refuses a field its type admits.
+ */
+export const describeDeclared = (value: unknown, loc: SourceLoc): Described =>
+	describeFieldOrThrow(declaredDescriptorOf(value), loc)
 
 /**
  * The handles of the roster a field value's closedId or bits descriptor references, through a slot, drawn, accumulated or

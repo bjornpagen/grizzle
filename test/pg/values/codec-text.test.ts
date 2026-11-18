@@ -131,20 +131,17 @@ export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEvery
 				why: "A value's text is String() of its host value: every vector, span and money value writes [object Object], so unequal ones share a text; the classes fail."
 			},
 			{
-				file: "packages/engine/src/program/text.ts",
-				original:
-					'\tconst { scalar } = describeFieldOrThrow(declaredDescriptorOf(field), captureLoc("codecText", []))',
-				replacement:
-					'\tconst { scalar } = describeFieldOrThrow(field, captureLoc("codecText", []))',
-				why: "codecText describes the field value itself, not its declared type's descriptor: a drawn field, which carries no descriptor of its own, is refused (MalformedDescription), and so is every accumulated, retirement, generated and slot field; the property fails over each of those kinds."
+				file: "packages/engine/src/schema/relation.ts",
+				original: "\tdescribeFieldOrThrow(declaredDescriptorOf(value), loc)",
+				replacement: "\tdescribeFieldOrThrow(value, loc)",
+				why: "The one reading of a field as its declared type (describeDeclared) describes the field value itself: a drawn field, which carries no descriptor of its own, is refused (MalformedDescription), and so is every accumulated, retirement, generated and slot field, by codecText and by its relation's column alike; the property fails over each of those kinds."
 			},
 			{
-				file: "packages/engine/src/program/text.ts",
-				original:
-					'\tconst { scalar } = describeFieldOrThrow(declaredDescriptorOf(field), captureLoc("codecText", []))',
+				file: "packages/engine/src/schema/relation.ts",
+				original: "\tconst recorded = writtenByOf(value) ?? slottedOf(value)",
 				replacement:
-					'\tconst { scalar } = describeFieldOrThrow("field" in field ? field : declaredDescriptorOf(field), captureLoc("codecText", []))',
-				why: "An accumulated field's text is read from its accumulated(type, start) value, the one field value that carries its type as a member, not from its column's declared type: the value is no descriptor a builder registered, so codecText refuses it, every other kind still reading its column's type; the property fails over an accumulated field."
+					'\tconst recorded = writingOf(value).kind === "accumulated" ? undefined : (writtenByOf(value) ?? slottedOf(value))',
+				why: "An accumulated field is read from its accumulated(type, start) value, not from its declared type, the one its column is stored and read with: the value is no descriptor a builder registered, so it is refused, every other kind still read as its declared type; the property fails over an accumulated field."
 			}
 		]
 	})

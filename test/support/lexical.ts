@@ -56,29 +56,46 @@ const sign = weighted([
  * integer carrier of the carriers' ranges, numeric(p, s) for every precision up to `maxPrecision` and every scale from
  * 0 to p, and the double, boolean and date forms.
  */
-export const targetGen = (maxPrecision: number): Gen<LexicalTarget> => {
-	const ofKind: {
-		readonly [K in LexicalTarget["kind"]]: Gen<Extract<LexicalTarget, { readonly kind: K }>>
-	} = {
-		integer: map(element(nonEmpty(Rec.keys(integerRanges), "the integer carriers")), (carrier) => ({
-			kind: "integer",
-			carrier
-		})),
-		decimal: (source) => {
-			const precision = source.draw(int(1, maxPrecision))
-			return { kind: "decimal", typmod: { precision, scale: source.draw(int(0, precision)) } }
-		},
-		double: constant({ kind: "double" }),
-		boolean: constant({ kind: "boolean" }),
-		date: constant({ kind: "date" }),
-		doubleText: constant({ kind: "doubleText" }),
-		decimalText: constant({ kind: "decimalText" })
-	}
-	return oneOf<LexicalTarget>(nonEmpty(Rec.values(ofKind), "a generator per kind"))
-}
+const targetsOfKind = (
+	maxPrecision: number
+): {
+	readonly [K in LexicalTarget["kind"]]: Gen<Extract<LexicalTarget, { readonly kind: K }>>
+} => ({
+	integer: map(element(nonEmpty(Rec.keys(integerRanges), "the integer carriers")), (carrier) => ({
+		kind: "integer",
+		carrier
+	})),
+	decimal: (source) => {
+		const precision = source.draw(int(1, maxPrecision))
+		return { kind: "decimal", typmod: { precision, scale: source.draw(int(0, precision)) } }
+	},
+	double: constant({ kind: "double" }),
+	boolean: constant({ kind: "boolean" }),
+	date: constant({ kind: "date" }),
+	doubleText: constant({ kind: "doubleText" }),
+	decimalText: constant({ kind: "decimalText" })
+})
+
+/** A target of any kind, each kind alike. */
+export const targetGen = (maxPrecision: number): Gen<LexicalTarget> =>
+	oneOf<LexicalTarget>(nonEmpty(Rec.values(targetsOfKind(maxPrecision)), "a generator per kind"))
 
 /** The greatest precision of a candidate's numeric target, whose texts stay a few digits long. */
 const candidateMaxPrecision = 6
+
+/** A target of a type's form, a field's: every kind but a double's text and a decimal text, which are no type's. */
+export type TypeTarget = Exclude<LexicalTarget, { readonly kind: "doubleText" | "decimalText" }>
+
+const candidateTargets = targetsOfKind(candidateMaxPrecision)
+
+/** A type's target, as candidateGen draws one: an integer carrier, numeric(p, s), double precision, boolean or date. */
+export const typeTargetGen: Gen<TypeTarget> = oneOf<TypeTarget>([
+	candidateTargets.integer,
+	candidateTargets.decimal,
+	candidateTargets.double,
+	candidateTargets.boolean,
+	candidateTargets.date
+])
 
 /** A candidate text, whether the specification makes it a member, and the value it names when it is one. */
 export interface Candidate {
@@ -626,20 +643,27 @@ const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
 	}
 }
 
-export const candidateGen: Gen<Candidate> = (source) => {
-	const base = source.draw(candidatesOf(source.draw(targetGen(candidateMaxPrecision))))
-	const corruption = source.draw(
-		weighted<(typeof corruptions)[number] | undefined>([
-			[3, constant(undefined)],
-			[1, element(corruptions)]
-		])
-	)
-	if (corruption === undefined || !base.member) {
-		return base
+/** A candidate of `target`'s form: a member, or one in four a member corrupted, which is none. */
+export const candidateOf =
+	(target: LexicalTarget): Gen<Candidate> =>
+	(source) => {
+		const base = source.draw(candidatesOf(target))
+		const corruption = source.draw(
+			weighted<(typeof corruptions)[number] | undefined>([
+				[3, constant(undefined)],
+				[1, element(corruptions)]
+			])
+		)
+		if (corruption === undefined || !base.member) {
+			return base
+		}
+		const text = corruption === "" ? "" : `${base.text}${corruption}`
+		return { ...base, text, member: false, value: undefined, shape: "corrupted" }
 	}
-	const text = corruption === "" ? "" : `${base.text}${corruption}`
-	return { ...base, text, member: false, value: undefined, shape: "corrupted" }
-}
+
+/** A candidate of any target's form, its numeric targets of at most candidateMaxPrecision digits. */
+export const candidateGen: Gen<Candidate> = (source) =>
+	source.draw(candidateOf(source.draw(targetGen(candidateMaxPrecision))))
 
 /** Two values of a target's host type are one value: a Decimal by equals, a double by Object.is but for one zero. */
 export const sameValue = (a: unknown, b: unknown): boolean =>

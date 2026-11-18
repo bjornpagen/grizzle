@@ -1,12 +1,22 @@
 /** What the properties of lexical.test.ts read: its spaces, models and helpers. */
 
 import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
-import { constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import { constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { generated, pg, uuid } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	date,
+	Decimal,
+	drawn,
+	generated,
+	natural,
+	pg,
+	retirement,
+	uuid
+} from "#compiler/public/fields.ts"
 import { type AnyRelation, relation } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
+import { type lexicalForm, str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
 import { formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
@@ -16,7 +26,13 @@ import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
-import { targetGen } from "#test/support/lexical.ts"
+import {
+	type Candidate,
+	candidateOf,
+	targetGen,
+	type TypeTarget,
+	typeTargetGen
+} from "#test/support/lexical.ts"
 import { admittedPatternOver } from "#test/unit/text/generators.ts"
 
 export const nfaOf = (source: string): Nfa => buildNfa(succeeded(parsePattern(source, "u")))
@@ -227,3 +243,97 @@ export const longestMember = (nfa: Nfa, chars: number): number => {
 	}
 	return longest
 }
+
+/**
+ * The kinds of field lexicalForm and lexical are handed, each typed as a type with a lexical form: a caller's
+ * descriptor, an accumulated field of it, drawn(natural), a bigint's, and the retirement field, a boolean. A slot is a
+ * closed id, which has no form, and a generated field is no type.
+ */
+const lexicalReadings = ["caller", "accumulated", "drawn", "retirement"] as const
+
+type LexicalReading = (typeof lexicalReadings)[number]
+
+/** A kind of field lexicalForm read, the property's situation. */
+export type LexicalFieldFeature = `reads ${LexicalReading}`
+
+/** A field's case: the kind of field, the target of its type's form, and a candidate of that form. */
+interface LexicalField {
+	readonly reading: LexicalReading
+	readonly target: TypeTarget
+	readonly candidate: Candidate
+}
+
+/** What lexicalForm and lexical are handed: a type with a lexical form. */
+type LexicalType = Parameters<typeof lexicalForm>[0]
+
+/** The descriptor of a target's type. */
+const declaredOf = (target: TypeTarget): LexicalType => {
+	switch (target.kind) {
+		case "integer":
+			return target.carrier === "int2"
+				? pg.smallint
+				: target.carrier === "int4"
+					? pg.integer
+					: pg.bigint
+		case "decimal":
+			return pg.numeric(target.typmod.precision, target.typmod.scale)
+		case "double":
+			return pg["double precision"]
+		case "boolean":
+			return pg.boolean
+		case "date":
+			return date
+	}
+}
+
+/** A value of a target's type, which an accumulated field of it starts at: its zero, false, or a date. */
+const startOf = (target: TypeTarget): unknown => {
+	switch (target.kind) {
+		case "integer":
+			return target.carrier === "int8" ? 0n : 0
+		case "decimal":
+			return Decimal.of("0")
+		case "double":
+			return 0
+		case "boolean":
+			return false
+		case "date":
+			return "2000-01-01"
+	}
+}
+
+/**
+ * Each kind of field, the targets its type's form is of, and the field it is of a target's type: any type's for a
+ * caller's descriptor and an accumulated field, a bigint's for drawn(natural), natural's base, and a boolean's for the
+ * retirement field.
+ */
+const readingOf: {
+	readonly [R in LexicalReading]: {
+		readonly targets: Gen<TypeTarget>
+		readonly field: (target: TypeTarget) => LexicalType
+	}
+} = {
+	caller: { targets: typeTargetGen, field: declaredOf },
+	accumulated: {
+		targets: typeTargetGen,
+		field: (target) => accumulated(declaredOf(target), startOf(target))
+	},
+	drawn: { targets: constant({ kind: "integer", carrier: "int8" }), field: () => drawn(natural) },
+	retirement: { targets: constant({ kind: "boolean" }), field: () => retirement }
+}
+
+/** A field's case: a kind of field, each alike, a target its type has, and a candidate of the target's form. */
+export const lexicalFieldGen: Gen<LexicalField> = (source) => {
+	const reading = source.draw(element(lexicalReadings))
+	const target = source.draw(readingOf[reading].targets)
+	return { reading, target, candidate: source.draw(candidateOf(target)) }
+}
+
+/** The field of a case: its kind of field, of its target's type. */
+export const lexicalFieldOf = (c: LexicalField): LexicalType => readingOf[c.reading].field(c.target)
+
+/** The situations: each kind of field. */
+export const lexicalFieldSituations: ReadonlyArray<LexicalFieldFeature> = Arr.map(
+	lexicalReadings,
+	(r): LexicalFieldFeature => `reads ${r}`
+)

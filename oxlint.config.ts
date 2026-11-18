@@ -195,12 +195,36 @@ const LIBRARY_IMPORTS = {
 } as const
 
 /**
- * The engine's imports: no Effect at run time, no Node module but `crypto`, the one a module of `hashing` may import,
- * no driver and no platform SDK.
+ * The registry's and the builders' readings of a descriptor, which no public reading of a field imports: a relation's
+ * drawn, accumulated, retirement, generated or slot field is no descriptor a builder registered, so each reading of a
+ * field describes it through schema/relation.ts describeDeclared, as its declared type, the one its column is.
  */
-const engineImports = (hashing: "hashing" | "no Node module") =>
+const FIELD_READINGS = [
+	{
+		name: "#compiler/scalar/registry.ts",
+		importNames: ["describeField", "describeFieldOrThrow", "registeredField"],
+		message:
+			"A public reading of a field describes it through describeDeclared (#compiler/schema/relation.ts), which reads a drawn, accumulated, retirement, generated or slot field as its declared type, as its column is."
+	},
+	{
+		name: "#compiler/schema/protocol.ts",
+		importNames: ["describedField", "fieldDescOf"],
+		message:
+			"A public reading of a field describes it through describeDeclared (#compiler/schema/relation.ts), which reads a drawn, accumulated, retirement, generated or slot field as its declared type, as its column is."
+	}
+] as const
+
+/**
+ * The engine's imports: no Effect at run time, no Node module but `crypto`, the one a module of `hashing` may import,
+ * no driver and no platform SDK; and `readings`, the readings of a descriptor its module may not import.
+ */
+const engineImports = (
+	hashing: "hashing" | "no Node module",
+	readings: ReadonlyArray<(typeof FIELD_READINGS)[number]>
+) =>
 	restrictedImports({
 		paths: [
+			...readings,
 			{
 				name: "zod",
 				message:
@@ -458,7 +482,7 @@ export default defineConfig(
 				files: ["packages/engine/**"],
 				rules: active({
 					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS, TEXT_DECODER],
-					"eslint/no-restricted-imports": engineImports("no Node module"),
+					"eslint/no-restricted-imports": engineImports("no Node module", []),
 					/** `import type { T } from "effect"` passes allowTypeImports, but type stripping leaves `import {} from "effect"`, which loads Effect at run time. */
 					"typescript/no-import-type-side-effects": "error"
 				})
@@ -477,7 +501,14 @@ export default defineConfig(
 			{
 				/** The engine's hashing modules: SHA-256 and AES-256-GCM over node:crypto, which no browser zone reaches. */
 				files: ["packages/engine/src/core/sha256.ts", "packages/engine/src/core/seal.ts"],
-				rules: active({ "eslint/no-restricted-imports": engineImports("hashing") })
+				rules: active({ "eslint/no-restricted-imports": engineImports("hashing", []) })
+			},
+			{
+				/** The engine's public readings of a field and the programs they read: each describes a field as its declared type. */
+				files: ["packages/engine/src/public/**", "packages/engine/src/program/**"],
+				rules: active({
+					"eslint/no-restricted-imports": engineImports("no Node module", FIELD_READINGS)
+				})
 			},
 			{
 				files: ["packages/grizzle/src/adapter/live/call-error.ts"],

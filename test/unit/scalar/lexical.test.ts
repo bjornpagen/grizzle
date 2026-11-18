@@ -18,13 +18,17 @@
  * Candidates are members by construction, near every boundary a form draws (the carriers' ranges, the typmod's
  * digits, the exponent bound, leap days, year 0000 and 10000), and named corruptions of them.
  *
+ * lexicalForm and lexical read a field of every kind a relation holds that is typed as a type with a form, an
+ * accumulated field, drawn(natural) and the retirement field, as its declared type: the candidates of the type's form are
+ * exactly the members of the pattern each gives for the field.
+ *
  * A parse's lexical precondition, of an integer, a decimal, a double's text and a boolean, is proved exactly when the
  * operand's language is inside the form, by its type or by a matches guard, and a decimal's exactly when its bytes are
  * within the form's besides; a refusal names the remedy. A drawn pattern the text analysis refuses is no case of them,
  * and is given up, counted, never passed.
  *
  * Features: every shape of candidate; every lexical kind; an included and a refuted pair; each route admitted and
- * refused, a decimal's refused by its language and by its bytes.
+ * refused, a decimal's refused by its language and by its bytes; each kind of field lexicalForm reads.
  */
 
 import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
@@ -37,7 +41,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { schema } from "#compiler/public/schema.ts"
-import { decimalText } from "#compiler/public/text.ts"
+import { decimalText, lexical, lexicalForm } from "#compiler/public/text.ts"
 import {
 	formOctets,
 	formSource,
@@ -68,6 +72,10 @@ import {
 	type DecimalFeature,
 	decimalRelation,
 	type InclusionFeature,
+	type LexicalFieldFeature,
+	lexicalFieldGen,
+	lexicalFieldOf,
+	lexicalFieldSituations,
 	longestMember,
 	nfaOf,
 	pairGen,
@@ -126,6 +134,56 @@ export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemb
 			}
 		]
 	})
+
+/**
+ * A field's lexical form is its declared type's, whatever kind of field it is: for a caller's descriptor, an accumulated
+ * field of it, drawn(natural) and the retirement field, the candidates of the declared type's form, built from XML
+ * Schema's parts, are exactly the members of lexicalForm's pattern for the field, within the form's bytes, and of the
+ * pattern of lexical's text field.
+ *
+ * Budget: a thousand candidates, each kind of field drawn alike, every candidate shape of a type's form among them.
+ */
+export const aFieldsLexicalFormIsItsDeclaredTypesWhateverKindOfFieldItIs = property.explore(
+	lexicalFieldGen,
+	{
+		needs: {},
+		situations: lexicalFieldSituations satisfies ReadonlyArray<Reached<LexicalFieldFeature>>,
+		check: (_, run: Case<LexicalFieldFeature>) => (c) =>
+			Effect.sync(() => {
+				run.note(`reads ${c.reading}`)
+				const field = lexicalFieldOf(c)
+				const label = `${c.reading} ${Formatter.format(c.target)} ${Formatter.format(c.candidate.text)}`
+				const octets = formOctets(c.target)
+				const admits = (source: string): boolean =>
+					matches(nfaOf(source), c.candidate.text) &&
+					(octets === undefined || utf8Length(c.candidate.text) <= octets)
+				assert.equal(
+					admits(lexicalForm(field).source),
+					c.candidate.member,
+					`${label}: lexicalForm's pattern`
+				)
+				assert.equal(
+					Arr.every(lexical(field).patterns, (p) => admits(p.source)),
+					c.candidate.member,
+					`${label}: lexical's patterns`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "XML Schema's lexical spaces built from their parts, against the patterns lexicalForm and lexical give for a field of every kind"
+		},
+		budget: { runs: 1000, steered: 0 },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/schema/relation.ts",
+				original: '\twrittenBy.set(value, { type, writing: { kind: "drawn" } })',
+				replacement: "",
+				why: "drawn(natural) records no declared type, so the one reading of a field as its declared type (describeDeclared) reads a drawn field as itself, which no builder registered: lexicalForm and lexical refuse it (MalformedDescription) though its type, a bigint's, admits it."
+			}
+		]
+	}
+)
 
 /** Lexical forms is admitted by the text analysis as a refinement str.regex types a field by, for every typmod in a box. */
 export const lexicalFormsIsAdmittedByTheTextAnalysisAsARefinementStrRegexTypesAFieldByForEveryTypmodInABox =

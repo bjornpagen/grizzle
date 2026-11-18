@@ -7,7 +7,9 @@
  * Each case draws the key's other fields, uuid, natural, integer, smallint, boolean and a closed id, the order of the
  * key, the text among them, and the text's code points: ASCII, two-byte, CJK and astral, drawn apart enough that no
  * compression shortens them, the last code point of each value of a drawn width, so the bound is met at a multibyte
- * boundary.
+ * boundary. Each other field is handed to keyTextBytes as its type's descriptor or as a field of that type of any kind a
+ * relation holds, which keyTextBytes reads as its declared type: an accumulated or a generated field, drawn(natural), the
+ * retirement field and a closed relation's slot; the installed relation declares each of its type.
  *
  * The budget is the room in the worst entry grizzle may plan over the key's columns: one that carries the null bitmap
  * of an index whose hidden law column holds NULL (schema/representability.ts textBytesBeside). The key's own primary
@@ -21,8 +23,8 @@
  *
  * Oracle: PostgreSQL itself, its B-tree item limit (54000) and the contract domain's CHECK (23514).
  *
- * Features: the text's place in the key, a closed id beside it, the width of the bounding code point, and the tight
- * budget, met in the entry that carries the null bitmap.
+ * Features: the text's place in the key, a closed id beside it, the width of the bounding code point, the tight
+ * budget, met in the entry that carries the null bitmap, and each kind of field a companion is handed as.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
@@ -38,8 +40,9 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import {
 	type BytesFeature,
-	caseGen,
+	caseSpace,
 	descriptorOf,
+	fieldOf,
 	Kind,
 	lastWidth,
 	textOf,
@@ -59,7 +62,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * A key's text bounded by keyTextBytes against PostgreSQL's B-tree item limit: a text of exactly keyTextBytes bytes in a
  * key beside its companions is inserted, and one byte more is refused by its domain.
  */
-export const exactlyKeyTextBytes = property.explore(caseGen, {
+export const exactlyKeyTextBytes = property.explore(caseSpace, {
 	needs: { substrate: Substrate.installing },
 	/** Its pre-conversion budget: runs 40, coverage cases 40 (key-text-bytes.test.ts:269,300-303 at 41df7b58^). */
 	budget: { runs: 40, steered: 40 },
@@ -72,14 +75,19 @@ export const exactlyKeyTextBytes = property.explore(caseGen, {
 		"last code point of 1 bytes",
 		"last code point of 2 bytes",
 		"last code point of 3 bytes",
-		"last code point of 4 bytes"
+		"last code point of 4 bytes",
+		"accumulated companion",
+		"generated companion",
+		"drawn companion",
+		"retirement companion",
+		"slot companion"
 	] satisfies ReadonlyArray<Reached<BytesFeature>>,
 	check:
 		({ substrate }, k: Case<BytesFeature>) =>
 		(c) =>
 			Effect.provideServiceEffect(
 				Effect.gen(function* () {
-					const budget = keyTextBytes(Arr.map(c.companions, descriptorOf))
+					const budget = keyTextBytes(Arr.map(c.companions, fieldOf))
 					const KeyText = contract("KeyText", str.regex("^.*$", "su"), (v) =>
 						Compute.octetLength(v).le(budget)
 					)
@@ -87,7 +95,7 @@ export const exactlyKeyTextBytes = property.explore(caseGen, {
 					const fields = Rec.fromEntries([
 						...Arr.map(c.companions, (comp, i): readonly [string, FieldBase] => [
 							`c${i}`,
-							descriptorOf(comp)
+							descriptorOf(comp.type)
 						]),
 						["t", KeyText] as const
 					])
@@ -110,8 +118,13 @@ export const exactlyKeyTextBytes = property.explore(caseGen, {
 					if (tight(c)) {
 						k.note("tight budget")
 					}
-					if (Arr.contains(c.companions, "closedId")) {
+					if (Arr.some(c.companions, (comp) => comp.type === "closedId")) {
 						k.note("a closed id beside it")
+					}
+					for (const comp of c.companions) {
+						if (comp.reading !== "caller") {
+							k.note(`${comp.reading} companion`)
+						}
 					}
 					const substrate = yield* Substrate
 					const session = yield* substrate.session({
@@ -126,7 +139,10 @@ export const exactlyKeyTextBytes = property.explore(caseGen, {
 					)
 					const values = (text: string): string =>
 						Arr.join(
-							[...Arr.map(c.companions, widestOf), `'${Str.replaceAll("'", "''")(text)}'`],
+							[
+								...Arr.map(c.companions, (comp) => widestOf(comp.type)),
+								`'${Str.replaceAll("'", "''")(text)}'`
+							],
 							", "
 						)
 					const atBudget = textOf(budget, c.widths, c.last, c.salt)
@@ -194,6 +210,12 @@ export const exactlyKeyTextBytes = property.explore(caseGen, {
 			original: "\treturn room.value",
 			replacement: "\treturn room.value + 1",
 			why: "keyTextBytes allows one byte past the room the companions leave (public/text.ts), so the tight case's entry that carries the null bitmap overflows the B-tree item limit (54000)."
+		},
+		{
+			file: "packages/engine/src/schema/relation.ts",
+			original: "\tconst recorded = writtenByOf(value) ?? slottedOf(value)",
+			replacement: "\tconst recorded = writtenByOf(value)",
+			why: "The one reading of a field as its declared type (describeDeclared) misses a slot: a closed relation's slot field is read as itself, a copy of its closed id that no builder registered, so keyTextBytes refuses a slot companion (MalformedDescription) though its type admits it."
 		}
 	]
 })

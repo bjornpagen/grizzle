@@ -1,15 +1,48 @@
 /** What the properties of key-text-bytes.test.ts read: its spaces, models and helpers. */
 
-import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import {
+	type Aimed,
+	aimed,
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { natural, pg, uuid } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	closedId,
+	drawn,
+	generated,
+	natural,
+	pg,
+	retirement,
+	slot,
+	uuid
+} from "#compiler/public/fields.ts"
+import { closed as closedRelations, fin, relation } from "#compiler/public/schema.ts"
 import { admittedClosedId, closedBuilder as closed } from "#compiler/schema/relation.ts"
-import type { FieldBase } from "#compiler/types/fields/field.ts"
+import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 import { defined } from "#test/support/assert.ts"
 
-/** A key's other field. */
-type Companion = "uuid" | "natural" | "integer" | "smallint" | "boolean" | "closedId"
+/** The type of a key's other field. */
+type CompanionType = "uuid" | "natural" | "integer" | "smallint" | "boolean" | "closedId"
+
+/**
+ * How a companion is handed to keyTextBytes: as its type's descriptor, a caller's field, or as a field of its type that
+ * grizzle or PostgreSQL writes, which keyTextBytes reads as that type: an accumulated or a generated field of any type,
+ * drawn(natural), the retirement field, a boolean, and a closed relation's slot over a closed id.
+ */
+type Reading = "caller" | "accumulated" | "generated" | "drawn" | "retirement" | "slot"
+
+/** A key's other field: its type, which the installed relation declares it of, and how keyTextBytes is handed it. */
+interface Companion {
+	readonly type: CompanionType
+	readonly reading: Reading
+}
 
 /** A code point's UTF-8 width, by its class: ASCII, two-byte, CJK and astral. */
 type Width = 1 | 2 | 3 | 4
@@ -26,7 +59,7 @@ interface KeyCase {
 
 export const Kind = closed("Kind", ["A", "B"], "ordered", [])
 
-export const descriptorOf = (c: Companion): FieldBase => {
+export const descriptorOf = (c: CompanionType): FieldBase => {
 	switch (c) {
 		case "uuid":
 			return uuid
@@ -43,8 +76,74 @@ export const descriptorOf = (c: Companion): FieldBase => {
 	}
 }
 
+/** The readings of a companion's type: a caller's, an accumulated and a generated field of every type, and its own. */
+const readingsOf = (c: CompanionType): Arr.NonEmptyReadonlyArray<Reading> => {
+	switch (c) {
+		case "natural":
+			return ["caller", "accumulated", "generated", "drawn"]
+		case "boolean":
+			return ["caller", "accumulated", "generated", "retirement"]
+		case "closedId":
+			return ["caller", "accumulated", "generated", "slot"]
+		case "uuid":
+		case "integer":
+		case "smallint":
+			return ["caller", "accumulated", "generated"]
+	}
+}
+
+/** The value an accumulated companion starts at, one of its type's. */
+const startOf = (c: CompanionType): unknown => {
+	switch (c) {
+		case "uuid":
+			return "00000000-0000-4000-8000-000000000000"
+		case "natural":
+			return 0n
+		case "integer":
+		case "smallint":
+			return 0
+		case "boolean":
+			return false
+		case "closedId":
+			return "A"
+	}
+}
+
+/** The owner of a closed relation's slots over Kind, and its count of them. */
+const Owner = closed("Owner", ["owner"], "ordered", [])
+const Slots = closedRelations.relation(
+	"Slots",
+	{ owner: closedId(Owner), n: natural },
+	["owner"],
+	[{ owner: "owner", n: 2n }]
+)
+
+/**
+ * The field keyTextBytes is handed for a companion: its type's descriptor, or a field of its reading's kind of that
+ * type, a generated one read off the relation it is generated in.
+ */
+export const fieldOf = (c: Companion): FieldBase | GeneratedField<FieldBase> => {
+	const declared = descriptorOf(c.type)
+	switch (c.reading) {
+		case "caller":
+			return declared
+		case "accumulated":
+			return accumulated(declared, startOf(c.type))
+		case "generated":
+			return relation.generated("Companion", { id: uuid, w: declared }, ["id"], (row) => ({
+				x: generated(declared, row.w)
+			})).fields.x
+		case "drawn":
+			return drawn(natural)
+		case "retirement":
+			return retirement
+		case "slot":
+			return slot(closedId(Kind), fin(Slots, "n"))
+	}
+}
+
 /** Each companion's widest value as SQL writes it: a closed id is its code, the largest Kind numbers. */
-export const widestOf = (c: Companion): string => {
+export const widestOf = (c: CompanionType): string => {
 	switch (c) {
 		case "uuid":
 			return "'ffffffff-ffff-ffff-ffff-ffffffffffff'"
@@ -121,10 +220,18 @@ export const lastWidth = (text: string): Width | undefined => {
 	}
 }
 
-const companionGen: Gen<Companion> = weighted<Companion>([
-	[3, element<Companion>(["uuid", "boolean"])],
-	[2, element<Companion>(["natural", "integer", "smallint", "closedId"])]
+const companionTypeGen: Gen<CompanionType> = weighted<CompanionType>([
+	[3, element<CompanionType>(["uuid", "boolean"])],
+	[2, element<CompanionType>(["natural", "integer", "smallint", "closedId"])]
 ])
+
+/** A companion of `type`, handed to keyTextBytes by any reading its type has. */
+const companionOf =
+	(type: CompanionType): Gen<Companion> =>
+	(source) => ({ type, reading: source.draw(element(readingsOf(type))) })
+
+const companionGen: Gen<Companion> = (source) =>
+	source.draw(companionOf(source.draw(companionTypeGen)))
 
 /** The key's other fields, and whether the text stands last in the key. */
 interface Fields {
@@ -146,43 +253,66 @@ const freeFieldsGen: Gen<Fields> = (source) => {
 const tightFieldsGen: Gen<Fields> = (source) => {
 	const booleans = source.draw(element([1, 5]))
 	const uuids = source.draw(int(0, 5 - booleans))
+	const types: Arr.NonEmptyReadonlyArray<CompanionType> = [
+		"boolean",
+		...Array.from({ length: booleans - 1 }, (): CompanionType => "boolean"),
+		...Array.from({ length: uuids }, (): CompanionType => "uuid")
+	]
 	return {
-		companions: [
-			"boolean",
-			...Array.from({ length: booleans - 1 }, (): Companion => "boolean"),
-			...Array.from({ length: uuids }, (): Companion => "uuid")
-		],
+		companions: Arr.map(types, (type) => source.draw(companionOf(type))),
 		textLast: true
 	}
 }
 
 const widthGen: Gen<Width> = element<Width>([1, 2, 3, 4])
 
-export const caseGen: Gen<KeyCase> = (source) => {
-	const { companions: all, textLast } = source.draw(
-		weighted<Fields>([
-			[3, freeFieldsGen],
-			[1, tightFieldsGen]
-		])
-	)
-	const ranked = Arr.map(indices(all.length + 1), (position) => ({
-		position,
-		rank: textLast && position === all.length ? 0x10000 : source.draw(int(0, 0xffff))
-	}))
-	return {
-		companions: all,
-		order: Arr.map(
-			Arr.sort(
-				ranked,
-				Order.mapInput(Order.Number, (p: { readonly rank: number }) => p.rank)
+/** A case over the fields `fields` draws: the key's order, the text's code point widths and its salt. */
+const caseOver =
+	(fields: Gen<Fields>): Gen<KeyCase> =>
+	(source) => {
+		const { companions: all, textLast } = source.draw(fields)
+		const ranked = Arr.map(indices(all.length + 1), (position) => ({
+			position,
+			rank: textLast && position === all.length ? 0x10000 : source.draw(int(0, 0xffff))
+		}))
+		return {
+			companions: all,
+			order: Arr.map(
+				Arr.sort(
+					ranked,
+					Order.mapInput(Order.Number, (p: { readonly rank: number }) => p.rank)
+				),
+				(p) => p.position
 			),
-			(p) => p.position
-		),
-		widths: [source.draw(widthGen), ...source.draw(array(widthGen, { min: 0, max: 3 }))],
-		last: source.draw(widthGen),
-		salt: source.draw(int(0, 0xffff))
+			widths: [source.draw(widthGen), ...source.draw(array(widthGen, { min: 0, max: 3 }))],
+			last: source.draw(widthGen),
+			salt: source.draw(int(0, 0xffff))
+		}
 	}
-}
+
+const caseGen: Gen<KeyCase> = caseOver(
+	weighted<Fields>([
+		[3, freeFieldsGen],
+		[1, tightFieldsGen]
+	])
+)
+
+/** Free fields whose first companion is of `type`, handed to keyTextBytes by `reading`. */
+const withCompanion =
+	(type: CompanionType, reading: Exclude<Reading, "caller">): Gen<Fields> =>
+	(source) => {
+		const { companions, textLast } = source.draw(freeFieldsGen)
+		return { companions: [{ type, reading }, ...Arr.drop(companions, 1)], textLast }
+	}
+
+/** The cases, each aimed at a kind of field a companion is handed as while it is pending, over a type that has it. */
+export const caseSpace: Aimed<KeyCase, BytesFeature> = aimed(caseGen, [
+	["accumulated companion", caseOver(withCompanion("integer", "accumulated"))],
+	["generated companion", caseOver(withCompanion("uuid", "generated"))],
+	["drawn companion", caseOver(withCompanion("natural", "drawn"))],
+	["retirement companion", caseOver(withCompanion("boolean", "retirement"))],
+	["slot companion", caseOver(withCompanion("closedId", "slot"))]
+])
 
 /** Where the text stands in the key: its place among the key's fields, `companions.length` its own position. */
 export const textPosition = (c: KeyCase): number =>
@@ -203,16 +333,17 @@ export const tight = (c: KeyCase): boolean => {
 	const end = Arr.reduce(
 		before,
 		16,
-		(o, comp) => o + (comp === "uuid" ? 16 : comp === "boolean" ? 1 : 0)
+		(o, comp) => o + (comp.type === "uuid" ? 16 : comp.type === "boolean" ? 1 : 0)
 	)
 	return (
 		textAt === c.companions.length &&
-		Arr.every(before, (comp) => comp === "uuid" || comp === "boolean") &&
+		Arr.every(before, (comp) => comp.type === "uuid" || comp.type === "boolean") &&
 		end % 4 === 1
 	)
 }
 
 export type BytesFeature =
+	| `${Exclude<Reading, "caller">} companion`
 	| "tight budget"
 	| "text first"
 	| "text last"
