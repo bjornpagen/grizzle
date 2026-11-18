@@ -31,7 +31,10 @@
  * - Db.open admits every role at the last snapshot;
  * - the installed-catalog checker finds nothing;
  * - no migration recreates a login or a role: each keeps its OID across the versions, so a password and what other
- *   roles were granted survive, a renamed login included.
+ *   roles were granted survive, a renamed login included;
+ * - each role reads, by the certifier's bound of its direct transactions (physical/ddl/roles.ts readableRelations),
+ *   exactly the stored relations PostgreSQL lets a statement of it read: each table or materialized view it holds a
+ *   table or column privilege on, and each its views read, through views to any depth, by the catalog's dependencies.
  *
  * Features: each knob's turn, the login renamed back, several knobs at once and a history of two migrations, each a
  * steered case constructs while it is pending: a start where the knob turns, and the turn.
@@ -40,10 +43,11 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option } from "effect"
+import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { readableRelations } from "#compiler/physical/ddl/roles.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	aims,
@@ -64,6 +68,28 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { withServedDb } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+
+/**
+ * The tables and materialized views a PostgreSQL role can read, by schema and name: each it holds a table or column
+ * privilege on, and each a view it can read depends on, through views to any depth (a view's rewrite rule depends on
+ * every relation its definition reads), never through a materialized view, which a read reads as it stands.
+ */
+const reachQuery = `WITH RECURSIVE reach(oid) AS (
+	SELECT c.oid FROM pg_catalog.pg_class AS c
+	WHERE c.relkind IN ('r', 'p', 'v', 'm')
+		AND (pg_catalog.has_table_privilege($1::text, c.oid, 'SELECT,INSERT,UPDATE,DELETE')
+			OR pg_catalog.has_any_column_privilege($1::text, c.oid, 'SELECT,INSERT,UPDATE'))
+	UNION
+	SELECT d.refobjid FROM reach AS r
+	JOIN pg_catalog.pg_class AS v ON v.oid = r.oid AND v.relkind = 'v'
+	JOIN pg_catalog.pg_rewrite AS w ON w.ev_class = v.oid
+	JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_rewrite'::pg_catalog.regclass
+		AND d.objid = w.oid AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass AND d.refobjid <> v.oid
+)
+SELECT n.nspname::text, c.relname::text FROM reach AS r
+JOIN pg_catalog.pg_class AS c ON c.oid = r.oid
+JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p', 'm')`
 
 /** Worlds across migrations every history of the changes a world rests on migrates with its roles kept and its catalog admitted. */
 export const worlds = property.explore(aimed(historyGen, aims), {
@@ -159,13 +185,45 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 						checkInstalled(read.catalog, installedScope(m.installation, m.snapshot)),
 						[]
 					)
+					/** Each relation PostgreSQL stores a table or a materialized view of, by its table's qualified name. */
+					const tabled = new Map<string, string>(
+						Arr.flatMap(Rec.toEntries(m.installation.laws.owned.relations), ([name, r]) => {
+							if (r.kind === "relation" || (r.kind === "derived" && r.view.kind !== "live")) {
+								const table = m.installation.names.relation(name)
+								return [[`${table.schema}.${table.name}`, name] as const]
+							}
+							return []
+						})
+					)
+					const installed = Arr.flatMap(m.installation.worlds, (l) => l.roles)
+					for (const { checked } of Arr.flatMap(m.installation.logins, (l) => l.roles)) {
+						const name = checked.world.role.name
+						const pgRole = defined(
+							Option.getOrUndefined(Arr.findFirst(installed, (r) => r.name === name)),
+							`the installed role ${name}`
+						).role
+						const rows = yield* m.owner.values(reachQuery, [pgRole])
+						const reached = Arr.sort(
+							Arr.flatMap(rows, (row) => {
+								const relation = tabled.get(`${String(row[0])}.${String(row[1])}`)
+								return relation === undefined ? [] : [relation]
+							}),
+							Order.String
+						)
+						const stored = new Set(tabled.values())
+						assert.deepEqual(
+							Arr.filter(readableRelations(m.installation.laws, checked), (r) => stored.has(r)),
+							reached,
+							`${name} reads by its grants exactly what PostgreSQL lets it read`
+						)
+					}
 				}),
 				Substrate,
 				caseSubstrate
 			),
 	oracle: {
 		kind: "postgresql",
-		name: "the catalog: each login's and role's OID across the versions, the runner's drift check, Db.open's admission and the installed-catalog checker"
+		name: "the catalog: each login's and role's OID across the versions, the runner's drift check, Db.open's admission, the installed-catalog checker, and each role's privileges and its views' dependencies"
 	},
 	kept: [],
 	kills: [
@@ -174,6 +232,20 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 			original: "\tif (logins.size === 0) {",
 			replacement: "\tif (logins.size >= 0) {",
 			why: "A draft ignores every declared login rename, so the renamed login is a new PostgreSQL role and loses its OID."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/roles.ts",
+			original: '\t\tentry.kind === "whole" ? [entry.relation.name] : entry.reads.flatMap(stored)',
+			replacement: '\t\tentry.kind === "whole" ? [entry.relation.name] : []',
+			why: "A role's query entries read nothing by its grants, so a direct writer's reads miss a relation its view of the shared notes reads (Share), and the certifier bounds it short of what PostgreSQL lets it read."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/roles.ts",
+			original:
+				"\treturn [...new Set([...viewed, ...grantedPrivileges(model, checked).keys()])].toSorted(",
+			replacement:
+				"\treturn [...new Set([...viewed, ...Object.keys(role.base.relations)])].toSorted(",
+			why: "A role read as reading every relation of its base regardless of its grants (a17decc0's bound), the organizations among the editor's reads."
 		}
 	]
 })
