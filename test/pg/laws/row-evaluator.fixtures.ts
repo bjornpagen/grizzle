@@ -9,8 +9,16 @@ import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "e
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Result } from "#compiler/core/result.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
-import { relation, rowEvaluator, schema, type Unevaluated } from "#compiler/public/schema.ts"
+import {
+	constraintNamesOf,
+	derived,
+	relation,
+	rowEvaluator,
+	schema,
+	type Unevaluated
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { query, v } from "#compiler/query/build/query.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -59,12 +67,16 @@ export interface EvalRow {
 	readonly u: number
 }
 
-/** A case: its world, its rows, its generated field's sort and term, its row checks and its selection's predicate. */
+/**
+ * A case: its world, its rows, its generated field's sort and term, its row checks, the checks of its derived
+ * relations, each in the rule vocabulary, and its selection's predicate.
+ */
 export interface EvalCase {
 	readonly world: World
 	readonly rows: NonEmptyReadonlyArray<EvalRow>
 	readonly generated: Stored
 	readonly checks: NonEmptyReadonlyArray<Pred>
+	readonly rules: NonEmptyReadonlyArray<Pred>
 	readonly selection: Pred
 }
 
@@ -78,6 +90,9 @@ export type Feature =
 	| "a check holds"
 	| "a check breaks at false"
 	| "a check breaks at NULL"
+	| "a derived check holds"
+	| "a derived check breaks at false"
+	| "a derived check holds at NULL"
 	| "a row every check holds of stored"
 	| "a refusal naming one check of several a row breaks"
 	| "a row selected"
@@ -102,6 +117,9 @@ export const required: NonEmptyReadonlyArray<Feature> = [
 	"a check holds",
 	"a check breaks at false",
 	"a check breaks at NULL",
+	"a derived check holds",
+	"a derived check breaks at false",
+	"a derived check holds at NULL",
 	"a row every check holds of stored",
 	"a refusal naming one check of several a row breaks",
 	"a row selected",
@@ -126,10 +144,14 @@ const uGen: Gen<number> = weighted([
 	[1, int(6, 8)]
 ])
 
-/** A case: a world, two to six rows, a generated field of a drawn sort, one to three row checks and a selection. */
+/**
+ * A case: a world, two to six rows, a generated field of a drawn sort, one to three row checks, one to three checks of
+ * derived relations and a selection.
+ */
 export const caseGen: Gen<EvalCase> = (s) => {
 	const world = s.draw(worldGen)
 	const pred = predGen(world, 2, "check")
+	const rule = predGen(world, 2, "rule")
 	const row: Gen<EvalRow> = (r) => ({
 		item: r.draw(itemGen(world)),
 		p: r.draw(pGen),
@@ -140,17 +162,26 @@ export const caseGen: Gen<EvalCase> = (s) => {
 		rows: [s.draw(row), s.draw(row), ...s.draw(array(row, { min: 0, max: 4 }))],
 		generated: s.draw(storedFieldGen(world)),
 		checks: [s.draw(pred), ...s.draw(array(pred, { min: 0, max: 2 }))],
+		rules: [s.draw(rule), ...s.draw(array(rule, { min: 0, max: 2 }))],
 		selection: s.draw(pred)
 	}
 }
 
-/** A row check's name: Holds0, Holds1, Holds2. */
-const checkName = (j: number): string => `Holds${j}`
+/**
+ * The names of a case's checks and of the relations each stands on, one slot per check, in order: names the schema's
+ * type reads, so a level over it holds its relations by name (types/schema/schema.ts DeclaredOver).
+ */
+const slots = [
+	{ name: "Holds0", each: "Each0", src: "Src0", derived: "D0" },
+	{ name: "Holds1", each: "Each1", src: "Src1", derived: "D1" },
+	{ name: "Holds2", each: "Each2", src: "Src2", derived: "D2" }
+] as const
 
 /**
- * The schema of a case: its world's closed relations; Gen, the rows' fields and the generated field g; All, the rows'
- * fields under every row check; for each check, EachJ under it alone, named as All's; and the selection of Gen by the
- * case's predicate.
+ * The schema of a case. Its first level holds its world's closed relations; Gen, the rows' fields and the generated
+ * field g; All, the rows' fields under every row check; for each check, EachJ under it alone, named as All's; and SrcJ,
+ * the rows' fields under none. Its second level holds DJ, live, every row of SrcJ, under the case's Jth derived check,
+ * which a trigger on SrcJ holds. The selection is of Gen by the case's predicate.
  */
 const builtOf = (ec: EvalCase) => {
 	const c = closedOf(ec.world)
@@ -166,27 +197,88 @@ const builtOf = (ec: EvalCase) => {
 	)
 	const All = relation("All", fields, ["id"])
 	const holding = (pred: Pred) => (r: Readonly<Record<string, unknown>>) => buildPred(c, r, pred)
-	const checks = Arr.map(ec.checks, (pred, j) => {
-		const name = checkName(j)
-		const Each = relation(`Each${j}`, fields, ["id"])
-		return {
+	const [s0, s1, s2] = slots
+	const Each0 = relation(s0.each, fields, ["id"])
+	const Each1 = relation(s1.each, fields, ["id"])
+	const Each2 = relation(s2.each, fields, ["id"])
+	const Src0 = relation(s0.src, fields, ["id"])
+	const Src1 = relation(s1.src, fields, ["id"])
+	const Src2 = relation(s2.src, fields, ["id"])
+	const checks = Arr.map(
+		Arr.zip(ec.checks, [
+			{ slot: s0, Each: Each0 },
+			{ slot: s1, Each: Each1 },
+			{ slot: s2, Each: Each2 }
+		] as const),
+		([pred, { slot, Each }]) => ({
 			pred,
-			name,
+			name: slot.name,
 			Each,
-			inAll: checkBuilder(name, All, holding(pred)),
-			inEach: checkBuilder(name, Each, holding(pred))
-		}
-	})
+			inAll: checkBuilder(slot.name, All, holding(pred)),
+			inEach: checkBuilder(slot.name, Each, holding(pred))
+		})
+	)
+	const level = schema(
+		"RowEvaluator",
+		[
+			c.Kind,
+			c.Flag,
+			c.Pick,
+			c.Wt,
+			c.Succ,
+			c.Next,
+			c.Allowed,
+			Gen,
+			All,
+			Each0,
+			Each1,
+			Each2,
+			Src0,
+			Src1,
+			Src2
+		],
+		Arr.flatMap(checks, (check) => [check.inAll, check.inEach])
+	)
+	const derivedOf = <const N extends string>(
+		name: N,
+		Src: typeof Src0 | typeof Src1 | typeof Src2
+	) =>
+		derived(
+			name,
+			query(level).rule((r) => {
+				const x = v(Src, "s")
+				return r.match(Src, x).find(x)
+			})
+		)
+	const D0 = derivedOf(s0.derived, Src0)
+	const D1 = derivedOf(s1.derived, Src1)
+	const D2 = derivedOf(s2.derived, Src2)
+	const rules = Arr.map(
+		Arr.zip(ec.rules, [
+			{ slot: s0, Src: Src0, D: D0 },
+			{ slot: s1, Src: Src1, D: D1 },
+			{ slot: s2, Src: Src2, D: D2 }
+		] as const),
+		([pred, { slot, Src, D }]) => ({
+			pred,
+			name: slot.name,
+			Src,
+			D,
+			inD: checkBuilder(slot.name, D, holding(pred))
+		})
+	)
 	return {
 		c,
 		Gen,
 		All,
 		checks,
+		rules,
 		selected: selectBuilder(Gen, holding(ec.selection)),
-		declared: schema(
-			"RowEvaluator",
-			[...Rec.values(c), Gen, All, ...Arr.map(checks, (j) => j.Each)],
-			[...Arr.map(checks, (j) => j.inAll), ...Arr.map(checks, (j) => j.inEach)]
+		declared: schema.extend(
+			level,
+			"RowEvaluatorDerived",
+			[D0, D1, D2],
+			Arr.map(rules, (j) => j.inD)
 		)
 	}
 }
@@ -195,8 +287,8 @@ const builtOf = (ec: EvalCase) => {
 type Built = ReturnType<typeof builtOf>
 /** A check of a case, its relation under it alone and its statements. */
 type Judged = Built["checks"][number]
-/** The relation under one check alone. */
-type Each = Judged["Each"]
+/** A relation under one check alone, or under none. */
+type Each = Judged["Each"] | Built["rules"][number]["Src"]
 
 /** The fields a row writes, in the order its values are written (rowValues). */
 const written = [...itemColumns, "p", "u"] as const
@@ -252,6 +344,13 @@ const checkNote = (truth: Truth): Feature =>
 			? "a check breaks at false"
 			: "a check breaks at NULL"
 
+const derivedNote = (truth: Truth): Feature =>
+	truth === true
+		? "a derived check holds"
+		: truth === false
+			? "a derived check breaks at false"
+			: "a derived check holds at NULL"
+
 const selectionNote = (truth: Truth): Feature =>
 	truth === true
 		? "a row selected"
@@ -300,6 +399,7 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 			)
 		const checkConstraint = (statement: Judged["inAll"] | Judged["inEach"]) =>
 			names.constraintOf(names.lawOf(statement), "TableCheck")
+		const constraintNameOf = constraintNamesOf(built.declared)
 		const admitted: Array<readonly [number, Item]> = []
 		const hostSelected: Array<string> = []
 		for (const [id, row] of ec.rows.entries()) {
@@ -312,6 +412,7 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 				...check,
 				of: evaluate(check.Each, fact)
 			}))
+			const ruled = Arr.map(built.rules, (rule) => ({ ...rule, of: evaluate(rule.D, fact) }))
 			const domains = yield* session.values(
 				`SELECT pg_input_is_valid($1::text, $2::text), pg_input_is_valid($3::text, $4::text)`,
 				[row.p, domainOf(pattern.domain), `${row.u}`, domainOf(units.domain)]
@@ -330,7 +431,8 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 					[ofGen, "Gen"],
 					[ofAll, "All"],
 					[ofSelection, "the selection"],
-					...Arr.map(judged, (j) => [j.of, `Each of ${j.name}`] as const)
+					...Arr.map(judged, (j) => [j.of, `Each of ${j.name}`] as const),
+					...Arr.map(ruled, (j) => [j.of, j.D.name] as const)
 				] as const) {
 					assert.ok(
 						!evaluation.ok && fields.includes(evaluation.error.field),
@@ -420,6 +522,26 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 					breaking.push(checkConstraint(check.inAll))
 				}
 				k.note(checkNote(evalPred(ec.world, row.item, check.pred, silent)))
+			}
+			for (const rule of ruled) {
+				if (!rule.of.ok) {
+					return assert.fail(`the host admits ${at} as a row of ${rule.D.name}`)
+				}
+				const verdict = evaluatedItem(
+					rule.of.value.checks[rule.name],
+					`${rule.name} of ${rule.D.name} at ${at}`
+				)
+				const refused = yield* insert(rule.Src, id, row)
+				assert.ok(
+					verdict === "holds"
+						? Option.isNone(refused)
+						: Option.isSome(refused) &&
+								refused.value.code === "23514" &&
+								refused.value.constraint ===
+									constraintNameOf({ kind: "check", relation: rule.D.name, name: rule.name }),
+					`the host's verdict ${verdict} of ${rule.name} over ${rule.D.name} at ${at} is its rule trigger's: ${Formatter.format(refused)}`
+				)
+				k.note(derivedNote(evalPred(ec.world, row.item, rule.pred, silent)))
 			}
 			const refusedAll = yield* insert(All, id, row)
 			assert.ok(

@@ -1,5 +1,3 @@
-import { typingEnv } from "#compiler/analysis/theory/theory.ts"
-import { rowNode } from "#compiler/check/generated.ts"
 /**
  * rowEvaluator(schema): the host's evaluation of one row of a schema's relation, by grizzle's one evaluator of its
  * terms (scalar/compute/evaluate.ts), through the judge a refused write's witness reads its rows by
@@ -10,16 +8,20 @@ import { rowNode } from "#compiler/check/generated.ts"
  * select(R, φ). A relation is its selection of every row, select(R, TRUE), so every source states one predicate, which
  * is read once, where the source is first evaluated. Its evaluation is what PostgreSQL computes of the row:
  * - each field PostgreSQL generates, its value, NULL as null, by the generation expression its column holds;
- * - each row check of the relation, check(name, R, φ), its verdict as `CHECK ((φ) IS TRUE)` judges it: a stored
- *   relation's by the CHECK its table holds (the law model's native), a derived relation's by its predicate over the
- *   derived row, which its rule's violation query filters by;
+ * - each row check of the relation, check(name, R, φ), its verdict as the installation holds it: a stored relation's
+ *   by the CHECK its table holds (the law model's native), `CHECK ((φ) IS TRUE)`, which a NULL φ breaks; a derived
+ *   relation's by its rule's violation query, `WHERE NOT (φ)` over the derived row, which a NULL φ holds;
  * - whether the source selects it, its predicate's truth, NULL selecting no row, as `WHERE` reads it.
  *
  * Before any of it, PostgreSQL holds each value to its domain: a value outside its type's contract or pattern is
  * refused (DomainRefused), which a brand, unchecked, does not exclude. A row inside its domains meets every partial
  * operation's proof, so an evaluation that finds a precondition undefined is a defect of grizzle's, never an outcome.
- * An item whose expression reads what the host does not evaluate is Unevaluated, its place its own.
+ * An item whose expression the host does not lower or does not evaluate is Unevaluated, its place its own.
  */
+
+import { typingEnv } from "#compiler/analysis/theory/theory.ts"
+import { rowNode } from "#compiler/check/generated.ts"
+import { checkDefinition } from "#compiler/check/index.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -40,12 +42,18 @@ import {
 	judgeOf
 } from "#compiler/runtime/write/witness.ts"
 import type { EvalStop } from "#compiler/scalar/compute/evaluate.ts"
-import { exprEmitter, lowerPredicate, noParams } from "#compiler/scalar/compute/lower.ts"
+import {
+	admittedReads,
+	exprEmitter,
+	lowerPredicate,
+	noParams
+} from "#compiler/scalar/compute/lower.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { hostOf } from "#compiler/scalar/values/identity.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
 import { namedRelation } from "#compiler/schema/relation.ts"
 import type { SelectedDesc } from "#compiler/schema/statements.ts"
+import { exprPatternReads } from "#compiler/schema/walk.ts"
 import type {
 	CheckVerdict,
 	DomainRefused,
@@ -60,43 +68,69 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { closedTableOf, lawChecksOf, witnessField } from "#compiler/write/program/decide.ts"
 
 /**
+ * An expression the host evaluates over a source's rows, lowered once: its table, or Unevaluated where the host's
+ * lowering of a row predicate (rowPredicate) refuses it, one only a query admits, such as float arithmetic, the
+ * refusal's words its `why`.
+ */
+type Lowered = Result.Result<ExprTable, Unevaluated>
+
+/**
  * A source as the host evaluates rows of it, read once: its relation's fields as the judge reads them, the fields of
- * its rows a domain holds, each generated field's expression and each row check's predicate by name, its selection's
- * predicate, and the judge over the patterns they read.
+ * its rows a domain holds, each generated field's expression and each row check by name, its selection's predicate,
+ * and the judge over the patterns they read.
  */
 interface Prepared {
 	readonly table: JudgedTable
 	readonly refined: ReadonlyArray<JudgedField>
 	readonly generated: ReadonlyArray<{ readonly name: string; readonly expr: ExprTable }>
-	readonly checks: ReadonlyArray<{ readonly name: string; readonly predicate: ExprTable }>
-	readonly selection: ExprTable
+	readonly checks: ReadonlyArray<HeldCheck>
+	readonly selection: Lowered
 	readonly judge: Judge
 }
+
+/**
+ * A row check as the installation holds it, by name, its expression the one PostgreSQL evaluates over the row: a stored
+ * relation's by its table's CHECK, `CHECK ((p) IS TRUE)`, `expr` its predicate p, which a row breaks where p is false
+ * or NULL; a derived relation's by its rule's violation query, `WHERE NOT (p)` (analysis/theory/query.ts), `expr` NOT
+ * p, which a row breaks where it is true, p false, a NULL p holding it.
+ */
+type HeldCheck =
+	| { readonly held: "check"; readonly name: string; readonly expr: Lowered }
+	| { readonly held: "rule"; readonly name: string; readonly expr: Lowered }
 
 /** A relation of the schema as a source reads it: its fields as the judge reads them, and its row checks by name. */
 interface ReadRelation {
 	readonly fields: ReadonlyArray<JudgedField>
-	readonly checks: ReadonlyArray<{ readonly name: string; readonly predicate: ExprTable }>
+	readonly checks: ReadonlyArray<HeldCheck>
 }
 
 /** Where a host evaluation of `relation` lowers what it reads, for its refusals. */
 const evaluationLoc = (relation: string): SourceLoc => SourceLoc(`rowEvaluator ${relation}`, [])
 
+/** A lowering the host refuses, as the item it is of: Unevaluated, the refusal's words its `why`. */
+const refusedLowering = (error: CompileError): Unevaluated => ({
+	_tag: "Unevaluated",
+	why: error.message
+})
+
 /**
  * A row predicate over `relation`'s fields lowered as a check lowers one (mode "check"), each field read as a column of
- * the row (check/generated.ts rowNode), as its table: a selection's predicate, or a derived relation's row check.
+ * the row (check/generated.ts rowNode), as its table: a selection's predicate, or a derived relation's row check's
+ * violation. It is its own lowering batch, so each closed payload it reads as a Compute.matches pattern is admitted for
+ * it (lower.ts admittedReads). One the check lowering refuses is Unevaluated (Lowered): a rule's predicate is lowered
+ * where its violation query is checked, as a query's, which admits what no check does.
  */
 const rowPredicate = (
 	model: LawModel,
 	relation: string,
 	fields: ReadonlyArray<HeadingColumn>,
 	predicate: ExprDesc
-): Result.Result<ExprTable, CompileError> => {
+): Lowered => {
 	const loc = evaluationLoc(relation)
-	return Result.map(
+	const lowered = Result.map(
 		lowerPredicate(predicate, {
 			...typingEnv(model.owned),
-			closed: model.checked.closedReads,
+			closed: admittedReads(model.checked.closedReads, exprPatternReads([predicate])),
 			mode: "check",
 			loc,
 			emit: exprEmitter(`rowEvaluator ${relation}`),
@@ -114,19 +148,19 @@ const rowPredicate = (
 						})
 			}
 		}),
-		(lowered) => predicateTable(lowered.expr)
+		(table) => predicateTable(table.expr)
 	)
+	return Result.mapError(lowered, refusedLowering)
 }
 
 /**
  * Every relation of the model as a source reads it, by name: a stored relation's fields as its table holds them and its
- * row checks by the CHECK each is installed as (decide.ts lawChecksOf, the witness's reading); a derived relation's
- * heading and its row checks, each its predicate over the derived row (rowPredicate), which its rule's violation query
- * filters by. A derived row check that does not lower is the schema's CompileError.
+ * row checks by the CHECK each is installed as (decide.ts lawChecksOf, the witness's reading); a derived relation's,
+ * live or materialized, its definition's heading as the checker types it (check/index.ts checkDefinition, the theory's
+ * typing of a rule over it) and its row checks, each the violation its rule's query filters by, NOT p over the derived
+ * row (rowPredicate). The model compiled, so each definition checks.
  */
-const readRelations = (
-	model: LawModel
-): Result.Result<ReadonlyMap<string, ReadRelation>, CompileError> => {
+const readRelations = (model: LawModel): ReadonlyMap<string, ReadRelation> => {
 	const read = new Map<string, ReadRelation>()
 	for (const [name, stored] of model.checked.relations) {
 		read.set(name, {
@@ -135,25 +169,38 @@ const readRelations = (
 				test.kind === "row"
 					? laws.flatMap(({ described }) =>
 							described.kind === "check"
-								? [{ name: described.name, predicate: test.predicate }]
+								? [
+										{
+											held: "check" as const,
+											name: described.name,
+											expr: Result.ok(test.predicate)
+										}
+									]
 								: []
 						)
 					: []
 			)
 		})
 	}
-	for (const derived of model.checked.derived) {
-		const heading = derived.read.heading
-		const checks: Array<{ readonly name: string; readonly predicate: ExprTable }> = []
+	for (const derived of Object.values(model.owned.relations)) {
+		if (derived.desc.kind !== "derived") {
+			continue
+		}
+		const admitted = checkDefinition(model.checked, `derived ${derived.name}`, derived.desc.query)
+		if (!admitted.ok) {
+			throw defect(`the definition of ${derived.name}, which the compiled schema checked`)
+		}
+		const heading = admitted.value.dag.roots[0].heading
+		const checks: Array<HeldCheck> = []
 		for (const statement of model.owned.statements) {
 			if (statement.kind !== "check" || statement.relation !== derived.name) {
 				continue
 			}
-			const predicate = rowPredicate(model, derived.name, heading, statement.predicate)
-			if (!predicate.ok) {
-				return predicate
-			}
-			checks.push({ name: statement.name, predicate: predicate.value })
+			checks.push({
+				held: "rule",
+				name: statement.name,
+				expr: rowPredicate(model, derived.name, heading, { kind: "not", arg: statement.predicate })
+			})
 		}
 		read.set(derived.name, {
 			fields: heading.map((c): JudgedField => ({
@@ -164,7 +211,7 @@ const readRelations = (
 			checks
 		})
 	}
-	return Result.ok(read)
+	return read
 }
 
 /**
@@ -178,10 +225,12 @@ const selectedOf = (source: unknown): SelectedDesc => {
 		: { relation: selection.relation, predicate: connectiveExpr("and", [selection.predicate]) }
 }
 
+/** The patterns a lowered expression reads, none of one the host refused. */
+const loweredPatterns = (lowered: Lowered) => (lowered.ok ? tablePatterns(lowered.value) : [])
+
 /**
  * A source of the model read once (Prepared): its relation's reading and its selection's predicate lowered over its
- * fields. The source is a value of the schema's type, so a relation the model does not hold, or a selection over it
- * that does not lower, is a defect.
+ * fields. The source is a value of the schema's type, so a relation the model does not hold is a defect.
  */
 const prepare = (
 	model: LawModel,
@@ -201,24 +250,21 @@ const prepare = (
 		fields.map((f) => ({ name: f.name, type: f.type })),
 		selected.predicate
 	)
-	if (!selection.ok) {
-		throw defect(`the selection of ${selected.relation}, which its builder admitted over its row`)
-	}
 	const generated = fields.flatMap((f) =>
 		f.writing.kind === "generated" ? [{ name: f.name, expr: f.writing.expr }] : []
 	)
 	const patterns = [
 		...fields.flatMap((f) => typePatterns(f.type)),
 		...generated.flatMap((g) => tablePatterns(g.expr)),
-		...checks.flatMap((c) => tablePatterns(c.predicate)),
-		...tablePatterns(selection.value)
+		...checks.flatMap((c) => loweredPatterns(c.expr)),
+		...loweredPatterns(selection)
 	]
 	return {
 		table: { fields, lawColumns: new Map() },
 		refined: fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type)),
 		generated,
 		checks,
-		selection: selection.value,
+		selection,
 		judge: judgeOf({ closed: [...closed.keys()], patterns }, closed, ProgramPatterns.of(patterns))
 	}
 }
@@ -276,8 +322,18 @@ const truthOf = (e: Evaluated): Result.Result<boolean, Unevaluated> => {
 	}
 }
 
-/** A row check's verdict from its predicate's truth: it holds where the predicate is true and breaks elsewhere. */
-const verdictOf = (truth: boolean): CheckVerdict => (truth ? "holds" : "breaks")
+/**
+ * A row check's verdict from its expression's value (HeldCheck): a CHECK holds where its predicate is true, as IS TRUE
+ * reads it, and breaks elsewhere; a rule breaks where its violation is true, as WHERE reads it, and holds elsewhere.
+ */
+const verdictOf = (check: HeldCheck, e: Evaluated): Result.Result<CheckVerdict, Unevaluated> => {
+	switch (check.held) {
+		case "check":
+			return Result.map(truthOf(e), (holds): CheckVerdict => (holds ? "holds" : "breaks"))
+		case "rule":
+			return Result.map(truthOf(e), (violated): CheckVerdict => (violated ? "breaks" : "holds"))
+	}
+}
 
 /** A row's evaluation as the host builds it, before its keys are read off its source's type (isEvaluationOf). */
 interface BuiltEvaluation {
@@ -333,10 +389,12 @@ const evaluated = <S, R>(
 		checks: Object.fromEntries(
 			prepared.checks.map((c) => [
 				c.name,
-				Result.map(truthOf(judge.evaluate(table, c.predicate, judged)), verdictOf)
+				Result.flatMap(c.expr, (expr) => verdictOf(c, judge.evaluate(table, expr, judged)))
 			])
 		),
-		selected: truthOf(judge.evaluate(table, prepared.selection, judged))
+		selected: Result.flatMap(prepared.selection, (selection) =>
+			truthOf(judge.evaluate(table, selection, judged))
+		)
 	}
 	if (!isEvaluationOf<S, R>(built, prepared)) {
 		throw defect("a row's evaluation keyed by its source's generated fields and checks")
@@ -347,26 +405,25 @@ const evaluated = <S, R>(
 /**
  * rowEvaluator(schema): the host's evaluation of rows of the schema's sources (see the header), its schema compiled and
  * its relations read once, as a function: `const evaluate = rowEvaluator(schema)`, then `evaluate(source, row)` is the
- * row's evaluation, each source read once, where it is first evaluated. A schema that does not compile, a row check of
- * a derived relation among it, is its CompileError.
+ * row's evaluation, each source read once, where it is first evaluated. A schema that does not compile is its
+ * CompileError.
  */
 export const rowEvaluator = <S extends AnySchema>(
 	schema: S
 ): Result.Result<RowEvaluator<S>, CompileError> =>
-	Result.flatMap(lawModel(schema, "rowEvaluator"), (model) =>
-		Result.map(readRelations(model), (relations): RowEvaluator<S> => {
-			const closed = closedTableOf({ schema: model.checked })
-			const sources = new WeakMap<object, Prepared>()
-			const preparedOf = (source: object): Prepared => {
-				const known = sources.get(source)
-				if (known !== undefined) {
-					return known
-				}
-				const prepared = prepare(model, relations, closed, source)
-				sources.set(source, prepared)
-				return prepared
+	Result.map(lawModel(schema, "rowEvaluator"), (model): RowEvaluator<S> => {
+		const relations = readRelations(model)
+		const closed = closedTableOf({ schema: model.checked })
+		const sources = new WeakMap<object, Prepared>()
+		const preparedOf = (source: object): Prepared => {
+			const known = sources.get(source)
+			if (known !== undefined) {
+				return known
 			}
-			return <Src extends RowSource<S>>(source: Src, row: EvaluatedRow<SourceRelation<Src>>) =>
-				evaluated<S, SourceRelation<Src>>(preparedOf(source), row)
-		})
-	)
+			const prepared = prepare(model, relations, closed, source)
+			sources.set(source, prepared)
+			return prepared
+		}
+		return <Src extends RowSource<S>>(source: Src, row: EvaluatedRow<SourceRelation<Src>>) =>
+			evaluated<S, SourceRelation<Src>>(preparedOf(source), row)
+	})

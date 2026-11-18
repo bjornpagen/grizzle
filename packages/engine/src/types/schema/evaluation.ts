@@ -31,15 +31,17 @@ export type CheckNameOf<S, R> = Extract<
 >["name"]
 
 /**
- * What a row check comes to over a row, as PostgreSQL's `CHECK ((p) IS TRUE)` judges it: it holds where its predicate
- * is true, and breaks where it is false or NULL.
+ * What a row check comes to over a row, as the installation judges it: a table's check as its `CHECK ((p) IS TRUE)`
+ * does, holding where p is true and breaking where it is false or NULL; a derived relation's as its rule's violation
+ * query, `WHERE NOT (p)`, does, breaking where p is false and holding where it is true or NULL.
  */
 export type CheckVerdict = "holds" | "breaks"
 
 /**
- * Why the host has no value for one item of a row's evaluation: its expression reads what the host does not evaluate,
- * an operation outside the evaluator or a column it does not hold, such as a law column grizzle fills, `why` its
- * words. The item's place in the evaluation is the one it is, so it states no place of its own.
+ * Why the host has no value for one item of a row's evaluation: its expression is one the host does not lower, such as
+ * float arithmetic in a rule's predicate, which only a query admits, or reads what the host does not evaluate, an
+ * operation outside the evaluator or a column it does not hold, such as a law column grizzle fills, `why` its words. The
+ * item's place in the evaluation is the one it is, so it states no place of its own.
  */
 export interface Unevaluated {
 	readonly _tag: "Unevaluated"

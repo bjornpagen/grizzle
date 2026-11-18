@@ -7,10 +7,12 @@
  * some keys held by no row, so a closed read is NULL; two to six of its rows, each with a text of the pattern
  * ^[a-c]{0,3}$ and an integer of the contract Units (u ≤ 5), each outside its domain at times; a generated field of a
  * drawn sort (every sort a generated field stores, a closed id, a set, a numeric and both floats among them); one to
- * three row checks; and a selection's predicate. Terms and predicates are the language's, two levels deep, over every
- * operator family a check admits. The schema states Gen, the rows' fields and the generated field g; All, under every
- * row check; for each check, a relation under it alone, named as All's; and select(Gen, φ). It is installed through its
- * first migration, and a direct writer writes each row into each relation. For every row:
+ * three row checks; one to three checks of derived relations, in the vocabulary both a check and a query admit; and a
+ * selection's predicate. Terms and predicates are the language's, two levels deep, over every operator family a check
+ * admits. The schema states Gen, the rows' fields and the generated field g; All, under every row check; for each
+ * check, a relation under it alone, named as All's; for each derived check, SrcJ, under none, and on a level above it
+ * DJ, live, every row of SrcJ, under the check; and select(Gen, φ). It is installed through its first migration, and a
+ * direct writer writes each row into each relation. For every row:
  *
  * - PostgreSQL's domains refuse it (pg_input_is_valid, and the insert's 23514 naming a domain's CHECK) exactly where the
  *   host's evaluation of it, as a row of every source, is DomainRefused, at a field a domain refuses;
@@ -20,12 +22,16 @@
  *   its CHECK (23514, the constraint the installation names for it) where it breaks, whether its predicate is false or
  *   NULL; All's evaluation judges each check alike, under every name; and All stores the row exactly where every check
  *   holds, naming one it breaks;
+ * - each derived check's verdict is its rule's: a row of SrcJ is stored where the check of DJ, every row of SrcJ, holds
+ *   of it, and refused at its commit by the rule's trigger (23514, named as constraintNamesOf names the check) where it
+ *   breaks, its predicate false, a NULL one holding it, as the rule's violation query, WHERE NOT (p), reads it;
  * - the selection keeps it exactly where `SELECT … WHERE φ` does, φ written in plain SQL from its meaning alone.
  *
  * Oracle: PostgreSQL itself, its domains, its stored generated column, its CHECKs and its WHERE.
  *
  * Features: each domain's refusal and both at once, a generated value of every stored sort and a NULL one, each truth
- * of a check and of the selection, a row every check holds of, and a refusal among several broken checks.
+ * of a check, of a derived check and of the selection, a row every check holds of, and a refusal among several broken
+ * checks.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -53,7 +59,7 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 				),
 		oracle: {
 			kind: "second-implementation",
-			name: "PostgreSQL's domains, stored generated column, CHECKs and WHERE over the same rows"
+			name: "PostgreSQL's domains, stored generated column, CHECKs, rule triggers and WHERE over the same rows"
 		},
 		kept: [],
 		kills: [
@@ -93,6 +99,20 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 				original: "\t\t\treturn Result.ok(null)",
 				replacement: '\t\t\treturn Result.err({ _tag: "Unevaluated", why: "NULL" })',
 				why: "A generated value PostgreSQL computes as NULL is no value of the host's, where it is NULL, the NOT NULL's refusal."
+			},
+			{
+				file: "packages/engine/src/program/evaluate.ts",
+				original:
+					'\t\t\t\theld: "rule",\n\t\t\t\tname: statement.name,\n\t\t\t\texpr: rowPredicate(model, derived.name, heading, { kind: "not", arg: statement.predicate })',
+				replacement:
+					'\t\t\t\theld: "check",\n\t\t\t\tname: statement.name,\n\t\t\t\texpr: rowPredicate(model, derived.name, heading, statement.predicate)',
+				why: "A derived relation's check is read as a table's CHECK, so a derived row its predicate leaves NULL breaks it, where its rule's violation query, WHERE NOT (p), holds it."
+			},
+			{
+				file: "packages/engine/src/program/evaluate.ts",
+				original: '\t\tif (derived.desc.kind !== "derived") {',
+				replacement: '\t\tif (derived.desc.kind === "derived") {',
+				why: "No derived relation is read as a source, as before a live derived relation was, which the checked schema holds no analysis of."
 			}
 		]
 	})

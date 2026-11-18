@@ -3571,13 +3571,14 @@ is `{ generated, checks, selected }`, each item its own `Result`:
 
 - `generated`: each generated field's value, by name, or `null` where PostgreSQL computes NULL, as a closed read at a
   key no row holds does, which the column's NOT NULL refuses;
-- `checks`: each row check of the relation, by name, `"holds"` or `"breaks"`, as `CHECK ((p) IS TRUE)` judges it, NULL
-  breaking it: a table's by the CHECK it holds, a derived relation's by its predicate over the derived row;
+- `checks`: each row check of the relation, by name, `"holds"` or `"breaks"`, as the database judges it: a table's as
+  its `CHECK ((p) IS TRUE)` does, NULL breaking it; a derived relation's as its rule's violation query, `WHERE NOT (p)`
+  over the derived row, does, NULL holding it;
 - `selected`: whether the source keeps the row, its predicate true, as `WHERE` reads it; a relation keeps every row,
   being `select(R, TRUE)`.
 
-An item whose expression reads what the host does not evaluate is `{ _tag: "Unevaluated", why }`, the other items
-keeping theirs. Nothing is thrown, and nothing stands in for a value. Each source is read where it is first evaluated,
+An item whose expression the host does not lower or evaluate, such as float arithmetic in a derived relation's check,
+is `{ _tag: "Unevaluated", why }`, the other items keeping theirs. Nothing is thrown, and nothing stands in for a value. Each source is read where it is first evaluated,
 and once.
 
 **Errors**: `DbLayer.make` and `Db.open` fail with `OpenError` in the Effect's error channel; every call of a member

@@ -324,9 +324,11 @@ const predReadsClosed = (pred: Pred): boolean => {
 
 /**
  * Where a term or predicate stands, which decides its vocabulary: a check's (a row check, a selection, a generated
- * field, a fold's step), whose operations are those the host evaluates, or a query's, which also admits least.
+ * field, a fold's step), whose operations are those the host evaluates, or a query's, which also admits least; or a
+ * rule's over a derived relation, which both a check and a query admit, as its predicate is a check's and its
+ * violation a query's filter: neither one's own operations.
  */
-type Vocabulary = "check" | "query"
+type Vocabulary = "check" | "query" | "rule"
 
 /** The text at index i over {a, b} in bijective base 2: "", "a", "b", "aa", "ab", "ba", "bb", … */
 const textAt = (i: number): string =>
