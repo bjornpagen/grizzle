@@ -3,7 +3,7 @@
 import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
-import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
+import { parsePlan, rowsRead, rowsTouched } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
@@ -670,13 +670,16 @@ export interface Locality {
 	readonly stored: number
 	readonly more: number
 	readonly statistics: "none" | "analyzed"
+	/** The documents a transaction then writes beside the first, and three times as many again. */
+	readonly written: number
 }
 
 /** Hundreds of stored documents beside the written one, each a lawful unit of a root and two children. */
 export const localityGen: Gen<Locality> = (s) => ({
 	stored: s.draw(int(2000, 3000)),
 	more: s.draw(int(2000, 3000)),
-	statistics: s.draw(element(["none", "analyzed"] as const))
+	statistics: s.draw(element(["none", "analyzed"] as const)),
+	written: s.draw(int(30, 60))
 })
 
 export type LocalityFeature = "measured with no statistics" | "measured analyzed"
@@ -696,17 +699,38 @@ const loaded = (installed: Installed, from: number, to: number): ReadonlyArray<s
 	]
 }
 
-/** The rows each whole rule's statement reads of the stored tables, as EXPLAIN ANALYZE counts them, on `connection`. */
-const readsOf = (installed: Installed, connection: PgConnection) =>
+/** Each whole rule's statement's plan, as EXPLAIN ANALYZE runs it, on `connection`. */
+const plansOf = (installed: Installed, connection: PgConnection) =>
 	Effect.forEach(wholeStatementsOf(installed.installation), (statement) =>
 		Effect.map(
 			connection.queryValues(
 				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) SELECT ${printExpr(exists(statement))}`,
 				[]
 			),
-			(explained) => rowsRead(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan)
+			(explained) => succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
 		)
 	)
+
+/** The rows each whole rule's statement reads of the stored tables, as EXPLAIN ANALYZE counts them, on `connection`. */
+const readsOf = (installed: Installed, connection: PgConnection) =>
+	Effect.map(plansOf(installed, connection), Arr.map(rowsRead))
+
+/**
+ * The rows each whole rule's statement handles at every node of its plan, over all of its loops (rowsTouched), on
+ * `connection`: its work, the region's rows and every step's among them.
+ */
+const workOf = (installed: Installed, connection: PgConnection) =>
+	Effect.map(plansOf(installed, connection), Arr.map(rowsTouched))
+
+/** The statements writing lawful documents `from` to `to` through the captures, as a publish writes them whole. */
+const writtenWhole = (installed: Installed, from: number, to: number): ReadonlyArray<string> => {
+	const names = namesOf(installed)
+	return [
+		`INSERT INTO ${names.table(Node)} (doc, start, parent, kind) SELECT d, s, 0, CASE WHEN s = 0 THEN 2 WHEN s = 1 THEN 1 ELSE 0 END FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
+		`INSERT INTO ${names.table(Expr)} (doc, start, type) SELECT d, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
+		"SET CONSTRAINTS ALL IMMEDIATE"
+	]
+}
 
 /**
  * One locality case in its one transaction, which the case's end rolls back: `stored` lawful documents loaded with the
@@ -716,6 +740,12 @@ const readsOf = (installed: Installed, connection: PgConnection) =>
  * document's rows, three of each table, read once per unit of the region or once per fact a negation reads them at,
  * whichever plan PostgreSQL chooses, and never a row of another document, a read of which reads past the written unit's
  * key range into all of them.
+ *
+ * Then `written` more documents are written whole and each statement explained, and three times as many again: each
+ * statement's work, every row each node of its plan handles over all of its loops, must grow at most twice as fast as
+ * the documents written, under eight times for four times the units. Its steps run once per written unit, each reading
+ * that unit alone, so its work grows with the units, four times; a region read again inside a step, once per unit of
+ * the region outside, grows with their square, sixteen times.
  */
 export const runLocality = (
 	installed: Installed,
@@ -751,6 +781,18 @@ export const runLocality = (
 		assert.ok(
 			Arr.every([...first, ...again], (rows) => rows < beside),
 			`${Formatter.format(locality)}: each whole rule's statement reads the written document's rows alone, fewer than the ${beside} documents beside it, ${Formatter.format(first)} and then ${Formatter.format(again)} beside ${locality.more} more`
+		)
+		for (const sql of writtenWhole(installed, -locality.written, -1)) {
+			yield* connection.query(sql, [])
+		}
+		const some = yield* workOf(installed, connection)
+		for (const sql of writtenWhole(installed, -4 * locality.written, -locality.written - 1)) {
+			yield* connection.query(sql, [])
+		}
+		const more = yield* workOf(installed, connection)
+		assert.ok(
+			Arr.every(Arr.zip(some, more), ([w, m]) => m < 8 * Math.max(w, 1)),
+			`${Formatter.format(locality)}: each whole rule's statement's work grows with the units written, under eight times for four times as many documents, ${Formatter.format(some)} for ${locality.written + 1} documents written and then ${Formatter.format(more)} for ${4 * locality.written + 1}`
 		)
 		c.note(locality.statistics === "none" ? "measured with no statistics" : "measured analyzed")
 	})

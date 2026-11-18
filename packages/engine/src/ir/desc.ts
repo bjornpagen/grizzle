@@ -1729,7 +1729,9 @@ const spelledAsIs: ParamSpelling<Spelled["param"]> = {
  * namespace, the union of its members' and read-backs', which ChangeSet.bind closes and the ChangeSet decoder's binding
  * check reads (changeSetDescShape).
  */
-export const queryParamNames = (q: QueryDesc): ReadonlySet<string> => {
+export const queryParamNames = <D extends InferredFieldDesc = FieldDesc, T = FieldDesc>(
+	q: QueryDesc<Located, SpelledAs<T, D>>
+): ReadonlySet<string> => {
 	const names = new Set<string>()
 	mapQueryParams(q, {
 		param: (name) => {

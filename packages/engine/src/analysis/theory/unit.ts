@@ -14,14 +14,17 @@
  * is the most for which the query is unit-local, so a unit is as narrow as the rule's joins allow; a rule unit-local at
  * no width is probed.
  *
- * The judge reads a whole rule's violation restricted to the units a transaction wrote (`restrictToUnits`): every rule
- * of the query that reads a stored relation itself, by a match or a negation in its conditions, inside a negation or
- * not, is read per unit (`perUnit`), the region of the units' keys first, then the rule as a step, a subquery
- * PostgreSQL plans apart and reads LATERAL once per unit, its unit's variables the step's channels. So every read of a
- * stored relation is an index range at the unit key, which leads each stored relation's primary key, inside a step
- * whose region holds the written units alone: an aggregate's rule groups that unit's rows alone, and a negation reads
- * the written units' rows alone, whether PostgreSQL probes it at each fact or hashes it whole, whatever PostgreSQL
- * estimates of the region. The region is a set of unit keys: the union, over each
+ * The judge reads a whole rule's violation restricted to the units a transaction wrote (`restrictToUnits`): every
+ * outermost rule of the query that reads a stored relation itself, by a match or a negation in its conditions, inside a
+ * negation or not, is read per unit (`perUnit`), the region of the units' keys first, then the rule as a step, a
+ * subquery PostgreSQL plans apart and reads LATERAL once per unit, its unit's variables the step's channels. The unit is
+ * bound once, there: every rule the step's imports and negations read reads it from the channels, joined or correlated
+ * at them, and matches no region of its own (`Restriction`), which the step would read again for each unit of the
+ * region outside it, the delta's every row once per written unit. So every read of a stored relation is an index range
+ * at the unit key, which leads each stored relation's primary key, inside a step whose region holds the written units
+ * alone: an aggregate's rule groups that unit's rows alone, and a negation reads the written units' rows alone, whether
+ * PostgreSQL probes it at each fact or hashes it whole, whatever PostgreSQL estimates of the region. The region is a
+ * set of unit keys: the union, over each
  * stored relation the rule reads and each side of its writes its captures hold (physical/ddl/rules.ts), of the leading
  * key fields of the rows that side holds. The restriction is one function for every whole rule, and it is the query's
  * own text, which the checker and the lowering read as they read any query.
@@ -52,6 +55,7 @@ import {
 	type InferredSource,
 	type InferredStage,
 	mapExprChildren,
+	queryParamNames,
 	type VarDesc
 } from "#compiler/ir/desc.ts"
 import type { RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
@@ -66,14 +70,30 @@ const unitColumn = (j: number): string => `u${j}`
 const regionVar = (j: number): string => `unit.${j}`
 
 /**
+ * How a walk restricts what it reads to the units a transaction wrote (`Walk`):
+ *
+ * - `deciding`: not at all, the walk that decides whether the query is unit-local (`unitAt`);
+ * - `region`: at the root, where no rule binds the unit yet: an outermost rule that reads a stored relation itself
+ *   matches the region and is read per unit as a step (`perUnit`);
+ * - `bound`: inside such a step, whose channels hold one unit at a time: every rule there reads its unit from them,
+ *   through the import that joins it or the negation correlated at them, so it matches no region of its own, which
+ *   would be read again for every unit of the region outside; a recursion, which PostgreSQL computes whole whatever
+ *   restricts what reads it, still reads the region (`unitLocalRecursion`).
+ */
+type Restriction =
+	| { readonly kind: "deciding" }
+	| { readonly kind: "region" | "bound"; readonly region: InferredSource }
+
+const deciding: Restriction = { kind: "deciding" }
+
+/**
  * What a walk of a query reads (`walked`): the stored relations that may hold its unit, each with the leading key
- * fields that hold it; the region a restricting walk matches in every rule of it that reads a stored relation itself,
- * none for the walk that decides whether the query is unit-local; and every occurrence of a stored
- * relation the walk meets, in the order it meets them.
+ * fields that hold it; how it restricts what it reads (`Restriction`); and every occurrence of a stored relation the
+ * walk meets, in the order it meets them.
  */
 interface Walk {
 	readonly holders: ReadonlyMap<string, NonEmptyReadonlyArray<string>>
-	readonly region: InferredSource | undefined
+	readonly restrict: Restriction
 	readonly reads: Array<RelationRead>
 	/** The fields of the row of the recursion whose step the walk reads, where it reads one, that hold its unit. */
 	readonly self: ReadonlyArray<string> | undefined
@@ -149,10 +169,9 @@ type SourceUnit =
 	| { readonly kind: "vars"; readonly vars: ReadonlyArray<string> }
 	| { readonly kind: "hidden" }
 
-/** What a source delivers to the rule that reads it: its unit, whether it is a stored relation, and its text walked. */
+/** What a source delivers to the rule that reads it: its unit, and its text walked. */
 interface SourceRead {
 	readonly unit: SourceUnit
-	readonly stored: boolean
 	readonly source: InferredSource
 }
 
@@ -176,10 +195,10 @@ const sourceUnit = (
 			})
 			const fields = w.holders.get(source.name)
 			if (fields === undefined) {
-				return { unit: { kind: "none" }, stored: false, source }
+				return { unit: { kind: "none" }, source }
 			}
 			const vars = varsAt(bindings, fields)
-			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, stored: true, source }
+			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, source }
 		}
 		case "query": {
 			if (Object.keys(source.bind).length > 0) {
@@ -189,18 +208,16 @@ const sourceUnit = (
 			if (inner === notLocal) {
 				return notLocal
 			}
-			const read = { ...source, query: inner.query }
+			const read = { ...source, query: inner.query, bind: passedChannels(inner.query) }
 			const delivered = inner.delivered
 			switch (delivered.kind) {
 				case "none":
-					return { unit: { kind: "none" }, stored: false, source: read }
+					return { unit: { kind: "none" }, source: read }
 				case "hidden":
-					return { unit: { kind: "hidden" }, stored: false, source: read }
+					return { unit: { kind: "hidden" }, source: read }
 				case "at": {
 					const vars = varsAt(bindings, delivered.fields)
-					return vars === notLocal
-						? notLocal
-						: { unit: { kind: "vars", vars }, stored: false, source: read }
+					return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, source: read }
 				}
 			}
 		}
@@ -209,7 +226,7 @@ const sourceUnit = (
 				return notLocal
 			}
 			const vars = varsAt(bindings, w.self)
-			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, stored: false, source }
+			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, source }
 		}
 		case "step":
 		case "param":
@@ -287,8 +304,10 @@ interface WalkedRule {
  * unit; a source whose unit is hidden is its only source with a unit, and its facts each lie within one unit hidden in
  * turn, so it negates nothing of a unit and aggregates nothing. Each negation in its conditions is correlated at its
  * unit. An aggregating rule's matches are read at both polarities and its head delivers its unit, so its groups lie
- * inside one unit. Where the walk restricts and the rule reads a stored relation itself, by a match or a negation in its
- * conditions, the region is matched first, bound to its unit, a negated rule's as well as any other's.
+ * inside one unit. Where the walk restricts at the root and the rule reads a stored relation itself, by a match or a
+ * negation in its conditions, the region is matched first, bound to its unit, and the rule is read per unit
+ * (`perUnit`); every rule its imports and its negations read is then walked with the unit bound (`Restriction`), so
+ * the unit is bound once, by the outermost rule that reads it.
  */
 const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal => {
 	if (r.interiors.length > 0 || r.attach.length > 0) {
@@ -296,16 +315,21 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 	}
 	const aggregates = Object.values(r.head).some((h) => h.kind === "aggregate")
 	const at: At = aggregates ? { polarity: "both" } : outer
+	const region =
+		w.restrict.kind === "region" &&
+		(r.matches.some((m) => m.source.kind === "relation" && w.holders.has(m.source.name)) ||
+			r.where.some((x) => negatesHolder(x, w.holders)))
+			? w.restrict.region
+			: undefined
+	const inner: Walk = region === undefined ? w : { ...w, restrict: { kind: "bound", region } }
 	const units: Array<SourceUnit> = []
-	let stored = false
 	const matches: Array<InferredMatch> = []
 	for (const match of r.matches) {
-		const read = sourceUnit(match.source, match.bindings, at, w)
+		const read = sourceUnit(match.source, match.bindings, at, inner)
 		if (read === notLocal) {
 			return notLocal
 		}
 		units.push(read.unit)
-		stored ||= read.stored
 		matches.push({ ...match, source: read.source })
 	}
 	const bearing = units.filter((u) => u.kind !== "none")
@@ -318,7 +342,7 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 	if (unit !== undefined && !vars.every((v) => sameNames(v, unit))) {
 		return notLocal
 	}
-	const where = walkedExprs(r.where, unit, at, w)
+	const where = walkedExprs(r.where, unit, at, inner)
 	if (where === notLocal) {
 		return notLocal
 	}
@@ -339,10 +363,7 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 	}
 	const walkedText: InferredRule = { ...r, matches, where }
 	return {
-		rule:
-			w.region !== undefined && (stored || r.where.some((x) => negatesHolder(x, w.holders)))
-				? perUnit(walkedText, unit, w.region)
-				: walkedText,
+		rule: region === undefined ? walkedText : perUnit(walkedText, unit, region),
 		delivered,
 		unit
 	}
@@ -353,6 +374,21 @@ const negatesHolder = (e: InferredExpr, holders: Walk["holders"]): boolean =>
 	e.kind === "absent"
 		? e.source.kind === "relation" && holders.has(e.source.name)
 		: exprChildren(e).some((c) => negatesHolder(c.term, holders))
+
+/**
+ * The bind map of an import whose query, walked with the unit bound (`Restriction`), reads the channels of the step it
+ * stands in, a recursion's seeds and steps reading the unit there: each channel it reads bound to the importer's own of
+ * that name, so the step's channels reach it, as an imported query's parameters are bound only by its bind map. A
+ * violation query reads no parameter of its own, so every parameter a walked query reads is a channel; none for a query
+ * that reads none.
+ */
+const passedChannels = (query: InferredQuery): Readonly<Record<string, InferredExpr>> =>
+	Object.fromEntries(
+		[...queryParamNames(query)].map((name): readonly [string, InferredExpr] => [
+			name,
+			{ kind: "param", name, type: { kind: "channel" } }
+		])
+	)
 
 /** The channel a rule read per unit binds position `j` of its unit key to (`perUnit`). */
 const unitParam = (j: number): InferredExpr => ({
@@ -513,7 +549,7 @@ const unitLocalRecursion = (
 	w: Walk
 ): WalkedQueryStage | NotLocal => {
 	const row = st.recursive.row
-	const plain: Walk = { ...w, region: undefined }
+	const plain: Walk = { ...w, restrict: deciding }
 	const read = new Map<InferredRule, WalkedRule>()
 	let delivered: Delivered | NotLocal | undefined
 	for (const r of [...st.recursive.base, ...st.recursive.rec.filter((x) => !readsSelf(x))]) {
@@ -544,10 +580,10 @@ const unitLocalRecursion = (
 		}
 		read.set(r, step)
 	}
-	const region = w.region
+	const restrict = w.restrict
 	const ruleOf = (r: InferredRule): InferredRule => {
 		const walkedOne = defined(read.get(r), "a walked rule per rule of the recursion")
-		return region === undefined || walkedOne.unit === undefined
+		return restrict.kind === "deciding" || walkedOne.unit === undefined
 			? walkedOne.rule
 			: channelled(walkedOne.rule, walkedOne.unit)
 	}
@@ -559,9 +595,10 @@ const unitLocalRecursion = (
 			rec: mapNonEmpty(st.recursive.rec, ruleOf)
 		}
 	}
-	if (region === undefined) {
+	if (restrict.kind !== "region") {
 		return { stage: recursion, delivered }
 	}
+	const region = restrict.region
 	const unit = fields.map((_, j): VarDesc => ({
 		id: recursionUnitVar(j),
 		origin: undefined,
@@ -718,7 +755,7 @@ const restrictToUnits = (
 ): InferredQuery => {
 	const read = walked(violation, top, {
 		holders: holdersOf(unit),
-		region: regionOf(unit, sides, loc),
+		restrict: { kind: "region", region: regionOf(unit, sides, loc) },
 		reads: [],
 		self: undefined
 	})
@@ -778,7 +815,7 @@ const unitAt = (
 	const reads: Array<RelationRead> = []
 	const read = walked(violation, top, {
 		holders: holdersOf(unit),
-		region: undefined,
+		restrict: deciding,
 		reads,
 		self: undefined
 	})
