@@ -2,7 +2,7 @@
 
 import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "effect"
 import { parsePlan, rowsRead, rowsTouched } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -33,24 +33,102 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-
-/** A node of a document: its document, its place, its parent's place, its own place at a root, and its kind. */
-const Node = relation(
-	"Node",
-	{ doc: pg.integer, start: pg.integer, parent: pg.integer, kind: pg.integer },
-	["doc", "start"]
-)
-/** An expression at a node: its document and place, and its type. */
-const Expr = relation("Expr", { doc: pg.integer, start: pg.integer, type: pg.integer }, [
-	"doc",
-	"start"
-])
+import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The schema the properties judge, by its rules over queries, every one unit-local: each relation keyed by its
- * document first, every rule joining within one document. `probed`: Node and Expr mutable, so no rule is unit-local and
- * each is probed; else immutable, so each is judged whole over the documents a transaction wrote, the unit, and the
- * aggregate's rule beside them, which no probe reads.
+ * A document's place: three coordinates, doc, sub and part, which every row of a document holds. A relation's key reads
+ * the first one, two or three of them, in that order, then the row's place in the document (`UnitShape` width); its
+ * fields declare them in the key's order or reversed (`UnitShape` order), and every rule binds them in that order, so a
+ * rule's variables for its unit come in an order of their own beside the unit key's. A document's sub and part are
+ * fixed by its doc and apart from every doc (`placed`), so a unit's field read at another's position finds no row.
+ */
+type UnitShape = readonly [width: 1 | 2 | 3, order: "key" | "reversed"]
+
+/** A unit shape by its name, as a case draws it. */
+export type ShapeKey = "1 key" | "2 key" | "2 reversed" | "3 key" | "3 reversed"
+
+const shapes: { readonly [K in ShapeKey]: UnitShape } = {
+	"1 key": [1, "key"],
+	"2 key": [2, "key"],
+	"2 reversed": [2, "reversed"],
+	"3 key": [3, "key"],
+	"3 reversed": [3, "reversed"]
+}
+
+const shapeKeys: Arr.NonEmptyReadonlyArray<ShapeKey> = [
+	"1 key",
+	"2 key",
+	"2 reversed",
+	"3 key",
+	"3 reversed"
+]
+
+const shapeGen: Gen<ShapeKey> = element(shapeKeys)
+
+/** The key of a relation of a shape of width `width`: doc, then sub and part as wide as the shape is, then start. */
+type PlacedKey = readonly ["doc", ...ReadonlyArray<"sub" | "part" | "start">]
+
+const placedKey = (width: UnitShape[0]): PlacedKey => {
+	switch (width) {
+		case 1:
+			return ["doc", "start"]
+		case 2:
+			return ["doc", "sub", "start"]
+		case 3:
+			return ["doc", "sub", "part", "start"]
+	}
+}
+
+/** A row's place, doc, sub and part, in the order `order` declares them, however it was written. */
+const inOrder =
+	(order: UnitShape[1]) =>
+	<D, S, P>(place: { readonly doc: D; readonly sub: S; readonly part: P }) =>
+		order === "key"
+			? { doc: place.doc, sub: place.sub, part: place.part }
+			: { part: place.part, sub: place.sub, doc: place.doc }
+
+/** A node of a document, keyed by its place then its start: its parent's start, its start at a root, its kind. */
+const nodeOf = (shape: UnitShape) =>
+	relation(
+		"Node",
+		{
+			...inOrder(shape[1])({ doc: pg.integer, sub: pg.integer, part: pg.integer }),
+			start: pg.integer,
+			parent: pg.integer,
+			kind: pg.integer
+		},
+		placedKey(shape[0])
+	)
+
+/** An expression at a node, keyed as its node is: its type. */
+const exprOf = (shape: UnitShape) =>
+	relation(
+		"Expr",
+		{
+			...inOrder(shape[1])({ doc: pg.integer, sub: pg.integer, part: pg.integer }),
+			start: pg.integer,
+			type: pg.integer
+		},
+		placedKey(shape[0])
+	)
+
+/** Each shape's two stored relations, which both of its judges state and its writes name. */
+const relationsOf = Rec.map(shapes, (shape) => ({ Node: nodeOf(shape), Expr: exprOf(shape) }))
+
+/**
+ * The place every row of document `doc` holds, as an INSERT's values spell it: its doc, sub and part, its sub and part
+ * apart from every doc, start and each other, so a unit's field read at another's position finds no row of the document.
+ */
+const placed = (doc: number): string => `${doc}, ${doc + 1000000}, ${doc + 2000000}`
+
+/** The judges of each shape: whole, its relations immutable, and probed, its relations mutable. */
+type Judge = "whole" | "probed"
+
+/**
+ * The schema the properties judge of shape `shape`, by its rules over queries, every one unit-local: each relation keyed
+ * by its document's place first, every rule joining within one document. The probed judge's Node and Expr are mutable,
+ * so no rule is unit-local and each is probed; the whole judge's immutable, so each is judged whole over the documents
+ * a transaction wrote, the unit, and the aggregate's rule beside them, which no probe reads.
  *
  * - Rooted: every expression's parent is an expression: a containment of a join into a table, which a node's insert
  *   breaks and an expression's delete does.
@@ -66,34 +144,41 @@ const Expr = relation("Expr", { doc: pg.integer, start: pg.integer, type: pg.int
  * - Leafed: a node of kind 2 has a child that is a leaf, a node no other is a child of: a check over a negation of a
  *   query that negates in turn, which a child's insert under the leaf and the leaf's delete both break.
  */
-const judgeSchema = (name: string, probed: boolean) => {
+const judgeSchema = (judge: Judge, shape: ShapeKey) => {
+	const [width, order] = shapes[shape]
+	const name = `${judge === "whole" ? "Whole" : "Probed"}Judge${width}${order === "key" ? "Keyed" : "Reversed"}`
+	const { Node, Expr } = relationsOf[shape]
+	const ordered = inOrder(order)
+	const probed = judge === "probed"
 	const Base = schema(name, [Node, Expr], probed ? [mutable(Node), mutable(Expr)] : [])
 	const Typed = derived(
 		"Typed",
 		query(Base).rule((r) => {
-			const { doc, start, type } = v(Expr, "e")
+			const { doc, sub, part, start, type } = v(Expr, "e")
 			const { parent, kind } = v(Node, "n")
+			const at = ordered({ doc, sub, part })
 			return r
-				.match(Expr, { doc, start, type })
-				.match(Node, { doc, start, parent, kind })
-				.find({ doc, start, parent, kind, type })
+				.match(Expr, { ...at, start, type })
+				.match(Node, { ...at, start, parent, kind })
+				.find({ ...at, start, parent, kind, type })
 		})
 	)
 	const Parents = derived(
 		"Parents",
 		query(Base).rule((r) => {
-			const { doc, start, type } = v(Expr, "e")
+			const { doc, sub, part, start, type } = v(Expr, "e")
 			const { parent } = v(Node, "n")
+			const at = ordered({ doc, sub, part })
 			return r
-				.match(Expr, { doc, start, type })
-				.match(Node, { doc, start, parent })
-				.find({ doc, parent, type })
+				.match(Expr, { ...at, start, type })
+				.match(Node, { ...at, start, parent })
+				.find({ ...at, parent, type })
 		})
 	)
 	const spj = [
-		contained(on(Typed, "doc", "parent"), on(Expr, "doc", "start")),
+		contained(on(Typed, "doc", "sub", "part", "parent"), on(Expr, "doc", "sub", "part", "start")),
 		check("Kinded", Typed, (t) => t.or(t.ne(t.kind, 1), t.eq(t.type, 1))),
-		key(on(Parents, "doc", "parent"))
+		key(on(Parents, "doc", "sub", "part", "parent"))
 	] as const
 	if (probed) {
 		return schema.extend(Base, `${name}_1`, [Typed, Parents], spj)
@@ -102,38 +187,42 @@ const judgeSchema = (name: string, probed: boolean) => {
 		"Fanout",
 		query(Base)
 			.rule((r) => {
-				const { doc, start, kind } = v(Node, "p")
+				const { doc, sub, part, start, kind } = v(Node, "p")
 				const { start: child } = v(Node, "c")
+				const at = ordered({ doc, sub, part })
 				return r
-					.match(Node, { doc, start, kind })
-					.match(Node, { doc, parent: start, start: child })
-					.find({ doc, node: start, kind, children: r.count() })
+					.match(Node, { ...at, start, kind })
+					.match(Node, { ...at, parent: start, start: child })
+					.find({ ...at, node: start, kind, children: r.count() })
 			})
 			.rule((r) => {
-				const { doc, start, kind } = v(Node, "p")
+				const { doc, sub, part, start, kind } = v(Node, "p")
+				const at = ordered({ doc, sub, part })
 				return r
-					.match(Node, { doc, start, kind })
-					.where(r.not(Node, { doc, parent: start }))
-					.find({ doc, node: start, kind, children: 0n })
+					.match(Node, { ...at, start, kind })
+					.where(r.not(Node, { ...at, parent: start }))
+					.find({ ...at, node: start, kind, children: 0n })
 			})
 	)
 	const reached = query(Base).recursive("Reached", {
-		row: { doc: pg.integer, node: pg.integer },
+		row: { ...ordered({ doc: pg.integer, sub: pg.integer, part: pg.integer }), node: pg.integer },
 		base: [
 			(r) => {
-				const { doc, start } = v(Node, "root")
-				return r.match(Node, { doc, start, parent: start }).find({ doc, node: start })
+				const { doc, sub, part, start } = v(Node, "root")
+				const at = ordered({ doc, sub, part })
+				return r.match(Node, { ...at, start, parent: start }).find({ ...at, node: start })
 			}
 		],
 		rec: [
 			(r, self) => {
-				const { doc, node } = v(self, "at")
+				const { doc, sub, part, node } = v(self, "at")
 				const { start } = v(Node, "child")
+				const at = ordered({ doc, sub, part })
 				return r
-					.match(self, { doc, node })
-					.match(Node, { doc, parent: node, start })
+					.match(self, { ...at, node })
+					.match(Node, { ...at, parent: node, start })
 					.where(r.ne(start, node))
-					.find({ doc, node: start })
+					.find({ ...at, node: start })
 			}
 		]
 	})
@@ -141,22 +230,24 @@ const judgeSchema = (name: string, probed: boolean) => {
 	const LeafChild = derived(
 		"LeafChild",
 		query(Base).rule((r) => {
-			const { doc, start, parent } = v(Node, "c")
+			const { doc, sub, part, start, parent } = v(Node, "c")
+			const at = ordered({ doc, sub, part })
 			return r
-				.match(Node, { doc, start, parent })
-				.where(r.and(r.ne(start, parent), r.not(Node, { doc, parent: start })))
-				.find({ doc, parent })
+				.match(Node, { ...at, start, parent })
+				.where(r.and(r.ne(start, parent), r.not(Node, { ...at, parent: start })))
+				.find({ ...at, parent })
 		})
 	)
 	const Leaves = schema.extend(Base, `${name}_0`, [LeafChild], [])
 	const Barren = derived(
 		"Barren",
 		query(Leaves).rule((r) => {
-			const { doc, start, kind } = v(Node, "p")
+			const { doc, sub, part, start, kind } = v(Node, "p")
+			const at = ordered({ doc, sub, part })
 			return r
-				.match(Node, { doc, start, kind })
-				.where(r.not(LeafChild, { doc, parent: start }))
-				.find({ doc, start, kind })
+				.match(Node, { ...at, start, kind })
+				.where(r.not(LeafChild, { ...at, parent: start }))
+				.find({ ...at, start, kind })
 		})
 	)
 	return schema.extend(
@@ -168,27 +259,57 @@ const judgeSchema = (name: string, probed: boolean) => {
 			check("Fanout", Fanout, (f) =>
 				f.and(f.le(f.children, 3n), f.or(f.ne(f.kind, 2), f.ge(f.children, 2n)))
 			),
-			contained(on(Expr, "doc", "start"), on(Reach, "doc", "node")),
+			contained(on(Expr, "doc", "sub", "part", "start"), on(Reach, "doc", "sub", "part", "node")),
 			check("Leafed", Barren, (b) => b.ne(b.kind, 2))
 		]
 	)
 }
 
-const WholeJudge = judgeSchema("WholeJudge", false)
-const ProbedJudge = judgeSchema("ProbedJudge", true)
-
-/** A judge schema installed through its first migration, with no login. */
-const templateOf = (schemaValue: ReturnType<typeof judgeSchema>, name: string, label: string) =>
-	migratedTemplate({
+/** The judge `judge` of shape `shape`, installed through its first migration with no login. */
+const judgeTemplate = (judge: Judge, shape: ShapeKey) => {
+	const schemaValue = judgeSchema(judge, shape)
+	const [width, order] = shapes[shape]
+	return migratedTemplate({
 		declaredIn: import.meta,
-		name,
+		name: `${judge} judge ${shape}`,
 		content: { schema: schemaValue.name, logins: [] },
 		versions: [{ schema: schemaValue, logins: [], declarations: noDeclarations }],
-		options: { label, extensions: [], compile: compileInstallation, ambient: ordinarySession }
+		options: {
+			label: `${judge}_judge_${width}_${order}`,
+			extensions: [],
+			compile: compileInstallation,
+			ambient: ordinarySession
+		}
 	})
+}
 
-export const wholeTemplate = templateOf(WholeJudge, "whole judge", "whole_judge")
-export const probedTemplate = templateOf(ProbedJudge, "probed judge", "probed_judge")
+/** Every judge of every shape, of which a case takes the two of the shape it draws (Substrate.oneOf). */
+export const judgeTemplates: Readonly<
+	Record<`${Judge} ${ShapeKey}`, SubstrateTemplate<Installed>>
+> = {
+	"whole 1 key": judgeTemplate("whole", "1 key"),
+	"whole 2 key": judgeTemplate("whole", "2 key"),
+	"whole 2 reversed": judgeTemplate("whole", "2 reversed"),
+	"whole 3 key": judgeTemplate("whole", "3 key"),
+	"whole 3 reversed": judgeTemplate("whole", "3 reversed"),
+	"probed 1 key": judgeTemplate("probed", "1 key"),
+	"probed 2 key": judgeTemplate("probed", "2 key"),
+	"probed 2 reversed": judgeTemplate("probed", "2 reversed"),
+	"probed 3 key": judgeTemplate("probed", "3 key"),
+	"probed 3 reversed": judgeTemplate("probed", "3 reversed")
+}
+
+/** The tables of shape `shape`'s relations in an installation of one of its judges, as its writes name them. */
+interface Tables {
+	readonly node: string
+	readonly expr: string
+}
+
+const tablesOf = (installed: Installed, shape: ShapeKey): Tables => {
+	const names = namesOf(installed)
+	const { Node, Expr } = relationsOf[shape]
+	return { node: names.table(Node), expr: names.table(Expr) }
+}
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
@@ -216,8 +337,9 @@ export type Op =
 	| { readonly kind: "drop"; readonly doc: Doc }
 	| { readonly kind: "judge" }
 
-/** A case of the equivalence: its transactions, each its writes in order. */
+/** A case of the equivalence: the shape of its judges, and its transactions, each its writes in order. */
 export interface Schedule {
+	readonly shape: ShapeKey
 	readonly transactions: ReadonlyArray<ReadonlyArray<Op>>
 }
 
@@ -257,9 +379,14 @@ const opGen: Gen<Op> = weighted<Op>([
 	[1, () => ({ kind: "judge" })]
 ])
 
-const scheduleGen: Gen<Schedule> = (s) => ({
-	transactions: s.draw(array(array(opGen, { min: 1, max: 6 }), { min: 1, max: 4 }))
-})
+/** A case of transactions `transactions` draws, at a shape drawn first. */
+const shaped =
+	(transactions: Gen<Schedule["transactions"]>): Gen<Schedule> =>
+	(s) => ({ shape: s.draw(shapeGen), transactions: s.draw(transactions) })
+
+const scheduleGen: Gen<Schedule> = shaped(
+	array(array(opGen, { min: 1, max: 6 }), { min: 1, max: 4 })
+)
 
 /** The situations the equivalence must reach. */
 export type WholeFeature =
@@ -275,6 +402,23 @@ export type WholeFeature =
 	| "an expression removed under its member"
 	| "two units written in one transaction"
 	| "the judge run inside a transaction that writes on"
+	| ShapeFeature
+
+/** The situation a case of each shape reaches. */
+type ShapeFeature =
+	| "a key of one place field"
+	| "a key of two place fields, declared in its order"
+	| "a key of two place fields, declared reversed"
+	| "a key of three place fields, declared in its order"
+	| "a key of three place fields, declared reversed"
+
+const shapeFeatures: { readonly [K in ShapeKey]: ShapeFeature } = {
+	"1 key": "a key of one place field",
+	"2 key": "a key of two place fields, declared in its order",
+	"2 reversed": "a key of two place fields, declared reversed",
+	"3 key": "a key of three place fields, declared in its order",
+	"3 reversed": "a key of three place fields, declared reversed"
+}
 
 export const wholeFeatures: Arr.NonEmptyReadonlyArray<WholeFeature> = [
 	"committed",
@@ -288,7 +432,8 @@ export const wholeFeatures: Arr.NonEmptyReadonlyArray<WholeFeature> = [
 	"a unit dropped whole",
 	"an expression removed under its member",
 	"two units written in one transaction",
-	"the judge run inside a transaction that writes on"
+	"the judge run inside a transaction that writes on",
+	...Rec.values(shapeFeatures)
 ]
 
 /**
@@ -302,24 +447,22 @@ const lawful = (doc: Doc, type: Type): ReadonlyArray<Op> => [{ kind: "unit", doc
 const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 	[
 		"refused by One type",
-		(s) => {
+		shaped((s) => {
 			const doc = s.draw(docGen)
-			return {
-				transactions: [
-					s.draw(boolean)
-						? lawful(doc, 0)
-						: [
-								...lawful(doc, 1),
-								{ kind: "unexpr", doc, start: 2 },
-								{ kind: "expr", doc, start: 2, type: 0 }
-							]
-				]
-			}
-		}
+			return [
+				s.draw(boolean)
+					? lawful(doc, 0)
+					: [
+							...lawful(doc, 1),
+							{ kind: "unexpr", doc, start: 2 },
+							{ kind: "expr", doc, start: 2, type: 0 }
+						]
+			]
+		})
 	],
 	[
 		"refused by Fanout",
-		(s) => {
+		shaped((s) => {
 			const doc = s.draw(docGen)
 			const changed: ReadonlyArray<Op> = s.draw(boolean)
 				? [{ kind: "node", doc, start: 3, parent: 0, nodeKind: 0 }]
@@ -329,12 +472,12 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 						{ kind: "unnode", doc, start: 1 },
 						{ kind: "unnode", doc, start: 2 }
 					]
-			return { transactions: [lawful(doc, 1), changed] }
-		}
+			return [lawful(doc, 1), changed]
+		})
 	],
 	[
 		"refused by Reached",
-		(s) => {
+		shaped((s) => {
 			const doc = s.draw(docGen)
 			const changed: ReadonlyArray<Op> = s.draw(boolean)
 				? [
@@ -348,12 +491,12 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 						{ kind: "unnode", doc, start: 2 },
 						{ kind: "expr", doc, start: 3, type: 1 }
 					]
-			return { transactions: [lawful(doc, 1), changed] }
-		}
+			return [lawful(doc, 1), changed]
+		})
 	],
 	[
 		"refused by Leafed",
-		(s) => {
+		shaped((s) => {
 			const doc = s.draw(docGen)
 			const changed: ReadonlyArray<Op> = s.draw(boolean)
 				? [
@@ -367,58 +510,49 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 						{ kind: "unnode", doc, start: 2 },
 						{ kind: "judge" }
 					]
-			return { transactions: [lawful(doc, 1), changed] }
-		}
-	],
-	[
-		"an expression removed under its member",
-		(s) => {
-			const doc = s.draw(docGen)
-			return {
-				transactions: [lawful(doc, 1), [{ kind: "unexpr", doc, start: 0 }]]
-			}
-		}
-	],
-	[
-		"two units written in one transaction",
-		(s) => ({
-			transactions: [
-				[...lawful(1, 1), ...lawful(2, s.draw(element(types)))],
-				[{ kind: "drop", doc: s.draw(docGen) }]
-			]
+			return [lawful(doc, 1), changed]
 		})
 	],
 	[
-		"the judge run inside a transaction that writes on",
-		(s) => {
+		"an expression removed under its member",
+		shaped((s) => {
 			const doc = s.draw(docGen)
-			return {
-				transactions: [
-					[...lawful(doc, 1), { kind: "judge" }, { kind: "unexpr", doc, start: s.draw(startGen) }]
-				]
-			}
-		}
+			return [lawful(doc, 1), [{ kind: "unexpr", doc, start: 0 }]]
+		})
+	],
+	[
+		"two units written in one transaction",
+		shaped((s) => [
+			[...lawful(1, 1), ...lawful(2, s.draw(element(types)))],
+			[{ kind: "drop", doc: s.draw(docGen) }]
+		])
+	],
+	[
+		"the judge run inside a transaction that writes on",
+		shaped((s) => {
+			const doc = s.draw(docGen)
+			return [
+				[...lawful(doc, 1), { kind: "judge" }, { kind: "unexpr", doc, start: s.draw(startGen) }]
+			]
+		})
 	]
 ]
 
 export const wholeSpace = aimed(scheduleGen, aims)
 
-/** The statements of one write, on the installation's names. */
+/** The statements of one write, on an installation's tables. */
 const statementsOf = (
-	installed: Installed,
+	{ node, expr }: Tables,
 	op: Exclude<Op, { readonly kind: "judge" }>
 ): ReadonlyArray<string> => {
-	const names = namesOf(installed)
-	const node = names.table(Node)
-	const expr = names.table(Expr)
 	switch (op.kind) {
 		case "node":
 			return [
-				`INSERT INTO ${node} (doc, start, parent, kind) VALUES (${op.doc}, ${op.start}, ${op.parent}, ${op.nodeKind}) ON CONFLICT DO NOTHING`
+				`INSERT INTO ${node} (doc, sub, part, start, parent, kind) VALUES (${placed(op.doc)}, ${op.start}, ${op.parent}, ${op.nodeKind}) ON CONFLICT DO NOTHING`
 			]
 		case "expr":
 			return [
-				`INSERT INTO ${expr} (doc, start, type) VALUES (${op.doc}, ${op.start}, ${op.type}) ON CONFLICT DO NOTHING`
+				`INSERT INTO ${expr} (doc, sub, part, start, type) VALUES (${placed(op.doc)}, ${op.start}, ${op.type}) ON CONFLICT DO NOTHING`
 			]
 		case "unnode":
 			return [`DELETE FROM ${node} WHERE doc = ${op.doc} AND start = ${op.start}`]
@@ -426,8 +560,8 @@ const statementsOf = (
 			return [`DELETE FROM ${expr} WHERE doc = ${op.doc} AND start = ${op.start}`]
 		case "unit":
 			return [
-				`INSERT INTO ${node} (doc, start, parent, kind) VALUES (${op.doc}, 0, 0, 2), (${op.doc}, 1, 0, 1), (${op.doc}, 2, 0, 0) ON CONFLICT DO NOTHING`,
-				`INSERT INTO ${expr} (doc, start, type) VALUES (${op.doc}, 0, ${op.type}), (${op.doc}, 1, 1), (${op.doc}, 2, ${op.type}) ON CONFLICT DO NOTHING`
+				`INSERT INTO ${node} (doc, sub, part, start, parent, kind) VALUES (${placed(op.doc)}, 0, 0, 2), (${placed(op.doc)}, 1, 0, 1), (${placed(op.doc)}, 2, 0, 0) ON CONFLICT DO NOTHING`,
+				`INSERT INTO ${expr} (doc, sub, part, start, type) VALUES (${placed(op.doc)}, 0, ${op.type}), (${placed(op.doc)}, 1, 1), (${placed(op.doc)}, 2, ${op.type}) ON CONFLICT DO NOTHING`
 			]
 		case "drop":
 			return [
@@ -566,7 +700,11 @@ export const runEquivalence = (
 	c: Case<WholeFeature>
 ) =>
 	Effect.gen(function* () {
-		const sides = [whole, probed] as const
+		const sides = Arr.map([whole, probed], (side) => ({
+			...side,
+			tables: tablesOf(side.installed, schedule.shape)
+		}))
+		c.note(shapeFeatures[schedule.shape])
 		for (const [at, ops] of schedule.transactions.entries()) {
 			const where = `transaction ${at} of ${Formatter.format(schedule)}`
 			for (const side of sides) {
@@ -612,7 +750,7 @@ export const runEquivalence = (
 					continue
 				}
 				for (const side of sides) {
-					for (const sql of statementsOf(side.installed, op)) {
+					for (const sql of statementsOf(side.tables, op)) {
 						yield* side.session.query(sql, [])
 					}
 				}
@@ -665,8 +803,18 @@ const wholeStatementsOf = (installation: Installation): ReadonlyArray<OperandSel
 			: []
 	)
 
-/** A case of the locality: the documents stored beside the written one, then as many again, and the statistics. */
+/**
+ * A case of the locality: its judge's shape, the documents stored beside the written one, then as many again, and the
+ * statistics.
+ */
 export interface Locality {
+	/**
+	 * The one-field shape alone, for now. At a key of two or three place fields Rooted's statement's work grows with the
+	 * square of the units written: its containment's negation matches the region again, apart from the region its
+	 * outer rule matches, so the two meet in an anti join that PostgreSQL runs as a nested loop over both (lane RULEREC's
+	 * multi-field generator; analysis/theory/unit.ts restrictToUnits, lane SELECTWHOLE's, draws every shape with its fix).
+	 */
+	readonly shape: ShapeKey
 	readonly stored: number
 	readonly more: number
 	readonly statistics: "none" | "analyzed"
@@ -676,6 +824,7 @@ export interface Locality {
 
 /** Hundreds of stored documents beside the written one, each a lawful unit of a root and two children. */
 export const localityGen: Gen<Locality> = (s) => ({
+	shape: "1 key",
 	stored: s.draw(int(2000, 3000)),
 	more: s.draw(int(2000, 3000)),
 	statistics: s.draw(element(["none", "analyzed"] as const)),
@@ -685,19 +834,14 @@ export const localityGen: Gen<Locality> = (s) => ({
 export type LocalityFeature = "measured with no statistics" | "measured analyzed"
 
 /** The statements loading lawful documents `from` to `to`, the tables' captures off. */
-const loaded = (installed: Installed, from: number, to: number): ReadonlyArray<string> => {
-	const names = namesOf(installed)
-	const node = names.table(Node)
-	const expr = names.table(Expr)
-	return [
-		`ALTER TABLE ${node} DISABLE TRIGGER USER`,
-		`ALTER TABLE ${expr} DISABLE TRIGGER USER`,
-		`INSERT INTO ${node} (doc, start, parent, kind) SELECT d, s, 0, CASE WHEN s = 0 THEN 2 WHEN s = 1 THEN 1 ELSE 0 END FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
-		`INSERT INTO ${expr} (doc, start, type) SELECT d, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
-		`ALTER TABLE ${node} ENABLE TRIGGER USER`,
-		`ALTER TABLE ${expr} ENABLE TRIGGER USER`
-	]
-}
+const loaded = ({ node, expr }: Tables, from: number, to: number): ReadonlyArray<string> => [
+	`ALTER TABLE ${node} DISABLE TRIGGER USER`,
+	`ALTER TABLE ${expr} DISABLE TRIGGER USER`,
+	`INSERT INTO ${node} (doc, sub, part, start, parent, kind) SELECT d, d + 1000000, d + 2000000, s, 0, CASE WHEN s = 0 THEN 2 WHEN s = 1 THEN 1 ELSE 0 END FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
+	`INSERT INTO ${expr} (doc, sub, part, start, type) SELECT d, d + 1000000, d + 2000000, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
+	`ALTER TABLE ${node} ENABLE TRIGGER USER`,
+	`ALTER TABLE ${expr} ENABLE TRIGGER USER`
+]
 
 /** Each whole rule's statement's plan, as EXPLAIN ANALYZE runs it, on `connection`. */
 const plansOf = (installed: Installed, connection: PgConnection) =>
@@ -723,14 +867,11 @@ const workOf = (installed: Installed, connection: PgConnection) =>
 	Effect.map(plansOf(installed, connection), Arr.map(rowsTouched))
 
 /** The statements writing lawful documents `from` to `to` through the captures, as a publish writes them whole. */
-const writtenWhole = (installed: Installed, from: number, to: number): ReadonlyArray<string> => {
-	const names = namesOf(installed)
-	return [
-		`INSERT INTO ${names.table(Node)} (doc, start, parent, kind) SELECT d, s, 0, CASE WHEN s = 0 THEN 2 WHEN s = 1 THEN 1 ELSE 0 END FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
-		`INSERT INTO ${names.table(Expr)} (doc, start, type) SELECT d, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
-		"SET CONSTRAINTS ALL IMMEDIATE"
-	]
-}
+const writtenWhole = ({ node, expr }: Tables, from: number, to: number): ReadonlyArray<string> => [
+	`INSERT INTO ${node} (doc, sub, part, start, parent, kind) SELECT d, d + 1000000, d + 2000000, s, 0, CASE WHEN s = 0 THEN 2 WHEN s = 1 THEN 1 ELSE 0 END FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
+	`INSERT INTO ${expr} (doc, sub, part, start, type) SELECT d, d + 1000000, d + 2000000, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
+	"SET CONSTRAINTS ALL IMMEDIATE"
+]
 
 /**
  * One locality case in its one transaction, which the case's end rolls back: `stored` lawful documents loaded with the
@@ -754,18 +895,16 @@ export const runLocality = (
 	c: Case<LocalityFeature>
 ) =>
 	Effect.gen(function* () {
-		const names = namesOf(installed)
+		const tables = tablesOf(installed, locality.shape)
 		const statistics =
-			locality.statistics === "analyzed"
-				? [`ANALYZE ${names.table(Node)}`, `ANALYZE ${names.table(Expr)}`]
-				: []
-		for (const sql of [...loaded(installed, 10, 10 + locality.stored), ...statistics]) {
+			locality.statistics === "analyzed" ? [`ANALYZE ${tables.node}`, `ANALYZE ${tables.expr}`] : []
+		for (const sql of [...loaded(tables, 10, 10 + locality.stored), ...statistics]) {
 			yield* connection.query(sql, [])
 		}
 		const written = 0
 		for (const sql of [
-			`INSERT INTO ${names.table(Node)} (doc, start, parent, kind) VALUES (${written}, 0, 0, 2), (${written}, 1, 0, 1), (${written}, 2, 0, 0)`,
-			`INSERT INTO ${names.table(Expr)} (doc, start, type) VALUES (${written}, 0, 1), (${written}, 1, 1), (${written}, 2, 1)`,
+			`INSERT INTO ${tables.node} (doc, sub, part, start, parent, kind) VALUES (${placed(written)}, 0, 0, 2), (${placed(written)}, 1, 0, 1), (${placed(written)}, 2, 0, 0)`,
+			`INSERT INTO ${tables.expr} (doc, sub, part, start, type) VALUES (${placed(written)}, 0, 1), (${placed(written)}, 1, 1), (${placed(written)}, 2, 1)`,
 			"SET CONSTRAINTS ALL IMMEDIATE"
 		]) {
 			yield* connection.query(sql, [])
@@ -773,7 +912,7 @@ export const runLocality = (
 		const first = yield* readsOf(installed, connection)
 		assert.ok(first.length > 0, "the judge holds a whole rule's statement")
 		const from = 11 + locality.stored
-		for (const sql of [...loaded(installed, from, from + locality.more), ...statistics]) {
+		for (const sql of [...loaded(tables, from, from + locality.more), ...statistics]) {
 			yield* connection.query(sql, [])
 		}
 		const again = yield* readsOf(installed, connection)
@@ -782,11 +921,11 @@ export const runLocality = (
 			Arr.every([...first, ...again], (rows) => rows < beside),
 			`${Formatter.format(locality)}: each whole rule's statement reads the written document's rows alone, fewer than the ${beside} documents beside it, ${Formatter.format(first)} and then ${Formatter.format(again)} beside ${locality.more} more`
 		)
-		for (const sql of writtenWhole(installed, -locality.written, -1)) {
+		for (const sql of writtenWhole(tables, -locality.written, -1)) {
 			yield* connection.query(sql, [])
 		}
 		const some = yield* workOf(installed, connection)
-		for (const sql of writtenWhole(installed, -4 * locality.written, -locality.written - 1)) {
+		for (const sql of writtenWhole(tables, -4 * locality.written, -locality.written - 1)) {
 			yield* connection.query(sql, [])
 		}
 		const more = yield* workOf(installed, connection)
