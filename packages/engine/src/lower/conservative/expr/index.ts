@@ -1,6 +1,8 @@
 import { floatSpecials } from "#compiler/core/canonical.ts"
 import { exactParts } from "#compiler/core/decimal.ts"
+import type { ProseTag } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { codecOf, codeOf, handlesHex, type RosterCodec } from "#compiler/ir/codes.ts"
 import { datePartSlices } from "#compiler/ir/date.ts"
@@ -16,7 +18,8 @@ import {
 	type Env,
 	type LowerContext,
 	loweringAt,
-	refuse
+	refuse,
+	refuseAt
 } from "#compiler/lower/conservative/context.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
@@ -24,7 +27,7 @@ import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { isDateParse } from "#compiler/scalar/compute/registry.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
-import type { Expr } from "#compiler/sql/ast.ts"
+import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { cast, lit } from "#compiler/sql/build.ts"
 import { type ClosedRead, closedRead as closedReadOf } from "#compiler/sql/constants.ts"
 import { dateOfText } from "#compiler/sql/lexical.ts"
@@ -104,44 +107,54 @@ export const lowerLiteral = (
 const exprLabel = (expr: ScalarExpr): string => `expression ${expr.id} (${expr.kind})`
 
 /**
- * The SQL of the expression `expr`, evaluated where `env` is in scope.
- *
- * Scalar expressions.
- *
- * One IR node is one Compute operation, so each lowers to its SQL: a column becomes its qualified reference in the
- * environment, a parameter its typed placeholder, a literal a typed literal, an operator its catalog form (an exact
- * one in its exact space and an IEEE 754 one natively where proved and by its guarded form otherwise, ops.ts
- * totalForm), a cast `x::type` (a rounding into a float as total.ts ieeeForm chooses), a domain cast `x::domain`, a
- * conditional CASE with its ELSE, and a closed read or membership test a read of its relation's installed constants
- * (`closedRead`). No NULL
- * and no COALESCE is produced, and NULLIF only by C.at, whose absent key reads NULL.
- *
- * Types: a comparison parameter is cast to its base type and a written or emitted one to
- * its domain, which the IR records as the parameter's type; a literal is typed by its base, since its refinement was
- * checked at compile time (the ContractLiteral check); a domain cast always names the domain, because the
- * database validation it carries is its point.
+ * Where a scalar expression is lowered, everything its SQL varies by (lowerScalar): a query's lowering, whose leaves are
+ * its environment's columns and its declared parameters (querySite), or a persistent expression's, a CHECK's, a domain
+ * CHECK's, an index predicate's or a STORED generated column's, whose leaves are its row's installed columns or a
+ * domain's VALUE, which folds each constant subterm to its value (physical/ddl/expr.ts persistentSite). Every node is
+ * one SQL node in both, through the one switch of lowerScalar.
  */
-export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr => {
-	const at = exprLabel(expr)
-	const lower = (a: ScalarExpr): Expr => lowerExpr(cx, a, env)
+export interface ScalarSite {
+	readonly names: PhysicalNames
+	/** Where a refusal of `expr` is reported. */
+	readonly at: (expr: ScalarExpr) => SourceLoc
+	/** A column, VALUE or a parameter, as the site reads it. */
+	readonly leaf: (expr: ScalarExpr & { readonly kind: "column" | "value" | "param" }) => Expr
+	/** The type a cast or a domain cast into `type` names. */
+	readonly castType: (type: ScalarType, expr: ScalarExpr) => TypeRef
+	/** A literal of `type`, typed by its base. */
+	readonly literal: (literal: TypedLiteral, type: ScalarType) => Expr
+	/** The SQL of `expr` that the site writes otherwise than its node, or undefined for its node's own. */
+	readonly whole: (expr: ScalarExpr) => Expr | undefined
+}
+
+/** A refusal at `expr`'s place in `site`. */
+const refuseIn = (site: ScalarSite, expr: ScalarExpr, tag: ProseTag, capability: string): never =>
+	refuseAt(tag, site.at(expr), capability)
+
+/**
+ * The SQL of the scalar expression `expr` at `site`.
+ *
+ * One IR node is one Compute operation, so each lowers to its SQL wherever it stands: a column, VALUE and a parameter as
+ * the site reads them, a literal typed by its base, an operator its catalog form (an exact one in its exact space and
+ * an IEEE 754 one natively where proved and by its guarded form otherwise, ops.ts totalForm), a cast `x::type` (a
+ * rounding into a float as total.ts ieeeForm chooses, which only a query holds: a check refuses it, compute/lower.ts),
+ * a domain cast `x::domain`, a conditional CASE with its ELSE, and a closed read or membership test a read of its
+ * relation's installed constants (`closedRead`). No NULL and no COALESCE is produced, and NULLIF only by C.at, whose
+ * absent key reads NULL, and by a persistent site's boolean NULL.
+ */
+export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
+	const whole = site.whole(expr)
+	if (whole !== undefined) {
+		return whole
+	}
+	const lower = (a: ScalarExpr): Expr => lowerScalar(a, site)
 	switch (expr.kind) {
-		case "column": {
-			const e = env.get(expr.column.node)?.get(expr.column.name)
-			if (e === undefined) {
-				return refuse(
-					"MalformedDescription",
-					at,
-					`a column ${expr.column.node}.${expr.column.name} of a node in scope`
-				)
-			}
-			return e
-		}
+		case "column":
 		case "value":
-			return refuse("MalformedDescription", at, "VALUE only inside a contract predicate")
 		case "param":
-			return cx.scalarParam(expr.param, expr.type, at)
+			return site.leaf(expr)
 		case "literal":
-			return lowerLiteral(cx.names, expr.value, expr.type)
+			return site.literal(expr.value, expr.type)
 		case "cast": {
 			const inner = lower(expr.args[0])
 			if (isDateParse(expr.cast)) {
@@ -151,17 +164,18 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 			if (ieee?.kind === "guarded") {
 				return (
 					ieee.sql ??
-					refuse(
+					refuseIn(
+						site,
+						expr,
 						"UnsupportedOperation",
-						at,
 						`an IEEE 754 rounding into ${baseOf(expr.type).carrier}`
 					)
 				)
 			}
-			return cast(inner, cx.typeRef(expr.type, at))
+			return cast(inner, site.castType(expr.type, expr))
 		}
 		case "domainCast":
-			return cast(lower(expr.args[0]), cx.typeRef(expr.type, at))
+			return cast(lower(expr.args[0]), site.castType(expr.type, expr))
 		case "cond": {
 			const [when, result, otherwise] = expr.args
 			return {
@@ -175,27 +189,64 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 			const args = expr.args.map(lower)
 			const operandTypes = [expr.type, ...expr.args.map((a) => a.type)]
 			if (operandTypes.some((t) => spanCarrierOf(t) !== undefined)) {
-				return lowerSpanOp(expr, args, loweringAt(at))
+				return lowerSpanOp(expr, args, site.at(expr))
 			}
 			if (operandTypes.some((t) => t.carrier === "vector")) {
-				return lowerVectorOp(expr, args, loweringAt(at), cx.names.vectorSchema)
+				return lowerVectorOp(expr, args, site.at(expr), site.names.vectorSchema)
 			}
-			const lowered = defaultOps(expr, args)
-			if (lowered === undefined) {
-				return refuse(
+			return (
+				defaultOps(expr, args) ??
+				refuseIn(
+					site,
+					expr,
 					"UnsupportedOperation",
-					at,
 					`a lowering for the operation ${describeOp(expr.op)} over ${args.length} operand(s)`
 				)
-			}
-			return lowered
+			)
 		}
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
-			return closedRead(cx, expr, expr.args.map(lower))
+			return closedRead(site, expr, expr.args.map(lower))
 	}
 }
+
+/**
+ * A query's site (lowerScalar): a column is its qualified reference in `env`, a parameter its typed placeholder, and
+ * VALUE is refused. Types: a comparison parameter is cast to its base type and a written or emitted one to its domain,
+ * which the IR records as the parameter's type; a literal is typed by its base, since its refinement was checked at
+ * compile time (the ContractLiteral check); a domain cast always names the domain, because the database validation it
+ * carries is its point.
+ */
+const querySite = (cx: LowerContext, env: Env): ScalarSite => ({
+	names: cx.names,
+	at: (expr) => loweringAt(exprLabel(expr)),
+	leaf: (expr) => {
+		const at = exprLabel(expr)
+		switch (expr.kind) {
+			case "column":
+				return (
+					env.get(expr.column.node)?.get(expr.column.name) ??
+					refuse(
+						"MalformedDescription",
+						at,
+						`a column ${expr.column.node}.${expr.column.name} of a node in scope`
+					)
+				)
+			case "value":
+				return refuse("MalformedDescription", at, "VALUE only inside a contract predicate")
+			case "param":
+				return cx.scalarParam(expr.param, expr.type, at)
+		}
+	},
+	castType: (type, expr) => cx.typeRef(type, exprLabel(expr)),
+	literal: (literal, type) => lowerLiteral(cx.names, literal, type),
+	whole: () => undefined
+})
+
+/** The SQL of the expression `expr`, evaluated where `env` is in scope (lowerScalar at its query's site). */
+export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
+	lowerScalar(expr, querySite(cx, env))
 
 /**
  * A closed read as its relation's installed constants answer it (sql/constants.ts closedRead), its arguments the codes
@@ -205,7 +256,7 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
  * a neighbour's and an index past the string reads absent.
  */
 const closedRead = (
-	cx: LowerContext,
+	site: ScalarSite,
 	expr: ScalarExpr & { readonly kind: "closedAt" | "closedRow" | "closedHas" },
 	args: ReadonlyArray<Expr>
 ): Expr => {
@@ -216,11 +267,11 @@ const closedRead = (
 				? { kind: "row" }
 				: { kind: "has" }
 	const lowered = closedReadOf(
-		cx.names.closed(expr.relation),
+		site.names.closed(expr.relation),
 		expr.relation,
 		read,
 		args,
-		cx.baseTypeRef(expr.type)
+		physicalBaseType(site.names, expr.type)
 	)
-	return lowered.ok ? lowered.value : refuse("MalformedDescription", exprLabel(expr), lowered.error)
+	return lowered.ok ? lowered.value : refuseIn(site, expr, "MalformedDescription", lowered.error)
 }

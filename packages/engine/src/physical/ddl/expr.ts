@@ -7,11 +7,9 @@ import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { codecOf, codeOf, handlesHex } from "#compiler/ir/codes.ts"
-import { datePartSlices } from "#compiler/ir/date.ts"
 import {
 	builtExpr,
 	type ColumnRef,
-	describeOp,
 	predicateTable,
 	type ScalarExpr,
 	spanLiteralText,
@@ -25,10 +23,7 @@ import {
 	type ScalarType,
 	spanCarrierOf
 } from "#compiler/ir/scalar.ts"
-import { moneyText } from "#compiler/lower/conservative/expr/index.ts"
-import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
-import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
-import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
+import { lowerScalar, moneyText, type ScalarSite } from "#compiler/lower/conservative/expr/index.ts"
 import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
 import {
 	type EvalLeaves,
@@ -36,13 +31,11 @@ import {
 	hostLiteralOf,
 	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
-import { isDateParse, nativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
+import { nativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { and, cast, lit, tableCol } from "#compiler/sql/build.ts"
-import { type ClosedRead, closedRead } from "#compiler/sql/constants.ts"
-import { dateOfText } from "#compiler/sql/lexical.ts"
+import { and, lit, tableCol } from "#compiler/sql/build.ts"
 
 const refusePersistent = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))
@@ -219,114 +212,71 @@ const foldedConstant = (
 }
 
 /** The SQL of the expression tree `expr` in `scope`: the scalar IR of a CHECK, a domain CHECK, a partial-index predicate or a
- * STORED generated column. Throws a Refusal, which the installer's boundary turns into a Result.
+ * STORED generated column, lowered by the one scalar lowering (lower/conservative/expr/index.ts lowerScalar) at its
+ * persistent site. Throws a Refusal, which the installer's boundary turns into a Result.
  *
- * One IR node is one PostgreSQL operator, function or cast, so each lowers to one SQL node, the operators through the
- * conservative lowering's Compute vocabulary and its span and vector plug-ins, so a predicate installed in the schema
- * and the same predicate in a query are one native expression tree. What differs from a query is the scope and the
- * literal typing:
+ * What differs from a query is the site:
  *
  * - a column is the row's own, unqualified (`"budget"`), resolved to its installed identifier; a CHECK reads no other
  *   row;
  * - VALUE is the domain's value, admitted only in a domain CHECK;
  * - a literal is typed by its base type (`persistentLiteral`);
  * - a parameter has no meaning in the schema and is refused;
- * - a compound subterm that reads no row is its value (`foldedConstant`).
+ * - a cast names its type's installed column type;
+ * - a compound subterm that reads no row is its value (`foldedConstant`), and a BETWEEN whose operand reads none is the
+ *   conjunction PostgreSQL reads it as (`composedBetween`).
  *
  * The IS TRUE wrapper of a CHECK is not added here: the printer wraps every CHECK. */
 export const lowerPersistent = (
 	names: PhysicalNames,
 	expr: ScalarExpr,
 	scope: PersistentScope
-): Expr => persistent(names, expr, scope, constantSubterms(expr))
+): Expr => lowerScalar(expr, persistentSite(names, scope, constantSubterms(expr)))
 
-/** `expr` lowered in `scope`, each of `constants`, the tree's constant subterms, as its value where it has one. */
-const persistent = (
+/** The persistent site of a tree in `scope` (lowerPersistent), each of `constants`, its constant subterms, as its value
+ * where it has one. */
+const persistentSite = (
 	names: PhysicalNames,
-	expr: ScalarExpr,
 	scope: PersistentScope,
 	constants: ReadonlySet<ScalarExpr>
-): Expr => {
-	const value = constants.has(expr) ? foldedConstant(names, expr, scope.closed) : undefined
-	if (value !== undefined) {
-		return value
-	}
-	const at = childLoc(scope.loc, "expressions", expr.id)
-	/** The expression's operands: a column of the constrained row, VALUE only in a domain CHECK, and no parameter. */
-	const lower = (a: ScalarExpr): Expr => persistent(names, a, scope, constants)
-	switch (expr.kind) {
-		case "column": {
-			const column = scope.reads.kind === "row" ? scope.reads.column(expr.column) : undefined
-			return column === undefined
-				? refusePersistent(
+): ScalarSite => {
+	const site: ScalarSite = {
+		names,
+		at: (expr) => childLoc(scope.loc, "expressions", expr.id),
+		leaf: (expr) => {
+			const at = site.at(expr)
+			switch (expr.kind) {
+				case "column": {
+					const column = scope.reads.kind === "row" ? scope.reads.column(expr.column) : undefined
+					return column === undefined
+						? refusePersistent(
+								"MalformedDescription",
+								at,
+								`a column ${expr.column.name} of the constrained row`
+							)
+						: tableCol(column)
+				}
+				case "value":
+					return scope.reads.kind === "domain"
+						? { kind: "domainValue" }
+						: refusePersistent("MalformedDescription", at, "VALUE only inside a domain CHECK")
+				case "param":
+					return refusePersistent(
 						"MalformedDescription",
 						at,
-						`a column ${expr.column.name} of the constrained row`
+						"a persistent expression without parameters"
 					)
-				: tableCol(column)
-		}
-		case "value":
-			return scope.reads.kind === "domain"
-				? { kind: "domainValue" }
-				: refusePersistent("MalformedDescription", at, "VALUE only inside a domain CHECK")
-		case "param":
-			return refusePersistent(
-				"MalformedDescription",
-				at,
-				"a persistent expression without parameters"
-			)
-		case "literal":
-			return persistentLiteral(names, expr.value, expr.type)
-		case "cast":
-			return isDateParse(expr.cast)
-				? dateOfText(lower(expr.args[0]), datePartSlices)
-				: cast(lower(expr.args[0]), fieldColumnType(names, expr.type).type)
-		case "domainCast":
-			return cast(lower(expr.args[0]), fieldColumnType(names, expr.type).type)
-		case "cond": {
-			const [when, result, otherwise] = expr.args
-			return {
-				kind: "case",
-				whens: [{ when: lower(when), result: lower(result) }],
-				else: lower(otherwise),
-				operand: undefined
 			}
-		}
-		case "closedAt":
-			return closedReadOf(
-				names,
-				expr,
-				expr.relation,
-				{ kind: "at", field: expr.field },
-				expr.args.map(lower),
-				at
-			)
-		case "closedRow":
-			return closedReadOf(names, expr, expr.relation, { kind: "row" }, expr.args.map(lower), at)
-		case "closedHas":
-			return closedReadOf(names, expr, expr.relation, { kind: "has" }, expr.args.map(lower), at)
-		case "op": {
-			const args = expr.args.map(lower)
-			const all = [expr.type, ...expr.args.map((a) => a.type)]
-			if (all.some((t) => spanCarrierOf(t) !== undefined)) {
-				return lowerSpanOp(expr, args, at)
-			}
-			if (all.some((t) => t.carrier === "vector")) {
-				return lowerVectorOp(expr, args, at, names.vectorSchema)
-			}
-			const lowered = isConstantBetween(expr, constants)
-				? composedBetween(names, expr, scope, constants)
-				: defaultOps(expr, args)
-			if (lowered === undefined) {
-				return refusePersistent(
-					"UnsupportedOperation",
-					at,
-					`a lowering for the operation ${describeOp(expr.op)} over ${args.length} operand(s)`
-				)
-			}
-			return lowered
-		}
+		},
+		castType: (type) => fieldColumnType(names, type).type,
+		literal: (literal, type) => persistentLiteral(names, literal, type),
+		whole: (expr) =>
+			(constants.has(expr) ? foldedConstant(names, expr, scope.closed) : undefined) ??
+			(expr.kind === "op" && isConstantBetween(expr, constants)
+				? composedBetween(names, expr, scope, site, constants)
+				: undefined)
 	}
+	return site
 }
 
 /** Whether a subterm reads no row: a literal, or a compound subterm of the tree's constants. */
@@ -343,7 +293,13 @@ const isConstantBetween = (
 	constants: ReadonlySet<ScalarExpr>
 ): boolean => {
 	const [x] = expr.args
-	return nativeOp(expr.op)?.fn === "between" && x !== undefined && readsNoRow(x, constants)
+	const all = [expr.type, ...expr.args.map((a) => a.type)]
+	return (
+		nativeOp(expr.op)?.fn === "between" &&
+		x !== undefined &&
+		readsNoRow(x, constants) &&
+		!all.some((t) => spanCarrierOf(t) !== undefined || t.carrier === "vector")
+	)
 }
 
 /**
@@ -354,6 +310,7 @@ const composedBetween = (
 	names: PhysicalNames,
 	expr: ScalarExpr & { readonly kind: "op" },
 	scope: PersistentScope,
+	site: ScalarSite,
 	constants: ReadonlySet<ScalarExpr>
 ): Expr => {
 	const [x, low, high] = expr.args
@@ -380,33 +337,7 @@ const composedBetween = (
 		const value = readsNoRow(bound, constants)
 			? foldedConstant(names, comparison, scope.closed)
 			: undefined
-		return value ?? persistent(names, comparison, scope, constants)
+		return value ?? lowerScalar(comparison, site)
 	}
 	return and([side("ge", low), side("le", high)])
-}
-
-/**
- * A closed read over its relation's installed constants (sql/constants.ts closedRead): C.at's payload field, C.row's
- * completions or a membership test at the key its arguments name, cast to its type's base. An absent key reads NULL
- * for C.at and the empty set for C.row, and a NULL argument reads NULL. A NULL is judged by the expression's
- * three-valued logic: a CHECK refuses its row only where the whole predicate is not true, a selection keeps a row only
- * where it is true, and a generated column's NOT NULL refuses a NULL term. Every domain admits NULL (sql/print.ts), so
- * no cast refuses it first.
- */
-const closedReadOf = (
-	names: PhysicalNames,
-	expr: ScalarExpr,
-	relation: string,
-	read: ClosedRead,
-	args: ReadonlyArray<Expr>,
-	at: SourceLoc
-): Expr => {
-	const lowered = closedRead(
-		names.closed(relation),
-		relation,
-		read,
-		args,
-		baseTypeRef(names, expr.type)
-	)
-	return lowered.ok ? lowered.value : refusePersistent("MalformedDescription", at, lowered.error)
 }
