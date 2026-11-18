@@ -290,5 +290,26 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 		name: "the budget's contract: the demand up to the width opens, every opener past it is refused naming the width"
 	},
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "test/support/substrate/budget.ts",
+			original:
+				"\t\t\t\tdraw(count) ? Effect.void : Effect.die(new LeaseBudgetExhausted({ width }))",
+			replacement: "\t\t\t\tdraw(count) ? Effect.void : Effect.never",
+			why: "An opener past the width waits for a permit instead of being refused at once with LeaseBudgetExhausted; the case's past-width opener never returns."
+		},
+		{
+			file: "test/support/substrate/budget.ts",
+			original:
+				"\t\t\t\treturn yield* Effect.onError(Scope.provide(open, own), (cause) =>\n\t\t\t\t\tScope.close(own, Exit.failCause(cause))\n\t\t\t\t)",
+			replacement: "\t\t\t\treturn yield* Scope.provide(open, own)",
+			why: "A login the server refuses keeps the permit it drew until its case ends, so a later opener within the width is refused."
+		},
+		{
+			file: "test/support/substrate/budget.ts",
+			original: "\t\t\t\t\tdrawn -= count",
+			replacement: "\t\t\t\t\tdrawn -= 0",
+			why: "A permit drawn is never given back when its scope closes, so a case's budget drawn from the worker's leaves the worker's short, and the next case is refused within its width."
+		}
+	]
 })
