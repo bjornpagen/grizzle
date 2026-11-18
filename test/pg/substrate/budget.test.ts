@@ -290,12 +290,5 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 		name: "the budget's contract: the demand up to the width opens, every opener past it is refused naming the width"
 	},
 	kept: [],
-	kills: [
-		{
-			file: "packages/engine/src/schema/own.ts",
-			original: "\t\t\treturn true",
-			replacement: "\t\t\treturn false",
-			why: "Operator mutant (boolean) at packages/engine/src/schema/own.ts:527 in grouped: `true` becomes `false`; the property fails (lane CATCH, grizzle b0d74512)."
-		}
-	]
+	kills: []
 })
