@@ -30,7 +30,7 @@ import {
 	partialOrder
 } from "#compiler/lower/conservative/take/order.ts"
 import type { DeliveredBreach } from "#compiler/lower/conservative/types.ts"
-import type { CteStrategy } from "#compiler/lower/optimize/cte-policy/index.ts"
+import { attachmentRead } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
@@ -304,46 +304,66 @@ export const attachmentOrder =
 					})
 				]
 
-/**
- * The child as a fold by every column the Attach correlates, a Group whose keys hold them, which the part restricts to
- * each parent row's values; none for any other, and none for a fold the statement computes once (`read`
- * materialized: lower/optimize/cte-policy rule 5b, a fold no stored relation's range binds by its keys), which the part
- * reads beside its parents' keys.
- */
+/** The child as a fold by every column the Attach correlates, a Group whose keys hold them; none for any other. */
 const foldedByCorrelation = (
 	child: RelNode,
-	attach: NodeOf<"Attach">,
-	read: CteStrategy | undefined
+	attach: NodeOf<"Attach">
 ): NodeOf<"Group"> | undefined =>
 	child.kind === "Group" &&
 	child.keys.length > 0 &&
-	attach.correlation.every((c) => child.keys.includes(c.child)) &&
-	read !== "materialized"
+	attach.correlation.every((c) => child.keys.includes(c.child))
 		? child
 		: undefined
+
+/**
+ * The child's rows for one parent key, its values fixed inside: SELECT DISTINCT <child heading> FROM (<child>) WHERE
+ * <child column> = <parent column> ..., read as a LATERAL derived table. DISTINCT keeps it a subquery PostgreSQL never
+ * pulls up into the part, so it runs once per parent key with the key's values fixed, its scans restricted by them,
+ * and never joins its child to the parents' keys, which PostgreSQL may plan as the child derived whole again for each
+ * key, the key a filter above it.
+ */
+const keyedRows = (
+	cx: LowerContext,
+	attach: NodeOf<"Attach">,
+	env: Env,
+	parentMap: ColumnMap
+): OperandSelect => {
+	const child = attach.child
+	const source = cx.source(child, env)
+	const where = correlationEqualities(cx, attach, child.heading, source.map, parentMap)
+	return select(
+		distinctCore(headingTargets(child.heading, source.map), [source.item], conjunction(where))
+	)
+}
 
 /**
  * The pipelined attachment's part:
  *
  *   SELECT [DISTINCT] r1.c1, r3.c5, r3.c6 FROM (<the parent key's values>) AS r1(c1),
- *     LATERAL (<child>) AS r3(c4, c5, c6) WHERE r3.c4 = r1.c1 [ORDER BY r1.c1, <child order>]
+ *     LATERAL (<child, for r1's values>) AS r3(c4, c5, c6) [ORDER BY r1.c1, <child order>]
  *
  * The parent key columns `parentColumns` first (deliver.ts parentColumnsOf), then the child's heading. The parent's
  * rows are read as the set of their parent key values (ParentRows keys), each once, so DISTINCT is elided when the
  * facts prove the child unique per parent binding.
  *
- * A child that folds by every column the Attach correlates (a Group whose keys hold them) is the fold of its parent's
- * keys alone, `LATERAL (SELECT k, sum(…) FROM (<input>) WHERE k = r1.c2 GROUP BY k)` (aggregate/index.ts keyedGroup),
- * the correlation inside the grouping, where it restricts the fold's input rows and an index on the key reads them per
- * parent row. The restriction is the correlation pair for pair (context.ts correlatedColumns), the conservative
- * lowering's equalities: a key the Attach pairs with two parent columns is restricted to both. A grouped derived table
- * is never flattened, so a correlation beside it is a join condition PostgreSQL keeps above the aggregate, which then
- * reads every row of the child's relation: a grant's debited total folded every debit of every grant. Wrapping the
- * fold in a derived table that restricts it does not help: PostgreSQL flattens the wrapper (prepjointree.c
- * pull_up_subqueries) and its condition is a join condition again. Any other child is correlated beside it, which
- * PostgreSQL pushes into a child it flattens. A fold the statement computes once (`read`, the CTE policy's strategy for
- * the child) is that relation, one group per key, its correlation beside it: no stored relation's range binds its
- * keys, so a restriction inside the grouping would derive its input again for each parent row.
+ * The child is read as the CTE policy's attachmentRead decides, so no form derives it again for each parent row:
+ *
+ * - `perKey`, one stored relation's range binds the correlated columns: for each parent key, its values fixed inside a
+ *   LATERAL derived table PostgreSQL never pulls up. A child that folds by every column the Attach correlates (a
+ *   Group whose keys hold them) is the fold of its parent's keys alone, `LATERAL (SELECT k, sum(…) FROM (<input>)
+ *   WHERE k = r1.c2 GROUP BY k)` (aggregate/index.ts keyedGroup), the correlation inside the grouping, where it
+ *   restricts the fold's input rows and an index on the key reads them per parent row. The restriction is the
+ *   correlation pair for pair (context.ts correlatedColumns), the conservative lowering's equalities: a key the Attach
+ *   pairs with two parent columns is restricted to both. A grouped derived table is never flattened, so a correlation
+ *   beside it is a join condition PostgreSQL keeps above the aggregate, which then reads every row of the child's
+ *   relation: a grant's debited total folded every debit of every grant. Any other child is its rows for the key
+ *   (keyedRows), under DISTINCT, which PostgreSQL never flattens either: flattened beside its parents' keys, the child
+ *   was a join PostgreSQL planned as the child derived whole for each key, with every scan of a many-row table it
+ *   estimates at one row (edullm's `versions`, every package's classifications derived for each of 183 heads).
+ * - `once`, no stored relation's range binds them: the statement derives the child once (a MATERIALIZED CTE,
+ *   cte-policy rule 5b) and the part reads it beside its parents' keys, `WHERE r3.c4 = r1.c1`; restricted to each key
+ *   inside, it would be derived again for each (edullm's `sets`, ItemSet once per term).
+ * - `take`: the take policy's own form (R20, take/index.ts), beside.
  */
 export const pipelinedAttachment = (
 	cx: LowerContext,
@@ -351,8 +371,7 @@ export const pipelinedAttachment = (
 	spine: ReadonlyArray<RelNode>,
 	rows: DeliveredRows<ChoiceInput>,
 	facts: ShapeFacts,
-	parentColumns: Heading,
-	read: CteStrategy | undefined
+	parentColumns: Heading
 ): PipelinedAttachment => {
 	const child = attach.child
 	const parent = parentKeysSource(cx, rows, parentColumns, { kind: "node", node: attach.id })
@@ -360,20 +379,23 @@ export const pipelinedAttachment = (
 	const keys = parentColumns.map((c) => ({ name: c.name, expr: parent.column(c.name) }))
 	const parentMap: ColumnMap = new Map(keys.map((k) => [k.name, k.expr]))
 	const env: Env = new Map<NodeId, ColumnMap>(spine.map((n) => [n.id, parentMap]))
-	const folded = foldedByCorrelation(child, attach, read)
-	const source =
-		folded === undefined
-			? cx.sourceAs(child, env, true)
+	const origin = { kind: "node", node: child.id } as const
+	/** Whether the child is read for each parent key, its values fixed inside (attachmentRead `perKey`), or beside. */
+	const inside = attachmentRead(attach).kind === "perKey"
+	const folded = inside ? foldedByCorrelation(child, attach) : undefined
+	const source = !inside
+		? cx.sourceAs(child, env, true)
+		: folded === undefined
+			? cx.wrapAs(keyedRows(cx, attach, env, parentMap), child.heading, origin, true)
 			: cx.wrapAs(
 					keyedGroup(facts, folded, cx, env, correlatedColumns(attach, parentMap)),
 					child.heading,
-					{ kind: "node", node: child.id },
+					origin,
 					true
 				)
-	const where =
-		folded === undefined
-			? correlationEqualities(cx, attach, child.heading, source.map, parentMap)
-			: []
+	const where = inside
+		? []
+		: correlationEqualities(cx, attach, child.heading, source.map, parentMap)
 	const childUnique = facts.childUniquePerParent(attach)
 	const order = attachmentOrder(
 		attach,

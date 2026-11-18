@@ -222,6 +222,27 @@ const sets = query(Ledger)
 		"array"
 	)
 
+/**
+ * edullm's `versions`, as its classifications read: every current package with each term it states, an attachment by
+ * the package, whose child, eight elements of the manifest joined, one stored relation's range binds by it.
+ */
+const versions = query(Ledger)
+	.rule((r) => {
+		const { pkg } = v(Current, "current")
+		return r.match(Current, { pkg }).find({ pkg })
+	})
+	.attach(
+		"classifications",
+		(head) =>
+			query(Ledger).rule((r) => {
+				const { purpose, source, id } = v(Classification, "term")
+				return r
+					.match(Classification, { pkg: head.pkg, purpose, source, id })
+					.find({ pkg: head.pkg, purpose, source, id })
+			}),
+		"array"
+	)
+
 /** The ledger installed through its first migration, with a reader login whose workload's indexes `sets` earns. */
 export const readOnceTemplate = migratedTemplate({
 	declaredIn: import.meta,
@@ -230,7 +251,9 @@ export const readOnceTemplate = migratedTemplate({
 	versions: [{ schema: Ledger, logins: [], declarations: noDeclarations }],
 	options: {
 		label: "read_once",
-		extensions: [workloadOver([{ login: "reader", workloads: [workload(Ledger, { sets })] }])],
+		extensions: [
+			workloadOver([{ login: "reader", workloads: [workload(Ledger, { sets, versions })] }])
+		],
 		compile: compileInstallation,
 		ambient: ordinarySession
 	}
@@ -375,13 +398,17 @@ const reruns = (plan: PlanNode): ReadonlyArray<Rerun> =>
  * The read's one statement explained as it runs, and its answer: each part's rows as the delivery sends them, the
  * statement's terms with their counts read back by their place.
  */
-const measured = (installed: Installed, connection: PgConnection) =>
+const measured = (
+	installed: Installed,
+	connection: PgConnection,
+	read: typeof sets | typeof versions
+) =>
 	Effect.gen(function* () {
 		const options = {
 			...testCompile,
 			installation: identity.schema(parsedSchemaName(installed.declared))
 		}
-		const template = succeeded(compileTemplate(sets, undefined, options), "the read compiles")
+		const template = succeeded(compileTemplate(read, undefined, options), "the read compiles")
 		const [statement, ...others] = template.optimized
 		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
 		const explained = yield* connection.queryValues(
@@ -440,17 +467,34 @@ export const runReadOnce = (
 				yield* connection.query(sql, [])
 			}
 			const stored = to - 9
-			const { plan, rows } = yield* measured(installed, connection)
+			const bounded = (read: string, plan: PlanNode) => {
+				const heaviest = reruns(plan)
+				assert.ok(
+					Arr.every(heaviest, (r) => r.rows < stored),
+					`${Formatter.format(c)}: every scan ${read} runs more than once reads fewer rows a run than the ${stored} packages stored, ${Formatter.format(Arr.take(heaviest, 3))}, ${rowsRead(plan)} rows read of stored relations`
+				)
+			}
+			const terms = yield* measured(installed, connection, sets)
 			assert.deepEqual(
-				answerOf(rows),
+				answerOf(terms.rows),
 				expected(c, stored),
-				`${Formatter.format(c)}: the read's terms at ${stored} packages`
+				`${Formatter.format(c)}: the terms read's terms at ${stored} packages`
 			)
-			const heaviest = reruns(plan)
-			assert.ok(
-				Arr.every(heaviest, (r) => r.rows < stored),
-				`${Formatter.format(c)}: every scan the read runs more than once reads fewer rows a run than the ${stored} packages stored, ${Formatter.format(Arr.take(heaviest, 3))}, ${rowsRead(plan)} rows read of stored relations`
+			bounded("the terms read", terms.plan)
+			const heads = yield* measured(installed, connection, versions)
+			const current = Arr.filter(
+				Array.from({ length: stored }, (_, i) => 10 + i),
+				(p) => !isGone(c, p)
 			)
+			assert.deepEqual(
+				[
+					Arr.filter(heads.rows, (r) => r[0] === "0").length,
+					Arr.filter(heads.rows, (r) => r[0] === "1").length
+				],
+				[current.length, 3 * current.length],
+				`${Formatter.format(c)}: the heads read's current packages and their three terms each at ${stored} packages`
+			)
+			bounded("the heads read", heads.plan)
 		}
 		k.note(c.gone > 0 ? "a package taken away" : "every package current")
 	})

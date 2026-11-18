@@ -7,15 +7,18 @@
  * many current packages state it and how many items its item set holds.
  *
  * - **once**: packages stored and analyzed, then as many again and more, analyzed again, the idea terms growing with
- *   them: the read answers the host's count of every term's packages and items, and every scan its plan runs more than
- *   once, of a stored relation or of a CTE it derived once, handles fewer rows a run than there are packages, so its
- *   work grows with what it reads, not with its square. Before rule 5b a derived relation joined to another stood as
- *   the inner side of a nested loop PostgreSQL re-derived for each outer row, and the attachment's fold restricted
+ *   them: the terms read (`sets`) answers the host's count of every term's packages and items, the heads read
+ *   (`versions`'s classifications) every current package with its three terms, and every scan either plan runs more
+ *   than once, of a stored relation or of a CTE it derived once, handles fewer rows a run than there are packages, so
+ *   its work grows with what it reads, not with its square. Before rule 5b a derived relation joined to another stood
+ *   as the inner side of a nested loop PostgreSQL re-derived for each outer row, and the attachment's fold restricted
  *   ItemSet to each term inside its grouping, deriving it once per term: edullm's `sets` took six minutes at 206
  *   packages. A derived set joined as a set would be scanned whole for each row of the region's other occurrences, or
  *   their join derived again for each of its rows, so the region reads the rest of itself once per row of the set,
- *   LATERAL by its values (lower/shapes/region keyedByOnce). The one rescan left is the items attachment's, the terms'
- *   folds scanned for each term, which grows with the square of the terms, in memory, never of a stored row.
+ *   LATERAL by its values (lower/shapes/region keyedByOnce). An attachment's child no fold is read for each parent key
+ *   inside, never joined beside its parents' keys, where PostgreSQL derived `versions`'s classifications of every
+ *   package once per head (40 s at 183 heads). The one rescan left is the items attachment's, the terms' folds scanned
+ *   for each term, which grows with the square of the terms, in memory, never of a stored row.
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -46,7 +49,7 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 				Effect.flatMap(ledger, ({ connection, value }) => runReadOnce(value, connection, drawn, c)),
 		oracle: {
 			kind: "universal",
-			name: "the host's count of every term's current packages and items, and bound: every scan the read runs more than once, of a stored relation or of a CTE it derived, reads fewer rows a run than the packages stored, at two sizes"
+			name: "the host's count of every term's current packages and items and of every current package's terms, and bound: every scan either read runs more than once, of a stored relation or of a CTE it derived, reads fewer rows a run than the packages stored, at two sizes"
 		},
 		kept: [],
 		kills: [
@@ -57,10 +60,18 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 				why: "No derived relation a workload's read reads per row is computed once, so Current stands inside the join of its terms, which PostgreSQL derives again for each, and the items attachment folds ItemSet once per term."
 			},
 			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original:
+					'\treturn keys.length > 0 && probedByKey(probed, keys) ? { kind: "perKey" } : { kind: "once", rows }',
+				replacement: '\treturn { kind: "perKey" }',
+				why: "Every attachment's child is read for each parent key, the items attachment's fold restricted to each term inside its grouping though no stored relation's range binds the term, so ItemSet is derived once per term."
+			},
+			{
 				file: "packages/engine/src/lower/shapes/attach/index.ts",
-				original: '\tread !== "materialized"',
-				replacement: "\ttrue",
-				why: "The items attachment's fold is restricted to each term inside its grouping, though no stored relation's range binds the term, so ItemSet is derived once per term."
+				original: '\tconst inside = attachmentRead(attach).kind === "perKey"',
+				replacement:
+					'\tconst inside = attachmentRead(attach).kind === "perKey" && foldedByCorrelation(child, attach) !== undefined',
+				why: "An attachment's child that is no fold is joined to its parents' keys beside it, so PostgreSQL may plan the heads read's classifications derived for every package once per head, the head's package a filter above them."
 			},
 			{
 				file: "packages/engine/src/lower/shapes/region/index.ts",

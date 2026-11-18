@@ -9,7 +9,15 @@ import {
 import { nodeScopes } from "#compiler/ir/dag.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import type { NodeOf, RelKind, RelNode, ValidDag, VarDecl } from "#compiler/ir/rel.ts"
+import {
+	deliveredInput,
+	keptRowsOf,
+	type NodeOf,
+	type RelKind,
+	type RelNode,
+	type ValidDag,
+	type VarDecl
+} from "#compiler/ir/rel.ts"
 import {
 	feedbackReadsOf,
 	nodeGraph,
@@ -100,15 +108,13 @@ interface Decided {
 }
 
 /**
- * Whether every column of `columns` of `node` is bound, through filters and projections of columns, by one occurrence
- * of a stored relation in a region: a restriction by them is then a range of that relation, which the index the
- * workload's access paths request for it reads (physical/access), and the rest of the region joins each row of that
- * range by the variables it binds.
+ * Whether every column of `columns` of `node` is bound, through the rows a node keeps of its input (ir/rel.ts
+ * keptRowsOf: a filter's, a semi- or anti-join's left side's) and projections of columns, by one occurrence of a stored
+ * relation in a region: a restriction by them is then a range of that relation, which the index the workload's access
+ * paths request for it reads (physical/access), and the rest of the region joins each row of that range by the
+ * variables it binds.
  */
 const probedByKey = (node: RelNode, columns: ReadonlyArray<string>): boolean => {
-	if (node.kind === "Filter") {
-		return probedByKey(node.input, columns)
-	}
 	if (node.kind === "ProjectSet") {
 		const read = columns.flatMap((c) => {
 			const e = node.out.find((o) => o.name === c)?.expr
@@ -116,16 +122,50 @@ const probedByKey = (node: RelNode, columns: ReadonlyArray<string>): boolean => 
 		})
 		return read.length === columns.length && probedByKey(node.input, read)
 	}
-	if (node.kind !== "MatchRegion") {
-		return false
-	}
-	const vars = columns.flatMap((c) => node.vars.filter((v) => v.name === c))
-	return (
-		vars.length === columns.length &&
-		node.occurrences.some(
-			(o) => o.source.kind === "Base" && vars.every((v) => o.bindings.some((b) => b.var === v))
+	if (node.kind === "MatchRegion") {
+		const vars = columns.flatMap((c) => node.vars.filter((v) => v.name === c))
+		return (
+			vars.length === columns.length &&
+			node.occurrences.some(
+				(o) => o.source.kind === "Base" && vars.every((v) => o.bindings.some((b) => b.var === v))
+			)
 		)
-	)
+	}
+	const kept = node.kind === "Take" ? undefined : keptRowsOf(node)
+	return kept !== undefined && probedByKey(kept.input, columns)
+}
+
+/** The rows an attachment's child delivers: the child, through every attachment of its own to the rows it attaches to. */
+const attachedRows = (child: RelNode): RelNode => {
+	const input = deliveredInput(child)
+	return input === undefined ? child : attachedRows(input)
+}
+
+/**
+ * How a pipelined attachment's part reads its child's rows (lower/shapes/attach pipelinedAttachment), so that no form
+ * derives them again for each parent row:
+ *
+ * - `perKey`: one stored relation's range binds every column the attachment correlates (probedByKey; for a fold by
+ *   them, its input's), so the part reads the child once per parent key, the key's values fixed inside a LATERAL
+ *   derived table PostgreSQL never pulls up: a fold restricted inside its grouping, any other child under DISTINCT.
+ * - `once`: no stored relation's range binds them, so the statement derives `rows` once (rule 5b, a MATERIALIZED CTE)
+ *   and the part joins each parent key to them beside.
+ * - `take`: a take, which the take policy reads its own way (R20, lower/shapes/take), beside.
+ */
+export type AttachmentRead =
+	| { readonly kind: "perKey" }
+	| { readonly kind: "once"; readonly rows: RelNode }
+	| { readonly kind: "take" }
+
+export const attachmentRead = (attach: NodeOf<"Attach">): AttachmentRead => {
+	const rows = attachedRows(attach.child)
+	if (rows.kind === "Take") {
+		return { kind: "take" }
+	}
+	const keys = attach.correlation.map((c) => c.child)
+	const probed =
+		rows.kind === "Group" && keys.every((k) => rows.keys.includes(k)) ? rows.input : rows
+	return keys.length > 0 && probedByKey(probed, keys) ? { kind: "perKey" } : { kind: "once", rows }
 }
 
 /** The variables of a region a value fixes: a correlation that reads no relation, a parameter or a literal. */
@@ -136,8 +176,8 @@ const fixedByValue = (region: NodeOf<"MatchRegion">): ReadonlySet<VarDecl> =>
  * The nodes a reader reads once per row of its other input, as PostgreSQL evaluates them where they stand: the source
  * of a region's occurrence no value restricts (no constant fixes one of its columns, and no parameter or literal one of
  * the variables it binds), which the region joins to its other occurrences; the right side of a semi- or anti-join,
- * which it tests for each row of its left; and an attachment's fold by the columns it correlates whose keys no stored
- * relation's range binds (probedByKey), which the attachment would restrict to each parent row's values.
+ * which it tests for each row of its left; and an attachment's rows no stored relation's range binds by the columns it
+ * correlates (attachmentRead `once`), which its part would otherwise read for each parent row.
  */
 const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
 	const out = new Set<RelNode>()
@@ -152,15 +192,9 @@ const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
 		} else if (node.kind === "SemiJoin" || node.kind === "AntiJoin") {
 			out.add(node.right)
 		} else if (node.kind === "Attach") {
-			const child = node.child
-			const keys = node.correlation.map((c) => c.child)
-			if (
-				child.kind === "Group" &&
-				keys.length > 0 &&
-				keys.every((k) => child.keys.includes(k)) &&
-				!probedByKey(child.input, keys)
-			) {
-				out.add(child)
+			const read = attachmentRead(node)
+			if (read.kind === "once") {
+				out.add(read.rows)
 			}
 		}
 	}
