@@ -1634,7 +1634,7 @@ class Owner {
 
 	/** A field's name parsed by the naming door, as its relation's ownership declares it. */
 	#fieldName(field: string, entry: RelationEntry): Result.Result<DeclaredName, CompileError> {
-		return new DeclaredNamespace(`relation ${entry.desc.name}'s field`).declare(
+		return DeclaredNamespace.columns(`relation ${entry.desc.name}'s field`).declare(
 			field,
 			"field",
 			labeledChildLoc(entry.desc.loc, field, `field ${entry.desc.name}.${field}`)
@@ -2092,8 +2092,7 @@ class Owner {
 				this.#requireFields(entry, [...fieldRefs(d.predicate, new Set())], s)
 				this.#checkPredicateHandles(d.predicate, entry.heading, s)
 				const checks =
-					this.#checkNames.get(d.relation) ??
-					new DeclaredNamespace(`relation ${d.relation}'s check`)
+					this.#checkNames.get(d.relation) ?? DeclaredNamespace.of(`relation ${d.relation}'s check`)
 				this.#checkNames.set(d.relation, checks)
 				const named = identity.check(d.relation, declareName(checks, d.name, "check", d.loc))
 				return { ...d, check: { named, constraint: identifierOf(named) } }
@@ -2238,7 +2237,7 @@ class Owner {
 			}
 		}
 		const checks =
-			this.#checkNames.get(d.relation) ?? new DeclaredNamespace(`relation ${d.relation}'s check`)
+			this.#checkNames.get(d.relation) ?? DeclaredNamespace.of(`relation ${d.relation}'s check`)
 		this.#checkNames.set(d.relation, checks)
 		const named = identity.check(d.relation, declareName(checks, d.name, "check", d.loc))
 		return { ...d, check: { named, constraint: identifierOf(named) } }
@@ -2317,7 +2316,7 @@ class Owner {
 
 	/** The schema's one namespace of relations, derived relations, rosters and contracts (PostgreSQL's relation and type
 	 * namespaces, which grizzle treats as one). */
-	readonly #schemaNames = new DeclaredNamespace("relation, roster and contract")
+	readonly #schemaNames = DeclaredNamespace.of("relation, roster and contract")
 
 	/** The relations, each owning the keys and checks `statements` state over it, read off them once by relation. */
 	#ownRelations(
@@ -2416,7 +2415,7 @@ class Owner {
 	): OwnedRelation {
 		const { name } = owning
 		const fields: Record<string, OwnedField> = {}
-		const columns = new DeclaredNamespace(`relation ${name}'s field`)
+		const columns = DeclaredNamespace.columns(`relation ${name}'s field`)
 		for (const [declared, decl] of Object.entries(r.fields)) {
 			const field = declareName(
 				columns,
@@ -2469,7 +2468,7 @@ class Owner {
 	): Readonly<Record<string, OwnedField>> {
 		const { name } = owning
 		const fields: Record<string, OwnedField> = {}
-		const columns = new DeclaredNamespace(`closed relation ${name}'s field`)
+		const columns = DeclaredNamespace.columns(`closed relation ${name}'s field`)
 		for (const [declared, desc] of Object.entries(heading)) {
 			const field = declareName(
 				columns,
@@ -2494,7 +2493,7 @@ class Owner {
 	/** Each contract by its declared name, a contract's name its type-level brand alone (OwnedContract). */
 	#ownContracts(): Readonly<Record<string, OwnedContract>> {
 		const out: Record<string, OwnedContract> = {}
-		const names = new DeclaredNamespace("contract")
+		const names = DeclaredNamespace.of("contract")
 		for (const [declared, c] of byName(this.#contracts)) {
 			const name = declareName(names, declared, "contract", c.loc)
 			out[name] = { name, desc: c.desc, loc: c.loc }
@@ -2683,14 +2682,14 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 	}
 	/** A role's name is a declared name: its PostgreSQL role and its schema are `<schema>__<name>`. Its login's
 	 * ownership holds it apart from the login's other names. */
-	const roleName = declareName(new DeclaredNamespace("role"), desc.name, "role", desc.loc)
+	const roleName = declareName(DeclaredNamespace.of("role"), desc.name, "role", desc.loc)
 	const relations: Record<string, OwnedEntry> = {}
 	const contexts = new Map<
 		string,
 		{ readonly desc: ContextDesc; readonly text: string; readonly loc: SourceLoc }
 	>()
 	/** The role's schema holds one view per relation, named by the relation's declared name. */
-	const views = new DeclaredNamespace(`${label}'s relation`)
+	const views = DeclaredNamespace.of(`${label}'s relation`)
 	for (const e of desc.relations) {
 		const entryName = declareName(views, e.name, "relation", e.loc)
 		if (e.kind === "whole") {
@@ -2864,7 +2863,7 @@ const ownLoginOf = (
 	ownRoles: () => ReadonlyArray<OwnedRole>
 ): OwnedLogin => {
 	const label = `login ${desc.name}`
-	const names = new DeclaredNamespace(`${label}'s and its roles'`)
+	const names = DeclaredNamespace.of(`${label}'s and its roles'`)
 	const loginName = declareName(names, desc.name, "login", desc.loc)
 	const roles = ownRoles()
 	for (const r of roles) {

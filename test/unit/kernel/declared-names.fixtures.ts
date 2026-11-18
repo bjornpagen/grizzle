@@ -91,3 +91,48 @@ export const situationOf = (bytes: number): LimitFeature =>
 			: bytes === maxIdentifierBytes + 1
 				? "one byte past"
 				: "far past"
+
+/** PostgreSQL 19's system columns, as src/backend/catalog/heap.c spells its SysAtt: every table and materialized view
+ * holds them, and refuses a column declared under one (42701). */
+export const pgSystemColumns = ["ctid", "xmin", "cmin", "xmax", "cmax", "tableoid"] as const
+
+/** A field name as declared beside a system column, and its conversion. */
+export interface FieldNamed {
+	readonly declared: string
+	readonly converted: string
+}
+
+/** Each spelling of a system column whose conversion is the column's own: lowercase, a capital first, all capitals. */
+const systemSpellingGen: Gen<FieldNamed> = (source) => {
+	const column = source.draw(element(pgSystemColumns))
+	const declared = source.draw(element([column, Str.capitalize(column), Str.toUpperCase(column)]))
+	return { declared, converted: column }
+}
+
+/** A name one step from a system column's whose conversion is another: a digit after it, a letter before it, or the
+ * column cut in two segments. */
+const nearSpellingGen: Gen<FieldNamed> = (source) => {
+	const column = source.draw(element(pgSystemColumns))
+	const digit = source.draw(characterOf(digits))
+	const letter = source.draw(characterOf(lowercase))
+	const cut = source.draw(int(1, column.length - 1))
+	return source.draw(
+		element([
+			{ declared: `${column}${digit}`, converted: `${column}_${digit}` },
+			{ declared: `${letter}${column}`, converted: `${letter}${column}` },
+			{
+				declared: `${Str.slice(0, cut)(column)}_${Str.slice(cut)(column)}`,
+				converted: `${Str.slice(0, cut)(column)}_${Str.slice(cut)(column)}`
+			}
+		])
+	)
+}
+
+/** A field name: a system column's spelled any way its conversion keeps, one a step from one, or any short name. */
+export const fieldNamedGen: Gen<FieldNamed> = weighted<FieldNamed>([
+	[2, systemSpellingGen],
+	[2, nearSpellingGen],
+	[1, nameOf(12)]
+])
+
+export type SystemColumnFeature = `${(typeof pgSystemColumns)[number]} refused` | "admitted"

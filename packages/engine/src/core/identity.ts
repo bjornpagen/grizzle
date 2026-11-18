@@ -539,24 +539,58 @@ export const declaredAlike = (a: DeclaredName, b: DeclaredName): boolean =>
 	conversionOf(a) === conversionOf(b)
 
 /**
+ * The columns PostgreSQL holds in every table and materialized view before any it declares, its system columns
+ * (src/backend/catalog/heap.c, the SysAtt it reads by SystemAttributeByName): a table or materialized view that declares
+ * a column of one of their names is refused, 42701 "column name ... conflicts with a system column name". Every name
+ * grizzle derives for a column of its own, a law column's or a hidden accumulator's, starts with `__` (hashedLead), so
+ * none is one of them.
+ */
+export const systemColumns: ReadonlySet<string> = new Set([
+	"ctid",
+	"xmin",
+	"cmin",
+	"xmax",
+	"cmax",
+	"tableoid"
+])
+
+/** No name PostgreSQL holds: a namespace of declared names other than a relation's columns. */
+const noneHeld: ReadonlySet<string> = new Set()
+
+/**
  * One PostgreSQL namespace of declared names: the schema's relations, rosters and contracts; a table's, closed
  * relation's, derived relation's or role view's columns; a table's row checks; a role's views. It holds each conversion
- * taken, with the declaration that took it and where. The door renders a declared name as its conversion, so two
- * declarations of one conversion would be one identifier: they are one name declared twice.
+ * taken, with the declaration that took it and where, beside the names PostgreSQL holds there before any declaration
+ * (`held`): a relation's columns its system columns (`columns`), which every table and materialized view a relation may
+ * install as holds, and no other namespace any. The door renders a declared name as its conversion, so two
+ * declarations of one conversion would be one identifier: they are one name declared twice; and a declaration of a
+ * conversion PostgreSQL holds would be an identifier it refuses.
  */
 export class DeclaredNamespace {
 	readonly #what: string
+	readonly #held: ReadonlySet<string>
 	readonly #taken = new Map<string, { readonly declaration: string; readonly loc: SourceLoc }>()
 
-	/** `what` names the namespace in a refusal: "relation Task's field". */
-	constructor(what: string) {
+	private constructor(what: string, held: ReadonlySet<string>) {
 		this.#what = what
+		this.#held = held
+	}
+
+	/** A namespace PostgreSQL holds no name in, `what` naming it in a refusal: "relation Task's check". */
+	static of(what: string): DeclaredNamespace {
+		return new DeclaredNamespace(what, noneHeld)
+	}
+
+	/** A relation's columns, `what` naming them in a refusal ("relation Task's field"), PostgreSQL's system columns held. */
+	static columns(what: string): DeclaredNamespace {
+		return new DeclaredNamespace(what, systemColumns)
 	}
 
 	/**
 	 * Declares `name`, a `kind` (relation, field, check...) at `loc`: the name, parsed, or its refusal,
-	 * MalformedDescription for a name `parseDeclaredName` refuses and IdentifierCollision, with both places, for a name
-	 * whose conversion an earlier declaration took, the same name declared twice included.
+	 * MalformedDescription for a name `parseDeclaredName` refuses or whose conversion PostgreSQL holds in the namespace,
+	 * and IdentifierCollision, with both places, for a name whose conversion an earlier declaration took, the same name
+	 * declared twice included.
 	 */
 	declare(name: string, kind: string, loc: SourceLoc): Result.Result<DeclaredName, CompileError> {
 		const parsed = parsedName(name)
@@ -569,6 +603,14 @@ export class DeclaredNamespace {
 			)
 		}
 		const { conversion } = parsed.value
+		if (this.#held.has(conversion)) {
+			return Result.err(
+				malformedDescription(
+					loc,
+					`the declared ${kind} name ${JSON.stringify(name)} as a name whose conversion is none of PostgreSQL's system columns, which every table holds (${[...this.#held].join(", ")}); its conversion ${conversion} is one`
+				)
+			)
+		}
 		const declaration = `${kind} ${name}`
 		const prior = this.#taken.get(conversion)
 		if (prior !== undefined) {

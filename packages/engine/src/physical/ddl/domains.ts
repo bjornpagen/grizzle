@@ -791,7 +791,7 @@ export const outsideContracts = (
 	catchRefusal(() => {
 		const context: Array<OutsideContract> = []
 		const planned = new Map<string, string>()
-		const types = new DeclaredNamespace("relation, roster and contract")
+		const types = DeclaredNamespace.of("relation, roster and contract")
 		for (const r of Object.values(owned.relations)) {
 			unwrap(types.declare(r.name, r.kind === "closed" ? "closed relation" : "relation", r.loc))
 		}

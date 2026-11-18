@@ -15,11 +15,17 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { conversionOf, identity, parseDeclaredName } from "#compiler/core/identity.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
 import { assert } from "#test/support/assert.ts"
+import { ownedInput } from "#test/support/policy.ts"
 import {
+	fieldNamedGen,
 	type LimitFeature,
 	nameOf,
+	pgSystemColumns,
 	situationOf,
+	type SystemColumnFeature,
 	targetGen
 } from "#test/unit/kernel/declared-names.fixtures.ts"
 
@@ -97,3 +103,55 @@ export const theNamingDoorsByteLimitAdmitsADeclaredNameExactlyWhenItsConversionF
 			]
 		}
 	)
+
+/**
+ * A relation's field is admitted exactly when its conversion is none of PostgreSQL's system columns: a schema whose
+ * relation declares a field named after one, in any spelling whose conversion is the column's, is refused when it
+ * compiles, MalformedDescription at the field, where PostgreSQL would refuse its table (42701); a
+ * name one step from one, a digit after it, a letter before it or the column cut in two, is admitted, as is any other.
+ */
+export const aRelationsFieldIsAdmittedExactlyWhenItsConversionIsNoneOfPostgreSQLsSystemColumns =
+	property.explore(fieldNamedGen, {
+		needs: {},
+		situations: [
+			...Arr.map(pgSystemColumns, (c) => `${c} refused` as const),
+			"admitted"
+		] satisfies ReadonlyArray<Reached<SystemColumnFeature>>,
+		check: (_, c: Case<SystemColumnFeature>) => (field) =>
+			Effect.sync(() => {
+				assert.equal(conversionOf(field.declared), field.converted, field.declared)
+				const owned = ownedInput(
+					schema("Named", [relation("R", { id: pg.int4, [field.declared]: pg.int4 }, ["id"])], [])
+				)
+				const system = Arr.findFirst(pgSystemColumns, (s) => s === field.converted)
+				if (system._tag === "None") {
+					assert.equal(owned.ok ? undefined : owned.error.reason, undefined, field.declared)
+					c.note("admitted")
+					return
+				}
+				if (owned.ok) {
+					return assert.fail(`a field ${field.declared} is refused`)
+				}
+				const reason = owned.error.reason
+				assert.equal(reason._tag, "MalformedDescription", field.declared)
+				if (reason._tag !== "MalformedDescription") {
+					return
+				}
+				assert.deepEqual(reason.at.path, ["R", field.declared], "the refusal is at the field")
+				c.note(`${system.value} refused`)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "PostgreSQL 19's system columns, as src/backend/catalog/heap.c's SysAtt spells them, which a table refuses a column of (42701)"
+		},
+		budget: { runs: 200, steered: 200 },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original: "\t\treturn new DeclaredNamespace(what, systemColumns)",
+				replacement: "\t\treturn new DeclaredNamespace(what, noneHeld)",
+				why: "A relation's columns hold no system column, so a field named cmax compiles and PostgreSQL refuses its table (42701); the system-column property fails."
+			}
+		]
+	})

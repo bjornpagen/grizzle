@@ -336,7 +336,7 @@ const admittedSettings = (
 			)
 		)
 	}
-	const roles = new DeclaredNamespace(`the installation ${owned.name}'s login and role`)
+	const roles = DeclaredNamespace.of(`the installation ${owned.name}'s login and role`)
 	for (const login of settings.logins) {
 		const level = owned.levels[login.base.levels.length - 1]
 		if (

@@ -161,7 +161,7 @@ const declaredHeading = (
 	loc: SourceLoc
 ): Result.Result<NonEmptyReadonlyArray<DeclaredColumn>, CompileError> =>
 	catchRefusal(() => {
-		const columns = new DeclaredNamespace(`relation ${relation}'s field`)
+		const columns = DeclaredNamespace.columns(`relation ${relation}'s field`)
 		return mapNonEmpty(heading, (c): DeclaredColumn => {
 			const name = columns.declare(
 				c.name,
