@@ -1,6 +1,6 @@
 import { regexTextMaxBytes } from "@bjornpagen/grizzle-engine/core/errors"
 import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
-import { Array as Arr, Option, Result } from "effect"
+import { Array as Arr, Option, Result, String as Str } from "effect"
 import type { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
@@ -132,6 +132,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "right":
 		case "matches":
 		case "translate":
+		case "lowerAscii":
 		case "collapse":
 		case "parseDouble":
 		case "parseDecimal":
@@ -319,6 +320,13 @@ const characterMap = (text: string, from: string, to: string): string => {
 		""
 	)
 }
+
+/** A text with each ASCII capital, A to Z, its small letter, character by character, and every other one as it is. */
+const asciiLowered = (text: string): string =>
+	Arr.join(
+		Arr.map(characters(text), (c) => (c >= "A" && c <= "Z" ? Str.toLowerCase(c) : c)),
+		""
+	)
 
 /** XML's white space characters: space, tab, LF and CR. */
 const xmlSpace: ReadonlySet<string> = new Set([" ", "\t", "\n", "\r"])
@@ -642,6 +650,8 @@ const catalogApply = (
 				? Result.succeed(characterMap(a, b, to))
 				: mismatch(op)
 		}
+		case "lowerAscii":
+			return isString(a) ? Result.succeed(asciiLowered(a)) : mismatch(op)
 		case "eq":
 			return compared(op, a, b, t, (cmp) => cmp === 0)
 		case "ne":

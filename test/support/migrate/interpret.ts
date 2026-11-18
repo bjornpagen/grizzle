@@ -943,6 +943,7 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "coalesce":
 		case "collate":
 		case "complement":
+		case "lowerAscii":
 		case "excluded":
 		case "exists":
 		case "field":
@@ -984,6 +985,7 @@ const callsAggregate = (e: Expr): boolean => {
 		case "cast":
 		case "collate":
 		case "complement":
+		case "lowerAscii":
 		case "isTrue":
 		case "negate":
 		case "not":

@@ -112,7 +112,9 @@ type Owner = "catalog" | "vector"
  * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts); a decimal's parse is the
  * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Compute.cast's cast nodes; a
  * bytes value's digest is its SHA-256 written as lowercase hex, `encode(sha256(x), 'hex')`; a text's UTF-16 code units
- * are its code points and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`.
+ * are its code points and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`;
+ * a text's ASCII case fold is lower under the C collation, collated back as every text is,
+ * `lower(x COLLATE "C") COLLATE pg_c_utf8` (textLowerAscii).
  */
 type SqlForm =
 	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
@@ -137,6 +139,7 @@ type SqlForm =
 				| "parseDecimal"
 				| "sha256"
 				| "collapse"
+				| "lowerAscii"
 				| "utf16Length"
 	  }
 
@@ -215,6 +218,7 @@ export type NativeFn =
 	| "right"
 	| "matches"
 	| "translate"
+	| "lowerAscii"
 	| "collapse"
 	| "replace"
 	| "btrim"
@@ -245,9 +249,10 @@ export type NativeFn =
 
 /**
  * The nodes each Compute function lowers to (lower.ts): the node of its own name, or the nodes it composes.
- * Compute.numeric is a cast into numeric, Compute.width a span's upper endpoint less its lower, and Compute.singleton a
- * set with one more handle over the empty set. Total over ComputeFn, so a new function names its nodes where it is
- * added.
+ * Compute.numeric is a cast into numeric, Compute.width a span's upper endpoint less its lower, Compute.singleton a
+ * set with one more handle over the empty set, and Compute.lowerAscii its own node in a query and a translate by the
+ * ASCII capitals in a check or generated field (lower.ts lowerAscii). Total over ComputeFn, so a new function names its
+ * nodes where it is added.
  */
 export const computeNodes: { readonly [F in ComputeFn]: NonEmptyReadonlyArray<NativeFn> } =
 	Object.freeze({
@@ -285,6 +290,7 @@ export const computeNodes: { readonly [F in ComputeFn]: NonEmptyReadonlyArray<Na
 		endsWith: ["endsWith"],
 		matches: ["matches"],
 		translate: ["translate"],
+		lowerAscii: ["lowerAscii", "translate"],
 		collapse: ["collapse"],
 		parseDouble: ["parseDouble"],
 		parseDecimal: ["parseDecimal"],
@@ -747,6 +753,55 @@ const textCollapse: FixedOverload = frozen({
 })
 
 /**
+ * A text's ASCII case fold in a query, Compute.lowerAscii there (compute/lower.ts asciiFolded): lower under the C
+ * collation, collated back as every text is, `lower(x COLLATE "C") COLLATE pg_c_utf8` (sql/ast.ts Expr's lowerAscii).
+ * The C collation's ctype is C, so lower folds the text byte by byte, each of A to Z to its small letter and every
+ * other byte as it is; every byte of a UTF-8 character past ASCII, a lead byte or a continuation byte, is 0x80 or more,
+ * and a text holds no NUL, at which the fold would stop, so the fold is translate's by the ASCII capitals and their
+ * small letters on every text. It allocates its operand's own length and its header, within MaxAllocSize for every
+ * text, where translate allocates four bytes for each byte (compute/lower.ts translateMaxBytes), so it is defined on
+ * every text, in a query as in a check. lower's result takes the explicit collation of its operand, "C", which would
+ * compare it in C's order, keep a pg_c_utf8 index from serving an equation with it and read its regex classes as C's;
+ * the outer COLLATE gives it pg_c_utf8, every text's. lower(text) is IMMUTABLE in pg_proc and a COLLATE calls nothing,
+ * so it is one value wherever it stands.
+ *
+ * @derivation lower folds by its call's collation: "out_string = str_tolower(VARDATA_ANY(in_string),
+ *   VARSIZE_ANY_EXHDR(in_string), PG_GET_COLLATION());" then "result = cstring_to_text(out_string);"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/oracle_compat.c#L55-L58). The collation
+ *   "C" is "{ oid => '950', oid_symbol => 'C_COLLATION_OID'" with "collname => 'C'"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_collation.dat#L18-L21), whose locale
+ *   is "if (collid == C_COLLATION_OID) return &c_locale;"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/pg_locale.c#L1207-L1208), which states
+ *   ".ctype_is_c = true,"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/pg_locale.c#L115). So str_tolower
+ *   takes "if (mylocale->ctype_is_c)", "result = asc_tolower(buff, nbytes);"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/formatting.c#L1645-L1647), whatever the
+ *   database's encoding, and asc_tolower is "result = pnstrdup(buff, nbytes);" then "for (char *p = result; *p; p++)
+ *   *p = pg_ascii_tolower((unsigned char) *p);"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/formatting.c#L1889-L1892), whose fold
+ *   is "if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/port.h#L191-L192). A UTF-8 text's verification
+ *   stops at a NUL, "if (*s == '\0') break;"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/common/wchar.c#L1758-L1759), so the loop reads every
+ *   byte. Its two allocations are linear in the operand's len bytes: pnstrdup's "out = palloc(len + 1);"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/mmgr/mcxt.c#L1934) and
+ *   cstring_to_text_with_len's "palloc(len + VARHDRSZ)"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/varlena.c#L198), each within
+ *   MaxAllocSize, since a text's bytes and its header are.
+ * @verified 2026-11-18
+ */
+const textLowerAscii: FixedOverload = frozen({
+	fn: "lowerAscii",
+	operands: positional(["text"]),
+	result: "text",
+	sql: { kind: "lowerAscii" },
+	catalog: { kind: "function", name: "lower", args: ["text"], result: "text", owner: "catalog" },
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/**
  * A text's UTF-16 code units, JavaScript's String.length: one for each code point, and one more for each supplementary
  * one, which UTF-16 writes as a surrogate pair, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`
  * (lower/conservative/expr/ops.ts utf16Units). A text holds at most MaxAllocSize bytes, so at most that many code points
@@ -900,8 +955,8 @@ const endpoint = (
  *   is prefixed with its extension, "vector:cosine_distance(vector,vector)", because its schema is the installation's;
  * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
- *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text", and a bytes value's
- *   "sha256:bytea";
+ *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text" and its ASCII case fold's
+ *   "lowerAscii:text", and a bytes value's "sha256:bytea";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
@@ -909,8 +964,8 @@ const endpoint = (
  * What the registry admits is the catalogue, not the catalog: same-type operands only, because Compute's operations
  * take two terms of one type, but right(text, integer), which only the suffix test reads, and set_bit over a set and a
  * closed id's code, which only Compute.singleton reads; of text's functions only
- * its length, concatenation, prefix and suffix tests, regex match and translate, no array function, of bit's only the set
- * algebra over a roster, and of bytea's only its SHA-256 digest; no money * money,
+ * its length, concatenation, prefix and suffix tests, regex match, translate and lower under the C collation, no array
+ * function, of bit's only the set algebra over a roster, and of bytea's only its SHA-256 digest; no money * money,
  * money unary minus, abs(money) or float %, which PostgreSQL does not define; and no money / integer, which the public
  * signatures cannot spell. The gaps where PostgreSQL has no same-type overload are compositions of entries here,
  * resolved in lower.ts: sign over an integer type is sign(numeric) cast back, sign over real is sign(double precision)
@@ -945,6 +1000,8 @@ const endpoint = (
  *   from once (scalar/regex/translate.ts charMapOf): it allocates four bytes per byte of its operand, and past
  *   MaxAllocSize raises "requested length too large", so a query holds it only over an operand whose pattern bounds its
  *   bytes within translateMaxBytes, and a check or generated column holding it fails a write whose operand is longer;
+ * - a text's ASCII case fold, lower under the C collation (textLowerAscii), total, everywhere: it allocates its
+ *   operand's own length;
  * - a double's parse from its decimal text, `lexical` over every double's text, everywhere: no function it reads
  *   allocates past its operand's own size;
  * - a decimal's parse from its text, `lexical` over every decimal text within decimalTextMaxBytes, everywhere: numeric_in
@@ -1111,6 +1168,7 @@ const catalogOverloads = {
 	),
 	"btrim(text)": fnCall("btrim", "btrim", ["text"], "text", total, "value"),
 	"collapse:text": textCollapse,
+	"lowerAscii:text": textLowerAscii,
 	"parseDouble:text": textParseDouble,
 	"parseDecimal:text": textParseDecimal,
 	"sha256:bytea": bytesDigest,

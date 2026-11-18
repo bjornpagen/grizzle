@@ -256,6 +256,7 @@ const operandsOf = (e: Expr): ReadonlyArray<Expr> => {
 		case "collate":
 		case "negate":
 		case "complement":
+		case "lowerAscii":
 			return [e.expr]
 		case "binary":
 			return [e.left, e.right]

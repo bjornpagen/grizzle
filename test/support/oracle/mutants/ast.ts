@@ -223,6 +223,7 @@ class Rewriter {
 			case "negate":
 			case "isTrue":
 			case "complement":
+			case "lowerAscii":
 			case "cast": {
 				const inner = this.expr(e.expr, ctx)
 				return inner === e.expr ? e : { ...e, expr: inner }
@@ -324,6 +325,7 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 		case "negate":
 		case "isTrue":
 		case "complement":
+		case "lowerAscii":
 		case "cast":
 		case "collate":
 			return readsAlias(e.expr, alias)

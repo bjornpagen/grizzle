@@ -266,7 +266,8 @@ export class Transform {
 			case "negate":
 			case "not":
 			case "isTrue":
-			case "complement": {
+			case "complement":
+			case "lowerAscii": {
 				const expr = this.expr(e.expr)
 				return expr === e.expr ? e : { ...e, expr }
 			}
@@ -1852,7 +1853,8 @@ class Visit {
 			case "negate":
 			case "not":
 			case "isTrue":
-			case "complement": {
+			case "complement":
+			case "lowerAscii": {
 				inKeyOrder(keys, [
 					[
 						"expr",

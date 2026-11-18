@@ -271,6 +271,7 @@ export class Tracer {
 			case "field":
 			case "regclass":
 			case "complement":
+			case "lowerAscii":
 			case "nullif":
 			case "subscript":
 				return ["unproved"]

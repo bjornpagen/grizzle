@@ -22,9 +22,10 @@ export interface FunctionName extends ObjectName {
 }
 
 /**
- * The one collation grizzle ever names: the builtin pg_catalog.pg_c_utf8, forced on every schema. It is a closed
- * constant, so no other collation, locale or provider is representable; the kernel's audit requires it on every column
- * and domain of builtin type text.
+ * The one collation grizzle names on a column, a domain or an expression: the builtin pg_catalog.pg_c_utf8, forced on
+ * every schema. It is a closed constant, so no other collation, locale or provider is representable; the kernel's audit
+ * requires it on every column and domain of builtin type text. The C collation stands only inside a text's ASCII case
+ * fold (Expr's `lowerAscii`), as lower's operand, and no expression's value is collated C.
  */
 export interface Collation {
 	readonly schema: "pg_catalog"
@@ -501,6 +502,15 @@ export type Expr =
 	| {
 			/** ~ x, PostgreSQL's prefix bitnot of a bit string: it sets the hole and padding bits, so no set is read off it. */
 			readonly kind: "complement"
+			readonly expr: Expr
+	  }
+	| {
+			/**
+			 * lower(expr COLLATE "C") COLLATE pg_catalog.pg_c_utf8, a text's ASCII case fold (scalar/compute/registry.ts
+			 * textLowerAscii): the C collation's ctype is C, so lower folds A to Z alone, byte by byte, and the fold is
+			 * collated back as every text is, so the C collation reaches no comparison, index or regex.
+			 */
+			readonly kind: "lowerAscii"
 			readonly expr: Expr
 	  }
 	| {

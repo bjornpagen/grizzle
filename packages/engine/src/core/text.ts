@@ -232,6 +232,20 @@ export const translated = (text: string, from: string, to: string): string => {
 	return codePointsText(out)
 }
 
+/**
+ * ASCII's case fold, Compute.lowerAscii: each capital, A to Z, to its small letter, the code point 0x20 above it, as
+ * PostgreSQL's pg_ascii_tolower folds it, and every other character itself.
+ */
+export const asciiFold: ReadonlyMap<number, number> = new Map(
+	codePoints("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map((capital) => [capital, capital + 0x20] as const)
+)
+
+/** ASCII's case fold as translate's from and to (translated): its capitals, and each one's small letter at its place. */
+export const asciiFoldMap = Object.freeze({
+	from: codePointsText(asciiFold.keys()),
+	to: codePointsText(asciiFold.values())
+})
+
 /** The four characters XML calls white space, `S ::= (#x20 | #x9 | #xD | #xA)+` (XML 1.0, §2.3): tab, LF, CR and space. */
 export const xmlWhitespace: ReadonlySet<number> = new Set([0x09, 0x0a, 0x0d, 0x20])
 

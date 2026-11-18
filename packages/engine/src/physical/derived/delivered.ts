@@ -156,6 +156,7 @@ class Delivered {
 			case "field":
 			case "regclass":
 			case "complement":
+			case "lowerAscii":
 			case "nullif":
 			case "subscript":
 				return undefined

@@ -77,7 +77,7 @@ import {
 	type WindowSpec,
 	type With
 } from "#compiler/sql/ast.ts"
-import { conjunction, types } from "#compiler/sql/build.ts"
+import { conjunction, cUtf8Collation, types } from "#compiler/sql/build.ts"
 import {
 	type CatalogCall,
 	type CatalogCast,
@@ -731,6 +731,11 @@ const expr = (e: Expr): Printed => {
 			return printed(regclassText(e.relation), "cast")
 		case "complement":
 			return printed(`~ ${wrap(expr(e.expr), "cast")}`, "other")
+		case "lowerAscii":
+			return printed(
+				`${inCatalog("lower")}(${wrap(expr(e.expr), "collate")} COLLATE ${inCatalog("C")}) COLLATE ${printObjectName(cUtf8Collation)}`,
+				"collate"
+			)
 		case "nullif":
 			return printed(`NULLIF(${printExpr(e.expr)}, ${printExpr(e.absent)})`, "atom")
 		case "subscript":

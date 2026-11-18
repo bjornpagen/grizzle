@@ -926,22 +926,6 @@ const translate = (
 	return translation(call, "translate's subject", x, from, to)
 }
 
-/** The ASCII capital letters and their small letters, position for position: lowerAscii's map. */
-const asciiCapitals = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-const asciiSmalls = "abcdefghijklmnopqrstuvwxyz"
-
-/**
- * Compute.lowerAscii(x): translate over the ASCII capitals and their small letters, so every other character, a
- * non-ASCII letter included, stays as it is.
- */
-const lowerAscii = (x: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
-	const call = new Call("Compute.lowerAscii")
-	if (extra.length > 0) {
-		return malformed(call.loc, "one operand for lowerAscii: a text term")
-	}
-	return translation(call, "lowerAscii's subject", x, asciiCapitals, asciiSmalls)
-}
-
 /**
  * Compute.replaceWhitespace(x): XML Schema's whiteSpace replace, translate of tab, LF and CR each to a space
  * (scalar/regex/whitespace.ts replaceMap).
@@ -1158,7 +1142,7 @@ const checks = Object.freeze({
 	endsWith: binary("endsWith", "literal"),
 	matches,
 	translate,
-	lowerAscii,
+	lowerAscii: unary("lowerAscii"),
 	replaceWhitespace,
 	collapse: unary("collapse"),
 	parseDouble: unary("parseDouble"),

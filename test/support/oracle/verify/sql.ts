@@ -756,6 +756,7 @@ class StatementAuditor {
 				})
 				return
 			case "complement":
+			case "lowerAscii":
 				this.at("expr", () => {
 					this.expr(e.expr, ctx)
 				})
@@ -2951,6 +2952,7 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "not":
 		case "isTrue":
 		case "complement":
+		case "lowerAscii":
 		case "inQuery":
 			forEachAggregateCall(e.expr, f)
 			return
@@ -3097,7 +3099,8 @@ export interface StatementAudit {
  *   an untyped literal outside the positions SQL syntax requires a bare string, a table CHECK not of the form
  *   CHECK ((...) IS TRUE), a domain CHECK not of the form CHECK (VALUE IS NULL OR (...) IS TRUE), whose VALUE IS NULL
  *   is the one null test admitted, a CASE expression without ELSE, and a COLLATE naming any collation but
- *   pg_catalog.pg_c_utf8. NULLIF, a closed read's absence that IS TRUE or NOT NULL around it refuses, and COALESCE, the
+ *   pg_catalog.pg_c_utf8, but pg_catalog."C" as the one argument of a text's ASCII case fold,
+ *   `pg_catalog.lower(x COLLATE pg_catalog."C") COLLATE pg_catalog.pg_c_utf8`. NULLIF, a closed read's absence that IS TRUE or NOT NULL around it refuses, and COALESCE, the
  *   pack's absent cell and a family write's value where no row supplies one, are admitted. A PL/pgSQL body is audited the same way. The AST cannot express most of what the text audit
  *   refuses, and the printer's output must pass it.
  *
@@ -3393,6 +3396,42 @@ const part = (t: Token | undefined, name: string): boolean =>
 const isCUtf8Name = (tokens: ReadonlyArray<Token>, i: number): boolean =>
 	part(tokens[i], "pg_catalog") && isPunct(tokens[i + 1], ".") && part(tokens[i + 2], "pg_c_utf8")
 
+/**
+ * Whether the COLLATE at `i` is a text's ASCII case fold's, `pg_catalog.lower(x COLLATE pg_catalog."C") COLLATE
+ * pg_catalog.pg_c_utf8` (sql/ast.ts Expr's lowerAscii): it names the C collation, quoted, and closes the one argument of
+ * a call of pg_catalog.lower whose result is collated pg_c_utf8 at once, so no C collation reaches anything but lower.
+ */
+const isAsciiFoldCollate = (
+	tokens: ReadonlyArray<Token>,
+	depths: ReadonlyArray<number>,
+	i: number
+): boolean => {
+	const name = tokens[i + 3]
+	if (
+		!part(tokens[i + 1], "pg_catalog") ||
+		!isPunct(tokens[i + 2], ".") ||
+		name?.kind !== "quotedIdent" ||
+		name.text !== "C" ||
+		!isPunct(tokens[i + 4], ")") ||
+		!isWord(tokens[i + 5], "COLLATE") ||
+		!isCUtf8Name(tokens, i + 6)
+	) {
+		return false
+	}
+	const depth = depths[i] ?? 0
+	const open = Arr.findLastIndex(
+		Arr.take(tokens, i),
+		(t, j) => isPunct(t, "(") && depths[j] === depth - 1
+	)
+	return Option.exists(
+		open,
+		(o) =>
+			part(tokens[o - 3], "pg_catalog") &&
+			isPunct(tokens[o - 2], ".") &&
+			part(tokens[o - 1], "lower")
+	)
+}
+
 /** The paren depth at each token: the number of "(" open before it. */
 const parenDepths = (tokens: ReadonlyArray<Token>): ReadonlyArray<number> => {
 	const depths: Array<number> = []
@@ -3603,11 +3642,11 @@ class TextAuditor {
 				}
 				return cases
 			case "COLLATE":
-				if (!isCUtf8Name(tokens, i + 1)) {
+				if (!isCUtf8Name(tokens, i + 1) && !isAsciiFoldCollate(tokens, depths, i)) {
 					this.report(
 						"collation",
 						t.start,
-						"a COLLATE naming a collation other than pg_catalog.pg_c_utf8"
+						"a COLLATE naming a collation other than pg_catalog.pg_c_utf8, but in a text's ASCII case fold"
 					)
 				}
 				return cases

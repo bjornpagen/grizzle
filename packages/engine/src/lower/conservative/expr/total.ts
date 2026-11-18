@@ -225,6 +225,7 @@ const exactIn = (
 		case "right":
 		case "matches":
 		case "translate":
+		case "lowerAscii":
 		case "collapse":
 		case "replace":
 		case "btrim":

@@ -150,6 +150,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 			case "field":
 			case "regclass":
 			case "complement":
+			case "lowerAscii":
 			case "nullif":
 			case "subscript":
 				return e

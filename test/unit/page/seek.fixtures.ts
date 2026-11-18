@@ -128,6 +128,7 @@ export const evaluate = (
 		case "user":
 		case "regclass":
 		case "complement":
+		case "lowerAscii":
 		case "nullif":
 		case "subscript":
 			throw new Error(`no ${e.kind} in a seek`)

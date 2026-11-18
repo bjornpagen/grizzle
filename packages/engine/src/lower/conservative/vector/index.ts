@@ -154,6 +154,7 @@ export const lowerVectorOp = (
 		case "adjoin":
 		case "endsWith":
 		case "collapse":
+		case "lowerAscii":
 		case "parseDouble":
 		case "parseDecimal":
 		case "sha256":

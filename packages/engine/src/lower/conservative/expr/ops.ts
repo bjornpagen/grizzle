@@ -328,6 +328,10 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 			return textSuffix(args)
 		case "collapse":
 			return collapseText(args)
+		case "lowerAscii":
+			return args.length === 1 && first !== undefined
+				? { kind: "lowerAscii", expr: first }
+				: undefined
 		case "parseDouble":
 			return args.length === 1 && first !== undefined ? parseDoubleForm(first) : undefined
 		case "parseDecimal":

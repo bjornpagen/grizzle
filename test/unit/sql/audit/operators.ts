@@ -602,6 +602,7 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 		case "isTrue":
 		case "inQuery":
 		case "complement":
+		case "lowerAscii":
 			return holdsNullOnEmpty(e.expr)
 		case "binary":
 			return any([e.left, e.right])

@@ -80,6 +80,7 @@ export type ShapeFeature =
 	| "nullif"
 	| "subscript"
 	| "complement"
+	| "lowerAscii"
 	| "distinct"
 	| "distinct on"
 	| "group by"
@@ -152,6 +153,7 @@ const roleOf = (e: Expr): Role => {
 		case "user":
 		case "regclass":
 		case "complement":
+		case "lowerAscii":
 		case "nullif":
 		case "subscript":
 			return "expression"
@@ -256,6 +258,7 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 		case "nullif":
 		case "subscript":
 		case "complement":
+		case "lowerAscii":
 			return [e.kind]
 		case "column":
 		case "excluded":

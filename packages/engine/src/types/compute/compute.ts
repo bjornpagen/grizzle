@@ -1092,7 +1092,8 @@ export interface ComputeApi {
 	/**
 	 * ASCII's case fold, translate(x, "A…Z", "a…z"): only the 26 capitals lower, every other character, a non-ASCII
 	 * letter included, stays, so the fold is one map whatever the collation, as an IMMUTABLE expression needs, and
-	 * compilation reads the result within x's byte bound.
+	 * compilation reads the result within x's byte bound. A query computes it as lower under the C collation, which
+	 * allocates x's own length, so it folds any text there.
 	 */
 	lowerAscii<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">

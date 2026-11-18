@@ -437,6 +437,7 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 		case "plSpecial":
 		case "field":
 		case "complement":
+		case "lowerAscii":
 		case "nullif":
 		case "plVar":
 		case "regclass":

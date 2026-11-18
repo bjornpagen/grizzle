@@ -193,7 +193,8 @@ class CoreBinder {
 			case "negate":
 			case "not":
 			case "isTrue":
-			case "complement": {
+			case "complement":
+			case "lowerAscii": {
 				const inner = at(e.expr)
 				return inner === e.expr ? e : { ...e, expr: inner }
 			}
