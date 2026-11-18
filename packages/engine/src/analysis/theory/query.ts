@@ -6,7 +6,7 @@ import {
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { canonicalEquals, compareText, everyProperty } from "#compiler/core/canonical.ts"
+import { compareText } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	extendNonEmpty,
@@ -914,25 +914,6 @@ interface Met {
 }
 
 /**
- * How a term of a probe meets the arm's own term of its pair, named `name` in the arm's query (`readAs`): it binds the
- * arm's term, or, where both are literals and differ, the two are values whose equality is a condition of the arm's
- * query. A literal bound to a column is a filter the checker reads as arm selection (check/checker.ts #selected): the
- * arm delivers the value, or no fact of it meets the filter, which the checker refuses (DeadConstants). An arm's
- * literal delivers itself alone, so the same literal binds it, and a different one is no value the arm delivers but
- * one PostgreSQL compares with it, as an inlined definition's head literal met by a literal is compared (`joined`).
- */
-type Meeting =
-	| { readonly kind: "bound"; readonly name: string; readonly term: InferredExpr }
-	| { readonly kind: "values"; readonly equality: InferredExpr }
-
-const meetingOf = (name: string, term: InferredExpr, own: InferredExpr | undefined): Meeting =>
-	own?.kind === "literal" &&
-	term.kind === "literal" &&
-	!canonicalEquals(own.value, term.value, everyProperty)
-		? { kind: "values", equality: equal(own, term) }
-		: { kind: "bound", name, term }
-
-/**
  * The sources a trigger's probe reads the side its breaking side's facts meet as, a containment's target or a key's
  * other fact: an imported query of each arm alone, each arm's rule delivering the row `head` gives it. A probe's facts
  * are the rows its write touched and those its chain reaches from them, and PostgreSQL reads a side at the terms such a
@@ -943,10 +924,11 @@ const meetingOf = (name: string, term: InferredExpr, own: InferredExpr | undefin
  * facts that agree with some tuple of a union are those that agree with some tuple of one of its arms: a probe read by
  * arm judges exactly what the whole check (`violationQuery`) does.
  *
- * Each arm is met at `terms`, the terms of the fact or tuple that meets it (`Met`), each term meeting the arm's term of
- * its pair (`Meeting`): bound to it, or, two different literals, compared with it in the arm's own query. A union's
- * arm whose literal differs from the term's delivers none of the facts the term selects, so the arm read alone reads
- * none where the two values differ, and the union read by arm still judges what the whole check does.
+ * Each arm is met at `terms`, the terms of the fact or tuple that meets it (`Met`), each term bound to the arm's term of
+ * its pair. A probe is navigated before it is checked (physical/ddl/rules.ts compileProbe), which inlines each arm and
+ * equates its head with the terms it is met at (analysis/theory/navigate.ts), so a union's arm whose literal differs
+ * from the term's is a condition of two literals that differ: the arm read alone reads none of the facts the term
+ * selects, and the union read by arm still judges what the whole check does.
  */
 const readAs = (
 	side: RuleSide,
@@ -954,29 +936,13 @@ const readAs = (
 	head: (arm: SideArm) => Readonly<Record<string, InferredExpr>>,
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<Met> =>
-	mapNonEmpty(side.arms, (a) => {
-		const meetings = terms.map((term, i) => meetingOf(termName(i), term, a.terms[i]))
-		return {
-			source: imported(
-				[
-					ruleDesc(
-						a.vars,
-						a.matches.map(matchDesc),
-						[
-							...conditionsOf(a, loc),
-							...meetings.flatMap((m) => (m.kind === "values" ? [m.equality] : []))
-						],
-						head(a),
-						loc
-					)
-				],
-				loc
-			),
-			bindings: Object.fromEntries(
-				meetings.flatMap((m) => (m.kind === "bound" ? [[m.name, m.term] as const] : []))
-			)
-		}
-	})
+	mapNonEmpty(side.arms, (a) => ({
+		source: imported(
+			[ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), head(a), loc)],
+			loc
+		),
+		bindings: Object.fromEntries(terms.map((term, i) => [termName(i), term] as const))
+	}))
 
 /** The tuples of a side's arms met at `terms`, each term under its pair's name: what a containment's other side meets. */
 const tuples = (
