@@ -48,7 +48,7 @@ export type IeeeOp = "add" | "sub" | "mul" | "div" | "sqrt" | "round"
  * How an overload is defined on every value its operand types admit. Every overload states one, so none can be added
  * partial without deciding, and the lowering and the SQL rendering dispatch on it exhaustively:
  * - `total`: defined everywhere as PostgreSQL computes it: comparisons, boolean composition, numeric arithmetic within
- *   the digit bounds every numeric expression has (lower.ts), sign, char_length, octet_length, a bytes value's digest,
+ *   the digit bounds every numeric expression has (typing.ts), sign, char_length, octet_length, a bytes value's digest,
  *   span endpoints, widening casts;
  * - `exact`: integer or money arithmetic computed exactly: its value is an exact integer or exact money
  *   (ir/scalar.ts ExactType), never the overflowing native result, so the overload's catalog result is its PostgreSQL
@@ -252,7 +252,7 @@ export type NativeFn =
  * What a Compute function is, one record each (computeSpecs): how many arguments it takes, a count or any number of
  * one or more (least and greatest); whether a contract predicate or a row check admits it, which is whether the host
  * evaluates its nodes for the ContractLiteral check (evaluate.ts), beside comparisons, boolean composition,
- * Compute.cond, Compute.when and casts; and the nodes it lowers to (lower.ts), the node of its own name or the nodes it
+ * Compute.cond, Compute.when and casts; and the nodes it lowers to (typing.ts), the node of its own name or the nodes it
  * composes: Compute.numeric is a cast into numeric, Compute.width a span's upper endpoint less its lower,
  * Compute.singleton a set with one more handle over the empty set.
  */
@@ -761,7 +761,7 @@ const textCollapse: FixedOverload = frozen({
 })
 
 /**
- * A text's ASCII case fold, Compute.lowerAscii wherever it stands (compute/lower.ts lowerAscii): lower under the C
+ * A text's ASCII case fold, Compute.lowerAscii wherever it stands (compute/typing.ts lowerAscii): lower under the C
  * collation, collated back as every text is, `lower(x COLLATE "C") COLLATE pg_c_utf8` (sql/ast.ts Expr's lowerAscii).
  * The C collation's ctype is C, so lower folds the text byte by byte, each of A to Z to its small letter and every
  * other byte as it is; every byte of a UTF-8 character past ASCII, a lead byte or a continuation byte, is 0x80 or more,
@@ -886,7 +886,7 @@ export const digestText: PatternSource = Object.freeze({ source: "^[0-9a-f]{64}$
  * a bytes value, read whole: sha256(bytea) reads a bytea of any length and encode(bytea, text) writes its 32 bytes as
  * two lowercase digits each, so it is defined on every value, and both are IMMUTABLE in pg_proc, so it is one value
  * wherever it stands, a generated column among them. Neither is a Compute operation, so it uses no entry here. Its text
- * is digestText's language (lower.ts sha256), and it is the digest a bytes value's identity is
+ * is digestText's language (typing.ts sha256), and it is the digest a bytes value's identity is
  * (scalar/values/bytes.ts BytesDigest).
  */
 const bytesDigest: FixedOverload = frozen({
@@ -1000,9 +1000,9 @@ const endpoint = (
  *   all total; bitnot only inside those, since it sets the hole and padding bits;
  * - text length in code points (char_length) and in UTF-8 bytes (octet_length), concatenation (textcat), and the
  *   prefix and suffix tests (starts_with, and right, char_length and = composed), each for checks only; and the regex match (textregexeq), whose pattern operand's every value was
- *   admitted inside PostgreSQL's regex compile space where the node was typed (compute/lower.ts), everywhere. textcat
+ *   admitted inside PostgreSQL's regex compile space where the node was typed (compute/typing.ts), everywhere. textcat
  *   allocates its result, which past PostgreSQL's MaxAllocSize raises "invalid memory alloc request size": no query
- *   holds it, an equation with a concatenation lowering without it (compute/lower.ts concatEquation), and a check or
+ *   holds it, an equation with a concatenation lowering without it (compute/typing.ts concatEquation), and a check or
  *   generated column holding it fails a write whose texts would pass 1 GB;
  * - translate(text, text, text), whose map lowering admits of from and to literals of one length, each character of
  *   from once (scalar/regex/translate.ts charMapOf): it allocates four bytes per byte of its operand, and past
@@ -1286,7 +1286,7 @@ const catalogOverloads = {
 	"greatest:uuid": extreme("greatest", "uuid", opId("uuid_gt")),
 	/**
 	 * date - date, the integer count of days between them, which no two dates a CalendarDate spells overflow: a date
-	 * span's width alone (compute/lower.ts width), since Compute admits no date arithmetic.
+	 * span's width alone (compute/typing.ts width), since Compute admits no date arithmetic.
 	 */
 	date_mi: infix("sub", "-", "date", "int4", total, "value"),
 	date_eq: comparison("eq", "date"),

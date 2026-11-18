@@ -170,7 +170,7 @@ export const loweringInQueryModeRefusesAnUntypedLeafStandingFirstTypesTwoUntyped
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/compute/lower.ts",
+					file: "packages/engine/src/scalar/compute/typing.ts",
 					original:
 						'\t\tif (desc.kind === "literal" && desc.type === undefined) {\n\t\t\treturn stop(\n\t\t\t\t"MalformedDescription",\n\t\t\t\tat,\n\t\t\t\t"a term here: a literal takes the type of the term it meets and never stands first"\n\t\t\t)\n\t\t}\n',
 					replacement: "",
@@ -234,10 +234,8 @@ export const aConversionIntoAContractCanFailWhereverTheContractHasACHECKNeverTot
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/lower.ts",
-				original:
-					'\t\t\t{ kind: "domainCast", args: [value.expr], type: to, nonNull: "strict", proof },',
-				replacement:
-					'\t\t\t{ kind: "domainCast", args: [value.expr], type: to, nonNull: "strict", proof: [] },',
+				original: "\t\t\t\treturn this.emit({ ...node.spec, proof: this.domainProof(node) })",
+				replacement: "\t\t\t\treturn this.emit({ ...node.spec, proof: [] })",
 				why: "A domain cast carries no proof; the casts into a contract property fails."
 			}
 		]

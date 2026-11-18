@@ -204,7 +204,7 @@ export const totalityComputesAGuardsBranchExactlyWhereTheGuardHoldsOverColumnsAn
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/compute/lower.ts",
+					file: "packages/engine/src/scalar/compute/typing.ts",
 					original: "\t\treturn this.conditional(guard.predicate, onTrue, onFalse, at)",
 					replacement: "\t\treturn this.conditional(guard.predicate, onFalse, onTrue, at)",
 					why: "A Compute.when lowers its branches swapped, so the guard's branch is computed where the guard fails; the guarded forms' property fails."

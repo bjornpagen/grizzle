@@ -3,7 +3,7 @@
  * NULL where an operand it reads is NULL, as a closed read at an absent key reads.
  *
  * The lowering decides some comparisons by another form: a text's equation with a concatenation, `t = p || q`, by its
- * lengths, a prefix and a suffix, so that nothing allocates (scalar/compute/lower.ts concatEquation); ends_with as
+ * lengths, a prefix and a suffix, so that nothing allocates (scalar/compute/typing.ts concatEquation); ends_with as
  * `right(a, char_length(b)) = b`; a match whose pattern is a term by a CASE over the pattern's values; and, in a query,
  * an IEEE 754 division by its guarded form, a zero divisor's infinity or NaN chosen by the dividend's sign. PostgreSQL
  * reads BETWEEN as two comparisons and IN as one per value. A form whose conjuncts read different operands, or whose

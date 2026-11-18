@@ -215,7 +215,7 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 				const joined = check(computeDesc("concat", variable("p"), variable("r")), false)
 				assert.equal(joined.host, `${a.part}${a.rest}`, "concat on the host")
 				assert.equal(joined.reference, `${a.part}${a.rest}`, "concat in the reference")
-				/** The equation, decided without building the concatenation (lower.ts concatEquation). */
+				/** The equation, decided without building the concatenation (typing.ts concatEquation). */
 				const equation = check(
 					{
 						kind: "compare",

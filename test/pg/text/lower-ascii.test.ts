@@ -176,15 +176,7 @@ export const lowerAsciisOneSqlInAQueryAndInACheckFoldsATextPastEveryOperandTrans
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
-				original:
-					'\t\tconst op = this.overload("lowerAscii", [x.actual], at)\n\t\tconst node = this.native(op, [x], wildcardText, undefined, at, "Compute.lowerAscii")\n',
-				replacement:
-					'\t\tconst f = this.literal("ABCDEFGHIJKLMNOPQRSTUVWXYZ", wildcardText, childLoc(at, 1))\n\t\tconst t = this.literal("abcdefghijklmnopqrstuvwxyz", wildcardText, childLoc(at, 2))\n\t\tconst node = this.env.mode === "query" ? this.native(this.overload("lowerAscii", [x.actual], at), [x], wildcardText, undefined, at, "Compute.lowerAscii") : this.native(this.overload("translate", [x.actual, f.actual, t.actual], at), [x, f, t], wildcardText, undefined, at, "Compute.translate")\n',
-				why: "A stored definition folds with translate, a second SQL for one fold, which refuses a text past translateMaxBytes with 54000: the check's fold fails where the query's folds it whole."
-			},
-			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
+				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
 					'\t\tconst op = this.overload("lowerAscii", [x.actual], at)\n\t\tconst node = this.native(op, [x], wildcardText, undefined, at, "Compute.lowerAscii")\n',
 				replacement:

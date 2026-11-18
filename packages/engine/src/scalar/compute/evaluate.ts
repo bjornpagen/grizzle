@@ -918,7 +918,7 @@ const castTo = (v: HostValue, from: ScalarType, to: ScalarType): EvalResult => {
 
 /**
  * How a literal's admission judges its type's refinements: against the contract's predicates and the regex refinements,
- * by `patterns`, or not at all, where a builder only shapes a term (compute/lower.ts "build" mode).
+ * by `patterns`, or not at all, where a builder only shapes a term (compute/typing.ts literal).
  */
 type LiteralJudgment =
 	| { readonly kind: "refinements"; readonly patterns: PatternReads }

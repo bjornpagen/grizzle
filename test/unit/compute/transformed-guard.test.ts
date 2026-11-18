@@ -274,15 +274,14 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 		],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
+				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
-					"\t\t\t: this.restate(\n\t\t\t\t\tnode,\n\t\t\t\t\tthis.collapseType(text, this.env.patternLanguage, at),\n\t\t\t\t\tnode.actual,\n\t\t\t\t\tnode.facts\n\t\t\t\t)",
-				replacement:
-					"\t\t\t: { ...node, nominal: this.collapseType(text, this.env.patternLanguage, at) }",
+					"\t\t\t: this.restate(node, this.collapseType(text, analysis, at), node.actual, node.facts)",
+				replacement: "\t\t\t: { ...node, nominal: this.collapseType(text, analysis, at) }",
 				why: "Collapse writes its language over the term after settle, `{ ...node, nominal: collapseType(...) }`, which drops the bound a guard of its byte count gives each occurrence of it in the branch; the byte cast property fails where that guard alone admits the cast."
 			},
 			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
+				file: "packages/engine/src/scalar/compute/typing.ts",
 				original: "\t\t\ttext.byteBound,",
 				replacement: "\t\t\tundefined,",
 				why: "A collapse carries no byte bound, so a cast of it is refused where the bound fits; the byte cast property fails."

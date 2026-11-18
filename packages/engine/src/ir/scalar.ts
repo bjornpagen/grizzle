@@ -658,7 +658,7 @@ interface VectorType {
  * An exact arithmetic result: exactInteger, an integer, the value of add, sub, mul, neg, abs, gcd, lcm and integer
  * division over the integer carriers; exactMoney, an amount of money in cents, the value of add and sub over money and
  * of a money sum. Delivered as bigint and as Money, so no such operation overflows: `digits` bounds every value,
- * |x| < 10^digits (of the amount, for money), as its operands' bounds give it (scalar/compute/lower.ts), the way a
+ * |x| < 10^digits (of the amount, for money), as its operands' bounds give it (scalar/compute/typing.ts), the way a
  * typmod bounds numeric(p, 0). In SQL an exact integer of at most 18 digits is bigint, and any other exact value
  * numeric (exactMoney at scale 2). Neither is a field's carrier, so neither has a contract or a serial form;
  * Compute.cast narrows one into a storage carrier where the value is proved to fit.

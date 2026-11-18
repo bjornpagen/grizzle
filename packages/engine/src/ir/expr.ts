@@ -1123,7 +1123,7 @@ const entryProblems = (
 
 /**
  * The types a branch of a conditional of type `type` may have: its own, and its entered type (scalar.ts enteredType),
- * what a binary coercion into it delivers (scalar/compute/lower.ts castNode), since a coercion drops what only a
+ * what a binary coercion into it delivers (scalar/compute/typing.ts castNode), since a coercion drops what only a
  * domain enforces and never adds it. They are one type where `type` is no pattern's text.
  */
 const branchTypes = (type: ScalarType): readonly [ScalarType, ScalarType] => [

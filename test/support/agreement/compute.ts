@@ -400,7 +400,7 @@ const mapNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<MapNote> =>
 /**
  * What a when at a case's root reaches where its branch reads its guard's subject, a field or a parameter, past the
  * branch's parameter: TypeScript narrows the parameter alone, never a term the branch captures, and compilation refines
- * the parameter alone (scalar/compute/lower.ts guarded), so where the read needs what the guard proves, both refuse the
+ * the parameter alone (scalar/compute/typing.ts guarded), so where the read needs what the guard proves, both refuse the
  * case for the precondition it lacks, and its directive names that Refusal.
  */
 const capturedNotes = ["a branch reading its subject outside its parameter"] as const

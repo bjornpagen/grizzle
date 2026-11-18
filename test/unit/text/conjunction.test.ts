@@ -344,7 +344,7 @@ export const aMatchGuardOverARefinedSubjectTypesItsBranchByTheSubjectsPatternsAn
 			],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/compute/lower.ts",
+					file: "packages/engine/src/scalar/compute/typing.ts",
 					original:
 						'\t\t\tappendNonEmpty(own === undefined || own.regex === "wildcard" ? [] : own.regex.patterns, {',
 					replacement: "\t\t\tappendNonEmpty([], {",

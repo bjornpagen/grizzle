@@ -486,7 +486,7 @@ const compareType = (t: ScalarType): ScalarType => {
 /**
  * The type a bare literal adopts opposite a term of type t in a comparison: the contract and its refinements
  * when it has one, otherwise the value type, a numeric widened to every numeric value and a span's fixed width dropped
- * (scalar/compute/lower.ts Lowering.adopt).
+ * (scalar/compute/typing.ts adoptedType).
  */
 const adoptCompare = (t: ScalarType): ScalarType => {
 	if (contractOf(t) !== undefined) {
@@ -912,7 +912,7 @@ export class Checker {
 	}
 
 	/**
-	 * A scalar parameter's declared type (lower.ts Lowering.param). A channel (ir/desc.ts Channel) declares none: its
+	 * A scalar parameter's declared type (scalar/compute/typing.ts Typing.param). A channel (ir/desc.ts Channel) declares none: its
 	 * import binds it to a column, which every use of it reads, and a channel bound to anything else is refused here.
 	 */
 	paramType(param: ParamExpr, loc: SourceLoc): ScalarType {
@@ -1999,7 +1999,7 @@ export class Checker {
 
 	/**
 	 * A connective, or an equality of two operands of one type or of a plain integer or money and an exact value of its
-	 * family: the plain one widened into the exact carrier, as the comparison Compute writes is (lower.ts comparison).
+	 * family: the plain one widened into the exact carrier, as the comparison Compute writes is (typing.ts comparison).
 	 */
 	opNamed(
 		fn: "eq" | "and" | "not" | "or",

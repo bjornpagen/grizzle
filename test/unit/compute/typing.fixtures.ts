@@ -1,6 +1,6 @@
 /**
- * What the properties of typing.test.ts read: a space of descriptions over a heading of every carrier the Compute
- * catalogue reads, and the comparison of a typed term with its lowering.
+ * What the property of typing.test.ts reads: a space of descriptions over a heading of every carrier the Compute
+ * catalogue reads, and each emitted expression's computation written out.
  *
  * A description is drawn as a sketch of plain numbers resolved against the heading (resolve): each choice reduced
  * modulo what there is to choose from, so every sketch resolves and shrinking keeps it valid. Its operations are the
@@ -11,12 +11,9 @@
  * and its branch reads the guard's parameter, and, under a byte guard, the text it counts.
  */
 
-import type { Case } from "@bjornpagen/testing/explore"
-import { type Aimed, aimed, boolean, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { boolean, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
-import type { CompileError, CompileReason } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
 import {
 	compareOps,
 	type ComputeFn,
@@ -27,24 +24,17 @@ import {
 	type LiteralDesc,
 	type Spelled
 } from "#compiler/ir/desc.ts"
-import { describeOp, type OpId, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { sameScalarType, textOf, typeLabel } from "#compiler/ir/scalar.ts"
+import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { textOf } from "#compiler/ir/scalar.ts"
 import { computeSpecs } from "#compiler/scalar/compute/registry.ts"
-import {
-	nodeType,
-	type TapeEntry,
-	type TextAnalysis,
-	type TypedNode,
-	type TermTyping
-} from "#compiler/scalar/compute/typing.ts"
+import type { TapeEntry, TermTyping, TypedNode } from "#compiler/scalar/compute/typing.ts"
 import { replaceMap } from "#compiler/scalar/regex/whitespace.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	field,
 	type LeafBinding,
-	type LoweredTable,
 	testContract,
 	type TestField,
 	testPg,
@@ -617,126 +607,13 @@ const rootGen: Gen<ExprDesc> = (source) => {
 	return resolveAt(source.draw(sketchGen(3)), family, headingLeaves)
 }
 
-/**
- * A byte guard over a text whose branch's value is the text, or a text operation over it, beside a bare literal, which
- * adopts the branch's type: where the guard's bound, below every text's own, types the text's occurrences.
- */
-const byteGuardTextGen: Gen<ExprDesc> = (source) => {
-	const text: ExprDesc = { kind: "var", var: pickOf(columnsOf("text"), source.draw(int(0, 5))) }
-	const guard: GuardDesc = { kind: "within", low: 0, high: source.draw(int(0, 5)) }
-	const subject: ExprDesc = { kind: "compute", fn: "octetLength", args: [text] }
-	const proved = ((): ExprDesc => {
-		switch (source.draw(int(0, 3))) {
-			case 0:
-				return text
-			case 1:
-				return { kind: "compute", fn: "lowerAscii", args: [text] }
-			case 2:
-				return { kind: "compute", fn: "collapse", args: [text] }
-			default:
-				return { kind: "compute", fn: "concat", args: [text, text] }
-		}
-	})()
-	return {
-		kind: "when",
-		guard,
-		subject,
-		proved,
-		otherwise: { kind: "literal", value: bareValue("text", source.draw(int(0, 3))) }
-	}
-}
+/** The descriptions the properties draw: sketches of at most three operations, resolved at a family over the heading. */
+export const descriptions: Gen<ExprDesc> = rootGen
 
-/**
- * The descriptions the properties draw: sketches of at most three operations, resolved at a family over the heading,
- * aimed at a byte guard's text read as its branch where that is pending.
- */
-export const descriptions: Aimed<ExprDesc, Feature> = aimed(rootGen, [
-	["agrees reading a byte guard's text as its branch beside a bare literal", byteGuardTextGen]
-])
-
-/** The features the properties note. */
+/** The features the property notes. */
 export type Feature =
-	| "agrees at query"
-	| "agrees at check"
-	| "agrees at build"
-	| "refused at query alone"
-	| "refused at check alone"
-	| "a typing refusal"
-	| `agrees under when ${GuardDesc["kind"]}`
-	| "agrees under a byte guard"
-	| "agrees reading a byte guard's text as its branch beside a bare literal"
-	| `agrees over compute ${ComputeFn}`
-	| "agrees over cast"
 	| "a computation recorded twice"
 	| "two computations of one kind over one argument list"
-
-/** The operations and guards a description holds, each once. */
-const holdings = (e: ExprDesc): ReadonlyArray<Feature> => {
-	const own: ReadonlyArray<Feature> =
-		e.kind === "compute"
-			? [`agrees over compute ${e.fn}`]
-			: e.kind === "cast"
-				? ["agrees over cast"]
-				: e.kind === "when"
-					? e.guard.kind === "within" && e.subject.kind === "compute"
-						? [
-								"agrees under a byte guard",
-								...(Arr.some(e.subject.args, (counted) => reads(e.proved, counted)) &&
-								e.otherwise.kind === "literal" &&
-								e.otherwise.type === undefined
-									? ([
-											"agrees reading a byte guard's text as its branch beside a bare literal"
-										] as const)
-									: [])
-							]
-						: [`agrees under when ${e.guard.kind}`]
-					: []
-	return Arr.dedupe([...own, ...Arr.flatMap(childrenOf(e), holdings)])
-}
-
-/** The terms a description holds below it, each a node of its own scope. */
-const childrenOf = (e: ExprDesc): ReadonlyArray<ExprDesc> => {
-	switch (e.kind) {
-		case "compute":
-		case "and":
-		case "or":
-			return e.args
-		case "compare":
-			return [e.left, e.right]
-		case "between":
-			return [e.arg, e.low, e.high]
-		case "in":
-		case "not":
-		case "cast":
-		case "base":
-		case "guarded":
-			return [e.arg]
-		case "cond":
-			return [e.pred, e.onTrue, e.onFalse]
-		case "when":
-			return [e.subject, e.proved, e.otherwise]
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-		case "allen":
-		case "pointIn":
-		case "absent":
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			return []
-	}
-}
-
-/** Whether a description is the leaf `leaf`, or a text operation over it, whose type the leaf's own states. */
-const reads = (e: ExprDesc, leaf: ExprDesc): boolean =>
-	(e.kind === "var" && leaf.kind === "var" && e.var === leaf.var) ||
-	(e.kind === "compute" &&
-		(e.fn === "lowerAscii" || e.fn === "collapse" || e.fn === "translate" || e.fn === "concat") &&
-		Arr.some(e.args, (arg) => reads(arg, leaf)))
 
 /** The nodes a typed term's tape records, in its order: every node its lowering emits. */
 export const recorded = (term: TermTyping<Spelled>): ReadonlyArray<TypedNode> =>
@@ -749,17 +626,7 @@ export const recorded = (term: TermTyping<Spelled>): ReadonlyArray<TypedNode> =>
  * a literal's canonical text, an operation's overload, a cast's, a closed read's relation and field; nothing for VALUE,
  * a domain cast or a conditional, which their arguments alone state.
  */
-type Named =
-	| { readonly kind: "column"; readonly column: { readonly node: string; readonly name: string } }
-	| { readonly kind: "param"; readonly param: string }
-	| { readonly kind: "literal"; readonly value: Parameters<typeof canonicalTextOf>[0] }
-	| { readonly kind: "op"; readonly op: OpId }
-	| { readonly kind: "cast"; readonly cast: OpId }
-	| { readonly kind: "closedAt"; readonly relation: string; readonly field: string }
-	| { readonly kind: "closedRow" | "closedHas"; readonly relation: string }
-	| { readonly kind: "value" | "domainCast" | "cond" }
-
-const nameOf = (e: Named): string => {
+const nameOf = (e: ScalarExpr): string => {
 	switch (e.kind) {
 		case "column":
 			return `${e.column.node}.${e.column.name}`
@@ -787,149 +654,4 @@ const nameOf = (e: Named): string => {
 export const computationKey = (e: ScalarExpr): string => {
 	const name = nameOf(e)
 	return `${e.kind}:${name.length}:${name}(${Arr.join(Arr.map(e.args, computationKey), ",")})`
-}
-
-/** A recorded node's spec as its emission states it, its arguments' nodes; none for an extension's or a built one. */
-const specOf = (node: TypedNode) => {
-	switch (node.kind) {
-		case "extension":
-		case "built":
-			return undefined
-		case "stated":
-		case "literal":
-		case "native":
-		case "proved":
-		case "domainCast":
-		case "matches":
-			return node.spec
-	}
-}
-
-/**
- * The tape's nodes are the lowering's emissions, one for one in its order: each of the emitted expression's kind, type
- * and name, over the nodes recorded at its arguments' places.
- */
-const sameEmissions = (
-	nodes: ReadonlyArray<TypedNode>,
-	emitted: ReadonlyArray<ScalarExpr>,
-	site: string
-): void => {
-	assert.equal(
-		nodes.length,
-		emitted.length,
-		`a node recorded for each expression emitted at ${site}`
-	)
-	const placeOf = new Map<TypedNode, number>(Arr.map(nodes, (n, i) => [n, i] as const))
-	const emittedAt = new Map<ScalarExpr, number>(Arr.map(emitted, (e, i) => [e, i] as const))
-	Arr.forEach(nodes, (node, i) => {
-		const e = defined(emitted[i], "the expression emitted at a recorded node's place")
-		const spec = defined(specOf(node), "a recorded node's spec")
-		assert.equal(spec.kind, e.kind, `node ${i}'s kind at ${site}`)
-		assert.ok(
-			sameScalarType(nodeType(node), e.type),
-			`node ${i} recorded at ${typeLabel(nodeType(node))}, emitted at ${typeLabel(e.type)}, at ${site}`
-		)
-		assert.equal(nameOf(spec), nameOf(e), `node ${i}'s name at ${site}`)
-		const args: ReadonlyArray<TypedNode> = spec.args
-		assert.equal(args.length, e.args.length, `node ${i}'s arguments at ${site}`)
-		Arr.forEach(args, (arg, k) => {
-			const emittedArg = e.args[k]
-			if (arg.kind === "built") {
-				assert.ok(arg.expr === emittedArg, `node ${i}'s built argument ${k} at ${site}`)
-				return
-			}
-			assert.equal(
-				placeOf.get(arg),
-				emittedArg === undefined ? undefined : emittedAt.get(emittedArg),
-				`node ${i}'s argument ${k} at ${site}`
-			)
-		})
-	})
-}
-
-/** The refusals a typing defers that the lowering of a typed term makes: a site's own, a judgement's, a bound's. */
-const judged: ReadonlyArray<CompileReason["_tag"]> = [
-	"UnsupportedOperation",
-	"PartialOperation",
-	"ContractLiteral",
-	"ResourceBound"
-]
-
-/** How a description is lowered at a site and typed under a text analysis, by the property that compares them. */
-export interface Runs {
-	readonly lower: (site: "query" | "check" | "build") => Result.Result<LoweredTable, CompileError>
-	readonly type: (
-		analysis: TextAnalysis["kind"]
-	) => Result.Result<TermTyping<Spelled>, CompileError>
-}
-
-/**
- * A description's typing agrees with its lowering at every site: where the lowering in a query or a check succeeds,
- * the typing does, its root the lowering's and its tape the lowering's emissions; a refusal the tape records at a site
- * the lowering makes there, and every other refusal there is a judgement's or a site's; a typing's refusal every site
- * makes; and a builder's typing succeeds exactly where the builder's own lowering does, at its type and bounds.
- */
-export const agreement = (desc: ExprDesc, c: Case<Feature>, runs: Runs): void => {
-	const typed = runs.type("analyzed")
-	const query = runs.lower("query")
-	const check = runs.lower("check")
-	if (!typed.ok) {
-		c.note("a typing refusal")
-		assert.ok(!query.ok && !check.ok, "a description its typing refuses is refused at every site")
-	} else {
-		for (const [site, lowered] of [
-			["query", query],
-			["check", check]
-		] as const) {
-			const deferred = Arr.some(
-				typed.value.tape,
-				(e) => (e.kind === "refused" && e.site === site) || e.kind === "digits"
-			)
-			if (deferred) {
-				assert.ok(!lowered.ok, `a refusal the tape records at ${site} is made there`)
-			}
-			if (!lowered.ok) {
-				assert.ok(
-					judged.includes(lowered.error.reason._tag),
-					`a typed term is refused at ${site} by a judgement or the site, not ${lowered.error.reason._tag}`
-				)
-				continue
-			}
-			const root = typed.value.root
-			const low = lowered.value.root
-			assert.ok(sameScalarType(root.nominal, low.nominal), `the nominal type at ${site}`)
-			assert.ok(sameScalarType(root.actual, low.actual), `the actual type at ${site}`)
-			assert.deepEqual(root.bounds, low.bounds, `the bounds at ${site}`)
-			assert.deepEqual(root.facts, low.facts, `the facts at ${site}`)
-			const nodes = recorded(typed.value)
-			sameEmissions(nodes, lowered.value.emitted, site)
-			assert.equal(
-				nodes.indexOf(root.node),
-				lowered.value.emitted.indexOf(low.expr),
-				`the root's node at ${site}`
-			)
-			c.note(`agrees at ${site}`)
-			for (const f of holdings(desc)) {
-				c.note(f)
-			}
-		}
-		if (query.ok !== check.ok) {
-			c.note(query.ok ? "refused at check alone" : "refused at query alone")
-		}
-	}
-	const built = runs.lower("build")
-	const unanalyzed = runs.type("unanalyzed")
-	assert.equal(
-		unanalyzed.ok,
-		built.ok,
-		"a builder's typing succeeds exactly where its lowering does"
-	)
-	if (unanalyzed.ok && built.ok) {
-		assert.ok(
-			sameScalarType(unanalyzed.value.root.nominal, built.value.root.nominal),
-			"a builder's nominal type"
-		)
-		assert.deepEqual(unanalyzed.value.root.bounds, built.value.root.bounds, "a builder's bounds")
-		c.note("agrees at build")
-	}
 }

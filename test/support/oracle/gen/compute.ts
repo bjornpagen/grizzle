@@ -539,7 +539,7 @@ const plainOf = (c: Carrier, fallback: ScalarType): ScalarType =>
  * - LEAST, GREATEST, gcd and lcm take terms or parameters, never a bare literal (the checker refuses one).
  * - a conditional is of its branches' common type (types.ts commonType); a conditional, LEAST or GREATEST of an exact
  *   value beside a plain value of its family cannot stand (types.ts mixesExact), nor a bare literal beside an exact
- *   branch of fewer digits than its value (lower.ts branchOperand), so such a sketch is its first operand.
+ *   branch of fewer digits than its value (typing.ts branchOperand), so such a sketch is its first operand.
  * - a numeric typmod coercion is the cast numeric -> numeric, which rounds and can overflow.
  */
 const resolveTerm = (
@@ -747,7 +747,7 @@ const resolveTerm = (
 
 /**
  * Whether a conditional's other branch, or LEAST's and GREATEST's other operand, stands beside a first of type `first`
- * (lower.ts exactBeside, branchOperand): a term neither of them an exact value beside a plain value of its family
+ * (typing.ts exactBeside, branchOperand): a term neither of them an exact value beside a plain value of its family
  * (types.ts mixesExact); a parameter, which is declared at a plain carrier wherever its term wants an exact value
  * (resolveLeaf), beside no exact first; and a bare literal within an exact first's digits.
  */

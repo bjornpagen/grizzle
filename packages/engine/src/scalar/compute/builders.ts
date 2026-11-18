@@ -780,7 +780,7 @@ const refuseNonString = (source: unknown): void => {
  * Compute.matches(subject, pattern): whether the text subject holds a match of the pattern, a predicate and a guard.
  * The pattern is a Pattern, admitted where it was made (scalar/regex/pattern.ts), whose source the description holds as
  * a literal, so inside Compute.when's branch its subject is text of the pattern's language; or a text term, whose every
- * value is admitted where the term is compiled (compute/lower.ts patternAdmissions), and whose values hold no one
+ * value is admitted where the term is compiled (compute/lower.ts readAdmissions), and whose values hold no one
  * language, so its branch knows nothing more of the subject. A string is no pattern: Compute.pattern(source) makes one.
  */
 const matches = (subject: unknown, pattern: unknown): GuardParts => {
@@ -818,7 +818,7 @@ const matches = (subject: unknown, pattern: unknown): GuardParts => {
 
 /**
  * A translation of the text term `x` by the map from and to state: both stand in the description as literals, so the
- * builder's own typing of the term (compute/lower.ts translate) sees the map and refuses one it does not admit
+ * builder's own typing of the term (compute/typing.ts translate) sees the map and refuses one it does not admit
  * (scalar/regex/translate.ts charMapOf) where the call is written, as compilation does again.
  */
 const translation = (

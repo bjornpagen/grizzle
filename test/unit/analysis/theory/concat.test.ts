@@ -3,7 +3,7 @@
  * after the running text. Its law means what the fold says: evaluated by the reference evaluator over every state of
  * a small box, the violation query of a concat fold over an ordered family, its (before, after) pair named, is empty
  * exactly on the states a naive left fold calls lawful. Its combine is the equation `after = before || x`, which the
- * Compute lowering decides without building the concatenation (compute/lower.ts concatEquation), so the law reads no
+ * Compute lowering decides without building the concatenation (compute/typing.ts concatEquation), so the law reads no
  * text longer than one PostgreSQL holds.
  *
  * A concat fold names its pair, and folds only a sequence: the fold rule refuses one over a counted family, whose
@@ -83,10 +83,10 @@ export const aConcatFoldIsViolatedExactlyWhenItsAccumulatorsAreNotTheNaiveFolds 
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
+				file: "packages/engine/src/scalar/compute/typing.ts",
 				original: '\t\t\t[test("startsWith", p), test("endsWith", q)],',
 				replacement: '\t\t\t[test("startsWith", p), test("startsWith", p)],',
-				why: "The equation's concatenation checked by its length and its head alone (scalar/compute/lower.ts concatEquation); the fold property fails."
+				why: "The equation's concatenation checked by its length and its head alone (scalar/compute/typing.ts concatEquation); the fold property fails."
 			},
 			{
 				file: "packages/engine/src/ir/monoid.ts",

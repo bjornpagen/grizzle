@@ -79,11 +79,11 @@ export const computeKeptCases = boxAgreement(computeKept, {
 			why: "translate types its map as `Fr & string` and `To & string` again, from which TypeScript infers nothing for a string typed string, so a translate over a map computed at run time, which the engine admits, is typed never; the kept translates over the widened value fail their type assertions and the agreement's program fails."
 		},
 		{
-			file: "packages/engine/src/scalar/compute/lower.ts",
+			file: "packages/engine/src/scalar/compute/typing.ts",
 			original:
-				'\t\t\tconst holds =\n\t\t\t\tscope.kind === "parameter" ? held.includes(scope) : sameExpr(scope.holds.subject, entry)',
-			replacement: "\t\t\tconst holds = sameExpr(scope.holds.subject, entry)",
-			why: "Compute.when's lowering refines every occurrence of the guard's subject inside its branch, not only the branch's parameter (scalar/compute/lower.ts settle matches each enclosing guard by expression alone), so the engine admits the kept power whose exponent reads the subject past the parameter, which the types refuse; the agreement's program fails."
+				'\t\t\tconst holds =\n\t\t\t\tscope.kind === "parameter" ? held.includes(scope) : sameNode(scope.holds.subject, entry)',
+			replacement: "\t\t\tconst holds = sameNode(scope.holds.subject, entry)",
+			why: "Compute.when's lowering refines every occurrence of the guard's subject inside its branch, not only the branch's parameter (scalar/compute/typing.ts settle matches each enclosing guard by its subject's node alone), so the engine admits the kept power whose exponent reads the subject past the parameter, which the types refuse; the agreement's program fails."
 		}
 	]
 })

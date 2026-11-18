@@ -141,7 +141,7 @@ import { binary64Digits, regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import { lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { admitMatch, type MatchAdmission } from "#compiler/scalar/regex/admit.ts"
+import { admitMatch, type MatchAdmission, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
@@ -169,11 +169,12 @@ import { Money } from "#compiler/scalar/values/money.ts"
 
 /**
  * The site-free typing of a scalar description (typeOf): one pass over a description that emits nothing, which a
- * builder reads to type the term it constructs. What it decides of each node, its types, what is proved of its values,
- * its overload, its conversions and the type a literal adopts, depends on no site; what depends on the site or on
- * judgement, a refusal one site makes, a literal's ContractLiteral check, a partial operation's proof, a native proof
- * or a pattern's admission, it records on the tape (TapeEntry), with a node for each expression the term's lowering
- * emits, in the order the lowering (lower.ts) emits and judges them where the term is compiled.
+ * builder reads to type the term it constructs and the lowering (lower.ts) replays to emit and judge the term where it
+ * is compiled. What the typing decides of each node, its types, what is proved of its values, its overload, its
+ * conversions and the type a literal adopts, it decides once, at no site, and nothing decides it again; what depends
+ * on the site or on judgement, a refusal one site makes, a literal's ContractLiteral check, a partial operation's
+ * proof, a native proof or a pattern's admission, it records on the tape (TapeEntry), in the order the lowering takes
+ * it.
  */
 
 /**
@@ -266,7 +267,7 @@ export type LowerParams<R extends Refs> =
 export const noParams: { readonly kind: "none" } = Object.freeze({ kind: "none" })
 
 /** Whether a branch is an untyped literal, which adopts the type of the other branch. */
-export const isBareLiteral = <R extends Refs>(d: ExprDesc<Located, R>): boolean =>
+const isBareLiteral = <R extends Refs>(d: ExprDesc<Located, R>): boolean =>
 	d.kind === "literal" && d.type === undefined
 
 /** A closed relation's field, as an application of it reads the field: its name and its type. */
@@ -276,7 +277,7 @@ export interface ClosedField {
 }
 
 /**
- * What a Compute.matches pattern reading a closed relation's payload field can be (lower.ts patternAdmissions): where
+ * What a Compute.matches pattern reading a closed relation's payload field can be (lower.ts readAdmissions): where
  * every row's value there is a text, each distinct one in row order (`sources`), none where it holds no row, which the
  * lowering batch whose expressions read the field as a pattern admits once (ClosedRelations.admitted); or a field of
  * another value, which no pattern reads.
@@ -460,7 +461,7 @@ export interface TypingEnv<R extends Refs> {
 }
 
 /** A recorded node's arguments: the nodes recorded before it, whose emissions its emission reads. */
-interface TypedArgs {
+export interface TypedArgs {
 	readonly expr: TypedNode
 }
 
@@ -535,11 +536,13 @@ export type ProofObligation =
 	  }
 
 /**
- * A part of a Compute.matches pattern as the lowering admits it (PatternPart), where it stands: a literal's value, a
- * closed relation's payload field C.at reads, or another kind of term, which can be any text.
+ * What a part of a Compute.matches pattern reads (PatternPart), where it stands: a literal's source, admitted here, as
+ * a str.regex pattern is (scalar/regex/admit.ts admitMatch), since its value is the description's own; a closed
+ * relation's payload field C.at reads, whose values the lowering batch admitted; or another kind of term, which can be
+ * any text, which the lowering refuses.
  */
 export type PatternRead =
-	| { readonly kind: "literal"; readonly value: LiteralDesc; readonly at: SourceLoc }
+	| { readonly kind: "admitted"; readonly source: string }
 	| {
 			readonly kind: "closedAt"
 			readonly relation: string
@@ -596,6 +599,8 @@ export type TypedNode =
 			readonly kind: "domainCast"
 			readonly spec: DomainCastSpec
 			readonly value: Typed
+			/** The contract or regex-refined type the value is coerced into. */
+			readonly target: ScalarType
 			/** How the value's own refinement is checked before any SQL, where it is: a literal's, a parameter's. */
 			readonly checked: "literal" | "parameter" | undefined
 			readonly at: SourceLoc
@@ -661,7 +666,7 @@ export type TapeEntry<R extends Refs> =
  * one that states a type of its own, a collapse's or a translation's language or a cast's target, restates the term
  * (Typing.restate), and the guards narrow it again.
  */
-class Typed {
+export class Typed {
 	readonly node: TypedNode
 	readonly actual: ScalarType
 	readonly bounds: Bounds | undefined
@@ -836,7 +841,7 @@ export const boundsOfType = (t: ScalarType): Bounds | undefined => {
  * The facts every value of `t`'s SQL type has, whatever made it: an integer's, an exact value's and money's finiteness,
  * which their types state, as the TypeScript types read finiteness off an operand's SQL type.
  */
-export const carrierFacts = (t: ScalarType): FactSet => {
+const carrierFacts = (t: ScalarType): FactSet => {
 	const carrier = baseOf(t).carrier
 	return carrier === "int2" ||
 		carrier === "int4" ||
@@ -865,7 +870,7 @@ export const factsOfType = (t: ScalarType): FactSet => {
 }
 
 /** The facts a literal's own value has: NaN and Infinity are never zero nor below zero, nor finite. */
-export const factsOfValue = (value: Exact | "nan" | "infinity" | "-infinity"): FactSet => {
+const factsOfValue = (value: Exact | "nan" | "infinity" | "-infinity"): FactSet => {
 	const literal = { kind: "literal" } as const
 	switch (value) {
 		case "nan":
@@ -885,7 +890,7 @@ export const factsOfValue = (value: Exact | "nan" | "infinity" | "-infinity"): F
 }
 
 /** A date literal's value in the bound domain: its day number (ir/date.ts dayNumber); undefined for any other. */
-export const dateExact = (literal: TypedLiteral): Exact | undefined =>
+const dateExact = (literal: TypedLiteral): Exact | undefined =>
 	literal.kind === "date" ? exactOf(BigInt(dayNumber(literal.value)), 0) : undefined
 
 /** The day numbers of every date, the first's to the last's. */
@@ -896,7 +901,7 @@ const dateBounds: Bounds = ofRange(
 )
 
 /** A typed literal's value in the bound domain: exact, a special, or no number at all. */
-export const literalNumber = (
+const literalNumber = (
 	literal: TypedLiteral
 ): Exact | "nan" | "infinity" | "-infinity" | undefined => {
 	switch (literal.kind) {
@@ -1079,7 +1084,7 @@ const predicateAtoms = (table: ExprTable): ReadonlyArray<Refinement> => {
 }
 
 /** Argument `i` of a compute description, or its refusal: an arity its kind's decoder fixed. */
-export const argOf = <R extends Refs>(
+const argOf = <R extends Refs>(
 	desc: Extract<ExprDesc<Located, R>, { readonly kind: "compute" }>,
 	i: number,
 	at: SourceLoc
@@ -1090,7 +1095,7 @@ export const argOf = <R extends Refs>(
 type FactGuard = Exclude<GuardDesc, { readonly kind: "matches" }>
 
 /** What a Compute.when guard establishes of its subject inside the guarded branch (bounds.ts Refinement). */
-export const guardRefinement = (
+const guardRefinement = (
 	guard: FactGuard,
 	within: readonly [Exact, Exact] | undefined
 ): Refinement => {
@@ -1114,7 +1119,7 @@ export const guardRefinement = (
  * The facts a guard gives its subject in the guarded branch, as its TypeScript signature gives them: within two finite
  * bounds is finite, nonnegative from a bound at or above zero, and nonzero from bounds on one side of zero.
  */
-export const guardFacts = (
+const guardFacts = (
 	guard: FactGuard,
 	within: readonly [Exact, Exact] | undefined
 ): ReadonlyArray<Fact> => {
@@ -1147,7 +1152,7 @@ export const guardFacts = (
  * The values of sign over an operand of `carrier` and bounds `b`: -1, 0 and 1, and NaN where a numeric operand may be
  * NaN, whose sign is NaN; a float's NaN has sign 0.
  */
-export const signBoundsOver = (
+const signBoundsOver = (
 	carrier: "numeric" | "float8" | "exactInteger",
 	b: Bounds | undefined
 ): Bounds => {
@@ -1161,8 +1166,8 @@ export const signBoundsOver = (
  * The most UTF-8 bytes a text term's value takes: a text literal's own, and any other term's its type's byte bound,
  * none where its type bounds no bytes.
  */
-const textBytes = (x: Typed): number | undefined => {
-	const literal = literalOf(x.node)
+export const textBytes = (x: Typed): number | undefined => {
+	const literal = nodeLiteral(x.node)
 	return literal?.kind === "text" ? utf8Length(literal.value) : textOf(x.nominal)?.byteBound
 }
 
@@ -1170,7 +1175,7 @@ const textBytes = (x: Typed): number | undefined => {
  * The text of a translate map's `from` or `to`: a text literal, which the schema holds, so the map is seen when it
  * compiles; any other operand can be any text, so no map is known.
  */
-export const mapText = <R extends Refs>(
+const mapText = <R extends Refs>(
 	which: "from" | "to",
 	desc: ExprDesc<Located, R>,
 	at: SourceLoc
@@ -1217,7 +1222,7 @@ export const withinGuards = (carrier: Carrier): boolean => {
  * expression that may overflow, types as that limit: the refusal is the lowering's, which refuses such a bound as
  * ResourceBound (numericDigits) where the expression is compiled.
  */
-export const numericOf = (bounds: Bounds | undefined): ScalarType =>
+const numericOf = (bounds: Bounds | undefined): ScalarType =>
 	bounds === undefined
 		? anyNumeric
 		: numericValue({
@@ -1229,7 +1234,7 @@ export const numericOf = (bounds: Bounds | undefined): ScalarType =>
  * The bounds of a decimal text's value where the text has at most `bytes` UTF-8 bytes: at most that many digits before
  * its point and, the point taking one, one fewer after it, finite and never NaN.
  */
-export const decimalBounds = (bytes: number): Bounds =>
+const decimalBounds = (bytes: number): Bounds =>
 	ofDigits(bytes, Math.max(bytes - 1, 0), { infinite: false, nan: false })
 
 /**
@@ -1238,7 +1243,7 @@ export const decimalBounds = (bytes: number): Bounds =>
  * proves (intervalCastProof), since no caller's type states a fact of it; or the binary coercion that drops a
  * refinement or widens a bound.
  */
-export type CastHow =
+type CastHow =
 	| { readonly kind: "registered"; readonly op: CastOp }
 	| { readonly kind: "computed"; readonly op: CastOp }
 	| { readonly kind: "coercion" }
@@ -1307,7 +1312,7 @@ const nativeNode = (
 }
 
 /** The literal a node records, a typed literal's or a leaf's; undefined for any other node. */
-const literalOf = (node: TypedNode): TypedLiteral | undefined =>
+export const nodeLiteral = (node: TypedNode): TypedLiteral | undefined =>
 	node.kind === "literal"
 		? node.spec.value
 		: node.kind === "stated" && node.spec.kind === "literal"
@@ -1315,7 +1320,7 @@ const literalOf = (node: TypedNode): TypedLiteral | undefined =>
 			: undefined
 
 /** The SQL type a node computes: its spec's, an extension's predicate's, a built expression's own. */
-export const nodeType = (node: TypedNode): ScalarType => {
+const nodeType = (node: TypedNode): ScalarType => {
 	switch (node.kind) {
 		case "extension":
 			return node.type
@@ -1339,7 +1344,7 @@ const leafSpec = (spec: ExprSpec): TypedSpec => withArgs<LiveArgs, TypedArgs>(sp
 
 /** How a value's refinement is checked before any SQL, where it is: a literal at compile time, a parameter at bind. */
 const checkedKind = (node: TypedNode): "literal" | "parameter" | undefined =>
-	literalOf(node) !== undefined
+	nodeLiteral(node) !== undefined
 		? "literal"
 		: node.kind === "stated" && node.spec.kind === "param"
 			? "parameter"
@@ -1371,7 +1376,7 @@ const specText = (spec: TypedSpec): string => {
 }
 
 /** A node's spelling in a refusal: a leaf's name, a literal's text, a closed read's call, any operation `x`. */
-const nodeText = (node: TypedNode): string => {
+export const nodeText = (node: TypedNode): string => {
 	switch (node.kind) {
 		case "stated":
 			return specText(node.spec)
@@ -1475,7 +1480,7 @@ const floatArithmeticText = (fn: string, t: ScalarType): string =>
  * The closed relation `relation` a read `read` applies, or its refusal: UnsupportedOperation where the expression
  * applies none, with the reason, and MalformedDescription for a name that is no closed relation's.
  */
-const closedHeadingOf = (
+export const closedHeadingOf = (
 	closed: ClosedRelations,
 	read: "C.at" | "C.row" | "C.has",
 	relation: string,
@@ -1492,7 +1497,7 @@ const closedHeadingOf = (
 
 /**
  * What each part of the Compute.matches pattern `desc` reads (patternParts), each where it stands, the branches of the
- * Compute.cond it stands in below `at`.
+ * Compute.cond it stands in below `at`; a literal's source admitted, its refusal placed at the pattern, `at`.
  */
 const patternReads = <R extends Refs>(
 	desc: ExprDesc<Located, R>,
@@ -1501,15 +1506,25 @@ const patternReads = <R extends Refs>(
 	patternParts(desc).map((part) =>
 		patternRead(
 			part,
-			part.branches.reduce((loc, branch) => childLoc(loc, branch), at)
+			part.branches.reduce((loc, branch) => childLoc(loc, branch), at),
+			at
 		)
 	)
 
-/** What one part of a Compute.matches pattern reads, standing at `at`. */
-const patternRead = <R extends Refs>(part: PatternPart<R>, at: SourceLoc): PatternRead => {
+/** What one part of a Compute.matches pattern `pattern` reads, standing at `at`. */
+const patternRead = <R extends Refs>(
+	part: PatternPart<R>,
+	at: SourceLoc,
+	pattern: SourceLoc
+): PatternRead => {
 	switch (part.kind) {
 		case "literal":
-			return { kind: "literal", value: part.desc.value, at }
+			return typeof part.desc.value === "string"
+				? {
+						kind: "admitted",
+						source: unwrapOrRefuse(matchSourceAt(admitMatch(part.desc.value), pattern))
+					}
+				: stop("MalformedDescription", at, "a text literal as matches's pattern")
 		case "closedAt":
 			return { kind: "closedAt", relation: part.desc.relation, field: part.desc.field, at }
 		case "other":
@@ -1842,6 +1857,7 @@ class Typing<R extends Refs> {
 				kind: "domainCast",
 				spec: { kind: "domainCast", args: [value.node], type, nonNull: "strict" },
 				value,
+				target: to,
 				checked,
 				at
 			},
@@ -3305,7 +3321,7 @@ class Typing<R extends Refs> {
 	 * fits proof.
 	 */
 	typmodCoercion(value: Typed, target: ScalarType, at: SourceLoc): Typed {
-		const literal = literalOf(value.node)
+		const literal = nodeLiteral(value.node)
 		const coerced =
 			literal?.kind === "numeric"
 				? normalizeNumeric(Decimal.fromValue(literal.value), numericTypmodOf(target))
@@ -3952,7 +3968,7 @@ class Typing<R extends Refs> {
 }
 
 /** The bounds of an arithmetic result over its operands' bounds: exact interval arithmetic, digits for a quotient. */
-export const arithmeticBounds = (
+const arithmeticBounds = (
 	fn: "add" | "sub" | "mul" | "div" | "mod",
 	a: Bounds | undefined,
 	b: Bounds | undefined
@@ -3984,11 +4000,7 @@ export const arithmeticBounds = (
  * A rounding's result at `scale` fractional digits: the operand's digits, and one more where it may carry. A value below
  * one unit at that scale rounds to zero or to the unit itself, so its digits count from the unit's.
  */
-export const roundedBounds = (
-	a: Bounds | undefined,
-	carry: number,
-	scale: number
-): Bounds | undefined =>
+const roundedBounds = (a: Bounds | undefined, carry: number, scale: number): Bounds | undefined =>
 	a === undefined
 		? undefined
 		: ofDigits(Math.max(a.digits, -scale) + carry, scale, {
@@ -4039,7 +4051,7 @@ const roundingScale = (target: ScalarType): number => {
 	}
 }
 
-export const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversion => {
+const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversion => {
 	const target = baseOf(to)
 	if (isFloat(target)) {
 		return { kind: "intoFloat" }
@@ -4106,11 +4118,7 @@ const convertedEnds = (
  * an infinite edge (a float), which has no finite interval, keeps its own integer and fraction digits within the
  * target's, a conversion moving no magnitude past them; a conversion into a float keeps its target's.
  */
-export const castBounds = (
-	a: Bounds,
-	conversion: Conversion,
-	to: ScalarType
-): Bounds | undefined => {
+const castBounds = (a: Bounds, conversion: Conversion, to: ScalarType): Bounds | undefined => {
 	const target = boundsOfType(to)
 	if (target === undefined || conversion.kind === "intoFloat") {
 		return target
@@ -4133,7 +4141,7 @@ const isInfinite = (b: Bounds): boolean => b.low.kind === "infinite" || b.high.k
  * The facts a negation keeps of its operand's, each from its source: -x is finite where x is, and zero only where x is;
  * x never below zero makes -x never above it, which no fact states, so that one is not kept.
  */
-export const negationFacts = (facts: FactSet): FactSet => {
+const negationFacts = (facts: FactSet): FactSet => {
 	const { nonnegative: _flipped, ...kept } = facts
 	return Object.freeze(kept)
 }
@@ -4142,7 +4150,7 @@ export const negationFacts = (facts: FactSet): FactSet => {
  * The facts a cast keeps: one that moves no value keeps every one; one that rounds keeps all but nonzero, which
  * rounding toward zero loses; a conversion into a float keeps none.
  */
-export const keptFacts = (
+const keptFacts = (
 	arg: { readonly facts: FactSet },
 	conversion: Conversion,
 	to: ScalarType
@@ -4285,7 +4293,7 @@ export const constantGuardTests = (
  * Same carrier, numeric typmod, computed numeric bound, exact digit bound, contract name and regex refinement: every
  * field a conversion changes.
  */
-export const sameShape = (a: ScalarType, b: ScalarType): boolean => {
+const sameShape = (a: ScalarType, b: ScalarType): boolean => {
 	if (a.carrier !== b.carrier) {
 		return false
 	}
@@ -4317,14 +4325,13 @@ export const sameRefinement = (a: ScalarType, to: ScalarType): boolean => {
 	return sameShape(a, to)
 }
 
-export const compatibleCore = (a: ScalarType, b: ScalarType): boolean =>
-	meets(valueType(a), valueType(b))
+const compatibleCore = (a: ScalarType, b: ScalarType): boolean => meets(valueType(a), valueType(b))
 
 /**
  * Whether a description is a bare reference: a variable, a row's field, a contract's VALUE or a parent's column, the
  * leaf kinds, which no other arm of a description holds.
  */
-export const isReference = <R extends Refs>(desc: ExprDesc<Located, R>): desc is LeafDesc<R> =>
+const isReference = <R extends Refs>(desc: ExprDesc<Located, R>): desc is LeafDesc<R> =>
 	desc.kind === "var" || desc.kind === "field" || desc.kind === "value" || desc.kind === "parent"
 
 /** A description read past its guarded nodes: the term a Compute.when branch's parameter is (ir/desc.ts GuardedDesc). */
@@ -4382,3 +4389,37 @@ export const typePredicate = <R extends Refs>(
 	desc: ExprDesc<Located, R>,
 	env: TypingEnv<R>
 ): Result.Result<TermTyping<R>, CompileError> => typed(env, (t) => t.predicate(desc, env.loc))
+
+/**
+ * Types a term a function returns unchanged, the argument of min or max: delivered with the contract the term has.
+ * Where its node computes it without that contract, a parameter bound as its base or a Compute.base whose node still
+ * carries the contract it drops, the node is converted into the term's own type, as LEAST and GREATEST convert their
+ * operands (Typing.convert).
+ */
+export const typeReturned = <R extends Refs>(
+	desc: ExprDesc<Located, R>,
+	env: TypingEnv<R>
+): Result.Result<TermTyping<R>, CompileError> =>
+	typed(env, (t) => {
+		const x = t.whole(desc, env.loc)
+		return contractOf(x.actual)?.name === contractOf(x.nominal)?.name
+			? x
+			: t.convert(x, x.nominal, env.loc)
+	})
+
+/**
+ * Types a child of a predicate another package lowers (r.allen, r.pointIn), as that package reads it, at `at`: a term,
+ * or a bare literal at its own value's type, under the Compute.whens the predicate stands in (`scope`).
+ */
+export const typeWithin = <R extends Refs>(
+	desc: ExprDesc<Located, R>,
+	env: TypingEnv<R>,
+	scope: ReadonlyArray<WhenScope>,
+	at: SourceLoc
+): Result.Result<TermTyping<R>, CompileError> => {
+	const tape: Array<TapeEntry<R>> = []
+	return Result.map(
+		catchRefusal(() => new Typing(env, scope, tape).lower(desc, at)),
+		(root): TermTyping<R> => ({ root, tape })
+	)
+}

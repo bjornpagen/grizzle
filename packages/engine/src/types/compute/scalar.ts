@@ -31,7 +31,7 @@ import type { LiteralOf, NotStoredOnly } from "#compiler/types/fields/field.ts"
  * What may stand opposite a term of host type T and SQL type S: a term that meets T and S (Meets, the one relation, a
  * parameter of them and a value of an exact family among them), or a literal of the term's language L (which adopts
  * T's base and S). A literal never stands in the first operand; a parameter, a term, does (FirstTerm). S is the SQL
- * type the lowering checks the operand against (scalar/compute/lower.ts), so every position that checks it states it.
+ * type the typing checks the operand against (scalar/compute/typing.ts), so every position that checks it states it.
  * Every type parameter an Operand constrains is const, so a JavaScript value keeps its literal type: widened, a
  * roster's member, a uuid or a refined text's member is no value of L, and TypeScript would type the operand as the
  * constraint, whose terms read an unknown origin, so nothing computed over it would be determined.
@@ -533,7 +533,7 @@ export type IsSpan<A> =
  * contract over one included; and any other base casts only into a contract or refinement over its own SQL type, a
  * span only over its own endpoint type, contract included (SameValues), since a span over a contract and a span over
  * its base are two types no cast converts between. Whether the text's refinement proves the form is compilation's
- * (scalar/compute/lower.ts parse), since no type here holds a pattern's language.
+ * (scalar/compute/typing.ts parse), since no type here holds a pattern's language.
  */
 type NumericFamilySql = "smallint" | "integer" | "bigint" | "numeric" | "real" | "double precision"
 /** The SQL types a text parses into: those with a lexical form (scalar/lexical.ts). */

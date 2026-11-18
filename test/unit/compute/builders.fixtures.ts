@@ -58,7 +58,7 @@ export const throws = (f: () => unknown): CompileError => {
 }
 
 /**
- * The typing rules of the builders (compute/builders.ts, compute/lower.ts), stated over operands of one base, bigint,
+ * The typing rules of the builders (compute/builders.ts, compute/typing.ts), stated over operands of one base, bigint,
  * so no widening between integer types enters: two operands meet only when their nominal types are one (a contract its
  * own contract, a bare base its bare base, Compute.base the explicit way between them); LEAST, GREATEST and a
  * conditional keep that type, a sum is exact, an exact integer one digit past its base's 19, and a comparison is

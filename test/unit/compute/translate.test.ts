@@ -285,9 +285,9 @@ export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheIm
 		],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
+				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
-					"\t\t\treturn analyze([exact]).ok ? exact : { source: sources.within, flags: imageFlags }",
+					"\t\t\treturn analysis.lookup([exact]).ok ? exact : { source: sources.within, flags: imageFlags }",
 				replacement: "\t\t\treturn { source: sources.within, flags: imageFlags }",
 				why: "A translation's type is the looser image even where the exact one is admitted; the image type property fails."
 			}
@@ -764,9 +764,9 @@ export const computesTranslateAndLowerAsciiTypesACollapseAsTextHoldingItsImageWi
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
+				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
-					'\t\treturn this.env.mode === "build" || text === undefined\n\t\t\t? node\n\t\t\t: this.restate(\n\t\t\t\t\tnode,\n\t\t\t\t\tthis.collapseType(text, this.env.patternLanguage, at),\n\t\t\t\t\tnode.actual,\n\t\t\t\t\tnode.facts\n\t\t\t\t)',
+					'\t\treturn analysis.kind === "unanalyzed" || text === undefined\n\t\t\t? node\n\t\t\t: this.restate(node, this.collapseType(text, analysis, at), node.actual, node.facts)',
 				replacement: "\t\treturn node",
 				why: "A collapse is typed as any text; the collapse type property fails."
 			}

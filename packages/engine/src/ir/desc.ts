@@ -335,7 +335,7 @@ export type GuardDesc =
 
 /**
  * A Compute.when branch's parameter: `arg`, the when's subject, read where the when's `guard` holds of it, so the
- * lowering gives it what the guard establishes inside the when's branch (scalar/compute/lower.ts guarded). It stands
+ * lowering gives it what the guard establishes inside the when's branch (scalar/compute/typing.ts guarded). It stands
  * in for `arg` (core/canonical.ts standInTag): its identity text, digests, names and SQL are arg's, and only the JSON
  * form a Description crosses a process boundary in (descToJson) writes it, so a decode restores it.
  */

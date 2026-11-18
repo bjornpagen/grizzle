@@ -46,7 +46,6 @@ import {
 	type LowerParams,
 	noClosedRelations,
 	type ParamRef,
-	type TextAnalysis,
 	typeOf,
 	type TermTyping,
 	type TypingEnv,
@@ -263,7 +262,7 @@ export const param = (name: string, of: TestField): ScalarTerm =>
 /**
  * An env's variables: each a column of node n0; a literal of a field's type, as Compute.literal makes one; or a bare
  * literal, which states no type and so has the one its kind gives it, a Decimal's a computed numeric at numeric's own
- * limits (lower.ts bareLiteral). lowerWith lowers a literal binding as that literal (withLiterals).
+ * limits (typing.ts bareLiteral). lowerWith lowers a literal binding as that literal (withLiterals).
  */
 export type LeafBinding =
 	| { readonly kind: "column"; readonly type: ScalarType }
@@ -322,15 +321,8 @@ const env = (
 	const common = commonEnv(vars, emit, params)
 	switch (mode) {
 		case "query":
-			return {
-				...common,
-				mode,
-				patternLanguage: textLookup,
-				extension: noExtension
-			}
+			return { ...common, mode, extension: noExtension }
 		case "check":
-			return { ...common, mode, patternLanguage: textLookup }
-		case "build":
 			return { ...common, mode }
 	}
 }
@@ -403,7 +395,7 @@ const commonEnv = (
 	vars: Readonly<Record<string, LeafBinding>>,
 	emit: (spec: ExprSpec) => ScalarExpr,
 	params: LowerParams<Spelled>
-): Omit<Extract<LowerEnv, { readonly mode: "build" }>, "mode"> => ({
+): Omit<Extract<LowerEnv, { readonly mode: "check" }>, "mode"> => ({
 	loc: SourceLoc("test", []),
 	emit,
 	leaf: (desc, loc) => {
@@ -423,28 +415,29 @@ const commonEnv = (
 	params,
 	fieldType: (desc, loc) => scalarTypeOf(desc, testEnv, loc),
 	closed: noClosedRelations("the compute suites read no closed relation"),
-	patterns: referencePatterns()
+	patterns: referencePatterns(),
+	patternLanguage: textLookup
 })
 
 /**
- * Types a term or predicate whose variables are bound as lowerWith binds them, in lowerWith's environment: its text
- * analyzed as a compile's, by the text analysis and the reference evaluator's patterns, or not at all, as a builder's
- * (typing.ts TextAnalysis).
+ * Types a term or predicate whose variables are bound as lowerWith binds them, in lowerWith's environment, its text
+ * analyzed as lowerWith's lowering analyzes it, by the text analysis and the reference evaluator's patterns.
  */
 export const typeWith = (
-	analysis: TextAnalysis["kind"],
 	expr: ExprDesc,
 	vars: Readonly<Record<string, LeafBinding>>,
 	predicate: boolean,
 	params: LowerParams<Spelled>
 ): Result.Result<TermTyping<Spelled>, CompileError> => {
-	const { emit: _emitted, patterns, ...names } = commonEnv(vars, sink().emit, params)
+	const {
+		emit: _emitted,
+		patterns,
+		patternLanguage,
+		...names
+	} = commonEnv(vars, sink().emit, params)
 	const env: TypingEnv<Spelled> = {
 		...names,
-		analysis:
-			analysis === "analyzed"
-				? { kind: "analyzed", lookup: textLookup, patterns }
-				: { kind: "unanalyzed" }
+		analysis: { kind: "analyzed", lookup: patternLanguage, patterns }
 	}
 	const literal = withLiterals(expr, vars)
 	return predicate ? typePredicate(literal, env) : typeOf(literal, env)

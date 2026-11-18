@@ -1,5 +1,5 @@
 /**
- * The Compute builders' typing (scalar/compute/builders.ts, scalar/compute/lower.ts) and the boundary where a JavaScript
+ * The Compute builders' typing (scalar/compute/builders.ts, scalar/compute/typing.ts) and the boundary where a JavaScript
  * caller's operands meet them.
  *
  * - Typing: every binary builder over every pair of operands, every conditional's two branches and every span function

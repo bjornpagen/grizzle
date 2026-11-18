@@ -113,7 +113,7 @@ const refusedLowering = (error: CompileError): Unevaluated => ({
  * A row predicate over `relation`'s fields lowered as a check lowers one (mode "check"), each field read as a column of
  * the row (check/generated.ts rowNode), as its table: a selection's predicate, or a derived relation's row check's
  * violation. It is its own lowering batch, so each closed payload it reads as a Compute.matches pattern is admitted for
- * it (lower.ts admittedReads). One the check lowering refuses is Unevaluated (Lowered): a rule's predicate is lowered
+ * it (typing.ts admittedReads). One the check lowering refuses is Unevaluated (Lowered): a rule's predicate is lowered
  * where its violation query is checked, as a query's, which admits what no check does.
  */
 const rowPredicate = (

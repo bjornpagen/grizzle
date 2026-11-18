@@ -295,7 +295,7 @@ export const generated = (term: TermSketch, c: Case<CastFeature>): void => {
  * commonType), the same whichever comes first, and lowers to a value or a typed CompileError, never a defect: its
  * result has the common type, and a branch of another type reaches it by a widening (widensTo), which drops only
  * refinements PostgreSQL never checks. An exact value beside a plain value of its family (compute/types.ts mixesExact)
- * shares no type: the combination is MalformedDescription in either order (lower.ts exactBeside). The terms are the
+ * shares no type: the combination is MalformedDescription in either order (typing.ts exactBeside). The terms are the
  * compute generator's (test/support/oracle/gen/compute.ts), a comparison's two sides, and three planted shapes the
  * generator draws too rarely: cond(p, sign(x), y) over numeric typmods, a negative scale among them (sign carries no
  * typmod, so a typmod on its branch is a narrowing that rounds or overflows), a plain span against Compute.base of a
