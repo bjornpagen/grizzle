@@ -1008,9 +1008,12 @@ const realOf = (
 								{ kind: "table", name: task.ident },
 								constraint
 							)
+				/** The snapshot's law the refusal names, held at COMMIT: by a deferred native, or by the judge, a
+				 * containment judged whole among them (laws/model/plan.ts containmentDischarge). */
+				const held = law === undefined ? undefined : snapshot.theory.laws[law]?.kind
 				assert.ok(
-					law !== undefined && snapshot.theory.laws[law]?.kind === "native",
-					"a deferred native law on Task refuses at COMMIT"
+					held === "native" || held === "trigger",
+					`a law on Task held at COMMIT refuses it, by a deferred foreign key or the judge, not ${String(held)}`
 				)
 				const afterward = yield* observe(r)
 				assert.deepEqual(afterward.ledger, before.ledger, "the refused file is unrecorded")

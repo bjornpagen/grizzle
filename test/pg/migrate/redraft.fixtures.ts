@@ -86,6 +86,13 @@ const v2Tightened: SchemaDesc = {
 	)
 }
 
+/** Shop v2 with Account declared mutable too, which reads no rule its draft installs: every file alike, the target
+ * not. */
+const v2AccountMutable: SchemaDesc = {
+	...shopV2,
+	statements: [...shopV2.statements, mutable("Account")]
+}
+
 /** Shop v3 with Task declared mutable. */
 const v3Mutable: SchemaDesc = { ...shopV3, statements: [...shopV3.statements, mutable("Task")] }
 
@@ -135,7 +142,8 @@ const folders: ReadonlyArray<{
 			toward("v2 immutable", v2Without(4), noDeclarations, "its source"),
 			toward("v2 without alternatives", v2Without(1), noDeclarations, "its source"),
 			toward("v3", shopV3, noDeclarations, "its source"),
-			toward("v2 from v1 mutable", shopV2, noDeclarations, "v1 declared mutable")
+			toward("v2 from v1 mutable", shopV2, noDeclarations, "v1 declared mutable"),
+			toward("v2 Account mutable", v2AccountMutable, noDeclarations, "its source")
 		]
 	},
 	{
@@ -189,7 +197,8 @@ export type Feature =
 /**
  * The case the generator draws for a turn aiming at a feature (aimed): a folder, a regeneration and a point the drafts
  * reach it at, as the drafts stand (Shop v1's and v2's first files are drafted alike under a key, a check or a mutable
- * declaration more or less, and every file of v2 alike without its mutable declaration; v2 drafted toward from v1
+ * declaration more or less, and every file of v2 alike with Account declared mutable too, where without Task's
+ * mutable declaration the alternatives' containments are judged whole and its files differ; v2 drafted toward from v1
  * declared mutable holds v2's files). The features noted are still the outcome's, so a note never claims what the case
  * did not reach.
  */
@@ -200,7 +209,7 @@ export const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
 	],
 	[
 		"a regeneration alike in files resumed",
-		{ folder: 1, regeneration: 4, completed: 2, added: false, failNext: false }
+		{ folder: 1, regeneration: 8, completed: 2, added: false, failNext: false }
 	],
 	[
 		"the started draft resumed",
@@ -228,7 +237,7 @@ export const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
 	],
 	[
 		"a regeneration resuming at a no-transaction file refused",
-		{ folder: 1, regeneration: 4, completed: 1, added: false, failNext: false }
+		{ folder: 1, regeneration: 8, completed: 1, added: false, failNext: false }
 	]
 ]
 
