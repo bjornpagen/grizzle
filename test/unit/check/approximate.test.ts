@@ -34,7 +34,8 @@ export const approximateNearestAdmitsExactlyASearchWhoseOneRuleReadOncePerExecut
 			"admitted, an import bound to a parameter",
 			"admitted at HNSW's bound",
 			"admitted, a keyed vector",
-			"admitted, a vector its where keys"
+			"admitted, a vector its where keys",
+			"refused, its own keyed vector"
 		] satisfies ReadonlyArray<Reached<EligibilityFeature>>,
 		check: (_, k: Case<EligibilityFeature>) => (c) =>
 			Effect.sync(() => {
@@ -46,6 +47,9 @@ export const approximateNearestAdmitsExactlyASearchWhoseOneRuleReadOncePerExecut
 				)
 				if (v.kind === "refused") {
 					k.noteAll(v.rules)
+					if (c.score === "its own keyed vector") {
+						k.note("refused, its own keyed vector")
+					}
 					if (
 						c.reading === "an attachment filtering by its parent" ||
 						c.reading === "an attachment binding its parent"
@@ -100,6 +104,12 @@ export const approximateNearestAdmitsExactlyASearchWhoseOneRuleReadOncePerExecut
 				original: "\t\t\t\t\treturn [...fixed(a, b), ...fixed(b, a)]",
 				replacement: "\t\t\t\t\treturn []",
 				why: "A key a `where` fixes is not seen, so a search by the vector of the one G a rule's equalities key is refused (check/approximate/trace.ts fixingConjuncts); the eligibility property fails."
+			},
+			{
+				file: "packages/engine/src/check/approximate/trace.ts",
+				original: "\t\tquery.anchors.some((anchor) => anchor.occurrence === binder.occurrence)",
+				replacement: "\t\tquery.anchors.length < 0",
+				why: "A query vector read from the ranked match itself taken for an anchor, so a search ranks a key-bound match's one row by its distance to its own fields (agreement's faults: Slot's embedding ranked by its distance to its own image under a fixed key, admitted by the engine and refused by the types); the eligibility property fails."
 			},
 			{
 				file: "packages/engine/src/check/approximate/trace.ts",

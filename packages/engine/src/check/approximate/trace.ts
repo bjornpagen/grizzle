@@ -376,10 +376,12 @@ export const outerRefusal = (outer: ReadonlyArray<NodeId>): string =>
  *   search's own statement before the bound, so they restrict the eligible universe rather than the candidates;
  * - its `by` output is exactly Compute.cosineDistance, one native node `vector:cosine_distance(vector,vector)`;
  * - one operand is a column of the rule's region and the other the query vector, one value per execution (QueryVector):
- *   a parameter or a literal that reads no row, or a field of a match whose declared key the rule fixes to such values
- *   (an Anchor, `r.match(Item, { item: r.param("item", …), embedding: q })`), which holds at most one row, so the
- *   ranking is an ordering of the region's rows by their distance to one query vector; cosine distance is symmetric bit
- *   for bit (the kernel's dot product and the product of the two norms commute), so the column may be either operand;
+ *   a parameter or a literal that reads no row, or a field of another match than the ranked column's, whose declared
+ *   key the rule fixes to such values (an Anchor, `r.match(Item, { item: r.param("item", …), embedding: q })`), which
+ *   holds at most one row, so the ranking is an ordering of the region's rows by their distance to one query vector;
+ *   a match keyed to one row ranks at most that row, its own vector's distance to any of its fields no search an
+ *   index serves; cosine distance is symmetric bit for bit (the kernel's dot product and the product of the two norms
+ *   commute), so the column may be either operand;
  * - that column passes unchanged through the rule's filters and negations (Filter, SemiJoin, AntiJoin, each keeping
  *   its left side's columns) to the region, where exactly one match binds it: a field of an ordinary stored relation
  *   (a Base that is no derived relation's view), bound by no second match, no equality and no correlation, which is
@@ -467,6 +469,14 @@ export const traceApproximate = (
 	) {
 		return Result.err(
 			`${prefix}: the ranked vector ${column} bound by exactly one match of a stored relation, and by no equality or outer value, so one index orders it`
+		)
+	}
+	if (
+		query.kind === "keyed" &&
+		query.anchors.some((anchor) => anchor.occurrence === binder.occurrence)
+	) {
+		return Result.err(
+			`${prefix}: a query vector of another match than the ranked vector ${column}'s; its own match, keyed to one row, holds the vector the search would rank its one row by, which no index search serves`
 		)
 	}
 	const base = binder.occurrence.source

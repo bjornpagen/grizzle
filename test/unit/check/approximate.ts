@@ -81,10 +81,13 @@ const dimensionsGen: Gen<number> = element([
  * the vector of the one G whose key the rule fixes to parameters, by its match's constants or by `where` equalities
  * over the variables its match binds, or to the vector of a G whose key the rule fixes in part either way, of which
  * there are many; F's double precision weight; the distance between E's and F's stored
- * vectors, F bound by E's id; or the least distance of each owner's vectors, an aggregate.
+ * vectors, F bound by E's id; the distance of E's vector to itself, E's key fixed to a parameter, so the query vector
+ * is the ranked match's own row's, which ranks at most that row; or the least distance of each owner's vectors, an
+ * aggregate.
  */
 export type Score =
 	| "query distance"
+	| "its own keyed vector"
 	| "a keyed vector"
 	| "a vector its where keys"
 	| "a vector half its key fixes"
@@ -185,6 +188,7 @@ export const searchVerdict = (c: SearchCase): SearchVerdict => {
 			: []),
 		...(c.score === "a stored weight" ||
 		c.score === "two stored vectors" ||
+		c.score === "its own keyed vector" ||
 		c.score === "a vector half its key fixes" ||
 		c.score === "a vector its where keys in part"
 			? ["a score that is no query distance" as const]
@@ -217,6 +221,8 @@ const queryParams = (c: SearchCase, vector: string): Record<string, AuthoredExpr
 		case "a vector half its key fixes":
 		case "a vector its where keys in part":
 			return { [`${vector}Owner`]: param(`${vector}Owner`, f.uuid) }
+		case "its own keyed vector":
+			return { [`${vector}Id`]: param(`${vector}Id`, f.uuid) }
 		case "query distance":
 		case "a stored weight":
 		case "two stored vectors":
@@ -249,6 +255,24 @@ const sourceArm = (c: SearchCase, vector: string): RuleDesc => {
 	switch (c.score) {
 		case "query distance":
 			return head({ id: ref("E", "id"), distance })
+		case "its own keyed vector":
+			return rule({
+				vars: owner.kind === "var" ? vars("E", "owner", "value") : vars("E", "value"),
+				matches: [
+					match(relationSource("E"), {
+						id: param(`${vector}Id`, f.uuid),
+						owner,
+						value: ref("E", "value")
+					})
+				],
+				where: ownedBy,
+				head: {
+					id: param(`${vector}Id`, f.uuid),
+					distance: compute("cosineDistance", ref("E", "value"), ref("E", "value"))
+				},
+				interiors: [],
+				attach: []
+			})
 		case "an aggregate":
 			return head({
 				owner: owner.kind === "var" ? ref("E", "owner") : owner,
@@ -381,6 +405,7 @@ export const searchCaseGen: Gen<SearchCase> = (source) => {
 	const score = source.draw(
 		weighted<Score>([
 			[12, constant("query distance")],
+			[1, constant("its own keyed vector")],
 			[3, constant("a keyed vector")],
 			[2, constant("a vector its where keys")],
 			[1, constant("a vector half its key fixes")],
