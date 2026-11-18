@@ -542,17 +542,16 @@ const shortArgumentWidth = lineWidth / 4
 
 /**
  * A call argument the formatter calls short (measured): a string literal or an identifier no wider than a quarter of
- * the line in display columns (textWidth, so a wide character counts two), `undefined`, a number, a boolean, or an
- * empty object or array literal.
+ * the line in display columns (textWidth, so a wide character counts two), `undefined`, a number or a boolean. An
+ * object or array literal is never one, empty or not: a chain taking `{}` or `[]` that does not fit beside `=` or `:`
+ * breaks that argument list there, `a.pipe()(` with `{},` on the next line, rather than moving below.
  */
 const isShortArgument = (expr: Expr): boolean =>
 	(expr._tag === "Identifier" && textWidth(expr.name) <= shortArgumentWidth) ||
 	(expr._tag === "String" && textWidth(stringLiteral(expr.value)) <= shortArgumentWidth) ||
 	expr._tag === "Undefined" ||
 	expr._tag === "Number" ||
-	expr._tag === "Boolean" ||
-	(expr._tag === "Object" && expr.entries.length === 0) ||
-	(expr._tag === "Array" && expr.elements.length === 0)
+	expr._tag === "Boolean"
 
 /**
  * A chain the formatter cannot break well (measured): member accesses and calls down to an identifier, each call

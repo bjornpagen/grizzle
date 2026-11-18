@@ -149,6 +149,14 @@ export const printedModule = property.explore(moduleSpace, {
 			reason:
 				"a chain beside a long key whose one argument is a string of sixteen wide characters, 18 code units but 34 columns, past the quarter line the formatter calls a short argument: the formatter breaks the chain's argument list beside the key rather than moving the chain below it (found by the push gate's rotating stream at seed 0x848d5dc6)",
 			since: "2026-11-17"
+		},
+		{
+			token: ReplayToken(
+				"test/emit/printer.test.ts#printedModule:-:0.1.0.0.2.7.0.0.7.4.1.1.0.0.0.1.4.0.1.0.0"
+			),
+			reason:
+				"a chain beside a long const name, `a.pipe()({})`, that does not fit after its `=` but whose argument list holding `{}` starts on that line: an empty object is no short argument, so the formatter breaks that list beside `=` rather than moving the chain below (found by the push gate's rotating stream at seed 0x46c01f85)",
+			since: "2026-11-18"
 		}
 	],
 	budget: { runs: 300, steered: 1500 },
@@ -173,6 +181,13 @@ export const printedModule = property.explore(moduleSpace, {
 			original: "\tconst place = { column: indent + textWidth(key) + 2, indent, tail: 1 }",
 			replacement: "\tconst place = { column: indent + textWidth(key) + 1, indent, tail: 1 }",
 			why: "A property's value is measured from one column left of where it starts (its key's width plus `: `), so a value that just overflows the line is kept beside its key instead of moving below it; the property fails (CATCH's evidence, mutant 3d11770dae)."
+		},
+		{
+			file: "packages/generator/src/emit/printer.ts",
+			original: '\texpr._tag === "Boolean"\n\n/**\n * A chain the formatter cannot break well',
+			replacement:
+				'\texpr._tag === "Boolean" ||\n\t(expr._tag === "Object" && expr.entries.length === 0)\n\n/**\n * A chain the formatter cannot break well',
+			why: "An empty object reads as a short argument, so a chain taking `{}` that does not fit beside `=` moves below it whole, where the formatter breaks its argument list beside `=`; the property fails."
 		}
 	]
 })
