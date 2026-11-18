@@ -73,7 +73,7 @@
 		"lefthook": "catalog:",
 		"oxfmt": "catalog:",
 		"oxlint": "catalog:",
-		"oxlint-tsgolint": "catalog:",
+		"tsrs": "catalog:",
 		"turbo": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",
