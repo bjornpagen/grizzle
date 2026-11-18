@@ -22,7 +22,15 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { closedId, natural, pg } from "#compiler/public/fields.ts"
-import { closed, contained, on, relation, schema, select } from "#compiler/public/schema.ts"
+import {
+	closed,
+	contained,
+	mutable,
+	on,
+	relation,
+	schema,
+	select
+} from "#compiler/public/schema.ts"
 import { cleared, seatOf } from "#test/pg/fin/installed.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
@@ -36,6 +44,11 @@ const Node = relation(
 )
 const Document = relation("Document", { node: pg.int4 }, ["node"])
 
+/**
+ * The box's schema, both relations mutable: a containment between immutable relations that joins within one unit is
+ * judged whole at COMMIT and installs no foreign key (laws/model/plan.ts containmentDischarge, since bb62f0fa1), and
+ * this box reads the fixed target's native lowering, its foreign key into the shared target.
+ */
 const FixedTarget = schema(
 	"fixed_target",
 	[NodeKind, Node, Document],
@@ -48,7 +61,9 @@ const FixedTarget = schema(
 				),
 				"id"
 			)
-		)
+		),
+		mutable(Node),
+		mutable(Document)
 	]
 )
 

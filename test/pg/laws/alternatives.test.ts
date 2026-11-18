@@ -24,7 +24,7 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
-import { alternatives, closed, relation, schema } from "#compiler/public/schema.ts"
+import { alternatives, closed, mutable, relation, schema } from "#compiler/public/schema.ts"
 import { cleared, seatOf } from "#test/pg/fin/installed.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
@@ -35,10 +35,15 @@ const Item = relation("Item", { id: pg.int4, kind: closedId(Kind) }, ["id"])
 const A = relation("A", { item: pg.int4 }, ["item"])
 const B = relation("B", { item: pg.int4 }, ["item"])
 
+/**
+ * The box's schema, every relation mutable: a containment between immutable relations that joins within one unit is
+ * judged whole at COMMIT and installs no foreign key (laws/model/plan.ts containmentDischarge, since bb62f0fa1), and
+ * this box reads the alternatives' native lowering.
+ */
 const Alternatives = schema(
 	"fin_alternatives",
 	[Kind, Item, A, B],
-	[alternatives(Item, "kind", Kind, { a: A, b: B })]
+	[alternatives(Item, "kind", Kind, { a: A, b: B }), mutable(Item), mutable(A), mutable(B)]
 )
 
 const RELATIONS = ["Item", "A", "B"] as const
