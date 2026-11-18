@@ -146,7 +146,7 @@ const describedFields = (
 ): Readonly<Record<string, Described>> => {
 	const out: Record<string, Described> = {}
 	for (const [name, descriptor] of Object.entries(fields)) {
-		out[name] = describedField(descriptorOf(descriptor), `${label} field ${name}`)
+		out[name] = describedField(declaredDescriptorOf(descriptor), `${label} field ${name}`)
 	}
 	return Object.freeze(out)
 }
@@ -506,7 +506,7 @@ const admitGenerated = <G>(
 	const descriptors = descriptorRecord(written, label)
 	const described = describedFields(descriptors, label)
 	const declared = Object.fromEntries(
-		Object.entries(descriptors).map(([field, d]) => [field, descriptorOf(d)] as const)
+		Object.entries(descriptors).map(([field, d]) => [field, declaredDescriptorOf(d)] as const)
 	)
 	const row = rowScalars(fieldMap(described), declared, (field) =>
 		rosterOfField(descriptors[field])
@@ -1173,9 +1173,12 @@ export const fieldRoster = (
 ): RosterHandles | undefined =>
 	rel.kind === "closed" && field === "id" ? rel.roster : rosterOfField(rel.descriptors[field])
 
-/** The descriptor a field value was built from: its own, or a drawn, accumulated, slot or generated field's declared
- * type's. */
-const descriptorOf = (value: unknown): unknown => {
+/**
+ * The descriptor a field value was built from: its own, or a drawn, accumulated, retirement, slot or generated field's
+ * declared type's. It is the one reading of a field value as a type: a relation's column is described by it
+ * (describedFields), and codecText (program/text.ts) reads a field's text through it.
+ */
+export const declaredDescriptorOf = (value: unknown): unknown => {
 	const recorded = writtenByOf(value) ?? slottedOf(value)
 	if (recorded !== undefined) {
 		return recorded.type
@@ -1196,7 +1199,7 @@ export const rosterHandlesOf = (value: unknown): ReadonlyArray<string> | undefin
 
 /** The roster a field value's closedId or bits descriptor references, as rosterHandlesOf reads it. */
 const rosterOfField = (value: unknown): IrRoster | undefined => {
-	const descriptor = descriptorOf(value)
+	const descriptor = declaredDescriptorOf(value)
 	return isOwnedDescriptor(descriptor) ? rosterOf(descriptor.scalar) : undefined
 }
 
@@ -1214,7 +1217,7 @@ export const namedRelation = (value: unknown, label: string): NamedRelation => {
 		}
 		const out: Record<string, unknown> = {}
 		for (const [field, d] of Object.entries(descriptors)) {
-			out[field] = descriptorOf(d)
+			out[field] = declaredDescriptorOf(d)
 		}
 		return out
 	}

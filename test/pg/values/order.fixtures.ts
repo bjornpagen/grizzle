@@ -26,7 +26,7 @@ import { codecOf } from "#test/unit/codec/support.ts"
  * order (ir/scalar.ts handlesInOrder), "Mu" < "alpha" < "zeta", while their codes, a hole among them, are zeta 0,
  * alpha 2, Mu 3, so the stored ids' order is neither.
  */
-const markHandles = ["zeta", "alpha", "Mu"] as const
+export const markHandles = ["zeta", "alpha", "Mu"] as const
 
 /** The codebook of every roster a case reads: the round trip's rosters and Mark. */
 export const orderCodes: Codebook = {

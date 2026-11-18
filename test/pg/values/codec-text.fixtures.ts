@@ -1,38 +1,290 @@
 /**
- * What the property of codec-text.test.ts reads: the carriers a value's text is of, a batch, the installations it is
- * stored under, and PostgreSQL's reading of it there.
+ * What the property of codec-text.test.ts reads: the carriers a value's text is of, the fields of every kind codecText
+ * reads one through, a batch, the installations it is stored under, and PostgreSQL's reading of it there.
  */
-import { array, element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Order, String as Str } from "effect"
+import { int8Max } from "@bjornpagen/grizzle-engine/ir/carriers"
+import { array, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
+import { bigint } from "@bjornpagen/testing/values"
+import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { hostText } from "#compiler/codec/scalar.ts"
+import type { CodecFault } from "#compiler/core/errors.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import type * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type Codebook, declaredOrder, firstCodebook } from "#compiler/ir/codes.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import { codecText, type TextedField } from "#compiler/program/text.ts"
+import {
+	accumulated,
+	bits,
+	closedId,
+	contract,
+	date,
+	drawn,
+	type Field,
+	generated,
+	natural,
+	pg,
+	retirement,
+	slot,
+	span,
+	uuid
+} from "#compiler/public/fields.ts"
+import { closed, fin, relation } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { describeFieldOrThrow, type SqlTag } from "#compiler/scalar/registry.ts"
+import type { StoredOnlySql } from "#compiler/types/fields/field.ts"
+import { kindHandles, setHandles, setWidths } from "#test/pg/codec/scalar.fixtures.ts"
 import { type SqlNames, textOut, wireSql } from "#test/pg/codec/support.ts"
-import { orderCases, orderCodes, orderedBy } from "#test/pg/values/order.fixtures.ts"
+import {
+	markHandles,
+	orderCaseOf,
+	orderCases,
+	orderCodes,
+	orderedBy
+} from "#test/pg/values/order.fixtures.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
 /**
- * The carriers a value's text is of (program/text.ts codecText): every case of order.fixtures.ts but bytea, a bytes
- * value being stored only, with no text.
+ * The kinds of field a relation holds, each of which has a text: a caller's, written by its caller, and each that
+ * grizzle or PostgreSQL writes, drawn(natural), accumulated(type, start), generated(type, term), the retirement field,
+ * and a closed relation's slot(type, fin).
  */
-export const textCases = nonEmpty(Arr.filter(orderCases, (c) => c.type.carrier !== "bytes"))
+const fieldKinds = ["caller", "drawn", "accumulated", "generated", "retirement", "slot"] as const
 
-/** A carrier, by its case's label, and a batch of its values as a caller writes them. */
+type FieldKind = (typeof fieldKinds)[number]
+
+/** What a case reached: a carrier whose values it gave a text, by its label, or a kind of field it read one through. */
+export type TextFeature = `texts ${string}` | `reads ${FieldKind}`
+
+/** What a case reads its values' texts by: a function of the value alone, a CodecFault for a value it does not admit. */
+type Texts = (value: unknown) => Result.Result<string, CodecFault>
+
+/**
+ * A case: its label, the type PostgreSQL judges its texts at, its values as a caller writes them, the situation it
+ * reaches, and its texts, read over its batch.
+ */
+interface TextCase {
+	readonly label: string
+	readonly type: ScalarType
+	readonly values: Gen<unknown>
+	readonly feature: TextFeature
+	/** Its texts, read once a batch: `first` is the batch's first value, which an accumulated field starts at. */
+	readonly texts: (first: unknown) => Texts
+}
+
+/**
+ * The carriers a value's text is of (codec/scalar.ts hostText): every case of order.fixtures.ts but bytea, a bytes
+ * value being stored only, with no text, each read at its own type.
+ */
+const carrierCases: ReadonlyArray<TextCase> = Arr.flatMap(
+	orderCases,
+	(c): ReadonlyArray<TextCase> =>
+		c.type.carrier === "bytes"
+			? []
+			: [
+					{
+						label: c.label,
+						type: c.type,
+						values: c.values,
+						feature: `texts ${c.label}`,
+						texts: () => hostText(c.type)
+					}
+				]
+)
+
+/** A field type with a text, a descriptor a builder made, of any host type. */
+type Declared = Field<unknown, Exclude<SqlTag, StoredOnlySql>, unknown>
+
+/** A type a field is declared of: its label, its descriptor, and its values as a caller writes them. */
+interface DeclaredCarrier {
+	readonly label: string
+	readonly type: Declared
+	readonly values: Gen<unknown>
+}
+
+/** A declared type over the values of order.fixtures.ts's case of `label`, whose type is the descriptor's. */
+const declaredOf = (label: string, type: Declared): DeclaredCarrier => ({
+	label,
+	type,
+	values: orderCaseOf(label).values
+})
+
+/** The rosters of order.fixtures.ts's closed ids and sets, as a schema declares them, each under its name and handles. */
+const Kind = closed.ordered("Kind", kindHandles)
+const Mark = closed.unordered("Mark", markHandles)
+
+/** natural, over naturals: bigints never below zero, their edges among them. */
+const naturalCarrier: DeclaredCarrier = {
+	label: "natural",
+	type: natural,
+	values: oneOf([bigint(0n, int8Max), element([0n, 1n, int8Max])])
+}
+
+/** boolean, the retirement field's type. */
+const booleanCarrier = declaredOf("boolean", pg.boolean)
+
+/** A closed id of Kind, a slot's type. */
+const kindCarrier = declaredOf("closed id", closedId(Kind))
+
+/**
+ * Every type a field is declared of that has a text, by a builder, each over the values of its carrier's case: every
+ * carrier of order.fixtures.ts that a field has (numeric and text at no typmod or pattern are no field's), a contract,
+ * and natural.
+ */
+const declaredCarriers: Arr.NonEmptyReadonlyArray<DeclaredCarrier> = [
+	declaredOf("smallint", pg.smallint),
+	declaredOf("integer", pg.integer),
+	declaredOf("bigint", pg.bigint),
+	declaredOf("numeric(7,2)", pg.numeric(7, 2)),
+	declaredOf("real", pg.real),
+	declaredOf("double precision", pg["double precision"]),
+	declaredOf("money", pg.money),
+	booleanCarrier,
+	declaredOf("uuid", uuid),
+	declaredOf("text", str.regex("^.*$", "su")),
+	kindCarrier,
+	declaredOf("set", bits(Kind)),
+	...Arr.map(setWidths, (w) =>
+		declaredOf(`set over ${w} codes`, bits(closed.ordered(`Set${w}`, setHandles(w))))
+	),
+	declaredOf("int4range", span(pg.integer, undefined)),
+	declaredOf("int8range", span(pg.bigint, undefined)),
+	declaredOf("vector(3)", pg.vector(3)),
+	declaredOf("vector(16)", pg.vector(16)),
+	declaredOf("contract Cents", contract("Cents", pg.bigint, undefined, undefined)),
+	declaredOf("date", date),
+	declaredOf("daterange", span(date, undefined)),
+	declaredOf("unordered closed id", closedId(Mark)),
+	naturalCarrier
+]
+
+/** The type a field of a declared type is judged at: the descriptor's own, as the registry reads it, its column's. */
+const typeOf = (type: Declared): ScalarType =>
+	describeFieldOrThrow(type, SourceLoc("a declared type", [])).scalar
+
+/** The carriers of no accumulated field, whose value type is none of them: a span's and a vector's. */
+const unaccumulable: ReadonlySet<Carrier> = new Set(["range4", "range8", "rangeDate", "vector"])
+
+/**
+ * The case of a field of `kind` declared of `carrier`: codecText of `field`, the field as a caller reads it off its
+ * relation's value, judged at the declared type, which its column is of.
+ */
+const fieldCase = (
+	kind: FieldKind,
+	carrier: DeclaredCarrier,
+	field: (first: unknown) => TextedField<unknown>
+): TextCase => ({
+	label: `${kind} ${carrier.label}`,
+	type: typeOf(carrier.type),
+	values: carrier.values,
+	feature: `reads ${kind}`,
+	texts: (first) => codecText(field(first))
+})
+
+/** The owner of a closed relation's slots, and its count of them: Kind's three handles. */
+const Owner = closed.ordered("Owner", ["owner"])
+const Slots = closed.relation(
+	"Slots",
+	{ owner: closedId(Owner), n: natural },
+	["owner"],
+	[{ owner: "owner", n: 3n }]
+)
+
+/**
+ * The fields of every kind, each the one field of a relation of its own beside its key: a caller's of every declared
+ * type; drawn(natural); an accumulated field of every value type, starting at its batch's first value; a generated
+ * field of every declared type, its term the written field of that type; the retirement field; and a closed relation's
+ * slot over Kind's closed id.
+ */
+const fieldCases: ReadonlyArray<TextCase> = [
+	...Arr.map(declaredCarriers, (c) =>
+		fieldCase("caller", c, () => relation("Texted", { id: uuid, x: c.type }, ["id"]).fields.x)
+	),
+	fieldCase(
+		"drawn",
+		naturalCarrier,
+		() => relation("Texted", { id: uuid, x: drawn(natural) }, ["id"]).fields.x
+	),
+	...Arr.map(
+		Arr.filter(declaredCarriers, (c) => !unaccumulable.has(typeOf(c.type).carrier)),
+		(c) =>
+			fieldCase(
+				"accumulated",
+				c,
+				(first) => relation("Texted", { id: uuid, x: accumulated(c.type, first) }, ["id"]).fields.x
+			)
+	),
+	...Arr.map(declaredCarriers, (c) =>
+		fieldCase(
+			"generated",
+			c,
+			() =>
+				relation.generated("Texted", { id: uuid, w: c.type }, ["id"], (row) => ({
+					x: generated(c.type, row.w)
+				})).fields.x
+		)
+	),
+	fieldCase(
+		"retirement",
+		booleanCarrier,
+		() => relation("Texted", { id: uuid, x: retirement }, ["id"]).fields.x
+	),
+	fieldCase(
+		"slot",
+		kindCarrier,
+		() =>
+			closed.relation(
+				"Texted",
+				{ owner: closedId(Owner), x: slot(closedId(Kind), fin(Slots, "n")) },
+				["owner", "x"],
+				[]
+			).fields.x
+	)
+]
+
+/**
+ * The cases (program/text.ts codecText): every carrier read at its own type, and every kind of field read through
+ * codecText over each type it is declared of.
+ */
+const textCases: Arr.NonEmptyReadonlyArray<TextCase> = nonEmpty([...carrierCases, ...fieldCases])
+
+/** The case of `label`. */
+export const textCaseOf = (label: string): TextCase =>
+	Option.getOrThrowWith(
+		Arr.findFirst(textCases, (c) => c.label === label),
+		() => new Error(`no case ${label}`)
+	)
+
+/** The cases, by the situation each reaches: a carrier's one case, or every case of a kind of field. */
+const casesBySituation = nonEmpty(
+	Arr.map(Arr.dedupe(Arr.map(textCases, (c) => c.feature)), (feature) =>
+		nonEmpty(Arr.filter(textCases, (c) => c.feature === feature))
+	)
+)
+
+/** The situations the cases reach: each carrier's, and each kind of field's. */
+export const textSituations: ReadonlyArray<TextFeature> = Arr.map(
+	casesBySituation,
+	(group) => group[0].feature
+)
+
+/** A case, by its label, and a batch of its values as a caller writes them. */
 interface TextBatch {
 	readonly label: string
 	readonly values: ReadonlyArray<unknown>
 }
 
-/** A case and a batch of up to 100 of its values, so equal values and every carrier's edges meet in one batch. */
+/**
+ * A situation, then a case of it, and a batch of up to 100 of its values, so every carrier and every kind of field is
+ * drawn alike, and equal values and every carrier's edges meet in one batch.
+ */
 export const textBatchGen: Gen<TextBatch> = (source) => {
-	const c = source.draw(element(textCases))
+	const c = source.draw(element(source.draw(element(casesBySituation))))
 	return { label: c.label, values: source.draw(array(c.values, { min: 1, max: 100 })) }
 }
-
-/** A carrier whose values a case gave a text, by its label. */
-export type TextFeature = `texts ${string}`
 
 /**
  * The installations a batch is stored under, by their codes: a fresh one's, each handle coded by its position in its

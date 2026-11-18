@@ -1,8 +1,11 @@
 /**
  * A value's one text, a function of its host value alone (codec/scalar.ts hostText, program/text.ts codecText), against
  * PostgreSQL 19 and the pinned pgvector: a batch of values of every carrier with a text, the cases of order.test.ts but
- * bytea, a bytes value being stored only, each batch stored under two installations' codes, a fresh one's and one
- * migrated twice, whose rosters' codes have holes.
+ * bytea, a bytes value being stored only, read at the carrier's type; or of a field of every kind read through
+ * codecText, the field as a caller reads it off its relation's value, judged at the type it is declared of, its
+ * column's: a caller's field and a generated one of every type with a text, an accumulated one of every value type,
+ * drawn(natural), the retirement field, and a closed relation's slot. Each batch is stored under two installations'
+ * codes, a fresh one's and one migrated twice, whose rosters' codes have holes.
  *
  * - One text per value: two values of the batch have one text exactly when PostgreSQL's equality of the type holds them
  *   equal, a set's whatever order the caller's Set holds its handles in, its GROUP BY at the value's wire type, so numeric 1.0 and 1.00, NaN and NaN, -0 and +0 are one class each,
@@ -14,12 +17,11 @@
  * Oracle: PostgreSQL itself: each type's equality (GROUP BY) and input function (CAST from text), pgvector's among them,
  * and each installation's codes as PostgreSQL stores them, read back through its names.
  *
- * Features: "texts <carrier>", every case's.
+ * Features: "texts <carrier>", a carrier's case's; "reads <kind>", a field's case's.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { hostText } from "#compiler/codec/scalar.ts"
 import { roundTripRuns } from "#test/pg/codec/scalar.fixtures.ts"
 import {
 	installationsOf,
@@ -27,35 +29,38 @@ import {
 	postgresSpelled,
 	postgresUnread,
 	textBatchGen,
-	textCases,
+	textCaseOf,
 	textClasses,
-	type TextFeature
+	type TextFeature,
+	textSituations
 } from "#test/pg/values/codec-text.fixtures.ts"
-import { orderCaseOf, orderSetup } from "#test/pg/values/order.fixtures.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { orderSetup } from "#test/pg/values/order.fixtures.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A value's text is one per value under PostgreSQL's equality, and PostgreSQL reads it back as the value, or, for a
  * closed id and a set, an installation's names spell it from the codes it stores, in a fresh installation and a migrated
- * one alike. Its budget is the codec round trip's per carrier (scalar.test.ts roundTripRuns), its runs and steered cases
- * that many times its cases, each case a carrier the steered phase reaches.
+ * one alike, whatever kind of field codecText reads it through. Its budget is the codec round trip's per situation
+ * (scalar.test.ts roundTripRuns), its runs and steered cases that many times its situations, each a carrier or a kind
+ * of field the steered phase reaches.
  */
 export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEveryInstallation =
 	property.explore(textBatchGen, {
 		needs: { tx: Substrate.transaction },
-		situations: Arr.map(textCases, (c): TextFeature => `texts ${c.label}`) satisfies ReadonlyArray<
-			Reached<TextFeature>
-		>,
-		budget: { runs: roundTripRuns * textCases.length, steered: roundTripRuns * textCases.length },
+		situations: textSituations satisfies ReadonlyArray<Reached<TextFeature>>,
+		budget: {
+			runs: roundTripRuns * textSituations.length,
+			steered: roundTripRuns * textSituations.length
+		},
 		check:
 			({ tx }, c: Case<TextFeature>) =>
 			(batch) =>
 				Effect.gen(function* () {
 					const { session, schema } = yield* tx
 					const { db, names } = yield* orderSetup(session, schema)
-					const carrier = orderCaseOf(batch.label)
-					const text = hostText(carrier.type)
+					const carrier = textCaseOf(batch.label)
+					const text = carrier.texts(defined(batch.values[0], "a batch holds a value"))
 					const texted = Arr.map(batch.values, (value) => ({
 						value,
 						text: succeeded(text(value), "a drawn value has its text")
@@ -98,7 +103,7 @@ export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEvery
 							)
 						}
 					}
-					c.note(`texts ${batch.label}`)
+					c.note(carrier.feature)
 				}),
 		oracle: {
 			kind: "postgresql",
@@ -124,6 +129,22 @@ export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEvery
 				original: "\t\treturn scalarCodec(type, emptyCodebook).encode",
 				replacement: "\t\treturn (value: unknown) => Result.ok(paramText(String(value)))",
 				why: "A value's text is String() of its host value: every vector, span and money value writes [object Object], so unequal ones share a text; the classes fail."
+			},
+			{
+				file: "packages/engine/src/program/text.ts",
+				original:
+					'\tconst { scalar } = describeFieldOrThrow(declaredDescriptorOf(field), captureLoc("codecText", []))',
+				replacement:
+					'\tconst { scalar } = describeFieldOrThrow(field, captureLoc("codecText", []))',
+				why: "codecText describes the field value itself, not its declared type's descriptor: a drawn field, which carries no descriptor of its own, is refused (MalformedDescription), and so is every accumulated, retirement, generated and slot field; the property fails over each of those kinds."
+			},
+			{
+				file: "packages/engine/src/program/text.ts",
+				original:
+					'\tconst { scalar } = describeFieldOrThrow(declaredDescriptorOf(field), captureLoc("codecText", []))',
+				replacement:
+					'\tconst { scalar } = describeFieldOrThrow("field" in field ? field : declaredDescriptorOf(field), captureLoc("codecText", []))',
+				why: "An accumulated field's text is read from its accumulated(type, start) value, the one field value that carries its type as a member, not from its column's declared type: the value is no descriptor a builder registered, so codecText refuses it, every other kind still reading its column's type; the property fails over an accumulated field."
 			}
 		]
 	})
