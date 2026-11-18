@@ -250,9 +250,8 @@ export type NativeFn =
 /**
  * The nodes each Compute function lowers to (lower.ts): the node of its own name, or the nodes it composes.
  * Compute.numeric is a cast into numeric, Compute.width a span's upper endpoint less its lower, Compute.singleton a
- * set with one more handle over the empty set, and Compute.lowerAscii its own node in a query and a translate by the
- * ASCII capitals in a check or generated field (lower.ts lowerAscii). Total over ComputeFn, so a new function names its
- * nodes where it is added.
+ * set with one more handle over the empty set. Total over ComputeFn, so a new function names its nodes where it is
+ * added.
  */
 export const computeNodes: { readonly [F in ComputeFn]: NonEmptyReadonlyArray<NativeFn> } =
 	Object.freeze({
@@ -290,7 +289,7 @@ export const computeNodes: { readonly [F in ComputeFn]: NonEmptyReadonlyArray<Na
 		endsWith: ["endsWith"],
 		matches: ["matches"],
 		translate: ["translate"],
-		lowerAscii: ["lowerAscii", "translate"],
+		lowerAscii: ["lowerAscii"],
 		collapse: ["collapse"],
 		parseDouble: ["parseDouble"],
 		parseDecimal: ["parseDecimal"],
@@ -753,17 +752,17 @@ const textCollapse: FixedOverload = frozen({
 })
 
 /**
- * A text's ASCII case fold in a query, Compute.lowerAscii there (compute/lower.ts asciiFolded): lower under the C
+ * A text's ASCII case fold, Compute.lowerAscii wherever it stands (compute/lower.ts lowerAscii): lower under the C
  * collation, collated back as every text is, `lower(x COLLATE "C") COLLATE pg_c_utf8` (sql/ast.ts Expr's lowerAscii).
  * The C collation's ctype is C, so lower folds the text byte by byte, each of A to Z to its small letter and every
  * other byte as it is; every byte of a UTF-8 character past ASCII, a lead byte or a continuation byte, is 0x80 or more,
  * and a text holds no NUL, at which the fold would stop, so the fold is translate's by the ASCII capitals and their
  * small letters on every text. It allocates its operand's own length and its header, within MaxAllocSize for every
  * text, where translate allocates four bytes for each byte (compute/lower.ts translateMaxBytes), so it is defined on
- * every text, in a query as in a check. lower's result takes the explicit collation of its operand, "C", which would
- * compare it in C's order, keep a pg_c_utf8 index from serving an equation with it and read its regex classes as C's;
- * the outer COLLATE gives it pg_c_utf8, every text's. lower(text) is IMMUTABLE in pg_proc and a COLLATE calls nothing,
- * so it is one value wherever it stands.
+ * every text, in a query, a CHECK and a generated field alike. lower's result takes the explicit collation of its
+ * operand, "C", which would compare it in C's order, keep a pg_c_utf8 index from serving an equation with it and read
+ * its regex classes as C's; the outer COLLATE gives it pg_c_utf8, every text's. lower(text) is IMMUTABLE in pg_proc and
+ * a COLLATE calls nothing, so it is one value wherever it stands, a generated column among them.
  *
  * @derivation lower folds by its call's collation: "out_string = str_tolower(VARDATA_ANY(in_string),
  *   VARSIZE_ANY_EXHDR(in_string), PG_GET_COLLATION());" then "result = cstring_to_text(out_string);"

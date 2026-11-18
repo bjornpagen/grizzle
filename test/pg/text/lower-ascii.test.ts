@@ -1,23 +1,25 @@
 /**
- * Compute.lowerAscii on PostgreSQL 19rc2: ASCII's case fold, which a query computes as lower under the C collation,
- * collated back to pg_c_utf8 (scalar/compute/registry.ts textLowerAscii), and a check or generated field as translate by
- * the ASCII capitals, the SQL every installed definition of it holds.
+ * Compute.lowerAscii on PostgreSQL 19rc2: ASCII's case fold, which PostgreSQL computes as lower under the C collation,
+ * collated back to pg_c_utf8 (scalar/compute/registry.ts textLowerAscii), one SQL node in a query, a CHECK and a
+ * generated field alike.
  *
  * - Over a batch of texts of every class of byte UTF-8 begins a character with, ASCII, lead bytes of two, three and four
  *   bytes and every continuation byte, the lead bytes that hold a capital's bits among them, beside letters Unicode
- *   lowers and the fold keeps, empty texts and long ones, in one round trip: the query's SQL over text whose type bounds
- *   no bytes is the host's fold, code point by code point, and so is the check's translate, and the query's result is
- *   collated pg_c_utf8, as every text grizzle stores is, though its operand is collated as the database is: so an
- *   equation of a pg_c_utf8 key with the fold is served by the key's B-tree, whatever the database's own collation.
- * - Over a text past translateMaxBytes, a drawn text repeated on the server: the query's SQL folds it whole, equal to its
- *   unit's fold repeated, where translate refuses it with 54000.
+ *   lowers and the fold keeps, empty texts and long ones, in one round trip: the fold's SQL, lowered in a query and in a
+ *   check, over text whose type bounds no bytes, is translate's by the ASCII capitals and their small letters and the
+ *   host's fold, code point by code point, all three one text; and the fold is collated pg_c_utf8, as every text grizzle
+ *   stores is, though its operand is collated as the database is: so an equation of a pg_c_utf8 key with the fold is
+ *   served by the key's B-tree, whatever the database's own collation.
+ * - Over a text past translateMaxBytes, a drawn text repeated on the server: the fold's SQL, a query's and a check's,
+ *   folds it whole, equal to its unit's fold repeated, where translate refuses it with 54000.
  * - The repro, installed as `grizzle generate` drafts it: Folded a query that folds Attr's text, whose type bounds no
  *   bytes, against a tag, and a rule holding every Tag fact in Folded. A query reads every attribute's fold, long ones
  *   among them, as the host folds it; a write of tags is accepted exactly where each is its attribute's text folded by
  *   the host, and is refused naming the rule where one is written as it stands, as Unicode lowers it, or with no
  *   attribute; and Folded, read by a query, is every tag accepted.
  *
- * Oracle: the host's fold over code points (lower-ascii.fixtures.ts asciiFolded), and the rule restated over the rows.
+ * Oracle: the host's fold over code points (lower-ascii.fixtures.ts asciiFolded), translate by the capitals, and the
+ * rule restated over the rows.
  *
  * Features: each byte class, letter and length the searches name, and each way a tag stands to its attribute's text.
  */
@@ -26,7 +28,9 @@ import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { translateMaxBytes } from "#compiler/scalar/compute/lower.ts"
 import {
+	asciiCapitals,
 	asciiFolded,
+	asciiSmalls,
 	type FoldCase,
 	type FoldFeature,
 	foldCase,
@@ -43,8 +47,8 @@ import {
 import { assert, defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Compute.lowerAscii's SQL in a query and in a check is the host's ASCII case fold over every byte class, long texts included, and the query's result is collated pg_c_utf8. */
-export const lowerAsciisSqlInAQueryAndInACheckIsTheHostsAsciiCaseFoldOverEveryByteClassLongTextsIncludedAndTheQuerysResultIsCollatedPgCUtf8 =
+/** Compute.lowerAscii's one SQL, in a query and in a check, is translate's by the ASCII capitals and the host's ASCII case fold over every byte class, long texts included, and is collated pg_c_utf8. */
+export const lowerAsciisOneSqlInAQueryAndInACheckIsTranslatesByTheAsciiCapitalsAndTheHostsAsciiCaseFoldOverEveryByteClassLongTextsIncludedAndIsCollatedPgCUtf8 =
 	property.explore(textBatch, {
 		needs: { tx: Substrate.transaction },
 		situations: foldFeatures,
@@ -56,22 +60,27 @@ export const lowerAsciisSqlInAQueryAndInACheckIsTheHostsAsciiCaseFoldOverEveryBy
 					const read = foldSql("query")
 					const stored = foldSql("check")
 					const rows = yield* db.values(
-						`SELECT (${read})::text, (${stored})::text, pg_catalog.pg_collation_for(${read}), pg_catalog.pg_collation_for(r0.v) FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, v text) ORDER BY r0.ord`,
-						[jsonText(Arr.map(texts, (value, ord) => ({ ord, v: value })))]
+						`SELECT (${read})::text, (${stored})::text, pg_catalog.translate(r0.v, $2::text, $3::text), pg_catalog.pg_collation_for(${stored}), pg_catalog.pg_collation_for(r0.v) FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, v text) ORDER BY r0.ord`,
+						[
+							jsonText(Arr.map(texts, (value, ord) => ({ ord, v: value }))),
+							asciiCapitals,
+							asciiSmalls
+						]
 					)
 					assert.equal(rows.length, texts.length, "a row per text")
 					for (const [i, row] of rows.entries()) {
 						const text = defined(texts[i], `text ${i}`)
 						const shown = Formatter.format(text.length > 64 ? `${Str.slice(0, 64)(text)}…` : text)
-						const [inQuery, inCheck, collation, operand] = row
+						const [inQuery, inCheck, translated, collation, operand] = row
 						assert.equal(inQuery, asciiFolded(text), `the query's fold of ${shown}`)
-						assert.equal(inCheck, asciiFolded(text), `the check's translate of ${shown}`)
+						assert.equal(inCheck, asciiFolded(text), `the check's fold of ${shown}`)
+						assert.equal(translated, asciiFolded(text), `translate by the capitals of ${shown}`)
 						assert.equal(
 							operand,
 							'"default"',
 							`the operand ${shown} is collated as the database is, so no collation of the fold's is its own`
 						)
-						assert.equal(collation, "pg_c_utf8", `the collation of the query's fold of ${shown}`)
+						assert.equal(collation, "pg_c_utf8", `the collation of the fold of ${shown}`)
 						k.noteAll(foldFeaturesOf(text))
 					}
 					yield* db.values(
@@ -116,8 +125,8 @@ export const lowerAsciisSqlInAQueryAndInACheckIsTheHostsAsciiCaseFoldOverEveryBy
 		]
 	})
 
-/** Compute.lowerAscii's SQL in a query folds a text past every operand translate reads, whole, where translate refuses it. */
-export const lowerAsciisSqlInAQueryFoldsATextPastEveryOperandTranslateReadsWholeWhereTranslateRefusesIt =
+/** Compute.lowerAscii's one SQL, in a query and in a check, folds a text past every operand translate reads, whole, where translate refuses it. */
+export const lowerAsciisOneSqlInAQueryAndInACheckFoldsATextPastEveryOperandTranslateReadsWholeWhereTranslateRefusesIt =
 	property.explore(pastCase, {
 		needs: { tx: Substrate.transaction },
 		situations: [],
@@ -131,10 +140,10 @@ export const lowerAsciisSqlInAQueryFoldsATextPastEveryOperandTranslateReadsWhole
 					const unitBytes = new TextEncoder().encode(unit).length
 					const count = Math.floor(translateMaxBytes / unitBytes) + extra
 					const [row] = yield* db.values(
-						`SELECT (${foldSql("query")}) = pg_catalog.repeat($2::text, $3::int4), pg_catalog.octet_length(r0.v) FROM (SELECT pg_catalog.repeat($1::text, $3::int4) AS v) AS r0`,
+						`SELECT (${foldSql("query")}) = pg_catalog.repeat($2::text, $3::int4), (${foldSql("check")}) = pg_catalog.repeat($2::text, $3::int4), pg_catalog.octet_length(r0.v) FROM (SELECT pg_catalog.repeat($1::text, $3::int4) AS v) AS r0`,
 						[unit, asciiFolded(unit), count]
 					)
-					const [equal, bytes] = defined(row, "one row")
+					const [equal, stored, bytes] = defined(row, "one row")
 					assert.ok(
 						Number(bytes) > translateMaxBytes,
 						`a text of ${Formatter.format(bytes)} bytes is past translate's`
@@ -144,10 +153,15 @@ export const lowerAsciisSqlInAQueryFoldsATextPastEveryOperandTranslateReadsWhole
 						true,
 						`the query folds ${Formatter.format(unit)} repeated ${count} times whole`
 					)
+					assert.equal(
+						stored,
+						true,
+						`a check folds ${Formatter.format(unit)} repeated ${count} times whole`
+					)
 					const refused = yield* Effect.flip(
 						db.values(
-							`SELECT pg_catalog.octet_length(${foldSql("check")}) FROM (SELECT pg_catalog.repeat($1::text, $2::int4) AS v) AS r0`,
-							[unit, count]
+							"SELECT pg_catalog.octet_length(pg_catalog.translate(r0.v, $3::text, $4::text)) FROM (SELECT pg_catalog.repeat($1::text, $2::int4) AS v) AS r0",
+							[unit, count, asciiCapitals, asciiSmalls]
 						)
 					)
 					assert.ok(
@@ -164,9 +178,18 @@ export const lowerAsciisSqlInAQueryFoldsATextPastEveryOperandTranslateReadsWhole
 			{
 				file: "packages/engine/src/scalar/compute/lower.ts",
 				original:
-					'\t\t\tcase "query":\n\t\t\t\treturn this.native(\n\t\t\t\t\tthis.overload("lowerAscii", [x.actual], at),\n\t\t\t\t\t[x],\n\t\t\t\t\twildcardText,\n\t\t\t\t\tundefined,\n\t\t\t\t\tat,\n\t\t\t\t\t"Compute.lowerAscii"\n\t\t\t\t)\n',
-				replacement: '\t\t\tcase "query":\n',
-				why: "A query folds by translate, which refuses a text past translateMaxBytes with 54000: a read fails on a value."
+					'\t\tconst op = this.overload("lowerAscii", [x.actual], at)\n\t\tconst node = this.native(op, [x], wildcardText, undefined, at, "Compute.lowerAscii")\n',
+				replacement:
+					'\t\tconst f = this.literal("ABCDEFGHIJKLMNOPQRSTUVWXYZ", wildcardText, childLoc(at, 1))\n\t\tconst t = this.literal("abcdefghijklmnopqrstuvwxyz", wildcardText, childLoc(at, 2))\n\t\tconst node = this.env.mode === "query" ? this.native(this.overload("lowerAscii", [x.actual], at), [x], wildcardText, undefined, at, "Compute.lowerAscii") : this.native(this.overload("translate", [x.actual, f.actual, t.actual], at), [x, f, t], wildcardText, undefined, at, "Compute.translate")\n',
+				why: "A stored definition folds with translate, a second SQL for one fold, which refuses a text past translateMaxBytes with 54000: the check's fold fails where the query's folds it whole."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/lower.ts",
+				original:
+					'\t\tconst op = this.overload("lowerAscii", [x.actual], at)\n\t\tconst node = this.native(op, [x], wildcardText, undefined, at, "Compute.lowerAscii")\n',
+				replacement:
+					'\t\tconst f = this.literal("ABCDEFGHIJKLMNOPQRSTUVWXYZ", wildcardText, childLoc(at, 1))\n\t\tconst t = this.literal("abcdefghijklmnopqrstuvwxyz", wildcardText, childLoc(at, 2))\n\t\tconst node = this.native(this.overload("translate", [x.actual, f.actual, t.actual], at), [x, f, t], wildcardText, undefined, at, "Compute.translate")\n',
+				why: "Every fold is translate, which refuses a text past translateMaxBytes with 54000: a read fails on a value."
 			}
 		]
 	})

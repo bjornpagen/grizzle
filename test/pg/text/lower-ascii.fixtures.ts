@@ -54,6 +54,10 @@ const isCapital = (c: number): boolean => c >= 0x41 && c <= 0x5a
 export const asciiFolded = (s: string): string =>
 	codePointsText(Arr.map(codePoints(s), (c) => (isCapital(c) ? c + 0x20 : c)))
 
+/** The ASCII capitals and their small letters, position for position: translate's map of the same fold. */
+export const asciiCapitals = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+export const asciiSmalls = "abcdefghijklmnopqrstuvwxyz"
+
 /** Unicode's full case fold to lower case, as ECMAScript's toLowerCase states it: what the fold must not compute. */
 const unicodeLowered = (s: string): string => Str.toLowerCase(s)
 

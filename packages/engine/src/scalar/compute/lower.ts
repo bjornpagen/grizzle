@@ -21,7 +21,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
-import { asciiFold, asciiFoldMap } from "#compiler/core/text.ts"
+import { asciiFold } from "#compiler/core/text.ts"
 import { int4Digits, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
@@ -2749,13 +2749,18 @@ class Lowering<R extends Refs> {
 				`translate in a query over a text whose pattern bounds it within ${translateMaxBytes} bytes: PostgreSQL's translate allocates four bytes for every byte of its operand and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the operand's pattern bounds no length" : `the operand's pattern bounds it at ${bytes} bytes`}, so bound it, or translate in a contract predicate, row check or generated field`
 			)
 		}
-		return this.mapped(x, this.translation(x, from, to, at), map.value, at)
+		const f = this.literal(from, wildcardText, childLoc(at, 1))
+		const t = this.literal(to, wildcardText, childLoc(at, 2))
+		const op = this.overload("translate", [x.actual, f.actual, t.actual], at)
+		const node = this.native(op, [x, f, t], wildcardText, undefined, at, "Compute.translate")
+		return this.mapped(x, node, map.value, at)
 	}
 
 	/**
-	 * Compute.lowerAscii(x), ASCII's case fold: translate's by the capitals and their small letters (core/text.ts
-	 * asciiFold), every other character as it is, typed as that translation is (mapped), whatever SQL computes it
-	 * (asciiFolded). A builder types the term as text of no pattern.
+	 * Compute.lowerAscii(x), ASCII's case fold, translate's by the capitals and their small letters (core/text.ts
+	 * asciiFold), every other character as it is: lower under the C collation (registry.ts textLowerAscii), one node
+	 * wherever it stands, a query, a CHECK and a generated field alike, which allocates x's own length, so it is defined
+	 * on every text, and typed as that translation is (mapped). A builder types the term as text of no pattern.
 	 */
 	lowerAscii(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
 		const x = this.term(subjectDesc, childLoc(at, 0))
@@ -2766,43 +2771,9 @@ class Lowering<R extends Refs> {
 				`a text term for lowerAscii, not ${typeLabel(x.nominal)}`
 			)
 		}
-		return this.mapped(x, this.asciiFolded(x, at), asciiFold, at)
-	}
-
-	/**
-	 * The node that computes x's ASCII case fold where the lowering stands, the one place its SQL is chosen; both forms
-	 * compute one text on every text (test/pg/text/lower-ascii.test.ts). A read must never fail on a value, so a query
-	 * takes the total form, lower under the C collation (registry.ts textLowerAscii), which allocates x's own length
-	 * whatever it is. A stored definition, a CHECK or a generated field, and every other check, keeps the installed form,
-	 * translate by the ASCII capitals (translation), the SQL every installed definition of the fold already holds, so
-	 * the query's form changes none of them and no migration recomputes a generated column or validates a CHECK again
-	 * for it: over a text whose type bounds its bytes within translateMaxBytes, which is what keeps translate total there
-	 * (an installation's folded codes and language tags among them), it never fails, and over an unbounded stored text
-	 * its write still fails past that bound, as it did before. A builder renders no SQL, and types the installed form.
-	 */
-	asciiFolded(x: Lowered, at: SourceLoc): Lowered {
-		switch (this.env.mode) {
-			case "query":
-				return this.native(
-					this.overload("lowerAscii", [x.actual], at),
-					[x],
-					wildcardText,
-					undefined,
-					at,
-					"Compute.lowerAscii"
-				)
-			case "check":
-			case "build":
-				return this.translation(x, asciiFoldMap.from, asciiFoldMap.to, at)
-		}
-	}
-
-	/** translate(x, from, to), its map's two text literals the schema holds, a node that computes text (translate). */
-	translation(x: Lowered, from: string, to: string, at: SourceLoc): Lowered {
-		const f = this.literal(from, wildcardText, childLoc(at, 1))
-		const t = this.literal(to, wildcardText, childLoc(at, 2))
-		const op = this.overload("translate", [x.actual, f.actual, t.actual], at)
-		return this.native(op, [x, f, t], wildcardText, undefined, at, "Compute.translate")
+		const op = this.overload("lowerAscii", [x.actual], at)
+		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.lowerAscii")
+		return this.mapped(x, node, asciiFold, at)
 	}
 
 	/**

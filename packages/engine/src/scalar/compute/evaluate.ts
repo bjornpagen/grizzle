@@ -4,7 +4,7 @@ import type { ExprId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
-import { asciiFoldMap, collapsed, compareCodePoints, translated } from "#compiler/core/text.ts"
+import { asciiLowered, collapsed, compareCodePoints, translated } from "#compiler/core/text.ts"
 import { dateOfDayNumber, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import {
@@ -533,9 +533,7 @@ const apply = (
 		case "collapse":
 			return isString(a) ? Result.ok(collapsed(a)) : mismatch(op)
 		case "lowerAscii":
-			return isString(a)
-				? Result.ok(translated(a, asciiFoldMap.from, asciiFoldMap.to))
-				: mismatch(op)
+			return isString(a) ? Result.ok(asciiLowered(a)) : mismatch(op)
 		case "sha256":
 			return isBytes(a) ? Result.ok(a.digest) : mismatch(op)
 		case "replace":
