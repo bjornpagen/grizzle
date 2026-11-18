@@ -3,19 +3,21 @@ import { costGate } from "#test/types/batch/measured.ts"
  * The ChangeSet members' type cost against the schema they write (changeset/budget/members.ts): for each op, a delete,
  * a put, an insert or an insertAll's key, and each member kind, a query or an array of facts, and for a deleteWhere's
  * key, a selection by the package parameter, the program of `members`
- * members and the program of twice as many, each beside a query member under a package parameter, applied through its
- * workload's handle with that parameter, and checked alone over a schema of `small` relations and over one of `large`,
- * as edullm's pantry writes one member per relation of a schema of hundreds (its replaceWrite) and applies it through
- * its handle (its importPackage).
+ * members and the program of twice as many, each beside a query member under a package parameter, joined with a
+ * ChangeSet over an extension of the schema and applied through the extension's workload's handle with that parameter,
+ * and checked alone over a schema of `small` relations and over one of `large`, as edullm's pantry writes one member per
+ * relation of a schema of hundreds (its replaceWrite) and qti-database applies it, joined with its own write over the
+ * levels above (its publish), through its handle.
  *
  * Properties: instantiations per ChangeSet member are invariant in schema size. The members the second program adds,
  * its last `members` members, cost exactly as many instantiations over the large schema as over the small one, the
  * ChangeSet's calls and its handle's together: I(large, 2k) − I(large, k) = I(small, 2k) − I(small, k). What the first
  * member reads of the schema once, its index of families, its relations' union, is in both programs of a schema and
  * cancels; a member that reads the schema again costs more over the larger one, by every relation it walks, for each
- * member. And every program typechecks with no diagnostic: the handle's once takes the package parameter beside every
- * array member's facts, each fact holding a field named `params`, as pantry's Reference does. Oracle: the compiler's
- * own counts and diagnostics (test/types/batch/measured.ts), compared across the two schemas.
+ * member, the handle's read of each array member's level below the extension among them. And every program typechecks
+ * with no diagnostic: the handle's once takes the package parameter beside every array member's facts, each fact
+ * holding a field named `params`, as pantry's Reference does. Oracle: the compiler's own counts and diagnostics
+ * (test/types/batch/measured.ts), compared across the two schemas.
  */
 import { memberForms } from "#test/types/changeset/budget/members.dictionary.ts"
 import { memberCost, memberFormName } from "#test/types/changeset/budget/members.ts"
@@ -50,6 +52,14 @@ export const cost = costGate(memberForms, {
 			replacement:
 				"\t\t? LevelOfMember<S, Address, Spelled> extends infer L\n\t\t\t? RelationIn<Spelled, RelationsOf<L>> extends infer R\n\t\t\t\t? RowOfOp<Op, L, R> extends infer Row\n\t\t\t\t\t? {\n\t\t\t\t\t\t\treadonly [O in Op]: {\n\t\t\t\t\t\t\t\treadonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t: never",
 			why: "RecordOf binds an array member's level by `infer` before it reads the member's relation and row: the level is the schema, and the branch that reads it instantiates it whole, once for each member, so each array member the handle reads walks every relation; the array members' cost grows with the schema."
+		},
+		{
+			file: "packages/engine/src/types/changeset/changeset.ts",
+			original:
+				'type LevelAt<S, Depth> = DepthOf<S>["length"] extends Depth ? S : LevelAt<BelowOf<S>, Depth>',
+			replacement:
+				'type LevelAt<S, Depth> = DepthOf<S>["length"] extends Depth\n\t? S\n\t: S extends Phantom<{ readonly extends: infer Below }>\n\t\t? LevelAt<Below, Depth>\n\t\t: never',
+			why: "LevelAt binds the level below by `infer` (`S extends Phantom<{ readonly extends: infer Below }>`) on its way down to a member's level: the branch that reads Below instantiates it whole, every relation and statement of the schema below the extension, once for each array member the handle reads, so the array members' cost grows with the schema (edullm's TS2589 at qti-database's publish.once, 2026-11-18)."
 		},
 		{
 			file: "packages/engine/src/types/query/query.ts",

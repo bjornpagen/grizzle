@@ -14,9 +14,12 @@ import { assertClean, type Measuring, measuredEach } from "#test/types/batch/mea
  * package parameter, a query member, then writes the first `members` relations, one member each, by one op: a delete, a
  * put or an insert, each a call of its own, one insertAll keyed by them, or one deleteWhere keyed by them. A member is a
  * query, the rows of its relation under the package parameter, as replaceWrite's are, an array of the relation's facts,
- * or a deleteWhere's selection of the relation's rows by the package parameter, as replaceWrite's are now. A workload over
- * Writer, a role writing every relation, serves the ChangeSet, and a function applies it through the handle's once,
- * the package parameter with the facts of its array members, as pantry's importPackage applies replaceWrite.
+ * or a deleteWhere's selection of the relation's rows by the package parameter, as replaceWrite's are now. The
+ * ChangeSet is joined with an empty one over E, an extension of S by one relation of its own, Q, and a workload over
+ * Writer, a role of E writing every relation, serves the join, as edullm's qti-database joins pantry's insertWrite over
+ * Qti with a write of its own over Ledger, levels above it (its publish): the join is over E, and each member it reads
+ * is found at S, a level below. A function applies it through the handle's once, the package parameter with the facts
+ * of its array members, as pantry's importPackage applies replaceWrite.
  */
 type MemberShape = {
 	readonly relations: number
@@ -125,13 +128,16 @@ ${Arr.join(
 			Arr.map(indices(shape.relations), (i) => `R${i}`),
 			", "
 		)}], [])
-export const Writer = role(S, "writer", wholeEntriesOf(S), { write: writableNamesOf(S) })
-${factsOf(shape)}export const change = ChangeSet.empty(S)
+export const Q = relation("Q", { id: natural, package: Name }, ["package", "id"])
+export const E = schema.extend(S, "E", [Q], [])
+export const Writer = role(E, "writer", wholeEntriesOf(E), { write: writableNamesOf(E) })
+${factsOf(shape)}export const written = ChangeSet.empty(S)
 	.delete(P, query(S).rule((q) => {
 	const stored = v(P, "stored")
 	return q.match(P, stored).where(q.eq(stored.package, q.param("package", Name))).find(stored)
 }))
 ${membersOf(shape)}
+export const change = ChangeSet.union(written, ChangeSet.empty(E))
 export const w = workload(Writer, { change })
 export const run = (db: DbOf<typeof Writer, typeof w.programs>) =>
 	db.workload.change.once({ params: { package: "abc" }, facts: ${onceFactsOf(shape)} })
