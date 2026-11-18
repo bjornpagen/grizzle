@@ -7,7 +7,12 @@ import type { EventOfShape } from "#compiler/live/events.ts"
 import type { ReadState, WriteState } from "#compiler/live/fold.ts"
 import type { RowKey } from "#compiler/live/key.ts"
 import type { KeyedList, KeyedSet } from "#compiler/live/keyed.ts"
-import type { AnyChangeSet, ArraysOf, FactsCheck } from "#compiler/types/changeset/changeset.ts"
+import type {
+	AnyChangeSet,
+	ArraysOf,
+	FactsCheck,
+	FactsRow
+} from "#compiler/types/changeset/changeset.ts"
 import type {
 	OnlyParams,
 	ParamArg,
@@ -163,11 +168,7 @@ type ParamsOfProgram<X> =
  * rows under each relation of that op's members; for A of none, the record of no op (NoFacts), a record naming no key.
  */
 type FactsBy<A> = object & {
-	readonly [Op in keyof A]: {
-		readonly [N in keyof A[Op]]: A[Op][N] extends { readonly row: infer Row }
-			? ReadonlyArray<Row>
-			: never
-	}
+	readonly [Op in keyof A]: { readonly [N in keyof A[Op]]: ReadonlyArray<FactsRow<A[Op][N]>> }
 }
 
 /**

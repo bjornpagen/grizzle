@@ -1320,17 +1320,24 @@ export type ArraysOf<X> =
  * One op's facts in F checked against the array members A of that op: each relation's checked as the op checks its own
  * (MemberFit), exactly an arm of its row type each, no field beyond it, and, Keyed, an insert's and a put's, no two
  * literal facts at one primary key (MemberCheck), a delete's at no key (DeletedCheck); a member's relation F leaves out
- * required at its row type; and a key naming no array member's relation of the op refused.
+ * required at its row type; and a key naming no array member's relation of the op refused. A member's relation and row
+ * are read off its ArrayFacts by key (FactsRelation, FactsRow), never bound by matching it: a bound relation and row
+ * are instantiated again, whole, in the branch that reads them, a relation's every field with it, for each relation the
+ * facts name.
  */
 type OpFactsCheck<F, A, Keyed extends boolean> = {
 	readonly [N in keyof A | keyof F]: N extends keyof A
-		? A[N] extends { readonly relation: infer R; readonly row: infer Row }
-			? N extends keyof F
-				? MemberFit<F[N], Row, R, Keyed>
-				: ReadonlyArray<Row>
-			: never
+		? N extends keyof F
+			? MemberFit<F[N], FactsRow<A[N]>, FactsRelation<A[N]>, Keyed>
+			: ReadonlyArray<FactsRow<A[N]>>
 		: Refusal<"a served ChangeSet's facts name, under each op, only the relations of its array members of that op">
 }
+
+/** The relation an array member's facts write (ArrayFacts), read by key: none for anything else. */
+type FactsRelation<A> = A["relation" & keyof A]
+
+/** The row an array member's facts each are (ArrayFacts), read by key: none for anything else. */
+export type FactsRow<A> = A["row" & keyof A]
 
 /** Whether an op's facts are judged at their relation's key: an insert's and a put's, never a delete's (DeletedCheck). */
 type KeyedOp<Op> = Op extends "delete" ? false : true
