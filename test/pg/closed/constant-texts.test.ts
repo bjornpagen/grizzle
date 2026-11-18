@@ -4,9 +4,10 @@
  *
  * PostgreSQL pre-evaluates a function of constants while it checks a generation expression's immutability, before it
  * assigns the expression's collations, so a collatable comparison of constants there fails with 42P22
- * (upstream/generated-column-collation-before-planning). The persistent lowering prints every compound subterm that
- * reads no row as its value, which the host's exact evaluator computes as PostgreSQL does under pg_c_utf8: by code
- * points, NULL included.
+ * (upstream/generated-column-collation-before-planning). The persistent lowering prints every compound subterm
+ * PostgreSQL's planner folds as its value, which the host's exact evaluator computes as PostgreSQL does under pg_c_utf8:
+ * by code points, NULL included. test/pg/fields/planner-constants holds the subterms the planner folds that read the
+ * row in a CASE's dead arm or beside an operand that decides an AND or OR.
  *
  * Each case draws a roster Kind of one to three handles; Pick, a closed relation of a text at a drawn subset of the
  * kinds, so a read at a kind it holds no row at is NULL; and a constant predicate over constant texts: literals over an

@@ -8,9 +8,13 @@ import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	builtExpr,
 	type ColumnRef,
+	type LiveArgs,
+	outsideSpec,
 	predicateTable,
+	sameArgs,
 	type ScalarExpr,
-	type TypedLiteral
+	type TypedLiteral,
+	withArgs
 } from "#compiler/ir/expr.ts"
 import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
@@ -20,7 +24,12 @@ import {
 	type ScalarSite
 } from "#compiler/lower/conservative/expr/index.ts"
 import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
-import { type EvalLeaves, evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import {
+	type EvalLeaves,
+	evaluateTable,
+	type SqlValue,
+	sqlNull
+} from "#compiler/scalar/compute/evaluate.ts"
 import { literalOfHost } from "#compiler/scalar/compute/literal.ts"
 import { nativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -95,32 +104,141 @@ export const persistentClosed = (checked: CheckedSchema): EvalLeaves["closed"] =
 /** What a persistent expression that reads no closed relation applies to a closed read: none, as it holds none. */
 export const noPersistentClosed: EvalLeaves["closed"] = () => undefined
 
-/**
- * The compound subterms of `expr` that read no row: no column, no VALUE and no parameter at any depth, each a constant.
- * One pass over the tree, children first.
- */
-const constantSubterms = (expr: ScalarExpr): ReadonlySet<ScalarExpr> => {
-	const constant = new Set<ScalarExpr>()
-	const visit = (e: ScalarExpr): boolean => {
-		const children = e.args.map(visit)
-		const reads = e.kind === "column" || e.kind === "value" || e.kind === "param"
-		if (reads || children.includes(false)) {
-			return false
-		}
-		if (e.kind !== "literal") {
-			constant.add(e)
-		}
-		return true
+/** Whether `e` is AND or OR, and which: the connectives PostgreSQL's planner reduces by an operand's value. */
+const connectiveOf = (e: ScalarExpr): "and" | "or" | undefined => {
+	if (e.kind !== "op") {
+		return undefined
 	}
-	visit(expr)
-	return constant
+	const fn = nativeOp(e.op)?.fn
+	return fn === "and" || fn === "or" ? fn : undefined
 }
 
 /**
- * A constant subterm as its value, the host's exact evaluation of it, which computes what PostgreSQL computes under
- * pg_c_utf8 (scalar/compute/evaluate.ts): the literal of its value, typed by its base; NULL, where it is a boolean, as
- * NULLIF(true, true); undefined where it is NULL of another type, or the host has no value for it, which the caller
- * lowers as written, its own constant subterms each folded. So no collatable function of constants reaches
+ * The compound subterms of `expr` PostgreSQL's planner folds to constants, each with its planned form: the subterm as
+ * the planner reduces it, which reads no row. cookDefault checks a generation expression's immutability by
+ * expression_planner before it assigns the expression's collations (upstream/generated-column-collation-before-planning),
+ * and eval_const_expressions there reduces more than a subterm that reads no row:
+ *
+ * - a column, VALUE or parameter reads the row, and a literal is a constant;
+ * - a CASE whose condition folds to a value is the arm it selects, the THEN arm where it holds and the ELSE arm where
+ *   it is false or NULL, so a row read in the other arm is no read;
+ * - an AND or OR one of whose operands folds to its deciding value, false for AND and true for OR, is that value, a row
+ *   read in another operand no read;
+ * - any other subterm, and an AND, OR or CASE that none of these decides, is a constant where every operand is, over
+ *   its operands' planned forms, as simplify_function evaluates an immutable function of constants.
+ *
+ * So `GREATEST(CASE WHEN 0 <> 0 THEN t ELSE '' END, '')` is the planner's `GREATEST('', '')`, which it evaluates before
+ * any collation is assigned, and the host folds it whole. A condition or an operand the host has no value for decides
+ * nothing here. One pass over the tree, children first, each shared subterm planned once.
+ */
+const plannedConstants = (
+	expr: ScalarExpr,
+	closed: EvalLeaves["closed"]
+): ReadonlyMap<ScalarExpr, ScalarExpr> => {
+	const constants = new Map<ScalarExpr, ScalarExpr>()
+	const planned = new Map<ScalarExpr, ScalarExpr | undefined>()
+	/** The boolean literal `value`, the planned form of a connective its operand decides. */
+	const truth = (like: ScalarExpr, value: boolean): ScalarExpr =>
+		builtExpr(
+			{
+				kind: "literal",
+				value: { kind: "bool", value },
+				args: [],
+				type: like.type,
+				nonNull: "literal"
+			},
+			ExprId(`${like.id}.planned`)
+		)
+	/** `e` over its operands' planned forms, itself where none changed. */
+	const over = (e: ScalarExpr, forms: ReadonlyMap<ScalarExpr, ScalarExpr>): ScalarExpr => {
+		const spec = withArgs<LiveArgs, LiveArgs>(outsideSpec(e), (a) => forms.get(a) ?? a)
+		return sameArgs(e, spec) ? e : builtExpr(spec, ExprId(`${e.id}.planned`))
+	}
+	const plan = (e: ScalarExpr): ScalarExpr | undefined => {
+		const known = planned.get(e)
+		if (known !== undefined || planned.has(e)) {
+			return known
+		}
+		const forms = new Map<ScalarExpr, ScalarExpr>()
+		for (const a of e.args) {
+			const form = plan(a)
+			if (form !== undefined) {
+				forms.set(a, form)
+			}
+		}
+		const form = reduced(e, forms)
+		planned.set(e, form)
+		if (form !== undefined && e.kind !== "literal") {
+			constants.set(e, form)
+		}
+		return form
+	}
+	const reduced = (
+		e: ScalarExpr,
+		forms: ReadonlyMap<ScalarExpr, ScalarExpr>
+	): ScalarExpr | undefined => {
+		const every = e.args.every((a) => forms.has(a))
+		switch (e.kind) {
+			case "column":
+			case "value":
+			case "param":
+				return undefined
+			case "literal":
+				return e
+			case "cond": {
+				const [p, t, f] = e.args
+				const condition = forms.get(p)
+				const holds = condition === undefined ? undefined : evaluated(condition, closed)
+				return holds === undefined
+					? every
+						? over(e, forms)
+						: undefined
+					: forms.get(holds === true ? t : f)
+			}
+			case "op": {
+				const connective = connectiveOf(e)
+				const deciding = connective === "or"
+				const decided =
+					connective !== undefined &&
+					e.args.some((a) => {
+						const form = forms.get(a)
+						return form !== undefined && evaluated(form, closed) === deciding
+					})
+				return decided ? truth(e, deciding) : every ? over(e, forms) : undefined
+			}
+			case "cast":
+			case "domainCast":
+			case "closedAt":
+			case "closedRow":
+			case "closedHas":
+				return every ? over(e, forms) : undefined
+		}
+	}
+	plan(expr)
+	return constants
+}
+
+/**
+ * The host's value of `form`, which reads no row, its closed reads applied by `closed`: what PostgreSQL computes under
+ * pg_c_utf8 (scalar/compute/evaluate.ts), NULL included, or undefined where the host has no value for it.
+ */
+const evaluated = (form: ScalarExpr, closed: EvalLeaves["closed"]): SqlValue | undefined => {
+	const table = predicateTable(form)
+	const value = evaluateTable(
+		table.exprs,
+		table.root,
+		{ value: undefined, column: () => undefined, closed },
+		ProgramPatterns.of(tablePatterns(table))
+	)
+	return value.ok ? value.value : undefined
+}
+
+/**
+ * A subterm PostgreSQL's planner folds as its value, the host's exact evaluation of its planned form
+ * (`plannedConstants`), which computes what PostgreSQL computes under pg_c_utf8 (scalar/compute/evaluate.ts): the
+ * literal of its value, typed by its base; NULL, where it is a boolean, as NULLIF(true, true); undefined where it is NULL
+ * of another type, or the host has no value for it, which the caller lowers as written, its own folded subterms each
+ * folded. So no collatable function of constants reaches
  * PostgreSQL, which pre-evaluates one in a generation expression before it assigns the expression's collations and
  * refuses it with 42P22 (upstream/generated-column-collation-before-planning); a NULL of another type reaches it only
  * through a closed read and the strict operations over it, which PostgreSQL folds to NULL without calling them.
@@ -130,18 +248,12 @@ const foldedConstant = (
 	expr: ScalarExpr,
 	closed: EvalLeaves["closed"]
 ): Expr | undefined => {
-	const table = predicateTable(expr)
-	const value = evaluateTable(
-		table.exprs,
-		table.root,
-		{ value: undefined, column: () => undefined, closed },
-		ProgramPatterns.of(tablePatterns(table))
-	)
-	if (!value.ok) {
+	const value = evaluated(expr, closed)
+	if (value === undefined) {
 		return undefined
 	}
-	if (value.value !== sqlNull) {
-		return lowerLiteral(names, literalOfHost(value.value, expr.type), expr.type)
+	if (value !== sqlNull) {
+		return lowerLiteral(names, literalOfHost(value, expr.type), expr.type)
 	}
 	return baseOf(expr.type).carrier === "bool"
 		? { kind: "nullif", expr: lit.bool(true), absent: lit.bool(true) }
@@ -159,22 +271,22 @@ const foldedConstant = (
  * - VALUE is the domain's value, admitted only in a domain CHECK;
  * - a parameter has no meaning in the schema and is refused;
  * - a cast names its type's installed column type;
- * - a compound subterm that reads no row is its value (`foldedConstant`), and a BETWEEN whose operand reads none is the
- *   conjunction PostgreSQL reads it as (`composedBetween`).
+ * - a compound subterm PostgreSQL's planner folds (`plannedConstants`) is its value (`foldedConstant`), and a BETWEEN
+ *   whose operand the planner folds is the conjunction PostgreSQL reads it as (`composedBetween`).
  *
  * The IS TRUE wrapper of a CHECK is not added here: the printer wraps every CHECK. */
 export const lowerPersistent = (
 	names: PhysicalNames,
 	expr: ScalarExpr,
 	scope: PersistentScope
-): Expr => lowerScalar(expr, persistentSite(names, scope, constantSubterms(expr)))
+): Expr => lowerScalar(expr, persistentSite(names, scope, plannedConstants(expr, scope.closed)))
 
-/** The persistent site of a tree in `scope` (lowerPersistent), each of `constants`, its constant subterms, as its value
- * where it has one. */
+/** The persistent site of a tree in `scope` (lowerPersistent), each of `constants`, the subterms PostgreSQL's planner
+ * folds, as the value of its planned form where the host has one. */
 const persistentSite = (
 	names: PhysicalNames,
 	scope: PersistentScope,
-	constants: ReadonlySet<ScalarExpr>
+	constants: ReadonlyMap<ScalarExpr, ScalarExpr>
 ): ScalarSite => {
 	const site: ScalarSite = {
 		names,
@@ -206,18 +318,26 @@ const persistentSite = (
 			}
 		},
 		castType: (type) => fieldColumnType(names, type).type,
-		whole: (expr) =>
-			(constants.has(expr) ? foldedConstant(names, expr, scope.closed) : undefined) ??
-			(expr.kind === "op" && isConstantBetween(expr, constants)
-				? composedBetween(names, expr, scope, site, constants)
-				: undefined)
+		whole: (expr) => {
+			const planned = constants.get(expr)
+			return (
+				(planned === undefined ? undefined : foldedConstant(names, planned, scope.closed)) ??
+				(expr.kind === "op" && isConstantBetween(expr, constants)
+					? composedBetween(names, expr, scope, site, constants)
+					: undefined)
+			)
+		}
 	}
 	return site
 }
 
-/** Whether a subterm reads no row: a literal, or a compound subterm of the tree's constants. */
-const readsNoRow = (e: ScalarExpr, constants: ReadonlySet<ScalarExpr>): boolean =>
+/** Whether PostgreSQL's planner folds a subterm: a literal, or a compound subterm of the tree's constants. */
+const readsNoRow = (e: ScalarExpr, constants: ReadonlyMap<ScalarExpr, ScalarExpr>): boolean =>
 	e.kind === "literal" || constants.has(e)
+
+/** A subterm as PostgreSQL's planner reads it: its planned form where it folds, otherwise itself. */
+const plannedOf = (e: ScalarExpr, constants: ReadonlyMap<ScalarExpr, ScalarExpr>): ScalarExpr =>
+	constants.get(e) ?? e
 
 /**
  * Whether `expr` is a BETWEEN whose operand reads no row: PostgreSQL reads every BETWEEN as `x >= low AND x <= high`,
@@ -226,7 +346,7 @@ const readsNoRow = (e: ScalarExpr, constants: ReadonlySet<ScalarExpr>): boolean 
  */
 const isConstantBetween = (
 	expr: ScalarExpr & { readonly kind: "op" },
-	constants: ReadonlySet<ScalarExpr>
+	constants: ReadonlyMap<ScalarExpr, ScalarExpr>
 ): boolean => {
 	const [x] = expr.args
 	const all = [expr.type, ...expr.args.map((a) => a.type)]
@@ -239,15 +359,15 @@ const isConstantBetween = (
 }
 
 /**
- * A BETWEEN as the conjunction PostgreSQL reads it as, `x >= low AND x <= high`, each comparison of two operands that
- * read no row as its value (foldedConstant), as every constant subterm is.
+ * A BETWEEN as the conjunction PostgreSQL reads it as, `x >= low AND x <= high`, each comparison of two operands
+ * PostgreSQL's planner folds as the value of their planned forms (foldedConstant), as every constant subterm is.
  */
 const composedBetween = (
 	names: PhysicalNames,
 	expr: ScalarExpr & { readonly kind: "op" },
 	scope: PersistentScope,
 	site: ScalarSite,
-	constants: ReadonlySet<ScalarExpr>
+	constants: ReadonlyMap<ScalarExpr, ScalarExpr>
 ): Expr => {
 	const [x, low, high] = expr.args
 	if (x === undefined || low === undefined || high === undefined) {
@@ -259,21 +379,26 @@ const composedBetween = (
 		if (op === undefined || op.partial) {
 			throw defect(`a total ${fn} over ${carrier}, of which every BETWEEN over it is composed`)
 		}
-		const comparison = builtExpr(
-			{
-				kind: "op",
-				op: op.id,
-				args: [x, bound],
-				type: plainType("bool"),
-				nonNull: "strict",
-				volatility: op.volatility
-			},
-			ExprId(`${expr.id}.${fn}`)
-		)
+		const comparison = (subject: ScalarExpr, limit: ScalarExpr): ScalarExpr =>
+			builtExpr(
+				{
+					kind: "op",
+					op: op.id,
+					args: [subject, limit],
+					type: plainType("bool"),
+					nonNull: "strict",
+					volatility: op.volatility
+				},
+				ExprId(`${expr.id}.${fn}`)
+			)
 		const value = readsNoRow(bound, constants)
-			? foldedConstant(names, comparison, scope.closed)
+			? foldedConstant(
+					names,
+					comparison(plannedOf(x, constants), plannedOf(bound, constants)),
+					scope.closed
+				)
 			: undefined
-		return value ?? lowerScalar(comparison, site)
+		return value ?? lowerScalar(comparison(x, bound), site)
 	}
 	return and([side("ge", low), side("le", high)])
 }

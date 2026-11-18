@@ -784,8 +784,10 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   line), restore encodeInto in packages/engine/src/codec/bytea.ts textArray, whose encode() per element is the interim
   and allocates per row, with test/unit/codec/text-array.test.ts and test/pg/write/text-arrays as its guards, and
   delete the folder.
-- upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a generated column's
-  comparison of two texts that read no row (42P22); grizzle folds such constants on the host.
+- upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a collatable function
+  its planner folds in a generated column (42P22), a comparison of two texts that read no row, or of a CASE's arm its
+  folded condition selects; grizzle folds every subterm the planner folds on the host (physical/ddl/expr.ts
+  plannedConstants).
 - upstream/generated-domain-check-partition-routing: since 7c87284940 (in 18.0, 17.5, 16.9, 15.13 and 14.18) an
   INSERT routed through a partitioned table fails with 42804 when a CHECK, an index expression or predicate, or a
   row security WITH CHECK reads a domain-typed stored generated column. A pgsql-bugs report with an unbuilt diff. It
