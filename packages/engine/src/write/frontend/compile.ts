@@ -32,7 +32,7 @@ import {
 	type WriteOp
 } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf, type TreeShape } from "#compiler/ir/family.ts"
-import { layoutKey } from "#compiler/ir/fill.ts"
+import { familyDrawn, layoutKey } from "#compiler/ir/fill.ts"
 import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { DeltaSide, Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
@@ -2347,6 +2347,19 @@ const compile = (
 				...ridersOf(member).flatMap((rider) => starts.get(rider)?.puts ?? [])
 			])
 		]
+		/** A rider's rows as a family statement rewrites them (schedule.ts RowChanges): at the columns each of its families
+		 * draws on it, as the statement draws them again (write/program/compile.ts ridersOf), its own tree's aside. */
+		const riderChanges = (rider: StoredRelationName) => ({
+			relation: rider,
+			changes: generating(
+				memberFamilies(rider, families).flatMap((f) =>
+					isTreeOf(f, rider)
+						? []
+						: familyDrawn(laws.theory.fill, rider, f).map((c) => columnKey(c.column))
+				),
+				generatedOf(rider)
+			)
+		})
 		/** The owners of `drawn`, the families a family statement draws, each changed at its counts and ends. */
 		const ownersOfFamilies = (drawn: ReadonlyArray<Family>) =>
 			[...new Set(drawn.map((f) => f.owner.name))].map((relation) => ({
@@ -2505,7 +2518,7 @@ const compile = (
 				edits: removalEdits(member),
 				owners: ownersOf([member, ...ridersOf(member)]),
 				refilledFrom: refilledFromOf(member),
-				riders: ridersOf(member)
+				riders: ridersOf(member).map(riderChanges)
 			})),
 			...adding.map((member) => {
 				const drawn = drawnOwners(member)
@@ -2523,7 +2536,7 @@ const compile = (
 						...drawn,
 						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))
 					],
-					riders: appendRidersOf(member)
+					riders: appendRidersOf(member).map(riderChanges)
 				}
 			}),
 			...recountedOnly.flatMap((member) => {

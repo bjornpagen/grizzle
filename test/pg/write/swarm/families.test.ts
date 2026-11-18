@@ -2210,6 +2210,124 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			"a lawful first insert accepted",
 			"a delete leaving another owner's groups partial refused"
 		]
+	},
+	{
+		note: "FRESHDRAW's rotating-stream case at grizzle 4083315c3: R1 owns the counted n0 of R2, R2 the counted n1 and the ordered n3 of R0, and R0 the ordered n2 of R1, so the owner keys run around R1, R0 and R2, n0's deferred (R1 is re-placed by a put) and n1's and n2's immediate; a follow-up puts R1's row 7 and nests two new R2 rows under it. Its additions insert R1's row again with its n0 members riding it, R2's rows at their copies of its count, which no reference from R0 reads; the compile ordered every rider's rows as appended, put R1's additions before R0's along R0's key into R2 and after them along R1's key into R0, and refused the stratum as UnorderableStratum, where R2's additions, then R0's, then R1's keep every immediate key",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [relationFlags(true), relationFlags(true), relationFlags(true)],
+					families: [
+						{ kind: "counted", owner: 1, member: 2, fold: "none" },
+						{ kind: "counted", owner: 2, member: 0, fold: "none" },
+						{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+						{ kind: "ordered", owner: 2, member: 0, fold: "none" }
+					],
+					copies: [
+						{ family: 1, axis: "owner", source: { kind: "count", family: 3 } },
+						{ family: 2, axis: "owner", source: { kind: "index", family: 3 } }
+					],
+					steps: []
+				},
+				ends: [],
+				plains: [],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 2, id: 1, v: 1n, memberOf: [{ family: 0, owner: 14, slot: 0 }] },
+						{ relation: 2, id: 2, v: 0n, memberOf: [{ family: 0, owner: 8, slot: 0 }] },
+						{
+							relation: 0,
+							id: 3,
+							v: 2n,
+							memberOf: [
+								{ family: 3, owner: 2, slot: 0 },
+								{ family: 1, owner: 5, slot: 0 }
+							]
+						},
+						{ relation: 2, id: 4, v: 1n, memberOf: [{ family: 0, owner: 7, slot: 0 }] },
+						{ relation: 2, id: 5, v: 0n, memberOf: [{ family: 0, owner: 7, slot: 0 }] },
+						{
+							relation: 0,
+							id: 6,
+							v: 3n,
+							memberOf: [
+								{ family: 3, owner: 5, slot: 0 },
+								{ family: 1, owner: 1, slot: 0 }
+							]
+						},
+						{ relation: 1, id: 7, v: 0n, memberOf: [{ family: 2, owner: 6, slot: 0 }] },
+						{ relation: 1, id: 8, v: 0n, memberOf: [{ family: 2, owner: 6, slot: 1 }] },
+						{
+							relation: 0,
+							id: 9,
+							v: 3n,
+							memberOf: [
+								{ family: 3, owner: 5, slot: 1 },
+								{ family: 1, owner: 10, slot: 0 }
+							]
+						},
+						{ relation: 2, id: 10, v: 3n, memberOf: [{ family: 0, owner: 7, slot: 0 }] },
+						{ relation: 2, id: 11, v: 0n, memberOf: [{ family: 0, owner: 8, slot: 0 }] },
+						{ relation: 2, id: 12, v: 1n, memberOf: [{ family: 0, owner: 7, slot: 0 }] },
+						{
+							relation: 0,
+							id: 13,
+							v: -1n,
+							memberOf: [
+								{ family: 3, owner: 12, slot: 0 },
+								{ family: 1, owner: 10, slot: 0 }
+							]
+						},
+						{ relation: 1, id: 14, v: 3n, memberOf: [{ family: 2, owner: 13, slot: 0 }] },
+						{
+							relation: 0,
+							id: 15,
+							v: 3n,
+							memberOf: [
+								{ family: 3, owner: 12, slot: 1 },
+								{ family: 1, owner: 11, slot: 0 }
+							]
+						}
+					],
+					true,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: undefined,
+					plain: [],
+					query: undefined,
+					shape: { split: true, repeat: false }
+				},
+				{
+					kind: "follow",
+					followUp: {
+						owner: 1,
+						row: 7,
+						put: Option.some(-3n),
+						inserted: [
+							{ relation: 2, id: 16, v: 0n, memberOf: [{ family: 0, owner: 7, slot: 0 }] },
+							{ relation: 2, id: 17, v: -1n, memberOf: [{ family: 0, owner: 7, slot: 0 }] }
+						],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: true, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: [
+			"a lawful first insert accepted",
+			"a cycle of families written",
+			"a follow-up accepted"
+		]
 	}
 ]
 

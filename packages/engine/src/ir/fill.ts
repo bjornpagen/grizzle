@@ -14,8 +14,9 @@
  * fills is read by no other family's fill and by nothing the walk fills.
  */
 import type { LawId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
-import type { Family, FamilyFold } from "#compiler/ir/family.ts"
+import { type Family, type FamilyFold, isSequence } from "#compiler/ir/family.ts"
 import {
 	type FamilyId,
 	familyKey,
@@ -150,3 +151,29 @@ export interface FillOrder {
 	readonly families: ReadonlyArray<Family>
 	readonly layouts: ReadonlyMap<string, FillLayout>
 }
+
+/**
+ * The columns `family` draws on a row of `relation`, its member, in fill order: its fill layout's at the member's position
+ * in the family, a counted family's own fill's, or a sequence's walk's of the family's own rules.
+ */
+export const familyDrawn = (
+	fill: FillOrder,
+	relation: string,
+	family: Family
+): ReadonlyArray<FillColumn> =>
+	defined(
+		fill.layouts.get(layoutKey(relation, { kind: "member", family })),
+		`the fill layout of ${relation} as a member of ${family.id.owner}.${family.id.count}`
+	).columns.filter((c) => {
+		if (isSequence(family)) {
+			const rule = c.rule
+			return (
+				c.writer.kind === "walk" &&
+				(rule.kind === "index" ||
+					rule.kind === "copy" ||
+					((rule.kind === "ownerCopy" || rule.kind === "predecessor" || rule.kind === "after") &&
+						familyKey(rule.family.id) === familyKey(family.id)))
+			)
+		}
+		return c.writer.kind === "counted" && familyKey(c.writer.family.id) === familyKey(family.id)
+	})

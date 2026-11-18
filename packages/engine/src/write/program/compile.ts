@@ -12,6 +12,7 @@ import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
+import { familyDrawn } from "#compiler/ir/fill.ts"
 import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
@@ -149,7 +150,7 @@ import {
 	type WriteArtifact,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
-import { decideBinding, familyDrawn, freshLayoutOf } from "#compiler/write/program/decide.ts"
+import { decideBinding, freshLayoutOf } from "#compiler/write/program/decide.ts"
 import { insertOnly } from "#compiler/write/program/insert-only.ts"
 import {
 	freshNames,
@@ -397,7 +398,7 @@ const familyProgram = (
 					.filter((f) => !isTreeOf(f, relation.name))
 					.map((family) => ({
 						family,
-						drawn: familyDrawn(frontend, relation.name, family),
+						drawn: familyDrawn(frontend.laws.theory.fill, relation.name, family),
 						inputs: familyInputs(family, relation)
 					}))
 			/** The stratum's refills its family statements draw, by member relation (frontend/refill.ts StratumRefill). */
@@ -582,7 +583,10 @@ const familyProgram = (
 										} as const)
 							})),
 							owns: all.filter((f) => f.owner.name === name && !isSequence(f)),
-							riders: appendRidersOf(relation, node.appends === "rows" ? node.riders : [])
+							riders: appendRidersOf(
+								relation,
+								node.appends === "rows" ? node.riders.map((r) => r.relation) : []
+							)
 						}
 					]
 				})
@@ -641,7 +645,13 @@ const familyProgram = (
 					`the put of ${root} a refill reads`
 				).slot
 			}))
-			const sql = removalsSql(w0, [removing, ...ridersOf(node.riders)], roots, deferring, stored)
+			const sql = removalsSql(
+				w0,
+				[removing, ...ridersOf(node.riders.map((r) => r.relation))],
+				roots,
+				deferring,
+				stored
+			)
 			const step: FamilyWriteStep = {
 				kind: "familyWrite",
 				stratum: s,

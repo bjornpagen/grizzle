@@ -29,9 +29,13 @@ export interface UnitRemovals {
 	readonly below: ReadonlyArray<UnitMember>
 }
 
-/** An owner relation a family statement changes the rows of, at the columns `changes` names: their counts and ends,
- * each generated column that reads one of them among them. */
-export interface OwnerChanges {
+/**
+ * A relation a family statement changes stored rows of, at the columns `changes` names, by key, each generated column
+ * that reads one of them among them: an owner's counts and ends, or a rider's columns its families draw again
+ * (`FamilyAdditions` and `FamilyRemovals` `riders`). Every other column of those rows keeps its value, so a reference
+ * that reads none of them meets the rows as they were.
+ */
+export interface RowChanges {
 	readonly relation: StoredRelationName
 	readonly changes: ReadonlyArray<string>
 }
@@ -75,17 +79,17 @@ export type FamilyAdditions =
 			readonly copies: ReadonlyArray<string>
 			/** Where each owner copy its appended members' families draw reads its owner's column. */
 			readonly ownerCopies: ReadonlyArray<OwnerCopy>
-			readonly owners: ReadonlyArray<OwnerChanges>
+			readonly owners: ReadonlyArray<RowChanges>
 			/** The member relations whose rows an edit of `member` refills from the rows this statement appends of it, a
 			 * stored one a put moves among them, as its removals refill them from the rows they redraw (FamilyRemovals
-			 * `riders`): a re-placed row's dependants follow it. */
-			readonly riders: ReadonlyArray<string>
+			 * `riders`): a re-placed row's dependants follow it, at the columns their families draw. */
+			readonly riders: ReadonlyArray<RowChanges>
 	  }
 	| {
 			readonly kind: "additions"
 			readonly appends: "nothing"
 			readonly member: string
-			readonly owners: NonEmptyReadonlyArray<OwnerChanges>
+			readonly owners: NonEmptyReadonlyArray<RowChanges>
 	  }
 
 /**
@@ -106,14 +110,14 @@ export interface FamilyRemovals {
 	readonly kind: "removals"
 	readonly member: string
 	readonly edits: NonEmptyReadonlyArray<RemovalEdit>
-	readonly owners: ReadonlyArray<OwnerChanges>
+	readonly owners: ReadonlyArray<RowChanges>
 	/** The plain relations whose puts its refills draw from, the member's rows as their cascades would leave them, which
 	 * it writes ahead of each put of them, members first, so the cascade finds them changed (frontend/refill.ts
 	 * StratumRefill). */
 	readonly refilledFrom: ReadonlyArray<string>
 	/** The member relations whose rows its edit's refills rewrite in place in this statement, from the rows of `member` it
-	 * redraws (frontend/refill.ts RefillStart `edit`), none of them `member`. */
-	readonly riders: ReadonlyArray<string>
+	 * redraws (frontend/refill.ts RefillStart `edit`), none of them `member`, at the columns their families draw. */
+	readonly riders: ReadonlyArray<RowChanges>
 }
 
 /** The relations a family statement writes: an additions or removals statement's member, where it writes its rows, and
@@ -126,7 +130,34 @@ export const familyNodeRelations = (node: FamilyNode): ReadonlyArray<string> =>
 /** The member relations an additions or removals statement writes the rows of: its member and its riders, none where it
  * appends none. */
 const writtenMembers = (node: FamilyAdditions | FamilyRemovals): ReadonlyArray<string> =>
-	node.kind === "removals" || node.appends === "rows" ? [node.member, ...node.riders] : []
+	writesMember(node) ? [node.member, ...ridersOf(node).map((r) => r.relation)] : []
+
+/** Whether a family statement writes its member's rows: a removals statement, or an additions statement that appends. */
+const writesMember = (
+	node: FamilyAdditions | FamilyRemovals
+): node is FamilyRemovals | Extract<FamilyAdditions, { readonly appends: "rows" }> =>
+	node.kind === "removals" || node.appends === "rows"
+
+/** The riders of a family statement: none where it appends none. */
+const ridersOf = (node: FamilyAdditions | FamilyRemovals): ReadonlyArray<RowChanges> =>
+	writesMember(node) ? node.riders : []
+
+/** Whether a statement's change of rows reaches a reference over `columns`: it changes one of them. */
+const touches = (changed: RowChanges, columns: ReadonlyArray<string>): boolean =>
+	changed.changes.some((c) => columns.includes(c))
+
+/**
+ * Whether a family statement writes rows of `relation` at `columns`, as a reference over those columns meets them: its
+ * member's rows, which it inserts, deletes or re-places whole, or its riders' at the columns their families draw again,
+ * every other column of a rider's row keeping its value.
+ */
+const writesAt = (
+	node: FamilyAdditions | FamilyRemovals,
+	relation: string,
+	columns: ReadonlyArray<string>
+): boolean =>
+	(writesMember(node) && relation === node.member) ||
+	ridersOf(node).some((r) => r.relation === relation && touches(r, columns))
 
 /** A column PostgreSQL generates from its row, by key (runtime/write/fill.ts ColumnKey), with the keys of the columns it
  * reads. */
@@ -492,8 +523,9 @@ export const scheduleStratum = <A extends Scheduled>(
  * in its own row (runtime/write/bind.ts freshOwners), which no recount changes; and the immediate references between
  * them order them as any two writes' do, the additions adding the rows they insert, the removals removing the rows they
  * delete and re-place and changing the rows whose indexes they redraw, adding too where they update a put or refilled
- * member in place, either adding and changing the rows of each member relation its edit's refills rewrite (`riders`), and
- * either adding and changing an owner's facts at the columns its recount changes; and a removals that refills a member
+ * member in place, either adding and changing the rows of each member relation its edit's refills rewrite (`riders`) at
+ * the columns their families draw again, and either adding and changing an owner's facts at the columns its recount
+ * changes; and a removals that refills a member
  * ahead of a put of a plain relation it draws from runs before that put.
  */
 const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
@@ -504,31 +536,28 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 	references: ReadonlyArray<ImmediateReference>
 ): void => {
 	const a = action.action.relation
-	const members = writtenMembers(node)
 	if (node.kind === "removals" && node.refilledFrom.includes(a) && action.action.op === "put") {
 		x.follows.add(y)
 	}
 	if (
 		node.kind === "additions" &&
-		(members.includes(a) ||
+		(writtenMembers(node).includes(a) ||
 			(node.owners.some((o) => o.relation === a) &&
 				(action.action.op !== "insert" || (node.appends === "rows" && node.copies.includes(a)))))
 	) {
 		y.follows.add(x)
 	}
 	const effectAt = (relation: string, columns: ReadonlyArray<string>): Effect | undefined => {
-		if (members.includes(relation)) {
-			return relation !== node.member
-				? { adds: true, removes: false, updates: true }
-				: node.kind === "additions"
-					? { adds: true, removes: false, updates: false }
-					: { adds: node.edits.some((e) => e !== "delete"), removes: true, updates: true }
+		if (writesMember(node) && relation === node.member) {
+			return node.kind === "additions"
+				? { adds: true, removes: false, updates: false }
+				: { adds: node.edits.some((e) => e !== "delete"), removes: true, updates: true }
 		}
-		const owner = node.owners.find((o) => o.relation === relation)
-		if (owner === undefined) {
+		const changed = [...ridersOf(node), ...node.owners].find((o) => o.relation === relation)
+		if (changed === undefined) {
 			return undefined
 		}
-		const touched = owner.changes.some((c) => columns.includes(c))
+		const touched = touches(changed, columns)
 		return { adds: touched, removes: false, updates: touched }
 	}
 	for (const r of references) {
@@ -548,8 +577,9 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 
 /**
  * Orders two of a stratum's family additions, or two of its removals, `x` writing `n`'s member and `y` writing `m`'s, by
- * the immediate references from `m`'s member into `n`'s (`scheduleStratum`): the referenced member's additions before the referencing one's, and the referencing member's
- * removals before the referenced one's; and an additions that copies a column of `n`'s member's rows into its own
+ * the immediate references from the rows `m` writes into those `n` writes (`scheduleStratum`), a rider's at the columns
+ * its families draw again, which a reference over none of them never meets (`writesAt`): the referenced member's
+ * additions before the referencing one's, and the referencing member's removals before the referenced one's; and an additions that copies a column of `n`'s member's rows into its own
  * after `n`'s additions, which insert them. An additions and a removals are ordered already, every removals first, and an
  * owner's recount orders nothing against another statement's, as a count statement's does not.
  */
@@ -560,15 +590,13 @@ const orderFamilyWrites = <V extends { readonly follows: Set<V> }>(
 	y: V,
 	references: ReadonlyArray<ImmediateReference>
 ): void => {
-	const referenced = writtenMembers(n)
-	const referencing = writtenMembers(m)
 	const copied = m.kind === "additions" && m.appends === "rows" ? m.copies : []
-	if (n.kind === "additions" && referenced.some((r) => copied.includes(r))) {
+	if (n.kind === "additions" && writtenMembers(n).some((r) => copied.includes(r))) {
 		y.follows.add(x)
 	}
 	if (
 		!references.some(
-			(r) => r.from !== r.to && referencing.includes(r.from) && referenced.includes(r.to)
+			(r) => r.from !== r.to && writesAt(m, r.from, r.fromColumns) && writesAt(n, r.to, r.toColumns)
 		)
 	) {
 		return

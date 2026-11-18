@@ -11,6 +11,7 @@ import {
 	type FillOrder,
 	type FillPosition,
 	type FillRule,
+	familyDrawn,
 	layoutKey
 } from "#compiler/ir/fill.ts"
 import {
@@ -264,32 +265,6 @@ const countedFamily = (family: Family): CountedFamily => ({
 })
 
 /**
- * The columns `family` draws on a row of `relation`, its member, in fill order: its fill layout's at the member's position
- * in the family, a counted family's own fill's, or a sequence's walk's of the family's own rules.
- */
-export const familyDrawn = (
-	frontend: WriteFrontend,
-	relation: string,
-	family: Family
-): ReadonlyArray<FillColumn> =>
-	defined(
-		frontend.laws.theory.fill.layouts.get(layoutKey(relation, { kind: "member", family })),
-		`the fill layout of ${relation} as a member of ${family.id.owner}.${family.id.count}`
-	).columns.filter((c) => {
-		if (isSequence(family)) {
-			const rule = c.rule
-			return (
-				c.writer.kind === "walk" &&
-				(rule.kind === "index" ||
-					rule.kind === "copy" ||
-					((rule.kind === "ownerCopy" || rule.kind === "predecessor" || rule.kind === "after") &&
-						familyKey(rule.family.id) === familyKey(family.id)))
-			)
-		}
-		return c.writer.kind === "counted" && familyKey(c.writer.family.id) === familyKey(family.id)
-	})
-
-/**
  * The fresh layout of a counted family's members (ir/products.ts FilledRows `fresh`): each member's primary key, then its
  * group's fields its key leaves out, the owner's key it names, then every column the family draws on it (`familyDrawn`),
  * as the host draws a fresh group whole (runtime/write/bind.ts freshOwners) and the family's additions statement reads the
@@ -311,7 +286,7 @@ export const freshLayoutOf = (frontend: WriteFrontend, family: Family): LaidLayo
 			...family.group.flatMap((g) =>
 				keyNames.has(g.member.name) ? [] : [fieldColumn(g.member.name, g.member.type)]
 			),
-			...familyDrawn(frontend, member.name, family).map((c): LaidColumn =>
+			...familyDrawn(frontend.laws.theory.fill, member.name, family).map((c): LaidColumn =>
 				c.column.kind === "field"
 					? fieldColumn(c.column.field.name, c.type)
 					: {
