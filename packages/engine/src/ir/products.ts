@@ -247,6 +247,25 @@ export interface BoundaryFill {
 export type PageFill = SizeFill | BoundaryFill
 
 /**
+ * Which of a stratum's rows of a relation the host fills a placeholder carries, each set in its own layout:
+ * - `walked`: the rows its nested writes' walk fills, in their sent layout (write/family/nesting.ts sentLayout);
+ * - `fresh`: the members of the fresh groups of one counted family, `family` its key (ir/law.ts familyKey), as the
+ *   stratum's fresh fill draws them (runtime/write/bind.ts freshOwners): each member's key and every column the family
+ *   draws on it, in its fresh layout (write/program/decide.ts freshLayoutOf). A group is fresh where the stratum
+ *   inserts its owner and stores none of its members, so the host holds it whole.
+ */
+export type FilledRows =
+	| { readonly kind: "walked" }
+	| { readonly kind: "fresh"; readonly family: string }
+
+/** The rows a stratum's nested writes' walk fills (`FilledRows` walked). */
+export const walkedRows: FilledRows = Object.freeze({ kind: "walked" })
+
+/** The key of a set of filled rows (`FilledRows`) among a stratum's sets of a relation. */
+export const filledRowsKey = (rows: FilledRows): string =>
+	rows.kind === "walked" ? "walked" : `fresh\u0000${rows.family}`
+
+/**
  * What fills one placeholder of a statement spec, decided where the lowering allocated it, with its encoder. For a
  * scalar or relation parameter, `param` is the declared ParamId, which is the parameter's declared name and the key of
  * its host value (check/params.ts). A member slot is a write's enumerated member input (write/insert/input.ts); a page
@@ -274,11 +293,12 @@ export type ParamSlot =
 			readonly encode: MemberEncoder
 	  }
 	| {
-			/** A column of a stratum's nested rows of `relation`, in its sent layout (write/family/nesting.ts sentLayout),
-			 * which the binding encodes as a family statement's rows. */
+			/** A column of a stratum's host-filled rows of `relation` (`FilledRows`), in their layout, which the binding
+			 * encodes as a family statement's rows. */
 			readonly kind: "nestedRows"
 			readonly stratum: StratumAt
 			readonly relation: StoredRelationName
+			readonly rows: FilledRows
 			readonly part: number
 	  }
 	| { readonly kind: "page"; readonly fill: PageFill }

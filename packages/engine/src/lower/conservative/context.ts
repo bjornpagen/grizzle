@@ -10,6 +10,7 @@ import { type NodeScope, nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { Fold } from "#compiler/ir/fold.ts"
 import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
+import { type FilledRows, filledRowsKey } from "#compiler/ir/products.ts"
 import {
 	exprsOf,
 	type Heading,
@@ -290,9 +291,10 @@ export class WriteParams extends StatementParams<MemberParamSlot | NestedRowsPar
 	nestedRows(
 		stratum: StratumAt,
 		relation: StoredRelationName,
+		rows: FilledRows,
 		allocate: () => ReadonlyArray<RelationColumn>
 	): NonEmptyReadonlyArray<NestedRowsParamSlot> {
-		const key = `${stratum}\u0000${relation}`
+		const key = `${stratum}\u0000${relation}\u0000${filledRowsKey(rows)}`
 		const known = this.#nested.get(key)
 		if (known !== undefined) {
 			return known
@@ -304,6 +306,7 @@ export class WriteParams extends StatementParams<MemberParamSlot | NestedRowsPar
 			number,
 			stratum,
 			relation,
+			rows,
 			columns,
 			part
 		}))
@@ -595,13 +598,14 @@ export class LowerContext {
 	nestedRows(
 		stratum: StratumAt,
 		relation: StoredRelationName,
+		rows: FilledRows,
 		allocate: () => ReadonlyArray<RelationColumn>,
 		at: string
 	): NonEmptyReadonlyArray<NestedRowsParamSlot> {
 		const statement = this.#shared.statement
 		switch (statement.kind) {
 			case "write":
-				return statement.params.nestedRows(stratum, relation, allocate)
+				return statement.params.nestedRows(stratum, relation, rows, allocate)
 			case "query":
 				return refuse(
 					"UnsupportedOperation",

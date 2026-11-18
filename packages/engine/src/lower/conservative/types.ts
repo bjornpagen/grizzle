@@ -1,7 +1,7 @@
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { LogicalQuery, PageFill, ParamDecl } from "#compiler/ir/products.ts"
+import type { FilledRows, LogicalQuery, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type {
 	CompletedOrder,
 	DeltaSide,
@@ -216,13 +216,15 @@ export interface MemberParamSlot extends ValuePlaceholder {
 }
 
 /**
- * One placeholder of a stratum's nested rows of `relation` (write/family/nesting.ts NestedRow), one array of the rows
- * over `columns`, the columns of the relation's row layout its nesting fills, key first (nesting.ts sentLayout).
+ * One placeholder of a stratum's host-filled rows of `relation` (ir/products.ts FilledRows), one array of the rows over
+ * `columns`, their layout's columns, key first: the walk's nested rows' sent layout (nesting.ts sentLayout), or a fresh
+ * fill's members' fresh layout (write/program/decide.ts freshLayoutOf).
  */
 export interface NestedRowsParamSlot extends ValuePlaceholder {
 	readonly kind: "nestedRows"
 	readonly stratum: StratumAt
 	readonly relation: StoredRelationName
+	readonly rows: FilledRows
 	readonly columns: ReadonlyArray<RelationColumn>
 	readonly part: ArrayPart
 }

@@ -21,6 +21,12 @@
  * - its scan (write/family/scan.ts), which draws each appended member's index, copy of the count, owner copies,
  *   predecessor copies and fold planes in slot order.
  *
+ * A counted family's fresh groups are no scan's: a group whose owner the stratum inserts and which holds no stored
+ * member, its kept count 0, is the call's whole, which the host drew, its owner's counts and ends and every member's
+ * columns (runtime/write/bind.ts freshOwners), and the statement takes the host's members of it in the scan's place
+ * (`HostDrawn`), so each group is drawn by one engine. Whether the host drew a group is read beside its kept count with no
+ * join, and an exact repeat of a stored owner whose group holds stored members is the scan's, past them.
+ *
  * The appended rows are inserted whole, each with every family's columns. Each mutable owner they join, and each the
  * stratum puts whose groups its edits touch, whose recount the removals leave to this statement after the put, is
  * recounted by one UPDATE of its relation, where its count or an end changes: each family's count, and each end from
@@ -49,6 +55,7 @@ import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
+import { type FilledRows, walkedRows } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import {
@@ -59,6 +66,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
+import type { LaidLayout } from "#compiler/runtime/write/nesting.ts"
 import type {
 	Assignment,
 	Cte,
@@ -207,6 +215,19 @@ export type OwnerRows =
 	| { readonly kind: "slot"; readonly slot: MemberSlot }
 	| Extract<RowSource, { readonly kind: "nestedRows" }>
 
+/**
+ * How a family's fresh groups reach its additions statement. A group is fresh where the stratum inserts its owner and
+ * stores none of its members: the call holds it whole, so the host's fresh fill draws it, its owner and its members
+ * (runtime/write/bind.ts freshOwners), and the statement inserts its members as drawn, where the family's scan draws
+ * every group holding a stored member, each group by one engine of one rule (ir/fill.ts FillColumn).
+ * - `none`: a sequence, whose members the nested walk draws and its own statement sends;
+ * - `drawn`: a counted family, its fresh groups' members in their fresh layout (write/program/decide.ts freshLayoutOf),
+ *   the stratum's (ir/products.ts FilledRows `fresh`).
+ */
+export type FreshGroups =
+	| { readonly kind: "none" }
+	| { readonly kind: "drawn"; readonly stratum: StratumAt; readonly layout: LaidLayout }
+
 /** A member relation a stratum appends to, with where its rows come from and what draws them. */
 export interface AppendedMember {
 	readonly relation: RelationInfo
@@ -223,6 +244,7 @@ export interface AppendedMember {
 	readonly families: ReadonlyArray<{
 		readonly family: Family
 		readonly drawn: ReadonlyArray<FillColumn>
+		readonly fresh: FreshGroups
 	}>
 	/** The counted families it owns, in the law model's order, whose counts and ends its rows hold (`ownedColumns`). */
 	readonly owns: ReadonlyArray<Family>
@@ -340,7 +362,7 @@ export const additionsSql = (
 		const ordered = member.families.toSorted(
 			(a, b) => Number(!isSequence(a.family)) - Number(!isSequence(b.family))
 		)
-		for (const { family, drawn: columns } of ordered) {
+		for (const { family, drawn: columns, fresh } of ordered) {
 			const read = sources.filter((x) => draws(family, x.source))
 			const [first, ...rest] = read
 			if (first === undefined) {
@@ -365,7 +387,8 @@ export const additionsSql = (
 						`where ${member.relation.name}'s owner copy ${column} reads its owner`
 					).source,
 				() => ownerShapes(family.owner.name),
-				arbitrated ? "base" : "stored"
+				arbitrated ? "base" : "stored",
+				fresh
 			)
 			scanned.push({ family, scan })
 			for (const x of read) {
@@ -709,19 +732,37 @@ interface NestedSent {
 }
 
 /** A stratum's nested rows of `relation` as a CTE: each column of their sent layout, read from their arrays and cast into
- * its column's type as a write stores it, by key. */
+ * its column's type as a write stores it, by key (`filledRowsCte`). */
 export const nestedRowsCte = (
 	w: WriteContext,
 	supply: NameSupply,
 	ctes: Array<Cte>,
 	relation: RelationInfo,
 	source: NestedSent
+): Shaped =>
+	filledRowsCte(w, supply, ctes, relation, source.stratum, walkedRows, [
+		...source.layout.key,
+		...source.layout.columns
+	])
+
+/**
+ * A stratum's host-filled rows of `relation` (ir/products.ts FilledRows) as a CTE: each of `columns`, their layout's key
+ * first, read from their arrays and cast into its column's type as a write stores it, by key.
+ */
+const filledRowsCte = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	relation: RelationInfo,
+	stratum: StratumAt,
+	filled: FilledRows,
+	columns: ReadonlyArray<{ readonly key: ColumnKey; readonly type: ScalarType }>
 ): Shaped => {
-	const columns = [...source.layout.key, ...source.layout.columns]
-	const origin = internal("nested rows")
+	const origin = internal(filled.kind === "walked" ? "nested rows" : "fresh members")
 	const placeholders = w.cx.nestedRows(
-		source.stratum,
+		stratum,
 		relation.name,
+		filled,
 		() =>
 			relationColumns(
 				columns.map((c) => ({ name: c.key, type: c.type })),
@@ -729,7 +770,7 @@ export const nestedRowsCte = (
 				(t) => w.cx.baseTypeRef(t),
 				unchecked
 			),
-		`a family write of ${relation.name}'s nested rows`
+		`a family write of ${relation.name}'s ${filled.kind === "walked" ? "nested rows" : "fresh members"}`
 	)
 	const raw = supply.relation(origin)
 	const arrayColumn = new Map(
@@ -737,7 +778,7 @@ export const nestedRowsCte = (
 	)
 	const rows = shapedCte(
 		supply,
-		"nested row",
+		filled.kind === "walked" ? "nested row" : "fresh member",
 		columns.map((c) => c.key)
 	)
 	ctes.push(
@@ -749,7 +790,7 @@ export const nestedRowsCte = (
 					"input",
 					columns.map((c) =>
 						targetAs(
-							written(w, col(raw, defined(arrayColumn.get(c.key), "a nested rows' array")), c.type),
+							written(w, col(raw, defined(arrayColumn.get(c.key), "a filled rows' array")), c.type),
 							columnAt(rows, c.key)
 						)
 					),
@@ -813,7 +854,8 @@ const appendScan = (
 	appended: Shaped,
 	copySource: (column: ColumnKey) => CopySource,
 	ownerShapes: () => ReadonlyArray<Shaped>,
-	state: GroupState["kind"]
+	state: GroupState["kind"],
+	fresh: FreshGroups
 ): Scanned => {
 	const bigint = types.bigint
 	const name = member.relation.name
@@ -900,7 +942,32 @@ const appendScan = (
 		)
 	}
 	const g0 = supply.relation(internal("appended group row"))
-	const g0Keys = memberGroup(g0, appended)
+	/**
+	 * Where the groups are read from (`GroupRead`): a sequence's appended rows, every group the scan's; a counted family's
+	 * appended rows' group keys ranked beside the host's members' (`HostDrawn`), each with whether the host drew its group,
+	 * which every group CTE carries beside its kept count (`drawn`).
+	 */
+	const groupRead: GroupRead =
+		fresh.kind === "drawn"
+			? {
+					kind: "ranked",
+					host: hostDrawnOf(w, supply, ctes, member, family, fresh, appended),
+					drawn: {
+						fallen: supply.column(internal("fallback drawn")),
+						side: supply.column(internal("group owner side drawn")),
+						ranked: supply.column(internal("group owners drawn")),
+						groups: supply.column(internal("group drawn"))
+					}
+				}
+			: { kind: "appended" }
+	const g0Keys: ReadonlyArray<Expr> =
+		groupRead.kind === "ranked"
+			? groupRead.host.keys.group.map((c) => col(g0, c))
+			: memberGroup(g0, appended)
+	/** The columns each group CTE holds the host's drawing of its groups in, beside their kept counts: one set where the
+	 * host draws (`groupRead` ranked), none where it does not. */
+	const drawnLane: ReadonlyArray<DrawnColumns> =
+		groupRead.kind === "ranked" ? [groupRead.drawn] : []
 	/** The base of an owner copy, an accumulated column's start or a fold's identity, as a literal of its type. */
 	const baseOf = (read: { readonly from: NativeColumn; readonly type: LawField["type"] }): Expr =>
 		lowerLiteral(
@@ -955,8 +1022,10 @@ const appendScan = (
 			state === "stored" || copySource(columnKey(read.from)) === "drawn" ? [stored()] : []
 		return firstNonNull(appendNonEmpty(reads, baseOf(read)))
 	}
-	const storedKept = (): Expr => {
-		const last = probeGroup(w, supply, name, "last", groupAt(g0Keys), [index], {
+	/** A group's kept count, its stored last member's slot plus one, read by the probe of its last member at `keys`, 0 where
+	 * it holds none. */
+	const storedKept = (keys: ReadonlyArray<Expr>): Expr => {
+		const last = probeGroup(w, supply, name, "last", groupAt(keys), [index], {
 			read: [index],
 			filter: () => []
 		})
@@ -975,8 +1044,11 @@ const appendScan = (
 			]
 		}
 	}
-	/** Each appended group once, with its kept count and each owner column's fallback (`ownerFallback`): the groups
-	 * themselves where no copy is held. */
+	/** The kept count of the group at `keys`: 0 at `base`, else its stored one (`storedKept`). */
+	const keptAt = (keys: ReadonlyArray<Expr>): Expr =>
+		state === "base" ? lit.int(0, bigint) : cast(storedKept(keys), bigint)
+	/** Each appended group once, with its kept count, the host's drawing of it where the host draws (`groupRead`), and each
+	 * owner column's fallback (`ownerFallback`): the groups themselves where no copy is held. */
 	const fallen: PerGroup & { readonly kept: string } = isNonEmpty(heldOwners)
 		? {
 				name: supply.relation(internal("appended group fallback")),
@@ -989,24 +1061,34 @@ const appendScan = (
 				)
 			}
 		: { ...groups, columns: groups.owner }
+	/** The column fallen holds the host's drawing of each group in: the groups' own where it is the groups (no copy held),
+	 * else the one the held sides read it from. */
+	const fallenDrawn = drawnLane.map((d) => (isNonEmpty(heldOwners) ? d.fallen : d.groups))
+	/** Fallen's drawing of each group, read off its ranked key (`hostDrew`), where the host draws. */
+	const fallenDrawnTargets =
+		groupRead.kind === "ranked"
+			? fallenDrawn.map((c) => targetAs(hostDrew(groupRead.host, g0), c))
+			: []
 	ctes.push(
 		cte(
 			fallen.name,
-			[...fallen.group, fallen.kept, ...fallen.columns.values()],
+			[...fallen.group, fallen.kept, ...fallenDrawn, ...fallen.columns.values()],
 			select(
 				distinctCore(
 					[
 						...mapNonEmpty(fallen.group, (c, i) => targetAs(defined(g0Keys[i], "a group key"), c)),
-						targetAs(
-							state === "base" ? lit.int(0, bigint) : cast(storedKept(), bigint),
-							fallen.kept
-						),
+						targetAs(keptAt(g0Keys), fallen.kept),
+						...fallenDrawnTargets,
 						...[...ownerReads].map(([k, read]) =>
 							targetAs(ownerFallback(read), columnAt(fallen, k))
 						)
 					],
-					[cteRefAs(appended.name, g0)],
-					undefined
+					[
+						groupRead.kind === "ranked"
+							? cteRefAs(groupRead.host.keys.name, g0)
+							: cteRefAs(appended.name, g0)
+					],
+					groupRead.kind === "ranked" ? appendedSide(groupRead.host, g0) : undefined
 				)
 			)
 		)
@@ -1034,22 +1116,35 @@ const appendScan = (
 				)
 			)
 		}
+		/**
+		 * A side's columns: its key, its tag, its kept count, the host's drawing of its group where the host draws, `drawn`
+		 * (a held owner row's false, as its kept count is 0, which no group reads: a group reads its fallen row's), and its
+		 * owner columns.
+		 */
 		const sideTargets = (
 			key: NonEmptyReadonlyArray<Expr>,
 			tag: number,
 			kept: Expr,
+			drawn: (d: DrawnColumns) => Expr,
 			value: (k: ColumnKey) => Expr
 		) => [
 			...mapNonEmpty(sides.group, (c, i) => targetAs(defined(key[i], "a side key"), c)),
 			targetAs(lit.int(tag, types.integer), sides.tag),
 			targetAs(kept, sides.kept),
+			...drawnLane.map((d) => targetAs(drawn(d), d.side)),
 			...[...sides.columns].map(([k, c]) => targetAs(value(k), c))
 		]
 		const fallenRow = supply.relation(internal("fallen group"))
 		ctes.push(
 			cte(
 				sides.name,
-				[...sides.group, sides.tag, sides.kept, ...sides.columns.values()],
+				[
+					...sides.group,
+					sides.tag,
+					sides.kept,
+					...drawnLane.map((d) => d.side),
+					...sides.columns.values()
+				],
 				select(
 					unionAll("disjoint", [
 						...mapNonEmpty(sources, (copies, i) => {
@@ -1060,6 +1155,7 @@ const appendScan = (
 									mapNonEmpty(copies.group, (c) => col(h, c)),
 									i,
 									lit.int(0, bigint),
+									() => lit.bool(false),
 									(k) => {
 										const column = copies.columns.get(k)
 										return column === undefined
@@ -1077,6 +1173,7 @@ const appendScan = (
 								mapNonEmpty(fallen.group, (c) => col(fallenRow, c)),
 								sources.length,
 								col(fallenRow, fallen.kept),
+								(d) => col(fallenRow, d.fallen),
 								(k) => col(fallenRow, columnAt(fallen, k))
 							),
 							[cteRefAs(fallen.name, fallenRow)],
@@ -1098,7 +1195,13 @@ const appendScan = (
 		ctes.push(
 			cte(
 				ranked,
-				[...rankedGroup, rankedTag, rankedKept, ...rankedColumns.values()],
+				[
+					...rankedGroup,
+					rankedTag,
+					rankedKept,
+					...drawnLane.map((d) => d.ranked),
+					...rankedColumns.values()
+				],
 				select(
 					provedCore(
 						"keyed",
@@ -1108,6 +1211,7 @@ const appendScan = (
 							),
 							targetAs(col(s, sides.tag), rankedTag),
 							targetAs(col(s, sides.kept), rankedKept),
+							...drawnLane.map((d) => targetAs(col(s, d.side), d.ranked)),
 							...[...rankedColumns].map(([k, c]) => {
 								const side = col(s, defined(sides.columns.get(k), "a side column"))
 								return targetAs(
@@ -1131,7 +1235,7 @@ const appendScan = (
 		ctes.push(
 			cte(
 				groups.name,
-				[...groups.group, groups.kept, ...groups.owner.values()],
+				[...groups.group, groups.kept, ...drawnLane.map((d) => d.groups), ...groups.owner.values()],
 				select(
 					provedCore(
 						"keyed",
@@ -1140,6 +1244,7 @@ const appendScan = (
 								targetAs(col(r, defined(rankedGroup[i], "a ranked key")), c)
 							),
 							targetAs(col(r, rankedKept), groups.kept),
+							...drawnLane.map((d) => targetAs(col(r, d.ranked), d.groups)),
 							...[...groups.owner].map(([k, c]) =>
 								targetAs(col(r, defined(rankedColumns.get(k), "a ranked column")), c)
 							)
@@ -1271,7 +1376,9 @@ const appendScan = (
 							sameGroupExprs(w.names, family, aGroup, g2, groups.group)
 						)
 					],
-					undefined
+					groupRead.kind === "ranked"
+						? not(isFresh(col(g2, groupRead.drawn.groups), kept))
+						: undefined
 				)
 			)
 		)
@@ -1284,7 +1391,211 @@ const appendScan = (
 		group
 	})
 	ctes.push(scan.cte)
-	return scan.rows
+	switch (groupRead.kind) {
+		case "appended":
+			return scan.rows
+		case "ranked":
+			return withHostDrawn(w, supply, ctes, family, groupRead.host, drawnColumns, scan.rows, keptAt)
+	}
+}
+
+/**
+ * Whether a group the host's drawing `drawn` says of is fresh (`FreshGroups`): the host drew it, its owner one the stratum
+ * inserts, and it holds no stored member, its kept count 0, so the call holds it whole. The scan draws every other
+ * group, an exact repeat's of a stored owner with stored members among them, past its stored members.
+ */
+const isFresh = (drawn: Expr, kept: Expr): Expr => and([drawn, eq(kept, lit.int(0, types.bigint))])
+
+/** The tag of the host's side among the ranked keys of a family's groups (`HostDrawn`), before the appended rows'. */
+const hostTag = 0
+
+/** The tag of the appended rows' side among the ranked keys of a family's groups (`HostDrawn`). */
+const appendedTag = 1
+
+/** The columns of each group CTE of a family's scan that hold the host's drawing of the group (`GroupRead` ranked). */
+interface DrawnColumns {
+	/** Fallen's, where a copy is held: what the held sides read. */
+	readonly fallen: string
+	readonly side: string
+	readonly ranked: string
+	/** The groups', which the appended rows read. */
+	readonly groups: string
+}
+
+/**
+ * Where a family's scan reads its groups from (`appendScan`): a sequence's appended rows, each group the scan's
+ * (`appended`); or a counted family's appended rows' group keys ranked beside the host's members' (`ranked`), each group
+ * with whether the host drew it, which every group CTE carries in its `drawn` column.
+ */
+type GroupRead =
+	| { readonly kind: "appended" }
+	| { readonly kind: "ranked"; readonly host: HostDrawn; readonly drawn: DrawnColumns }
+
+/**
+ * The host's side of a counted family's fresh groups (`FreshGroups` drawn): the members the stratum's fresh fill drew
+ * (ir/products.ts FilledRows `fresh`, in its fresh layout), and the groups of the appended rows ranked beside the host's,
+ * each group's key once on each side it holds, tagged with its side, the host's first (`hostTag`), one UNION ALL, with
+ * first_value over each key's partition in tag order: the host's tag exactly where the host drew the group. No join
+ * pairs an appended row or a group with a member, so the statement reads each row once, whatever plan PostgreSQL picks.
+ */
+interface HostDrawn {
+	readonly members: Shaped
+	readonly keys: {
+		readonly name: string
+		readonly group: NonEmptyReadonlyArray<string>
+		readonly tag: string
+		readonly first: string
+	}
+}
+
+/** The host's side of a counted family's fresh groups (`HostDrawn`) over the member's `appended` rows. */
+const hostDrawnOf = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	member: AppendedMember,
+	family: Family,
+	fresh: Extract<FreshGroups, { readonly kind: "drawn" }>,
+	appended: Shaped
+): HostDrawn => {
+	const members = filledRowsCte(
+		w,
+		supply,
+		ctes,
+		member.relation,
+		fresh.stratum,
+		{ kind: "fresh", family: familyKey(family.id) },
+		[...fresh.layout.key, ...fresh.layout.columns]
+	)
+	const sides = {
+		name: supply.relation(internal("drawn group sides")),
+		group: mapNonEmpty(family.group, () => supply.column(internal("drawn group side key"))),
+		tag: supply.column(internal("drawn group side tag"))
+	}
+	/** Each group key of `shape`'s rows once, read as `alias`, tagged `tag`. */
+	const side = (shape: Shaped, tag: number): SetArm => {
+		const alias = supply.relation(internal("drawn group side row"))
+		return distinctCore(
+			[
+				...mapNonEmpty(family.group, (g, i) =>
+					targetAs(
+						col(alias, columnAt(shape, fieldKey(g.member.name))),
+						defined(sides.group[i], "a side key")
+					)
+				),
+				targetAs(lit.int(tag, types.integer), sides.tag)
+			],
+			[cteRefAs(shape.name, alias)],
+			undefined
+		)
+	}
+	ctes.push(
+		cte(
+			sides.name,
+			[...sides.group, sides.tag],
+			select(unionAll("disjoint", [side(members, hostTag), side(appended, appendedTag)]))
+		)
+	)
+	const keys = {
+		name: supply.relation(internal("drawn group keys")),
+		group: mapNonEmpty(family.group, () => supply.column(internal("drawn group key"))),
+		tag: supply.column(internal("drawn group key tag")),
+		first: supply.column(internal("drawn group key first tag"))
+	}
+	const s = supply.relation(internal("drawn group side"))
+	const sideKey = sides.group.map((c) => col(s, c))
+	ctes.push(
+		cte(
+			keys.name,
+			[...keys.group, keys.tag, keys.first],
+			select(
+				provedCore(
+					"keyed",
+					[
+						...mapNonEmpty(keys.group, (c, i) =>
+							targetAs(col(s, defined(sides.group[i], "a side key")), c)
+						),
+						targetAs(col(s, sides.tag), keys.tag),
+						targetAs(
+							{
+								...call("first_value", [col(s, sides.tag)]),
+								over: windowOf(sideKey, [asc(col(s, sides.tag))])
+							},
+							keys.first
+						)
+					],
+					[cteRefAs(sides.name, s)],
+					undefined
+				)
+			)
+		)
+	)
+	return { members, keys }
+}
+
+/** Whether the host drew the group of a ranked key read as `alias` (`HostDrawn`): its partition's first tag the host's. */
+const hostDrew = (host: HostDrawn, alias: string): Expr =>
+	eq(col(alias, host.keys.first), lit.int(hostTag, types.integer))
+
+/** Whether a ranked key read as `alias` is an appended row's group (`HostDrawn`), not the host's. */
+const appendedSide = (host: HostDrawn, alias: string): Expr =>
+	eq(col(alias, host.keys.tag), lit.int(appendedTag, types.integer))
+
+/**
+ * A counted family's scanned rows and its fresh groups' members as the host drew them, as one CTE of the scan's shape
+ * (`FreshGroups`): the scan's rows, every group but the fresh ones, and the host's members of each fresh group
+ * (`isFresh`, the host's drawing of each true), each its group, the slot and count the host drew it at from slot 0, and
+ * every column of the scan's the host's members hold: the member's key, its group's fields and every column the family
+ * draws. Each fresh group's kept count is read at the member's own group key (`keptAt`), the probe the groups read, so a
+ * group is the scan's or the host's whole, and its members are the appended rows of it: a group holding no stored member
+ * holds no stored repeat of one, which the appended rows leave out.
+ */
+const withHostDrawn = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	family: Family,
+	host: HostDrawn,
+	drawnColumns: ReadonlyArray<FillColumn>,
+	scanned: Scanned,
+	keptAt: (keys: ReadonlyArray<Expr>) => Expr
+): Scanned => {
+	const bigint = types.bigint
+	const { members } = host
+	const drawnType = new Map(drawnColumns.map((c) => [columnKey(c.column), c.type] as const))
+	const union: Scanned = {
+		...scanned,
+		name: supply.relation(internal("drawn family scan")),
+		columns: new Map([...scanned.columns].filter(([k]) => members.columns.has(k)))
+	}
+	const sc = supply.relation(internal("scanned row"))
+	const h = supply.relation(internal("host drawn member"))
+	const hostAt = (key: ColumnKey): Expr => col(h, columnAt(members, key))
+	/** A column the family draws as the host drew it, cast to its type's base as the scan casts it. */
+	const drawnAt = (key: ColumnKey): Expr =>
+		cast(hostAt(key), w.cx.baseTypeRef(defined(drawnType.get(key), "a drawn column's type")))
+	const hostGroup = family.group.map((g) => hostAt(fieldKey(g.member.name)))
+	const columns = [...union.group, union.slot, union.first, union.count, ...union.columns.values()]
+	const fromScan = provedCore(
+		"keyed",
+		columns.map((c) => targetAs(col(sc, c), c)),
+		[cteRefAs(scanned.name, sc)],
+		undefined
+	)
+	const fromHost = provedCore(
+		"keyed",
+		[
+			...mapNonEmpty(union.group, (c, i) => targetAs(defined(hostGroup[i], "a group key"), c)),
+			targetAs(cast(drawnAt(columnKey(family.index)), bigint), union.slot),
+			targetAs(lit.int(0, bigint), union.first),
+			targetAs(cast(drawnAt(columnKey({ kind: "law", column: family.copy })), bigint), union.count),
+			...[...union.columns].map(([k, c]) => targetAs(drawnType.has(k) ? drawnAt(k) : hostAt(k), c))
+		],
+		[cteRefAs(members.name, h)],
+		isFresh(lit.bool(true), keptAt(hostGroup))
+	)
+	ctes.push(cte(union.name, columns, select(unionAll("disjoint", [fromScan, fromHost]))))
+	return union
 }
 
 /** Every field of a relation, key first, as its facts are returned. */

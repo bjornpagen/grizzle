@@ -104,6 +104,7 @@ export const writeSlotOf =
 					kind: "nestedRows",
 					stratum: slot.stratum,
 					relation: slot.relation,
+					rows: slot.rows,
 					part: partIndex(slot.part)
 				}
 			case "scalar":

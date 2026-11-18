@@ -97,10 +97,10 @@ export interface FreshOwner {
 }
 
 /**
- * A stratum with family statements, as its fresh owners' counts and ends are drawn on the host (runtime/write/bind.ts
- * freshOwners): the member slots its edits append from, each with its relation; every
- * counted family whose member relation its appends or nested writes reach, in the law model's order, of which an
- * application counts those its members name; and each owner of those families, by name.
+ * A stratum with family statements, as its fresh groups are drawn on the host (runtime/write/bind.ts freshOwners): the
+ * member slots its edits append from, each with its relation; every counted family whose member relation its appends
+ * or nested writes reach, in the law model's order, of which an application counts those its members name, with the
+ * fresh layout its fresh groups' members are sent in; and each owner of those families, by name.
  */
 export interface FreshStratum {
 	readonly stratum: StratumAt
@@ -109,6 +109,9 @@ export interface FreshStratum {
 		readonly slot: ParamId
 	}>
 	readonly counted: ReadonlyArray<CountedFamily>
+	/** Each counted family's fresh layout (write/program/decide.ts freshLayoutOf), by the family's key: its fresh groups'
+	 * members, the stratum's fresh fills draw, as its additions statement reads them. */
+	readonly fresh: ReadonlyMap<string, LaidLayout>
 	readonly owners: ReadonlyMap<StoredRelationName, FreshOwner>
 }
 

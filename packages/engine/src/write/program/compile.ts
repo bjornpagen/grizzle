@@ -11,8 +11,7 @@ import type { Certificate } from "#compiler/ir/certificate.ts"
 import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
-import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
-import { type FillColumn, layoutKey } from "#compiler/ir/fill.ts"
+import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
@@ -150,7 +149,7 @@ import {
 	type WriteArtifact,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
-import { decideBinding } from "#compiler/write/program/decide.ts"
+import { decideBinding, familyDrawn, freshLayoutOf } from "#compiler/write/program/decide.ts"
 import { insertOnly } from "#compiler/write/program/insert-only.ts"
 import {
 	freshNames,
@@ -328,32 +327,6 @@ export interface FamilyPlacement {
 	readonly step: FamilyWriteStep
 	readonly sql: FamilyWriteSql
 }
-
-/**
- * The columns `family` draws on a row of `relation`, its member, in fill order: its fill layout's at the member's position
- * in the family, a counted family's own fill's, or a sequence's walk's of the family's own rules.
- */
-const familyDrawn = (
-	frontend: WriteFrontend,
-	relation: string,
-	family: Family
-): ReadonlyArray<FillColumn> =>
-	defined(
-		frontend.laws.theory.fill.layouts.get(layoutKey(relation, { kind: "member", family })),
-		`the fill layout of ${relation} as a member of ${family.id.owner}.${family.id.count}`
-	).columns.filter((c) => {
-		if (isSequence(family)) {
-			const rule = c.rule
-			return (
-				c.writer.kind === "walk" &&
-				(rule.kind === "index" ||
-					rule.kind === "copy" ||
-					((rule.kind === "ownerCopy" || rule.kind === "predecessor" || rule.kind === "after") &&
-						familyKey(rule.family.id) === familyKey(family.id)))
-			)
-		}
-		return c.writer.kind === "counted" && familyKey(c.writer.family.id) === familyKey(family.id)
-	})
 
 /** The member slot `slot` names among the front end's slot groups: every edit's slot is one of them. */
 const memberSlotOf = (frontend: WriteFrontend, slot: ParamId): MemberSlot =>
@@ -597,7 +570,17 @@ const familyProgram = (
 							),
 							layout: layoutOf(name),
 							sources,
-							families: familiesOf(relation),
+							families: familiesOf(relation).map((f) => ({
+								family: f.family,
+								drawn: f.drawn,
+								fresh: isSequence(f.family)
+									? ({ kind: "none" } as const)
+									: ({
+											kind: "drawn",
+											stratum: s,
+											layout: freshLayoutOf(frontend, f.family)
+										} as const)
+							})),
 							owns: all.filter((f) => f.owner.name === name && !isSequence(f)),
 							riders: appendRidersOf(relation, node.appends === "rows" ? node.riders : [])
 						}

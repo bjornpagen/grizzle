@@ -2277,10 +2277,22 @@ be nested again under another of them or another unit's, so no delete could remo
 tree's member side is a table, never a selection: `counted(on(select(Ticket, φ), "show"), fin(Show, "tickets"))` is a
 type error, and from JavaScript refused when you build it. A fold's step may still select the members it reads.
 
-grizzle owns every value a family holds: each count, index, interval, copy and accumulator is drawn on the host on
+grizzle owns every value a family holds: each count, index, interval, copy and accumulator is drawn by grizzle on
 every write and proved by PostgreSQL, never written by the caller. A fold's running `after` is no generated column:
 grizzle fills it and `CHECK ((after = combine(before, x)) IS TRUE)` proves it in exact arithmetic, so a sum is never
 narrowed into its column's type unproved.
+
+Each group is drawn by one engine of one set of fill rules. A sequence's members, nested under their owner, are drawn on
+the host as the write walks them. A counted family's group is fresh where the write inserts its owner and stores none of
+its members: the call holds the group whole, so the host draws it, the owner's count and ends and every member's index,
+copies and fold planes, and the write inserts the members as drawn. Every other group holds a stored member or a stored
+owner, which only the database holds, so the family's statement draws it in SQL, by a window over the group in slot
+order, past its stored members. Whether a group holds a stored member is a fact of the database, so the statement
+decides it as it runs: an exact repeat of a stored owner beside an append to its group is drawn in SQL past the stored
+members, as any append to a stored group is, and in an immutable installation refused by the family's count, as before.
+A fresh group's members are walked in their key's order, each key field by the host's order of its values, which is
+PostgreSQL's `ORDER BY` of them (test/pg/values/order.test.ts holds the two equal for every type), so a member's hidden
+index is the one the window gives it, and a migration that draws a family over stored rows draws the same values again.
 
 #### Writing a family
 

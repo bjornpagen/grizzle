@@ -54,7 +54,7 @@ import {
 	type FillRuleData,
 	type HostFill
 } from "#compiler/runtime/write/fill.ts"
-import type { NestedLayoutData } from "#compiler/runtime/write/nesting.ts"
+import type { LaidColumn, LaidLayout, NestedLayoutData } from "#compiler/runtime/write/nesting.ts"
 import type { GroupData, InputData, SlotData } from "#compiler/runtime/write/normalize.ts"
 import type {
 	CheckTest,
@@ -175,7 +175,15 @@ const freshStrata = (frontend: WriteFrontend): ReadonlyArray<FreshStratum> => {
 				nested: nestedOwner(frontend, stratum, owner.name)
 			})
 		}
-		return [{ stratum, appended, counted: reached.map(countedFamily), owners }]
+		return [
+			{
+				stratum,
+				appended,
+				counted: reached.map(countedFamily),
+				fresh: new Map(reached.map((f) => [familyKey(f.id), freshLayoutOf(frontend, f)] as const)),
+				owners
+			}
+		]
 	})
 }
 
@@ -254,6 +262,67 @@ const countedFamily = (family: Family): CountedFamily => ({
 		owner: { name: g.owner.name, type: g.owner.type }
 	}))
 })
+
+/**
+ * The columns `family` draws on a row of `relation`, its member, in fill order: its fill layout's at the member's position
+ * in the family, a counted family's own fill's, or a sequence's walk's of the family's own rules.
+ */
+export const familyDrawn = (
+	frontend: WriteFrontend,
+	relation: string,
+	family: Family
+): ReadonlyArray<FillColumn> =>
+	defined(
+		frontend.laws.theory.fill.layouts.get(layoutKey(relation, { kind: "member", family })),
+		`the fill layout of ${relation} as a member of ${family.id.owner}.${family.id.count}`
+	).columns.filter((c) => {
+		if (isSequence(family)) {
+			const rule = c.rule
+			return (
+				c.writer.kind === "walk" &&
+				(rule.kind === "index" ||
+					rule.kind === "copy" ||
+					((rule.kind === "ownerCopy" || rule.kind === "predecessor" || rule.kind === "after") &&
+						familyKey(rule.family.id) === familyKey(family.id)))
+			)
+		}
+		return c.writer.kind === "counted" && familyKey(c.writer.family.id) === familyKey(family.id)
+	})
+
+/**
+ * The fresh layout of a counted family's members (ir/products.ts FilledRows `fresh`): each member's primary key, then its
+ * group's fields its key leaves out, the owner's key it names, then every column the family draws on it (`familyDrawn`),
+ * as the host draws a fresh group whole (runtime/write/bind.ts freshOwners) and the family's additions statement reads the
+ * members it drew (write/family/additions.ts HostDrawn), the one layout both build their arrays by. A member's key and
+ * its group are its caller's, never a column the family draws.
+ */
+export const freshLayoutOf = (frontend: WriteFrontend, family: Family): LaidLayout => {
+	const member = family.member
+	const keyNames = new Set(member.primaryFields.map((f) => f.name))
+	const fieldColumn = (name: string, type: LaidColumn["type"]): LaidColumn => ({
+		key: fieldKey(name),
+		type,
+		column: { kind: "field", field: { name } }
+	})
+	return Object.freeze({
+		relation: member.name,
+		key: mapNonEmpty(member.primaryFields, (f) => fieldColumn(f.name, f.type)),
+		columns: [
+			...family.group.flatMap((g) =>
+				keyNames.has(g.member.name) ? [] : [fieldColumn(g.member.name, g.member.type)]
+			),
+			...familyDrawn(frontend, member.name, family).map((c): LaidColumn =>
+				c.column.kind === "field"
+					? fieldColumn(c.column.field.name, c.type)
+					: {
+							key: columnKey(c.column),
+							type: c.type,
+							column: { kind: "law", column: c.column.column }
+						}
+			)
+		]
+	})
+}
 
 /** A relation as a fill's data holds it (fold.ts FillRelation). */
 const fillRelation = (relation: TableRelation): FillRelation => ({
