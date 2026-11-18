@@ -5,13 +5,8 @@ import * as Engine from "#compiler/core/result.ts"
 import { type ExprDesc, type GuardDesc, guardedExpr } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import {
-	exprEmitter,
-	type LowerEnv,
-	lowerTerm,
-	noClosedRelations,
-	noParams
-} from "#compiler/scalar/compute/lower.ts"
+import { exprEmitter, type LowerEnv, lowerTerm } from "#compiler/scalar/compute/lower.ts"
+import { noClosedRelations, noParams } from "#compiler/scalar/compute/typing.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"

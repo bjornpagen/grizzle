@@ -42,12 +42,8 @@ import {
 	judgeOf
 } from "#compiler/runtime/write/witness.ts"
 import type { EvalStop } from "#compiler/scalar/compute/evaluate.ts"
-import {
-	admittedReads,
-	exprEmitter,
-	lowerPredicate,
-	noParams
-} from "#compiler/scalar/compute/lower.ts"
+import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
+import { admittedReads, noParams } from "#compiler/scalar/compute/typing.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { hostOf } from "#compiler/scalar/values/identity.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"

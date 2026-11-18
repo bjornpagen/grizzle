@@ -4,12 +4,12 @@ import type {
 	ClosedHeading,
 	ClosedRelations,
 	PayloadPatterns
-} from "#compiler/scalar/compute/lower.ts"
+} from "#compiler/scalar/compute/typing.ts"
 
 /**
  * What a Compute.matches pattern reading the payload field at `position` of `closed`'s rows can be: where every row's
  * value there is a text, each distinct one, in row order, which a lowering batch reading the field as a pattern admits
- * (scalar/compute/lower.ts admittedReads); else a field no pattern reads.
+ * (scalar/compute/typing.ts admittedReads); else a field no pattern reads.
  */
 const payloadPatterns = (closed: ClosedRelation, position: number): PayloadPatterns => {
 	const sources = new Set<string>()
@@ -27,7 +27,7 @@ const payloadPatterns = (closed: ClosedRelation, position: number): PayloadPatte
 
 /**
  * No payload field admitted: the reads before a lowering batch admits the fields its expressions read
- * (scalar/compute/lower.ts admittedReads).
+ * (scalar/compute/typing.ts admittedReads).
  */
 const noneAdmitted = (): undefined => undefined
 
@@ -47,7 +47,7 @@ const closedHeading = (closed: ClosedRelation): ClosedHeading => {
 }
 
 /**
- * The closed relations an expression may apply (scalar/compute/lower.ts ClosedRelations): `readable`, by name, each
+ * The closed relations an expression may apply (scalar/compute/typing.ts ClosedRelations): `readable`, by name, each
  * read by its key and its payload. Its caller chooses them: a query reads every closed relation of its schema, a
  * generated field those of its own level or below.
  */

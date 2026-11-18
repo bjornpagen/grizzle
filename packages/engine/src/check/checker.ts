@@ -103,17 +103,12 @@ import {
 } from "#compiler/scalar/aggregate.ts"
 import { bareLiteralKind } from "#compiler/scalar/compute/literal.ts"
 import {
-	type ClosedRelations,
-	type LeafDesc,
 	type LowerEnv,
 	type Lowered,
-	type LowerParams,
 	loweredOf,
 	lowerPredicate,
 	lowerReturned,
-	lowerTerm,
-	noClosedRelations,
-	type ParamRef
+	lowerTerm
 } from "#compiler/scalar/compute/lower.ts"
 import {
 	binaryCoercion,
@@ -134,6 +129,13 @@ import {
 	widening,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
+import {
+	type ClosedRelations,
+	type LeafDesc,
+	type LowerParams,
+	noClosedRelations,
+	type ParamRef
+} from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { hasCapability, inferredType, spanType } from "#compiler/scalar/registry.ts"
@@ -855,7 +857,7 @@ export class Checker {
 
 	/**
 	 * The closed relations a rule's filter applies: the schema's (SchemaReading.closedReads) with every text payload field
-	 * the query's Compute.matches patterns read admitted, the query's lowering batch (scalar/compute/lower.ts admittedReads).
+	 * the query's Compute.matches patterns read admitted, the query's lowering batch (scalar/compute/typing.ts admittedReads).
 	 */
 	readonly #closedReads: ClosedRelations
 

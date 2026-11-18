@@ -5,8 +5,8 @@ import * as Result from "#compiler/core/result.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { TextLanguage } from "#compiler/ir/scalar.ts"
-import { utf8EncodingMaxBytes } from "#compiler/scalar/compute/lower.ts"
 import { decDigits } from "#compiler/scalar/compute/numeric.ts"
+import { utf8EncodingMaxBytes } from "#compiler/scalar/compute/typing.ts"
 import { varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
 
 /**

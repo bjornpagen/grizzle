@@ -116,14 +116,13 @@ import {
 } from "#compiler/laws/model/plan.ts"
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
+import { lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import {
 	admittedReads,
 	type ClosedRelations,
 	type LeafDesc,
-	lowerPredicate,
-	lowerTerm,
 	noParams
-} from "#compiler/scalar/compute/lower.ts"
+} from "#compiler/scalar/compute/typing.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"

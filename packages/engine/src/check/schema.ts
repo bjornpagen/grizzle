@@ -5,7 +5,7 @@ import type { ViewRead } from "#compiler/ir/keys.ts"
 import type { ClosedTheoryRelation, FieldWriting, RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { ClosedRelations } from "#compiler/scalar/compute/lower.ts"
+import type { ClosedRelations } from "#compiler/scalar/compute/typing.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned, OwnedRole } from "#compiler/schema/own.ts"
 

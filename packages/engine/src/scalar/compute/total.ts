@@ -6,15 +6,13 @@ import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateProblems, predicateTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { exprEmitter, type LowerEnv, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
 import {
-	exprEmitter,
 	type LeafDesc,
-	type LowerEnv,
-	lowerPredicate,
 	noClosedRelations,
 	noParams,
 	unprovedFact
-} from "#compiler/scalar/compute/lower.ts"
+} from "#compiler/scalar/compute/typing.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 
@@ -50,7 +48,7 @@ const refuseLeaf = (what: string) => (desc: LeafDesc, loc: SourceLoc) =>
  * the ScalarEnv.contractPredicate a descriptor registry uses to build a contract's ScalarType, and the table the
  * ContractLiteral check evaluates (evaluate.ts admitLiteral: a Compute literal, and analysis/schema.ts literal, a closed
  * relation's payload among them). Each fact the contract declares it proves (`proves`, the facts its TypeScript type
- * states) is proved here from the predicate (lower.ts unprovedFact), else the declaration is refused, naming it.
+ * states) is proved here from the predicate (typing.ts unprovedFact), else the declaration is refused, naming it.
  *
  * The ExprTable of a contract's predicate over a VALUE of type `base`, in normal form.
  */

@@ -26,12 +26,7 @@ import {
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
 import { digitsOfExact, exactOf } from "#compiler/scalar/compute/bounds.ts"
-import {
-	type LowerEnv,
-	lowerPredicate,
-	lowerTerm,
-	noClosedRelations
-} from "#compiler/scalar/compute/lower.ts"
+import { type LowerEnv, lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { firstOperand, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import {
 	anyNumeric,
@@ -42,6 +37,7 @@ import {
 	meetingType,
 	mixesExact
 } from "#compiler/scalar/compute/types.ts"
+import { noClosedRelations } from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"

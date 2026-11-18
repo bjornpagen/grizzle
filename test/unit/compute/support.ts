@@ -26,11 +26,8 @@ import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import {
 	type Lowered,
 	type LowerEnv,
-	type LowerParams,
 	lowerPredicate,
-	lowerTerm,
-	noClosedRelations,
-	type ParamRef
+	lowerTerm
 } from "#compiler/scalar/compute/lower.ts"
 import { exprEmitter } from "#compiler/scalar/compute/lower.ts"
 import { plainColumns } from "#compiler/scalar/compute/tables.ts"
@@ -45,6 +42,16 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { noExtension } from "#test/support/compute.ts"
 
+import {
+	type LowerParams,
+	noClosedRelations,
+	type ParamRef,
+	type TextAnalysis,
+	typeOf,
+	type TermTyping,
+	type TypingEnv,
+	typePredicate
+} from "#compiler/scalar/compute/typing.ts"
 import {
 	builtinType,
 	lit,
@@ -418,6 +425,30 @@ const commonEnv = (
 	closed: noClosedRelations("the compute suites read no closed relation"),
 	patterns: referencePatterns()
 })
+
+/**
+ * Types a term or predicate whose variables are bound as lowerWith binds them, in lowerWith's environment: its text
+ * analyzed as a compile's, by the text analysis and the reference evaluator's patterns, or not at all, as a builder's
+ * (typing.ts TextAnalysis).
+ */
+export const typeWith = (
+	analysis: TextAnalysis["kind"],
+	expr: ExprDesc,
+	vars: Readonly<Record<string, LeafBinding>>,
+	predicate: boolean,
+	params: LowerParams<Spelled>
+): Result.Result<TermTyping<Spelled>, CompileError> => {
+	const { emit: _emitted, patterns, ...names } = commonEnv(vars, sink().emit, params)
+	const env: TypingEnv<Spelled> = {
+		...names,
+		analysis:
+			analysis === "analyzed"
+				? { kind: "analyzed", lookup: textLookup, patterns }
+				: { kind: "unanalyzed" }
+	}
+	const literal = withLiterals(expr, vars)
+	return predicate ? typePredicate(literal, env) : typeOf(literal, env)
+}
 
 /** A lowered term or predicate, and every expression its lowering emitted, in emission order. */
 export interface LoweredTable {

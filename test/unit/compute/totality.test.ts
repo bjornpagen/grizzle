@@ -113,7 +113,7 @@ export const totalityRefusesAPartialOperationOverLiteralsExactlyWhereTheirValues
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
+				file: "packages/engine/src/scalar/compute/typing.ts",
 				original: "\t\t\tconst sign = value.units < 0n ? -1 : value.units > 0n ? 1 : 0",
 				replacement: "\t\t\tconst sign = value.units < 0n ? -1 : value.units >= 0n ? 1 : 0",
 				why: "A literal's facts take a zero value as nonzero, its point interval reaching zero, so a literal zero divisor is admitted; the literals' property fails."

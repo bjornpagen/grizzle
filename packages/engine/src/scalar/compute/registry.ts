@@ -767,7 +767,7 @@ const textCollapse: FixedOverload = frozen({
  * other byte as it is; every byte of a UTF-8 character past ASCII, a lead byte or a continuation byte, is 0x80 or more,
  * and a text holds no NUL, at which the fold would stop, so the fold is translate's by the ASCII capitals and their
  * small letters on every text. It allocates its operand's own length and its header, within MaxAllocSize for every
- * text, where translate allocates four bytes for each byte (compute/lower.ts translateMaxBytes), so it is defined on
+ * text, where translate allocates four bytes for each byte (compute/typing.ts translateMaxBytes), so it is defined on
  * every text, in a query, a CHECK and a generated field alike. lower's result takes the explicit collation of its
  * operand, "C", which would compare it in C's order, keep a pg_c_utf8 index from serving an equation with it and read
  * its regex classes as C's; the outer COLLATE gives it pg_c_utf8, every text's. lower(text) is IMMUTABLE in pg_proc and

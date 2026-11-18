@@ -115,7 +115,7 @@ type FiniteCast<S extends SqlTag, F extends SqlTag, FX extends Facts, LV> = [F] 
 	: true
 
 /**
- * The facts a cast keeps of its operand's, as compilation keeps them (lower.ts keptFacts): none into a float; every
+ * The facts a cast keeps of its operand's, as compilation keeps them (typing.ts keptFacts): none into a float; every
  * one from an integer, money or an exact value, finite among them by the operand's type; and the others but nonzero
  * from numeric or a float, whose rounding at a typmod no SQL type tells apart may reach zero.
  */
@@ -145,7 +145,7 @@ type Binary<A, B, X, S extends SqlTag, F extends SqlTag, L = X> = Every<
 
 /**
  * The facts a negation keeps of its operand's, of facts FA and, a constant, of value type LA (Holds), as compilation
- * keeps them (lower.ts negationFacts): finite and nonzero, each where the operand has it; never nonnegative, since -x is
+ * keeps them (typing.ts negationFacts): finite and nonzero, each where the operand has it; never nonnegative, since -x is
  * not, and no fact states a value at or below zero.
  */
 type NegatedFacts<FA extends Facts, LA> = Facts &

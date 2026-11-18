@@ -1,6 +1,6 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { malformedDescription } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -17,26 +17,13 @@ import {
 	type FieldDesc,
 	guardedExpr,
 	type LiteralDesc,
-	type ScaledComputeFn
+	type ScaledComputeFn,
+	type Spelled
 } from "#compiler/ir/desc.ts"
 import type { LiteralExpr, OpenExpr } from "#compiler/ir/open.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, rosterOf, type ScalarType, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
 import { type ClosedIdParts, closedIdField } from "#compiler/scalar/closed-id.ts"
-import {
-	exprEmitter,
-	type LowerEnv,
-	type Lowered,
-	lowerPredicate,
-	adoptedType,
-	type ConstantGuard,
-	constantGuardNames,
-	constantGuardTests,
-	lowerTerm,
-	noClosedRelations,
-	noParams,
-	withinGuards
-} from "#compiler/scalar/compute/lower.ts"
 
 import {
 	arithmeticSql,
@@ -73,11 +60,22 @@ import {
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
 import { compatible, valueType } from "#compiler/scalar/compute/types.ts"
+import {
+	adoptedType,
+	type ConstantGuard,
+	constantGuardNames,
+	constantGuardTests,
+	noClosedRelations,
+	noParams,
+	withinGuards,
+	typeOf,
+	type TypingEnv,
+	typePredicate
+} from "#compiler/scalar/compute/typing.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, matchRefusalAt } from "#compiler/scalar/regex/admit.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { replaceMap } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	carrierSql,
@@ -240,8 +238,8 @@ declare const checkedBrand: unique symbol
 
 /**
  * A checked Compute expression: what it records, and the type the overload resolution gave it. Minted only by Call's
- * constructors, one per level of what a builder returns (finish, finishCarried, finishPlain), each after the build-mode
- * lowering typed the call, so no builder states a type it did not check.
+ * constructors, one per level of what a builder returns (finish, finishCarried, finishPlain), each after the typing
+ * (typing.ts typeOf) typed the call, so no builder states a type it did not check.
  */
 type Checked = {
 	readonly expr: OpenExpr
@@ -273,8 +271,6 @@ class Call {
 	readonly types: Array<ScalarType> = []
 	/** The field descriptors the call met, with their types; a connective's unit is typed by booleanField. */
 	readonly fields = new Map<FieldDesc, ScalarType>([[booleanField, plainType("bool")]])
-	/** The admitted patterns the call's typing reads (scalar/regex/patterns.ts): the call is the term's admission. */
-	readonly patterns = new CompilePatterns()
 
 	constructor(label: string) {
 		this.loc = captureLoc(label, [])
@@ -380,14 +376,17 @@ class Call {
 		return field
 	}
 
-	env(): LowerEnv {
+	/**
+	 * The call's typing environment: its placeholders' types, the descriptors it met, no parameter and no closed read,
+	 * and no text analysis, since a builder types its term before it knows where the term stands (typing.ts
+	 * TextAnalysis).
+	 */
+	env(): TypingEnv<Spelled> {
 		return {
-			mode: "build",
 			loc: this.loc,
 			closed: noClosedRelations(
 				"a builder types its term over its operands, which hold any closed read already typed"
 			),
-			emit: exprEmitter("b"),
 			leaf: (desc) => {
 				const index =
 					desc.kind === "var" && desc.var.startsWith("#") ? Number(desc.var.slice(1)) : undefined
@@ -404,17 +403,17 @@ class Call {
 					? Result.err(malformedDescription(this.loc, "a field descriptor"))
 					: Result.ok(type)
 			},
-			patterns: this.patterns
+			analysis: { kind: "unanalyzed" }
 		}
 	}
 
-	/** The call checked: `real` typed by the build-mode lowering of its placeholder `ph`. */
+	/** The call checked: `real` typed by the typing of its placeholder `ph`. */
 	finish(real: OpenExpr, ph: ExprDesc): Checked {
-		const typed: Result.Result<Lowered, CompileError> = lowerTerm(ph, this.env())
+		const typed = typeOf(ph, this.env())
 		if (!typed.ok) {
 			throw typed.error
 		}
-		return mintChecked({ expr: real, type: typed.value.nominal })
+		return mintChecked({ expr: real, type: typed.value.root.nominal })
 	}
 
 	/** finish of an expression whose value is its first term's, delivered through that term's carrier. */
@@ -444,7 +443,7 @@ class Call {
 	}
 
 	finishPredicate(real: OpenExpr, ph: ExprDesc): PredicateValue {
-		const typed = lowerPredicate(ph, this.env())
+		const typed = typePredicate(ph, this.env())
 		if (!typed.ok) {
 			throw typed.error
 		}
@@ -1129,7 +1128,7 @@ interface OfSql<S extends SqlTag> {
  *
  * Every Compute member is a pure, synchronous builder that records an expression and returns a term or a predicate
  * (callbacks build descriptions, they never run per row). A builder types the term it builds with the same
- * overload resolution the checker uses (lower.ts, in its "build" mode): it needs the result type to type the literal
+ * overload resolution the checker uses (typing.ts typeOf, its text unanalyzed): it needs the result type to type the literal
  * operands the term meets later, and a builder diagnoses a malformed declaration synchronously. A
  * mistake the TypeScript signatures already forbid, such as a contract meeting its bare base or a JavaScript number as
  * a numeric literal, throws CompileError MalformedDescription from a JavaScript caller; an operation PostgreSQL does

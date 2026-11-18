@@ -73,7 +73,7 @@ const ieeeRange: {
 
 /**
  * The bounds of an IEEE 754 operation's result from those of its exact result, which interval arithmetic computes
- * (lower.ts arithmeticBounds): where the exact result may reach below the least normal value in magnitude, IEEE 754
+ * (typing.ts arithmeticBounds): where the exact result may reach below the least normal value in magnitude, IEEE 754
  * may round it to zero, which the bounds then hold; where it may pass 2^overflow, IEEE 754 may round it to the infinity
  * on that side, which the bounds then reach. Every proof over a float operation's value rests on these, never on the
  * exact result's, so no operand interval claims a value IEEE 754 rounded away.

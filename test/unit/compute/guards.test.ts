@@ -106,10 +106,10 @@ export const aPartialOperationsRefusalNamesItsPreconditionAndAGuardItsOperandsTy
 					why: "A contract's guard is Compute.within whatever its operand's type, so the text and boolean contract casts name a guard no Compute test writes over them; the refusal property fails."
 				},
 				{
-					file: "packages/engine/src/scalar/compute/lower.ts",
+					file: "packages/engine/src/scalar/compute/typing.ts",
 					original: '\t\tcase "int4":\n\t\tcase "float4":\n\t\tcase "float8":\n\t\t\treturn 0\n',
 					replacement: '\t\tcase "float4":\n\t\tcase "float8":\n\t\t\treturn 0\n',
-					why: "The one table of a constant guard's comparisons (lower.ts constantGuardTests) holds no zero of an integer, so Compute.nonzero, the guard a division over integers names, is refused where it is written; the refusal property fails."
+					why: "The one table of a constant guard's comparisons (typing.ts constantGuardTests) holds no zero of an integer, so Compute.nonzero, the guard a division over integers names, is refused where it is written; the refusal property fails."
 				}
 			]
 		}

@@ -12,7 +12,7 @@ import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { InferredQuery, ReadBackDesc, WriteOp } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { admittedReads } from "#compiler/scalar/compute/lower.ts"
+import { admittedReads } from "#compiler/scalar/compute/typing.ts"
 import { queryPatternReads } from "#compiler/schema/walk.ts"
 
 export type { CheckOptions } from "#compiler/check/checker.ts"

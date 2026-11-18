@@ -58,16 +58,15 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { admitLiteral, refined } from "#compiler/scalar/compute/evaluate.ts"
 import { admittedLiteral } from "#compiler/scalar/compute/literal.ts"
+import { exprEmitter, lowerTerm } from "#compiler/scalar/compute/lower.ts"
+import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
+import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import {
 	admittedReads,
 	type ClosedRelations,
-	exprEmitter,
 	type LeafDesc,
-	lowerTerm,
 	noParams
-} from "#compiler/scalar/compute/lower.ts"
-import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
-import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+} from "#compiler/scalar/compute/typing.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { type ScalarEnv, scalarTypeOf, storedOnly } from "#compiler/scalar/registry.ts"

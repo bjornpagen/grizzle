@@ -39,7 +39,7 @@ import type { LiteralOf, NotStoredOnly } from "#compiler/types/fields/field.ts"
 export type Operand<T, S extends SqlTag, L = T> = Meets<T, S> | LiteralOf<L>
 
 /**
- * What a number or bigint literal type proves of its value, as compilation reads the value (lower.ts factsOfValue): it
+ * What a number or bigint literal type proves of its value, as compilation reads the value (typing.ts factsOfValue): it
  * is finite, nonzero unless zero is one of it, and nonnegative unless one of it is negative. TypeScript has no NaN or
  * infinity literal type, and writes -0 as 0.
  */
@@ -154,7 +154,7 @@ type Negative<V> =
 		: false
 
 /**
- * What Compute.within proves of its subject from its bounds Lo and Hi, as compilation reads them (lower.ts guardFacts):
+ * What Compute.within proves of its subject from its bounds Lo and Hi, as compilation reads them (typing.ts guardFacts):
  * finite; nonnegative where the low bound is; nonzero where the low bound is above zero or the high one below it. A low
  * bound TypeScript cannot see is a residue compilation decides from its value, as a divisor's is (ValueProves); a high
  * bound proves nonzero only where TypeScript sees it below zero.

@@ -17,9 +17,10 @@ import {
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import { exactOf, finiteEnds, insideRange } from "#compiler/scalar/compute/bounds.ts"
-import { boundsOfType, intervalCastProof } from "#compiler/scalar/compute/lower.ts"
+import { intervalCastProof } from "#compiler/scalar/compute/lower.ts"
 import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
 import { compatible, isInteger } from "#compiler/scalar/compute/types.ts"
+import { boundsOfType } from "#compiler/scalar/compute/typing.ts"
 
 /**
  * The recursive state heading: the declared row, its hashing capability, and the exact conversions an arm's columns

@@ -40,12 +40,7 @@ import {
 	sameScalarType,
 	spanCarrierOf
 } from "#compiler/ir/scalar.ts"
-import {
-	type LowerEnv,
-	lowerTerm,
-	noClosedRelations,
-	noParams
-} from "#compiler/scalar/compute/lower.ts"
+import { type LowerEnv, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { widening } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -106,6 +101,7 @@ import {
 } from "#test/support/oracle/public/program.ts"
 import { termDesc } from "#test/support/oracle/public/terms.ts"
 
+import { noClosedRelations, noParams } from "#compiler/scalar/compute/typing.ts"
 import {
 	type ExpectedStatement,
 	expectedStatements

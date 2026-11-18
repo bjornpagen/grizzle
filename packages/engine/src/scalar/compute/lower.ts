@@ -6,8 +6,6 @@ import {
 	type Guard,
 	type GuardTest,
 	type PreconditionKind,
-	prose,
-	type ProseTag,
 	ruleRefused
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
@@ -22,11 +20,9 @@ import {
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { asciiFold } from "#compiler/core/text.ts"
-import { int4Digits, int8Max, int8Min } from "#compiler/ir/carriers.ts"
-import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
-import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
+import { int4Digits } from "#compiler/ir/carriers.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import type {
-	CompareOp,
 	ExprDesc,
 	FieldDesc,
 	GuardDesc,
@@ -57,7 +53,6 @@ import type {
 	PreconditionProof
 } from "#compiler/ir/proof.ts"
 import {
-	type Carrier,
 	type ContractInfo,
 	type PatternSource,
 	type Patterns,
@@ -71,7 +66,6 @@ import {
 	isRefined,
 	languageOctets,
 	languageWithin,
-	numericBoundOf,
 	numericTypmodOf,
 	octetsOf,
 	patternsText,
@@ -85,13 +79,9 @@ import {
 } from "#compiler/ir/scalar.ts"
 import {
 	absBounds,
-	addBounds,
 	type Bounds,
 	compareExact,
-	digitsOfExact,
 	exactOf,
-	exactOfDecimal,
-	exactOfDouble,
 	type FactSet,
 	floorOfExact,
 	factPremise,
@@ -104,7 +94,6 @@ import {
 	log2Magnitude,
 	magnitudeAtLeast,
 	minus,
-	mulBounds,
 	negBounds,
 	negExact,
 	noFacts,
@@ -115,15 +104,12 @@ import {
 	pointOf,
 	premiseHas,
 	type Refinement,
-	boundsHave,
 	refine,
 	scaleOfExact,
-	significantRound,
 	subBounds,
 	tenTo
 } from "#compiler/scalar/compute/bounds.ts"
-import { floatNumericDigits, parseBy } from "#compiler/scalar/compute/cast.ts"
-import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
+import { parseBy } from "#compiler/scalar/compute/cast.ts"
 import { admitLiteral, literalMember } from "#compiler/scalar/compute/evaluate.ts"
 import { bareLiteralKind } from "#compiler/scalar/compute/literal.ts"
 import { nativeProof, resultBounds } from "#compiler/scalar/compute/native.ts"
@@ -141,30 +127,74 @@ import {
 	type FixedOp,
 	type NativeFn,
 	type NativeOp,
-	nativeOp,
 	overloadOf,
 	registeredCast
 } from "#compiler/scalar/compute/registry.ts"
-import { moneyDigits } from "#compiler/scalar/compute/types.ts"
 import {
 	anyNumeric,
 	commonType,
 	exactFamily,
 	exactType,
-	familyDigits,
 	isComputedNumeric,
 	isFloat,
 	meetingType,
 	meets,
 	mixesExact,
-	sameRegex,
 	valueType,
 	wideningOf,
-	wildcardText,
-	withoutSpanWidth
+	wildcardText
 } from "#compiler/scalar/compute/types.ts"
 import {
-	binary64Digits,
+	adoptedType,
+	arithmeticBounds,
+	argOf,
+	boundsOfType,
+	carrierFacts,
+	castBounds,
+	type CastHow,
+	type ClosedField,
+	type ClosedHeading,
+	type ClosedRelations,
+	compatibleCore,
+	constantGuardTests,
+	contractLevels,
+	conversionOf,
+	dateExact,
+	decimalBounds,
+	factsOfType,
+	factsOfValue,
+	guardFacts,
+	guardRefinement,
+	isBareLiteral,
+	isReference,
+	keptFacts,
+	type LeafDesc,
+	literalComparison,
+	literalNumber,
+	type LowerParams,
+	mapText,
+	moneyHigh,
+	moneyLow,
+	negationFacts,
+	numericOf,
+	opFn,
+	type ParamRef,
+	type PatternPart,
+	patternParts,
+	powerWeight,
+	type Role,
+	roundedBounds,
+	sameRefinement,
+	sameShape,
+	signBoundsOver,
+	stop,
+	tableNumber,
+	translateMaxBytes,
+	unprovedFact,
+	unwrapOrRefuse,
+	withinGuards
+} from "#compiler/scalar/compute/typing.ts"
+import {
 	binary64MaxExponent,
 	decimalTextMaxBytes,
 	regexMaxRepeat
@@ -176,7 +206,6 @@ import {
 	lexicalTargetOf,
 	parseTargetOf
 } from "#compiler/scalar/lexical.ts"
-import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, type MatchAdmission, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
@@ -199,56 +228,12 @@ import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	capabilitiesOf,
 	inferredType,
-	numericValue,
 	storedOnly,
 	type TextLookup
 } from "#compiler/scalar/registry.ts"
-import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
-import { numericMaxPrecision, varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
-import { binary32Digits } from "#compiler/scalar/values/float.ts"
-import { binary32LeastExponent } from "#compiler/scalar/values/float.ts"
-import { Money } from "#compiler/scalar/values/money.ts"
-
-/**
- * The most bytes a character of a UTF-8 database takes, pg_database_encoding_max_length() there: the widest UTF-8
- * sequence PostgreSQL reads, which translate allocates for each byte of its operand.
- *
- * @limitKind published
- * @owner PostgreSQL 19rc2
- * @unit bytes
- * @scope one character of a UTF-8 database, the maxmblen pg_wchar_table holds for PG_UTF8
- * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/common/wchar.c#L1872
- * @quote [PG_UTF8] = {pg_utf2wchar_with_len, pg_wchar2utf_with_len, pg_utf_mblen, pg_utf_dsplen, pg_utf8_verifychar,
- *   pg_utf8_verifystr, 4},
- * @verified 2026-11-14
- */
-export const utf8EncodingMaxBytes = 4
-
-/**
- * The longest text, in UTF-8 bytes, PostgreSQL's translate reads: it allocates its result for the worst case, a widest
- * character for every byte of its operand, with its header, and refuses an allocation past MaxAllocSize with 54000,
- * "requested length too large". So a query translates only an operand whose pattern bounds its bytes within this, and a
- * check or generated column that translates a longer text fails its write.
- *
- * @limitKind derived
- * @owner PostgreSQL 19rc2
- * @unit bytes
- * @scope the operand of one translate(text, text, text) call
- * @derivation translate refuses "if (unlikely(pg_mul_s32_overflow(pg_database_encoding_max_length(), m, &bytelen)) ||
- *   unlikely(pg_add_s32_overflow(bytelen, VARHDRSZ, &bytelen)) || unlikely(!AllocSizeIsValid(bytelen)))" over its
- *   operand's m bytes
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/oracle_compat.c#L854-L864, verified
- *   2026-11-14), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/memutils.h#L42), so m is at most
- *   (MaxAllocSize - VARHDRSZ) / maxmblen, rounded down
- * @from {@link maxAllocSize}, {@link utf8EncodingMaxBytes}, {@link varlenaHeaderBytes}
- */
-export const translateMaxBytes = Math.floor(
-	(maxAllocSize - varlenaHeaderBytes) / utf8EncodingMaxBytes
-)
+import { numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
 
 /**
  * The internal limit on a calculation's result scale, NUMERIC_MAX_RESULT_SCALE.
@@ -262,31 +247,6 @@ export const translateMaxBytes = Math.floor(
  * @from {@link numericMaxPrecision}
  */
 const numericMaxResultScale = numericMaxPrecision * 2
-
-/**
- * The fraction digits of every binary32 value: the least subnormal 2^-k = 5^k / 10^k has exactly k of them, and every
- * other value is an integer multiple of it.
- *
- * @limitKind derived
- * @owner IEEE 754-2019 binary32
- * @unit decimal digits
- * @scope the fraction digits of every finite real value
- * @derivation -(emin - p + 1): 2^-k is 5^k / 10^k, of k fraction digits
- * @from {@link binary32LeastExponent}
- */
-const binary32FractionDigits = -binary32LeastExponent
-
-/**
- * The fraction digits of every binary64 value: those of its least subnormal, 2^-(p - 1 - emin).
- *
- * @limitKind derived
- * @owner IEEE 754-2019 binary64
- * @unit decimal digits
- * @scope the fraction digits of every finite double precision value
- * @derivation -(emin - p + 1): 2^-k is 5^k / 10^k, of k fraction digits
- * @from {@link binary64Precision}, {@link binary64MinExponent}
- */
-const binary64FractionDigits = binary64Precision - 1 - binary64MinExponent
 
 /**
  * The bound PostgreSQL's power_var puts on exp(y · ln x) for an exponent that is no integer (numeric.c power_var, its
@@ -351,31 +311,6 @@ export class Lowered implements Effects {
 }
 
 /**
- * What a leaf reference names: a rule variable, a check's field, the contract's VALUE, or an attachment's parent head
- * variable, as the expression's references admit them (ir/desc.ts Refs).
- */
-export type LeafDesc<R extends Refs = Spelled> = R["leaf"]
-
-/** A scalar parameter reference: what its references carry, and the type it states. */
-export type ParamRef<R extends Refs> = { readonly type: R["paramType"] } & R["param"]
-
-/**
- * The parameters an expression reads: none (a contract predicate or a row check reads only its value or row, and a
- * law's violation query reads only its relations), or the lowering of one: its node, and its type, the one it declares.
- */
-export type LowerParams<R extends Refs> =
-	| { readonly kind: "none" }
-	| {
-			readonly kind: "scope"
-			readonly lower: (
-				param: ParamRef<R>,
-				loc: SourceLoc
-			) => Result.Result<{ readonly spec: ExprSpec; readonly type: ScalarType }, CompileError>
-	  }
-
-export const noParams: { readonly kind: "none" } = Object.freeze({ kind: "none" })
-
-/**
  * The emitter of a lowering no DAG receives (a contract predicate, a builder typing its term): each expression built
  * over its arguments (ir/expr.ts builtExpr) under a fresh label `prefix#n`.
  */
@@ -384,173 +319,12 @@ export const exprEmitter = (prefix: string): ((spec: ExprSpec) => ScalarExpr) =>
 	return (spec) => builtExpr(spec, ExprId(`${prefix}#${next++}`))
 }
 
-/** Whether a branch is an untyped literal, which adopts the type of the other branch. */
-const isBareLiteral = <R extends Refs>(d: ExprDesc<Located, R>): boolean =>
-	d.kind === "literal" && d.type === undefined
-
 /** The predicates other packages lower: r.allen, r.pointIn and r.not. */
 export type LowerExtension<R extends Refs> = (
 	desc: Extract<ExprDesc<Located, R>, { readonly kind: "allen" | "pointIn" | "absent" }>,
 	loc: SourceLoc,
 	lower: (child: ExprDesc<Located, R>) => Result.Result<Lowered, CompileError>
 ) => Result.Result<Lowered, CompileError>
-
-/** A closed relation's field, as an application of it reads the field: its name and its type. */
-export interface ClosedField {
-	readonly name: string
-	readonly type: ScalarType
-}
-
-/**
- * What a Compute.matches pattern reading a closed relation's payload field can be (Lowering.patternAdmissions): where
- * every row's value there is a text, each distinct one in row order (`sources`), none where it holds no row, which the
- * lowering batch whose expressions read the field as a pattern admits once (ClosedRelations.admitted); or a field of
- * another value, which no pattern reads.
- */
-export type PayloadPatterns =
-	| { readonly kind: "texts"; readonly sources: ReadonlyArray<string> }
-	| { readonly kind: "other" }
-
-/** A payload field of a closed relation, as C.at reads it, with what a Compute.matches pattern reading it can be. */
-export interface ClosedPayloadField extends ClosedField {
-	readonly patterns: PayloadPatterns
-}
-
-/**
- * A closed relation as C.at and C.row read it: its key fields in key order, which an application's terms meet one by
- * one, and its payload fields, one of which C.at reads.
- */
-export interface ClosedHeading {
-	readonly key: NonEmptyReadonlyArray<ClosedField>
-	readonly payload: ReadonlyArray<ClosedPayloadField>
-}
-
-/**
- * The closed relations an expression may apply: a schema's, by name, undefined for a name that is no closed relation's,
- * with each text payload field a Compute.matches pattern of the lowering batch reads (patternParts) admitted once for
- * the batch (`admitted`, admittedReads), undefined for a field no expression of the batch reads as a pattern; or none, where no expression applies one, with the reason, which a refusal of C.at or C.row there states.
- */
-export type ClosedRelations =
-	| {
-			readonly kind: "schema"
-			readonly heading: (relation: string) => ClosedHeading | undefined
-			readonly admitted: (
-				relation: string,
-				field: string
-			) => ReadonlyArray<MatchAdmission> | undefined
-	  }
-	| { readonly kind: "none"; readonly why: string }
-
-/**
- * A part of a Compute.matches pattern, in the order the pattern states it: a literal, a closed relation's payload
- * field C.at reads, or any other expression, each with the branches of the Compute.cond it stands in. The one reading of
- * what a pattern reads: patternAdmissions admits it, and a lowering batch admits the payload fields it names
- * (admittedReads).
- */
-export type PatternPart<R extends Refs> =
-	| {
-			readonly kind: "literal"
-			readonly desc: Extract<ExprDesc<Located, R>, { readonly kind: "literal" }>
-			readonly branches: ReadonlyArray<"onTrue" | "onFalse">
-	  }
-	| {
-			readonly kind: "closedAt"
-			readonly desc: Extract<ExprDesc<Located, R>, { readonly kind: "closedAt" }>
-			readonly branches: ReadonlyArray<"onTrue" | "onFalse">
-	  }
-	| {
-			readonly kind: "other"
-			readonly desc: ExprDesc<Located, R>
-			readonly branches: ReadonlyArray<"onTrue" | "onFalse">
-	  }
-
-/** The parts of the Compute.matches pattern `desc` (PatternPart), a conditional's two branches in turn. */
-export const patternParts = <R extends Refs>(
-	desc: ExprDesc<Located, R>
-): ReadonlyArray<PatternPart<R>> => partsUnder(desc, [])
-
-/** patternParts of `desc`, which stands in the conditional branches `branches`. */
-const partsUnder = <R extends Refs>(
-	desc: ExprDesc<Located, R>,
-	branches: ReadonlyArray<"onTrue" | "onFalse">
-): ReadonlyArray<PatternPart<R>> => {
-	switch (desc.kind) {
-		case "literal":
-			return [{ kind: "literal", desc, branches }]
-		case "closedAt":
-			return [{ kind: "closedAt", desc, branches }]
-		case "cond":
-			return [
-				...partsUnder(desc.onTrue, [...branches, "onTrue"]),
-				...partsUnder(desc.onFalse, [...branches, "onFalse"])
-			]
-		case "guarded":
-			return partsUnder(desc.arg, branches)
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "compute":
-		case "cast":
-		case "base":
-		case "when":
-		case "compare":
-		case "between":
-		case "in":
-		case "and":
-		case "or":
-		case "not":
-		case "closedRow":
-		case "closedHas":
-		case "allen":
-		case "pointIn":
-		case "absent":
-			return [{ kind: "other", desc, branches }]
-	}
-}
-
-/** No closed relation, for the reason `why`: "a contract predicate reads no closed relation of the schema". */
-export const noClosedRelations = (why: string): ClosedRelations =>
-	Object.freeze({ kind: "none", why })
-
-/**
- * The closed relations' payload fields a set of expressions reads as Compute.matches patterns (patternParts), by
- * relation: what a lowering batch admits (admittedReads).
- */
-export type PayloadReads = ReadonlyMap<string, ReadonlySet<string>>
-
-/**
- * `reads` for a lowering batch whose expressions read `patterns` as Compute.matches patterns (schema/walk.ts
- * exprPatternReads, queryPatternReads): each such text payload field's distinct values admitted once for the batch, in
- * row order (scalar/regex/admit.ts admitMatch), and no other field's. A field `reads` holds no text payload of is the
- * lowering's to refuse, as it refuses any closed read it cannot make.
- */
-export const admittedReads = (reads: ClosedRelations, patterns: PayloadReads): ClosedRelations => {
-	if (reads.kind === "none") {
-		return reads
-	}
-	const admitted = new Map<string, ReadonlyMap<string, ReadonlyArray<MatchAdmission>>>()
-	for (const [relation, fields] of patterns) {
-		const heading = reads.heading(relation)
-		if (heading === undefined) {
-			continue
-		}
-		const byField = new Map<string, ReadonlyArray<MatchAdmission>>()
-		for (const field of fields) {
-			const read = heading.payload.find((f) => f.name === field)?.patterns
-			if (read?.kind === "texts") {
-				byField.set(field, Object.freeze(read.sources.map((source) => admitMatch(source))))
-			}
-		}
-		admitted.set(relation, byField)
-	}
-	return Object.freeze({
-		kind: "schema",
-		heading: reads.heading,
-		admitted: (relation: string, field: string) => admitted.get(relation)?.get(field)
-	})
-}
 
 interface LowerCommon<R extends Refs> {
 	/** The source location of the expression, the prefix of every diagnostic. */
@@ -593,461 +367,6 @@ export type LowerEnv<R extends Refs = Spelled> =
 			readonly patternLanguage: TextLookup
 	  })
 	| (LowerCommon<R> & { readonly mode: "build" })
-
-/**
- * Internal control flow: the first refusal deep inside a lowering is thrown as a Refusal and caught at the boundary
- * (catchRefusal, core/canonical.ts).
- */
-const stop = (
-	reason: Extract<ProseTag, "MalformedDescription" | "UnsupportedOperation" | "ContractLiteral">,
-	loc: SourceLoc,
-	capability: string
-): never => {
-	throw new Refusal(CompileError.make(prose(reason, loc, capability)))
-}
-
-const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
-	if (!r.ok) {
-		throw new Refusal(r.error)
-	}
-	return r.value
-}
-
-/**
- * Where a bare literal stands opposite a term: compared with it (a comparison, an IN list, BETWEEN bounds, a
- * conditional's branch), an arithmetic operand beside it (+, -, *, /, %, quot, rem, power, gcd, lcm), or a text
- * operation's second operand (concat, startsWith, endsWith).
- */
-type Role = "compare" | "arithmetic" | "operand"
-
-/**
- * The type a bare literal adopts opposite a term of type `t` (see the header): compared with a contract, the contract;
- * otherwise the term's value type, a numeric's any numeric, an exact value's plain family, an operand text's any text
- * and a span's its endpoint's, so a literal is typed by the term it meets and never on its own. An arithmetic operand
- * is typed at the base and judged a value of the term's contract beside it (Lowering.operand).
- */
-export const adoptedType = (t: ScalarType, role: Role): ScalarType => {
-	if (role === "compare" && contractOf(t) !== undefined) {
-		return t
-	}
-	const v = valueType(t)
-	if (v.carrier === "numeric") {
-		return anyNumeric
-	}
-	if (v.carrier === "exactInteger") {
-		return plainType("int8")
-	}
-	if (v.carrier === "exactMoney") {
-		return plainType("money")
-	}
-	if (role === "operand" && v.carrier === "text") {
-		return wildcardText
-	}
-	return withoutSpanWidth(v)
-}
-
-/** Money's range, a signed 64-bit count of minor units. */
-const moneyLow: Exact = exactOf(int8Min, moneyFractionDigits)
-const moneyHigh: Exact = exactOf(int8Max, moneyFractionDigits)
-
-/** Every value of a carrier, before any contract: what a value of its base type can be. */
-const carrierBounds = (t: ScalarType): Bounds | undefined => {
-	switch (t.carrier) {
-		case "int2":
-		case "int4":
-		case "int8":
-			return ofRange(
-				integerRanges[t.carrier][0],
-				integerRanges[t.carrier][1],
-				integerDigits[t.carrier]
-			)
-		case "numeric":
-			return t.typmod === undefined
-				? ofDigits(t.bound.digits, t.bound.scale, { infinite: true, nan: true })
-				: ofDigits(t.typmod.precision - t.typmod.scale, Math.max(t.typmod.scale, 0), {
-						infinite: false,
-						nan: true
-					})
-		case "float4":
-			return ofDigits(binary32Digits, binary32FractionDigits, {
-				infinite: true,
-				nan: true
-			})
-		case "float8":
-			return ofDigits(binary64Digits, binary64FractionDigits, {
-				infinite: true,
-				nan: true
-			})
-		case "money":
-			return refine(ofDigits(moneyDigits, moneyFractionDigits, { infinite: false, nan: false }), {
-				kind: "within",
-				low: moneyLow,
-				high: moneyHigh
-			})
-		case "exactInteger":
-			return ofDigits(t.digits, 0, { infinite: false, nan: false })
-		case "exactMoney":
-			return ofDigits(t.digits, moneyFractionDigits, { infinite: false, nan: false })
-		case "date":
-			return dateBounds
-		case "bool":
-		case "uuid":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-			return undefined
-	}
-}
-
-/** The levels of a contract, outermost first, down to its base. */
-const contractLevels = (t: ScalarType): ReadonlyArray<ContractInfo> => {
-	const levels: Array<ContractInfo> = []
-	for (let c = contractOf(t); c !== undefined; c = contractOf(c.base)) {
-		levels.push(c)
-	}
-	return levels
-}
-
-/** The bounds every value of `t` has: its base's, refined by each contract level's atoms over VALUE. */
-export const boundsOfType = (t: ScalarType): Bounds | undefined => {
-	const base = carrierBounds(baseOf(t))
-	if (base === undefined) {
-		return undefined
-	}
-	return contractLevels(t).reduce(
-		(b, c) => (c.predicate === undefined ? b : predicateAtoms(c.predicate).reduce(refine, b)),
-		base
-	)
-}
-
-/**
- * The facts every value of `t`'s SQL type has, whatever made it: an integer's, an exact value's and money's finiteness,
- * which their types state, as the TypeScript types read finiteness off an operand's SQL type.
- */
-const carrierFacts = (t: ScalarType): FactSet => {
-	const carrier = baseOf(t).carrier
-	return carrier === "int2" ||
-		carrier === "int4" ||
-		carrier === "int8" ||
-		carrier === "money" ||
-		carrier === "exactInteger" ||
-		carrier === "exactMoney"
-		? finiteByType
-		: noFacts
-}
-
-const finiteByType: FactSet = Object.freeze({ finite: { kind: "type" } })
-
-/**
- * The facts every value of `t` has: its SQL type's (carrierFacts), and each contract level's declared facts, which its
- * build proved from its predicate (scalar/contract.ts).
- */
-const factsOfType = (t: ScalarType): FactSet => {
-	const facts: { [F in Fact]?: FactSet[F] } = { ...carrierFacts(t) }
-	for (const c of contractLevels(t)) {
-		for (const f of c.facts) {
-			facts[f] = facts[f] ?? { kind: "contract", name: c.name }
-		}
-	}
-	return Object.freeze(facts)
-}
-
-/** The facts a literal's own value has: NaN and Infinity are never zero nor below zero, nor finite. */
-const factsOfValue = (value: Exact | "nan" | "infinity" | "-infinity"): FactSet => {
-	const literal = { kind: "literal" } as const
-	switch (value) {
-		case "nan":
-		case "infinity":
-			return Object.freeze({ nonzero: literal, nonnegative: literal })
-		case "-infinity":
-			return Object.freeze({ nonzero: literal })
-		default: {
-			const sign = value.units < 0n ? -1 : value.units > 0n ? 1 : 0
-			return Object.freeze({
-				finite: literal,
-				...(sign !== 0 ? { nonzero: literal } : {}),
-				...(sign >= 0 ? { nonnegative: literal } : {})
-			})
-		}
-	}
-}
-
-/** A date literal's value in the bound domain: its day number (ir/date.ts dayNumber); undefined for any other. */
-const dateExact = (literal: TypedLiteral): Exact | undefined =>
-	literal.kind === "date" ? exactOf(BigInt(dayNumber(literal.value)), 0) : undefined
-
-/** The day numbers of every date, the first's to the last's. */
-const dateBounds: Bounds = ofRange(
-	BigInt(dayNumber(firstCalendarDate)),
-	BigInt(dayNumber(lastCalendarDate)),
-	String(dayNumber(lastCalendarDate)).length
-)
-
-/** A typed literal's value in the bound domain: exact, a special, or no number at all. */
-const literalNumber = (
-	literal: TypedLiteral
-): Exact | "nan" | "infinity" | "-infinity" | undefined => {
-	switch (literal.kind) {
-		case "int":
-			return exactOf(literal.value, 0)
-		case "float":
-			return exactOfDouble(literal.value)
-		case "floatSpecial":
-			return literal.value === "NaN"
-				? "nan"
-				: literal.value === "Infinity"
-					? "infinity"
-					: "-infinity"
-		case "numeric": {
-			const value = Decimal.fromValue(literal.value)
-			const p = value.parts
-			return p.kind === "finite" ? exactOfDecimal(value) : p.kind
-		}
-		case "money":
-			return exactOf(Money.fromValue(literal.value).minorUnits, 2)
-		case "bool":
-		case "text":
-		case "uuid":
-		case "date":
-		case "handle":
-		case "handles":
-		case "span":
-		case "vector":
-			return undefined
-	}
-}
-
-/** A stored literal entry's value in the bound domain. */
-const tableNumber = (
-	e: TableExpr & { readonly kind: "literal" }
-): Exact | "nan" | "infinity" | "-infinity" | undefined =>
-	dateExact(e.value) ?? literalNumber(e.value)
-
-const zero: Exact = exactOf(0n, 0)
-const oneExact: Exact = exactOf(1n, 0)
-
-/** The comparisons a contract predicate states of VALUE and a literal. */
-type Comparison = "lt" | "le" | "gt" | "ge" | "eq" | "ne"
-
-const comparisonOf = (fn: NativeFn | undefined): Comparison | undefined =>
-	fn === "lt" || fn === "le" || fn === "gt" || fn === "ge" || fn === "eq" || fn === "ne"
-		? fn
-		: undefined
-
-/** The comparison a flipped operand order states: c < VALUE is VALUE > c. */
-const flippedComparison: { readonly [C in Comparison]: Comparison } = {
-	lt: "gt",
-	le: "ge",
-	gt: "lt",
-	ge: "le",
-	eq: "eq",
-	ne: "ne"
-}
-
-/**
- * A comparison of VALUE with a finite literal, as `VALUE op literal` whichever side the literal stands on; undefined for
- * any other term.
- */
-const literalComparison = (
-	fn: NativeFn | undefined,
-	x: TableExpr,
-	y: TableExpr
-): { readonly op: Comparison; readonly value: Exact } | undefined => {
-	const op = comparisonOf(fn)
-	const oriented =
-		op === undefined
-			? undefined
-			: x.kind === "value" && y.kind === "literal"
-				? { op, literal: y }
-				: y.kind === "value" && x.kind === "literal"
-					? { op: flippedComparison[op], literal: x }
-					: undefined
-	if (oriented === undefined) {
-		return undefined
-	}
-	const v = tableNumber(oriented.literal)
-	return typeof v === "object" ? { op: oriented.op, value: v } : undefined
-}
-
-/**
- * A comparison of VALUE with a finite literal as the cut it states (bounds.ts Refinement): at least or at most the
- * literal, open where strict, the literal itself, or never zero for `<> 0`; undefined where it states none here.
- */
-const comparisonAtom = (
-	fn: NativeFn | undefined,
-	x: TableExpr,
-	y: TableExpr
-): Refinement | undefined => {
-	const c = literalComparison(fn, x, y)
-	if (c === undefined) {
-		return undefined
-	}
-	const v = c.value
-	switch (c.op) {
-		case "ge":
-			return { kind: "atLeast", value: v, open: false }
-		case "gt":
-			return { kind: "atLeast", value: v, open: true }
-		case "le":
-			return { kind: "atMost", value: v, open: false }
-		case "lt":
-			return { kind: "atMost", value: v, open: true }
-		case "eq":
-			return { kind: "within", low: v, high: v }
-		case "ne":
-			return compareExact(v, zero) === 0 ? { kind: "nonzero" } : undefined
-	}
-}
-
-/**
- * The first of the facts a contract declares that its predicate, over its base's values, does not prove: from the
- * base's facts and the interval and never-zero atoms the predicate's top-level conjuncts state (predicateAtoms), or
- * undefined where it proves every one.
- */
-export const unprovedFact = (
-	base: ScalarType,
-	predicate: ExprTable,
-	facts: ReadonlyArray<Fact>
-): Fact | undefined => {
-	const atoms = predicateAtoms(predicate)
-	const bounds = boundsOfType(base)
-	const refined = bounds === undefined ? undefined : atoms.reduce(refine, bounds)
-	const had = factsOfType(base)
-	return facts.find(
-		(f) =>
-			had[f] === undefined &&
-			!(f === "nonzero" && atoms.some((a) => a.kind === "nonzero")) &&
-			!(refined !== undefined && boundsHave(refined, f))
-	)
-}
-
-/** The registry function a stored op entry names, or undefined when it names no Compute overload. */
-const opFn = (e: TableExpr & { readonly kind: "op" }): NativeFn | undefined => nativeOp(e.op)?.fn
-
-/**
- * The atoms of a contract's predicate that state an interval of its VALUE: the comparisons and BETWEEN of VALUE with a
- * literal, at the top level of a conjunction. Every other conjunct states nothing here.
- */
-const predicateAtoms = (table: ExprTable): ReadonlyArray<Refinement> => {
-	const at = (id: TableExpr["id"]): TableExpr | undefined =>
-		Object.hasOwn(table.exprs, id) ? table.exprs[id] : undefined
-	const atoms: Array<Refinement> = []
-	const visit = (id: TableExpr["id"]): void => {
-		const e = at(id)
-		if (e?.kind !== "op") {
-			return
-		}
-		const fn = opFn(e)
-		if (fn === "and") {
-			for (const a of e.args) {
-				visit(a)
-			}
-			return
-		}
-		const [x, y, z] = e.args.map(at)
-		if (fn === "between" && x?.kind === "value" && y?.kind === "literal" && z?.kind === "literal") {
-			const lo = tableNumber(y)
-			const hi = tableNumber(z)
-			if (typeof lo === "object" && typeof hi === "object") {
-				atoms.push({ kind: "within", low: lo, high: hi })
-			}
-			return
-		}
-		if (x === undefined || y === undefined) {
-			return
-		}
-		const atom = comparisonAtom(fn, x, y)
-		if (atom !== undefined) {
-			atoms.push(atom)
-		}
-	}
-	visit(table.root)
-	return atoms
-}
-
-/** Argument `i` of a compute description, or its refusal: an arity its kind's decoder fixed. */
-const argOf = <R extends Refs>(
-	desc: Extract<ExprDesc<Located, R>, { readonly kind: "compute" }>,
-	i: number,
-	at: SourceLoc
-): ExprDesc<Located, R> =>
-	desc.args[i] ?? stop("MalformedDescription", at, `argument ${i + 1} for ${desc.fn}`)
-
-/** A guard that states facts of a numeric subject: every guard but a match, which states a language. */
-type FactGuard = Exclude<GuardDesc, { readonly kind: "matches" }>
-
-/** What a Compute.when guard establishes of its subject inside the guarded branch (bounds.ts Refinement). */
-const guardRefinement = (
-	guard: FactGuard,
-	within: readonly [Exact, Exact] | undefined
-): Refinement => {
-	switch (guard.kind) {
-		case "nonzero":
-			return { kind: "nonzero" }
-		case "nonnegative":
-			return { kind: "nonnegative" }
-		case "positive":
-			return { kind: "positive" }
-		case "finite":
-			return { kind: "finite" }
-		case "within":
-			return within === undefined
-				? { kind: "finite" }
-				: { kind: "within", low: within[0], high: within[1] }
-	}
-}
-
-/**
- * The facts a guard gives its subject in the guarded branch, as its TypeScript signature gives them: within two finite
- * bounds is finite, nonnegative from a bound at or above zero, and nonzero from bounds on one side of zero.
- */
-const guardFacts = (
-	guard: FactGuard,
-	within: readonly [Exact, Exact] | undefined
-): ReadonlyArray<Fact> => {
-	switch (guard.kind) {
-		case "nonzero":
-			return ["nonzero"]
-		case "nonnegative":
-			return ["nonnegative"]
-		case "positive":
-			return ["nonzero", "nonnegative"]
-		case "finite":
-			return ["finite"]
-		case "within": {
-			if (within === undefined) {
-				return ["finite"]
-			}
-			const [low, high] = within
-			const nonnegative = compareExact(low, zero) >= 0
-			const nonzero = compareExact(low, zero) > 0 || compareExact(high, zero) < 0
-			return [
-				"finite",
-				...(nonnegative ? (["nonnegative"] as const) : []),
-				...(nonzero ? (["nonzero"] as const) : [])
-			]
-		}
-	}
-}
-
-/**
- * The values of sign over an operand of `carrier` and bounds `b`: -1, 0 and 1, and NaN where a numeric operand may be
- * NaN, whose sign is NaN; a float's NaN has sign 0.
- */
-const signBoundsOver = (
-	carrier: "numeric" | "float8" | "exactInteger",
-	b: Bounds | undefined
-): Bounds => {
-	const signs = ofRange(-1n, 1n, 1)
-	return carrier === "numeric" && (b === undefined || b.nan)
-		? hullBounds(signs, ofSpecial("nan"))
-		: signs
-}
 
 /** The premise that every value of an operand is a member of a refinement's language. */
 type LanguagePremise = Extract<OperandPremise, { readonly kind: "language" }>
@@ -1175,51 +494,6 @@ const textBytes = (x: Lowered): number | undefined =>
 	x.expr.kind === "literal" && x.expr.value.kind === "text"
 		? utf8Length(x.expr.value.value)
 		: textOf(x.nominal)?.byteBound
-
-/**
- * The text of a translate map's `from` or `to`: a text literal, which the schema holds, so the map is seen when it
- * compiles; any other operand can be any text, so no map is known.
- */
-const mapText = <R extends Refs>(
-	which: "from" | "to",
-	desc: ExprDesc<Located, R>,
-	at: SourceLoc
-): string =>
-	desc.kind === "literal" && desc.type === undefined && typeof desc.value === "string"
-		? desc.value
-		: stop(
-				"MalformedDescription",
-				at,
-				`a text literal as translate's ${which}, which states its map when the schema compiles, not a ${desc.kind}`
-			)
-
-/** Whether Compute.within guards a value of `carrier`: a number's, the numeric family (scalar/compute/tables.ts). */
-export const withinGuards = (carrier: Carrier): boolean => {
-	switch (carrier) {
-		case "int2":
-		case "int4":
-		case "int8":
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "money":
-		case "exactInteger":
-		case "exactMoney":
-			return true
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-			return false
-	}
-}
 
 /**
  * The pattern a parse's guard matches its text against: the target's lexical form, every double's decimal text, or
@@ -1474,38 +748,6 @@ const exprText = (e: ScalarExpr): string => {
 			return `${e.relation}.has(…)`
 	}
 }
-
-/**
- * The computed numeric of a node's proved bounds: their integer and fraction digits; numeric's own limits where nothing
- * is proved (anyNumeric). No numeric value has more integer digits than numeric's own limit, so a bound past it, an
- * expression that may overflow, types as that limit: the refusal is the lowering's, which refuses such a bound as
- * ResourceBound (numericDigits) where the expression is compiled.
- */
-const numericOf = (bounds: Bounds | undefined): ScalarType =>
-	bounds === undefined
-		? anyNumeric
-		: numericValue({
-				digits: Math.min(bounds.digits, numericMaxIntegerDigits),
-				scale: bounds.scale
-			})
-
-/**
- * The bounds of a decimal text's value where the text has at most `bytes` UTF-8 bytes: at most that many digits before
- * its point and, the point taking one, one fewer after it, finite and never NaN.
- */
-const decimalBounds = (bytes: number): Bounds =>
-	ofDigits(bytes, Math.max(bytes - 1, 0), { infinite: false, nan: false })
-
-/**
- * How a cast converts: a registered cast over a caller's term, whose preconditions its facts and bounds prove (prove);
- * a registered cast the lowering writes over a value it computed itself, whose preconditions that value's own interval
- * proves (intervalCastProof), since no caller's type states a fact of it; or the binary coercion that drops a
- * refinement or widens a bound.
- */
-type CastHow =
-	| { readonly kind: "registered"; readonly op: CastOp }
-	| { readonly kind: "computed"; readonly op: CastOp }
-	| { readonly kind: "coercion" }
 
 /**
  * What a Compute.when guard the lowering stands in the branch of establishes of a term there: the term, and the
@@ -2169,7 +1411,7 @@ class Lowering<R extends Refs> {
 		if (params.kind === "none") {
 			throw new Refusal(ruleRefused(at, "a schema predicate reads no parameter"))
 		}
-		const { spec, type } = unwrap(params.lower(param, at))
+		const { spec, type } = unwrapOrRefuse(params.lower(param, at))
 		const entry = this.env.emit(spec)
 		return this.settle(entry, type, entry.type, undefined, [])
 	}
@@ -2179,7 +1421,9 @@ class Lowering<R extends Refs> {
 	 * or any other term (term), whose operands an operation reads.
 	 */
 	whole(desc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
-		return isReference(desc) ? this.emit(unwrap(this.env.leaf(desc, at))) : this.term(desc, at)
+		return isReference(desc)
+			? this.emit(unwrapOrRefuse(this.env.leaf(desc, at)))
+			: this.term(desc, at)
 	}
 
 	/**
@@ -2188,7 +1432,7 @@ class Lowering<R extends Refs> {
 	 * (sha256).
 	 */
 	reference(desc: LeafDesc<R>, at: SourceLoc): Lowered {
-		const leaf = this.emit(unwrap(this.env.leaf(desc, at)))
+		const leaf = this.emit(unwrapOrRefuse(this.env.leaf(desc, at)))
 		return storedOnly(leaf.nominal)
 			? stop(
 					"UnsupportedOperation",
@@ -2346,7 +1590,7 @@ class Lowering<R extends Refs> {
 				return this.param(desc, at)
 			case "literal": {
 				if (desc.type !== undefined) {
-					const t = inferredType(desc.type, (d) => unwrap(this.env.fieldType(d, at)))
+					const t = inferredType(desc.type, (d) => unwrapOrRefuse(this.env.fieldType(d, at)))
 					return this.literal(desc.value, t, at)
 				}
 				return this.bareLiteral(desc.value, at)
@@ -2413,7 +1657,7 @@ class Lowering<R extends Refs> {
 						`${desc.kind}: lowered by its own package, not the Compute catalogue`
 					)
 				}
-				return unwrap(
+				return unwrapOrRefuse(
 					this.env.extension(desc, at, (child) =>
 						catchRefusal(() => this.lower(child, childLoc(at, desc.kind)))
 					)
@@ -2609,7 +1853,7 @@ class Lowering<R extends Refs> {
 				"a pattern of at least one value: the closed relation it reads holds no row, so the match could never be stated"
 			)
 		}
-		return patternTableOf(mapNonEmpty(admitted, (a) => unwrap(matchSourceAt(a, at))))
+		return patternTableOf(mapNonEmpty(admitted, (a) => unwrapOrRefuse(matchSourceAt(a, at))))
 	}
 
 	/**
@@ -3472,9 +2716,9 @@ class Lowering<R extends Refs> {
 		analyze: TextLookup,
 		at: SourceLoc
 	): ScalarType {
-		const pattern = unwrap(analyze(patterns))
+		const pattern = unwrapOrRefuse(analyze(patterns))
 		const language = octets === undefined ? pattern : languageWithin(pattern, octets)
-		return unwrap(
+		return unwrapOrRefuse(
 			this.env.fieldType({ kind: "text", patterns, bytes: languageOctets(language), language }, at)
 		)
 	}
@@ -3548,7 +2792,7 @@ class Lowering<R extends Refs> {
 
 	cast(desc: Extract<ExprDesc<Located, R>, { readonly kind: "cast" }>, at: SourceLoc): Lowered {
 		const arg = this.term(desc.arg, childLoc(at, "cast"))
-		const to = unwrap(this.env.fieldType(desc.to, childLoc(at, "cast", "to")))
+		const to = unwrapOrRefuse(this.env.fieldType(desc.to, childLoc(at, "cast", "to")))
 		return this.castTo(arg, to, childLoc(at, "cast"))
 	}
 
@@ -4322,197 +3566,6 @@ class Lowering<R extends Refs> {
 	}
 }
 
-/** The bounds of an arithmetic result over its operands' bounds: exact interval arithmetic, digits for a quotient. */
-const arithmeticBounds = (
-	fn: "add" | "sub" | "mul" | "div" | "mod",
-	a: Bounds | undefined,
-	b: Bounds | undefined
-): Bounds | undefined => {
-	if (a === undefined || b === undefined) {
-		return undefined
-	}
-	switch (fn) {
-		case "add":
-			return addBounds(a, b)
-		case "sub":
-			return subBounds(a, b)
-		case "mul":
-			return mulBounds(a, b)
-		case "div":
-			return ofDigits(a.digits + b.scale + 1, numericMaxDisplayScale, {
-				infinite: a.low.kind === "infinite" || a.high.kind === "infinite",
-				nan: a.nan || b.nan
-			})
-		case "mod":
-			return ofDigits(Math.min(a.digits, b.digits), Math.max(a.scale, b.scale), {
-				infinite: false,
-				nan: a.nan || b.nan
-			})
-	}
-}
-
-/**
- * A rounding's result at `scale` fractional digits: the operand's digits, and one more where it may carry. A value below
- * one unit at that scale rounds to zero or to the unit itself, so its digits count from the unit's.
- */
-const roundedBounds = (a: Bounds | undefined, carry: number, scale: number): Bounds | undefined =>
-	a === undefined
-		? undefined
-		: ofDigits(Math.max(a.digits, -scale) + carry, scale, {
-				infinite: a.low.kind === "infinite" || a.high.kind === "infinite",
-				nan: a.nan
-			})
-
-/**
- * How a cast moves its operand's value, which every cast proof reads (castBounds, keptFacts): a binary coercion and an
- * exact conversion (an integer, an exact integer or money into a wider carrier, numeric or money, numeric into bare
- * numeric) not at all; a rounding into an integer, money or a numeric typmod's scale by less than one unit at that
- * scale; a float into numeric to its significant digits (cast.ts floatNumericDigits), by up to half a unit in the last
- * of them, which may be many units; and a conversion into a float to the float's precision.
- */
-type Conversion =
-	| { readonly kind: "exact" }
-	| { readonly kind: "rounding"; readonly scale: number }
-	| { readonly kind: "significant"; readonly digits: number }
-	| { readonly kind: "intoFloat" }
-
-/** The fractional digits a rounding conversion into `target` keeps: an integer's none, money's two, a typmod's own. */
-const roundingScale = (target: ScalarType): number => {
-	const t = baseOf(target)
-	switch (t.carrier) {
-		case "money":
-		case "exactMoney":
-			return moneyFractionDigits
-		case "numeric":
-			return t.typmod === undefined ? t.bound.scale : t.typmod.scale
-		case "int2":
-		case "int4":
-		case "int8":
-		case "exactInteger":
-		case "float4":
-		case "float8":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-			return 0
-	}
-}
-
-const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversion => {
-	const target = baseOf(to)
-	if (isFloat(target)) {
-		return { kind: "intoFloat" }
-	}
-	if (how.kind === "coercion") {
-		return { kind: "exact" }
-	}
-	const source = valueType(from).carrier
-	switch (source) {
-		case "float4":
-		case "float8":
-			return target.carrier === "numeric"
-				? { kind: "significant", digits: floatNumericDigits[source] }
-				: { kind: "rounding", scale: roundingScale(to) }
-		case "numeric":
-			return target.carrier === "numeric" && numericTypmodOf(target) === undefined
-				? { kind: "exact" }
-				: { kind: "rounding", scale: roundingScale(to) }
-		case "int2":
-		case "int4":
-		case "int8":
-		case "exactInteger":
-		case "money":
-		case "exactMoney":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-			return { kind: "exact" }
-	}
-}
-
-/**
- * The ends of a cast's result over its operand's finite ends [low, high], as `conversion` moves a value. A rounding is
- * monotone, so an end already at the target's scale is its own image, and another moves by less than one unit there.
- */
-const convertedEnds = (
-	ends: readonly [Exact, Exact],
-	conversion: Exclude<Conversion, { readonly kind: "intoFloat" }>
-): readonly [Exact, Exact] => {
-	const [low, high] = ends
-	switch (conversion.kind) {
-		case "exact":
-			return ends
-		case "rounding": {
-			const unit = exactOf(1n, conversion.scale)
-			const kept = (x: Exact): boolean => scaleOfExact(x) <= conversion.scale
-			return [kept(low) ? low : minus(low, unit), kept(high) ? high : minus(high, negExact(unit))]
-		}
-		case "significant":
-			return [significantRound(low, conversion.digits), significantRound(high, conversion.digits)]
-	}
-}
-
-/**
- * A cast's result bounds: the target type's, cut to the operand's interval as its conversion moves it; an operand with
- * an infinite edge (a float), which has no finite interval, keeps its own integer and fraction digits within the
- * target's, a conversion moving no magnitude past them; a conversion into a float keeps its target's.
- */
-const castBounds = (a: Bounds, conversion: Conversion, to: ScalarType): Bounds | undefined => {
-	const target = boundsOfType(to)
-	if (target === undefined || conversion.kind === "intoFloat") {
-		return target
-	}
-	const ends = finiteEnds(a)
-	if (ends === undefined) {
-		return ofDigits(Math.min(a.digits, target.digits), Math.min(a.scale, target.scale), {
-			infinite: isInfinite(a) && isInfinite(target),
-			nan: a.nan && target.nan
-		})
-	}
-	const [low, high] = convertedEnds(ends, conversion)
-	return refine(target, { kind: "within", low, high })
-}
-
-/** Whether bounds admit an infinity: an edge of theirs is infinite. */
-const isInfinite = (b: Bounds): boolean => b.low.kind === "infinite" || b.high.kind === "infinite"
-
-/**
- * The facts a negation keeps of its operand's, each from its source: -x is finite where x is, and zero only where x is;
- * x never below zero makes -x never above it, which no fact states, so that one is not kept.
- */
-const negationFacts = (facts: FactSet): FactSet => {
-	const { nonnegative: _flipped, ...kept } = facts
-	return Object.freeze(kept)
-}
-
-/**
- * The facts a cast keeps: one that moves no value keeps every one; one that rounds keeps all but nonzero, which
- * rounding toward zero loses; a conversion into a float keeps none.
- */
-const keptFacts = (arg: Lowered, conversion: Conversion, to: ScalarType): FactSet => {
-	if (conversion.kind === "intoFloat") {
-		return noFacts
-	}
-	const { nonzero: _lost, ...rest } = arg.facts
-	return Object.freeze({ ...(conversion.kind === "exact" ? arg.facts : rest), ...factsOfType(to) })
-}
-
 /** The range a value must lie in to fit `target`, a narrower integer, money or a typmod, once a cast rounds it. */
 export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefined => {
 	const t = baseOf(target)
@@ -4662,30 +3715,6 @@ const powerRangePremises = (
 }
 
 /**
- * An upper bound on log10 x^y over a base interval [bLow, bHigh] never below zero and an exponent interval [eLow, eHigh],
- * where it is above zero: a result below 1 is an underflow at worst, which PostgreSQL rounds to zero without raising.
- * It grows past 1 only by the largest x raised to the largest positive y, x < 10^d for d the integer digits of the
- * interval's ends, or by the least x raised to the most negative y, x at least 10^-s for s the fractional digits of a
- * low end above zero. Over a low end of zero a negative exponent's result has no bound: Infinity.
- */
-const powerWeight = (bLow: Exact, bHigh: Exact, eLow: Exact, eHigh: Exact): number => {
-	const up = Math.max(digitsOfExact(bLow), digitsOfExact(bHigh))
-	const rising = compareExact(eHigh, zero) > 0 ? weightOf(magnitudeAtLeast(eHigh), up) : 0
-	if (compareExact(eLow, zero) >= 0 || compareExact(bLow, oneExact) >= 0) {
-		return rising
-	}
-	const falling =
-		compareExact(bLow, zero) > 0
-			? weightOf(magnitudeAtLeast(eLow), scaleOfExact(bLow))
-			: Number.POSITIVE_INFINITY
-	return Math.max(rising, falling)
-}
-
-/** An exponent's magnitude times a base's digits: zero where either is zero, so an infinite exponent over no digit adds none. */
-const weightOf = (exponent: number, digits: number): number =>
-	exponent === 0 || digits === 0 ? 0 : exponent * digits
-
-/**
  * Whether power over these intervals stays inside its result carrier, as powerRangePremises states. Over double precision
  * a zero exponent or a base exactly zero, each decided on its digits; or a base interval clear of zero whose result's
  * binary exponent, |e · log2 |b||, is at most binary64's greatest over every end of the intervals, so the result is
@@ -4784,84 +3813,6 @@ export const bucketInRange = (
 	(compareExact(lowHigh, highLow) < 0 || compareExact(highHigh, lowLow) < 0) &&
 	insideRange(countLow, countHigh, exactOf(1n, 0), exactOf(BigInt(int4Max) - 1n, 0))
 
-/** A Compute.when guard whose test compares its subject's value with constants alone (constantGuardTests). */
-export type ConstantGuard = "nonzero" | "nonnegative" | "positive" | "finite"
-
-/** Each constant guard's builder, as its diagnostics name it. */
-export const constantGuardNames: { readonly [G in ConstantGuard]: string } = {
-	nonzero: "Compute.nonzero",
-	nonnegative: "Compute.nonnegative",
-	positive: "Compute.positive",
-	finite: "Compute.isFinite"
-}
-
-/** Zero of a number's carrier; none of another carrier, whose values a sign guard compares with no zero. */
-const zeroOf = (carrier: Carrier): LiteralDesc | undefined => {
-	switch (carrier) {
-		case "int8":
-		case "exactInteger":
-			return 0n
-		case "numeric":
-			return Decimal.zero
-		case "money":
-		case "exactMoney":
-			return Money.zero
-		case "int2":
-		case "int4":
-		case "float4":
-		case "float8":
-			return 0
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-			return undefined
-	}
-}
-
-/** The negative and the positive infinity of a numeric's or a float's carrier; none of another, finite by its type. */
-const infinitiesOf = (carrier: Carrier): readonly [LiteralDesc, LiteralDesc] | undefined =>
-	carrier === "numeric"
-		? [Decimal.negativeInfinity, Decimal.infinity]
-		: carrier === "float4" || carrier === "float8"
-			? [{ float: "-Infinity" }, { float: "Infinity" }]
-			: undefined
-
-/**
- * The comparisons a constant guard tests its subject's value by, each with its constant, a value of the subject's value
- * carrier: `<> 0`, `>= 0` and `> 0` of a number, `> -Infinity AND < Infinity` of a numeric or a float; or the refusal
- * of a subject of another carrier. What a guard's builder records (builders.ts factGuard) and what a Compute.when's
- * lowering tests (Lowering.guardPredicate), one table.
- */
-export const constantGuardTests = (
-	guard: ConstantGuard,
-	value: ScalarType
-): Result.Result<NonEmptyReadonlyArray<readonly [CompareOp, LiteralDesc]>, string> => {
-	if (guard === "finite") {
-		const infinities = infinitiesOf(value.carrier)
-		return infinities === undefined
-			? Result.err(
-					`Compute.isFinite over a numeric or float term, not ${typeLabel(value)}, which is finite by its type`
-				)
-			: Result.ok([
-					["gt", infinities[0]],
-					["lt", infinities[1]]
-				])
-	}
-	const constant = zeroOf(value.carrier)
-	const op = guard === "nonzero" ? "ne" : guard === "nonnegative" ? "ge" : "gt"
-	return constant === undefined
-		? Result.err(`${constantGuardNames[guard]} over a number, not ${typeLabel(value)}`)
-		: Result.ok([[op, constant]])
-}
-
 /** How a value's refinement is checked before any SQL, where it is: a literal at compile time, a parameter at bind. */
 const checkedKind = (e: ScalarExpr): "literal" | "parameter" | undefined =>
 	e.kind === "literal" ? "literal" : e.kind === "param" ? "parameter" : undefined
@@ -4911,51 +3862,6 @@ const sameExpr = (a: ScalarExpr, b: ScalarExpr): boolean => {
 			return b.kind === "closedHas" && a.relation === b.relation
 	}
 }
-
-/**
- * Same carrier, numeric typmod, computed numeric bound, exact digit bound, contract name and regex refinement: every
- * field a conversion changes.
- */
-const sameShape = (a: ScalarType, b: ScalarType): boolean => {
-	if (a.carrier !== b.carrier) {
-		return false
-	}
-	const ta = numericTypmodOf(a)
-	const tb = numericTypmodOf(b)
-	if (ta?.precision !== tb?.precision || ta?.scale !== tb?.scale) {
-		return false
-	}
-	const ba = numericBoundOf(a)
-	const bb = numericBoundOf(b)
-	if (ba?.digits !== bb?.digits || ba?.scale !== bb?.scale) {
-		return false
-	}
-	if (familyDigits(a) !== familyDigits(b)) {
-		return false
-	}
-	if (contractOf(a)?.name !== contractOf(b)?.name) {
-		return false
-	}
-	return sameRegex(textOf(a)?.regex, textOf(b)?.regex)
-}
-
-/** Whether a value already carries the refinement a cast target names: the same contract, or the same regex. */
-const sameRefinement = (a: ScalarType, to: ScalarType): boolean => {
-	const contract = contractOf(to)
-	if (contract !== undefined) {
-		return contractOf(a)?.name === contract.name && meets(a, to)
-	}
-	return sameShape(a, to)
-}
-
-const compatibleCore = (a: ScalarType, b: ScalarType): boolean => meets(valueType(a), valueType(b))
-
-/**
- * Whether a description is a bare reference: a variable, a row's field, a contract's VALUE or a parent's column, the
- * leaf kinds, which no other arm of a description holds.
- */
-const isReference = <R extends Refs>(desc: ExprDesc<Located, R>): desc is LeafDesc<R> =>
-	desc.kind === "var" || desc.kind === "field" || desc.kind === "value" || desc.kind === "parent"
 
 /** A description read past its guarded nodes: the term a Compute.when branch's parameter is (ir/desc.ts GuardedDesc). */
 const unguarded = <R extends Refs>(desc: ExprDesc<Located, R>): ExprDesc<Located, R> =>

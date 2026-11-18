@@ -10,7 +10,7 @@ import type * as Result from "#compiler/core/result.ts"
 import { LabelSupply } from "#compiler/ir/dag.ts"
 import { type ExprDesc, expandRetirable } from "#compiler/ir/desc.ts"
 import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
-import { admittedReads } from "#compiler/scalar/compute/lower.ts"
+import { admittedReads } from "#compiler/scalar/compute/typing.ts"
 import type { Owned, OwnedStatement } from "#compiler/schema/own.ts"
 import { exprPatternReads } from "#compiler/schema/walk.ts"
 

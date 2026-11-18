@@ -15,12 +15,8 @@ import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { type CombineFn, combine, type MonoidSpec } from "#compiler/ir/monoid.ts"
 import { type ScalarType, sameEnteredType, typeLabel, enteredType } from "#compiler/ir/scalar.ts"
-import {
-	exprEmitter,
-	lowerPredicate,
-	noClosedRelations,
-	noParams
-} from "#compiler/scalar/compute/lower.ts"
+import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
+import { noClosedRelations, noParams } from "#compiler/scalar/compute/typing.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 

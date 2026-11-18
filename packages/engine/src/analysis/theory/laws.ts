@@ -118,13 +118,8 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
-import {
-	admittedReads,
-	type LowerEnv,
-	lowerPredicate,
-	lowerTerm,
-	noParams
-} from "#compiler/scalar/compute/lower.ts"
+import { type LowerEnv, lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
+import { admittedReads, noParams } from "#compiler/scalar/compute/typing.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"

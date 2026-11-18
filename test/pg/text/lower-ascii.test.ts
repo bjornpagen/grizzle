@@ -26,7 +26,7 @@
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { translateMaxBytes } from "#compiler/scalar/compute/lower.ts"
+import { translateMaxBytes } from "#compiler/scalar/compute/typing.ts"
 import {
 	asciiCapitals,
 	asciiFolded,

@@ -77,8 +77,8 @@ import {
 	type ScalarType,
 	spanOf
 } from "#compiler/ir/scalar.ts"
-import type { ClosedRelations } from "#compiler/scalar/compute/lower.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+import type { ClosedRelations } from "#compiler/scalar/compute/typing.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
 	contractInfoOf,

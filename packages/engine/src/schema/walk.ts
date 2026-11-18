@@ -14,7 +14,7 @@ import {
 	type RuleDesc,
 	type SourceDesc
 } from "#compiler/ir/desc.ts"
-import { type PayloadReads, patternParts } from "#compiler/scalar/compute/lower.ts"
+import { type PayloadReads, patternParts } from "#compiler/scalar/compute/typing.ts"
 
 interface QueryUses {
 	/** The stored, closed, derived and world relations the query reads, by name. */
@@ -299,7 +299,7 @@ export const approximates = (q: QueryDesc): boolean => stageApproximates(q.stage
 export const attachesHeading = (q: QueryDesc): boolean => stageAttaches(q.stage)
 
 /**
- * The payload fields the Compute.matches patterns of `exprs` read (scalar/compute/lower.ts PayloadReads): a lowering batch's, over the
+ * The payload fields the Compute.matches patterns of `exprs` read (scalar/compute/typing.ts PayloadReads): a lowering batch's, over the
  * expressions it lowers.
  */
 export const exprPatternReads = (exprs: Iterable<ExprDesc>): PayloadReads => {
@@ -312,7 +312,7 @@ export const exprPatternReads = (exprs: Iterable<ExprDesc>): PayloadReads => {
 
 /**
  * The payload fields the Compute.matches patterns of `queries` read, through every rule, import, negation and
- * attachment of each (scalar/compute/lower.ts PayloadReads): a checked program's batch.
+ * attachment of each (scalar/compute/typing.ts PayloadReads): a checked program's batch.
  */
 export const queryPatternReads = (queries: Iterable<InferredQuery>): PayloadReads => {
 	const c = new Collector()
