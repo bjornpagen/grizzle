@@ -746,18 +746,18 @@ const triggeredGen: Gen<Case> = (s) => {
 }
 
 /**
- * The monotonicity property's exemption (newlyFenced; the module's header) and its bound, built. L0's r0 inserts A
- * beside reading D's absence and inserts D; L1's r2 inserts C, which references B, joined with a read of B. L0's r1
- * inserts B, and reads A one of two ways. The extension adds a role of L0 that deletes A, so L0 both deletes and
- * inserts A and fences it. Before the extension r1 runs SERIALIZABLE.
+ * A pivot's fence, and its bound, built. L0's r0 inserts A beside reading D's absence and inserts D, so it runs
+ * SERIALIZABLE and may miss another call's write; L1's r2 inserts C, which references B, joined with a read of B. L0's
+ * r1 inserts B, and reads A one of two ways. The extension adds a role of L0 that deletes A, so L0 both deletes and
+ * inserts A.
  *
- * - `check` (the newlyFenced shape): B references A, so r1 reads A by its insert's foreign key check. That check
- *   becomes a fenced check, and r1 certifies READ COMMITTED, the relaxation the exemption allows. This is
- *   TEST_SEED=3958976376's rotating case 421, shrunk (8acf7cdf), which the drawn stream reached about once in 30
- *   seeds.
+ * - `check` (the newlyFenced shape): B references A, so r1 reads A by its insert's foreign key check, a point, sealed.
+ *   L0 fences A for r1 as r0's login, and r1 runs READ COMMITTED before the extension and after it, its check then
+ *   fenced: no level rests on a fence (the monotonicity property). Before pivots fenced, this was the one relaxation
+ *   the monotonicity property let through, TEST_SEED=3958976376's rotating case 421, shrunk (8acf7cdf).
  * - `plain` (the newlyFencedRead shape): B references nothing; r1 reads A at its key in a member of its own, which
  *   writes nothing, so the read, unsealed once A is deleted, meets no condition of r1's own, and inserts B in another.
- *   A fence covers a fenced check alone, so r1 relies on no fence (Fence.for leaves it out) and keeps 5c's reason
+ *   A fence covers a sealed check alone, so r1 relies on no fence (Fence.for leaves it out) and keeps 5c's reason
  *   against r0: it stays SERIALIZABLE. A 5c that spared any read of a fenced relation would relax it, unsoundly.
  *
  * The relations A to D are placed by a drawn permutation.
@@ -902,7 +902,9 @@ const listReader: Sketch = {
 
 /**
  * W as in the lagging reader; C inserts into C's relation, whose foreign key references A, reading nothing else: its
- * check misses m1's A(k) in flight and refuses, after m2 committed (NEGATION's case 3).
+ * check misses m1's A(k) in flight and refuses, after m2 committed (NEGATION's case 3). W's login fences A, so m1 locks
+ * it before its snapshot: C's check either committed before m1's lock, and m1's snapshot then sees m2, which committed
+ * before C began, or takes its snapshot after m1 committed and finds A(k). C runs READ COMMITTED, W SERIALIZABLE.
  */
 const refusedCopy: Sketch = {
 	relations: [
@@ -1572,11 +1574,11 @@ const loweredOf = (other: boolean): Sketch => ({
 
 /**
  * The publication layer: r0 inserts Q where B's key is absent and inserts B, so it runs SERIALIZABLE and may miss
- * another call's write; r1 publishes, inserting into P, whose foreign key references Q's key, so its check of Q is an
- * outside read 5c weighs against r0 and it runs SERIALIZABLE; r2 inserts into L, referencing P's key, and reads P at
- * its key. r1's own check of Q, sealed, finds an immutable row, so r1 is no pivot cause and r2 runs READ COMMITTED; r1
- * forced READ COMMITTED would see r0's in-flight row of Q refused while r0 commits, which no serial order in real time
- * explains.
+ * another call's write; r1 publishes, inserting into P, whose foreign key references Q's key, so its check of Q is a
+ * sealed check, which r0's login fences as a pivot's; r2 inserts into L, referencing P's key, and reads P at its key.
+ * r1's own check of Q, sealed, finds an immutable row, so r1 is no pivot cause, and r1 and r2 run READ COMMITTED;
+ * without the fence, r1 at READ COMMITTED would see r0's in-flight row of Q refused while r0 commits, which no serial
+ * order in real time explains.
  */
 const publication: Sketch = {
 	relations: [
@@ -1713,10 +1715,10 @@ const fencedPublisher = (s: Source): Sketch => {
 }
 
 /**
- * NEGATION's case 3 beside a fence: r1's login fences R(a), deleting and inserting it by its privileges, but r3, of the
- * other login, inserts R(a) where it reads R(c) absent, so it may miss another call's write and fences nothing. r0's
- * fenced check of R(a) can miss r3's row in flight and refuse r0, which no serial order in real time explains once r3's
- * read missed a write committed before r0 began: 5c weighs r3 against it, and r0 runs SERIALIZABLE.
+ * NEGATION's case 3 beside a fence: r1's login fences R(a), deleting and inserting it by its privileges, and r3, of the
+ * other login, inserts R(a) where it reads R(c) absent, so it may miss another call's write. r0's fenced check of R(a)
+ * could miss r3's row in flight and refuse r0, which no serial order in real time explains once r3's read missed a
+ * write committed before r0 began, so r3's login fences R(a) too: r0 runs READ COMMITTED with a fence of each login.
  */
 const unfencedPivot = (s: Source): Sketch => {
 	const [a, b, c] = threeOf(s)
@@ -1885,7 +1887,9 @@ const monotoneShapes: Arr.NonEmptyReadonlyArray<MonotoneShape> = [
  * DENSEATS's repro over R0 (R), R1 (E) and R2, which no role writes (a closed relation's place): the rule over a query
  * whose one witness reads one row of R and of R2 and the absence of E (`Live = R where not E`, `check(Live, n <
  * C.at(...))`), which r0 breaks by inserting R. As the writer, r0 inserts R and E and runs READ COMMITTED: its insert of
- * E only withdraws violations; as the cure, it inserts E alone, which fires no probe, and runs READ COMMITTED too. Each
+ * E only withdraws violations; and r1 inserts R3, whose foreign key references R, so it checks what r0 writes, which no
+ * login fences: r0's trigger-held law would make it a pivot were it SERIALIZABLE, and at READ COMMITTED it is none. As
+ * the cure, r0 inserts E alone, which fires no probe, and runs READ COMMITTED too. Each
  * other shape adds one more occurrence some write can make true, and r0 runs
  * SERIALIZABLE by laws: r1 deletes E (the deleted), the witness reads two rows of R (the self-join), r0 inserts E where
  * the witness reads its rows present (the present), or E is a retirable unit's body, which its retirement deletes (the
@@ -1943,13 +1947,24 @@ const monotoneOf = (shape: MonotoneShape): Sketch => {
 							members: [[{ writes: [insertOf(1, [])], reads: [], probes: [], cores: [] }]]
 						}
 					]
-				: []
+				: shape === "monotoneWriter"
+					? [
+							{
+								login: 1,
+								serializable: [],
+								privileges: [{ relation: 3, privilege: "INSERT" }],
+								members: [[{ writes: [insertOf(3, [])], reads: [], probes: [], cores: [] }]]
+							}
+						]
+					: []
 	return {
 		relations: [
 			{ ...clean([0]), triggerLaws: [law] },
 			{ ...clean([0]), retirable: shape === "monotoneRetired" },
 			clean([0]),
-			clean([0])
+			shape === "monotoneWriter"
+				? { ...clean([0]), references: [{ relation: 0, key: 0, onUpdate: "noAction" }] }
+				: clean([0])
 		],
 		roles: [writer, ...other]
 	}
@@ -2272,7 +2287,7 @@ export const relationsOf = (
 				countedGroups: Arr.map(r.counted, keyOf),
 				references: Arr.map(r.references, (ref) => ({
 					relation: relationName(ref.relation),
-					fields: keyOf(ref.key),
+					columns: keyOf(ref.key),
 					onUpdate: ref.onUpdate
 				})),
 				inserts: insertsOf(r),
@@ -2349,8 +2364,9 @@ const fenceOrder: Order.Order<Fence> = Order.combine(
 )
 
 /**
- * The fences the oracle expects at its fixpoint: for each relation a role it leaves READ COMMITTED checks by a held or
- * fenced check, one fence of each login that deletes it, naming those roles in their order, by login then relation.
+ * The fences the oracle expects at its fixpoint: for each relation a role it leaves READ COMMITTED checks by a sealed
+ * check, one fence of each login that fences it (each that deletes it, and each of a lowered role that may miss
+ * another call's write and writes it), naming those roles in their order, by login then relation.
  */
 export const expectedFences = (
 	sketch: Sketch,
@@ -2496,57 +2512,13 @@ export const givesFirstMember = (sketch: Sketch, e: Extension): boolean => {
  * login that did not fence it before (Fence; `lowered`, the roles the case's certification lowered): an extension that
  * makes a login newly fence a relation may relax such a reader (the module's header).
  */
-export const newlyFenced = (c: Case, lowered: ReadonlySet<number>): ReadonlySet<string> => {
-	const sketch = extended(c.sketch, c.extension)
-	const before = oracleRound(c.sketch, lowered)
-	const certified = certifiedOf(sketch, inputOf(sketch).relations)
-	const fences = certified.ok ? certified.value.fences : []
-	return new Set(
-		Arr.flatMap(fences, (f) => {
-			const relation = Arr.findFirstIndex(
-				c.sketch.relations,
-				(_, r) => relationName(r) === f.relation
-			)
-			const was = Option.match(relation, {
-				onNone: () => false,
-				onSome: (r) => Arr.some(before.fencers(r), (login) => `L${login}` === f.login)
-			})
-			return was ? [] : Arr.map(f.for, (r) => r.role)
-		})
+/** Whether some fence is of a relation no role deletes, a fence only a pivot's login holds (fencesOf). */
+export const fencesUndeleted = (sketch: Sketch, fences: ReadonlyArray<Fence>): boolean =>
+	Arr.some(fences, (f) =>
+		Arr.some(sketch.relations, (_, r) => relationName(r) === f.relation && !deletedIn(sketch, r))
 	)
-}
 
 /** The certificates after a case's extension: a dropped fact leaves its relation out of the facts. */
-/**
- * The roles of `c` that read, by a statement's own read, a relation its extension makes a login fence that did not
- * fence it before (the oracle's fencers before the extension, at the round the case settled, and after it, at the
- * extended sketch's): a fence covers a fenced check alone, so such a reader relying on no fence keeps every reason 5c
- * gives it, and the monotonicity property holds it SERIALIZABLE (the module's header).
- */
-export const plainReadersOfNewFences = (
-	c: Case,
-	lowered: ReadonlySet<number>
-): ReadonlySet<string> => {
-	const sketch = extended(c.sketch, c.extension)
-	const before = oracleRound(c.sketch, lowered)
-	const after = oracleRound(sketch, oracle(sketch).lowered)
-	const fresh = new Set(
-		Arr.filter(
-			Arr.makeBy(RELATIONS, (x) => x),
-			(x) => Arr.some(after.fencers(x), (login) => !before.fencers(x).includes(login))
-		)
-	)
-	return new Set(
-		Arr.flatMap(c.sketch.roles, (role, i) =>
-			Arr.some(role.members, (statements) =>
-				Arr.some(statements, (st) => Arr.some(st.reads, (r) => fresh.has(r.relation)))
-			)
-				? [`r${i}`]
-				: []
-		)
-	)
-}
-
 export const afterOf = (c: Case): ReadonlyArray<RoleIsolation> => {
 	const sketch = extended(c.sketch, c.extension)
 	const relations = inputOf(sketch).relations
@@ -2923,48 +2895,50 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 				c.side === "referenced" && !fencedSite(login, c) ? [c.relation] : []
 			)
 		])
-	/** Whether a check's seal is a held or a fenced one's, of a relation no role updates (a point's never meets a fence). */
-	const locked = (c: OracleCheck) =>
-		c.seal === "fenced" || (c.seal === "sealed" && changes(c.relation))
-	/** The relations role i reads from outside by held or fenced checks alone, none by a statement, a probe of its writes
-	 * or another check. */
-	const lockedOnly = (i: number): ReadonlySet<number> => {
-		const role = Arr.getUnsafe(roles, i)
-		const checks = Arr.flatMap(role.members, (statements) =>
-			Arr.filter(checksOf(statements), (c) => isOutside(c.seal))
-		)
-		const others = new Set([
-			...probedBy(i),
-			...Arr.flatMap(role.members, (statements) =>
-				Arr.flatMap(placedOf(statements), (placed) =>
-					Arr.flatMap(placed, (p) => (isOutside(p.seal) ? [p.read.relation] : []))
-				)
-			),
-			...Arr.flatMap(checks, (c) => (locked(c) ? [] : [c.relation]))
-		])
-		return new Set(
-			Arr.flatMap(checks, (c) => (locked(c) && !others.has(c.relation) ? [c.relation] : []))
-		)
-	}
-	/** The relations role i's READ COMMITTED members check by a held or fenced check. */
+	/** Whether a check's seal is a sealed one's, a point's, a held one's or a fenced one's: of a relation no role updates,
+	 * at a whole key, which every login whose writes could meet it out of order fences. */
+	const locked = (c: OracleCheck) => c.seal === "fenced" || c.seal === "sealed"
+	/** The relations role i's READ COMMITTED members check by a sealed check. */
 	const lockedChecks = (i: number): ReadonlySet<number> =>
 		new Set(
 			Arr.flatMap(Arr.getUnsafe(roles, i).members, (statements) =>
 				Arr.flatMap(checksOf(statements), (c) => (locked(c) ? [c.relation] : []))
 			)
 		)
-	/** The logins that fence the relation, each once. */
+	/** Whether role o, served the forms of its round, may miss another call's write: an outside read of a statement, a
+	 * check of referencing rows or an unsealed one, or a write of a relation a rule over a query reads. */
+	const pivot = (o: number): boolean =>
+		Arr.some(formsOf(o), (statements) =>
+			Arr.some(placedOf(statements), (placed) => Arr.some(placed, (p) => isOutside(p.seal)))
+		) ||
+		Arr.some(formsOf(o), (statements) =>
+			Arr.some(
+				checksOf(statements),
+				(c) => isOutside(c.seal) && (c.side === "referenced" || c.seal === "unsealed")
+			)
+		) ||
+		Arr.some([...writtenSet(o)], (x) => lawsOver(relations, x).length > 0)
+	/** The logins that fence the relation, each once: each whose roles delete it, no role updating it, and each of a
+	 * lowered role that may miss another call's write and writes it but by a retirement alone. */
 	const fencers = (relation: number): ReadonlyArray<number> =>
-		Arr.filter([...new Set(Arr.map(roles, (r) => r.login))], (login) => fences(login, relation))
-	/** The relations role i reads from outside: by a statement, a check, or a probe of its writes. */
-	const outsideReads = (i: number): ReadonlySet<number> =>
+		Arr.filter(
+			[...new Set(Arr.map(roles, (r) => r.login))],
+			(login) =>
+				fences(login, relation) ||
+				Arr.some(
+					[...lowered],
+					(o) => Arr.getUnsafe(roles, o).login === login && pivot(o) && guardedSet(o).has(relation)
+				)
+		)
+	/** The relations role i reads from outside by a read no fence orders: by a statement or a probe of its writes; a
+	 * sealed check is fenced, and an unsealed one fails the pivot condition itself. */
+	const unfencedReads = (i: number): ReadonlySet<number> =>
 		new Set([
-			...Arr.flatMap(Arr.getUnsafe(roles, i).members, (statements) => [
-				...Arr.flatMap(placedOf(statements), (placed) =>
+			...Arr.flatMap(Arr.getUnsafe(roles, i).members, (statements) =>
+				Arr.flatMap(placedOf(statements), (placed) =>
 					Arr.flatMap(placed, (p) => (isOutside(p.seal) ? [p.read.relation] : []))
-				),
-				...Arr.flatMap(checksOf(statements), (c) => (isOutside(c.seal) ? [c.relation] : []))
-			]),
+				)
+			),
 			...probedBy(i)
 		])
 	const own = (i: number): ReadonlySet<IsolationCondition> => {
@@ -3050,8 +3024,7 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 	}
 	const given = (judges: ReadonlySet<number>, i: number): ReadonlySet<IsolationCondition> => {
 		const written = writtenSet(i)
-		const reads = outsideReads(i)
-		const lockedReads = lockedOnly(i)
+		const reads = unfencedReads(i)
 		const out = new Set<IsolationCondition>()
 		for (const o of Arr.filter([...judges], (x) => x !== i)) {
 			const login = Arr.getUnsafe(roles, o).login
@@ -3065,22 +3038,8 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 			) {
 				out.add("laws")
 			}
-			const shared = Arr.some(
-				[...guardedSet(o)],
-				(x) => reads.has(x) && !(lockedReads.has(x) && fences(login, x))
-			)
-			const pivot =
-				Arr.some(formsOf(o), (statements) =>
-					Arr.some(placedOf(statements), (placed) => Arr.some(placed, (p) => isOutside(p.seal)))
-				) ||
-				Arr.some(formsOf(o), (statements) =>
-					Arr.some(
-						checksOf(statements),
-						(c) => isOutside(c.seal) && (c.side === "referenced" || c.seal === "unsealed")
-					)
-				) ||
-				Arr.some([...writtenSet(o)], (x) => lawsOver(relations, x).length > 0)
-			if ((shared && pivot) || Arr.some([...guardedSet(o)], (x) => written.has(x))) {
+			const shared = Arr.some([...guardedSet(o)], (x) => reads.has(x))
+			if ((shared && pivot(o)) || Arr.some([...guardedSet(o)], (x) => written.has(x))) {
 				out.add("writers")
 			}
 		}
@@ -3212,8 +3171,7 @@ export type IsolationFeature =
 	| "a held foreign key check beside a READ COMMITTED role"
 	| "a check of a relation one login deletes and inserts"
 	| "a fence a READ COMMITTED role relies on"
-	| "a reader relaxed by a fence its extension makes"
-	| "a plain reader of a relation its extension newly fences, kept SERIALIZABLE"
+	| "a fence of a relation no role deletes"
 	| "a check of the rows that reference a changed one"
 	| "a retirement"
 	| "an update carried by a cascading foreign key"
@@ -3302,12 +3260,11 @@ export const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 ]
 
 /**
- * The fixed shape each required situation a shape reaches is aimed at: each shape's own, and the exemption of a reader
- * its extension's new fence relaxes, newlyFenced's.
+ * The fixed shape each required situation a shape reaches is aimed at: each shape's own, and a pivot's fence,
+ * refusedCopy's.
  */
 export const shapeAims: ReadonlyArray<readonly [IsolationFeature, Exclude<Shape, "drawn">]> = [
-	["a reader relaxed by a fence its extension makes", "newlyFenced"],
-	["a plain reader of a relation its extension newly fences, kept SERIALIZABLE", "newlyFencedRead"],
+	["a fence of a relation no role deletes", "refusedCopy"],
 	...Arr.map(shapes, (shape) => [`the ${shape}`, shape] as const)
 ]
 
@@ -3338,7 +3295,6 @@ export const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 	switch (shape) {
 		case "copiers":
 		case "pointCopiers":
-		case "publication":
 		case "servedCause":
 		case "servedAbsence":
 			return [0, 1]
@@ -3354,8 +3310,10 @@ export const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 			return [1]
 		case "laggingReader":
 		case "listReader":
-		case "refusedCopy":
 			return [0, 1]
+		case "publication":
+		case "refusedCopy":
+			return [0]
 		case "deferredCopy":
 		case "lateWriter":
 		case "sharedWriter":
@@ -3376,9 +3334,9 @@ export const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "arbiterPath":
 			return [0, 1]
 		case "cascadedWriter":
+		case "newlyFencedRead":
 			return [1]
 		case "updatedCheck":
-		case "unfencedPivot":
 		case "updatedDeleter":
 		case "monotoneDeleted":
 		case "monotoneSelfJoin":
@@ -3400,22 +3358,83 @@ export const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "fencedCheck":
 		case "fencedPublisher":
 		case "fencedDeleter":
+		case "unfencedPivot":
 		case "monotoneWriter":
 		case "monotoneCure":
 		case "newlyFenced":
-		case "newlyFencedRead":
 			return []
 	}
 }
 
 /** The roles a shape the certifier must prove runs READ COMMITTED: a key-matched read of a race's winner, a repeatable
- * insertion's probed key, the monotone writer and the cure. */
-export const certifiedRoles = (shape: Shape): ReadonlyArray<number> =>
-	shape === "keyMatched" || shape === "repeatableOtherKey"
-		? [0, 1]
-		: shape === "monotoneWriter" || shape === "monotoneCure"
-			? [0]
-			: []
+ * insertion's probed key, the monotone writer and the cure, and the checks a pivot's login fences. */
+export const certifiedRoles = (shape: Shape): ReadonlyArray<number> => {
+	switch (shape) {
+		case "keyMatched":
+		case "repeatableOtherKey":
+		case "monotoneWriter":
+			return [0, 1]
+		case "monotoneCure":
+		case "unfencedPivot":
+			return [0]
+		case "refusedCopy":
+		case "newlyFenced":
+			return [1]
+		case "publication":
+			return [1, 2]
+		case "drawn":
+		case "copiers":
+		case "pointCopiers":
+		case "absentThenInsert":
+		case "chain":
+		case "seals":
+		case "pivotWriter":
+		case "laggingReader":
+		case "listReader":
+		case "deferredCopy":
+		case "lateWriter":
+		case "cascadedWriter":
+		case "sharedWriter":
+		case "protocolSealed":
+		case "protocolUnsealed":
+		case "absentGate":
+		case "arbitratedRead":
+		case "arbitratedGated":
+		case "keyUnmatched":
+		case "keyPartial":
+		case "raceOtherKey":
+		case "fallbackUnion":
+		case "fallbackCount":
+		case "unjoinedGate":
+		case "chainedPath":
+		case "unionSealed":
+		case "unionOtherKey":
+		case "unionOtherRelation":
+		case "unionRecursion":
+		case "arbiterPath":
+		case "servedCause":
+		case "servedUpdate":
+		case "servedAbsence":
+		case "servedOwn":
+		case "loweredAbsence":
+		case "loweredCause":
+		case "triggered":
+		case "droppedReference":
+		case "heldCheck":
+		case "fencedCheck":
+		case "updatedCheck":
+		case "fencedPublisher":
+		case "fencedDeleter":
+		case "updatedDeleter":
+		case "monotoneDeleted":
+		case "monotoneSelfJoin":
+		case "monotonePresent":
+		case "monotoneRetired":
+		case "monotoneProbed":
+		case "newlyFencedRead":
+			return []
+	}
+}
 
 /** The query CTE instances a drawn statement holds, at most. */
 const INSTANCES = 3

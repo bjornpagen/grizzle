@@ -3666,16 +3666,18 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   of other calls' rows are in one
   statement, beside no foreign key check that reads more of them, and each row it writes is joined with what it read,
   so a call that finds nothing writes nothing. Each foreign key check it makes finds an immutable row in the same way,
-  or a row of a relation no role updates, which the check locks until the call commits, or refuses the call whole. A
+  or a row of a relation no role updates, which the check locks until the call commits, or refuses the call whole: by
+  a whole key PostgreSQL enforces, a key over the columns a law adds among them, as an `alternatives` arm's way back to
+  its relation or a family's slot is. A
   row the call inserted, read back in a later statement by the key it was inserted at, is its own, when no statement
   up to the insert read other calls' rows.
 - **No SERIALIZABLE role writes what it writes.** The table's guard would refuse every one of its writes.
 - **No SERIALIZABLE writer of what it reads can miss another call's write.** Every role that runs SERIALIZABLE and
-  writes a relation the role reads (by a statement, a foreign key check, or the judge of a rule over a query its
-  write arms) reads no row another call can write, makes
-  no foreign key check but one that finds an immutable row (of a relation every role only inserts into, by a whole
-  declared key, or of a relation no role writes), and writes no relation a rule over a query reads, unless the role
-  reads the relation by foreign key checks alone and the writer's login fences it (below).
+  writes a relation the role reads (by a statement, or the judge of a rule over a query its write arms) reads no row
+  another call can write, makes no foreign key check but one that finds an immutable row (of a relation every role only
+  inserts into, by a whole declared key, or of a relation no role writes), and writes no relation a rule over a query
+  reads. A foreign key check of the role's is no such read: a writer that may miss another call's write fences the
+  relation it checks (below).
 
 **Reading generate's report.** generate prints one line per role, before the files it writes:
 
@@ -3697,7 +3699,7 @@ A SERIALIZABLE role lists each condition it failed, with how many places fail it
 | `absence`    | a ChangeSet that reads whether rows of a relation it writes are missing, or counts them, or a check of grizzle's own over rows no whole immutable group of its statement brings |
 | `snapshot`   | a read of other calls' rows beside another one in a later statement, or beside a foreign key check                                      |
 | `pivot`      | a read of other calls' rows that is no whole immutable group, a row it writes not joined with such a read, or a foreign key check of a row that can change |
-| `writers`    | a SERIALIZABLE role writing what it writes, or writing what it reads while reading other calls' rows or making a check of a row that can change |
+| `writers`    | a SERIALIZABLE role writing what it writes, or writing what it reads by a statement or a rule's judge while reading other calls' rows or making a check of a row that can change |
 
 A role's level is in its login's served file, so a change that moves it shows as a stale served file in `grizzle
 check`, like any change to the workload. The served login reads it: `served<typeof Web>(webFile, "web").roles.member.isolation`
@@ -3733,10 +3735,11 @@ checks, or a rule over a query no other write can help break. A
 direct transaction of a login that fences a relation (generate's report names it) that writes the relation begins with
 `LOCK TABLE ... IN EXCLUSIVE MODE` on it, before any other statement, as the fenced ChangeSets do.
 
-**Referencing a relation another role deletes: fences.** A READ COMMITTED role may reference a relation that some role
-deletes, as a learner's answer references the published keys a content replace deletes and inserts again, when no role
-updates it. Its foreign key check locks the row it finds until the call commits, and every deletion of that row waits
-for it. Two histories still break that check, and generate closes both by fencing the relation:
+**Referencing a relation another role deletes, or writes while it may miss a write: fences.** A READ COMMITTED role
+may reference a relation that some role deletes, as a learner's answer references the published keys a content
+replace deletes and inserts again, or that a SERIALIZABLE role inserts while it reads other calls' rows, as an import
+does, when no role updates it. Its foreign key check locks the row it finds until the call commits, and every deletion
+of that row waits for it. Two histories still break that check, and generate closes both by fencing the relation:
 
 - A replace that deletes a key and inserts the same key in one transaction. A READ COMMITTED check that took its
   snapshot before the replace committed waits on the deleted row, finds it deleted, never sees the inserted one, and
@@ -3746,7 +3749,9 @@ for it. Two histories still break that check, and generate closes both by fencin
   reads) inserting a key while a check looks for it. The check waits for nothing and refuses its call, which no order
   in real time explains once the writer missed a write that committed before the call began.
 
-Every login whose roles delete such a relation fences it: each ChangeSet of the login that writes the relation begins
+Every login whose roles delete such a relation fences it, and so does every login with a role that runs SERIALIZABLE,
+may miss another call's write (it reads other calls' rows, makes a check of a row that can change, or writes a relation
+a rule over a query reads) and writes it: each ChangeSet of the login that writes the relation begins
 its transaction, as the login and before any statement takes the snapshot, with `LOCK TABLE ... IN EXCLUSIVE MODE` on
 it, and `grizzle migrate` grants the login MAINTAIN on its table, the least privilege that permits the lock, and USAGE
 on its schema; the drift check judges both. A READ COMMITTED check takes ROW SHARE on the table before its own
@@ -3769,8 +3774,10 @@ SERIALIZABLE.
 
 **Referencing content another role writes: publish it.** A ChangeSet that inserts rows referencing content another role
 maintains (an author edits questions, a learner's answer names a question) reads that content in its foreign key
-checks. If the content's writer reads other calls' rows of its own, as an import does, the referencing role stays
-SERIALIZABLE (`writers`). Publish the keys it references instead:
+checks. If the content's writer reads other calls' rows of its own, as an import does, it runs SERIALIZABLE and its
+login fences the content, so every referencing call's check waits while a content write runs, and content writes run
+one at a time; a statement that reads the content keeps the referencing role SERIALIZABLE (`writers`). Publish the
+keys it references instead, so the checks wait for nothing:
 
 1. Have every role that writes the referenced content relations state `insert` on them, so a content row, once there,
    never changes.

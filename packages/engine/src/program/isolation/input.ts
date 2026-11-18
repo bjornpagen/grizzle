@@ -8,7 +8,7 @@ import type {
 	TriggerLaw
 } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import type { NativeColumn } from "#compiler/ir/law.ts"
+import { nativeColumnText } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { OwnedRelation } from "#compiler/schema/own.ts"
 
@@ -69,14 +69,12 @@ const byRelation = <V>(
 	return grouped
 }
 
-/** The fields of native columns by name, in order, each law column left out. */
-const fieldsOf = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string> =>
-	columns.flatMap((column) => (column.kind === "field" ? [column.field.name] : []))
-
 /**
- * The declared keys of each relation by its declared name, each by its field names: its primary key's native and each
- * UNIQUE native over fields alone. A UNIQUE over a law column is a family's or a fold's, no key a call writes by, and
- * a span key (WITHOUT OVERLAPS) is no key a read by its fields is a point read of.
+ * The declared keys of each relation by its declared name, each by its columns' texts (ir/law.ts nativeColumnText): its
+ * primary key's native and each UNIQUE native, a law column by its identifier, so a key a law adds over law columns (an
+ * alternatives arm's, a selected side's, a family's slot) is the key PostgreSQL enforces, which a check by those columns
+ * finds one row of at most and no read of fields alone binds whole. A span key (WITHOUT OVERLAPS) is no key a read by its
+ * columns is a point read of.
  */
 const nativeKeys = (model: LawModel): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>> =>
 	byRelation(
@@ -84,11 +82,9 @@ const nativeKeys = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Readonly
 			if (object.kind === "PrimaryKey") {
 				return [[object.relation.name, object.columns.map((field) => field.name)]]
 			}
-			if (object.kind !== "Unique") {
-				return []
-			}
-			const fields = fieldsOf(object.columns)
-			return fields.length === object.columns.length ? [[object.relation.name, fields]] : []
+			return object.kind === "Unique"
+				? [[object.relation.name, object.columns.map(nativeColumnText)]]
+				: []
 		})
 	)
 
@@ -107,10 +103,9 @@ const countedGroups = (
 
 /**
  * The references of each relation by its declared name: every foreign key it holds, deferrable or not, a native one, a
- * lowered containment's and a PERIOD key's alike, by the relation it references, that relation's fields it references
- * in the order of its key and its ON UPDATE action. A law column the key references is left out of its fields, since its
- * value is no field's, so a check by it is never read as a point read; a PERIOD key's span is left out too, which its
- * check reads by overlap, and its action is NO ACTION.
+ * lowered containment's and a PERIOD key's alike, by the relation it references, that relation's columns it references
+ * by their texts in the order of its key, a law column by its identifier as the relation's keys name it, and its ON
+ * UPDATE action. A PERIOD key's span is left out, which its check reads by overlap, and its action is NO ACTION.
  */
 const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Reference>> =>
 	byRelation(
@@ -118,7 +113,7 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 			if (object.kind === "ForeignKey") {
 				const reference: Reference = {
 					relation: object.target.name,
-					fields: fieldsOf(object.targetColumns),
+					columns: object.targetColumns.map(nativeColumnText),
 					onUpdate: object.onUpdate
 				}
 				return [[object.relation.name, reference]]
@@ -126,7 +121,7 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 			if (object.kind === "PeriodForeignKey") {
 				const reference: Reference = {
 					relation: object.target.name,
-					fields: fieldsOf(object.targetColumns),
+					columns: object.targetColumns.map(nativeColumnText),
 					onUpdate: "noAction"
 				}
 				return [[object.relation.name, reference]]

@@ -58,22 +58,22 @@ import { TupleSet } from "#compiler/core/tuple-map.ts"
  *   call wrote; no write comes before a group the member reads only later. A group it misses makes it write nothing;
  *   a group it reads again is the same rows or none, since a sealed group is immutable and never extended. Each of its
  *   foreign key checks is sealed: a sealed check finds its row, immutable or held (ReadSeal), or refuses the call whole;
- * - `writers`: no role that runs SERIALIZABLE and writes a relation the role reads from outside, by a statement, a
- *   foreign key check or a probe of a rule over a query its own write fires (RoleView.probed), can miss another call's
- *   write (pivotCauseOf), so none is the pivot of a cycle through it: no
+ * - `writers`: no role that runs SERIALIZABLE and writes a relation the role reads from outside by a read no fence
+ *   orders (RoleView.outside), by a statement or a probe of a rule over a query its own write fires (RoleView.probed),
+ *   can miss another call's write (pivotCauseOf), so none is the pivot of a cycle through it: no
  *   statement of it reads from outside, none of its foreign key checks is unsealed or reads the rows that reference a
  *   row it changes, and it writes no relation a trigger-held law reads. A sealed check of its own, of an insert-only
  *   relation at a whole declared key or of one no role writes, finds an immutable row or refuses its call, which at
  *   SERIALIZABLE then commits nothing, so it misses no write; a held one finds a row its KEY SHARE lock keeps until it
  *   commits, or a row deleted since its snapshot, which PostgreSQL refuses at SERIALIZABLE with 40001
- *   (ri_triggers.c ri_LockPKTuple), or refuses its call. The role's own checks are no such exemption: they are
- *   outside reads 5c weighs against every role that runs SERIALIZABLE (the publication shape in
- *   test/unit/analysis/isolation/certify.test.ts). A sealed check that misses a key an in-flight writer inserts waits
- *   for no lock and refuses its call (NEGATION's case 3, the refusedCopy shape there), unless the writer's login fences
- *   the relation (ReadSeal fenced), whose lock keeps every such check out of the writer's transaction and its snapshot
- *   after every check that committed before it; and a sealed read is no exemption either: a reader of one writer call's
- *   rows can miss an in-flight SERIALIZABLE writer whose read's writer committed before the reader began, which no
- *   serial order in real time explains. No role that runs SERIALIZABLE writes a relation the role writes, by a
+ *   (ri_triggers.c ri_LockPKTuple), or refuses its call. The role's own sealed checks of what such a writer writes are
+ *   fenced instead: a sealed check that misses a key an in-flight writer inserts waits for no lock and refuses its call
+ *   (NEGATION's case 3, the refusedCopy shape in test/unit/analysis/isolation/certify.test.ts), so the writer's login
+ *   fences the relation (Fence), whose lock keeps every such check out of the writer's transaction and its snapshot
+ *   after every check that committed before it. A sealed read is no
+ *   exemption: a reader of one writer call's rows can miss an in-flight SERIALIZABLE writer whose read's writer committed
+ *   before the reader began, which no serial order in real time explains, and a statement's read takes no lock a fence
+ *   excludes. No role that runs SERIALIZABLE writes a relation the role writes, by a
  *   privilege, a member or a cascade: the installation's guard admits a READ COMMITTED write of a relation only where
  *   every role that writes it runs READ COMMITTED, and refuses any other with 25000 (physical/ddl/isolation.ts
  *   readCommittedRelations), so a role certified past it would have every write refused.
@@ -195,8 +195,8 @@ export interface RoleIsolation {
  *   (lock.c LockConflicts). So every check of the relation by a committed call either committed before such a member's
  *   lock, and so before its snapshot, which sees the call's rows, or took its own snapshot after the member committed:
  *   no check waits on a row such a member deletes, and none misses a row it inserts. A held check of a relation some
- *   login deletes is fenced the same way where the role relies on it, for conditions 2, 3 and 5c (fencedSite,
- *   serializableReasons);
+ *   login deletes is fenced the same way where the role relies on it, for conditions 2 and 3 (fencedSite), and every
+ *   sealed check, a point's too, against each writer that may miss another call's write, for 5c (serializableReasons);
  * - `unsealed`: any other outside read, with why; a read of one group per own row of the call among them, which
  *   another call's rows may split, some seen and some missed. An arbitration is no such read: the unique check decides
  *   each row it proposes on its own.
@@ -431,14 +431,16 @@ class Writers {
 	}
 
 	/**
-	 * Whether `login` fences the relation (Fence): its roles delete it and no role updates it, so every change member of
-	 * the login that writes it locks it before its snapshot where a READ COMMITTED check of it relies on that lock.
+	 * Whether `login` fences the relation by its deletions (Fence): its roles delete it and no role updates it, so every
+	 * change member of the login that writes it locks it before its snapshot where a READ COMMITTED check of it relies on
+	 * that lock. A login whose role may miss another call's write fences what it writes too (fencesOf), which no deletion
+	 * of its own decides.
 	 */
 	fences(login: string, relation: string): boolean {
 		return !this.#updated.has(relation) && (this.#deleters.get(relation)?.has(login) ?? false)
 	}
 
-	/** The logins that fence the relation, in code-unit order. */
+	/** The logins that fence the relation by their deletions, in code-unit order. */
 	fencers(relation: string): ReadonlyArray<string> {
 		return this.#updated.has(relation)
 			? []
@@ -526,28 +528,29 @@ const sealOf = (at: Installation, read: ReadFact): ReadSeal => {
 }
 
 /**
- * A read by `fields` of an insert-only relation, a point, or a check of a relation Writers finds held or fenced, held or
- * fenced: where they hold a whole declared key, else unsealed.
+ * A read by `columns` of an insert-only relation, a point, or a check of a relation Writers finds held or fenced, held
+ * or fenced: where they hold a whole declared key, else unsealed. A statement's read binds fields, a check the columns
+ * its foreign key references, law columns among them (RelationFacts): a key over law columns is whole only to a check.
  */
 const keyedSeal = (
 	kind: "point" | "held" | "fenced",
 	facts: RelationFacts,
-	fields: ReadonlyArray<string>
+	columns: ReadonlyArray<string>
 ): ReadSeal => {
-	const key = keyIn(facts, fields)
-	return key === undefined ? unkeyed(fields) : { kind, key }
+	const key = keyIn(facts, columns)
+	return key === undefined ? unkeyed(columns) : { kind, key }
 }
 
-/** A declared key of the relation whose every field `fields` holds, none where no key is. */
+/** A declared key of the relation whose every column `columns` holds, none where no key is. */
 const keyIn = (
 	facts: RelationFacts,
-	fields: ReadonlyArray<string>
-): ReadonlyArray<string> | undefined => facts.keys.find((k) => k.every((f) => fields.includes(f)))
+	columns: ReadonlyArray<string>
+): ReadonlyArray<string> | undefined => facts.keys.find((k) => k.every((c) => columns.includes(c)))
 
-/** The seal of a read by `fields` that hold no whole declared key, nor a family's counted members. */
-const unkeyed = (fields: ReadonlyArray<string>): ReadSeal => ({
+/** The seal of a read by `columns` that hold no whole declared key, nor a family's counted members. */
+const unkeyed = (columns: ReadonlyArray<string>): ReadSeal => ({
 	kind: "unsealed",
-	detail: `its group by ${fields.join(", ")} is neither a family's counted members nor a whole declared key`
+	detail: `its group by ${columns.join(", ")} is neither a family's counted members nor a whole declared key`
 })
 
 /** An arbitration's seal: the declared key its group binds whole, which the unique check decides, or unsealed. */
@@ -1255,14 +1258,14 @@ interface Check {
 }
 
 /**
- * A referencing check's seal: of the referenced relation, at its referenced key's fields. A point where the relation
- * is insert-only; where no role updates it, held (ReadSeal) where no login both deletes and inserts it, and fenced where
- * one does; unsealed where a role updates it.
+ * A referencing check's seal: of the referenced relation, at its referenced key's columns, law columns among them. A
+ * point where the relation is insert-only; where no role updates it, held (ReadSeal) where no login both deletes and
+ * inserts it, and fenced where one does; unsealed where a role updates it.
  */
 const referencingSeal = (
 	at: Installation,
 	relation: string,
-	fields: ReadonlyArray<string>
+	columns: ReadonlyArray<string>
 ): ReadSeal => {
 	const facts = at.relations.get(relation)
 	if (facts === undefined) {
@@ -1272,7 +1275,7 @@ const referencingSeal = (
 		return { kind: "unwritten" }
 	}
 	if (at.writers.insertOnly(relation)) {
-		return keyedSeal("point", facts, fields)
+		return keyedSeal("point", facts, columns)
 	}
 	if (at.writers.updated(relation)) {
 		return {
@@ -1280,7 +1283,7 @@ const referencingSeal = (
 			detail: "a role updates the relation, which may move the key a check found"
 		}
 	}
-	return keyedSeal(at.writers.replaced(relation) ? "fenced" : "held", facts, fields)
+	return keyedSeal(at.writers.replaced(relation) ? "fenced" : "held", facts, columns)
 }
 
 /** A referenced check's seal: every row of the referencing relation that references the written one. */
@@ -1319,7 +1322,7 @@ const referencingChecks = (
 				statement,
 				relation: r.relation,
 				side: "referencing",
-				seal: referencingSeal(at, r.relation, r.fields),
+				seal: referencingSeal(at, r.relation, r.columns),
 				write: relation
 			}))
 }
@@ -1406,12 +1409,11 @@ interface ReadSite {
 }
 
 /**
- * One role as the conditions read it, built once: its members' views, the relations it writes, those of them its
- * login fences (Writers.fences), what its writes make of them, those its writes' probes read, those it reads from
- * outside, by a statement, a check or a probe, sealed or not, those of them
- * it reads from outside by held or fenced checks alone (lockedSeal), and every relation it reads with the sites it reads
- * it at, but the checks of the rows that reference a row its member deletes where its login fences the deleted
- * relation (fencedSite).
+ * One role as the conditions read it, built once: its members' views, the relations it writes, what its writes make of
+ * them, those its writes' probes read, those it reads from outside by a read no fence orders (`outside`), every
+ * relation it reads with the sites it reads it at, but the checks of the rows that reference a row its member deletes
+ * where its login fences the deleted relation (fencedSite), and why it may miss another call's write were it
+ * SERIALIZABLE (pivotCauseOf).
  */
 interface RoleView {
 	readonly role: RoleFacts
@@ -1424,24 +1426,34 @@ interface RoleView {
 	 * that role's level nor whether that relation keeps its guard.
 	 */
 	readonly guarded: ReadonlySet<string>
-	readonly fences: ReadonlySet<string>
 	/** What its writes make of each relation it writes (Made), by a privilege, a member or a cascade. */
 	readonly made: ReadonlyMap<string, ReadonlySet<Made>>
 	/**
 	 * The relations the probes of its writes read: every relation of every witness of a rule over a query (TriggerLaw)
 	 * that a write of it breaks (breaksAt), read at COMMIT at a snapshot of each probe's own. Each is an outside read of
-	 * it, by no lock (`locked`).
+	 * it, by no lock, so no fence orders it (`outside`).
 	 */
 	readonly probed: ReadonlySet<string>
+	/**
+	 * The relations it reads from outside by a read no fence orders, sealed or not: a statement's, or a probe's of its
+	 * writes. Its foreign key checks are none: a sealed one (lockedSeal) reads a relation no role updates, and every
+	 * login whose writes of it could meet the check out of order fences it (Fence, fencesOf); an unsealed one fails
+	 * `pivot` itself (pivotReasons).
+	 */
 	readonly outside: ReadonlySet<string>
-	readonly locked: ReadonlySet<string>
 	readonly sites: ReadonlyMap<string, ReadonlyArray<ReadSite>>
 	readonly cause: string | undefined
 }
 
-/** Whether a seal is a held or a fenced check's: of a relation no role updates, whose found row its KEY SHARE lock holds,
- * which a deleting login's fence keeps out of every fenced write's transaction. */
-const lockedSeal = (seal: ReadSeal): boolean => seal.kind === "held" || seal.kind === "fenced"
+/**
+ * Whether a check's seal is a sealed referencing check's, a point, held or fenced: of a relation no role updates, at a
+ * whole declared key. Every referencing check takes ROW SHARE on its relation before its own snapshot and locks the row
+ * it finds FOR KEY SHARE until its call ends (PostgreSQL 19 ri_triggers.c ri_FastPathCheck and ri_LockPKTuple), so a
+ * login that fences the relation (Fence) keeps every such check out of each of its writes of it: the check committed
+ * before the write's lock, which the write's snapshot follows, or takes its snapshot after the write committed.
+ */
+const lockedSeal = (seal: ReadSeal): boolean =>
+	seal.kind === "point" || seal.kind === "held" || seal.kind === "fenced"
 
 /**
  * Whether a check of a member of a role of `login` is a fenced write's check of the rows that reference the row it
@@ -1604,23 +1616,15 @@ const roleView = (at: Installation, served: Served): RoleView => {
 		...members.flatMap((v) => v.outsides.map((p) => p.read.relation)),
 		...probed
 	])
-	const checked = members.flatMap((v) => v.checks.filter((c) => outside(c.seal)))
-	const unlocked = new Set(checked.flatMap((c) => (lockedSeal(c.seal) ? [] : [c.relation])))
 	return {
 		role: served.role,
 		members,
 		written,
 		guarded: writtenBy(at, served, "apart"),
-		fences: new Set([...written].filter((r) => at.writers.fences(served.role.login, r))),
 		made,
 		probed,
 		cause: pivotCauseOf(at, members, written),
-		outside: new Set([...read, ...checked.map((c) => c.relation)]),
-		locked: new Set(
-			checked.flatMap((c) =>
-				lockedSeal(c.seal) && !read.has(c.relation) && !unlocked.has(c.relation) ? [c.relation] : []
-			)
-		),
+		outside: read,
 		sites
 	}
 }
@@ -1960,12 +1964,13 @@ const ownReasons = (
 /**
  * The reasons the roles that run SERIALIZABLE give a role: condition 2's other half, a change member of one reading a
  * relation the role writes, by a statement or a foreign key check, one per site; and condition 5c, one writing a
- * relation the role's members read from outside, sealed or not, while it may miss another call's write itself
- * (RoleView.cause, pivotCauseOf), one per such relation, but one the role reads from outside by held or fenced checks
- * alone that the writer's login fences. Each of those checks committed before the writer's lock, which its snapshot
- * follows, or took its own snapshot after the writer committed, so none misses a row the writer inserts and none finds
- * a row the writer then deletes, the edges a cycle in real time through the role and the writer needs (NEGATION's case
- * 3 needs one).
+ * relation the role's members read from outside by a read no fence orders (RoleView.outside), sealed or not, while it
+ * may miss another call's write itself (RoleView.cause, pivotCauseOf), one per such relation. A sealed foreign key
+ * check (lockedSeal) is no such read: it reads a relation no role updates, so every write of it may lock it, and the
+ * writer's login fences it (Fence, fencesOf). Each such check committed before the writer's lock, which its snapshot
+ * follows, so the writer misses no write that committed before the role's call ended, or took its own snapshot after
+ * the writer committed, so it misses no row the writer inserted and finds no row the writer deleted: the edges a cycle
+ * in real time through the role and the writer needs (NEGATION's case 3 needs one).
  */
 const serializableReasons = (
 	view: RoleView,
@@ -2001,7 +2006,7 @@ const serializableReasons = (
 					...readers,
 					...cowriters,
 					...[...other.guarded].flatMap((relation) =>
-						view.outside.has(relation) && !(view.locked.has(relation) && other.fences.has(relation))
+						view.outside.has(relation)
 							? [
 									reason(
 										"writers",
@@ -2124,6 +2129,12 @@ type Viewed<R, S, E> =
 	  }
 	| (Lowered<R, S, E> & { readonly view: RoleView })
 
+/** A round's installation, and every role's judgement with its view there, in the roles' order. */
+interface Round<R, S, E> {
+	readonly at: Installation
+	readonly roles: ReadonlyArray<{ readonly judgement: Judgement<R, S, E>; readonly view: RoleView }>
+}
+
 /**
  * One round: the judgement of every judged role, over the members each role is served (servedOf). A judged role meets
  * its own conditions over its READ COMMITTED form and every role's served members, its own SERIALIZABLE form never among
@@ -2137,7 +2148,7 @@ type Viewed<R, S, E> =
 const round = <R, S, E>(
 	relations: ReadonlyMap<string, RelationFacts>,
 	standings: ReadonlyArray<Standing<R, S, E>>
-): ReadonlyArray<Judgement<R, S, E>> => {
+): Round<R, S, E> => {
 	const forms = standings.map((standing) => ({ standing, served: servedOf(standing) }))
 	const at = installationOf(
 		relations,
@@ -2170,7 +2181,7 @@ const round = <R, S, E>(
 			}
 		}
 	}
-	return roles.map((r): Judgement<R, S, E> => {
+	const judgementOf = (r: Viewed<R, S, E>): Judgement<R, S, E> => {
 		if (r.kind === "lowered") {
 			return { kind: "lowered", candidate: r.candidate, lowering: r.lowering, reasons: r.reasons }
 		}
@@ -2184,7 +2195,8 @@ const round = <R, S, E>(
 		return isNonEmpty(failed)
 			? { kind: "serializable", candidate: r.candidate, reasons: failed }
 			: { kind: "readCommitted", candidate: r.candidate }
-	})
+	}
+	return { at, roles: roles.map((r) => ({ judgement: judgementOf(r), view: r.view })) }
 }
 
 /** A settled role's certificate with the form it is served at it. */
@@ -2205,11 +2217,18 @@ const certifiedOf = <R, S, E>(
 			}
 
 /**
- * A relation a login fences: the login's roles delete it, none updating it, and a role certified READ COMMITTED checks
- * it by a foreign key (ReadSeal held or fenced). Every change member of the login that writes it begins its transaction
- * with LOCK TABLE ... IN EXCLUSIVE MODE on it before any statement takes the snapshot, and the installation grants the
- * login MAINTAIN on it, the least privilege that permits the lock (PostgreSQL 19 lockcmds.c LockTableAclCheck). `for`
- * names the roles certified READ COMMITTED whose checks of it rely on the lock, in the roles' order.
+ * A relation a login fences: a role certified READ COMMITTED checks it by a sealed foreign key check (lockedSeal), no
+ * role updating it, and the login's writes of it could otherwise meet that check out of any order in real time: its
+ * roles delete it, a deletion the check may wait on and then miss the key's insertion in the same transaction (ReadSeal
+ * fenced), or that a deleting member's check of the rows referencing it relies on (fencedSite); or a role of it that runs
+ * SERIALIZABLE and may miss another call's write (RoleView.cause) writes it, an insertion the check may miss in flight
+ * after the writer missed a write that committed before the check's call began (NEGATION's case 3, serializableReasons).
+ * Every change member of the login that writes it begins its transaction with LOCK TABLE ... IN EXCLUSIVE MODE on it
+ * before any statement takes the snapshot, and the installation grants the login MAINTAIN on it, the least privilege
+ * that permits the lock (PostgreSQL 19 lockcmds.c LockTableAclCheck): every check takes ROW SHARE on it before its own
+ * snapshot, which the lock excludes, so each either committed before such a write's lock, which the write's snapshot
+ * follows, or takes its snapshot after the write committed. `for` names the roles certified READ COMMITTED whose checks
+ * of it rely on the lock, in the roles' order.
  */
 export interface Fence {
 	readonly login: string
@@ -2224,26 +2243,30 @@ export interface Certifications<R, S> {
 }
 
 /**
- * The fences of the settled roles `settled`, over the installation the round that settled them served: for each
- * relation a role certified READ COMMITTED checks by a held or fenced check (lockedSeal), one fence of each login that
- * deletes it, by login then relation in code-unit order.
+ * The fences of a settled round's roles, over its installation (`at`), each role with its view there: for each relation
+ * a role certified READ COMMITTED checks by a sealed check (lockedSeal), one fence of each login that fences it (Fence):
+ * each login whose roles delete it (Writers.fencers), and each login of a role that runs SERIALIZABLE, may miss another
+ * call's write (RoleView.cause) and writes it but by a retirement alone (RoleView.guarded), the writers 5c spared for the
+ * fence (serializableReasons); by login then relation in code-unit order.
  */
 const fencesOf = <R, S, E>(
-	relations: ReadonlyMap<string, RelationFacts>,
-	standings: ReadonlyArray<Standing<R, S, E>>,
-	settled: ReadonlyArray<Exclude<Judgement<R, S, E>, { readonly kind: "serializable" }>>
+	at: Installation,
+	settled: ReadonlyArray<{
+		readonly judgement: Exclude<Judgement<R, S, E>, { readonly kind: "serializable" }>
+		readonly view: RoleView
+	}>
 ): ReadonlyArray<Fence> => {
-	const at = installationOf(relations, standings.map(servedOf))
+	const pivots = settled.flatMap(({ judgement, view }) =>
+		judgement.kind === "lowered" && view.cause !== undefined ? [view] : []
+	)
 	const relying = new Map<string, Array<{ readonly login: string; readonly role: string }>>()
-	for (const j of settled) {
-		if (j.kind !== "readCommitted") {
+	for (const { judgement, view } of settled) {
+		if (judgement.kind !== "readCommitted") {
 			continue
 		}
-		const { login, role } = j.candidate.role
+		const { login, role } = view.role
 		const checked = new Set(
-			j.candidate.role.members.flatMap((m) =>
-				checksOf(at, m).flatMap((c) => (lockedSeal(c.seal) ? [c.relation] : []))
-			)
+			view.members.flatMap((v) => v.checks.flatMap((c) => (lockedSeal(c.seal) ? [c.relation] : [])))
 		)
 		for (const relation of checked) {
 			const roles = relying.get(relation) ?? []
@@ -2252,11 +2275,13 @@ const fencesOf = <R, S, E>(
 		}
 	}
 	return [...relying]
-		.flatMap(([relation, roles]): ReadonlyArray<Fence> =>
-			isNonEmpty(roles)
-				? at.writers.fencers(relation).map((fencer) => ({ login: fencer, relation, for: roles }))
-				: []
-		)
+		.flatMap(([relation, roles]): ReadonlyArray<Fence> => {
+			const fencers = new Set([
+				...at.writers.fencers(relation),
+				...pivots.flatMap((p) => (p.guarded.has(relation) ? [p.role.login] : []))
+			])
+			return isNonEmpty(roles) ? [...fencers].map((login) => ({ login, relation, for: roles })) : []
+		})
 		.toSorted((a, b) => compareText(a.login, b.login) || compareText(a.relation, b.relation))
 }
 
@@ -2291,7 +2316,7 @@ const standingOf = <R, S, E>(candidate: Candidate<R, S, E>): Standing<R, S, E> =
  * never judged again: it runs SERIALIZABLE from then on, since each round reads every fact the one before it read
  * (servedOf), and its certificate names the reasons that made it SERIALIZABLE, never one its own lowering gave. Every
  * round but the last lowers a role, so there are at most one more rounds than roles. A lowering that fails fails
- * certification. The fences are the last round's (fencesOf).
+ * certification. The fences are the last round's (fencesOf), over its installation and its views.
  */
 export const certify = <R, S, E>(
 	relations: ReadonlyMap<string, RelationFacts>,
@@ -2300,15 +2325,17 @@ export const certify = <R, S, E>(
 	let standings = candidates.map(standingOf)
 	for (;;) {
 		const judged = round(relations, standings)
-		const settled = judged.flatMap((j) => (j.kind === "serializable" ? [] : [j]))
-		if (settled.length === judged.length) {
+		const settled = judged.roles.flatMap(({ judgement, view }) =>
+			judgement.kind === "serializable" ? [] : [{ judgement, view }]
+		)
+		if (settled.length === judged.roles.length) {
 			return Result.ok({
-				roles: settled.map(certifiedOf),
-				fences: fencesOf(relations, standings, settled)
+				roles: settled.map((r) => certifiedOf(r.judgement)),
+				fences: fencesOf(judged.at, settled)
 			})
 		}
 		const next: Array<Standing<R, S, E>> = []
-		for (const j of judged) {
+		for (const { judgement: j } of judged.roles) {
 			if (j.kind === "serializable") {
 				const lowering = j.candidate.lower()
 				if (!lowering.ok) {

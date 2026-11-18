@@ -85,9 +85,17 @@ const sorted = (lists: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<stri
 		Str.Order
 	)
 
+/** What the oracles write for a column a law adds, which the specification does not name: the facts' identifier of it,
+ * one of its relation's law columns, reads as this. */
+const law = "<law>"
+
 /**
- * The keys of each relation PostgreSQL enforces over fields alone, by the specification's names (see the header): its
- * primary key, an ordered family's member slot, and each owner's owner-axis target, a tree's own among them.
+ * The keys of each relation PostgreSQL enforces, by the specification's names, a law column as `law` (see the header):
+ * its primary key; an ordered family's member slot, its group then `i<f>`, and its predecessor's, its group then the
+ * predecessor of `i<f>`; a counted family's two, its group then its drawn index, and then that index's predecessor;
+ * a tree's three, its root, the parent's start under its members' selection, then `i<f>`, the predecessor of `i<f>`,
+ * or `i<f>` and `end`; a fold's end beside its family's last slot, the slot's columns then the fold's accumulator, a
+ * tree's in place of its slot by `end`; and each owner's owner-axis target, a tree's own among them.
  */
 const keysOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>> => {
 	const keys = new Map<string, Array<ReadonlyArray<string>>>(
@@ -98,13 +106,29 @@ const keysOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<ReadonlyA
 	}
 	for (const [f, family] of spec.families.entries()) {
 		const ownerTarget = [...keyOfRelation(spec, family.owner), `n${f}`]
+		const group = groupFieldsOf(spec, f)
+		const after = foldedOf(spec, f)
 		switch (family.kind) {
 			case "ordered":
-				add(family.member, [...groupFieldsOf(spec, f), `i${f}`])
+				add(family.member, [...group, `i${f}`])
+				add(family.member, [...group, law])
+				if (after.length > 0) {
+					add(family.member, [...group, `i${f}`, ...after])
+				}
 				add(family.owner, ownerTarget)
 				break
 			case "counted":
+				add(family.member, [...group, law])
+				add(family.member, [...group, law])
+				if (after.length > 0) {
+					add(family.member, [...group, law, ...after])
+				}
+				add(family.owner, ownerTarget)
+				break
 			case "tree":
+				add(family.member, [...rootFieldsOf(f), law, `i${f}`])
+				add(family.member, [...rootFieldsOf(f), law, law])
+				add(family.member, [...rootFieldsOf(f), law, `i${f}`, "end", ...after])
 				add(family.owner, ownerTarget)
 				break
 		}
@@ -112,9 +136,14 @@ const keysOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<ReadonlyA
 	return keys
 }
 
+/** Family `f`'s fold's accumulator at its end, a law column, where it folds; none where it does not. */
+const foldedOf = (spec: FillSpec, f: number): ReadonlyArray<string> =>
+	defined(spec.families[f], `family ${f}`).fold === "none" ? [] : [law]
+
 /**
- * The references of each relation as canonical lines `<target>(<fields>) <action>`, by the specification's names (see
- * the header): what each family's foreign keys reference, a law column left out of a target's fields.
+ * The references of each relation as canonical lines `<target>(<columns>) <action>`, by the specification's names, a
+ * law column as `law` (see the header): what each family's foreign keys reference, a family's slot with its fold's
+ * accumulator where it folds.
  */
 const referencesOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<string>> => {
 	const references = new Map<string, Array<string>>()
@@ -126,22 +155,25 @@ const referencesOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<str
 	for (const [f, family] of spec.families.entries()) {
 		const ownerTarget = [...keyOfRelation(spec, family.owner), `n${f}`]
 		const group = groupFieldsOf(spec, f)
+		const after = foldedOf(spec, f)
 		switch (family.kind) {
 			case "ordered":
 				add(family.member, family.owner, ownerTarget, "cascade")
-				add(family.member, family.member, [...group, `i${f}`], "noAction")
-				add(family.owner, family.member, [...group, `i${f}`], "noAction")
+				add(family.member, family.member, [...group, `i${f}`, ...after], "noAction")
+				add(family.owner, family.member, [...group, `i${f}`, ...after], "noAction")
 				break
 			case "counted":
 				add(family.member, family.owner, ownerTarget, "cascade")
-				add(family.member, family.member, group, "noAction")
-				add(family.owner, family.member, group, "noAction")
+				add(family.member, family.member, [...group, law, ...after], "noAction")
+				add(family.owner, family.member, [...group, law, ...after], "noAction")
 				break
-			case "tree":
+			case "tree": {
+				const end = [...rootFieldsOf(f), law, `i${f}`, "end", ...after]
 				add(family.member, family.member, ownerTarget, "noAction")
-				add(family.member, family.member, [...rootFieldsOf(f), `i${f}`, "end"], "noAction")
-				add(family.member, family.member, [...rootFieldsOf(f), `i${f}`, "end"], "noAction")
+				add(family.member, family.member, end, "noAction")
+				add(family.member, family.member, end, "noAction")
 				break
+			}
 		}
 	}
 	return references
@@ -231,7 +263,20 @@ export const run = (c: Case, note: (feature: Feature) => void) =>
 		const counted = countedOracle(c.spec)
 		const keys = keysOracle(c.spec)
 		const references = referencesOracle(c.spec)
+		const lawColumns = new Set(
+			Arr.flatMap(model.natives, ({ object }) =>
+				object.kind === "LawColumn" ? [`${object.relation.name}.${object.column}`] : []
+			)
+		)
 		for (const [name, facts] of input.relations) {
+			/** A column of `name` as the oracles write it: a field's name, or `law` for one of its law columns. */
+			const spelled = (column: string): string =>
+				lawColumns.has(`${name}.${column}`) ? law : column
+			/** A referenced column of `target`, likewise. */
+			const spelledIn =
+				(target: string) =>
+				(column: string): string =>
+					lawColumns.has(`${target}.${column}`) ? law : column
 			const laws = defined(recorded.laws.get(name), `the laws of ${name}`)
 			assert.deepEqual(
 				facts.triggerLaws,
@@ -242,9 +287,9 @@ export const run = (c: Case, note: (feature: Feature) => void) =>
 				note("a relation some trigger law reads")
 			}
 			assert.deepEqual(
-				sorted(facts.keys),
+				sorted(Arr.map(facts.keys, (k) => Arr.map(k, spelled))),
 				sorted(keys.get(name) ?? []),
-				`${name}'s keys are every key it enforces over fields alone`
+				`${name}'s keys are every key it enforces, law columns among them`
 			)
 			assert.deepEqual(
 				sorted(facts.countedGroups),
@@ -255,7 +300,8 @@ export const run = (c: Case, note: (feature: Feature) => void) =>
 				Arr.sort(
 					Arr.map(
 						facts.references,
-						(r) => `${r.relation}(${Arr.join(r.fields, ",")}) ${r.onUpdate}`
+						(r) =>
+							`${r.relation}(${Arr.join(Arr.map(r.columns, spelledIn(r.relation)), ",")}) ${r.onUpdate}`
 					),
 					Str.Order
 				),

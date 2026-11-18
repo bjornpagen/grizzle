@@ -15,9 +15,12 @@
  * to; an inserter beside a SERIALIZABLE role that may insert too, whose guard would refuse its every write; and
  * NEGATION's four histories no serial order in real time explains, each reproduced on PostgreSQL: a reader of one point
  * group lagging an in-flight SERIALIZABLE pivot, a reader of one group per own row, a copy whose foreign key check
- * misses that pivot's row, and a copy over many own rows whose deferred check reads at COMMIT; a referencer whose check
- * reads a relation a role updates (updatedCheck, updatedDeleter), or one whose writer of the referenced relation may
- * miss a write and fences nothing (unfencedPivot). Others are READ COMMITTED, the deleting login fencing the relation:
+ * misses that pivot's row (refusedCopy), and a copy over many own rows whose deferred check reads at COMMIT; and a
+ * referencer whose check reads a relation a role updates (updatedCheck, updatedDeleter). The copy whose check misses the
+ * pivot's row runs READ COMMITTED once the pivot's login fences the relation, as every login does whose role runs
+ * SERIALIZABLE, may miss another call's write and writes a relation a READ COMMITTED role checks (refusedCopy,
+ * publication, unfencedPivot, newlyFenced); a plain read of such a relation stays SERIALIZABLE, fence or not
+ * (newlyFencedRead). Others are READ COMMITTED, the deleting login fencing the relation:
  * a referencer of a relation deleted from another login than the one that inserts it, by a privilege (heldCheck) or a
  * member (fencedDeleter), or deleted and inserted by one login (fencedCheck), edullm's publisher among them, which
  * replaces it in one member after an outside read (fencedPublisher). LEASE's race shapes: a
@@ -36,32 +39,32 @@
  * relation of every witness its writes break an outside read of it for 5c; its foreign key checks among its reads,
  * a referencing check sealed where it binds a whole declared key of a relation no role updates (an insert-only one's,
  * a held one's and a fenced one's alike, fenced where one login's roles both delete and insert it), a fenced write's
- * check of the rows that reference a row it deletes no site of conditions 2 and 3, and a writer whose login fences a
- * relation no writer 5c weighs against a role that reads it from outside by fenced checks alone; then, of the judged roles that meet them, the greatest set none of whose members a role outside it gives a reason,
+ * check of the rows that reference a row it deletes no site of conditions 2 and 3, and no sealed check an outside read 5c
+ * weighs, every login whose writes of its relation could meet it out of order fencing it; then, of the judged roles
+ * that meet them, the greatest set none of whose members a role outside it gives a reason,
  * found by trying every subset, where whatever a lowered role's members read or write, conditions 2, 3 and 5c included,
  * is read from both its forms; each round lowers the judged roles it leaves SERIALIZABLE, with its conditions, until one
  * lowers none. Every role's level is the oracle's, the fences are exactly those of the relations the roles it leaves
- * READ COMMITTED check by fenced checks, one per login that fences each, and every SERIALIZABLE role names exactly the
+ * READ COMMITTED check by sealed checks, one per login that fences each (each whose roles delete it, and each of a role
+ * it lowered that may miss another call's write and writes it), and every SERIALIZABLE role names exactly the
  * conditions of the round
  * that lowered it, each of which it still fails at the fixpoint; a role with no change member is SERIALIZABLE by the
  * members condition. Every role's certificate is the same with its own SERIALIZABLE form dropped: that form is served
  * only once the role runs SERIALIZABLE, so it never judges the role. Adding a capability (a privilege, a read, a
  * statement, a member, a member of a SERIALIZABLE form, a role, an insert with no insert, a trigger-held law, a foreign
  * key, a race over a relation's first key) never makes a SERIALIZABLE role READ COMMITTED, nor does removing a relation's fact, but for the first change
- * member of a role with none, which the members condition alone held, and a reader relying on a fence of a relation by
- * a login that did not fence it before (newlyFenced). Such a fence changes the login's writes, each of which then locks
- * the relation IN EXCLUSIVE MODE before its snapshot, so the reader's check is sound beside them; and the calls served
- * before the extension never run beside those served after it. The fence is installed (the login's MAINTAIN grant on
- * the relation, physical/ddl/roles.ts, and the extension's role or grants beside it), so the installation's snapshot,
- * and the fingerprint every served file names, change, and a migration stands between the two: each transaction of a
- * migration takes the ledger's ACCESS EXCLUSIVE lock first, waiting for every Db transaction in flight
- * (adapter/migrate/apply.ts), and every Db transaction takes the ledger's ACCESS SHARE lock NOWAIT, refused while a
- * migration holds or waits for it (55P03), then calls the snapshot guard with its served file's fingerprint, refused
- * where a folder is part-way (55Z02) or the latest complete target is another snapshot (55Z01), before its first
- * statement takes a snapshot (adapter/wire/batch.ts Prologue, physical/ddl/ledger.ts snapshotGuardDdl). So no call of
- * the unfenced writers runs once a call of the relaxed reader can. A reader so relaxed is required, and a case of the
- * newlyFenced shape (newlyFencedGen) is drawn where a case's turn aims at it, so every run exercises the exemption.
- * Every counterexample comes out SERIALIZABLE.
+ * member of a role with none, which the members condition alone held. No level rests on a fence: 5c weighs no sealed
+ * check, whichever logins fence its relation, so a capability that makes a login fence one, a deletion or a pivot cause,
+ * relaxes no reader (the newlyFenced shape). Such a fence changes the login's writes, each of which then locks the
+ * relation IN EXCLUSIVE MODE before its snapshot; the fence is installed (the login's MAINTAIN grant on the relation,
+ * physical/ddl/roles.ts), so the installation's snapshot, and the fingerprint every served file names, change, and a
+ * migration stands between the two: each transaction of a migration takes the ledger's ACCESS EXCLUSIVE lock first,
+ * waiting for every Db transaction in flight (adapter/migrate/apply.ts), and every Db transaction takes the ledger's
+ * ACCESS SHARE lock NOWAIT, refused while a migration holds or waits for it (55P03), then calls the snapshot guard with
+ * its served file's fingerprint, refused where a folder is part-way (55Z02) or the latest complete target is another
+ * snapshot (55Z01), before its first statement takes a snapshot (adapter/wire/batch.ts Prologue, physical/ddl/ledger.ts
+ * snapshotGuardDdl). So no call of the unfenced writers runs beside a call that relies on the fence. Every
+ * counterexample comes out SERIALIZABLE.
  *
  * Planted in a scratch copy, each of these fails the search: condition 2's SERIALIZABLE readers left out; the fixpoint
  * run once; a pivot's write before a group read only later let through; a pivot's write after an outside read joined
@@ -76,16 +79,15 @@
  * no row path from its core (the fallbacks), one through a read beneath other probes (the chainedPath shape), of
  * another group or no positive one (the arbiterPath shape), through one UNION arm alone (the unions at another key,
  * another relation or the recursion's own rows), through no UNION or no core at all; and the arbitrated read without
- * its clean prefix; a SERIALIZABLE writer's sealed foreign key checks counted as a pivot cause; that exemption extended
- * to a role's own checks, the publication's publisher certified READ COMMITTED; a SERIALIZABLE form left out of a
- * role's judging (the served cause), of the relations' writers (the served update) or of the absence sites (the served
+ * its clean prefix; a SERIALIZABLE writer's sealed foreign key checks counted as a pivot cause; a SERIALIZABLE form left
+ * out of a role's judging (the served cause), of the relations' writers (the served update) or of the absence sites (the served
  * absence); a lowered role judged again over both its forms, its own lowering's absence named in place of the reasons
  * that lowered it (the lowered absence, edullm's folded publisher); and a lowered role's certificate read from the last
  * round, over its READ COMMITTED form alone, where another role's lowering gives it an absence of its own (the lowered
  * cause); a check of a relation a role updates sealed (the updatedCheck shape); a fenced check relied on with no fence
- * stated (the fencedCheck shape); every check of referencing rows a fenced site (updatedDeleter); 5c sparing a writer
- * whose login fences nothing (unfencedPivot); and 5c leaving out every sealed foreign key check, edullm's G3 (b), which
- * NEGATION's case 3 refutes (the refusedCopy and publication shapes).
+ * stated (the fencedCheck shape); every check of referencing rows a fenced site (updatedDeleter); and a sealed check of
+ * a relation a pivot writes relied on with no fence of the pivot's login (the refusedCopy shape), which NEGATION's case
+ * 3 refutes: a point check never fenced, or no pivot's login fencing.
  *
  * A second search draws statements whose query CTEs are instances (analysis/isolation/facts.ts CteFacts), each read at
  * up to three uses, beneath a probe of its site or none, its probes in its own cores or in its site's (SiteCore `site`),
@@ -142,6 +144,7 @@ import {
 	everyCondition,
 	expectedFences,
 	fencesOf,
+	fencesUndeleted,
 	flatFacts,
 	formCandidates,
 	formCaseGen,
@@ -157,11 +160,9 @@ import {
 	modeKey,
 	modesTaken,
 	type ModeTaken,
-	newlyFenced,
 	oracle,
 	oracleFrom,
 	oracleRound,
-	plainReadersOfNewFences,
 	readFact,
 	reasonKey,
 	type ReasonSite,
@@ -218,8 +219,7 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				"a held foreign key check beside a READ COMMITTED role",
 				"a check of a relation one login deletes and inserts",
 				"a fence a READ COMMITTED role relies on",
-				"a reader relaxed by a fence its extension makes",
-				"a plain reader of a relation its extension newly fences, kept SERIALIZABLE",
+				"a fence of a relation no role deletes",
 				"a check of the rows that reference a changed one",
 				"a retirement",
 				"an update carried by a cascading foreign key",
@@ -244,6 +244,9 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 					)
 					if (fences.length > 0) {
 						k.note("a fence a READ COMMITTED role relies on")
+					}
+					if (fencesUndeleted(c.sketch, fences)) {
+						k.note("a fence of a relation no role deletes")
 					}
 					for (const [i, v] of verdicts.entries()) {
 						const o = Arr.getUnsafe(expected.verdicts, i)
@@ -408,30 +411,13 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 						k.note("a first change member given to a role with none")
 					}
 					const after = levelsOf(afterOf(c))
-					const fenced = newlyFenced(c, expected.lowered)
-					const plainReaders = plainReadersOfNewFences(c, expected.lowered)
 					for (const [i, level] of levelsOf(verdicts).entries()) {
-						if (level === "serializable" && !first && !fenced.has(`r${i}`)) {
+						if (level === "serializable" && !first) {
 							assert.equal(
 								Arr.getUnsafe(after, i),
 								"serializable",
 								`r${i} stays SERIALIZABLE once ${c.extension.kind} is applied`
 							)
-						}
-						if (
-							level === "serializable" &&
-							fenced.has(`r${i}`) &&
-							Arr.getUnsafe(after, i) === "readCommitted"
-						) {
-							k.note("a reader relaxed by a fence its extension makes")
-						}
-						if (
-							level === "serializable" &&
-							!fenced.has(`r${i}`) &&
-							plainReaders.has(`r${i}`) &&
-							Arr.getUnsafe(after, i) === "serializable"
-						) {
-							k.note("a plain reader of a relation its extension newly fences, kept SERIALIZABLE")
 						}
 					}
 					const e = c.extension
@@ -496,10 +482,35 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
 					original:
-						"\t\t\t\tchecksOf(at, m).flatMap((c) => (lockedSeal(c.seal) ? [c.relation] : []))",
+						"\t\t\tview.members.flatMap((v) => v.checks.flatMap((c) => (lockedSeal(c.seal) ? [c.relation] : [])))",
 					replacement:
-						'\t\t\t\tchecksOf(at, m).flatMap((c) => (c.seal.kind === "held" ? [c.relation] : []))',
+						'\t\t\tview.members.flatMap((v) => v.checks.flatMap((c) => (c.seal.kind === "held" ? [c.relation] : [])))',
 					why: "A fenced check relied on with no fence stated (the fencedCheck shape); the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original: '\tseal.kind === "point" || seal.kind === "held" || seal.kind === "fenced"',
+					replacement: '\tseal.kind === "held" || seal.kind === "fenced"',
+					why: "A point check relied on with no fence of the pivot that writes its relation (the refusedCopy shape), which NEGATION's case 3 refutes; the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original:
+						"\t\t\t\t...pivots.flatMap((p) => (p.guarded.has(relation) ? [p.role.login] : []))",
+					replacement: "\t\t\t\t...pivots.flatMap(() => [])",
+					why: "No pivot's login fencing what it writes, so a sealed check of it is relied on unfenced (the refusedCopy and unfencedPivot shapes), which NEGATION's case 3 refutes; the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original: '\t\tjudgement.kind === "lowered" && view.cause !== undefined ? [view] : []',
+					replacement: '\t\tjudgement.kind === "lowered" ? [view] : []',
+					why: "A SERIALIZABLE writer that misses no write fencing what a READ COMMITTED role checks, a fence no certificate relies on; the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original: '\t\tjudgement.kind === "lowered" && view.cause !== undefined ? [view] : []',
+					replacement: "\t\tview.cause !== undefined ? [view] : []",
+					why: "A READ COMMITTED writer fencing what it writes, which 5c never weighs; the search fails."
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
@@ -509,17 +520,10 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
-					original:
-						"\t\t\t\t\t\tview.outside.has(relation) && !(view.locked.has(relation) && other.fences.has(relation))",
-					replacement: "\t\t\t\t\t\tview.outside.has(relation) && !view.locked.has(relation)",
-					why: "5c sparing a writer whose login fences nothing (unfencedPivot); the search fails."
-				},
-				{
-					file: "packages/engine/src/analysis/isolation/certify.ts",
-					original: "\t\toutside: new Set([...read, ...checked.map((c) => c.relation)]),",
+					original: "\t\toutside: read,",
 					replacement:
-						'\t\toutside: new Set([\n\t\t\t...read,\n\t\t\t...checked.flatMap((c) => (c.seal.kind === "unsealed" ? [c.relation] : []))\n\t\t]),',
-					why: "5c leaving out every sealed foreign key check, edullm's G3 (b), which NEGATION's case 3 refutes (the refusedCopy and publication shapes); the search fails."
+						"\t\toutside: new Set([...read, ...members.flatMap((v) => v.checks.flatMap((c) => (outside(c.seal) ? [c.relation] : [])))]),",
+					why: "5c weighing every sealed check, as before a pivot's login fenced what it writes, so the copy it fences runs SERIALIZABLE (the refusedCopy, publication and unfencedPivot shapes); the search fails."
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",

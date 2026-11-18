@@ -11,10 +11,14 @@ import type { TablePrivilege } from "#compiler/core/privilege.ts"
 /**
  * One relation of the installation: the laws the installation's law model still discharges by deferred constraint
  * triggers that read it (laws/model/model.ts triggerLawsOver), each with its witnesses (TriggerLaw), none where every
- * law over it is native (a key, a CHECK, a domain or a foreign key); its declared keys, its primary key and each UNIQUE, by their fields; its counted groups,
- * each by its key's fields: the members, under one value of the key, of a family whose immutable owner holds their
- * count (a counted, ordered or fin family), a set the count law fixes once the owner is written; every foreign key it
- * holds, native or a rule lowered to one, immediate or deferred; what an insertion into it meets at its primary key
+ * law over it is native (a key, a CHECK, a domain or a foreign key); its declared keys, its primary key and each UNIQUE
+ * PostgreSQL enforces, by their columns' texts (ir/law.ts nativeColumnText): a field by its name, and a column a law
+ * adds (an alternatives arm's or a selected side's term, a family's drawn index) by its identifier, which starts with
+ * `__` as no declared name does, so a key over law columns is a key like any other, which no read of fields alone
+ * binds whole; its counted groups, each by its key's fields: the members, under one value of the key, of a family whose
+ * immutable owner holds their count (a counted, ordered or fin family), a set the count law fixes once the owner is
+ * written; every foreign key it holds, native or a rule lowered to one, immediate or deferred, by the columns it
+ * references, by the same texts; what an insertion into it meets at its primary key
  * (InsertsFact); and whether it is a retirable unit's header or body (`retirable`), whose retirement function
  * (physical/ddl/retire.ts), which no role holds, deletes its bodies' rows and sets its header's retirement field beside
  * every role's write.
@@ -52,15 +56,16 @@ export type InsertsFact =
 	| { readonly kind: "race"; readonly key: NonEmptyReadonlyArray<string> }
 
 /**
- * One foreign key of a relation: the relation it references, that relation's fields it references, a declared key of
- * it, and what an update of the referenced key does to the rows that reference it: carried to them (ON UPDATE CASCADE,
- * a family's owner axis), or refused while any references it (NO ACTION). PostgreSQL checks it by reads no statement
- * shows: an insert or update of a referencing row reads the referenced row, and an update or delete of a referenced row
- * reads the rows that reference it.
+ * One foreign key of a relation: the relation it references, that relation's columns it references by their texts
+ * (RelationFacts), a declared key of it, law columns among them where a law's key is, a PERIOD key's span left out,
+ * which its check reads by overlap; and what an update of the referenced key does to the rows that reference it:
+ * carried to them (ON UPDATE CASCADE, a family's owner axis), or refused while any references it (NO ACTION).
+ * PostgreSQL checks it by reads no statement shows: an insert or update of a referencing row reads the referenced row,
+ * and an update or delete of a referenced row reads the rows that reference it.
  */
 export interface Reference {
 	readonly relation: string
-	readonly fields: ReadonlyArray<string>
+	readonly columns: ReadonlyArray<string>
 	readonly onUpdate: "cascade" | "noAction"
 }
 

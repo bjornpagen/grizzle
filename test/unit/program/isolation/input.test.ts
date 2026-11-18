@@ -10,21 +10,25 @@
  *
  * - Relations: exactly one fact for each relation the owned schema states, by its declared name, and triggerLawsOver
  *   asked once for each, its answer the fact's triggerLaws.
- * - Keys: each relation's are, as sets of fields, every key PostgreSQL enforces over its fields alone, by the
- *   specification's names (fill.ts keyOfRelation, groupFieldsOf): its primary key, `id` or a tree's (`d<f>`, `d<f>p`,
- *   `start`); an ordered family's member slot, its group then `i<f>`; each owner's owner-axis target, its key then
- *   `n<f>`, a tree's own (`d<f>`, `d<f>p`, `start`, `n<f>`) among them. A counted family's member slot and a tree's are
- *   over a law column, so no key of the relation.
+ * - Keys: each relation's are, as sets of columns, every key PostgreSQL enforces, by the specification's names
+ *   (fill.ts keyOfRelation, groupFieldsOf), a law column, which the specification does not name, as one of the
+ *   relation's law columns: its primary key, `id` or a tree's (`d<f>`, `d<f>p`, `start`); an ordered family's member
+ *   slot, its group then `i<f>`, and its predecessor's, its group then a law column; a counted family's two, its group
+ *   then its drawn index, and then that index's predecessor, both law columns; a tree's three, its root and its
+ *   parent's start under its members' selection, a law column, then `i<f>`, the predecessor of `i<f>`, or `i<f>` and
+ *   `end`; a fold's end beside its family's last slot, that slot's columns then the fold's accumulator, a law column, a
+ *   tree's in place of its slot by `end`; and each owner's owner-axis target, its key then `n<f>`, a tree's own
+ *   (`d<f>`, `d<f>p`, `start`, `n<f>`) among them. A check by a law column's key is so a check by a whole declared key.
  * - Counted groups: a second implementation over the specification's own names: each relation's are, for each family
  *   it is the member of whose owner is immutable (a tree's owner its own relation), the family's group fields, and none
  *   for any other.
  * - References: each relation's are, as a multiset, the foreign keys each family it is in holds, by the
- *   specification's names, each target's fields without its law columns: an ordered or counted family's member
+ *   specification's names, each target's columns with its law columns: an ordered or counted family's member
  *   references its owner's target, its key then `n<f>`, ON UPDATE CASCADE, and its own slot, which its owner's last
- *   member references too, its group and `i<f>` for an ordered family and its group alone for a counted one, whose
- *   index is a law column; a tree's relation references its own target (`d<f>`, `d<f>p`, `start`, `n<f>`) and twice
- *   its own slot and end past its guarded parent (`d<f>`, `d<f>p`, `i<f>`, `end`); every reference but an owner axis
- *   NO ACTION.
+ *   member references too, its group and `i<f>` for an ordered family and its group and its drawn index for a counted
+ *   one, then the fold's accumulator where it folds; a tree's relation references its own target (`d<f>`, `d<f>p`,
+ *   `start`, `n<f>`) and twice its own slot and end past its guarded parent (`d<f>`, `d<f>p`, the parent's start, `i<f>`,
+ *   `end`, then the fold's accumulator where it folds); every reference but an owner axis NO ACTION.
  * - Roles: one fact for each role, in order, its privileges grantedPrivileges' answer for its own input, and its
  *   members memberFacts' answers for its members in order, every variant of each.
  *
@@ -36,8 +40,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { caseGen, type Feature, run } from "#test/unit/program/isolation/input.fixtures.ts"
 
-/** Isolation facts give one fact for every relation and every member, each its builder's answer, every key enforced over fields and the counted groups of immutable owners. Its budget is its suite's before it was a property (test/unit/program/isolation/input.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
-export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuildersAnswerEveryKeyEnforcedOverFieldsAndTheCountedGroupsOfImmutableOwners =
+/** Isolation facts give one fact for every relation and every member, each its builder's answer, every key enforced, law columns among them, and the counted groups of immutable owners. Its budget is its suite's before it was a property (test/unit/program/isolation/input.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
+export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuildersAnswerEveryKeyEnforcedLawColumnsAmongThemAndTheCountedGroupsOfImmutableOwners =
 	property.explore(caseGen, {
 		needs: {},
 		budget: { runs: 120, steered: 120 },
@@ -63,6 +67,21 @@ export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuild
 					"\t\t\tfamily.owner.mutable ? [] : [[family.member.name, family.group.map((g) => g.member.name)]]",
 				replacement: "\t\t\t[[family.member.name, family.group.map((g) => g.member.name)]]",
 				why: "A counted group is given for a mutable owner's family too."
+			},
+			{
+				file: "packages/engine/src/program/isolation/input.ts",
+				original: "\t\t\t\t? [[object.relation.name, object.columns.map(nativeColumnText)]]",
+				replacement:
+					'\t\t\t\t? object.columns.every((c) => c.kind === "field")\n\t\t\t\t\t? [[object.relation.name, object.columns.map(nativeColumnText)]]\n\t\t\t\t\t: []',
+				why: "A UNIQUE over a law column left out of the keys, as before, so a check by an alternatives arm's or a family slot's law columns binds no whole key (edullm's decideStage)."
+			},
+			{
+				file: "packages/engine/src/program/isolation/input.ts",
+				original:
+					"\t\t\t\t\tcolumns: object.targetColumns.map(nativeColumnText),\n\t\t\t\t\tonUpdate: object.onUpdate",
+				replacement:
+					'\t\t\t\t\tcolumns: object.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field.name] : [])),\n\t\t\t\t\tonUpdate: object.onUpdate',
+				why: "A foreign key's law columns left out of its referenced columns, so its check by an alternatives arm's or a family slot's key binds no whole key."
 			}
 		]
 	})
