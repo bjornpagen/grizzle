@@ -145,7 +145,9 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 							serving.length,
 							1,
 							`one index holds ${r.relation}(${Arr.join(
-								Arr.map(r.keys, (k) => ("expr" in k ? String(k.expr) : k.column.kind)),
+								r.role === "lawMaintenance"
+									? Arr.map(r.blocks.flat(), (k) => k.column.kind)
+									: Arr.map(r.keys, (k) => String(k.expr)),
 								","
 							)})`
 						)

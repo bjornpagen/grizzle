@@ -1,14 +1,12 @@
 import { navigateMember } from "#compiler/analysis/theory/navigate.ts"
 import {
-	newProbes,
-	oldProbes,
-	type Probe,
-	type ProbedRule,
-	type QueryRule,
-	regionQuery,
-	type RuleLaw,
 	type LawSide,
-	type TouchedField,
+	type ProbedRule,
+	type ProbeSide,
+	probes,
+	type QueryRule,
+	type RuleLaw,
+	touchedOn,
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -30,7 +28,7 @@ import * as Result from "#compiler/core/result.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { weightOf } from "#compiler/core/zset.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
-import { defaultOpclass, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
+import { defaultOpclass, type LawIndexKey, type RelationInfo } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
 import type { DeltaSide, RelNode } from "#compiler/ir/rel.ts"
@@ -88,20 +86,18 @@ interface Compiled {
 	readonly requests: ReadonlyArray<IndexRequest>
 }
 
-const touched = (f: LawField): TouchedField => ({ name: f.name, desc: f.desc })
-
 /**
  * The statements a guarded block of the judge runs, each once, in the order its first probe compiled: a set under
  * canonical equality (core/canonical.ts sameText), so a probe that compiles to a statement the block holds adds
  * nothing, and the block keeps the statement first compiled. Two occurrences of the touched relation that hold nothing
  * of its row apart (two arms of a derived relation that read it alike) are two probes of one statement, which a COMMIT
  * would otherwise run twice. A block holds a few probes, so asking each held statement is a short walk where a text of
- * every probe would encode each whole. Each probe's index requests stay the table's whatever its statement, since a
- * probe's requests come from the probe as written (Probe `requested`).
+ * every probe would encode each whole. A probe's index requests are its statement's chain's, so two probes of one
+ * statement request the same indexes.
  */
-const probeStatements = (probes: ReadonlyArray<Compiled>): ReadonlyArray<OperandSelect> => {
+const probeStatements = (compiled: ReadonlyArray<Compiled>): ReadonlyArray<OperandSelect> => {
 	const held: Array<OperandSelect> = []
-	for (const p of probes) {
+	for (const p of compiled) {
 		if (!held.some((s) => sameText(s, p.statement))) {
 			held.push(p.statement)
 		}
@@ -141,40 +137,33 @@ const columnsOf = (relation: RelationInfo, fields: ReadonlyArray<string>): Reado
 	fields.flatMap((name) => relation.fields.flatMap((f) => (f.name === name ? [f.column] : [])))
 
 /**
- * A probe read over its region (analysis/theory/query.ts regionQuery), the rows the transaction wrote of `relation` at
- * `record`, checked and lowered as every query the judge reads is (`judgedStatement`), with the index requests of its
- * access paths.
+ * A probe over its region (analysis/theory/query.ts probes), the rows the transaction wrote of `relation` on one side,
+ * navigated (analysis/theory/navigate.ts navigateMember) and checked and lowered as every query the judge reads is
+ * (`judgedStatement`), with the index requests of the chain that runs.
  *
- * What lowers is the probe navigated (analysis/theory/navigate.ts navigateMember): one chain of steps from its region,
- * each a lookup of one relation by the columns the steps before it bound, so no estimate PostgreSQL makes, with
- * statistics or none, turns it into a join of every relation the probe reads, and planning it costs a plan of each step.
- * Its index requests are those of the probe as written over its row's fields (Probe `requested`): navigation reads the
- * same columns by equality in an order of its own, and a B-tree index serves an equality on each of its leading columns
- * in any order, so the indexes the probe as written requests serve every step.
+ * Navigation makes the probe one chain of steps from its region, each a lookup of one relation by the columns the steps
+ * before it bound, so no estimate PostgreSQL makes, with statistics or none, turns it into a join of every relation the
+ * probe reads, and planning it costs a plan of each step. Its index requests are that chain's access paths
+ * (`requestsOf`): each step's lookup by the columns it is bound at, so the indexes requested are exactly those the
+ * probe's reads use, and the read of the region asks none, its rows the session's delta.
  */
 const compileProbe = (
 	b: InstallBuilder,
 	catalog: ReturnType<typeof evidenceCatalog>,
 	rule: RuleTrigger,
 	relation: RelationInfo,
-	probe: Probe,
-	record: "NEW" | "OLD",
+	probe: InferredQuery,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
 ): Compiled => {
-	const label = `rule ${rule.law.named.display} on ${relation.name}`
-	const written = checkQuery(b.checked, probe.requested, { read: "rows", label })
-	if (!written.ok) {
-		throw new Refusal(written.error)
-	}
 	const lowered = judgedStatement(
 		b,
 		catalog,
-		navigateMember(regionQuery(probe, relation.name, record, rule.law.loc), relation.loc),
-		label,
+		navigateMember(probe, relation.loc),
+		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
 		deltas
 	)
-	return { statement: lowered.statement, requests: requestsOf(b, rule, written.value.dag.roots[0]) }
+	return { statement: lowered.statement, requests: requestsOf(b, rule, lowered.root) }
 }
 
 /**
@@ -231,7 +220,8 @@ const judgedStatement = (
 
 /**
  * The index requests of a judged query's access paths (physical/access/extract.ts), read from the root of its checked
- * DAG: law-maintenance requests of `rule`, so a judged read reads by index wherever the planner can.
+ * DAG: law-maintenance requests of `rule`, so a judged read reads by index wherever the planner can. Each is one block
+ * of its columns (ir/law.ts LawIndexRequest), but a whole rule's (`unitLead`), whose first block is its unit's key.
  */
 const requestsOf = (
 	b: InstallBuilder,
@@ -260,7 +250,7 @@ const requestsOf = (
 			? [
 					{
 						relation: target.name,
-						keys,
+						blocks: unitLead(rule, target.name, keys),
 						method: path.method,
 						role: "lawMaintenance",
 						use: "rule probe",
@@ -270,14 +260,66 @@ const requestsOf = (
 			: []
 	})
 
+/**
+ * The blocks of a judged read's request over `relation` by `keys` (ir/law.ts LawIndexRequest): one block of its keys for
+ * a probed rule's; for a whole rule's, first the fields `relation` holds its unit's key in (ir/unit.ts Unit holders) that
+ * the read binds, the longest run of them from the first in the unit key's order, then the rest. Every read of a whole
+ * rule binds its unit's first field, since its judge reads the units a transaction wrote and every holder leads with that
+ * key (analysis/theory/unit.ts), so an index the request asks for never reads past the unit, and none another column
+ * leads serves it. A read that binds a later field of the unit key but not an earlier one is led by the bound run alone.
+ */
+const unitLead = (
+	rule: RuleTrigger,
+	relation: string,
+	keys: NonEmptyReadonlyArray<LawIndexKey>
+): NonEmptyReadonlyArray<NonEmptyReadonlyArray<LawIndexKey>> => {
+	const r = rule.rule
+	switch (r.kind) {
+		case "contained":
+		case "key":
+		case "check":
+			return [keys]
+		case "whole": {
+			const holder = defined(
+				r.unit.holders.find((h) => h.relation === relation),
+				`${relation}, a relation the whole rule ${rule.law.named.display} reads, among its unit's holders`
+			)
+			const keyOf = (field: string): LawIndexKey | undefined =>
+				keys.find((k) => k.column.kind === "field" && k.column.field.name === field)
+			const bound: Array<LawIndexKey> = []
+			for (const field of holder.fields) {
+				const key = keyOf(field)
+				if (key === undefined) {
+					break
+				}
+				bound.push(key)
+			}
+			const [first, ...more] = bound
+			const unit: NonEmptyReadonlyArray<LawIndexKey> = [
+				defined(
+					first,
+					`a read of ${relation} the whole rule ${rule.law.named.display} binds its unit's first field ${headNonEmpty(holder.fields)} at`
+				),
+				...more
+			]
+			const rest = keys.filter((k) => !unit.includes(k))
+			return isNonEmpty(rest) ? [unit, rest] : [unit]
+		}
+	}
+}
+
 /** A block of the judge's statements that holds one rule, ordered among the judge's blocks by its rule's trigger. */
 interface Judged {
 	readonly order: string
 	readonly body: ReadonlyArray<PlStatement>
 }
 
-/** The two sides of a table's writes a probe reads: its rows as a statement leaves them, and as it found them. */
-type Side = "news" | "olds"
+/**
+ * The stem of the name of a session's delta of each side (identity.ruleDelta), which its table of pg_temp is named by:
+ * the side of what a transaction adds is `news` and of what it removes `olds`, as every installed judge and capture
+ * names them.
+ */
+const deltaStem = { added: "news", removed: "olds" } as const satisfies Record<ProbeSide, string>
 
 /**
  * A session's delta of one side of a table (`addRules`): the name of its table of pg_temp, its columns, its relation's
@@ -305,7 +347,7 @@ export const countColumn = "__count"
  * where no rule's facts on that side read a column the UPDATE can change. A row's image is its value in those columns.
  */
 interface JudgedSide {
-	readonly side: Side
+	readonly side: ProbeSide
 	readonly delta: SessionDelta
 	readonly read: ReadonlyArray<string>
 }
@@ -483,7 +525,7 @@ const captured = (
 						)
 					)
 				]
-	const counted = side.side === "news"
+	const counted = side.side === "added"
 	const removed = rows === transitionTables.olds
 	const holding = exists(
 		simpleSelect(
@@ -608,21 +650,6 @@ const raiseOf = (b: InstallBuilder, rule: RuleTrigger, relation: RelationInfo): 
 	}
 }
 
-/** The fields a side's rules read of the table on that side, by Touches. */
-const sideFields = (
-	touches: RuleTable["touches"],
-	side: Side
-): ReadonlyArray<string> | undefined => {
-	switch (touches.kind) {
-		case "news":
-			return side === "news" ? touches.news : undefined
-		case "olds":
-			return side === "olds" ? touches.olds : undefined
-		case "both":
-			return side === "news" ? touches.news : touches.olds
-	}
-}
-
 /** Each table a rule over a query reads, with its rules in trigger-name order and the sides they read of it. */
 const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 	const ordered = b.model.rules.toSorted((x, y) =>
@@ -653,13 +680,13 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 				collation: type.kind === "builtin" && type.name === "text" ? cUtf8Collation : undefined
 			}
 		})
-		const sides = (["news", "olds"] as const).flatMap((side): ReadonlyArray<JudgedSide> => {
+		const sides = (["added", "removed"] as const).flatMap((side): ReadonlyArray<JudgedSide> => {
 			const read = held.flatMap(({ table: t }) => {
-				const f = sideFields(t.touches, side)
+				const f = touchedOn(t.touches, side)
 				return f === undefined ? [] : [f]
 			})
 			const table =
-				side === "news"
+				side === "added"
 					? appendNonEmpty(columns, {
 							name: countColumn,
 							type: types.smallint,
@@ -676,7 +703,7 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 									identity.ruleDelta(
 										headNonEmpty(b.names.levels),
 										relation.name,
-										side,
+										deltaStem[side],
 										canonicalTextOf(table)
 									)
 								),
@@ -698,10 +725,11 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
  * transaction leaves. A rule one of whose sides reads a derived relation is judged over the rows the transaction wrote:
  *
  * - of a table the rule's breaking side reads (a containment's source, a key's or a check's relation), the rows an
- *   INSERT or an UPDATE of a column it reads leaves and that stand at COMMIT, whose probes (analysis/theory/query.ts
- *   newProbes) read the side's facts each row derives from its image in the delta, never from the table again;
- * - of a table a containment's target reads, the rows a DELETE or such an UPDATE found, whose probes (oldProbes) read
- *   the target tuples each row may have withdrawn and the source tuples that needed them;
+ *   INSERT or an UPDATE of a column it reads leaves and that stand at COMMIT, whose probes of the added side
+ *   (analysis/theory/query.ts probes) read the side's facts each row derives from its image in the delta, never from the
+ *   table again;
+ * - of a table a containment's target reads, the rows a DELETE or such an UPDATE found, whose probes of the removed side
+ *   read the target tuples each row may have withdrawn and the source tuples that needed them;
  * - of a table a side reads inside a negation, the other way round: inserted rows where a containment's target negates
  *   it, whose probes read the target tuples each now blocks, and deleted rows where the breaking side does, whose probes
  *   read the side's facts each no longer blocks.
@@ -760,15 +788,14 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 	const tables = judgedTables(b)
 	const judge = objectName(b.schema, b.name(identity.ruleJudge()))
 	const sentinel = b.name(identity.ruleSentinel(headNonEmpty(b.names.levels)))
-	const deltaOf = (t: JudgedTable, side: Side): SessionDelta | undefined =>
+	const deltaOf = (t: JudgedTable, side: ProbeSide): SessionDelta | undefined =>
 		t.sides.find((s) => s.side === side)?.delta
 	const requests: Array<IndexRequest> = []
 	const tableOf = (relation: string): JudgedTable | undefined =>
 		tables.find((t) => t.relation.name === relation)
-	/** The session's delta of `t`'s side `side` as a Delta node reads it: news as delta.added, olds as delta.removed. */
+	/** The session's delta of `t`'s side `side` as a Delta node reads it, none of the facts a write met. */
 	const sessionDelta = (t: JudgedTable, side: DeltaSide): DeltaRelation | undefined => {
-		const delta =
-			side === "added" ? deltaOf(t, "news") : side === "removed" ? deltaOf(t, "olds") : undefined
+		const delta = side === "met" ? undefined : deltaOf(t, side)
 		return delta === undefined
 			? undefined
 			: {
@@ -779,7 +806,7 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 	}
 	/**
 	 * The judge's statements of a probed rule over one table it reads: each probe of the table's sides its touches name
-	 * (newProbes, oldProbes), run over that side's delta where the session holds it.
+	 * (analysis/theory/query.ts probes), run over that side's delta where the session holds it.
 	 */
 	const probedBlock = (rule: RuleTrigger, probed: ProbedRule, rt: RuleTable): Judged => {
 		const relation = rt.relation
@@ -787,25 +814,22 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 			tableOf(relation.name),
 			`the judged table ${relation.name}, a table its rule reads`
 		)
-		const key = mapNonEmpty(relation.primaryFields, touched)
-		const fields = relation.fields.map(touched)
 		const deltas = (name: string, side: DeltaSide): DeltaRelation | undefined =>
 			name === relation.name ? sessionDelta(t, side) : undefined
-		const compile =
-			(record: "NEW" | "OLD") =>
-			(probe: Probe): Compiled =>
-				compileProbe(b, catalog, rule, relation, probe, record, deltas)
 		const raise = raiseOf(b, rule, relation)
-		const sideProbes = (
-			side: Side,
-			probes: ReadonlyArray<Compiled>
-		): ReadonlyArray<PlStatement> => {
+		const sideProbes = (side: ProbeSide): ReadonlyArray<PlStatement> => {
+			if (touchedOn(rt.touches, side) === undefined) {
+				return []
+			}
 			const delta = deltaOf(t, side)
+			const compiled = probes(probed, relation.name, side, rule.law.loc).map((probe) =>
+				compileProbe(b, catalog, rule, relation, probe, deltas)
+			)
 			appendAll(
 				requests,
-				probes.flatMap((p) => p.requests)
+				compiled.flatMap((p) => p.requests)
 			)
-			const statements = probeStatements(probes)
+			const statements = probeStatements(compiled)
 			return delta === undefined || statements.length === 0
 				? []
 				: [
@@ -827,20 +851,7 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 		}
 		return {
 			order: identifierOf(rule.named),
-			body: [
-				...(rt.touches.kind === "olds"
-					? []
-					: sideProbes(
-							"news",
-							newProbes(probed, relation.name, key, fields, rule.law.loc).map(compile("NEW"))
-						)),
-				...(rt.touches.kind === "news"
-					? []
-					: sideProbes(
-							"olds",
-							oldProbes(probed, relation.name, fields, rule.law.loc).map(compile("OLD"))
-						))
-			]
+			body: [...sideProbes("added"), ...sideProbes("removed")]
 		}
 	}
 	/**
@@ -940,7 +951,7 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 						...unitDeltas.map(ensured),
 						...tables
 							.flatMap((t) =>
-								t.sides.flatMap((s) => (s.side === "news" ? [{ name: s.delta.name, t, s }] : []))
+								t.sides.flatMap((s) => (s.side === "added" ? [{ name: s.delta.name, t, s }] : []))
 							)
 							.toSorted((x, y) => compareStrings(x.name, y.name))
 							.map(({ t, s }) => netted(t.relation, s)),
@@ -999,9 +1010,9 @@ const addCapture = (
 	const relation = t.relation
 	const named = identity.ruleCapture(relation.name)
 	const fn = objectName(b.schema, b.name(named))
-	const side = (s: Side): JudgedSide | undefined => t.sides.find((x) => x.side === s)
-	const news = side("news")
-	const olds = side("olds")
+	const side = (s: ProbeSide): JudgedSide | undefined => t.sides.find((x) => x.side === s)
+	const news = side("added")
+	const olds = side("removed")
 	const armed = (writes: ReadonlyArray<PlStatement>): ReadonlyArray<PlStatement> => [
 		armedSentinel(sentinel, judge),
 		...writes,
@@ -1015,7 +1026,7 @@ const addCapture = (
 	const updated = [news, olds].flatMap((s): ReadonlyArray<PlStatement> =>
 		s === undefined || s.read.length === 0
 			? []
-			: s.side === "news"
+			: s.side === "added"
 				? [
 						...into(s, transitionTables.news, transitionTables.olds),
 						captured(relation, s, transitionTables.olds, transitionTables.news)

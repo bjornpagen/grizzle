@@ -3,8 +3,7 @@
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { exact } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { newProbes, type Probe, type TouchedField } from "#compiler/analysis/theory/query.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { probes } from "#compiler/analysis/theory/query.ts"
 import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -82,15 +81,6 @@ const schemaOf = (shape: Shape) => {
 	return schema.extend(Base, "probe_held_1", [D], [contained(on(D, "x"), on(G, "x"))])
 }
 
-/** The parameter `e` reads NEW's value of, if it is one. */
-const newFieldOf = (probe: Probe, e: InferredExpr): string | undefined => {
-	if (e.kind !== "param") {
-		return undefined
-	}
-	const read = probe.params.get(e.name)
-	return read?.record === "NEW" ? read.field : undefined
-}
-
 /** Whether two terms are the same term, by structural equality (exact). */
 const sameTerm = (a: InferredExpr, b: InferredExpr): boolean => Option.isNone(exact(a, b))
 
@@ -102,16 +92,32 @@ const conjuncts = (e: InferredExpr): ReadonlyArray<InferredExpr> =>
 const conditionsOf = (rule: InferredRule): ReadonlyArray<InferredExpr> =>
 	Arr.flatMap(rule.where, conjuncts)
 
-/** Whether `bound`, a binding of `field` in `rule`, is held at NEW's value of `field`: bound to it, or equated with it. */
-const heldAt = (probe: Probe, rule: InferredRule, field: string, bound: InferredExpr): boolean =>
-	newFieldOf(probe, bound) === field ||
+/** The field of the touched row the region variable `e` reads, if it is one: the field `region` binds it at. */
+const regionFieldOf = (
+	region: Readonly<Record<string, InferredExpr>>,
+	e: InferredExpr
+): string | undefined =>
+	e.kind === "var"
+		? Option.getOrUndefined(
+				Arr.findFirst(Rec.toEntries(region), ([, r]) => r.kind === "var" && r.var === e.var)
+			)?.[0]
+		: undefined
+
+/** Whether `bound`, a binding of `field` in `rule`, is held at the region's value of `field`: bound to it, or equated with it. */
+const heldAt = (
+	region: Readonly<Record<string, InferredExpr>>,
+	rule: InferredRule,
+	field: string,
+	bound: InferredExpr
+): boolean =>
+	regionFieldOf(region, bound) === field ||
 	Arr.some(
 		conditionsOf(rule),
 		(c) =>
 			c.kind === "compare" &&
 			c.op === "eq" &&
-			((newFieldOf(probe, c.right) === field && sameTerm(c.left, bound)) ||
-				(newFieldOf(probe, c.left) === field && sameTerm(c.right, bound)))
+			((regionFieldOf(region, c.right) === field && sameTerm(c.left, bound)) ||
+				(regionFieldOf(region, c.left) === field && sameTerm(c.right, bound)))
 	)
 
 /** Every rule a query holds: its own, and those of every query a match or a negation of one imports. */
@@ -138,73 +144,80 @@ const rulesOf = (q: InferredQuery): ReadonlyArray<InferredRule> => {
 	])
 }
 
-/** The fields each held match of `relation` binds, by the rule that holds it, in `q`. */
+/** The matches of `relation` held at the region's value of every key field, by the rule that holds each, in `q`. */
 const heldMatches = (
-	probe: Probe,
+	region: Readonly<Record<string, InferredExpr>>,
 	q: InferredQuery,
 	relation: string,
-	key: ReadonlyArray<TouchedField>
-): ReadonlyArray<{
-	readonly rule: InferredRule
-	readonly bindings: Readonly<Record<string, InferredExpr>>
-}> =>
+	key: ReadonlyArray<string>
+): ReadonlyArray<InferredRule> =>
 	Arr.flatMap(rulesOf(q), (rule) =>
-		Arr.flatMap(rule.matches, (m) =>
-			m.source.kind === "relation" &&
-			m.source.name === relation &&
-			Arr.every(key, (f) => {
-				const bound = m.bindings[f.name]
-				return bound !== undefined && heldAt(probe, rule, f.name, bound)
-			})
-				? [{ rule, bindings: m.bindings }]
-				: []
+		Arr.some(
+			rule.matches,
+			(m) =>
+				m.source.kind === "relation" &&
+				m.source.name === relation &&
+				Arr.every(key, (f) => {
+					const bound = m.bindings[f]
+					return bound !== undefined && heldAt(region, rule, f, bound)
+				})
 		)
+			? [rule]
+			: []
 	)
 
-/** Judges every NEW probe of every rule trigger's table of `shape`'s schema. */
+/** The one rule of a probe, whose first match reads its region. */
+const ruleOf = (probe: InferredQuery): InferredRule => {
+	const stage = probe.stage
+	return stage.kind === "rules" && stage.arms.length === 1
+		? defined(stage.arms[0], "a probe's one rule")
+		: assert.fail("a probe of one rule")
+}
+
+/** Judges every probe of the added side of every rule trigger's table of `shape`'s schema. */
 export const judged = (shape: Shape, note: (f: Feature) => void): void => {
 	const artifacts = succeeded(testArtifacts(schemaOf(shape), testCompile))
 	const rule = defined(artifacts.laws.rules[0], "the containment held by its triggers")
 	for (const table of rule.tables) {
 		const rel = table.relation
-		const key = mapNonEmpty(rel.primaryFields, (f): TouchedField => ({
-			name: f.name,
-			desc: f.desc
-		}))
-		const fields = Arr.map(rel.fields, (f): TouchedField => ({ name: f.name, desc: f.desc }))
-		const keyNames = new Set(Arr.map(key, (f) => f.name))
-		const probes =
-			table.touches.kind === "olds"
+		const key = Arr.map(rel.primaryFields, (f) => f.name)
+		const read =
+			table.touches.kind === "removed"
 				? []
-				: newProbes(probedRule(rule.rule), rel.name, key, fields, rule.law.loc)
-		for (const probe of probes) {
+				: probes(probedRule(rule.rule), rel.name, "added", rule.law.loc)
+		for (const probe of read) {
+			const within = ruleOf(probe)
+			const region = defined(within.matches[0], "a probe's region, its first match")
 			assert.deepEqual(
-				heldMatches(probe, probe.query, rel.name, key),
+				region.source,
+				{ kind: "delta", side: "added", relation: rel.name },
+				`a probe of the rows the transaction adds to ${rel.name} reads them first, as the net write's delta.added`
+			)
+			assert.deepEqual(
+				heldMatches(region.bindings, probe, rel.name, key),
 				[],
-				`a NEW probe of ${rel.name} reads no match of it at NEW's key: the row is NEW's values, read from the transaction's net write`
+				`a probe of ${rel.name} reads no match of it at the region's key: the row is read from the transaction's net write, never again from its table`
 			)
-			const requested = heldMatches(probe, probe.requested, rel.name, key)
-			assert.ok(
-				requested.length > 0,
-				`the probe ${rel.name}'s indexes are requested by holds a match of it`
-			)
-			for (const { rule: within, bindings } of requested) {
-				for (const [field, bound] of Rec.toEntries(bindings)) {
-					assert.equal(
-						heldAt(probe, within, field, bound),
-						keyNames.has(field),
-						`${rel.name}.${field} is held in the probe its indexes are requested by exactly where it is a key field`
-					)
-					assert.ok(
-						Arr.some([...probe.params.values()], (p) => p.record === "NEW" && p.field === field),
-						`${rel.name}.${field}, which the occurrence reads, is a value of NEW the probe reads from its region`
-					)
-					if (rel.name === "T" && !keyNames.has(field) && bound.kind === "literal") {
-						note("a non-key field held by a literal binding")
-					}
-					if (rel.name === "T" && field === "b" && shape.b === "shared") {
-						note("a non-key field held by a variable another match binds")
-					}
+			for (const [field, bound] of Rec.toEntries(region.bindings)) {
+				assert.equal(
+					regionFieldOf(region.bindings, bound),
+					field,
+					`the region binds ${rel.name}.${field} to a variable of its own`
+				)
+			}
+			if (rel.name === "T") {
+				assert.ok(
+					region.bindings["k1"] !== undefined,
+					"the region binds T.k1, which every occurrence of T reads, so the probe reads the row's key from the net write"
+				)
+				if (
+					(shape.b === "literal" && region.bindings["b"] !== undefined) ||
+					(!shape.aDelivered && region.bindings["a"] !== undefined)
+				) {
+					note("a non-key field held by a literal binding")
+				}
+				if (shape.b === "shared" && region.bindings["b"] !== undefined) {
+					note("a non-key field held by a variable another match binds")
 				}
 			}
 		}

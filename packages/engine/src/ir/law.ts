@@ -371,18 +371,24 @@ export type IndexOpclass =
 
 export const defaultOpclass: IndexOpclass = Object.freeze({ kind: "default" })
 
+/** A key of a law's index request: a column of its relation by its arm, its direction and its operator class. */
+export interface LawIndexKey {
+	readonly column: NativeColumn
+	readonly dir: Direction
+	readonly opclass: IndexOpclass
+}
+
 /**
  * An index a law's maintenance needs, over every row of its relation: its keys, each a column of the relation by its arm
- * (a field by its handle, a law column by its identifier), never a name looked up again; and its use, named for
- * diagnostics (`reverse reference`).
+ * (a field by its handle, a law column by its identifier), never a name looked up again, as blocks, each a run of
+ * columns that lead an index together in any order among themselves, in order; and its use, named for diagnostics
+ * (`reverse reference`). A lookup by every column is one block. A read of a unit-local law (physical/ddl/rules.ts
+ * requestsOf) binds its unit's key, which its relation's primary key leads with, so its first block is that key: no
+ * index another column leads serves it, and a read of that index never leaves the unit.
  */
 export interface LawIndexRequest {
 	readonly relation: string
-	readonly keys: NonEmptyReadonlyArray<{
-		readonly column: NativeColumn
-		readonly dir: Direction
-		readonly opclass: IndexOpclass
-	}>
+	readonly blocks: NonEmptyReadonlyArray<NonEmptyReadonlyArray<LawIndexKey>>
 	readonly method: IndexMethod
 	readonly role: "lawMaintenance"
 	readonly use: string

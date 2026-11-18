@@ -2,7 +2,7 @@
 
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import { oldProbes, type TouchedField } from "#compiler/analysis/theory/query.ts"
+import { probes as probesOf } from "#compiler/analysis/theory/query.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -81,18 +81,12 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const built = schemaOf(shape)
 	const owned = owning(built)
 	const installation = succeeded(compileInstallation(owned, installOptions(owned, owner)))
-	/** The OLD probes of every rule trigger's table, each occurrence of the touched relation one (oldProbes). */
+	/** The probes of the removed side of every rule trigger's table, each occurrence of the touched relation one. */
 	const probes = Arr.reduce(succeeded(testArtifacts(built, testCompile)).laws.rules, 0, (n, rule) =>
 		Arr.reduce(rule.tables, n, (m, table) =>
-			table.touches.kind === "news"
+			table.touches.kind === "added"
 				? m
-				: m +
-					oldProbes(
-						probedRule(rule.rule),
-						table.relation.name,
-						Arr.map(table.relation.fields, (f): TouchedField => ({ name: f.name, desc: f.desc })),
-						rule.law.loc
-					).length
+				: m + probesOf(probedRule(rule.rule), table.relation.name, "removed", rule.law.loc).length
 		)
 	)
 	let statements = 0

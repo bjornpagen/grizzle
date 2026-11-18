@@ -25,7 +25,12 @@ import {
 	opposite
 } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
-import { defaultOpclass, type IndexOpclass, type NativeColumn } from "#compiler/ir/law.ts"
+import {
+	defaultOpclass,
+	type IndexOpclass,
+	type LawIndexRequest,
+	type NativeColumn
+} from "#compiler/ir/law.ts"
 import {
 	type AccessUse,
 	type IndexRequest,
@@ -122,11 +127,7 @@ const requestLabel = (r: IndexRequest): string =>
 /** The keys a request states, in key order, each column a law's by its arm, the workload's by its field's name. */
 const statedKeys = (r: IndexRequest): ReadonlyArray<IndexKey> =>
 	r.role === "lawMaintenance"
-		? r.keys.map((k): IndexKey => ({
-				column: indexColumnOf(k.column),
-				dir: k.dir,
-				opclass: k.opclass
-			}))
+		? lawBlocks(r).flat()
 		: r.keys.map((k): IndexKey => ({
 				column: { kind: "field", field: String(k.expr) },
 				dir: k.dir,
@@ -153,11 +154,13 @@ export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> 
 		}
 		return n.lawIds.map((law: LawId): IndexRequest => ({
 			relation: n.relation.name,
-			keys: mapNonEmpty(n.columns, (column) => ({
-				column,
-				dir: "asc" as const,
-				opclass: defaultOpclass
-			})),
+			blocks: [
+				mapNonEmpty(n.columns, (column) => ({
+					column,
+					dir: "asc" as const,
+					opclass: defaultOpclass
+				}))
+			],
 			method: n.method,
 			role: "lawMaintenance",
 			use: "reverse reference",
@@ -174,6 +177,16 @@ interface Columns {
 
 /** A run of columns that lead an index together, in any order among themselves. */
 type Block = NonEmptyReadonlyArray<IndexKey>
+
+/** A law's request's blocks of keys (ir/law.ts LawIndexRequest), each column an index column. */
+const lawBlocks = (r: LawIndexRequest): NonEmptyReadonlyArray<Block> =>
+	mapNonEmpty(r.blocks, (block) =>
+		mapNonEmpty(block, (k): IndexKey => ({
+			column: indexColumnOf(k.column),
+			dir: k.dir,
+			opclass: k.opclass
+		}))
+	)
 
 /**
  * Columns leading an index as blocks, an ordered request's in its directions or all opposite: a B-tree's, which narrows
@@ -265,15 +278,19 @@ const placedBy = (
 		: []
 
 /**
- * A law's reverse probe, an equality lookup on every column that PostgreSQL's RI trigger runs once per row its foreign
- * key's target deletes or rekeys (ri_triggers.c, RI_FKey_noaction_del): a B-tree whose leading columns are exactly the
- * requested set, a unique B-tree all of whose keys it binds, which finds at most one row, or a GiST index it places
- * (`placedBy`). Never a B-tree led by one requested column that holds the others further in (`ledBy`), which a workload's
- * lookup takes: each probe would read every row of that column's value, a whole document's rows for a key led by
- * (package, path), so deleting a document of n rows would read n² entries.
+ * A law's lookup, an equality lookup on every column that PostgreSQL's RI trigger or the rule judge runs once per row a
+ * write touches (ri_triggers.c, RI_FKey_noaction_del): a B-tree whose leading columns are exactly the requested set, its
+ * blocks in order (ir/law.ts LawIndexRequest), a unique B-tree all of whose keys it binds, which finds at most one row,
+ * or a GiST index it places (`placedBy`). Never a B-tree led by one requested column that holds the others further in
+ * (`ledBy`), which a workload's lookup takes: each probe would read every row of that column's value, a whole document's
+ * rows for a key led by (package, path), so deleting a document of n rows would read n² entries.
  */
-const reversePlacements = (keys: Keys, columns: Columns): Placements => ({
-	own: { kind: "blocks", method: "btree", blocks: [keys], directed: undefined },
+const reversePlacements = (
+	blocks: NonEmptyReadonlyArray<Block>,
+	keys: Keys,
+	columns: Columns
+): Placements => ({
+	own: { kind: "blocks", method: "btree", blocks, directed: undefined },
 	others: [
 		{ kind: "keyed", method: "btree", within: keys },
 		...placedBy(placingOf(keys, columns), keys, columns)
@@ -430,7 +447,7 @@ const placementsOf = (
 			return hashPlacements(keys)
 		case "btree":
 			return request.role === "lawMaintenance"
-				? reversePlacements(keys, columns)
+				? reversePlacements(lawBlocks(request), keys, columns)
 				: btreeAccessPlacements(request.use, keys, columns, label)
 	}
 }

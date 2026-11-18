@@ -1577,7 +1577,8 @@ const lawProbes = (
 			if (r.role !== "lawMaintenance") {
 				return []
 			}
-			const fields = Arr.map(r.keys, (k) =>
+			const keys = r.blocks.flat()
+			const fields = Arr.map(keys, (k) =>
 				k.column.kind === "field" ? k.column.field.name : k.column.column
 			)
 			const label = `${r.use} on ${r.relation}(${Arr.join(fields, ", ")})`
@@ -1585,7 +1586,7 @@ const lawProbes = (
 				Option.fromUndefinedOr(o.installed.installation.laws.theory.relations[r.relation]),
 				() => new Error(`${label}: no relation ${r.relation}`)
 			)
-			const conditions = Arr.map(r.keys, (k, at) => {
+			const conditions = Arr.map(keys, (k, at) => {
 				if (k.column.kind === "law") {
 					if (r.method === "gist") {
 						return assert.fail(`${label} asks GiST for the law column ${k.column.column}`)

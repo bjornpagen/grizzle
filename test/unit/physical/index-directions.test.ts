@@ -111,6 +111,7 @@ export const accessIndexesOverOneColumnListInSeveralDirectionsInstallOneIndexPer
 								index.requests,
 								(r) =>
 									isSeek(r) &&
+									r.role === "access" &&
 									[text(vector), text(reversed(vector))].includes(
 										text(Arr.map(r.keys.slice(prefixed ? 1 : 0), (k) => k.dir))
 									)

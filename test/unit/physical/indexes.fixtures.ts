@@ -163,13 +163,15 @@ export const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 	return s.law
 		? {
 				relation: rel,
-				keys: nonEmptyKeys(
-					Arr.map(keys, (k) => ({
-						column: fieldColumn(rel, k.expr),
-						dir: "asc" as const,
-						opclass: k.opclass
-					}))
-				),
+				blocks: [
+					nonEmptyKeys(
+						Arr.map(keys, (k) => ({
+							column: fieldColumn(rel, k.expr),
+							dir: "asc" as const,
+							opclass: k.opclass
+						}))
+					)
+				],
 				method: "btree",
 				role: "lawMaintenance",
 				use: "reverse reference",

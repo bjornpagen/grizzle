@@ -204,7 +204,7 @@ export const specText = (spec: RequestSpec): string =>
 		: `a law probe on ${spec.relation}(${Arr.join(spec.keys, ", ")})`
 
 /** One key of a law's index request. */
-type LawKey = Extract<IndexRequest, { readonly role: "lawMaintenance" }>["keys"][number]
+type LawKey = Extract<IndexRequest, { readonly role: "lawMaintenance" }>["blocks"][number][number]
 
 /** A request's keys by the field or law column each names, in index order. */
 const requestKeys = (
@@ -215,7 +215,7 @@ const requestKeys = (
 	readonly opclass: LawKey["opclass"]
 }> =>
 	request.role === "lawMaintenance"
-		? Arr.map(request.keys, (k) => ({
+		? Arr.map(request.blocks.flat(), (k) => ({
 				field: k.column.kind === "field" ? k.column.field.name : k.column.column,
 				dir: k.dir,
 				opclass: k.opclass
@@ -256,11 +256,13 @@ const requestOf = (spec: RequestSpec, at: number, fieldOf: FieldOf): IndexReques
 		case "law":
 			return {
 				relation: spec.relation,
-				keys: Arr.map(spec.keys, (field): LawKey => ({
-					column: { kind: "field", field: fieldOf(spec.relation, field) },
-					dir: "asc",
-					opclass: defaultOpclass
-				})),
+				blocks: [
+					Arr.map(spec.keys, (field): LawKey => ({
+						column: { kind: "field", field: fieldOf(spec.relation, field) },
+						dir: "asc",
+						opclass: defaultOpclass
+					}))
+				],
 				method: "btree",
 				role: "lawMaintenance",
 				use: "reverse reference",

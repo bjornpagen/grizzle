@@ -14,8 +14,8 @@
  *   matches then every target arm's matches, its presences every target arm's negated matches; a key one per pair of
  *   breaking arms, an arm with itself and with every later arm, its rows both arms' matches, its absences both arms'
  *   negated matches. Each list is a multiset in the plan's order, so an occurrence counted once for two fails.
- * - Touches agreement: for each relation, an INSERT of it can break the rule (Touches `news` or `both`) exactly when it
- *   stands among some witness's rows or presences, and a DELETE (`olds` or `both`) exactly when it stands among some
+ * - Touches agreement: for each relation, an INSERT of it can break the rule (Touches `added` or `both`) exactly when it
+ *   stands among some witness's rows or presences, and a DELETE (`removed` or `both`) exactly when it stands among some
  *   witness's absences; neither when no witness reads it, where touches gives none.
  *
  * Features: each rule kind; a match, a negated match, a target match and a target negation; a self-join; a relation
@@ -92,12 +92,12 @@ export const aRuleOverAQuerysWitnessesAreTheShapesItsArmsGiveItsViolationEveryOc
 					const withdrawn = Arr.some(ws, (w) => w.absent.includes(name))
 					const t = touches(rule, name)
 					assert.equal(
-						t !== undefined && (t.kind === "news" || t.kind === "both"),
+						t !== undefined && (t.kind === "added" || t.kind === "both"),
 						added,
 						`an INSERT of ${name} can break the rule exactly where a witness reads it as a row or a presence`
 					)
 					assert.equal(
-						t !== undefined && (t.kind === "olds" || t.kind === "both"),
+						t !== undefined && (t.kind === "removed" || t.kind === "both"),
 						withdrawn,
 						`a DELETE of ${name} can break the rule exactly where a witness reads it as an absence`
 					)

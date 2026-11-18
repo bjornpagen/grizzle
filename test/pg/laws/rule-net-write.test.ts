@@ -2,7 +2,7 @@
  * A rule over a query reads the rows a transaction adds as its net write (physical/ddl/rules.ts addRules): each
  * statement counts the images it puts and removes on the touched table's side of news, the judge nets them to the
  * images the transaction leaves that it did not find, and a probe of the facts a row adds reads the row there, never
- * from its table again (analysis/theory/query.ts newProbes). On PostgreSQL 19rc2, over NetWrite
+ * from its table again (analysis/theory/query.ts probes). On PostgreSQL 19rc2, over NetWrite
  * (rule-net-write.fixtures.ts): A keyed as a qti attribute is, by (package, path, start, name), two rules over its
  * facts, and an index of (governor, name, package) beside its key that grizzle plans for the second rule's deletes.
  *
@@ -105,7 +105,7 @@ export const aProbeOfTheFactsARowAddsReadsTheSameRowsBesideAnIndexOfPartOfItsKey
 				file: "packages/engine/src/analysis/theory/query.ts",
 				original: "\t\t\t\tarm.matches.filter((_, j) => j !== i),",
 				replacement: "\t\t\t\tarm.matches,",
-				why: "newProbes reads the touched row again from its table, by every column it reads, as 12fa0a94 did: with no statistics PostgreSQL reads it through the index of (governor, name, package), every row of the touched row's prefix."
+				why: "A probe of the added side reads the touched row again from its table, by every column it reads, as 12fa0a94 did: with no statistics PostgreSQL reads it through the index of (governor, name, package), every row of the touched row's prefix."
 			}
 		]
 	})

@@ -123,7 +123,7 @@ export const aContainmentsReverseIndexIsABTreeOverTheLongestLeadingBoundedRunTha
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t\t\t? reversePlacements(keys, columns)",
+				original: "\t\t\t\t? reversePlacements(lawBlocks(request), keys, columns)",
 				replacement: "\t\t\t\t? equalityPlacements(keys, columns)",
 				why: "A law's reverse request is placed as a workload's equality lookup, so an index led by one of its columns that holds the rest further in serves it: the interleaved key (c0, x, c1) serves A0's foreign key on (c0, c1), which the structural property refuses."
 			},

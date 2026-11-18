@@ -243,12 +243,6 @@ export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItAHeadLiteralReadWh
 				original: "\t\t\thead[name] = mapLeaves(isBare(t) ? typedAs(t, columns(name)) : t, leaves)",
 				replacement: "\t\t\thead[name] = mapLeaves(t, leaves)",
 				why: "A bare head literal left untyped where a term of its column stands (analysis/theory/query.ts); the third box fails."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t!canonicalEquals(own.value, term.value, everyProperty)",
-				replacement: "\tcanonicalEquals(own.value, term.value, everyProperty)",
-				why: "A probe's literal bound to an arm's literal that differs, as every term was bound before (analysis/theory/query.ts meetingOf's test inverted), a filter no fact of the arm meets; the third box fails at a trigger probe of a key over a union of two literals."
 			}
 		]
 	})

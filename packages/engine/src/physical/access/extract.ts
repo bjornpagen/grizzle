@@ -383,12 +383,46 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 			}
 		}
 	}
+	/**
+	 * The classes a correlated value fixes: each correlated variable's, and each class an equality pushed on the region's
+	 * heading equates with a fixed one, as a navigation step binds a column to the value its channel passes in
+	 * (analysis/theory/navigate.ts): `column = channel` over the step's region, the channel correlated with the row
+	 * before it, so the column is as fixed as the channel.
+	 */
+	const fixedClasses = new Map<number, "fixed" | "literal">()
+	const fix = (k: number, kind: "fixed" | "literal"): boolean => {
+		const known = fixedClasses.get(k)
+		if (known === "fixed" || known === kind) {
+			return false
+		}
+		fixedClasses.set(k, kind)
+		return true
+	}
 	for (const c of n.correlated) {
 		const kind = fixing(c.expr)
-		if (kind === undefined) {
-			continue
+		if (kind !== undefined) {
+			fix(classOfVar(c.var), kind)
 		}
-		for (const b of bindingsOf(classOfVar(c.var))) {
+	}
+	const equated = pushed.pairs.flatMap((a): ReadonlyArray<readonly [number, number]> => {
+		if (a.kind !== "pairEq") {
+			return []
+		}
+		const k1 = classOf(a.a)
+		const k2 = classOf(a.b)
+		return k1 === undefined || k2 === undefined ? [] : [[k1, k2]]
+	})
+	for (let changed = fixedClasses.size > 0; changed;) {
+		changed = false
+		for (const [k1, k2] of equated) {
+			const one = fixedClasses.get(k1)
+			const two = fixedClasses.get(k2)
+			changed = (one !== undefined && fix(k2, one)) || changed
+			changed = (two !== undefined && fix(k1, two)) || changed
+		}
+	}
+	for (const [k, kind] of fixedClasses) {
+		for (const b of bindingsOf(k)) {
 			setEq(b.facts, b.column, kind)
 		}
 	}
