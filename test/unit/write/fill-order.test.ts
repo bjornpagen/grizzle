@@ -32,7 +32,11 @@
  *   of analysis/theory/refill.ts): each relation's own insert, put and delete the rules admit, and a drawn follow-up
  *   over the stored instance (an owner's put beside appends to its families), compile, every value they leave stale
  *   drawn again by a refill of its family; only a refill that would update an immutable relation's rows in place is
- *   refused, StaleDerivedRead naming one the reference names. The stale box exhausts every path a change takes to a
+ *   refused, StaleDerivedRead naming one the reference names. A write the reference finds written may still be refused
+ *   as UnorderableStratum, which no reference of refills models, where the cycle it names is the schema's own: each
+ *   of its family statements ordered before the next by an immediate reference or an owner copy of a drawn column the
+ *   schema states (fill-order.fixtures.ts orderedBySchema), a certificate read off the schema, never a second
+ *   statement of the schedule's order. The stale box exhausts every path a change takes to a
  *   stale value: an owner's put through one copy or two, and an edit of a family whose owner is a member, a tree node
  *   or the owner a copy reads, to each kind of value drawn only when its row is written; each compiles, the same put
  *   from a query is refused (StaleDerivedRead, `query`, grizzle never seeing the query's rows), and a role that leaves
@@ -41,7 +45,7 @@
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
-import { type Case, property as propertyOf } from "@bjornpagen/testing/property"
+import { type Case, property as propertyOf, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { defined } from "#test/support/assert.ts"
 import { fullInstance, sourceClassOf, verdictOf } from "#test/support/families/fill.ts"
@@ -84,7 +88,16 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchema
 			kind: "second-implementation",
 			name: "the reference model of the fill order and the reference writer (families/fill.ts)"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/write/fill-order.test.ts#theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchemasCompileExactlyWhereTheReferenceModelAdmitsThemAndThenWrite:-:0.2.0.8.3.3.0.0.0.3.0.d.0.2.0.0.0.3.2.0.1.0.0.2.1.3.0.2.3.1.0.0.1.0.1.1.1.0.1.0.1.0.0.1.0.0.1.0"
+				),
+				reason:
+					"a follow-up the schedule refuses as UnorderableStratum, its cycle the schema's own: R1's put and R2's insert, R1 naming R2 by an immediate owner axis and R2 copying R1's drawn index and copy",
+				since: "2026-11-18"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/write/frontend/compile.ts",

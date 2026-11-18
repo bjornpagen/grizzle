@@ -6,6 +6,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -94,6 +95,7 @@ export type FillSituation =
 	| "refused: a put from a query that a refill would draw"
 	| "refused: a role that does not hold a relation a refill writes or reads"
 	| "compiled: a role that holds every relation a refill writes and reads"
+	| "refused: a stratum whose keys and copies order its family statements in a cycle"
 
 /** A compilation's refusal; none when it compiled. */
 const refusalOf = (
@@ -157,21 +159,86 @@ const staleNotes = (spec: FillSpec, stale: StaleSpec): ReadonlyArray<FillSituati
 	]
 }
 
+/** An immediate reference of the compiled schema, checked at every statement: rows of `from` name rows of `to`. */
+interface Reference {
+	readonly from: string
+	readonly to: string
+}
+
+/** The compiled schema's immediate references, its foreign keys PostgreSQL checks at every statement: each family's
+ * owner axis the law model leaves undeferred among them (laws/model/plan.ts). */
+const immediateReferences = (laws: LawModel): ReadonlyArray<Reference> =>
+	Arr.flatMap(laws.natives, (n) =>
+		n.object.kind === "ForeignKey" && !n.object.deferrable
+			? [{ from: n.object.relation.name, to: n.object.target.name }]
+			: []
+	)
+
+/**
+ * Whether the schema's own facts order the family statement `a` of a stratum before `b`, as UnorderableStratum names
+ * them (write/frontend/compile.ts familyWriteAt): one relation's statements in either order; one member relation's
+ * insertion before another's where the other names its rows by an immediate reference, or copies along an owner axis a
+ * column of its rows the family statement draws, no caller's field; and one relation's deletion before another's
+ * where its rows name the other's by an immediate reference. The certificate of a cycle a compile names, read off the
+ * schema, never a second statement of the schedule's order.
+ */
+const orderedBySchema = (
+	spec: FillSpec,
+	references: ReadonlyArray<Reference>,
+	a: { readonly relation: string; readonly op: string },
+	b: { readonly relation: string; readonly op: string }
+): boolean => {
+	if (a.relation === b.relation) {
+		return true
+	}
+	const names = (from: string, to: string): boolean =>
+		Arr.some(references, (r) => r.from === from && r.to === to)
+	if (a.op === "insert" && b.op === "insert") {
+		const copies = Arr.some(spec.copies, (copy, j) => {
+			const named = copyNamed(spec, j)
+			return (
+				copy.axis === "owner" &&
+				copy.source.kind !== "caller" &&
+				named.relation === b.relation &&
+				named.source.relation === a.relation
+			)
+		})
+		return names(b.relation, a.relation) || copies
+	}
+	return a.op === "delete" && b.op === "delete" && names(a.relation, b.relation)
+}
+
 /**
  * A compiled ChangeSet of `writes` judged against the reference's verdict (fill.ts `writesVerdict`): compiled where it
- * is written, noting every value it refills; else refused with StaleDerivedRead naming a refill of an immutable
- * relation's rows the reference names, refills on a cycle the reference finds, a tree whose values the reference
- * finds stale, a refill whose own change a value reads, or a family member's own write reaching a value grizzle
- * refills only from a plain relation's put, at the write a refused refill's path starts from.
+ * is written, noting every value it refills, or refused as UnorderableStratum where the schema's own keys and copies
+ * order the cycle it names (`orderedBySchema`), which no reference of refills models; else refused with
+ * StaleDerivedRead naming a refill of an immutable relation's rows the reference names, refills on a cycle the
+ * reference finds, a tree whose values the reference finds stale, a refill whose own change a value reads, or a family
+ * member's own write reaching a value grizzle refills only from a plain relation's put, at the write a refused
+ * refill's path starts from.
  */
 const judged = (
 	spec: FillSpec,
+	references: ReadonlyArray<Reference>,
 	refusal: CompileError | undefined,
 	verdict: WritesVerdict,
 	label: string,
 	note: (situation: FillSituation) => void
 ): void => {
 	if (verdict.kind === "written") {
+		const unordered = refusal?.reason
+		if (unordered?._tag === "UnorderableStratum") {
+			const cycle = unordered.cycle
+			for (const [i, at] of cycle.entries()) {
+				const next = defined(cycle[(i + 1) % cycle.length], "the cycle's next write")
+				assert.ok(
+					orderedBySchema(spec, references, at, next),
+					`${label}: refused with UnorderableStratum, whose ${at.op} of ${at.relation} before ${next.op} of ${next.relation} no key or copy of the schema orders; the cycle: ${Formatter.format(cycle)}`
+				)
+			}
+			note("refused: a stratum whose keys and copies order its family statements in a cycle")
+			return
+		}
 		assert.equal(refusal?.reason, undefined, `${label} compiles`)
 		for (const stale of verdict.stale) {
 			for (const situation of staleNotes(spec, stale)) {
@@ -388,6 +455,7 @@ export const guards = (spec: FillSpec, note: (situation: FillSituation) => void)
 			const beside = ChangeSet.empty(value).put(relationOf(built, p), [])
 			judged(
 				spec,
+				immediateReferences(options.laws),
 				refusalOf(
 					compileWrite(
 						checked,
@@ -657,6 +725,7 @@ export const property = (
 			const one = (cs: ChangeSetValue, op: SpecWrite["op"]): void =>
 				judged(
 					spec,
+					immediateReferences(options.laws),
 					refusalOf(compileWrite(checked, descOf(cs), options)),
 					writesVerdict(spec, [{ relation: r, op }]),
 					`a ${op} of ${relationName(r)} the rules admit`,
@@ -706,6 +775,7 @@ export const property = (
 			)
 			judged(
 				spec,
+				immediateReferences(options.laws),
 				refusalOf(compileWrite(checked, descOf(follow), options)),
 				written,
 				`the follow-up ${Formatter.format(followed)}`,
