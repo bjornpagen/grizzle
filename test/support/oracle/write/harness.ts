@@ -227,7 +227,7 @@ type RefusalFeature =
 	| "refused by a primary key"
 	| "refused by a candidate key"
 	| "refused by an immediate foreign key"
-	| "refused by a deferred foreign key"
+	| "refused at COMMIT by a containment"
 	| "refused by a projected key"
 
 /**
@@ -961,11 +961,11 @@ const refusalKind = (t: WriteTarget, group: WGroup, law: LawId): Option.Option<R
 		() =>
 			Option.orElse(
 				Arr.findFirst(group.containments, (c): Option.Option<RefusalFeature> =>
-					t.laws.foreignKey(c.from.relation, c.from.fields) === law
+					t.laws.containment(c.from.relation, c.from.fields) === law
 						? Option.some(
 								isImmediate(group, c)
 									? "refused by an immediate foreign key"
-									: "refused by a deferred foreign key"
+									: "refused at COMMIT by a containment"
 							)
 						: Option.none()
 				),
@@ -1649,7 +1649,7 @@ export const runCase = (
 		if (expected.kind === "rejected" || expected.kind === "outsideDomain") {
 			if (
 				Arr.some(attached, ({ containment: x }) =>
-					expected.refusals.has(t.laws.foreignKey(x.from.relation, x.from.fields))
+					expected.refusals.has(t.laws.containment(x.from.relation, x.from.fields))
 				)
 			) {
 				note("a stated-one read-back over a deferred containment that the write violates")

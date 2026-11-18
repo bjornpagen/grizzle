@@ -55,7 +55,7 @@ export const groupLaws = (group: WGroup, laws: WriteLawNames): ReadonlyArray<Law
 		laws.primaryKey(r.name),
 		...Arr.map(r.keys, (k) => laws.key(r.name, k))
 	]),
-	...Arr.map(group.containments, (c) => laws.foreignKey(c.from.relation, c.from.fields)),
+	...Arr.map(group.containments, (c) => laws.containment(c.from.relation, c.from.fields)),
 	...Arr.map(group.projectedKeys, (k) => laws.projectedKey(k.relation, k.fields).law)
 ]
 

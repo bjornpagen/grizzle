@@ -128,7 +128,7 @@ export const writeSituations = [
 	"outcome invariant-rejected",
 	"refused by a primary key",
 	"refused by a candidate key",
-	"refused by a deferred foreign key",
+	"refused at COMMIT by a containment",
 	"refused by an immediate foreign key",
 	"refused by a projected key",
 	"mutable relation",

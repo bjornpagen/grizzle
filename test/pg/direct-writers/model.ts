@@ -512,7 +512,7 @@ const brokenReferences = (
 			state.get(source.value.name) ?? [],
 			(f) => !present.has(keyOf(source.value, c.from.fields, f))
 		)
-		return dangling ? [t.laws.foreignKeyConstraint(source.value.name, c.from.fields)] : []
+		return dangling ? [t.laws.containmentConstraint(source.value.name, c.from.fields)] : []
 	})
 }
 

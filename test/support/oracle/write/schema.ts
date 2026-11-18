@@ -108,9 +108,11 @@ export interface WGroup {
  *   OVERRIDING SYSTEM VALUE and the sequence advance, or omit them as generated additions;
  * - `mutable(R)` or the pinned immutable default;
  * - at most one containment of some of its fields into the primary key, or a candidate key, of an earlier relation of
- *   its group, a native foreign key. By the compiler's deferral rule it is DEFERRABLE INITIALLY DEFERRED, judged at
- *   COMMIT, when its target has a field outside the referenced key, which every candidate key's target has, and
- *   immediate, judged at every statement, when its target is a pure set;
+ *   its group. Into a pure set it is a foreign key immediate by the compiler's deferral rule, judged at every
+ *   statement; into a target with a field outside the referenced key, which every candidate key's target has, it is
+ *   judged at COMMIT, by a foreign key DEFERRABLE INITIALLY DEFERRED, or by the rule judge where both relations are
+ *   immutable and the containment joins within one unit (laws/model/plan.ts containmentDischarge): the same law either
+ *   way, refused at COMMIT under the name of whichever holds it;
  * - at most one projected key: of the facts whose boolean field is true, at most one per value of some fields, of the
  *   types of an earlier relation's primary key. It installs as a UNIQUE NULLS DISTINCT over its selected side's law
  *   columns, null where the field is not true, a native law immediate like every key.
@@ -752,14 +754,19 @@ export const buildWSchema = (w: WSchema, name: string): WBuiltSchema => {
 export interface WriteLawNames {
 	readonly primaryKey: (relation: string) => LawId
 	readonly key: (relation: string, fields: ReadonlyArray<string>) => LawId
-	readonly foreignKey: (relation: string, fields: ReadonlyArray<string>) => LawId
+	/** The law of the relation's containment from `fields`, the theory's whatever discharges it. */
+	readonly containment: (relation: string, fields: ReadonlyArray<string>) => LawId
 	/**
-	 * The installed constraint of the relation's primary key, of its candidate key over `fields`, and of its foreign key
-	 * over `fields`: what a direct writer's violation names beside the table.
+	 * The installed constraint of the relation's primary key, of its candidate key over `fields`, and the name a
+	 * refusal of its containment from `fields` carries, its foreign key's or, judged whole, its rule's: what a direct
+	 * writer's violation names beside the table.
 	 */
 	readonly primaryKeyConstraint: (relation: string) => ConstraintName
 	readonly keyConstraint: (relation: string, fields: ReadonlyArray<string>) => ConstraintName
-	readonly foreignKeyConstraint: (relation: string, fields: ReadonlyArray<string>) => ConstraintName
+	readonly containmentConstraint: (
+		relation: string,
+		fields: ReadonlyArray<string>
+	) => ConstraintName
 	/** The law of a projected key over `relation`'s `fields`, and its UNIQUE over its law columns. */
 	readonly projectedKey: (
 		relation: string,
@@ -821,33 +828,58 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 		}
 		return k.constraint
 	}
-	/** The constraint of the relation's foreign key over `fields` (as a set), a PERIOD one's span among them. */
-	const foreignKeyConstraint = (
+	/** The theory's law of the relation's containment from `fields` (as a set), of every fact of either side. */
+	const containment = (relation: string, fields: ReadonlyArray<string>): LawId => {
+		for (const law of laws.theory.laws) {
+			const d = law.detail
+			if (
+				d.kind === "containment" &&
+				d.from.relation === relation &&
+				d.from.selection.conjuncts.length === 0 &&
+				sameColumns(
+					Arr.flatMap(d.from.terms, (t) => (t.kind === "field" ? [t.column.name] : [])),
+					fields
+				)
+			) {
+				return law.id
+			}
+		}
+		throw new Error(`no containment law of ${relation}(${Arr.join(fields, ", ")})`)
+	}
+	/** The name a refusal of the containment carries: its foreign key's constraint where a native holds it, a PERIOD
+	 * one's among them, and its rule's where the judge holds it whole. */
+	const containmentConstraint = (
 		relation: string,
 		fields: ReadonlyArray<string>
 	): ConstraintName => {
+		const law = containment(relation, fields)
 		for (const n of laws.natives) {
 			const o = n.object
-			if (n.namespace !== "constraint") {
-				continue
-			}
-			if (o.kind !== "ForeignKey" && o.kind !== "PeriodForeignKey") {
-				continue
-			}
-			const fk = foreignKeyColumns(o)
-			if (fk.relation === relation && sameColumns(fk.columns, fields)) {
+			if (
+				n.namespace === "constraint" &&
+				(o.kind === "ForeignKey" || o.kind === "PeriodForeignKey") &&
+				o.lawIds.includes(law) &&
+				foreignKeyColumns(o).relation === relation
+			) {
 				return identifierOf(n.named)
 			}
 		}
-		throw new Error(`no installed foreign key ${relation}(${Arr.join(fields, ", ")})`)
+		for (const r of laws.rules) {
+			if (r.law.id === law) {
+				return identifierOf(r.named)
+			}
+		}
+		throw new Error(
+			`no installed object holds the containment ${relation}(${Arr.join(fields, ", ")})`
+		)
 	}
 	return {
 		primaryKey: (relation) => lawOf(relation, keyConstraint(relation, { primary: true })),
 		key: (relation, fields) => lawOf(relation, keyConstraint(relation, { fields })),
-		foreignKey: (relation, fields) => lawOf(relation, foreignKeyConstraint(relation, fields)),
+		containment,
 		primaryKeyConstraint: (relation) => keyConstraint(relation, { primary: true }),
 		keyConstraint: (relation, fields) => keyConstraint(relation, { fields }),
-		foreignKeyConstraint,
+		containmentConstraint,
 		/**
 		 * A relation's one projected key, as the sketch draws at most one per relation: the UNIQUE of its selected
 		 * side, over a law column per field, where a declared key's are fields.

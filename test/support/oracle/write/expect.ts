@@ -461,7 +461,7 @@ const brokenForeignKeys = (
 			[...entryOf(state.relations, source.name, "the state's relations").values()],
 			(f) => !present.has(keyOf(source, c.from.fields, f))
 		)
-			? [ctx.laws.foreignKey(source.name, c.from.fields)]
+			? [ctx.laws.containment(source.name, c.from.fields)]
 			: []
 	})
 
