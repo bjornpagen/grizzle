@@ -321,9 +321,9 @@ interface ReadSketch {
  * - "lagging identical": the same lagging sequence, setval(seq, k, false) at the stored key k, and one stratum that
  *   deletes the stored fact at k beside a generated addition of its other fields, which draws k after the deletion:
  *   the fact the stratum removes and adds back is identical, so the change's counts hold neither (runtime/write/net.ts
- *   stratumChange, a set difference); its read-backs of delta.added and delta.removed are refused when it compiles,
- *   since a generated addition and a deletion of its stratum may cancel (write/schedule/plan.ts drawsSerials), and the
- *   harness leaves them out (harness.ts settledReads);
+ *   stratumChange, a set difference, whose weights for it sum to 0); its read-backs of delta.added and delta.removed
+ *   are refused when it compiles, since a generated addition and a deletion of its stratum may cancel
+ *   (write/schedule/plan.ts drawsSerials), and the harness leaves them out (harness.ts settledReads);
  * - "lagging differing": the same, the generated addition's other field differing, so the counts hold one removal and
  *   one addition;
  * - "lagging repeat": a generated addition into the numbered relation, whose identity column lies outside its key, of a
@@ -365,7 +365,7 @@ interface ReadSketch {
  *   unordered beside its insertion of complete facts, and the keys run the insertion, the put, then the deletion; were
  *   the deletion before the insertion, as on a relation whose facts meet, no order would keep them;
  * - "added then removed": a fresh keyed fact inserted in one stratum and deleted in the next, so the change nets to
- *   none: the later stratum's removal cancels the earlier one's addition (runtime/write/net.ts netStrata).
+ *   none: the later stratum's removal cancels the earlier one's addition (core/zset.ts addInto).
  * The sequential realization of a stratum of several statements is "relation parameters", an insert and a deletion of
  * one relation.
  */

@@ -355,10 +355,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   (write/family/edit.ts planEdits, family/state.ts), then lifting both refusals and the refill-first rule, with a
   served two-strata edit drawn by test/pg/write/strata-families, whose behaviour cannot see an edit planned in a stratum
   not its own today.
-- **One netting rule, not two (READBACK, 2026-11-14):** runtime/write/net.ts stratumChange (~l.83) cancels a fact its own
-  stratum both removes and adds, and netStrata (net.ts:137-157) applies each stratum's removals before its additions,
-  which cancels the identical pair anyway: a mutant dropping stratumChange's cancellation stayed green on write/oracle-0..3.
-  Keep the cancellation in one place, the one the oracle's counts judge.
 - **A SERIALIZABLE writer that only withdraws a rule's violations still holds a READ COMMITTED prober (MONOTONE,
   2026-11-14):** pivotCauseOf (analysis/isolation/certify.ts) counts any SERIALIZABLE role that writes a relation a
   rule over a query reads as one that may miss another call's write, and 5c then holds every READ COMMITTED role whose

@@ -533,7 +533,7 @@ const withoutParent = (row: Fact): Fact =>
 /**
  * Whether a stratum of the expected change adds a fact a later stratum removes, read off the oracle's per-stratum
  * changes (addwins.ts AppliedOutcome strata): the change's counts net the pair away (delta.ts netStrata), as the
- * realization's must (runtime/write/net.ts netStrata).
+ * realization's must (core/zset.ts addInto, runtime/write/net.ts outcomeCounts).
  */
 const addedThenRemoved = (outcome: AppliedOutcome): boolean =>
 	Arr.some(outcome.strata, (stratum, at) =>

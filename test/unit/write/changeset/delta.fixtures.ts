@@ -22,7 +22,7 @@ import { upTo } from "#test/support/up-to.ts"
 import { codesOf, compiled, cs, LedgerSchema } from "#test/unit/write/changeset/fixtures.ts"
 
 /** The fact of a model id. */
-export const fact = (id: string): Fact => ({ id })
+const fact = (id: string): Fact => ({ id })
 
 /** The facts each relation's states are drawn over. */
 const universe = ["a", "b", "c", "d"] as const
@@ -48,17 +48,21 @@ const removedBy = element([
 	["displaced", "delete"]
 ] as const)
 
-/** One step of a relation's sequence: the state after it, and which members returned each fact of the universe. */
+/** One step of a relation's sequence: the state after it, which members returned each fact of the universe, and
+ * whether a fact it holds before and after it comes back removed and added again, identical, as a delete and a lagging
+ * generated addition return it, or a family's counts a stratum moves away and back. */
 interface Step {
 	readonly after: ReadonlyArray<string>
 	readonly added: ReadonlyArray<ReadonlyArray<"insert" | "put">>
 	readonly removed: ReadonlyArray<ReadonlyArray<"delete" | "displaced">>
+	readonly restored: ReadonlyArray<boolean>
 }
 
 const step: Gen<Step> = (source) => ({
 	after: source.draw(subarray(universe)),
 	added: source.draw(array(addedBy, { min: universe.length, max: universe.length })),
-	removed: source.draw(array(removedBy, { min: universe.length, max: universe.length }))
+	removed: source.draw(array(removedBy, { min: universe.length, max: universe.length })),
+	restored: source.draw(array(boolean, { min: universe.length, max: universe.length }))
 })
 
 /** A relation's sequence: its start, and per stratum a step, or nothing when the stratum does not change it. */
@@ -86,13 +90,20 @@ export const sequences: Gen<{
 	}
 }
 
+/** The universe's facts a step returns removed and added back identical: those it holds before and after. */
+export const restoredOf = (
+	st: Step,
+	before: FactSet,
+	after: FactSet
+): ReadonlyArray<FactIdentity> =>
+	Arr.filter([...before.keys()], (id) => after.has(id) && tagsOf(st.restored, id))
+
 /** The model's facts of `ids`, each identified by its one text `[id]`. */
 export const setOf = (ids: ReadonlyArray<string>): FactSet =>
 	factSetOf(Arr.map(ids, (id) => [[id], fact(id)] as const))
 
 /** The model's id of an identity, which the model writes as the one text `[id]`. */
-export const modelId = (identity: FactIdentity): string =>
-	defined(identity[0], "a model fact's one text")
+const modelId = (identity: FactIdentity): string => defined(identity[0], "a model fact's one text")
 
 /** A fact set's or a change's identities, in canonical order. */
 export const identitiesOf = (keys: Iterable<FactIdentity>): ReadonlyArray<FactIdentity> =>
@@ -133,6 +144,9 @@ export const byCodePoints: Order.Order<string> = Order.mapInput(
 export type NettingFeature =
 	| "a fact two members of a stratum made present"
 	| "a fact two members of a stratum made absent"
+	| "a fact a stratum removed and added back identical"
+	| "a fact restored identical while an earlier stratum's change of it stands"
+	| "a fact a later stratum's change cancels"
 	| "a written relation no stratum changed"
 	| "a repeated written relation"
 	| "names out of code unit order"

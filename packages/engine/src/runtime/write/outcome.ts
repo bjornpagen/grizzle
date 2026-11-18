@@ -1,21 +1,14 @@
 import { scalarReader } from "#compiler/codec/read.ts"
 import type { RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import {
-	type AddedTag,
 	type ChangeRow,
-	type NettedRelation,
-	netStrata,
-	nettedCounts,
+	outcomeCounts,
 	type RelationCounts,
-	type RemovedTag,
-	relationChanges,
 	relationIdentity,
-	type StratumChange,
-	stratumChange
+	type Tag
 } from "#compiler/runtime/write/net.ts"
 import { putRowConverter } from "#compiler/runtime/write/put-rows.ts"
 import { type Fact, writeRowConverter } from "#compiler/runtime/write/rows.ts"
@@ -35,10 +28,6 @@ import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
 interface WriteChanges {
 	/** One entry per written relation, in code point order. */
 	readonly counts: ReadonlyArray<RelationCounts>
-	/** Per stratum of the artifact, each relation it changed and what it changed. */
-	readonly strata: ReadonlyArray<ReadonlyMap<StoredRelationName, StratumChange>>
-	/** Per written relation, delta.added and delta.removed netted across strata. */
-	readonly deltas: ReadonlyMap<StoredRelationName, NettedRelation>
 }
 
 /** A relation the ChangeSet writes, by name, with the identity its facts are netted across strata by: every field's
@@ -102,9 +91,10 @@ export const keyWitness = (
 ): KeyWitness => Object.freeze({ kind: "key", relation, values: Object.freeze(key) })
 
 /** One fact a write statement's row made present or absent, with the tag of the change. */
-type RowChange =
-	| { readonly side: "added"; readonly tag: AddedTag; readonly fact: Fact }
-	| { readonly side: "removed"; readonly tag: RemovedTag; readonly fact: Fact }
+interface RowChange {
+	readonly tag: Tag
+	readonly fact: Fact
+}
 
 type ChangesConverter = (row: ReadonlyArray<OutputText>) => ReadonlyArray<RowChange>
 
@@ -116,12 +106,12 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
 	switch (result.kind) {
 		case "insert": {
 			const convert = writeRowConverter(result, codes)
-			return (row) => [{ side: "added", tag: result.of, fact: convert(row).fact }]
+			return (row) => [{ tag: result.of, fact: convert(row).fact }]
 		}
 		case "delete": {
 			const convert = writeRowConverter(result, codes)
 			const tag = removedTag(result)
-			return (row) => [{ side: "removed", tag, fact: convert(row).fact }]
+			return (row) => [{ tag, fact: convert(row).fact }]
 		}
 		case "upsert":
 		case "update":
@@ -131,14 +121,14 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
 				const r = convert(row)
 				switch (r.kind) {
 					case "added":
-						return [{ side: "added", tag: "put", fact: r.fact }]
+						return [{ tag: "put", fact: r.fact }]
 					case "replaced":
 						return [
-							{ side: "removed", tag: "displaced", fact: r.old },
-							{ side: "added", tag: "put", fact: r.fact }
+							{ tag: "displaced", fact: r.old },
+							{ tag: "put", fact: r.fact }
 						]
 					case "removed":
-						return [{ side: "removed", tag: "delete", fact: r.fact }]
+						return [{ tag: "delete", fact: r.fact }]
 				}
 			}
 		}
@@ -163,12 +153,12 @@ const stepIdentity = (
 
 /**
  * The changes of an artifact's statements from their rows; `rowsOf(i)` is statement i's rows, none when the runtime
- * skipped it, and is read only for the statements of the strata. Per stratum of the artifact (`byStratum`), its change
- * to each written relation its write steps returned rows for, keyed by fact identity (`stratumChange`); a write step
- * writes only relations of `context.written`. The changes are each stratum's facts made present and absent, tagged by
- * the member kind that requested them, netted across strata by fact identity into delta.added, delta.removed and the
- * counts, whose outcome kind the shell's outcome value decides from them (runtime/write/net.ts outcomeKind). It reads fields
- * grizzle controls only, never PostgreSQL's message or DETAIL prose.
+ * skipped it, and is read only for the statements of the strata. Per stratum of the artifact (`byStratum`), the rows
+ * its write steps returned for each written relation, each a fact's identity and its change's tag; a write step writes
+ * only relations of `context.written`. Each stratum's rows are its change (net.ts stratumChange), the facts it made
+ * present and absent, tagged by the member kind that requested them, and the strata's changes are summed by fact
+ * identity into the counts (`outcomeCounts`), whose outcome kind the shell's outcome value decides from them
+ * (runtime/write/net.ts outcomeKind). It reads fields grizzle controls only, never PostgreSQL's message or DETAIL prose.
  */
 export const interpretRows = (
 	context: OutcomeContext,
@@ -191,37 +181,20 @@ export const interpretRows = (
 					const identityOf = stepIdentity(w.counts, w.step.result, identity, context.codes)
 					for (const raw of w.rows) {
 						for (const change of convert(raw)) {
-							rows.push(
-								change.side === "added"
-									? {
-											side: "added",
-											tag: change.tag,
-											fact: change.fact,
-											identity: identityOf(change.fact)
-										}
-									: {
-											side: "removed",
-											tag: change.tag,
-											fact: change.fact,
-											identity: identityOf(change.fact)
-										}
-							)
+							rows.push({ identity: identityOf(change.fact), tag: change.tag })
 						}
 					}
 				}
-				return [[relation, stratumChange(rows)] as const]
+				return [[relation, rows] as const]
 			})
 		)
 	})
-	const written = context.written.map((w) => w.relation)
-	const deltas = new Map<StoredRelationName, NettedRelation>()
-	for (const relation of written) {
-		deltas.set(relation, netStrata(relationChanges(changes, relation)))
+	return {
+		counts: outcomeCounts(
+			context.written.map((w) => w.relation),
+			changes
+		)
 	}
-	const counts = nettedCounts(written, (relation) =>
-		defined(deltas.get(relation), `the netted change of ${relation}, a written relation`)
-	)
-	return { counts, strata: changes, deltas }
 }
 
 /** The witness decoder of a write, converting grizzle's own texts without a check into a witness:

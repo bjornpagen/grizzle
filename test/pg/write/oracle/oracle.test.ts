@@ -17,8 +17,9 @@
  * - Situations: writeSituations (index.ts), each a witness case must reach.
  * - Case deadline: a whole write run a case, measured (oracle.fixtures.ts writeRunDeadline).
  * - Kills: the compiler and runtime bugs the old suites 0, 1 and 3 caught (their plants, now kills): a staged member
- *   slot's carrier taken from another slot of the same heading, a later stratum's removal no longer cancelling an
- *   earlier addition, a fact removed and re-added in one stratum left added, and two orderings of the scheduler; and
+ *   slot's carrier taken from another slot of the same heading, a removal that weighs as an addition and a cancelled
+ *   fact kept in the Z-set (core/zset.ts), which leave a later stratum's removal of an earlier addition, or a fact
+ *   removed and re-added in one stratum, added, and two orderings of the scheduler; and
  *   lane CATCH's kill from the mutation tester's old oracle subset: the checker never finding the match of a bind map
  *   whose variables are all bound.
  *
@@ -82,16 +83,16 @@ export const writeOracle = property.explore(perturbedRunGen, {
 			why: "A staged member slot's carrier is filled from another slot of the same heading (write/program/slot-carriers.ts), so every statement that reads the carrier reads that slot's facts: the optimized program's outcome or stored state leaves the conservative realization's."
 		},
 		{
-			file: "packages/engine/src/runtime/write/net.ts",
-			original: "\t\t\t\tadded.delete(identity)",
-			replacement: "\t\t\t\tremoved.delete(identity)",
-			why: 'A later stratum\'s removal no longer cancels an earlier stratum\'s addition of the same fact (runtime/write/net.ts netStrata), so a removal keeps the addition it should cancel across strata; the property fails on the planted arm "added then removed" ("expected no-change, got accepted").'
+			file: "packages/engine/src/core/zset.ts",
+			original: "export const weightOf = { added: 1, removed: -1 } as const",
+			replacement: "export const weightOf = { added: 1, removed: 1 } as const",
+			why: 'A removal weighs as an addition (core/zset.ts weightOf), so a later stratum\'s removal no longer cancels an earlier stratum\'s addition of the same fact, nor a stratum\'s removal its identical addition; the property fails on the planted arm "added then removed" ("expected no-change, got accepted").'
 		},
 		{
-			file: "packages/engine/src/runtime/write/net.ts",
-			original: "\t\tif (removed.delete(identity)) {\n\t\t\tadded.delete(identity)\n\t\t}",
-			replacement: "\t\tremoved.delete(identity)",
-			why: 'A fact a stratum both removes and adds identically stays added (runtime/write/net.ts stratumChange); the property fails on the outcome ("expected no-change, got accepted").'
+			file: "packages/engine/src/core/zset.ts",
+			original: "\t\t\tnet.delete(key)",
+			replacement: "\t\t\tnet.set(key, { weight, value: next.value })",
+			why: 'A fact whose weights sum to 0 stays in the Z-set (core/zset.ts addInto), so a fact a stratum both removes and adds identically, or one a later stratum removes, is counted under its tag; the property fails on the outcome ("expected no-change, got accepted").'
 		},
 		{
 			file: "packages/engine/src/write/frontend/schedule.ts",
