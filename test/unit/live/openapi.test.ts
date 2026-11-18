@@ -52,6 +52,7 @@
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Result as Answered, Array as Arr, Effect, Formatter } from "effect"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -69,6 +70,9 @@ import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { compiledLogin } from "#test/support/served-login.ts"
 import {
 	documentHolds,
+	type Logins,
+	sharedDocumentsGen,
+	tagSeenAgain,
 	type Feature,
 	firstCodes,
 	holds,
@@ -102,7 +106,7 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 		check:
 			(_, notes: Case<Feature>) =>
 			([sketch, level]) =>
-				documentHolds(notes, unseen(), sketch, level),
+				documentHolds(notes, unseen(), [sketch, level, "drawn"], new Map()),
 		oracle: {
 			kind: "specification",
 			name: "the served file the document is read off and the event model's own table"
@@ -264,13 +268,15 @@ export const aLoginsOpenAPIDocumentDocumentsEveryServedChangeSetsFactsAndOutcome
  * may depend on alone, across the two or three documents of a case as within each.
  *
  * Budget: openapi-logins's count (unit/live/openapi-logins, 60 independent cases and none steered), the claim it held
- * across those cases before the conversion. Every case holds one login's document at two law levels (documentsGen), so
- * every text is seen again under what it may depend on in each case; two logins whose roles coincide in name, contexts
- * and deed counts but write different relations are kept (its kept token, found by the kill's mutant at the runner's
- * budget and shrunk): at TEST_SEED=1 to 5 every situation is reached and every kill is killed.
+ * across those cases before the conversion. Every case holds one case sketch's documents at two law levels
+ * (documentsGen), each of a login of its own, so a text is seen again where the logins' roles coincide; two logins whose
+ * roles coincide in name, contexts and deed counts but write different relations are kept (its kept token, found by the
+ * kill's mutant at the runner's budget and shrunk). A witness whose turn aims at a tag's description seen again draws
+ * the second document of the first's login (sharedDocumentsGen), so every role's tag is seen again, rather than leave
+ * the situation to the tape: its fixed floor witnesses missed it once bbf0a29d drew a law level's order.
  */
 export const aLoginsOpenAPIDocumentIsShortEachTextDependingOnWhatItMayDependOnAloneAcrossDocuments =
-	property.explore(documentsGen, {
+	property.explore(aimed(documentsGen, [[tagSeenAgain, sharedDocumentsGen]]), {
 		needs: {},
 		situations: [
 			"a summary seen again under what it may depend on",
@@ -280,8 +286,9 @@ export const aLoginsOpenAPIDocumentIsShortEachTextDependingOnWhatItMayDependOnAl
 		check: (_, notes: Case<Feature>) => (documents) =>
 			Effect.gen(function* () {
 				const seen = unseen()
-				for (const [sketch, level] of documents) {
-					yield* documentHolds(notes, seen, sketch, level)
+				const logins: Logins = new Map()
+				for (const document of documents) {
+					yield* documentHolds(notes, seen, document, logins)
 				}
 			}),
 		oracle: {
@@ -300,6 +307,12 @@ export const aLoginsOpenAPIDocumentIsShortEachTextDependingOnWhatItMayDependOnAl
 			}
 		],
 		kills: [
+			{
+				file: "test/unit/live/openapi.fixtures.ts",
+				original: '\t\t[sketch, source.draw(lawLevelGen), "first\'s"]',
+				replacement: '\t\t[sketch, source.draw(lawLevelGen), "drawn"]',
+				why: "The aim's second document draws a login of its own, so no witness sees a role's tag again but by the tape's luck; the property fails on its unreached tag's description seen again."
+			},
 			{
 				file: "packages/engine/src/live/openapi.ts",
 				original: '\t\t\treturn "A write"',

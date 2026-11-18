@@ -28,7 +28,7 @@ import {
 } from "#compiler/live/events.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
-import { assert, deepEquals } from "#test/support/assert.ts"
+import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { documentErrors } from "#test/support/openapi/validator.ts"
 import {
 	type CaseSketch,
@@ -37,9 +37,11 @@ import {
 } from "#test/support/oracle/public/generate.ts"
 import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
+import type { ProgramCase } from "#test/support/oracle/public/program.ts"
 import { type WChangeSet } from "#test/support/oracle/write/changeset.ts"
 import {
 	compiledLogin,
+	type DrawnSchema,
 	drawnLogin,
 	drawnSchema,
 	loginGen,
@@ -659,25 +661,43 @@ export const servedShape = (c: WChangeSet): WChangeSet => ({
 	binding: "passed"
 })
 
+export const tagSeenAgain: Feature = "a tag's description seen again under what it may depend on"
+
 /**
- * The document of the login a case sketch and a law level draw (`notes` draws its roles), compiled as generate
- * compiles it, held to every property of the header beside the documents `seen` holds; a login the compiler refuses
- * holds nothing.
+ * Which login a document is of: one it draws over a case it resolves, or the first's, the login its sketch's document
+ * before it drew over the case it resolved (Logins), at the document's own law level.
+ */
+type LoginOf = "drawn" | "first's"
+
+/** A document of a cross-document case: its case sketch, its law level, and which login it is of. */
+export type Document = readonly [CaseSketch, LawLevel, LoginOf]
+
+/** The cases a case's documents resolved and the logins they drew over them, by the sketch each was resolved from. */
+export type Logins = Map<
+	CaseSketch,
+	{ readonly case: ProgramCase; readonly shapes: Arr.NonEmptyReadonlyArray<RoleShape> }
+>
+
+/**
+ * The document of a login over a case sketch and a law level, compiled as generate compiles it, held to every property
+ * of the header beside the documents `seen` holds; a login the compiler refuses holds nothing. Its case and login are
+ * ones `notes` resolves and draws, which `logins` then holds as the sketch's, or, for a document of the first's login,
+ * the ones `logins` holds.
  */
 export const documentHolds = (
 	notes: Case<Feature>,
 	seen: Seen,
-	sketch: CaseSketch,
-	level: LawLevel
+	[sketch, level, loginOf]: Document,
+	logins: Logins
 ) =>
 	Effect.gen(function* () {
-		const c = notes.draw(resolveCase(sketch))
+		const held =
+			loginOf === "first's"
+				? defined(logins.get(sketch), "the case and login its sketch's first document drew")
+				: undefined
+		const c = held?.case ?? notes.draw(resolveCase(sketch))
 		const schema = drawnSchema(c, level)
-		const [first, ...rest] = notes.draw(loginGen(schema))
-		const shapes: Arr.NonEmptyReadonlyArray<RoleShape> = [
-			{ ...first, refreshes: notes.draw(boolean) },
-			...rest
-		]
+		const shapes = held?.shapes ?? sketchLogin(notes, schema, sketch, logins)
 		const printed = () => `${printCase(c)}\n${Formatter.format(level)}\n${Formatter.format(shapes)}`
 		const compiled = yield* Effect.result(
 			compiledLogin(drawnLogin(schema, shapes), schema.laws.codes)
@@ -689,22 +709,50 @@ export const documentHolds = (
 		yield* holds(entry.file, entry.openapi, seen, notes.note, printed)
 	}).pipe(Effect.scoped, Effect.orDie)
 
+/** A login drawn over `schema`, its first role refreshing or not, which `logins` then holds with its case as `sketch`'s. */
+const sketchLogin = (
+	notes: Case<Feature>,
+	schema: DrawnSchema,
+	sketch: CaseSketch,
+	logins: Logins
+): Arr.NonEmptyReadonlyArray<RoleShape> => {
+	const [first, ...rest] = notes.draw(loginGen(schema))
+	const shapes: Arr.NonEmptyReadonlyArray<RoleShape> = [
+		{ ...first, refreshes: notes.draw(boolean) },
+		...rest
+	]
+	logins.set(sketch, { case: schema.case, shapes })
+	return shapes
+}
+
 /**
- * A cross-document case: one login's document at two law levels, which differ in what no text of the document may
- * depend on, so every text is seen again under what it depends on in every case; then up to one document of another
- * login, whose texts are seen again only where its schema's coincide.
+ * A cross-document case: one case sketch's documents at two law levels, which differ in what no text of a document may
+ * depend on, each of a login of its own, so a text is seen again under what it depends on where its logins' roles
+ * coincide; then up to one document of another sketch, whose texts are seen again only where its schema's coincide.
  */
-export const documentsGen: Gen<ReadonlyArray<readonly [CaseSketch, LawLevel]>> = (source) => {
+export const documentsGen: Gen<ReadonlyArray<Document>> = (source) => {
 	const sketch = source.draw(caseSketchGen)
-	const twice: ReadonlyArray<readonly [CaseSketch, LawLevel]> = [
-		[sketch, source.draw(lawLevelGen)],
-		[sketch, source.draw(lawLevelGen)]
+	const twice: ReadonlyArray<Document> = [
+		[sketch, source.draw(lawLevelGen), "drawn"],
+		[sketch, source.draw(lawLevelGen), "drawn"]
 	]
 	const other = source.draw(
-		array((inner) => [inner.draw(caseSketchGen), inner.draw(lawLevelGen)] as const, {
+		array((inner): Document => [inner.draw(caseSketchGen), inner.draw(lawLevelGen), "drawn"], {
 			min: 0,
 			max: 1
 		})
 	)
 	return [...twice, ...other]
+}
+
+/**
+ * A cross-document case aimed at a text seen again: one login's documents at two law levels, the second of the login
+ * the first drew, so every role's texts are seen again under what they may depend on wherever both compile.
+ */
+export const sharedDocumentsGen: Gen<ReadonlyArray<Document>> = (source) => {
+	const sketch = source.draw(caseSketchGen)
+	return [
+		[sketch, source.draw(lawLevelGen), "drawn"],
+		[sketch, source.draw(lawLevelGen), "first's"]
+	]
 }
