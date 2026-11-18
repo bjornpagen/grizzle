@@ -155,6 +155,29 @@ const referrersGen =
 			})
 		})
 
+/**
+ * The relations a delete of everything by selection reaches: each relation it deletes whole, those no ordered or counted
+ * family has as a member (oracle.ts deletedAll), and each member of a family whose owner it reaches, since a whole
+ * delete removes every row nested under it through every family. A cycle of families, each relation of it a member of
+ * the one before, nests under no relation the selection deletes, so it is reached by none of them, and its rows stay.
+ */
+const selectionReach = (core: FillSpec): ReadonlySet<number> => {
+	const reached = new Set(
+		Arr.filter(
+			Arr.map(core.relations, (_, r) => r),
+			(r) => !Arr.some(core.families, (f) => f.member === r && f.kind !== "tree")
+		)
+	)
+	for (const owner of reached) {
+		for (const f of core.families) {
+			if (f.owner === owner) {
+				reached.add(f.member)
+			}
+		}
+	}
+	return reached
+}
+
 /** Whether the rules admit a delete of relation `r`'s rows: no tree's, no member that owns a sequence, no member of an
  * immutable owner's family. */
 const deletable = (core: FillSpec, r: number): boolean =>
@@ -429,9 +452,18 @@ export const stepsGen =
 				}
 				case "delete all": {
 					const stored = Arr.dedupe(Arr.map(state.rows, (r) => r.relation))
-					/** A selection deletes each top relation whole, which reaches every member, so every shape admits it. */
+					/**
+					 * A selection deletes each top relation whole, which reaches every member nested under it, so it deletes
+					 * everything where every stored relation is one of those (selectionReach); the rows of a cycle of families
+					 * it leaves. Arrays delete every stored relation that the rules let a delete name.
+					 */
 					const by = kept("delete where") ? "selection" : "rows"
-					if (by === "selection" || Arr.every(stored, (r) => deletable(spec.fill, r))) {
+					const reach = selectionReach(spec.fill)
+					if (
+						by === "selection"
+							? Arr.every(stored, (r) => reach.has(r))
+							: Arr.every(stored, (r) => deletable(spec.fill, r))
+					) {
 						steps.push({ kind: "delete all", by })
 						state = { rows: [], plain: [] }
 					}
