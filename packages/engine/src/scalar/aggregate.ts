@@ -289,8 +289,8 @@ const avgOverloads: Readonly<Partial<Record<Carrier, Entry>>> = {
 export const bigintSumType: ScalarType = numericValue(sumBound({ digits: int8Digits, scale: 0 }))
 
 /**
- * The carriers with min and max: those with the minMax capability. A closed id's is min(smallint) over its code, which
- * is its roster's order.
+ * The carriers with min and max: those with the minMax capability. An ordered roster's closed id's is min(smallint)
+ * over its code, which is its roster's order; an unordered roster's closed id has no minMax capability.
  */
 const minMaxCarriers: ReadonlyArray<Carrier> = [
 	"int2",

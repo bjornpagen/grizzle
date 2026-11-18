@@ -5,10 +5,10 @@
  * The queue example gives minimal definitions of the closed relations Kind, Resource, Outcome and Reason and the
  * contracts Digest, Slot, SeatNo and Instant, which the fixture uses:
  *
- *   const Kind = closed("Kind", ["render", "transcode"])
- *   const Resource = closed("Resource", ["gpu", "cpu"])
- *   const Outcome = closed("Outcome", ["succeeded", "failed"])
- *   const Reason = closed("Reason", ["malformed", "unsupported"])
+ *   const Kind = closed.ordered("Kind", ["render", "transcode"])
+ *   const Resource = closed.ordered("Resource", ["gpu", "cpu"])
+ *   const Outcome = closed.ordered("Outcome", ["succeeded", "failed"])
+ *   const Reason = closed.ordered("Reason", ["malformed", "unsupported"])
  *   const Digest = contract("Digest", str.regex("^[0-9a-f]{64}$"))     // a lowercase SHA-256 hex digest
  *   const Slot = contract("Slot", pg.integer, (v) => v.ge(0))
  *   const SeatNo = contract("SeatNo", pg.integer, (v) => v.ge(0))
@@ -44,11 +44,11 @@ const Slot = f.contract("Slot", f.integer, ge(value, literal(0)))
 const SeatNo = f.contract("SeatNo", f.integer, ge(value, literal(0)))
 const Instant = f.contract("Instant", f.bigint, undefined)
 
-const Standing = closed("Standing", ["wanted", "leased", "done", "denied"])
-const Kind = closed("Kind", ["render", "transcode"])
-const Resource = closed("Resource", ["gpu", "cpu"])
-const Outcome = closed("Outcome", ["succeeded", "failed"])
-const Reason = closed("Reason", ["malformed", "unsupported"])
+const Standing = closed.ordered("Standing", ["wanted", "leased", "done", "denied"])
+const Kind = closed.ordered("Kind", ["render", "transcode"])
+const Resource = closed.ordered("Resource", ["gpu", "cpu"])
+const Outcome = closed.ordered("Outcome", ["succeeded", "failed"])
+const Reason = closed.ordered("Reason", ["malformed", "unsupported"])
 
 const Work = relation(
 	"Work",

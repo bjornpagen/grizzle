@@ -30,7 +30,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Kind = closed("Kind", ["a", "b", "c"])
+const Kind = closed.ordered("Kind", ["a", "b", "c"])
 const Item = relation("Item", { id: pg.int4, kind: closedId(Kind) }, ["id"])
 const A = relation("A", { item: pg.int4 }, ["item"])
 const B = relation("B", { item: pg.int4 }, ["item"])

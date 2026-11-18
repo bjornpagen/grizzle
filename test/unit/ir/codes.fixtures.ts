@@ -20,33 +20,40 @@ import {
 	reorderRefusal,
 	type RosterRenames
 } from "#compiler/ir/codes.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
+import { Roster, type RosterOrder } from "#compiler/ir/scalar.ts"
 import { assert, defined, failed, nonEmpty, succeeded, throwsDefect } from "#test/support/assert.ts"
 
 /**
- * The first of `rosters` whose codes `book` does not hold exactly as its live handles in declared order, none when the
- * book serves them all.
+ * The first of `rosters` whose codes `book` does not hold exactly as its live handles, an ordered roster's in declared
+ * order and an unordered one's in any, none when the book serves them all.
  */
 const unservedRoster = (book: Codebook, rosters: ReadonlyArray<Roster>): Option.Option<Roster> =>
 	Arr.findFirst(rosters, (roster) => {
 		const codec = book.rosters.get(roster.closed)
-		return (
-			codec === undefined ||
-			!sameOrder(
-				Arr.filter(codec.names, (name) => name !== ""),
-				roster.handles
-			)
+		if (codec === undefined) {
+			return true
+		}
+		const held = Arr.filter(codec.names, (name) => name !== "")
+		return !sameOrder(
+			roster.order === "ordered" ? held : Arr.sort(held, Order.String),
+			roster.order === "ordered" ? roster.handles : Arr.sort(roster.handles, Order.String)
 		)
 	})
 
 /** The names a roster's handles are drawn from: at most four handles are ever minted. */
 const pool = ["a", "b", "c", "d"] as const
 
-/** The two rosters of the box, which share the names of the pool, so a rename reaching the wrong one is seen. */
+/**
+ * The two rosters of the box, which share the names of the pool, so a rename reaching the wrong one is seen: Kind,
+ * ordered, and Mark, unordered, whose declaration lists its handles in an order no code follows.
+ */
 const rosterNames: readonly [DeclaredName, DeclaredName] = [
 	succeeded(parseDeclaredName("Kind")),
 	succeeded(parseDeclaredName("Mark"))
 ]
+
+/** Each roster's order, by its index in the box. */
+const rosterOrdersOf: readonly [RosterOrder, RosterOrder] = ["ordered", "unordered"]
 
 /** One roster in the model: each code's holder in code order, a hole undefined, and every name it ever held. */
 interface Model {
@@ -62,13 +69,18 @@ type Command =
 	| { readonly kind: "rename"; readonly roster: 0 | 1; readonly handle: string }
 	| { readonly kind: "reorder"; readonly roster: 0 | 1; readonly at: number }
 
-/** What a history reached: each command, a hole between live codes, and both rosters changed. */
+/**
+ * What a history reached: each command, an unordered roster's reorder and an unordered roster whose codes run out of
+ * its handles' order, a hole between live codes, and both rosters changed.
+ */
 export type Situation =
 	| "a growth"
 	| "a removal"
 	| "a re-add"
 	| "a rename"
 	| "a reorder"
+	| "an unordered roster reordered"
+	| "an unordered roster's codes out of its handles' order"
 	| "a hole between live codes"
 	| "both rosters changed"
 
@@ -108,8 +120,8 @@ const start: Model = { slots: ["a"], used: new Set(["a"]) }
 
 /**
  * Every history of up to five commands over the box's two rosters: before each command, the history stops or goes on,
- * then names its roster and one of the commands that roster's state admits. A reorder is refused, so a history ends
- * with it.
+ * then names its roster and one of the commands that roster's state admits. An ordered roster's reorder is refused, so
+ * a history ends with it; an unordered roster's holds its codes, and the history goes on.
  */
 export const histories: Gen<ReadonlyArray<Command>> = (s) => {
 	const models: [Model, Model] = [start, start]
@@ -123,7 +135,10 @@ export const histories: Gen<ReadonlyArray<Command>> = (s) => {
 		const command = defined(commands[s.draw(int(0, commands.length - 1))])
 		history.push(command)
 		if (command.kind === "reorder") {
-			break
+			if (rosterOrdersOf[roster] === "ordered") {
+				break
+			}
+			continue
 		}
 		models[roster] = applied(models[roster], command)
 	}
@@ -154,9 +169,12 @@ const applied = (model: Model, command: Exclude<Command, { readonly kind: "reord
 	}
 }
 
-/** The roster a model declares: its live handles in code order, which is declared order. */
-const rosterOf = (closed: DeclaredName, handles: ReadonlyArray<string>): Roster =>
-	Roster.of(closed, nonEmpty(handles))
+/**
+ * The roster at `index` of the box declaring `handles`: an ordered one's in code order, which is declared order, and
+ * an unordered one's in any.
+ */
+const rosterOf = (index: 0 | 1, handles: ReadonlyArray<string>): Roster =>
+	Roster.of(rosterNames[index], rosterOrdersOf[index], nonEmpty(handles))
 
 /** The code slots a model's roster holds: each live handle, and a hole where a handle was removed. */
 const slotsOf = (model: Model): ReadonlyArray<CodeSlot> =>
@@ -169,7 +187,7 @@ const agrees = (book: Codebook, models: readonly [Model, Model]): void => {
 	const names = codeNames(book)
 	for (const [index, model] of models.entries()) {
 		const closed = defined(rosterNames[index])
-		const codec = codecOf(book, rosterOf(closed, live(model)))
+		const codec = codecOf(book, rosterOf(index === 0 ? 0 : 1, live(model)))
 		assert.deepEqual(codec.codes, slotsOf(model), `${closed}'s codes`)
 		assert.equal(codec.size, model.slots.length, `${closed}'s size counts every code minted`)
 		assert.deepEqual(
@@ -205,8 +223,10 @@ const agrees = (book: Codebook, models: readonly [Model, Model]): void => {
 export const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 	Effect.sync(() => {
 		const models: [Model, Model] = [start, start]
-		const rosters = (): ReadonlyArray<Roster> =>
-			Arr.map(rosterNames, (closed, index) => rosterOf(closed, live(defined(models[index]))))
+		const rosters = (): ReadonlyArray<Roster> => [
+			rosterOf(0, live(models[0])),
+			rosterOf(1, live(models[1]))
+		]
 		let book = firstCodebook(rosters())
 		agrees(book, models)
 		const changed = new Set<0 | 1>()
@@ -221,8 +241,14 @@ export const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 					at === command.at ? earlier : at === command.at + 1 ? later : handle
 				)
 				const others = Arr.map(rosters(), (r) =>
-					r.closed === closed ? rosterOf(closed, declared) : r
+					r.closed === closed ? rosterOf(command.roster, declared) : r
 				)
+				if (rosterOrdersOf[command.roster] === "unordered") {
+					const held = succeeded(draftCodebook(keptRosters(book), noRenames, others))
+					agrees(held, models)
+					c.note("an unordered roster reordered")
+					continue
+				}
 				const refused = failed(draftCodebook(keptRosters(book), noRenames, others))
 				assert.deepEqual(refused, { roster: closed, earlier, later })
 				const error = reorderRefusal(refused)
@@ -257,6 +283,9 @@ export const replay = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
 							? "a re-add"
 							: "a rename"
 			)
+			if (!sameOrder(live(models[1]), Arr.sort(live(models[1]), Order.String))) {
+				c.note("an unordered roster's codes out of its handles' order")
+			}
 			if (
 				Arr.some(models, (m) =>
 					Arr.some(

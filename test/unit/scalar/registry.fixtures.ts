@@ -41,6 +41,7 @@ import {
 	type PatternSource,
 	RegexKey,
 	Roster,
+	type RosterHandles,
 	rosterOf,
 	type ScalarType,
 	spanOf,
@@ -80,13 +81,11 @@ import { numericText, plantedStringGen } from "#test/unit/values/support.ts"
 export const caps = (field: unknown) =>
 	succeeded(describeField(field, SourceLoc("test", []))).scalar.caps
 
-/** The roster lookup of the closed ids a sketch names: each one's handles under its name. */
-export const rostersOfSketch = (
-	sketch: DescriptorSketch
-): ReadonlyMap<string, Arr.NonEmptyReadonlyArray<string>> => {
+/** The roster lookup of the closed ids a sketch names: each one's order and handles under its name. */
+export const rostersOfSketch = (sketch: DescriptorSketch): ReadonlyMap<string, RosterHandles> => {
 	switch (sketch.kind) {
 		case "closedId":
-			return new Map([[sketch.name, sketch.handles]])
+			return new Map([[sketch.name, { order: sketch.order, handles: sketch.handles }]])
 		case "contract":
 			return rostersOfSketch(sketch.base)
 		case "span":
@@ -272,7 +271,7 @@ const readingEnvGen: Gen<ScalarEnv> = map(
 		handles: source.draw(element<Arr.NonEmptyReadonlyArray<string>>([["a"], ["a", "b"]]))
 	}),
 	({ schema, handles }): ScalarEnv => {
-		const roster = (name: string) => Roster.of(parsedName(name), handles)
+		const roster = (name: string) => Roster.of(parsedName(name), "ordered", handles)
 		return schema
 			? { kind: "schema", roster, contractPredicate: predicateTable }
 			: { kind: "builder", roster }
@@ -591,7 +590,7 @@ const spanJudge =
 	}
 
 /** The closed relation the closed handle carrier and the closedId boundary read. */
-export const Kind = closed("Kind", ["Manual", "Automatic"])
+export const Kind = closed.ordered("Kind", ["Manual", "Automatic"])
 const handles: ReadonlyArray<string> = Kind.handles
 const int8Values = bigint(-(2n ** 63n), 2n ** 63n - 1n)
 

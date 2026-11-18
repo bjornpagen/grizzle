@@ -179,8 +179,8 @@ export const declaredRenamesAndDropsDraftExactlyTheModelsIdentitiesForEveryPairO
 			{
 				file: "packages/engine/src/ir/codes.ts",
 				original:
-					"\t\tconst codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster.handles)",
-				replacement: "\t\tconst codes = rosterCodes(before, noHandleRenames, roster.handles)",
+					"\t\tconst codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster)",
+				replacement: "\t\tconst codes = rosterCodes(before, noHandleRenames, roster)",
 				why: "A roster's declared handle renames are ignored when its codes are drafted, so a renamed handle takes a new code."
 			}
 		]

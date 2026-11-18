@@ -66,7 +66,7 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 		] satisfies ReadonlyArray<Reached<DeclaredFeature>>,
 		check: (_, c: Case<DeclaredFeature>) => (d) =>
 			Effect.sync(() => {
-				const rosters = Arr.map(d.rosters, (count, i) => closed(`K${i}`, handlesOf(count)))
+				const rosters = Arr.map(d.rosters, (count, i) => closed.ordered(`K${i}`, handlesOf(count)))
 				const Line = relation(
 					"Line",
 					{

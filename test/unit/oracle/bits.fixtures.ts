@@ -37,7 +37,11 @@ export const pairs: Gen<Pair> = (s) => ({
 
 export type Situation = "an empty set" | "a strict subset" | "disjoint sets" | "overlapping sets"
 
-const roster = Roster.of(succeeded(parseDeclaredName("Kind")), nonEmpty(Arr.makeBy(size, handleOf)))
+const roster = Roster.of(
+	succeeded(parseDeclaredName("Kind")),
+	"ordered",
+	nonEmpty(Arr.makeBy(size, handleOf))
+)
 
 const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
 

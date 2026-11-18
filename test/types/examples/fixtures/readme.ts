@@ -91,7 +91,7 @@ const ClerkOrg = str.regex("^org_[0-9A-Za-z]{1,64}$")
 const Title = str.regex("^.{1,200}$", "su")
 const Prose = str.regex("^.*$", "su")
 
-export const Status = closed("Status", ["Draft", "Published"])
+export const Status = closed.ordered("Status", ["Draft", "Published"])
 export const Post = relation(
 	"Post",
 	{
@@ -138,7 +138,7 @@ export const postPage = query(Blog)
 
 /** README: "The relational model, by feel", "Checks and closed relations": a price list and the rules that read it. */
 /** The plans an organization can be on, and the seats each allows: rows the schema fixes. */
-export const Plan = closed("Plan", ["Free", "Team"])
+export const Plan = closed.ordered("Plan", ["Free", "Team"])
 export const PlanLimits = closed.relation(
 	"PlanLimits",
 	{ plan: closedId(Plan), seats: natural },
@@ -385,7 +385,7 @@ export const Books = schema(
 )
 
 /** README: "Hard in Drizzle, one declaration here", 7. States that carry their own data. */
-export const InvoiceState = closed("InvoiceState", ["open", "paid", "void"])
+export const InvoiceState = closed.unordered("InvoiceState", ["open", "paid", "void"])
 export const Invoice = relation(
 	"Invoice",
 	{ id: uuid, org: ClerkOrg, state: closedId(InvoiceState) },
@@ -1322,6 +1322,44 @@ const post = {
 } as const
 // @ts-expect-error -- refusal: a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes
 export const writePost = ChangeSet.empty(MemberBlog).insert(MemberPost, [post])
+
+/** "Its states have no order, so it is `closed.unordered`: ... an `orderBy` of states is a type error". */
+const invoiceStates = query(Invoices).rule((r) => {
+	const { id, state } = v(Invoice, "invoice")
+	return r.match(Invoice, { id, state }).find({ id, state })
+})
+export const statesInOrder = invoiceStates
+	// @ts-expect-error -- refusal: a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles
+	.orderBy(["state", "asc"])
+
+/** "no state comes before another, and a comparison ... of states is a type error": a rule's filter. */
+export const beforePaid = query(Invoices).rule((r) => {
+	const { id, state } = v(Invoice, "invoice")
+	return (
+		r
+			.match(Invoice, { id, state })
+			// @ts-expect-error -- refusal: a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles
+			.where(r.lt(state, "paid"))
+			.find({ id })
+	)
+})
+
+/** "no state comes before another": so no invoice's state is the greatest of its organization's. */
+export const latestState = query(Invoices).rule((r) => {
+	const { id, org, state } = v(Invoice, "invoice")
+	return (
+		r
+			.match(Invoice, { id, org, state })
+			// @ts-expect-error -- refusal: a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles
+			.find({ org, latest: r.max(state) })
+	)
+})
+
+/** "a comparison ... of states is a type error": a row check's comparison of its own field. */
+export const stateCheck = check("PaidOrLater", Invoice, (i) =>
+	// @ts-expect-error -- refusal: a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles
+	i.state.ge("paid")
+)
 
 /** "A query over the schema is a type error on a role that does not hold every table whole". */
 // @ts-expect-error -- refused: a workload over MemberBlog holds programs over its levels, and published is over Blog

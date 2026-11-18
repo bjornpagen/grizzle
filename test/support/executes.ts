@@ -284,7 +284,9 @@ const Count = contract("Count", pg.integer, (x) => x.gt(0))
  * roles hold their drawn relations whole and write their drawn ones.
  */
 export const buildExecutesWorld = (w: ExecutesWorld, name: string) => {
-	const rosters = new Map(Arr.map(w.rosters, (r) => [r.name, closed(r.name, r.handles)] as const))
+	const rosters = new Map(
+		Arr.map(w.rosters, (r) => [r.name, closed.ordered(r.name, r.handles)] as const)
+	)
 	const rosterOf = (n: RosterName) => defined(rosters.get(n), `the roster ${n}`)
 	const descriptor = (f: FieldSketch): FieldBase => {
 		switch (f.kind) {

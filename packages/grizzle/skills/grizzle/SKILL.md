@@ -309,8 +309,12 @@ What a declaration drafts:
   roster's new names constant and points its domain at it.
 - **A handle dropped** leaves a hole: its code is never reused, and the roster's domain, validated against the new names
   constant, refuses every row still holding it, naming its table and column. Change or delete those rows in a data
-  step first. Handles reordered are refused before anything is drafted, by `generate` at the stage codes and by
-  `check`: a stored code never changes meaning, so append new handles; a roster's order is its codes' order.
+  step first. An ordered roster's handles reordered are refused before anything is drafted, by `generate` at the stage
+  codes and by `check`: a stored code never changes meaning, so append new handles, since an ordered roster's order is
+  its codes' order. A roster whose order means nothing is `closed.unordered`: its handles may be declared in any order,
+  a reorder alone is no change, and a comparison, `orderBy`, `least`, `greatest`, `min`, `max` or a fold's `max` over
+  its closed ids is a type error naming `closed.ordered` as the fix. Declaring an existing roster `closed.unordered`
+  moves no code: its migration holds no SQL.
 - **A roster continues one roster at most:** the one its `--rename` names, or else the one of its own name or an alike
   spelling, unless a rename of another takes that name; any other roster is new, its codes from 0. A closed id or a
   set keeps its codes only on the roster its own continues. Moved to another roster, to or from an integer, renamed
@@ -409,7 +413,7 @@ schema or workload that does not compile) are `check`'s alone.
 | the OpenAPI document is of a login the configuration does not list over the schema | run grizzle generate, which removes the OpenAPI document |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
 | the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it | run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed |
-| a roster declares a handle before one that holds a lower code in snapshot.json | append new handles; a roster's order is its codes' order |
+| an ordered roster declares a handle before one that holds a lower code in snapshot.json | append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing |
 | unresolved placeholder | write the value or the UPDATE, then delete the marker line |
 | unconfirmed group | keep every statement below the marker as drafted, then delete the two marker lines |
 | unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented | to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder |
@@ -477,7 +481,7 @@ The command line's own refusals, by stage:
 | environment | unset the variable it names in the environment grizzle runs in, then run the command again |
 | filesystem | fix the migrations directory, then run grizzle check |
 | snapshot | restore snapshot.json, manifest.json and the migration folders from git |
-| codes | append new handles; a roster's order is its codes' order |
+| codes | append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing |
 | generate | fix the schema or workload it names, then run grizzle generate again |
 
 ## Deploy

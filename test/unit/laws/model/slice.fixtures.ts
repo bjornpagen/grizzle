@@ -509,7 +509,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 	const root: SchemaDesc = {
 		name: "Slice",
 		relations: [
-			closed(roster, ["red", "green"]),
+			closed.ordered(roster, ["red", "green"]),
 			...upTo(c.roots, (i) => relation(rootName(i), rootFields(c, i), ["id"]))
 		],
 		statements: rootStatements(c),

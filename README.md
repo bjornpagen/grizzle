@@ -95,7 +95,7 @@ const ClerkOrg = str.regex("^org_[0-9A-Za-z]{1,64}$")
 const Title = str.regex("^.{1,200}$", "su")
 const Prose = str.regex("^.*$", "su")
 
-export const Status = closed("Status", ["Draft", "Published"])
+export const Status = closed.ordered("Status", ["Draft", "Published"])
 export const Post = relation(
 	"Post",
 	{
@@ -215,11 +215,17 @@ VALUES (gen_random_uuid(), gen_random_uuid(), 'user_1', 'First!');
 
 ### Checks and closed relations
 
-`Status` is a relation too. `closed("Status", ["Draft", "Published"])` is a roster: a closed relation of one field,
+`Status` is a relation too. `closed.ordered("Status", ["Draft", "Published"])` is a roster: a closed relation of one field,
 `id`, whose rows the schema fixes. It stands among `Blog`'s relations, a query matches it like any table, and
 `closedId(Status)` refers into it. Each handle has a code, 0 … n − 1 in declared order. The API reads and writes names,
-and the table stores codes under a domain that admits only live handles. Codes are history: an added handle takes the
-next code, a removed one leaves its code unused, and a reorder is refused ([Migrations](#migrations)).
+and the table stores codes under a domain that admits only live handles.
+
+Every roster states whether its order means something. `closed.ordered` is a roster whose declared order is its
+comparison order, so its closed ids compare, range and sort by it. `closed.unordered` is one whose order means nothing,
+such as the element names of a grammar: a comparison, `between`, `orderBy`, `least`, `greatest`, `min`, `max` or a
+fold's `max` over its closed ids is a type error, which names `closed.ordered` as the fix. Codes are history either
+way: an added handle takes the next code and a removed one leaves its code unused. An ordered roster's reorder is
+refused, and an unordered roster's handles may be declared in any order ([Migrations](#migrations)).
 
 A closed relation can carry data too. Here is a price list for the blog's organizations, and two rules that tie it to
 the blog:
@@ -228,7 +234,7 @@ the blog:
 import { check, natural } from "@bjornpagen/grizzle"
 
 /** The plans an organization can be on, and the seats each allows: rows the schema fixes. */
-export const Plan = closed("Plan", ["Free", "Team"])
+export const Plan = closed.ordered("Plan", ["Free", "Team"])
 export const PlanLimits = closed.relation(
 	"PlanLimits",
 	{ plan: closedId(Plan), seats: natural },
@@ -962,14 +968,14 @@ CREATE TABLE invoice (
 
 Drizzle can declare those CHECKs with `check()`, in `` sql`…` ``, but the row type stays `{ state: "open" | "paid" | "void"; paidChargeId: string | null; voidReason: string | null }` in every state, so every reader narrows by hand. Moving the payment to a table of its own fixes the row type, but "a paid invoice has exactly one payment" then spans two tables: a deferred trigger, or STORED generated columns and deferred composite foreign keys like the ones below, written and kept in step by hand.
 
-**The reframe.** A nullable column says "this value exists in some states". Relationally, that is a fact that exists in some states: a payment is a row about an invoice, present exactly when the invoice is paid. Give each state's data a table of its own, and the rule says which row exists: an invoice whose state is `paid` has one `Payment` row, one whose state is `void` has one `Voiding` row, and no other invoice has either. The state itself is a closed relation, a fixed roster of handles the database stores as data.
+**The reframe.** A nullable column says "this value exists in some states". Relationally, that is a fact that exists in some states: a payment is a row about an invoice, present exactly when the invoice is paid. Give each state's data a table of its own, and the rule says which row exists: an invoice whose state is `paid` has one `Payment` row, one whose state is `void` has one `Voiding` row, and no other invoice has either. The state itself is a closed relation, a fixed roster of handles the database stores as data. Its states have no order, so it is `closed.unordered`: no state comes before another, and a comparison or an `orderBy` of states is a type error.
 
 **The declaration.**
 
 ```ts
 import { alternatives, arm } from "@bjornpagen/grizzle"
 
-export const InvoiceState = closed("InvoiceState", ["open", "paid", "void"])
+export const InvoiceState = closed.unordered("InvoiceState", ["open", "paid", "void"])
 export const Invoice = relation(
 	"Invoice",
 	{ id: uuid, org: ClerkOrg, state: closedId(InvoiceState) },
@@ -1206,7 +1212,7 @@ For porting an app, each Drizzle construct and what takes its place:
 | `.notNull()`                                           | every column; a value that may be missing is a row in a table of its own                        |
 | `text()`, `varchar()`                                  | `str.regex(pattern)`: text always carries a pattern                                             |
 | `integer()`, `bigint({ mode: "bigint" })`, `numeric()` | `pg.integer` (`number`), `pg.bigint` (`bigint`), `pg.numeric(p, s)` (an exact `Decimal`)        |
-| `pgEnum("status", [...])`                              | `closed("Status", [...])`, with `closedId(Status)` for the column                               |
+| `pgEnum("status", [...])`                              | `closed.ordered("Status", [...])`, or `closed.unordered` where the order means nothing, with `closedId(Status)` for the column |
 | `.references(() => post.id)`                           | `contained(on(Comment, "post"), on(Post, "id"))`                                                |
 | `unique().on(t.show, t.holder)`                        | `key(on(Ticket, "show", "holder"))`                                                             |
 | `` check("some_seats", sql`...`) ``                    | `check("SomeSeats", Show, (s) => s.seats.ge(1n))`                                               |
@@ -1238,7 +1244,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | --- | --- |
 | `relation(...)` | a table, every column NOT NULL, with its primary key, and a statement trigger that refuses any write below SERIALIZABLE, unless every writer of it is certified READ COMMITTED |
 | `str.regex(...)`, `contract(...)` | a domain whose CHECK every writer's value meets, one domain for each distinct definition |
-| `closed(...)` | a smallint domain that admits only live handles' codes, checked against an IMMUTABLE function returning the roster's names as `name[]`; for a `bits(...)` field over the roster, a `bit(n)` domain that admits only live handles, n its codes rounded up to whole hex digits |
+| `closed.ordered(...)`, `closed.unordered(...)` | a smallint domain that admits only live handles' codes, checked against an IMMUTABLE function returning the roster's names as `name[]`; for a `bits(...)` field over the roster, a `bit(n)` domain that admits only live handles, n its codes rounded up to whole hex digits |
 | `closed.relation(...)` | no table: content-addressed IMMUTABLE constants for each closed relation or side a rule or query reads, and a table CHECK for each rule that reads one from an open row ([Closed relations](#closed-relations)) |
 | a rule: `contained`, `key`, `check`, ... | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred` |
 | a rule over a derived relation | on each table its query reads, statement triggers that capture the rows each statement writes, and one deferred judge that runs the rule's violation query over them at COMMIT ([Rules over queries](#rules-over-queries)) |
@@ -1706,7 +1712,7 @@ schema.
 | `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern                       | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
 | `str.bytes(n, str.regex(...))`                     | text, behind a domain that checks its UTF-8 bytes, then the pattern | the pattern's                                                          |
 | `str.and(str.regex(p), str.regex(q), ...)`         | text, behind a domain that checks every pattern                     | the patterns' languages intersected, `P & Q`                           |
-| `closedId(X)`, for `X = closed("X", [...])`        | smallint, behind the roster's domain                                | the union of its names                                                 |
+| `closedId(X)`, for `X = closed.ordered("X", [...])` or `closed.unordered("X", [...])` | smallint, behind the roster's domain | the union of its names |
 | `bits(X)`, a set of `X`'s handles                  | bit(n), behind a domain that holds only live handles                | `Bits<typeof X>`, a `ReadonlySet` of its names; `Bits.of(X, [...])`    |
 | `contract(name, base, check?)`                     | a domain with that CHECK                                            | the base type, branded with the name                                   |
 | `span(T, width?)`, T integer, bigint or date       | int4range, int8range or daterange                                   | `{ start, end }`, start included, end excluded                         |
@@ -1789,12 +1795,18 @@ PostgreSQL's other spellings are the same fields.
   number, with its owner, unit, scope and evidence, the source that states it or the limits it derives from. Code that
   splits an input across calls (`InputTooLarge`, [Errors and outcomes](#errors-and-outcomes)) reads the bound instead of
   restating it.
-- **Rosters.** `closed("Status", ["Draft", "Published"])` is a fixed list of handles. A `closedId(Status)` column holds
-  a handle's code, 0 … n − 1 in declared order, which is also comparison order. The API reads and writes names. The
-  table stores codes, under a smallint domain that admits only live handles' codes, and every role's view adds a
-  decoded column, `status_name`, beside each closed id. A handle is at most 63 UTF-8 bytes, a PostgreSQL `name`. Codes
-  are history: an added handle is appended, a removed one leaves its code unused, and a reorder is refused
-  ([Migrations](#migrations)).
+- **Rosters.** `closed.ordered("Status", ["Draft", "Published"])` is a fixed list of handles whose order means
+  something, and `closed.unordered("Element", [...])` one whose order means nothing; every roster is one or the other.
+  A `closedId(Status)` column holds a handle's code: an ordered roster numbers its handles 0 … n − 1 in declared order,
+  which is also comparison order, and an unordered one numbers them in the UTF-16 order of their names, which nothing
+  compares by. A closed id of an unordered roster has no order: a comparison, `between`, `orderBy`, `Compute.least`,
+  `Compute.greatest`, `r.min`, `r.max` or a fold's `Monoid.max` over it is a type error that names the fix, declaring
+  the roster `closed.ordered`. Its equality, `inSet`, keys, joins and sets are an ordered roster's. Where grizzle
+  completes an order to break ties the caller left open (a `take`, a page), it reads a closed id's code, which never
+  moves, whatever its roster's kind. The API reads and writes names. The table stores codes, under a smallint domain
+  that admits only live handles' codes, and every role's view adds a decoded column, `status_name`, beside each closed
+  id. A handle is at most 63 UTF-8 bytes, a PostgreSQL `name`. Codes are history: an added handle is appended, a
+  removed one leaves its code unused, and an ordered roster's reorder is refused ([Migrations](#migrations)).
 - **Sets.** `bits(Status)` is a `bit(n)`, one bit per code, n rounded up to whole hex digits, under a domain that holds
   only live handles' bits and 0 past the last code. grizzle writes a set in hex only: `X'…'` cast to its domain in
   SQL, `X` and its hex digits as a parameter's text. The algebra is `Compute.union`, `.intersection`, `.difference`,
@@ -1861,7 +1873,8 @@ reads, the axis it reads it along, and why that column is filled later.
 
 `closed.relation(name, fields, key, rows)` is a relation whose rows are fixed when the schema compiles, such as a
 grammar or a price list. Its key is required, a nonempty list of its closed-id fields; a key of every field makes it a
-set. Its other fields are closed ids or open-typed values, never a serial, span, set, vector or bytes. Its rows are a
+set. A key field's roster may be `closed.ordered` or `closed.unordered`: its constant is indexed by codes, which are
+history, and reads no roster's order. Its other fields are closed ids or open-typed values, never a serial, span, set, vector or bytes. Its rows are a
 set: a row written twice is one row, and two rows of one key with different payloads are refused, naming the key and
 both payloads.
 `closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag), weight: pg.integer }, ["kind", "flag"], rows)`
@@ -3133,14 +3146,20 @@ deploy.
   `-- grizzle: data loss`: uncomment it to start empty and leave the old rows behind, never migrated again, or keep
   the old name and delete the folder. `check` and `migrate` refuse the folder until you decide.
 - **Codes are history.** The snapshot records each roster's codes: a new handle takes the next code, a renamed one
-  keeps its own, and a removed one leaves a hole no handle takes again. The migration validates the roster's domain
+  keeps its own, and a removed one leaves a hole no handle takes again, whether the roster is ordered or not. The migration validates the roster's domain
   against its new names constant once every relation and field it drops is gone, refusing, by table and column, every
   row that holds a removed code: change or delete those rows in a data step first. A set over a grown roster converts in place to its wider
-  domain, the new handles absent. A roster declared out of its codes' order is refused before anything is drafted:
-  append new handles.
+  domain, the new handles absent. An ordered roster declared out of its codes' order is refused before anything is
+  drafted: append new handles, or declare the roster `closed.unordered` where its order means nothing. An unordered
+  roster has no order to keep, so its handles may be declared in any order, and a declaration that only reorders them
+  is no change at all; its new handles take the next codes in the UTF-16 order of their names. Declaring an existing
+  roster `closed.unordered` moves no code and installs no constant: the migration it drafts holds no SQL, only the
+  snapshot that records the roster's kind. Declaring one `closed.ordered` again holds its codes too, and is refused
+  unless its handles are declared in their codes' order.
 - **A roster continues one roster at most.** It continues the roster a `--rename` names, or else the roster of its own
-  name or an alike spelling of it (`Status`, `status`), unless a rename of another roster takes that name. Every other
-  roster is new, its codes from 0. A closed id or a set keeps its stored codes only on the roster its own continues.
+  name or an alike spelling of it (`Status`, `status`), unless a rename of another roster takes that name, whatever
+  either one's kind: a roster declared `closed.unordered` continues the ordered roster of its name with its codes, so
+  it needs no `--rename` and no placeholder. Every other roster is new, its codes from 0. A closed id or a set keeps its stored codes only on the roster its own continues.
   Anywhere else its codes would name other handles, so its conversion is a `-- grizzle: placeholder`: moved to
   another roster, to or from an integer, renamed without `--rename` (that is a `--drop` and a new roster), or left on a
   name another roster takes (`--rename Draft=Status --drop Status`). The marker says why, and it offers no cast:

@@ -30,7 +30,7 @@ const patterned = installationOf(
 	decodedSchema({
 		name: "Rosters",
 		relations: [
-			closed("Kind", ["Automatic", "Manual"]),
+			closed.ordered("Kind", ["Automatic", "Manual"]),
 			relation("Word", { id: f.uuid, word: f.regex("^[a-z]+$", "u") }, ["id"])
 		],
 		statements: [],

@@ -28,11 +28,20 @@ import {
 	type QueryDesc,
 	type RelationDesc,
 	recordAdmitted,
+	type RosterDesc,
+	rosterOrderOf,
 	relationOver,
 	type SlotsDesc,
 	type Writing
 } from "#compiler/ir/desc.ts"
-import { Roster as IrRoster, rosterOf } from "#compiler/ir/scalar.ts"
+import {
+	handlesInOrder,
+	Roster as IrRoster,
+	type RosterHandles,
+	type RosterOrder,
+	rosterOf,
+	rosterOrders
+} from "#compiler/ir/scalar.ts"
 import { firstRepeatAt } from "#compiler/ir/shape.ts"
 import {
 	builtRosterParts,
@@ -106,7 +115,6 @@ import type {
 import type { SlotField } from "#compiler/types/schema/statements.ts"
 
 export type OrdinaryRelationDesc = Extract<RelationDesc, { readonly kind: "relation" }>
-export type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
 
 /**
  * What derived records until schema.extend places it: the definition and the relations it reads. The Description
@@ -501,7 +509,7 @@ const admitGenerated = <G>(
 		Object.entries(descriptors).map(([field, d]) => [field, descriptorOf(d)] as const)
 	)
 	const row = rowScalars(fieldMap(described), declared, (field) =>
-		rosterHandlesOf(descriptors[field])
+		rosterOfField(descriptors[field])
 	)
 	const generated = generate(row)
 	if (!isPlainRecord(generated)) {
@@ -521,7 +529,8 @@ const admitGenerated = <G>(
 }
 
 /**
- * relation, relation.generated, closed, closed.relation and derived: the relation constructors.
+ * relation, relation.generated, closed.ordered, closed.unordered, closed.relation and derived: the relation
+ * constructors.
  *
  * - `relation(name, fields, primaryKey)`: an ordinary relation, every field written by its caller. The primary key is
  *   required and nonempty, a list of the relation's own field names in the order written; a pure set lists every
@@ -529,8 +538,10 @@ const admitGenerated = <G>(
  * - `relation.generated(name, written, primaryKey, (row) => ({ f: generated(type, term), ... }))`: an ordinary
  *   relation whose callback-returned fields PostgreSQL writes, each a STORED generated column whose term reads the row
  *   of the written fields alone, as PostgreSQL's generation expressions read no generated column.
- * - `closed(name, handles)`: a roster, the handles it introduces in declared order, which is their codes' order and
- *   comparison order.
+ * - `closed.ordered(name, handles)`: a roster, the handles it introduces in declared order, which is their codes'
+ *   order and comparison order.
+ * - `closed.unordered(name, handles)`: a roster whose order means nothing, the handles it introduces in any order,
+ *   held in their canonical order (ir/scalar.ts handlesInOrder): no ordered operation reads a closed id of it.
  * - `closed.relation(name, fields, key, rows)`: a closed relation, rows fixed when the schema compiles. Its key is
  *   required and is closed ids; a set lists every field; no two rows share a key.
  * - `derived(name, definition)`: a stored query whose fields come from the definition's head and whose keys from its
@@ -630,10 +641,15 @@ const handleList = (value: unknown, label: string): NonEmptyReadonlyArray<string
 	return handles
 }
 
-/** The admission core of closed(...): a JavaScript caller's arguments checked and described. */
+/**
+ * The admission core of closed.ordered(...) and closed.unordered(...): a JavaScript caller's arguments checked and
+ * described, an unordered roster's handles held in its canonical order (ir/scalar.ts handlesInOrder) and its order
+ * stated, an ordered roster's in declared order, which is its order.
+ */
 export const admitRoster = (
 	name: unknown,
 	handles: unknown,
+	order: RosterOrder,
 	extra: ReadonlyArray<unknown>
 ): RosterDesc => {
 	const label = `closed ${typeof name === "string" ? name : "?"}`
@@ -641,46 +657,52 @@ export const admitRoster = (
 	if (extra.length > 0) {
 		throw malformed(
 			label,
-			"closed(name, handles): two arguments; a closed relation over a roster is closed.relation(name, fields, key, rows)"
+			`closed.${order}(name, handles): two arguments; a closed relation over a roster is closed.relation(name, fields, key, rows)`
 		)
 	}
-	return builtNode({
-		kind: "closed",
-		name: rosterName,
-		handles: Object.freeze(handleList(handles, label)),
-		loc: builderLoc(label, [rosterName])
-	})
+	const held = Object.freeze(handlesInOrder(order, handleList(handles, label)))
+	const loc = builderLoc(label, [rosterName])
+	switch (order) {
+		case "ordered":
+			return builtNode({ kind: "closed", name: rosterName, handles: held, loc })
+		case "unordered":
+			return builtNode({ kind: "closed", name: rosterName, handles: held, order, loc })
+	}
 }
 
 /**
- * closed(name, handles): a roster. The id of every fact is the roster's closed id column, over the caller's handles,
- * which admission read; a fact is the handle under id. `handle(member)` is the member as a typed constant
- * (scalar/compute/builders.ts handleTerm). Its owned entry holds the roster its admitted handles type, their digest
- * taken once (ir/scalar.ts Roster), which every closed id over it reads (closedIdOf): none when the name is no declared
- * name, which every reader of the roster refuses before it resolves one (scalar/registry.ts rosterAt).
+ * closed.ordered(name, handles) and closed.unordered(name, handles): a roster of `order`. The id of every fact is the
+ * roster's closed id column, over the caller's handles, which admission read; a fact is the handle under id.
+ * `handle(member)` is the member as a typed constant (scalar/compute/builders.ts handleTerm). Its owned entry holds the
+ * roster its admitted handles type, their digest taken once (ir/scalar.ts Roster), which every closed id over it reads
+ * (closedIdOf): none when the name is no declared name, which every reader of the roster refuses before it resolves one
+ * (scalar/registry.ts rosterAt).
  */
 export const closedBuilder = <
 	const Name extends string,
-	const Handles extends NonEmptyReadonlyArray<string>
+	const Handles extends NonEmptyReadonlyArray<string>,
+	const Order extends RosterOrder
 >(
 	name: Name,
 	handles: Handles & NonEmptyReadonlyArray<Handles[number]>,
+	order: Order,
 	extra: ReadonlyArray<unknown>
-): Roster<Name, readonly [...Handles]> => {
-	const desc = admitRoster(name, handles, extra)
+): Roster<Name, readonly [...Handles], Order> => {
+	const desc = admitRoster(name, handles, order, extra)
 	const roster = frozenTuple<Handles>(handles)
-	const id: ClosedId<Handles[number], Name> = Object.freeze({
+	const id: ClosedId<Handles[number], Name, Order> = Object.freeze({
 		id: Object.freeze({ column: codeColumn<Handles[number]>(name, handles), sql: carrierSql.code })
 	})
 	const declared = parseDeclaredName(desc.name)
-	const typed = declared.ok ? IrRoster.of(declared.value, desc.handles) : undefined
-	const parts = builtRosterParts(desc.name, desc.handles, typed)
-	const value: Roster<Name, readonly [...Handles]> = ownValue(
+	const typed = declared.ok ? IrRoster.of(declared.value, order, desc.handles) : undefined
+	const parts = builtRosterParts(desc.name, { order, handles: desc.handles }, typed)
+	const value: Roster<Name, readonly [...Handles], Order> = ownValue(
 		{
 			kind: "closed",
 			name,
+			order,
 			handles: roster,
-			fact: record<[ClosedId<Handles[number], Name>]>(id),
+			fact: record<[ClosedId<Handles[number], Name, Order>]>(id),
 			heading: id,
 			handle: <const M extends Handles[number]>(member: M) => handleTerm(value, parts, member)
 		},
@@ -692,14 +714,18 @@ export const closedBuilder = <
 }
 
 /**
- * The parts of a closed id over `value`: a roster closed(name, handles) built, read off what its build admitted and the
+ * The parts of a closed id over `value`: a roster closed.ordered or closed.unordered built, read off what its build admitted and the
  * roster it typed, or a JavaScript look-alike's, admitted by closedId's own core (scalar/closed-id.ts closedIdParts).
  */
 export const closedIdOf = (value: unknown): ClosedIdParts => {
 	const built = ownedEntry(value, "closed")
 	return built === undefined
 		? closedIdParts(value)
-		: builtRosterParts(built.desc.name, built.desc.handles, built.content)
+		: builtRosterParts(
+				built.desc.name,
+				{ order: rosterOrderOf(built.desc), handles: built.desc.handles },
+				built.content
+			)
 }
 
 /**
@@ -937,7 +963,10 @@ export const bitsOf = <C extends AnyRoster>(
 		throw malformed(label, "Bits.of(roster, handles): two arguments")
 	}
 	if (ownedKind(roster) !== "closed" || !isList(handles)) {
-		throw malformed(label, "a roster built by closed(name, handles), and a list of its handles")
+		throw malformed(
+			label,
+			"a roster built by closed.ordered(name, handles) or closed.unordered(name, handles), and a list of its handles"
+		)
 	}
 	const members = new Set<HandleOf<C>>()
 	for (const h of handles) {
@@ -1040,7 +1069,12 @@ export const relationDescOf = (
 			return admitRelation(value["name"], value["fields"], value["primaryKey"], [])
 		}
 		if (value["kind"] === "closed") {
-			return admitRoster(value["name"], value["handles"], [])
+			return admitRoster(
+				value["name"],
+				value["handles"],
+				rosterOrderRead(value["order"], label),
+				[]
+			)
 		}
 		if (value["kind"] === "closedRelation") {
 			return admitClosedRelation(value["name"], value["fields"], value["key"], value["rows"], [])
@@ -1049,8 +1083,20 @@ export const relationDescOf = (
 	}
 	throw malformed(
 		label,
-		"a relation, roster or closed relation, built by relation(...), closed(...) or closed.relation(...)"
+		"a relation, roster or closed relation, built by relation(...), closed.ordered(...), closed.unordered(...) or closed.relation(...)"
 	)
+}
+
+/**
+ * The order a JavaScript look-alike of a roster states under `order`: one of the roster orders (ir/scalar.ts
+ * RosterOrder), as closed.ordered and closed.unordered state theirs; any other value is MalformedDescription.
+ */
+const rosterOrderRead = (order: unknown, label: string): RosterOrder => {
+	const read = rosterOrders.find((o) => o === order)
+	if (read === undefined) {
+		throw malformed(label, `a roster's order, one of ${rosterOrders.join(", ")}`)
+	}
+	return read
 }
 
 /**
@@ -1105,7 +1151,7 @@ export type NamedRelation =
 			readonly name: string
 			readonly fields: Readonly<Record<string, FieldDesc>>
 			readonly primaryKey: ReadonlyArray<string>
-			readonly roster: NonEmptyReadonlyArray<string>
+			readonly roster: RosterHandles
 			readonly descriptors: Readonly<Record<string, unknown>>
 	  }
 	| {
@@ -1118,14 +1164,14 @@ export type NamedRelation =
 	| { readonly kind: "derived"; readonly name: string }
 
 /**
- * The handles a field of a relation, roster or closed relation holds, when it is a closed handle: a roster's id holds
- * its roster, and a closedId field the roster its descriptor carries.
+ * The roster a field of a relation, roster or closed relation holds a handle of, its order and handles, when it is a
+ * closed handle: a roster's id holds its roster, and a closedId field the roster its descriptor carries.
  */
 export const fieldRoster = (
 	rel: Exclude<NamedRelation, { readonly kind: "derived" }>,
 	field: string
-): ReadonlyArray<string> | undefined =>
-	rel.kind === "closed" && field === "id" ? rel.roster : rosterHandlesOf(rel.descriptors[field])
+): RosterHandles | undefined =>
+	rel.kind === "closed" && field === "id" ? rel.roster : rosterOfField(rel.descriptors[field])
 
 /** The descriptor a field value was built from: its own, or a drawn, accumulated, slot or generated field's declared
  * type's. */
@@ -1145,9 +1191,13 @@ const descriptorOf = (value: unknown): unknown => {
  * closedId(roster) and bits(roster) admitted when they built it, and a contract's type mirrors its base's; undefined for
  * any other value.
  */
-export const rosterHandlesOf = (value: unknown): ReadonlyArray<string> | undefined => {
+export const rosterHandlesOf = (value: unknown): ReadonlyArray<string> | undefined =>
+	rosterOfField(value)?.handles
+
+/** The roster a field value's closedId or bits descriptor references, as rosterHandlesOf reads it. */
+const rosterOfField = (value: unknown): IrRoster | undefined => {
 	const descriptor = descriptorOf(value)
-	return isOwnedDescriptor(descriptor) ? rosterOf(descriptor.scalar)?.handles : undefined
+	return isOwnedDescriptor(descriptor) ? rosterOf(descriptor.scalar) : undefined
 }
 
 export const namedRelation = (value: unknown, label: string): NamedRelation => {
@@ -1183,7 +1233,7 @@ export const namedRelation = (value: unknown, label: string): NamedRelation => {
 				kind: "closed",
 				fields: { id: { kind: "closedId", roster: desc.name } },
 				primaryKey: ["id"],
-				roster: desc.handles,
+				roster: { order: rosterOrderOf(desc), handles: desc.handles },
 				descriptors: {}
 			}
 		case "closedRelation":

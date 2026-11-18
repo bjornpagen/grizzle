@@ -151,7 +151,7 @@ const schemaOf = (name: string, c: MembershipCase) => {
 	const declared: Record<string, AnyRelation | AnyClosed> = {}
 	const keyFields: Record<string, ReturnType<typeof closedId>> = {}
 	for (const [i, state] of c.rosters.entries()) {
-		const roster = closed(state.closed, liveOf(state))
+		const roster = closed.ordered(state.closed, liveOf(state))
 		declared[state.closed] = roster
 		keyFields[keyField(i)] = closedId(roster)
 	}
@@ -175,7 +175,7 @@ const schemaOf = (name: string, c: MembershipCase) => {
 		: keyFields
 	const Grid = closed.relation("Grid", gridFields, key, rows)
 	const ids = itemIdsOf(c)
-	const ItemId = closed(ids.closed, liveOf(ids))
+	const ItemId = closed.ordered(ids.closed, liveOf(ids))
 	const itemFields: Record<string, ReturnType<typeof closedId>> = {
 		id: closedId(ItemId),
 		...keyFields

@@ -46,7 +46,7 @@ export const Rate = contract("Rate", pg.bigint, (x) => x.ge(0n))
 export const DayNo = contract("DayNo", pg.integer)
 export const MonthNo = contract("MonthNo", pg.integer)
 
-const TokenKind = closed("TokenKind", [
+const TokenKind = closed.ordered("TokenKind", [
 	"input",
 	"output",
 	"cacheRead",
@@ -54,10 +54,10 @@ const TokenKind = closed("TokenKind", [
 	"batchInput",
 	"batchOutput"
 ])
-const KeyState = closed("KeyState", ["active", "revoked"])
-const InvoiceState = closed("InvoiceState", ["open", "paid", "void", "disputed"])
-const LineSource = closed("LineSource", ["usage", "plan"])
-const RefundReason = closed("RefundReason", ["requested", "duplicate", "outage", "dispute"])
+const KeyState = closed.ordered("KeyState", ["active", "revoked"])
+const InvoiceState = closed.ordered("InvoiceState", ["open", "paid", "void", "disputed"])
+const LineSource = closed.ordered("LineSource", ["usage", "plan"])
+const RefundReason = closed.ordered("RefundReason", ["requested", "duplicate", "outage", "dispute"])
 
 export const Org = relation("Org", { id: uuid }, ["id"])
 /** Reseller and consolidated billing: an organization bills through at most one parent. */

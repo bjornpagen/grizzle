@@ -426,7 +426,7 @@ const tableOf = (t: TableCase): BuiltRelation => {
 		: relation(t.name, written, keyOf(t), [])
 }
 
-const Kind = closed("Kind", ["plain", "lima", "oscar"])
+const Kind = closed.ordered("Kind", ["plain", "lima", "oscar"])
 
 const Kilo = relation("Kilo", { id: uuid, kind: closedId(Kind) }, ["id"], [])
 
@@ -434,7 +434,7 @@ const Lima = relation("Lima", { kilo: uuid, note: pg.integer }, ["kilo"], [])
 
 const Oscar = relation("Oscar", { kilo: uuid }, ["kilo"], [])
 
-const Key = closed("Key", ["one"])
+const Key = closed.ordered("Key", ["one"])
 
 /** A level's relations by name and its statements, in the order the case declares them. */
 interface Level {

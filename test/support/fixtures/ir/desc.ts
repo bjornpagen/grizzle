@@ -42,7 +42,7 @@ import {
 	type TermDesc,
 	type VarDesc as VarOf
 } from "#compiler/ir/desc.ts"
-import type { Patterns } from "#compiler/ir/scalar.ts"
+import { handlesInOrder, type Patterns } from "#compiler/ir/scalar.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -273,14 +273,28 @@ export const relation = (
 	}
 }
 
-/** A roster: its handles in declared order, which is their codes' order. */
-export const closed = (
-	name: string,
-	handles: ReadonlyArray<string>
-): AuthoredRelationDesc & { readonly kind: "closed" } => ({
-	kind: "closed",
-	name,
-	handles: nonEmptyList(handles, "a roster's handles")
+/**
+ * A roster: closed.ordered's, its handles in declared order, which is their codes' order; closed.unordered's, its
+ * handles a set, held in their canonical order (ir/scalar.ts handlesInOrder), with its order stated.
+ */
+export const closed = Object.freeze({
+	ordered: (
+		name: string,
+		handles: ReadonlyArray<string>
+	): AuthoredRelationDesc & { readonly kind: "closed" } => ({
+		kind: "closed",
+		name,
+		handles: nonEmptyList(handles, "a roster's handles")
+	}),
+	unordered: (
+		name: string,
+		handles: ReadonlyArray<string>
+	): AuthoredRelationDesc & { readonly kind: "closed" } => ({
+		kind: "closed",
+		name,
+		handles: handlesInOrder("unordered", nonEmptyList(handles, "a roster's handles")),
+		order: "unordered"
+	})
 })
 
 /**

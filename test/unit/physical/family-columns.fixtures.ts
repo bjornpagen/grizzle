@@ -27,7 +27,7 @@ import {
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import { owning } from "#test/support/policy.ts"
 
-const Flag = closed("Flag", ["on", "off"])
+const Flag = closed.ordered("Flag", ["on", "off"])
 
 const Item = relation("Item", { id: uuid, kind: closedId(Flag) }, ["id"])
 

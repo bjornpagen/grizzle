@@ -316,12 +316,13 @@ export const closedRecordsARostersHandlesInDeclaredOrderTypesEachHandleAsACodeOf
 									? []
 									: handles
 						throwsRefused(
-							() => admitRoster(s.name, roster, s.defect === "a third argument" ? [{}] : []),
+							() =>
+								admitRoster(s.name, roster, "ordered", s.defect === "a third argument" ? [{}] : []),
 							s.defect === "a repeated handle" ? "Refused" : "MalformedDescription"
 						)
 						return
 					}
-					const K = closed(s.name, handles, [])
+					const K = closed(s.name, handles, "ordered", [])
 					const rosterHandles: ReadonlyArray<string> = K.handles
 					assert.deepEqual(rosterHandles, handles)
 					const desc = relationDescOf(K, "test")
@@ -394,7 +395,7 @@ export const closedRecordsAClosedRelationsRowsOnePerKeyOfItsRosterAgainstItsFiel
 			check: (_2, c: Case<ClosedFeature>) => (s) =>
 				Effect.sync(() => {
 					const { handles, target } = s
-					const Key = closed("Key", handles, [])
+					const Key = closed("Key", handles, "ordered", [])
 					/** A defect that needs a payload field, or a row, plants one where the draw has none. */
 					const needsField =
 						s.defect === "a missing field in a row" ||
@@ -573,7 +574,7 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 						const recorded = (): LiteralDesc => {
 							switch (site) {
 								case "closed row": {
-									const P = closed("P", ["H"], [])
+									const P = closed("P", ["H"], "ordered", [])
 									const { desc } = admitClosedRelation(
 										"Rate",
 										{ id: rawClosedId(P), value: descriptor },
@@ -891,7 +892,7 @@ export const alternativesIsOneStatementOfItsArmedHandlesInRosterOrderExpandingTo
 			check: (_, c: Case<AlternativesFeature>) => (s) =>
 				Effect.sync(() => {
 					c.note(s.defect)
-					const Mode = closed("Mode", rosterOf(s.handles), [])
+					const Mode = closed("Mode", rosterOf(s.handles), "ordered", [])
 					const Job = relation(
 						"Job",
 						{ id: uuid, mode: rawClosedId(Mode), other: uuid, alien: rawClosedId(Alien) },

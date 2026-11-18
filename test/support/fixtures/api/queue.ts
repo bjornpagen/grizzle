@@ -22,15 +22,15 @@ import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 
-export const QueueKind = closed("Kind", ["render", "transcode"])
-export const Resource = closed("Resource", ["gpu", "cpu"])
-export const Outcome = closed("Outcome", ["succeeded", "failed"])
-export const Reason = closed("Reason", ["malformed", "unsupported"])
+export const QueueKind = closed.ordered("Kind", ["render", "transcode"])
+export const Resource = closed.ordered("Resource", ["gpu", "cpu"])
+export const Outcome = closed.ordered("Outcome", ["succeeded", "failed"])
+export const Reason = closed.ordered("Reason", ["malformed", "unsupported"])
 export const Digest = contract("Digest", str.regex("^[0-9a-f]{64}$"))
 export const Slot = contract("Slot", pg.integer, (x) => x.ge(0))
 export const SeatNo = contract("SeatNo", pg.integer, (x) => x.ge(0))
 
-export const Standing = closed("Standing", ["wanted", "leased", "done", "denied"])
+export const Standing = closed.ordered("Standing", ["wanted", "leased", "done", "denied"])
 
 /**
  * The largest epoch a claim advances. An epoch counts one item's claims from 0, each claim one past the last, so only

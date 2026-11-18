@@ -30,7 +30,12 @@ import {
 	writtenNames
 } from "#compiler/ir/desc.ts"
 import type { Heading as Columns } from "#compiler/ir/rel.ts"
-import { contractOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	contractOf,
+	type RosterOrder,
+	sameScalarType,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { parseSchemaInput, type SchemaArtifacts } from "#compiler/program/schema.ts"
 import { bits, closedId, Decimal, Money, Vector } from "#compiler/public/fields.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -251,6 +256,7 @@ const schemaForms = [
 	"negationParam",
 	"concatFold",
 	"concatMismatch",
+	"unorderedMax",
 	"refinedFold",
 	"refinedGenerated",
 	"roleBesideClosed",
@@ -1046,6 +1052,7 @@ interface FieldSpec {
 
 interface RosterSpec {
 	readonly name: string
+	readonly order: RosterOrder
 	readonly handles: Arr.NonEmptyReadonlyArray<string>
 }
 
@@ -1420,11 +1427,25 @@ class Drawing {
 	}
 }
 
-/** The rosters a case declares, from two that share a handle's spelling: a roster's identity is its name. */
+/**
+ * The rosters a case declares, from two that share a handle's spelling: a roster's identity is its name. Kind is
+ * ordered and Tier unordered, so a fold's max over Tier, which has no order, is refused where Kind's is admitted.
+ */
 const rosterPool: Arr.NonEmptyReadonlyArray<RosterSpec> = [
-	{ name: "Kind", handles: ["A", "M"] },
-	{ name: "Tier", handles: ["A", "P", "X"] }
+	{ name: "Kind", order: "ordered", handles: ["A", "M"] },
+	{ name: "Tier", order: "unordered", handles: ["A", "P", "X"] }
 ]
+
+/**
+ * The ordered rosters of `rosters`, which a fold's max reads: Kind, the first of the pool, which every base declares,
+ * is one.
+ */
+const orderedRosters = (
+	rosters: Arr.NonEmptyReadonlyArray<RosterSpec>
+): Arr.NonEmptyReadonlyArray<RosterSpec> => {
+	const ordered = Arr.filter(rosters, (r) => r.order === "ordered")
+	return Arr.isReadonlyArrayNonEmpty(ordered) ? ordered : [rosterPool[0]]
+}
 
 /** The contracts a case may declare, over the types a contract admits, one over another. */
 const contractNames = ["Cents", "Rate", "Code", "Day", "Mode", "Outer"] as const
@@ -2066,7 +2087,7 @@ const baseOf = (d: Drawing): Base => {
 		...Arr.drop(own, 1)
 	]
 	const pack = d.keep("ordered")
-		? familyPackOf(d, "ordered", d.from(rosters))
+		? familyPackOf(d, "ordered", d.from(orderedRosters(rosters)))
 		: d.keep("counted")
 			? familyPackOf(d, "counted", d.from(rosters))
 			: d.keep("tree")
@@ -2177,7 +2198,7 @@ const baseOf = (d: Drawing): Base => {
 	}
 }
 /** A built roster: the members a probe reads of it. */
-type RosterValue = ReturnType<typeof closed<string, Arr.NonEmptyReadonlyArray<string>>>
+type RosterValue = ReturnType<typeof closed<string, Arr.NonEmptyReadonlyArray<string>, RosterOrder>>
 
 /** Rule, the base's closed relation, built as a JavaScript caller builds it: a row of every key. */
 const closedValue = (c: ClosedSpec, rosters: ReadonlyMap<string, RosterValue>) => {
@@ -2527,7 +2548,7 @@ const definitionOf = (
 /** The base built through the engine's builder cores, every value by its name. */
 const envOf = (base: Base): Env => {
 	const rosters = new Map(
-		Arr.map(base.rosters, (r) => [r.name, closed(r.name, r.handles, [])] as const)
+		Arr.map(base.rosters, (r) => [r.name, closed(r.name, r.handles, r.order, [])] as const)
 	)
 	const contracts = new Map<string, FieldBase>()
 	for (const c of base.contracts) {
@@ -3192,8 +3213,8 @@ const rosterProbe = (d: Drawing): Probe => {
 	return {
 		construct: "rosterProbe",
 		refused: fault,
-		text: () => oneLine(`Sc.closed("Probe", [${quoted(written)}])`),
-		judge: () => building(() => admitRoster("Probe", written, []))
+		text: () => oneLine(`Sc.closed.ordered("Probe", [${quoted(written)}])`),
+		judge: () => building(() => admitRoster("Probe", written, "ordered", []))
 	}
 }
 
@@ -4438,7 +4459,7 @@ const tallyName = "Tally"
  * contractEnd plants a sum's end of a contract over its bigint step, a type of its own.
  */
 const familyProbe = (d: Drawing, base: Base): Probe => {
-	const roster = d.from(base.rosters)
+	const unordered = Arr.filter(base.rosters, (r) => r.order === "unordered")
 	const drawn = d.from<
 		FoldFault | "treeSideWritten" | "countedSide" | "concatFold" | "refinedFold" | undefined
 	>([
@@ -4476,7 +4497,9 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 			: fault === "concatCounted" || fault === "concatHidden" || drawn === "concatFold" || refined
 				? "concat"
 				: fault === "monoidMismatch"
-					? d.from(["sum", "or", "concat"] as const)
+					? Arr.isReadonlyArrayNonEmpty(unordered)
+						? d.from(["sum", "or", "concat", "max"] as const)
+						: d.from(["sum", "or", "concat"] as const)
 					: fault === "endPlanes"
 						? d.from(["sum", "twos"] as const)
 						: order === "counted"
@@ -4491,6 +4514,19 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 	if (monoid === "concat" && fault === "monoidMismatch") {
 		d.note("concatMismatch")
 	}
+	if (monoid === "max" && fault === "monoidMismatch") {
+		d.note("unorderedMax")
+	}
+	/**
+	 * The roster the fold's sets and closed ids are over: for a max, an unordered one where the fold plants the monoid's
+	 * mismatch, since it has no order, and an ordered one otherwise.
+	 */
+	const roster =
+		monoid === "max"
+			? fault === "monoidMismatch" && Arr.isReadonlyArrayNonEmpty(unordered)
+				? d.from(unordered)
+				: d.from(orderedRosters(base.rosters))
+			: d.from(base.rosters)
 	const text: FieldType = { kind: "text", pattern: { source: "^[a-z]{0,16}$", flags: "u" } }
 	const set: FieldType = { kind: "bits", roster: roster.name }
 	const closedType: FieldType = { kind: "closedId", roster: roster.name }
@@ -4947,7 +4983,7 @@ const fieldCallSource = (call: FieldCall, ids: Ids): string => {
 		case "lookAlike":
 			return `Sc.relation("LookAlike", { id: ${lookAlikeSource} }, ["id"])`
 		case "crossSet":
-			return `Fi.accumulated(Fi.bits(${ids(call.roster.name)}), Fi.Bits.of(Sc.closed("Other", [${quoted(call.roster.handles)}]), []))`
+			return `Fi.accumulated(Fi.bits(${ids(call.roster.name)}), Fi.Bits.of(Sc.closed.ordered("Other", [${quoted(call.roster.handles)}]), []))`
 	}
 }
 
@@ -4995,7 +5031,7 @@ const fieldCallValue = (call: FieldCall, env: Env): unknown => {
 		case "crossSet":
 			return accumulatedField(
 				bits(got(env.rosters, call.roster.name)),
-				bitsOf(closed("Other", call.roster.handles, []), [], []),
+				bitsOf(closed("Other", call.roster.handles, "ordered", []), [], []),
 				[]
 			)
 		case "lookAlike": {
@@ -5360,7 +5396,7 @@ const baseDeclarations = (base: Base, ids: Ids): ReadonlyArray<readonly [string,
 	return [
 		...Arr.map(
 			base.rosters,
-			(r) => [r.name, `Sc.closed(${jsonText(r.name)}, [${quoted(r.handles)}])`] as const
+			(r) => [r.name, `Sc.closed.${r.order}(${jsonText(r.name)}, [${quoted(r.handles)}])`] as const
 		),
 		...Arr.map(
 			base.contracts,
@@ -6433,7 +6469,7 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 					)
 					const reads = Arr.map(echoNames, (name) => `, r.${name}`)
 					return {
-						head: [`export const ${own}_Echo = Sc.closed("Echo", [${quoted(k1.handles)}])`],
+						head: [`export const ${own}_Echo = Sc.closed.ordered("Echo", [${quoted(k1.handles)}])`],
 						line: `export const ${own} = Sc.relation.generated("Echoed", { id: Fi.uuid, echo: Fi.closedId(${roster})${Arr.join(restFields, "")} }, ["id"], (r) => ({ w: Fi.generated(Fi.pg.integer, ${ids("Rule")}.at("w", r.echo${Arr.join(reads, "")})) }))`,
 						tail: []
 					}
@@ -6454,7 +6490,7 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 					return building(() => closedHas(rule, form.key))
 				case "generated":
 					return compiling(() => {
-						const echo = closed("Echo", k1.handles, [])
+						const echo = closed("Echo", k1.handles, "ordered", [])
 						const echoed = generatedRelation(
 							"Echoed",
 							{
@@ -6681,8 +6717,8 @@ const slotKeyProbe = (d: Drawing): Probe => {
 		refused: form === "slotted" ? undefined : form,
 		text: (_ids, own) => {
 			const head = [
-				`export const ${own}_Version = Sc.closed("Version", ["v0", "v1"])`,
-				`export const ${own}_Position = Sc.closed("Position", [${quoted(positions)}])`,
+				`export const ${own}_Version = Sc.closed.ordered("Version", ["v0", "v1"])`,
+				`export const ${own}_Position = Sc.closed.ordered("Position", [${quoted(positions)}])`,
 				`export const ${own}_Model = Sc.closed.relation("Model", { version: Fi.closedId(${own}_Version), positions: Fi.natural, label: Fi.closedId(${own}_Version) }, ["version"], [${Arr.join(
 					Arr.map(
 						versions,
@@ -6739,8 +6775,8 @@ const slotKeyProbe = (d: Drawing): Probe => {
 			}
 		},
 		judge: () => {
-			const version = closed("Version", ["v0", "v1"], [])
-			const position = closed("Position", positions, [])
+			const version = closed("Version", ["v0", "v1"], "ordered", [])
+			const position = closed("Position", positions, "ordered", [])
 			const model = closedRelation(
 				"Model",
 				{

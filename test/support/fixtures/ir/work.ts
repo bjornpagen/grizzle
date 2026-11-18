@@ -33,7 +33,7 @@ const Name = f.wildcard
 /** The account name's anchored pattern bounds it to 200 code points, so a B-tree on it is representable. */
 const AccountName = f.regex("^.{1,200}$", "su")
 
-const Kind = closed("Kind", ["Automatic", "Manual"])
+const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 const Account = relation("Account", { id: f.uuid, name: AccountName }, ["id"])
 const Task = relation("Task", { id: f.uuid, account: f.uuid, kind: f.closedId("Kind") }, ["id"])
 const AutomaticTask = relation("AutomaticTask", { task: f.uuid, budget: CentsDesc }, ["task"])
@@ -112,7 +112,7 @@ export const ReportsDesc: SchemaDesc = decodedSchema({
 	statements: []
 })
 
-const Tier = closed("Tier", ["Free", "Pro"])
+const Tier = closed.ordered("Tier", ["Free", "Pro"])
 
 /** Each tier's budget: a closed relation keyed by its tier. */
 const TierBudget = closedRelation(

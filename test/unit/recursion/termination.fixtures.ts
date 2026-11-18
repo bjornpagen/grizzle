@@ -33,7 +33,7 @@ export const setsOver = ([first, ...rest]: Arr.NonEmptyReadonlyArray<string>) =>
 	schema(
 		"Sets",
 		[
-			closed("Flag", [first, ...rest]),
+			closed.ordered("Flag", [first, ...rest]),
 			relation("Node", { id: uuid }, ["id"]),
 			relation("Link", { from: uuid, to: uuid }, ["from", "to"])
 		],

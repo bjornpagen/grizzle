@@ -165,7 +165,9 @@ export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirId
 						const result = theoryResultOf({
 							name: "R",
 							relations: [
-								...Arr.map(Rec.toEntries(rosters), ([name, handles]) => closed(name, handles)),
+								...Arr.map(Rec.toEntries(rosters), ([name, handles]) =>
+									closed.ordered(name, handles)
+								),
 								relation("A", { id: f.uuid, x: a.desc }, ["id"]),
 								relation("B", { id: f.uuid, y: b.desc }, ["id"])
 							],

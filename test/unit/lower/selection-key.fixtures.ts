@@ -16,7 +16,7 @@ type Relation = "Note" | "Task" | "Badge"
 
 type Guard = "held" | "absent" | "other"
 
-const Tier = closed("Tier", ["bronze", "silver", "gold"])
+const Tier = closed.ordered("Tier", ["bronze", "silver", "gold"])
 
 const Badge = relation("Badge", { id: uuid, holder: uuid, tiers: bits(Tier) }, ["id"])
 

@@ -8,7 +8,7 @@ import {
 } from "#compiler/core/canonical.ts"
 import { ownedDigest, type RosterDigest, rosterDigest } from "#compiler/core/fingerprint.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
@@ -423,41 +423,95 @@ export type TextInfo =
 	  }
 
 /**
- * A closed roster: the closed relation's declared name and its distinct live handles in declared order, which is their
- * codes' order and so comparison order. The name is the roster's whole link to its domain and codes: the naming door
- * mints the roster's domain from it (core/identity.ts identity.rosterDomain), and the installation's codebook holds its
- * codes (ir/codes.ts), which no type holds, since they depend on the codes the installation held before.
+ * Whether a roster's order means something, which its declaration states: `ordered` (closed.ordered), its handles'
+ * declared order, which is their codes' order and so comparison order; or `unordered` (closed.unordered), none, so no
+ * comparison, range, orderBy, least, greatest, min, max or fold max reads a closed id of it, and a declaration may list
+ * its handles in any order. Its codes are history either way (ir/cells.ts historyCodes).
+ */
+export const rosterOrders = ["ordered", "unordered"] as const
+export type RosterOrder = (typeof rosterOrders)[number]
+
+/** The tag of a roster's canonical form, by its order, so two rosters of one name and handles but not one order differ. */
+const rosterTags = { ordered: "roster", unordered: "unorderedroster" } as const satisfies {
+	readonly [O in RosterOrder]: string
+}
+
+/**
+ * A roster's handles in its own order: an ordered roster's as declared, and an unordered roster's, a set, in UTF-16
+ * code-unit order (core/canonical.ts compareText), so no declaration's order reaches its identity: the order its
+ * Description (schema/relation.ts admitRoster) and its Roster hold them in.
+ */
+export const handlesInOrder = (
+	order: RosterOrder,
+	handles: NonEmptyReadonlyArray<string>
+): NonEmptyReadonlyArray<string> => {
+	switch (order) {
+		case "ordered":
+			return handles
+		case "unordered":
+			return sortNonEmpty(handles, compareStrings)
+	}
+}
+
+/**
+ * A closed roster: the closed relation's declared name, its order, and its distinct live handles in that order
+ * (handlesInOrder): an ordered roster's in declared order, which is their codes' order and so comparison order, and an
+ * unordered roster's in one canonical order, which no code follows. The name is the roster's whole link to its domain
+ * and codes: the naming door mints the roster's domain from it (core/identity.ts identity.rosterDomain), and the
+ * installation's codebook holds its codes (ir/codes.ts), which no type holds, since they depend on the codes the
+ * installation held before.
  *
- * Its identity is its name and its handles in order, as type identity compares them (sameScalarType): one name holds
- * other handles in another schema, which a snapshot or a migration compares this one's against. Its canonical
- * form (core/canonical.ts Canonicalizable) is its name and its handles' digest (core/fingerprint.ts rosterDigest), taken
- * once, where the roster is first made (Roster.of), so a type, a literal or a predicate over the roster encodes the same
- * characters whatever the roster's size, and every encoding of it changes with its handles.
+ * Its identity is its name, its order and its handles in order, as type identity compares them (sameScalarType): one
+ * name holds other handles in another schema, which a snapshot or a migration compares this one's against. Its canonical
+ * form (core/canonical.ts Canonicalizable) is its name and its handles' digest (core/fingerprint.ts rosterDigest) under
+ * its order's tag, the digest taken once, where the roster is first made (Roster.of), so a type, a literal or a
+ * predicate over the roster encodes the same characters whatever the roster's size, and every encoding of it changes
+ * with its handles.
  */
 export class Roster implements Canonicalizable {
 	readonly closed: DeclaredName
+	readonly order: RosterOrder
 	readonly handles: NonEmptyReadonlyArray<string>
 	readonly digest: RosterDigest
 
-	/** The roster of `closed` over `handles`, its digest taken here (core/fingerprint.ts rosterDigest). */
-	static of(closed: DeclaredName, handles: NonEmptyReadonlyArray<string>): Roster {
-		return new Roster(closed, handles, rosterDigest(handles))
+	/** The roster of `closed` of `order` over `handles`, its digest taken here (core/fingerprint.ts rosterDigest). */
+	static of(
+		closed: DeclaredName,
+		order: RosterOrder,
+		handles: NonEmptyReadonlyArray<string>
+	): Roster {
+		const held = handlesInOrder(order, handles)
+		return new Roster(closed, order, held, rosterDigest(held))
 	}
 
 	/**
-	 * The roster of `closed` over `handles`, whose digest is `digest`: the one Roster.of takes, or the one a served file
-	 * carries beside the roster's name, which generate took (served/json.ts), so a load hashes no handle.
+	 * The roster of `closed` of `order` over `handles`, in its order (handlesInOrder), whose digest is `digest`: the one
+	 * Roster.of takes, or the one a served file carries beside the roster's name, which generate took (served/json.ts),
+	 * so a load hashes no handle.
 	 */
-	constructor(closed: DeclaredName, handles: NonEmptyReadonlyArray<string>, digest: RosterDigest) {
+	constructor(
+		closed: DeclaredName,
+		order: RosterOrder,
+		handles: NonEmptyReadonlyArray<string>,
+		digest: RosterDigest
+	) {
+		const held = handlesInOrder(order, handles)
 		this.closed = closed
-		this.handles = Object.isFrozen(handles) ? handles : Object.freeze(handles)
+		this.order = order
+		this.handles = Object.isFrozen(held) ? held : Object.freeze(held)
 		this.digest = digest
 		Object.freeze(this)
 	}
 
 	[canonicalTag](): TaggedValue {
-		return { tag: "roster", payload: `${this.closed}:${this.digest}` }
+		return { tag: rosterTags[this.order], payload: `${this.closed}:${this.digest}` }
 	}
+}
+
+/** What a roster's declaration states beside its name: its order and its handles, which a Roster holds in that order. */
+export interface RosterHandles {
+	readonly order: RosterOrder
+	readonly handles: NonEmptyReadonlyArray<string>
 }
 
 /** The integer carriers, a serial field's among them. */
@@ -556,8 +610,9 @@ export interface TextType {
 }
 
 /**
- * A closed id: one of the roster's live handles, stored as its code, a smallint under the roster's domain. Its order is
- * code order, which is the roster's declared order.
+ * A closed id: one of the roster's live handles, stored as its code, a smallint under the roster's domain. An ordered
+ * roster's closed id is ordered by code, which is the roster's declared order; an unordered roster's has none, which its
+ * capabilities state (scalar/native.ts unorderedCodeCapabilities).
  */
 interface CodeType {
 	readonly carrier: "code"
@@ -858,9 +913,11 @@ const sameText = (a: TextInfo | undefined, b: TextInfo | undefined): boolean =>
 			a.lengthBound === b.lengthBound &&
 			a.byteBound === b.byteBound
 
-/** One roster: its name and its handles in order, by their digest, as its canonical form states them. */
+/** One roster: its name, its order and its handles in order, by their digest, as its canonical form states them. */
 const sameRoster = (a: Roster | undefined, b: Roster | undefined): boolean =>
-	a === undefined || b === undefined ? a === b : a.closed === b.closed && a.digest === b.digest
+	a === undefined || b === undefined
+		? a === b
+		: a.closed === b.closed && a.order === b.order && a.digest === b.digest
 
 const sameSpan = (a: SpanInfo | undefined, b: SpanInfo | undefined): boolean =>
 	a === undefined || b === undefined
@@ -982,7 +1039,9 @@ export const typeLabel = (t: ScalarType): string => {
 		case "vector":
 			return `vector(${t.typmod.dims})`
 		case "code":
-			return `code ${t.roster.closed}`
+			return t.roster.order === "ordered"
+				? `code ${t.roster.closed}`
+				: `unordered code ${t.roster.closed}`
 		case "bits":
 			return `bits ${t.roster.closed}`
 		case "text": {

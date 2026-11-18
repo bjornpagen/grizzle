@@ -9,7 +9,7 @@ const Slug = str.regex("^[a-z]{1,20}$")
 
 export const Cents = contract("Cents", pg.bigint, (v) => Compute.ge(v, 0n))
 
-export const Kind = closed("Kind", ["a", "b"])
+export const Kind = closed.ordered("Kind", ["a", "b"])
 
 export const Account = relation(
 	"Account",
@@ -25,7 +25,12 @@ export type Row = RowScalars<typeof Account>
  */
 const Loose = relation(
 	"Account",
-	{ id: pg.int4, slug: Slug, bal: pg.int4, kind: closedId(closed("Kind", ["a", "b", "c"])) },
+	{
+		id: pg.int4,
+		slug: Slug,
+		bal: pg.int4,
+		kind: closedId(closed.ordered("Kind", ["a", "b", "c"]))
+	},
 	["id"]
 )
 

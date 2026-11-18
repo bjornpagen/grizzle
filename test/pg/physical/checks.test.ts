@@ -139,7 +139,7 @@ const codeFlags = "u"
 const plantedSchema = (p: Planted) => {
 	const hi = p.lo + p.width
 	const Level = contract("Level", pg.integer, (x) => x.between(p.lo, hi))
-	const Grade = closed("Grade", handles)
+	const Grade = closed.ordered("Grade", handles)
 	const GradeScore = closed.relation(
 		"GradeScore",
 		{ grade: closedId(Grade), score: pg.integer },

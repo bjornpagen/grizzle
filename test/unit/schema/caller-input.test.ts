@@ -57,7 +57,7 @@ export const callerInputRefusesAUnionOfCarriersThatMeetNoColumnAndUnitesEveryOth
 			check: (_, k: Case<UnionFeature>) => (c) =>
 				Effect.sync(() => {
 					const rosters: Arr.NonEmptyReadonlyArray<DrawnRoster> = Arr.map(c.rosters, (r) =>
-						closed(
+						closed.ordered(
 							rosterName(r),
 							Arr.prepend(
 								Arr.map(

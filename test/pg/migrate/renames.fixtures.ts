@@ -136,7 +136,7 @@ type VersionRelation = Relation<
 >
 
 /** Kind at a version. */
-const rosterAt = (p: Plan, after: boolean) => closed("Kind", handlesAt(p, after))
+const rosterAt = (p: Plan, after: boolean) => closed.ordered("Kind", handlesAt(p, after))
 
 const schemaOf = (
 	name: string,

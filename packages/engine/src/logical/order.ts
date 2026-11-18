@@ -7,7 +7,7 @@ import * as Result from "#compiler/core/result.ts"
 import type { KeyClasses, KeyFactors } from "#compiler/ir/keys.ts"
 import type { CompletedOrder, Heading, HeadingColumn, OrderKey } from "#compiler/ir/rel.ts"
 import { typeLabel } from "#compiler/ir/scalar.ts"
-import { hasCapability } from "#compiler/scalar/registry.ts"
+import { breaksTies, hasCapability } from "#compiler/scalar/registry.ts"
 
 export interface OrderSubject {
 	/** The exact distinct result heading. */
@@ -46,7 +46,8 @@ const identity = (c: HeadingColumn): string => c.name
  *    class with a column ordered or fixed needs nothing more, and another adds its orderable column of least name: of
  *    every key one column per class gives, that is the one the policy chooses.
  * 3. If no narrower retained key is proved, append the remaining result fields in canonical heading order, provided
- *    each has a native order compatible with equality.
+ *    each has a native order compatible with equality (breaksTies): an admitted order, or a closed id's codes, an
+ *    unordered roster's among them, which never move, though no order the caller states reads them.
  * 4. If no total order results, refuse with an actionable error: retaining a public key in find may resolve it, and a
  *    hidden row id never will.
  *
@@ -122,7 +123,7 @@ export const completeOrder = (
 	}
 	const orderable = (c: string): boolean => {
 		const column = columns.get(c)
-		return column !== undefined && hasCapability(column.type, "ordering")
+		return column !== undefined && breaksTies(column.type)
 	}
 	/**
 	 * The columns a minimal key of a factor adds: each class not yet ordered or fixed, by its orderable column of least
@@ -221,7 +222,7 @@ export const completeOrder = (
 		if (ordered.has(c.name) || fixed.has(c.name)) {
 			continue
 		}
-		if (!hasCapability(c.type, "ordering")) {
+		if (!breaksTies(c.type)) {
 			return fail(
 				"UnsupportedOperation",
 				`ordering: completing the order needs ${c.name}, whose type ${typeLabel(c.type)} has no admitted order; retain a key of the result in find`

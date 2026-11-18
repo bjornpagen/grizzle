@@ -388,7 +388,7 @@ type TextTermOf = Term<string, unknown, unknown, "text", unknown>
  * into each written relation of the facts each call gives.
  */
 const schemaOf = (c: ConstantCase) => {
-	const Kind = closed("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
+	const Kind = closed.ordered("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
 	const Pick = closed.relation(
 		"Pick",
 		{ kind: closedId(Kind), t: Wild },

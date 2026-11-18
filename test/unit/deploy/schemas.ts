@@ -27,10 +27,10 @@ const Cents = f.contract("Cents", f.bigint, ge(value, literal(0n)))
 /** The contract's predicate tightened: its domain's one constraint replaced in place. */
 const CentsV2 = f.contract("Cents", f.bigint, ge(value, literal(1n)))
 
-const Kind = closed("Kind", ["Automatic", "Manual"])
-const Priority = closed("Priority", ["low", "high"])
+const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
+const Priority = closed.ordered("Priority", ["low", "high"])
 /** A handle appended: a roster's order is its codes' order, so a new handle comes last. */
-const PriorityV2 = closed("Priority", ["low", "high", "medium"])
+const PriorityV2 = closed.ordered("Priority", ["low", "high", "medium"])
 const AccountName = f.regex("^.{1,200}$", "su")
 
 const Account = relation("Account", { id: f.uuid, name: AccountName }, ["id"])
@@ -160,7 +160,7 @@ export const books2Declared: Declarations = {
 
 /** Version 4 of the shop: a third Kind handle, appended, and its arm, which adds that arm's containment and its
  * handle's reverse containment. */
-const Kind3 = closed("Kind", ["Automatic", "Manual", "Scheduled"])
+const Kind3 = closed.ordered("Kind", ["Automatic", "Manual", "Scheduled"])
 const ScheduledTask = relation("ScheduledTask", { task: f.uuid, at: f.bigint }, ["task"])
 export const shopV4: SchemaDesc = {
 	...shopV3,

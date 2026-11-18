@@ -126,7 +126,7 @@ export const schemaOf = (c: ParseCase, copies: number, rows: number) => {
 			return [name, R] as const
 		})
 	)
-	const Kind = closed("Kind", ["A", "B", "C", "D"], [])
+	const Kind = closed("Kind", ["A", "B", "C", "D"], "ordered", [])
 	const Labels = closedRelation(
 		"Labels",
 		{ kind: admittedClosedId(Kind), label: descriptorOf(patternAt(c, 0)) },

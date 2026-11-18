@@ -94,7 +94,7 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 		check: (_, k: Case<ContextFeature>) => (c) =>
 			Effect.sync(() => {
 				const rosters: Arr.NonEmptyReadonlyArray<DrawnRoster> = Arr.map(c.rosters, (count, i) =>
-					closed(
+					closed.ordered(
 						`K${i}`,
 						Arr.prepend(
 							Arr.map(

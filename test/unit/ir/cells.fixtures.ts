@@ -38,6 +38,7 @@ import {
 	spaceSize,
 	type Tuple
 } from "#compiler/ir/cells.ts"
+import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 
@@ -662,7 +663,7 @@ export const patterns: Gen<Pattern> = (s) => {
 export const holePattern = ({ codes, live, appended }: Pattern, c: Case<Holes>) =>
 	Effect.sync(() => {
 		const handles = nonEmpty(Array.from({ length: codes }, (_, code) => `h${code}`))
-		const first = succeeded(rosterCodes([], new Map(), handles))
+		const first = succeeded(rosterCodes([], new Map(), { order: "ordered", handles }))
 		assert.deepEqual(
 			first,
 			Arr.map(handles, (handle): CodeSlot => ({ kind: "live", handle }))
@@ -670,7 +671,9 @@ export const holePattern = ({ codes, live, appended }: Pattern, c: Case<Holes>) 
 		const isLive = (code: number): boolean => ((live >> code) & 1) === 1
 		const kept = Arr.filter(handles, (_, code) => isLive(code))
 		const added = Array.from({ length: appended }, (_, n) => `a${n}`)
-		const next = succeeded(rosterCodes(first, new Map(), nonEmpty([...kept, ...added])))
+		const next = succeeded(
+			rosterCodes(first, new Map(), { order: "ordered", handles: nonEmpty([...kept, ...added]) })
+		)
 		const expected: RosterCodes = [
 			...Arr.map(handles, (handle, code): CodeSlot =>
 				isLive(code) ? { kind: "live", handle } : { kind: "hole" }
@@ -679,14 +682,13 @@ export const holePattern = ({ codes, live, appended }: Pattern, c: Case<Holes>) 
 		]
 		assert.deepEqual(next, expected)
 		const grown = succeeded(
-			rosterCodes(
-				next,
-				new Map(),
-				nonEmpty([
+			rosterCodes(next, new Map(), {
+				order: "ordered",
+				handles: nonEmpty([
 					...Arr.flatMap(next, (slot) => (slot.kind === "live" ? [slot.handle] : [])),
 					"b0"
 				])
-			)
+			})
 		)
 		assert.deepEqual(
 			grown,
@@ -736,6 +738,8 @@ export type Declaration =
 	| "a name used again"
 	| "a name renamed away and declared again"
 	| "a reorder"
+	| "an unordered roster declared out of its codes' order"
+	| "an unordered roster growing past a reorder"
 
 /** What a declared handle stands for: a previous handle kept, a previous handle renamed, or a new handle. */
 type Was =
@@ -755,6 +759,12 @@ interface Step {
 	readonly renames: ReadonlyArray<readonly [from: string, to: string]>
 }
 
+/** A roster's declarations under one order (ir/scalar.ts RosterOrder), which each of them states. */
+export interface History {
+	readonly order: RosterOrder
+	readonly steps: ReadonlyArray<Step>
+}
+
 /** The names a roster's handles are drawn from. */
 const pool = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"] as const
 
@@ -765,11 +775,13 @@ const oneOf =
 		defined(names[s.draw(int(0, names.length - 1))])
 
 /**
- * A roster's declarations, each from the handles the one before left live: some kept, some renamed to a name no
- * handle holds, some dropped, and new names appended that no live handle holds but one renamed away. A declaration
- * may swap two neighbours, the named invalid case, and a history ends at the first that does.
+ * A roster's declarations under one order, each from the handles the one before left live: some kept, some renamed to
+ * a name no handle holds, some dropped, and new names appended that no live handle holds but one renamed away. An
+ * ordered roster's declaration may swap two neighbours, the named invalid case, and its history ends at the first that
+ * does; an unordered roster's may list its handles in any order, which is no invalid case, and its history goes on.
  */
-export const history: Gen<ReadonlyArray<Step>> = (s) => {
+export const history: Gen<History> = (s) => {
+	const order = s.draw(element(rosterOrders))
 	const steps: Array<Step> = []
 	let live: ReadonlyArray<string> = []
 	const count = s.draw(int(1, 4))
@@ -822,23 +834,29 @@ export const history: Gen<ReadonlyArray<Step>> = (s) => {
 			declared[at] = right
 			declared[at + 1] = left
 		}
-		steps.push({ declared: nonEmpty(declared), renames })
-		if (swap) {
+		const listed =
+			order === "unordered" && s.draw(boolean)
+				? s.draw(shuffled(declared, { min: declared.length, max: declared.length }))
+				: declared
+		steps.push({ declared: nonEmpty(listed), renames })
+		if (swap && order === "ordered") {
 			break
 		}
-		live = Arr.map(declared, (d) => d.handle)
+		live = Arr.map(listed, (d) => d.handle)
 	}
-	return steps
+	return { order, steps }
 }
 
 /**
  * Through a history of declarations, each handle keeps its code across renames, new handles take the codes past every
- * code minted, each removed handle leaves a hole, and a declaration that puts two handles out of their codes' order is
- * refused with the first such pair. Oracle: the codes each declared handle was drawn to stand for.
+ * code minted, in the order they are declared, and each removed handle leaves a hole; a declaration of an ordered
+ * roster that puts two handles out of their codes' order is refused with the first such pair, and an unordered
+ * roster's never is. Oracle: the codes each declared handle was drawn to stand for.
  */
-export const histories = (steps: ReadonlyArray<Step>, c: Case<Declaration>) =>
+export const histories = ({ order, steps }: History, c: Case<Declaration>) =>
 	Effect.sync(() => {
 		let codes: RosterCodes = []
+		let reordered = false
 		const used = new Set<string>()
 		for (const step of steps) {
 			const codeOf = new Map(
@@ -855,12 +873,15 @@ export const histories = (steps: ReadonlyArray<Step>, c: Case<Declaration>) =>
 				return defined(codeOf.get(d.was.previous))
 			})
 			const handles = Arr.map(step.declared, (d) => d.handle)
-			const result = rosterCodes(codes, new Map(step.renames), nonEmpty(handles))
+			const result = rosterCodes(codes, new Map(step.renames), {
+				order,
+				handles: nonEmpty(handles)
+			})
 			const inversion = Arr.findFirstIndex(
 				claimed,
 				(code, at) => at > 0 && code < defined(claimed[at - 1])
 			)
-			if (Option.isSome(inversion)) {
+			if (Option.isSome(inversion) && order === "ordered") {
 				assert.deepEqual(failed(result), {
 					earlier: defined(handles[inversion.value - 1]),
 					later: defined(handles[inversion.value])
@@ -868,6 +889,13 @@ export const histories = (steps: ReadonlyArray<Step>, c: Case<Declaration>) =>
 				c.note("a reorder")
 				return
 			}
+			if (Option.isSome(inversion)) {
+				c.note("an unordered roster declared out of its codes' order")
+			}
+			if (reordered && minted > codes.length) {
+				c.note("an unordered roster growing past a reorder")
+			}
+			reordered = reordered || Option.isSome(inversion)
 			const holderOf = new Map(
 				Arr.map(claimed, (code, at) => [code, defined(handles[at])] as const)
 			)

@@ -31,9 +31,9 @@ const tableOf = (relationName: string): string =>
 
 const columnOf = (field: string): string => identifierOf(identity.column(parsedName(field)))
 
-const Version = closed("Version", ["v0"])
+const Version = closed.ordered("Version", ["v0"])
 
-const Kind = closed("Kind", ["k0", "k1"])
+const Kind = closed.ordered("Kind", ["k0", "k1"])
 
 const parents = ["k0", "k1"] as const
 
@@ -164,7 +164,7 @@ const stagesOf = (h: History): ReadonlyArray<Stage> =>
 
 /** The schema of a stage under the declared name `name`. */
 const schemaAt = (name: string, stage: Stage) => {
-	const Position = closed("Position", stage.positions)
+	const Position = closed.ordered("Position", stage.positions)
 	const Model = closed.relation(
 		"Model",
 		{ version: closedId(Version), parent: closedId(Kind), positions: natural },

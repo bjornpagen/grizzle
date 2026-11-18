@@ -30,7 +30,8 @@ import type {
 	Source,
 	SqlOfCarrier,
 	UnionHeading,
-	UnionToIntersection
+	UnionToIntersection,
+	Unordered
 } from "#compiler/types/core/phantom.ts"
 
 import type {
@@ -555,9 +556,12 @@ export interface Query<
 	bind<const B extends BindingsFor<P>>(
 		bindings: B & NoStrayParameters<B, P> & RelationBindings<B, P>
 	): BoundSource<S, Head, BindParams<B>, Hc, Cx, Ev, BindReads<B>>
-	/** An order over the columns the query delivers (DeliveredKeys): never a field only some arms have, or an attachment. */
-	orderBy(
-		...order: ReadonlyArray<readonly [DeliveredKeys<Head, Hc> & string, Direction]>
+	/**
+	 * An order over the columns the query delivers (DeliveredKeys): never a field only some arms have, or an attachment,
+	 * and never a closed id of a closed.unordered roster, which has no order (OrderedKeys).
+	 */
+	orderBy<const O extends ReadonlyArray<readonly [DeliveredKeys<Head, Hc> & string, Direction]>>(
+		...order: O & OrderedKeys<O, Hc>
 	): Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms>
 	/**
 	 * A search over one rule's projection, its source as the checker reads it (SearchSource), ranked by a distance of its
@@ -627,6 +631,26 @@ type AttachedNames<Head, Hc> = Exclude<KeyOfAnyArm<Head>, keyof Hc>
  * the query reads these: an order's keys, an attachment's parent variables, a take's or a search's arm.
  */
 export type DeliveredKeys<Head, Hc> = keyof Head & keyof Hc
+
+/**
+ * What an order O over the carriers Hc requires of each of its keys: a column with an order, so a key naming a closed id
+ * of a closed.unordered roster, whose domain carries Unordered, is refused by the engine's refusal of an ordered
+ * operation over one (types/compute/scalar.ts OrderedOperand).
+ */
+type OrderedKeys<O extends ReadonlyArray<unknown>, Hc> = {
+	readonly [I in keyof O]: O[I] extends readonly [infer K, Direction]
+		? K extends keyof Hc
+			? [DomainOf<Hc[K]>] extends [never]
+				? unknown
+				: [DomainOf<Hc[K]>] extends [Unordered]
+					? readonly [
+							Refusal<"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles">,
+							Direction
+						]
+					: unknown
+			: unknown
+		: unknown
+}
 
 /** The carriers of the columns a query delivers (DeliveredKeys). */
 export type DeliveredHeading<Head, Hc> = { readonly [K in DeliveredKeys<Head, Hc>]: Hc[K] }

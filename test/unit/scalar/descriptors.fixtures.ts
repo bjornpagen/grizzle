@@ -41,7 +41,7 @@ import { Array as Arr, Option, Record } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { type RosterOrder, rosterOrders, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Described, describeField } from "#compiler/scalar/registry.ts"
 import { closed } from "#compiler/schema/api.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -353,14 +353,15 @@ const at = (value: unknown, site: string): ReadonlyArray<Broken<"MalformedDescri
 	{ value, refusal: "MalformedDescription", at: site }
 ]
 
-/** A closed relation of a name and a roster of distinct handles. */
-const liveClosed = (name: string, handles: Arr.NonEmptyReadonlyArray<string>) =>
-	closed(name, handles)
+/** A closed relation of a name, an order and a roster of distinct handles. */
+const liveClosed = (name: string, order: RosterOrder, handles: Arr.NonEmptyReadonlyArray<string>) =>
+	closed[order](name, handles)
 
-/** A closed relation: a drawn name, and a drawn roster of distinct handles. */
+/** A closed relation: a drawn name, a drawn order, and a drawn roster of distinct handles. */
 const closedGen: Gen<ReturnType<typeof liveClosed>> = (source) =>
 	liveClosed(
 		source.draw(matching(regex("^[A-Z][a-z]{1,8}$"))),
+		source.draw(element(rosterOrders)),
 		nonEmpty(
 			source.draw(uniqueKeys(matching(regex("^[A-Za-z]{1,6}$")), { min: 1, max: 5 })),
 			"a roster's handles"
@@ -387,11 +388,12 @@ export const closedIdCaseGen = (source: Source) => {
 
 /**
  * The forgeries of a closed relation closedId refuses: each breaks one rule of what a closed relation is (kind
- * "closed", a nonempty storable name, a nonempty roster of distinct nonempty storable string handles), or is no
- * closed relation at all.
+ * "closed", a nonempty storable name, a roster order, a nonempty roster of distinct nonempty storable string handles),
+ * or is no closed relation at all.
  */
 export type ClosedRule =
 	| "not closed"
+	| "no roster order"
 	| "empty name"
 	| "no handle"
 	| "repeated handle"
@@ -409,6 +411,12 @@ export const forgeries: Arr.NonEmptyReadonlyArray<
 		from: "wild",
 		weight: 1,
 		sites: (live) => at({ ...live, kind: "relation" }, "kind")
+	},
+	{
+		rule: "no roster order",
+		from: "wild",
+		weight: 1,
+		sites: (live) => at({ ...live, order: "sorted" }, "order")
 	},
 	{
 		rule: "empty name",

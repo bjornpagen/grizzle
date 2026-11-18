@@ -10,7 +10,8 @@ import type {
 	Refusal,
 	Repeats,
 	SqlOfCarrier,
-	Term
+	Term,
+	Unordered
 } from "#compiler/types/core/phantom.ts"
 import type {
 	AccumulatedField,
@@ -473,11 +474,26 @@ export type FoldStep<Fa, M, C, T> = T extends readonly [...MemberOf<Fa>["group"]
 type StepRest<Mb extends MemberShape, C, N extends MonoidName, M, Rest> = N extends "count"
 	? PairsAllowed<Mb, Accumulators<C, Rest, NaturalType, 1>, Rest>
 	: Rest extends readonly [infer X, ...infer Pairs]
-		? FieldTypeOf<C, X> extends readonly [unknown, MonoidSql[N]]
+		? MonoidAdmits<N, FieldTypeOf<C, X>> extends true
 			? PairsAllowed<Mb, Accumulators<C, Pairs, FieldTypeOf<C, X>, PlanesOf<M>>, Pairs> &
 					InOrder<Mb, N, Pairs>
 			: Refusal<"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text">
 		: Refusal<"a fold's step is its family's member: its group, its value, then an accumulated pair per plane">
+
+/**
+ * Whether the monoid N admits a step value of the join type V (FieldTypeOf): one of the SQL types it admits (MonoidSql),
+ * and, for max, a value with a least one, which a closed id of a closed.unordered roster has not: its domain carries
+ * Unordered, since none of its handles comes before another.
+ */
+type MonoidAdmits<N extends MonoidName, V> = V extends readonly [infer D, MonoidSql[N]]
+	? N extends "max"
+		? [D] extends [never]
+			? true
+			: [D] extends [Unordered]
+				? false
+				: true
+		: true
+	: false
 
 type MemberShape = {
 	readonly group: ReadonlyArray<AnyTerm>

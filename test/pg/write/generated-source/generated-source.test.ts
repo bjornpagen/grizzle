@@ -50,7 +50,7 @@ type TierHandle = (typeof tiers)[number]
 /** Each tier's rate, as Rate holds it: high holds none, so a high row's rate has no value. */
 const rates: Readonly<Record<TierHandle, number | undefined>> = { low: 1, mid: 2, high: undefined }
 
-const Tier = closed("Tier", tiers)
+const Tier = closed.ordered("Tier", tiers)
 const Rate = closed.relation(
 	"Rate",
 	{ tier: closedId(Tier), rate: pg.integer },

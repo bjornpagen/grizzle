@@ -38,7 +38,7 @@ const Sitting = relation("Sitting", { id: pg.integer, student: pg.integer, week:
 	"id"
 ])
 
-const Kind = closed("Kind", ["light", "heavy"])
+const Kind = closed.ordered("Kind", ["light", "heavy"])
 
 const Weights = closed.relation(
 	"Weights",

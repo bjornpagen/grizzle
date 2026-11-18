@@ -10,7 +10,7 @@ import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
 const handles = ["a", "b", "c"] as const
 type Handle = (typeof handles)[number]
-export const Flag = closed("Flag", handles)
+export const Flag = closed.ordered("Flag", handles)
 const R = relation("R", { id: pg.integer, flags: bits(Flag) }, ["id"])
 
 /** The set value Apart holds R's flags apart from, the one Within holds them within, and Split's other side. */

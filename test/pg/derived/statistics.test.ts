@@ -58,7 +58,7 @@ const byRowText: Order.Order<ReadonlyArray<string>> = Order.mapInput(
 
 /** The schema under the allocated name, its programs over it, and its login, owning the workload of `picked`. */
 const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
-	const Kind = closed("Kind", ["A", "B"])
+	const Kind = closed.ordered("Kind", ["A", "B"])
 	const Account = relation("Account", { code: Code, region: Code }, ["code"])
 	const Task = relation(
 		"Task",

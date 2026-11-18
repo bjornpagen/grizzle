@@ -8,7 +8,7 @@ import {
 	keptRosters,
 	noRenames
 } from "#compiler/ir/codes.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
+import { Roster, type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { bits, closedId, contract, generated, pg, uuid } from "#compiler/public/fields.ts"
 import { check, closed, relation, type Statement } from "#compiler/public/schema.ts"
@@ -31,9 +31,9 @@ import { upTo } from "#test/support/up-to.ts"
  * with it (schema.extend), as an application's later level does.
  *
  * The level holds:
- * - a roster whose previous declaration held handles it no longer declares, each one's code a hole that no handle takes
- *   again, so the installation's codes are history (ir/cells.ts rosterCodes): holes before, between or after its live
- *   handles;
+ * - a roster, ordered or unordered, whose previous declaration held handles it no longer declares, each one's code a
+ *   hole that no handle takes again, so the installation's codes are history (ir/cells.ts rosterCodes): holes before,
+ *   between or after its live handles;
  * - a holder relation of a closed id of the roster, a set over it and a checked contract's field, keyed by its id, by
  *   its closed id (a code key) or by both;
  * - a counter relation of a second checked contract's field and an integer, perhaps with a generated column over the
@@ -45,6 +45,8 @@ import { upTo } from "#test/support/up-to.ts"
  * Every count is a search budget.
  */
 export interface LawLevel {
+	/** The roster's order: closed.ordered's or closed.unordered's, which a served file holds it under. */
+	readonly order: RosterOrder
 	/** Before each live handle of the roster, in code order, how many retired handles' holes; one live handle at least. */
 	readonly holes: Arr.NonEmptyReadonlyArray<number>
 	/** How many retired handles' holes follow the last live one. */
@@ -59,6 +61,7 @@ export interface LawLevel {
 export const lawLevelGen: Gen<LawLevel> = (source) => {
 	const first = source.draw(int(-1, 1))
 	return {
+		order: source.draw(element(rosterOrders)),
 		holes: [source.draw(int(0, 2)), ...source.draw(array(int(0, 2), { min: 0, max: 2 }))],
 		trailing: source.draw(int(0, 2)),
 		key: source.draw(element(["id", "code", "both"] as const)),
@@ -71,6 +74,7 @@ export const lawLevelGen: Gen<LawLevel> = (source) => {
 /** The features a law level holds, as the suites reading it name them. */
 export type LawFeature =
 	| "a roster with a hole"
+	| "an unordered roster"
 	| "a generated column"
 	| "a table CHECK"
 	| "contracts sharing one domain"
@@ -80,6 +84,7 @@ export const lawFeatures = (level: LawLevel): ReadonlyArray<LawFeature> => [
 	...(Arr.some([...level.holes, level.trailing], (n) => n > 0)
 		? (["a roster with a hole"] as const)
 		: []),
+	...(level.order === "unordered" ? (["an unordered roster"] as const) : []),
 	...(level.generated ? (["a generated column"] as const) : []),
 	...(level.check ? (["a table CHECK"] as const) : []),
 	...(level.least[0] === level.least[1] ? (["contracts sharing one domain"] as const) : []),
@@ -105,7 +110,10 @@ export interface Laws {
 	readonly schema: ReturnType<typeof extendedOf>
 	readonly relations: ReadonlyArray<LevelRelation>
 	readonly view: { readonly name: string; readonly value: AnyDerived }
-	/** The installation's codes over `owned`, the extension owned: every roster's first, the level's with its holes. */
+	/**
+	 * The installation's codes over `owned`, the extension owned: every roster's first, the level's with its holes, drafted
+	 * from a previous declaration of every handle at its code, in code order.
+	 */
 	readonly codes: (owned: Owned) => Codebook
 }
 
@@ -130,7 +138,7 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 		upTo(level.trailing, (j) => `goneLast${j}`)
 	)
 	const kindName = fresh("LawKind", taken)
-	const Kind = closed(kindName, live)
+	const Kind = closed[level.order](kindName, live)
 	const Count = contract("LawCount", pg.integer, (x) => x.ge(level.least[0]))
 	const Tally = contract("LawTally", pg.integer, (x) => x.ge(level.least[1]))
 	const holderName = fresh("LawHolder", taken)
@@ -178,7 +186,9 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 				draftCodebook(
 					keptRosters(
 						firstCodebook(
-							Arr.map(declared, (r) => (r.closed === kindName ? Roster.of(r.closed, previous) : r))
+							Arr.map(declared, (r) =>
+								r.closed === kindName ? Roster.of(r.closed, "ordered", previous) : r
+							)
 						)
 					),
 					noRenames,

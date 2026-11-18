@@ -275,8 +275,8 @@ const storedT = (set: boolean): SchemaDesc["relations"][number] => {
 const descOf = (d: Declaration): SchemaDesc => ({
 	name: "Codes",
 	relations: [
-		closed("R", d.handles),
-		closed("Q", ["x", "y"]),
+		closed.ordered("R", d.handles),
+		closed.ordered("Q", ["x", "y"]),
 		storedT(d.set),
 		closedRelation("Pair", { k: f.closedId("Q"), v: f.closedId("Q") }, ["k"], pairRows[d.rows]),
 		closedRelation("Weight", { k: f.closedId("Q"), w: f.integer }, ["k"], weightRows[d.rows])

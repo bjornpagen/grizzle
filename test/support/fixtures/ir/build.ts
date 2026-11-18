@@ -40,7 +40,7 @@ import {
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, Roster, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type Roster, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import { type AggregateName, countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import {
 	definedIdOf,
@@ -208,7 +208,7 @@ export class SchemaModel {
 		const owned = Rec.values(fixture.owned.relations)
 		for (const r of owned) {
 			if (r.kind === "closed") {
-				this.#rosters.set(r.name, Roster.of(r.name, r.desc.handles))
+				this.#rosters.set(r.name, r.roster)
 			}
 		}
 		const relations = new Map<string, SchemaRelation>()

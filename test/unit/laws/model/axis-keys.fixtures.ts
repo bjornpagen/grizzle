@@ -162,7 +162,7 @@ export const verdictOf = (bytes: number): Verdict => {
  * step's worth of bytes of the most that fit. The oracle: the entry counted by hand, a bit(n)'s varlena header, its
  * 4-byte bit count and a byte per eight codes after Line's (order, at) at their exact offsets.
  */
-const Tag = closed("Tag", ["red", "blue"])
+const Tag = closed.ordered("Tag", ["red", "blue"])
 
 const none = Bits.of(Tag, [])
 

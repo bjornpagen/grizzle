@@ -40,6 +40,7 @@ import {
 	type LoginDesc,
 	type QueryDesc,
 	type RoleDesc,
+	type RosterDesc,
 	type SchemaDesc,
 	type SideDesc,
 	type StatementDesc
@@ -50,7 +51,7 @@ import { registerPredicate, type TermCarrier } from "#compiler/scalar/compute/te
 import { type Described, refusedField, registeredField } from "#compiler/scalar/registry.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
-import type { DerivedDraft, OrdinaryRelationDesc, RosterDesc } from "#compiler/schema/relation.ts"
+import type { DerivedDraft, OrdinaryRelationDesc } from "#compiler/schema/relation.ts"
 import type { FragmentContent, FragmentDesc } from "#compiler/schema/schema.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { RoleLevel, WorldDraft } from "#compiler/schema/world.ts"

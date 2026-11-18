@@ -4,11 +4,14 @@ import type { AvgSql, NumericSql, PlainHost, SumSql } from "#compiler/scalar/com
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
+	Admitted,
 	FirstTerm,
 	FirstValue,
+	HasOrder,
 	IsSpan,
 	OfFamily,
 	Operand,
+	OrderedOperand,
 	Requires
 } from "#compiler/types/compute/scalar.ts"
 
@@ -455,7 +458,7 @@ type StoredOnlyFieldsIn<C> = {
 
 /**
  * The SQL types min and max are defined over: the numeric family and money, booleans (bool_and and bool_or), text and
- * closed ids, whose order is their codes'.
+ * closed ids, whose order is their codes', but an unordered roster's, which has none (HasOrder).
  */
 type MinMaxSql = NumericSql | "boolean" | "text" | "code"
 
@@ -654,19 +657,19 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		b: B
 	): Compared<"ne", A, B>
 	lt<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
-		a: A & FirstTerm<A>,
+		a: A & FirstTerm<A> & OrderedOperand<A>,
 		b: B
 	): Compared<"lt", A, B>
 	le<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
-		a: A & FirstTerm<A>,
+		a: A & FirstTerm<A> & OrderedOperand<A>,
 		b: B
 	): Compared<"le", A, B>
 	gt<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
-		a: A & FirstTerm<A>,
+		a: A & FirstTerm<A> & OrderedOperand<A>,
 		b: B
 	): Compared<"gt", A, B>
 	ge<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
-		a: A & FirstTerm<A>,
+		a: A & FirstTerm<A> & OrderedOperand<A>,
 		b: B
 	): Compared<"ge", A, B>
 	between<
@@ -674,7 +677,7 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		const L extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>,
 		const H extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>
 	>(
-		a: A & FirstTerm<A>,
+		a: A & FirstTerm<A> & OrderedOperand<A>,
 		low: L,
 		high: H
 	): Predicate<P<A> & P<L> & P<H>, Reads<readonly [A, L, H]>> & Shaped<Opaque<readonly [A, L, H]>>
@@ -757,9 +760,9 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * its language.
 	 */
 	min<A extends TermBase | FirstValue, X, PA, OA, S extends MinMaxSql, V, L>(
-		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L>
-	): OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L>>
+		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L> & OrderedOperand<A>
+	): Admitted<HasOrder<A>, OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L>>>
 	max<A extends TermBase | FirstValue, X, PA, OA, S extends MinMaxSql, V, L>(
-		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L>
-	): OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L>>
+		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L> & OrderedOperand<A>
+	): Admitted<HasOrder<A>, OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L>>>
 }

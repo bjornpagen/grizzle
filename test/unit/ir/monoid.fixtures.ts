@@ -30,7 +30,11 @@ const natural: ScalarType = {
 }
 
 /** A roster of five codes whose code 2 is a hole: live handles h0, h1, h3, h4 in code order. */
-const roster = Roster.of(succeeded(parseDeclaredName("Kind")), nonEmpty(["h0", "h1", "h3", "h4"]))
+const roster = Roster.of(
+	succeeded(parseDeclaredName("Kind")),
+	"ordered",
+	nonEmpty(["h0", "h1", "h3", "h4"])
+)
 
 /** A set over the roster. */
 const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }

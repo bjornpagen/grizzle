@@ -233,7 +233,7 @@ export const describeMutability = (m: Readonly<Record<string, boolean>>): string
 }
 
 const stages = ["draft", "approved", "paid", "voided"] as const
-const Stage = closed("Stage", stages)
+const Stage = closed.ordered("Stage", stages)
 /** A payload relation of a drawn alternatives schema: the roster positions it is the payload of, its mutability. */
 export interface PayArm {
 	readonly handles: Arr.NonEmptyReadonlyArray<number>
@@ -261,7 +261,7 @@ const drawnRuns = (p: RunsParams) => {
 		stageName(0),
 		...upTo(p.roster - 1, (i) => stageName(i + 1))
 	]
-	const DrawnStage = closed("Stage", names)
+	const DrawnStage = closed.ordered("Stage", names)
 	const Run = relation("Run", { id: pg.integer, stage: closedId(DrawnStage), note: label }, ["id"])
 	const pays = Arr.map(p.arms, (arm, j) => {
 		const value = relation(`Pay${j}`, { id: pg.integer, run: pg.integer, amount: pg.integer }, [
@@ -789,7 +789,7 @@ export const spanCoverage: Family<VisitsParams> = {
 }
 
 const standings = ["wanted", "leased", "done"] as const
-const Standing = closed("Standing", standings)
+const Standing = closed.ordered("Standing", standings)
 export const Work = relation(
 	"Work",
 	{ item: pg.integer, standing: closedId(Standing), epoch: pg.integer },

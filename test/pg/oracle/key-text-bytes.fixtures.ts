@@ -24,7 +24,7 @@ interface KeyCase {
 	readonly salt: number
 }
 
-export const Kind = closed("Kind", ["A", "B"], [])
+export const Kind = closed("Kind", ["A", "B"], "ordered", [])
 
 export const descriptorOf = (c: Companion): FieldBase => {
 	switch (c) {

@@ -409,7 +409,7 @@ const descriptorCaseGen: Gen<DescriptorCase> = (source) => {
 /** The schema of a case: Base's one relation R, and its derived relation D over it. */
 const descriptorSchemaOf = (c: DescriptorCase) => {
 	const rosters = Arr.map(c.rosters, (count, i) =>
-		closed(
+		closed.ordered(
 			`K${i}`,
 			Arr.prepend(
 				Arr.map(

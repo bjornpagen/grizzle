@@ -40,7 +40,7 @@ const Session = context("Session", { sub: Sub })
 export const versionOf = (name: string, k: Knobs) => {
 	const Cap = contract("Cap", pg.integer, (x) => x.ge(k.capLeast))
 	const Quota = context("Quota", { cap: Cap }, { claim: "q" })
-	const Tier = closed("Tier", k.tiers)
+	const Tier = closed.ordered("Tier", k.tiers)
 	const Org = relation("Org", { id: uuid, tier: closedId(Tier) }, ["id"])
 	const Doc = relation(
 		"Doc",

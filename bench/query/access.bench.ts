@@ -65,7 +65,7 @@ import { prefixBounds } from "#test/support/prefix.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Kind = closed("Kind", ["Open", "Done", "Held"])
+const Kind = closed.ordered("Kind", ["Open", "Done", "Held"])
 const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 const Entry = relation(
 	"Entry",

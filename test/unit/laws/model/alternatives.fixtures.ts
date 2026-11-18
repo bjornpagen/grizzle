@@ -73,7 +73,7 @@ const schemaOf = (a: Assignment): SchemaDesc => {
 	return {
 		name: "Alternatives",
 		relations: [
-			closed("Tag", roster.handles),
+			closed.ordered("Tag", roster.handles),
 			relation("Parent", { id: f.bigint, tag: f.closedId("Tag") }, ["id"]),
 			...Arr.map(arms, (x) => relation(x.arm, { id: f.bigint }, ["id"]))
 		],

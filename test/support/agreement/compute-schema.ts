@@ -4,8 +4,10 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
-export const Tone = closed("Tone", ["low", "high"])
-const Shade = closed("Shade", ["low", "dark"])
+export const Tone = closed.ordered("Tone", ["low", "high"])
+const Shade = closed.ordered("Shade", ["low", "dark"])
+/** Tone's handles in a roster whose order means nothing: a closed id of it has no order, which no ordered operation reads. */
+export const Hue = closed.unordered("Hue", ["low", "high"])
 const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n), { proves: ["nonnegative"] })
 const EpochDay = contract("EpochDay", pg.bigint)
 const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
@@ -17,8 +19,8 @@ const Body = contract("Body", str.regex("^.*$", "su"))
  * contract: Cell, with a field of every carrier a Compute operand may have, a contract over each base the catalogue
  * reads (a bigint that declares itself nonnegative and one with no predicate, a numeric in [0, 1], an integer that
  * declares itself nonzero, a text), a text of no bound and a word of a few letters, spans of a contract, of a contract
- * that declares a fact, of an integer and of a date, vectors of two dimensions, a closed id and sets of two rosters that
- * share a member.
+ * that declares a fact, of an integer and of a date, vectors of two dimensions, a closed id of an ordered roster and one
+ * of an unordered roster of the same handles, and sets of two rosters that share a member.
  */
 const cellOver = (rate: typeof Rate) =>
 	relation(
@@ -48,6 +50,7 @@ const cellOver = (rate: typeof Rate) =>
 			vec: pg.vector(3),
 			wide: pg.vector(4),
 			tone: closedId(Tone),
+			hue: closedId(Hue),
 			tones: bits(Tone),
 			shades: bits(Shade)
 		},
@@ -96,7 +99,7 @@ export const Tuning = closed.relation(
 	]
 )
 
-export const Cells = schema("Cells", [Tone, Shade, Cell], [])
+export const Cells = schema("Cells", [Tone, Shade, Hue, Cell], [])
 
 /**
  * Cell's divisor read back through a query's heading, one column per kind of head term that delivers it: the variable
@@ -133,7 +136,7 @@ export const Heads = headsOver(Cells, Cell)
  */
 const RateAsTyped = contract("Rate", pg.numeric(7, 6))
 const CellAsTyped = cellOver(RateAsTyped)
-const CellsAsTyped = schema("Cells", [Tone, Shade, CellAsTyped], [])
+const CellsAsTyped = schema("Cells", [Tone, Shade, Hue, CellAsTyped], [])
 
 /** The population's world as the types read it (CellsAsTyped). */
 export const AsTyped = Object.freeze({

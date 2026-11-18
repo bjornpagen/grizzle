@@ -477,7 +477,7 @@ const closedReadOf = (read: LevelCase["read"], q: AuthoredExprDesc): AuthoredExp
 		: { kind: "closedRow", relation: "K2", args: [q] }
 
 /** Q, a roster; K, keyed by a Q with an integer payload w; K2, keyed by two Qs. */
-const rosterQ = closed("Q", ["x", "y"])
+const rosterQ = closed.ordered("Q", ["x", "y"])
 
 const closedK = closedRelation(
 	"K",

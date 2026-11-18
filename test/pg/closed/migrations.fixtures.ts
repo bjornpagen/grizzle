@@ -316,8 +316,8 @@ export interface Built {
  * `writer` writing Held and Sets whole, `reader` reading them, both of the one login `desk`.
  */
 export const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
-	const Tier = closed(m.tier.closed, declaration)
-	const Node = closed("Node", nodeHandles)
+	const Tier = closed.ordered(m.tier.closed, declaration)
+	const Node = closed.ordered("Node", nodeHandles)
 	const Allowed = closed.relation(
 		"Allowed",
 		{ node: closedId(Node) },

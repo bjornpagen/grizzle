@@ -69,6 +69,7 @@ export type Feature =
 	| "an attachment"
 	| "a change"
 	| "a roster with a hole"
+	| "an unordered roster served"
 	| "a dropped member that does not read back"
 	| "a file a host reads that loads"
 	| "a stale program named"
@@ -406,6 +407,10 @@ export const loginTrip = (
 			)
 		) {
 			note("a roster with a hole")
+		}
+		const text = servedText(file)
+		if (text.ok && Str.includes("~unorderedroster:")(text.value)) {
+			note("an unordered roster served")
 		}
 		const reached = yield* readsBackWhole(dir, file, pick, printed)
 		note("a file without its table refused")

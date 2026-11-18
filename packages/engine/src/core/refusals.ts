@@ -11,6 +11,7 @@ export const refusals = [
 	"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes",
 	"a bind map names only the imported query's parameters",
 	"a body's group does not match the header key",
+	"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles",
 	"a closed relation's field is a closed id, or a value of a type that is no serial, span, set, vector or bytes",
 	"a concat fold names its (before, after) pair after its value: its law reads each member's running value",
 	"a contract is a value domain; a serial is a generation declaration, so use its value type",

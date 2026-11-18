@@ -30,6 +30,7 @@ import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareQuotedTuples } from "#compiler/core/text.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
+import type { RosterHandles, RosterOrder } from "#compiler/ir/scalar.ts"
 
 /** One code of a roster: the live handle it names, or the hole a removed handle left, which no handle takes again. */
 export type CodeSlot =
@@ -57,19 +58,21 @@ interface Claim {
 
 /**
  * A roster's codes after a declaration, from its previous codes, the renames declared for it (old handle to new) and
- * its handles in declared order.
+ * its order and handles in that order (ir/scalar.ts RosterHandles).
  *
- * Each declared handle stands for a previous handle: the one a rename names it from, or else itself unless a rename
- * moves it away. It keeps that handle's live code, so a code never changes meaning; a handle with none takes the next
- * code past every code minted before. Every code no declared handle keeps is a hole, and a hole stays one.
+ * Its codes are history: each declared handle stands for a previous handle, the one a rename names it from, or else
+ * itself unless a rename moves it away. It keeps that handle's live code, so a code never changes meaning; a handle
+ * with none takes the next code past every code minted before, in the order the handles are given. Every code no
+ * declared handle keeps is a hole, and a hole stays one.
  *
- * A roster's comparison order is its codes' order, so a handle declared after another must hold a later code: new
- * handles append. A declaration that puts two handles out of their codes' order is refused with the first such pair.
+ * An ordered roster's comparison order is its codes' order, so a handle declared after another must hold a later code:
+ * new handles append, and a declaration that puts two handles out of their codes' order is refused with the first such
+ * pair (firstInversion). An unordered roster has no order, so any order of its handles holds its codes.
  */
 export const rosterCodes = (
 	previous: RosterCodes,
 	renames: ReadonlyMap<string, string>,
-	handles: NonEmptyReadonlyArray<string>
+	roster: RosterHandles
 ): Result.Result<RosterCodes, Reordered> => {
 	const liveCode = new Map<string, number>()
 	for (const [code, slot] of previous.entries()) {
@@ -87,7 +90,7 @@ export const rosterCodes = (
 	}
 	const claims: Array<Claim> = []
 	let minted = previous.length
-	for (const handle of handles) {
+	for (const handle of roster.handles) {
 		const kept = keptCode(handle)
 		if (kept === undefined) {
 			claims.push({ handle, code: minted })
@@ -96,12 +99,9 @@ export const rosterCodes = (
 			claims.push({ handle, code: kept })
 		}
 	}
-	let before: Claim | undefined
-	for (const claim of claims) {
-		if (before !== undefined && claim.code < before.code) {
-			return Result.err({ earlier: before.handle, later: claim.handle })
-		}
-		before = claim
+	const reordered = reorderOf[roster.order](claims)
+	if (reordered !== undefined) {
+		return Result.err(reordered)
 	}
 	const handleAt = new Map(claims.map((claim) => [claim.code, claim.handle]))
 	return Result.ok(
@@ -110,6 +110,29 @@ export const rosterCodes = (
 			return handle === undefined ? { kind: "hole" } : { kind: "live", handle }
 		})
 	)
+}
+
+/** The first two declared handles out of their codes' order, `earlier` declared first and `later` the lower code. */
+const firstInversion = (claims: ReadonlyArray<Claim>): Reordered | undefined => {
+	let before: Claim | undefined
+	for (const claim of claims) {
+		if (before !== undefined && claim.code < before.code) {
+			return { earlier: before.handle, later: claim.handle }
+		}
+		before = claim
+	}
+	return undefined
+}
+
+/**
+ * The reorder a declaration of each order is refused for: an ordered roster's first inversion, and none of an unordered
+ * roster's, whose codes follow no order.
+ */
+const reorderOf: {
+	readonly [O in RosterOrder]: (claims: ReadonlyArray<Claim>) => Reordered | undefined
+} = {
+	ordered: firstInversion,
+	unordered: () => undefined
 }
 
 /** One owner's run of a fin coordinate: the code of its first slot, and how many slots it holds. */

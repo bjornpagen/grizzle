@@ -46,7 +46,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
  * source insertions at two relation sizes ten times apart. Key-locality is a scaling class: the checks' index scans per
  * inserted row are the same at both sizes, and neither size scans Shift or Timesheet sequentially.
  */
-const ShiftStatus = closed("ShiftStatus", ["draft", "approved"])
+const ShiftStatus = closed.ordered("ShiftStatus", ["draft", "approved"])
 const Timesheet = relation("Timesheet", { employee: pg.integer, week: pg.integer }, [
 	"employee",
 	"week"

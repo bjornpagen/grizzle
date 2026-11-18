@@ -123,7 +123,7 @@ const dateSpans: Gen<unknown> = (source) => {
 const handles = ["Manual", "Automatic", "Ünïcode"] as const
 
 /** The roster a closed id and a set are over: Kind, of the three handles. */
-const kind = Roster.of(succeeded(parseDeclaredName("Kind")), handles)
+const kind = Roster.of(succeeded(parseDeclaredName("Kind")), "ordered", handles)
 
 /** The largest finite float32. */
 const floatMax = Math.fround(3.4028234663852886e38)

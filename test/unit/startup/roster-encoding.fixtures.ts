@@ -75,7 +75,7 @@ const handleAt = (i: number): string => `h${Str.padStart(4, "0")(String(i))}`
 /** The characters of the canonical text of every guard of T's guarded keys, the roster Kind of `size` handles. */
 export const encodedAt = (guard: Guard, size: number): number => {
 	const handles = nonEmptyList(upTo(size, handleAt), "the roster's handles")
-	const Kind = closed("Kind", handles)
+	const Kind = closed.ordered("Kind", handles)
 	const Weight = closed.relation(
 		"Weight",
 		{ kind: closedId(Kind), weight: pg.integer },

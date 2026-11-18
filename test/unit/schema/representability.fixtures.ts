@@ -773,7 +773,7 @@ const datumsEnd = (datums: ReadonlyArray<Datum>): Laid => {
 export const btreeTupleBytes = (datums: ReadonlyArray<Datum>): number =>
 	maxalign(datumsEnd(datums).end)
 
-export const Kind = closed("Kind", ["A", "B"], [])
+export const Kind = closed("Kind", ["A", "B"], "ordered", [])
 
 /** The descriptor of a fixed-width key field's type. */
 const fixedDescriptor = (type: FixedType): FieldBase => {

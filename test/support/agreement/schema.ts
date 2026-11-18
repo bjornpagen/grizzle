@@ -49,8 +49,8 @@ import { str } from "#compiler/public/text.ts"
  * Item keyed by its id, and OwnerCounts, the count of each owner's items, keyed by the owner. A query over Rollup reads
  * them and Agree's relations alike; a Db over a role of Agree reads no query over Rollup.
  */
-export const Tone = closed("Tone", ["low", "mid", "high"])
-export const Shade = closed("Shade", ["low", "dark"])
+export const Tone = closed.ordered("Tone", ["low", "mid", "high"])
+export const Shade = closed.ordered("Shade", ["low", "dark"])
 export const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n), { proves: ["nonnegative"] })
 
 export const Item = relation(
@@ -180,8 +180,8 @@ export const Apart = schema("Apart", [Tone, Shade, Cell], [])
  * of which proves the one child; keys a child may be bound by, at most one child per parent; and the alternatives law
  * over Task by its kind, whose arms are AutomaticTask and ManualTask.
  */
-const Kind = closed("Kind", ["Automatic", "Manual"])
-const Plan = closed("Plan", ["Free", "Pro"])
+const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
+const Plan = closed.ordered("Plan", ["Free", "Pro"])
 const PlanBudget = closed.relation(
 	"PlanBudget",
 	{ plan: closedId(Plan), budget: Cents },

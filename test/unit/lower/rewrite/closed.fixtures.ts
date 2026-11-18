@@ -22,10 +22,10 @@ const PAYLOAD_READS = ["unread", "item", "literal"] as const
 type PayloadRead = (typeof PAYLOAD_READS)[number]
 
 /** The roster Kind: three handles, the codes of Grid's first key field and its payload. */
-const Kind = closed("Kind", ["Open", "Done", "Held"])
+const Kind = closed.ordered("Kind", ["Open", "Done", "Held"])
 
 /** The roster Tier: two handles, the codes of Grid's second key field. */
-const Tier = closed("Tier", ["Low", "High"])
+const Tier = closed.ordered("Tier", ["Low", "High"])
 
 /** A sparse relation keyed by (k0, k1), with a payload of Kind's closed id: 2 of its 6 key points. */
 const Grid = closed.relation(

@@ -62,7 +62,8 @@ const removedHandlesHeld = (reality: HostState, to: BaseSpec): boolean =>
  * The first roster `to` declares out of its codes' order against `from` (D1): a handle `from` holds live keeps its
  * code, which orders it as `from` does, and every other one takes a code past every one minted, in declared order, so
  * a declaration that puts a kept handle after a new one, or two kept handles out of `from`'s order, is refused before
- * anything is drafted ("append new handles; a roster's order is its codes' order").
+ * anything is drafted ("append new handles, since an ordered roster's order is its codes' order"). Every roster the
+ * worlds model declares is closed.ordered.
  */
 export const reorderedRoster = (from: BaseSpec, to: BaseSpec): string | undefined =>
 	Option.getOrUndefined(

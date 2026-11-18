@@ -531,7 +531,7 @@ export const closedIdNamesTheRosterKeepsTheClosedRelationAndKeepsDeclaredHandleO
 					c.note(other === name ? "one name twice" : "two names")
 					const [first, ...rest] = handles
 					const listed: Arr.NonEmptyReadonlyArray<string> = [defined(first, "a handle"), ...rest]
-					const roster = closed(name, listed)
+					const roster = closed.ordered(name, listed)
 					const field = admittedClosedId(roster)
 					assert.equal(field.roster, roster)
 					assert.equal(field.sql, carrierSql.code)
@@ -539,11 +539,17 @@ export const closedIdNamesTheRosterKeepsTheClosedRelationAndKeepsDeclaredHandleO
 						descOf(field),
 						succeeded(describeField(admittedClosedId(roster), SourceLoc("again", []))).desc
 					)
-					assert.deepEqual(rosterOf(scalarOf(field)), Roster.of(parsedName(name), listed))
+					assert.deepEqual(
+						rosterOf(scalarOf(field)),
+						Roster.of(parsedName(name), "ordered", listed)
+					)
 					assert.equal(identityOf(admittedClosedId(roster)), identityOf(field))
 					if (other !== name) {
 						assert.equal(
-							sameScalarType(scalarOf(admittedClosedId(closed(other, listed))), scalarOf(field)),
+							sameScalarType(
+								scalarOf(admittedClosedId(closed.ordered(other, listed))),
+								scalarOf(field)
+							),
 							false
 						)
 					}
@@ -588,7 +594,7 @@ export const closedIdRefusesAnythingThatIsNotAClosedRelation = property.explore(
 			assert.equal(field.roster, forged.value)
 			assert.deepEqual(
 				rosterOf(scalarOf(field)),
-				Roster.of(parsedName(forged.value.name), forged.value.handles)
+				Roster.of(parsedName(forged.value.name), forged.value.order, forged.value.handles)
 			)
 		}),
 	oracle: {
@@ -603,6 +609,12 @@ export const closedIdRefusesAnythingThatIsNotAClosedRelation = property.explore(
 			original: "\t\tif (utf8Length(h) > handleMaxBytes) {",
 			replacement: "\t\tif (utf8Length(h) <= handleMaxBytes) {",
 			why: "Operator mutant (comparison) at packages/engine/src/schema/relation.ts:623 in handleList: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		},
+		{
+			file: "packages/engine/src/scalar/closed-id.ts",
+			original: "\tconst stated = rosterOrders.find((o) => o === order)\n",
+			replacement: '\tconst stated = rosterOrders.find((o) => o === order) ?? "ordered"\n',
+			why: "closedId reads a look-alike of no roster order as an ordered roster's; the forgery of no roster order is admitted."
 		}
 	]
 })

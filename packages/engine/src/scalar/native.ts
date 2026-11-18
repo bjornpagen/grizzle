@@ -112,6 +112,19 @@ export const nativeCapabilities = {
 } as const satisfies { readonly [C in Carrier]: ReadonlyArray<Capability> }
 
 /**
+ * The capabilities of a closed id of an unordered roster (ir/scalar.ts RosterOrder): a closed id's but ordering and
+ * minMax, since its codes are history and no handle comes before another. Its code still compares equal, hashes,
+ * indexes and joins as a smallint's.
+ */
+export const unorderedCodeCapabilities = [
+	"equality",
+	"expressionIndex",
+	"gist",
+	"hashing",
+	"storage"
+] as const satisfies ReadonlyArray<Capability>
+
+/**
  * The plain carriers an operation result can have without further metadata. numeric is none: a computed numeric
  * carries its bound (numericValue).
  */

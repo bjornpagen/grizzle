@@ -177,7 +177,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 						const changed = form === "changed"
 						const roster =
 							changed && s.change === "roster order"
-								? closed("Kind", ["Manual", "Automatic"], [])
+								? closed("Kind", ["Manual", "Automatic"], "ordered", [])
 								: Kind
 						const declared = relations(roster, rewrite, changed && s.change === "closed row")
 						const record = Record.fromEntries(
@@ -366,7 +366,7 @@ export const closedRelationsChecksEveryHandleWrittenAgainstAClosedIdFieldAtAnyCo
 						}
 						const grade = wrapped(s.depth)
 						/** Graded relates each Level to a grade, a closed relation keyed by the roster Level. */
-						const Level = closed("Level", ["Low", "High"], [])
+						const Level = closed("Level", ["Low", "High"], "ordered", [])
 						const gradedFields = { id: rawClosedId(Level), grade }
 						const Graded = closedRelation(
 							"Graded",
@@ -513,7 +513,7 @@ export const closedRelationsRefusesAHandleLongerThanANames63BytesTheMostARosters
 							c.note("at 64 bytes")
 						}
 						if (!s.decoded) {
-							const build = () => closed("Long", [handle], [])
+							const build = () => closed("Long", [handle], "ordered", [])
 							if (within) {
 								succeeded(ownValue(schema("W", [build()], [], [])))
 							} else {

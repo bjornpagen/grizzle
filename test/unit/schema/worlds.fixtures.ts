@@ -42,7 +42,7 @@ import {
 } from "#test/unit/schema/field-sketch.ts"
 import { rawClosedId, regex } from "#test/unit/schema/support.ts"
 
-const Kind = closed("Kind", ["Draft", "Live"])
+const Kind = closed.ordered("Kind", ["Draft", "Live"])
 
 const Author = regex("^user_[a-z]{1,8}$", "u")
 

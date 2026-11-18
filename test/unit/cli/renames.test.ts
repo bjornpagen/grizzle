@@ -264,7 +264,7 @@ export const theRenameDeclarationReaderResolvesAHandleRenamesRosterToTheSchemasA
 				const schema = Arr.map(r.rosters, (name) => parsedName(name))
 				const resolved = rosterRenames(
 					declared,
-					Arr.map(schema, (closed) => Roster.of(closed, ["n0"]))
+					Arr.map(schema, (closed) => Roster.of(closed, "ordered", ["n0"]))
 				)
 				const expected = new Map<DeclaredName, Map<string, string>>()
 				for (const [at, to] of r.renames.entries()) {

@@ -38,7 +38,8 @@ const typeOver = (state: RosterState, desc: FieldDesc): ScalarType =>
 			desc,
 			{
 				kind: "builder",
-				roster: (name) => (name === state.closed ? Roster.of(name, liveOf(state)) : undefined)
+				roster: (name) =>
+					name === state.closed ? Roster.of(name, "ordered", liveOf(state)) : undefined
 			},
 			SourceLoc("a closed literal's field", [])
 		)

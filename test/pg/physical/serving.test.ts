@@ -451,7 +451,7 @@ const requestSchema = (shades: number): SchemaDesc => ({
 	...Indexed,
 	relations: [
 		...Indexed.relations,
-		closed("Shade", shadesOf(shades)),
+		closed.ordered("Shade", shadesOf(shades)),
 		relation(
 			"Rota",
 			{ shade: f.closedId("Shade"), worker: f.uuid, during: f.span(f.integer, undefined) },

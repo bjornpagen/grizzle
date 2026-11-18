@@ -1,10 +1,10 @@
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { childLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type AdmittedClosedRelation,
+	declaredRoster,
 	decodeUnadmittedSchema,
 	type RelationDesc,
 	recordAdmitted,
@@ -12,22 +12,28 @@ import {
 	schemaLevelDesc,
 	type UnadmittedSchemaDesc
 } from "#compiler/ir/desc.ts"
-import { baseOf, Roster, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	Roster,
+	type RosterHandles,
+	type ScalarType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 
 type ClosedRelationOf = Extract<RelationDesc, { readonly kind: "closedRelation" }>
 
-/** Every roster of every level of a schema, by name, its handles: the lowest level's declaration of a name. */
-const rostersOf = (
-	desc: UnadmittedSchemaDesc
-): ReadonlyMap<string, NonEmptyReadonlyArray<string>> => {
-	const below = new Map<string, NonEmptyReadonlyArray<string>>(
+/**
+ * Every roster of every level of a schema, by name, its order and handles: the lowest level's declaration of a name.
+ */
+const rostersOf = (desc: UnadmittedSchemaDesc): ReadonlyMap<string, RosterHandles> => {
+	const below = new Map<string, RosterHandles>(
 		desc.extends === undefined ? [] : rostersOf(desc.extends)
 	)
 	for (const r of desc.relations) {
 		if (r.kind === "closed" && !below.has(r.name)) {
-			below.set(r.name, r.handles)
+			below.set(r.name, declaredRoster(r))
 		}
 	}
 	return below
@@ -114,8 +120,8 @@ export const admitSchemaDesc = (value: unknown): Result.Result<SchemaDesc, Compi
 		const env: ScalarEnv = {
 			kind: "builder",
 			roster: (name) => {
-				const handles = rosters.get(name)
-				return handles === undefined ? undefined : Roster.of(name, handles)
+				const roster = rosters.get(name)
+				return roster === undefined ? undefined : Roster.of(name, roster.order, roster.handles)
 			}
 		}
 		return catchRefusal(() => admittedLevels(unadmitted, env))

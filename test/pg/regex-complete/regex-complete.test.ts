@@ -122,7 +122,7 @@ const Prose = str.regex("^.*$", "su")
 const limit = 5
 const Note = contract("Note", Prose, (x) => Compute.charLength(x).le(limit))
 
-const Tier = closed("Tier", ["Free", "Pro"])
+const Tier = closed.ordered("Tier", ["Free", "Pro"])
 const TierLabel = closed.relation(
 	"TierLabel",
 	{ tier: closedId(Tier), label: Slug },

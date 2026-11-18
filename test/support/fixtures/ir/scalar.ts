@@ -10,6 +10,7 @@ import {
 	type DeclaredType,
 	numericBoundOf,
 	Roster,
+	type RosterOrder,
 	type ScalarType,
 	sameScalarType
 } from "#compiler/ir/scalar.ts"
@@ -47,12 +48,36 @@ export const scalarOf = (
 		kind: "builder",
 		roster: (closed) => {
 			const handles = rosters[closed]
-			return handles === undefined ? undefined : Roster.of(closed, handles)
+			return handles === undefined ? undefined : Roster.of(closed, "ordered", handles)
 		}
 	}
 	const t = scalarTypeOf(desc, env, SourceLoc("a test fixture's scalar type", []))
 	if (!t.ok) {
 		throw new Error(`the registry refuses a test fixture's type: ${t.error.message}`)
+	}
+	return t.value
+}
+
+/**
+ * A closed id of the roster `closed` of `order` over `handles`, as the registry types one: an unordered roster's has no
+ * ordering and no minMax capability.
+ */
+export const closedIdTypeOf = (
+	closed: string,
+	order: RosterOrder,
+	handles: NonEmptyReadonlyArray<string>
+): DeclaredType => {
+	const env: ScalarEnv = {
+		kind: "builder",
+		roster: (name) => (name === closed ? Roster.of(name, order, handles) : undefined)
+	}
+	const t = scalarTypeOf(
+		{ kind: "closedId", roster: closed },
+		env,
+		SourceLoc("a test fixture's closed id", [])
+	)
+	if (!t.ok) {
+		throw new Error(`the registry refuses a test fixture's closed id: ${t.error.message}`)
 	}
 	return t.value
 }

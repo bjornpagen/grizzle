@@ -47,7 +47,7 @@ export const strictlyInside = query(Schedule).rule((r) => {
 const Instant = contract("Instant", pg.bigint)
 const ChicagoDay = contract("ChicagoDay", pg.bigint)
 const ChicagoWeek = contract("ChicagoWeek", pg.bigint)
-const Weekday = closed("Weekday", ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+const Weekday = closed.ordered("Weekday", ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
 export const ChicagoCalendar = relation(
 	"ChicagoCalendar",
 	{ day: ChicagoDay, span: span(Instant), week: ChicagoWeek, weekday: closedId(Weekday) },

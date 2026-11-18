@@ -9,7 +9,13 @@ export { query, v } from "#compiler/public/query.ts"
 export type { HeadOf, ParamsOf, ParamType, Rule } from "#compiler/public/query.ts"
 export { relation, schema } from "#compiler/public/schema.ts"
 export { lexicalForm, str } from "#compiler/public/text.ts"
-export type { DomainOf, Rostered, SqlOfTerm, TypeOfTerm } from "#compiler/types/core/phantom.ts"
+export type {
+	DomainOf,
+	Rostered,
+	SqlOfTerm,
+	TypeOfTerm,
+	Unordered
+} from "#compiler/types/core/phantom.ts"
 export type { Infer } from "#compiler/types/fields/field.ts"
 export type { Aggregate } from "#compiler/types/query/terms.ts"
-export { Cell, Cells, Heads, Tone, Tuning } from "#test/support/agreement/compute-schema.ts"
+export { Cell, Cells, Heads, Hue, Tone, Tuning } from "#test/support/agreement/compute-schema.ts"

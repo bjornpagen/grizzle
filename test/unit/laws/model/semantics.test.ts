@@ -55,7 +55,7 @@ export const aSchemaThatStatesNoLawCompilesRostersAndClosedRelationsOnlyToTheEmp
 							Arr.flatMap(rosters, (r, i) => {
 								const handles = ["Low", "Mid", "High"].slice(0, r.handles)
 								const name = defined(["Tier", "Rate", "Plan"][i], "a roster's name")
-								const roster = closed(name, handles)
+								const roster = closed.ordered(name, handles)
 								const payload = r.payload
 								return payload.kind === "none"
 									? [roster]

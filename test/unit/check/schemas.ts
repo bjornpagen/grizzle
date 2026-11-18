@@ -22,7 +22,7 @@ export const Qty = f.contract("Qty", f.integer, ge(value, literal(0)))
 export const Lab: SchemaDesc = {
 	name: "Lab",
 	relations: [
-		closed("Color", ["red", "green", "blue"]),
+		closed.ordered("Color", ["red", "green", "blue"]),
 		closedRelation(
 			"ColorRank",
 			{ color: f.closedId("Color"), rank: f.integer },

@@ -239,10 +239,10 @@ export const seedPushdowns = (rules: ReadonlyArray<CertificateRule>): number =>
  * A graph between closed ids: Kind's handles linked by Link, the zones each kind is allowed in, and two weights per
  * kind, so a predicate on a kind reads a closed relation's field, a key's completions or a key's presence.
  */
-const Kind = closed("Kind", ["a", "b", "c"])
+const Kind = closed.ordered("Kind", ["a", "b", "c"])
 
 /** The zones a kind may be allowed in. */
-const Zone = closed("Zone", ["north", "south"])
+const Zone = closed.ordered("Zone", ["north", "south"])
 
 /** The zones each kind is allowed in. */
 const Allowed = closed.relation(

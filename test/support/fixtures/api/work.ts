@@ -18,7 +18,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { Cents } from "#test/support/fixtures/api/contracts.ts"
 
-export const Kind = closed("Kind", ["Automatic", "Manual"])
+export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Account = relation("Account", { id: uuid, name: str.regex("^.{1,200}$", "su") }, [
 	"id"
 ])
@@ -313,7 +313,7 @@ export const switchToManualInsertMember = query(Work).rule((r) =>
 )
 
 /** The Plans schema: a roster of tiers, each tier's budget a closed relation over it. */
-const Tier = closed("Tier", ["Free", "Pro"])
+const Tier = closed.ordered("Tier", ["Free", "Pro"])
 const TierBudget = closed.relation(
 	"TierBudget",
 	{ tier: closedId(Tier), budget: Cents },

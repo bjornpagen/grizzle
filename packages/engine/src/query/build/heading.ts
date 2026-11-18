@@ -1,8 +1,13 @@
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { FieldDesc, RelationDesc, SchemaDesc, SchemaRelationDesc } from "#compiler/ir/desc.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
+import {
+	declaredRoster,
+	type FieldDesc,
+	type RelationDesc,
+	type SchemaDesc,
+	type SchemaRelationDesc
+} from "#compiler/ir/desc.ts"
+import { Roster, type RosterHandles } from "#compiler/ir/scalar.ts"
 import type { SchemaInfo } from "#compiler/query/build/scope.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
 import { commonType, compatible } from "#compiler/scalar/compute/types.ts"
@@ -89,11 +94,11 @@ export const unionHeading = (arms: ReadonlyArray<Heading>): Heading => {
  * Description still resolves its handles.
  */
 export const schemaInfo = (over: Level): SchemaInfo => {
-	const rosters = new Map<string, NonEmptyReadonlyArray<string>>()
+	const rosters = new Map<string, RosterHandles>()
 	const declared = (relations: Iterable<RelationDesc | SchemaRelationDesc>): void => {
 		for (const r of relations) {
 			if (r.kind === "closed" && !rosters.has(r.name)) {
-				rosters.set(r.name, r.handles)
+				rosters.set(r.name, declaredRoster(r))
 			}
 		}
 	}
@@ -113,8 +118,8 @@ export const schemaInfo = (over: Level): SchemaInfo => {
 		env: Object.freeze({
 			kind: "builder",
 			roster: (name: DeclaredName) => {
-				const handles = rosters.get(name)
-				return handles === undefined ? undefined : Roster.of(name, handles)
+				const roster = rosters.get(name)
+				return roster === undefined ? undefined : Roster.of(name, roster.order, roster.handles)
 			}
 		})
 	})

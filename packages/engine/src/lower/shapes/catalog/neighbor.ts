@@ -51,6 +51,7 @@ import {
 	runningFrame,
 	windowChain
 } from "#compiler/lower/shapes/catalog/ordinal.ts"
+import { breaksTies } from "#compiler/scalar/registry.ts"
 
 /** What a column of the child's heading carries. */
 type ChildColumn =
@@ -784,7 +785,7 @@ const carriedParents = (
 
 /**
  * The parent rows of R42's carrying pass, numbered: `row_number()` over the parent's rows in the order of one of their
- * keys, every column of which is ordered. The order is total, so every evaluation of the numbering gives each parent
+ * keys, every column of which has a total order (scalar/registry.ts breaksTies). The order is total, so every evaluation of the numbering gives each parent
  * row the same position, whether the node is shared or read twice; the position is a key of the numbered rows.
  */
 const numberedParents = (
@@ -793,15 +794,14 @@ const numberedParents = (
 ): { readonly rows: Cell; readonly position: string; readonly nodes: ReadonlyArray<Cell> } => {
 	const source = parentRows.current
 	const ordered = required(
-		cx
-			.keysOf(parentRows)
-			.find(
-				(k) =>
-					k.length > 0 &&
-					k.every(
-						(c) => source.heading.find((h) => h.name === c)?.type.caps.includes("ordering") === true
-					)
-			),
+		cx.keysOf(parentRows).find(
+			(k) =>
+				k.length > 0 &&
+				k.every((c) => {
+					const column = source.heading.find((h) => h.name === c)
+					return column !== undefined && breaksTies(column.type)
+				})
+		),
 		"parent rows with a key of ordered columns"
 	)
 	const numbered = windowChain(

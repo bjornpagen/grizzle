@@ -28,7 +28,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const NodeKind = closed("NodeKind", ["document", "element"])
+const NodeKind = closed.ordered("NodeKind", ["document", "element"])
 const Node = relation(
 	"Node",
 	{ id: pg.int4, kind: closedId(NodeKind), document: pg.int4, depth: natural },

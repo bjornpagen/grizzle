@@ -41,7 +41,7 @@ const shapes: Readonly<
 	tuple: { min: 0n, max: 2n, floor: 0n }
 }
 
-const Kind = closed("Kind", kinds)
+const Kind = closed.ordered("Kind", kinds)
 const Shape = closed.relation(
 	"Shape",
 	{ kind: closedId(Kind), min: pg.bigint, max: pg.bigint, floor: pg.bigint },

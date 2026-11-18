@@ -277,13 +277,13 @@ export const aRostersCodesLeaveAHoleForEachRemovedHandleNeverReusedUnderEveryHol
 	})
 
 /**
- * A roster's codes keep each handle's code through renames, append new handles past every code minted, and refuse a
- * reorder.
+ * A roster's codes keep each handle's code through renames, append new handles past every code minted, and refuse an
+ * ordered roster's reorder; an unordered roster's declaration holds its codes in any order.
  *
  * Budget: 400 runs and 300 steered cases, what its suite stated before it became a property
  * (test/unit/ir/cells.test.ts:1111 at 8cad5bce, its runs and its coverage's cases).
  */
-export const aRostersCodesKeepEachHandlesCodeThroughRenamesAppendNewHandlesPastEveryCodeMintedAndRefuseAReorder =
+export const aRostersCodesKeepEachHandlesCodeThroughRenamesAppendNewHandlesPastEveryCodeMintedAndRefuseAnOrderedRostersReorder =
 	property.explore(history, {
 		needs: {},
 		budget: { runs: 400, steered: 300 },
@@ -293,12 +293,14 @@ export const aRostersCodesKeepEachHandlesCodeThroughRenamesAppendNewHandlesPastE
 			"a growth",
 			"a name used again",
 			"a name renamed away and declared again",
-			"a reorder"
+			"a reorder",
+			"an unordered roster declared out of its codes' order",
+			"an unordered roster growing past a reorder"
 		] satisfies ReadonlyArray<Reached<Declaration>>,
 		check: (_, c: Case<Declaration>) => (value) => histories(value, c),
 		oracle: {
 			kind: "specification",
-			name: "the intent a roster's declaration history was drawn with: renames keep codes, new handles are minted past every code"
+			name: "the intent a roster's declaration history was drawn with: renames keep codes, new handles are minted past every code, and only an ordered roster's order is its codes'"
 		},
 		kept: [],
 		kills: [
@@ -307,6 +309,12 @@ export const aRostersCodesKeepEachHandlesCodeThroughRenamesAppendNewHandlesPastE
 				original: "\t\tif (before !== undefined && claim.code < before.code) {",
 				replacement: "\t\tif (before !== undefined && claim.code < before.code - 1) {",
 				why: "rosterCodes admits two kept neighbours swapped; the roster codes' property fails to see the reorder refused."
+			},
+			{
+				file: "packages/engine/src/ir/cells.ts",
+				original: "\tunordered: () => undefined",
+				replacement: "\tunordered: firstInversion",
+				why: "rosterCodes refuses an unordered roster declared out of its codes' order, as it refuses an ordered one's; the roster codes' property fails where an unordered roster's declaration reorders its handles."
 			}
 		]
 	})

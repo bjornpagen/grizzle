@@ -5,7 +5,8 @@
  * its code across every migration, a removed handle leaves a hole no handle takes again, and a new handle takes the
  * next code. So no schema alone determines them. They are installation data, drafted from the previous installation's
  * codes, recorded with it, and given to every compilation of the schema's artifacts, while a closed id's type holds
- * only its roster's live handles in code order and stays the same type in a fresh installation and a migrated one.
+ * only its roster's live handles in its order (ir/scalar.ts Roster) and stays the same type in a fresh installation and
+ * a migrated one.
  */
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { bitInputText, hexText, setBit, wholeDigitBits, zeroDigits } from "#compiler/core/hex.ts"
@@ -111,8 +112,8 @@ export const keptRosters = (book: Codebook): ReadonlyArray<PreviousRoster> =>
 /**
  * The codebook for `rosters` drafted from `previous`: each roster's codes by rosterCodes, from the codes of the one
  * previous roster that continues as it and the renames declared for it alone; a roster no previous roster continues as
- * is new to the installation and numbers its handles from 0; a previous roster that ends leaves with its codes. The
- * first roster declared out of its codes' order is refused.
+ * is new to the installation and numbers its handles from 0, in its order; a previous roster that ends leaves with its
+ * codes. The first ordered roster declared out of its codes' order is refused; an unordered roster never is.
  */
 export const draftCodebook = (
 	previous: ReadonlyArray<PreviousRoster>,
@@ -127,7 +128,7 @@ export const draftCodebook = (
 	const drafted = new Map<DeclaredName, RosterCodec>()
 	for (const roster of rosters) {
 		const before = continued.get(roster.closed) ?? []
-		const codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster.handles)
+		const codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster)
 		if (!codes.ok) {
 			return Result.err({ roster: roster.closed, ...codes.error })
 		}
@@ -137,8 +138,8 @@ export const draftCodebook = (
 }
 
 /**
- * A fresh installation's codebook: drafted from no codes, so each handle's code is its position. A draft from no codes
- * mints each handle's code in declared order, so it never refuses.
+ * A fresh installation's codebook: drafted from no codes, so each handle's code is its position in its roster's order
+ * (ir/scalar.ts Roster). A draft from no codes mints each handle's code in that order, so it never refuses.
  */
 export const firstCodebook = (rosters: ReadonlyArray<Roster>): Codebook => {
 	const drafted = draftCodebook(noPreviousRosters, noRenames, rosters)
@@ -149,14 +150,22 @@ export const firstCodebook = (rosters: ReadonlyArray<Roster>): Codebook => {
 }
 
 /**
- * The refusal of a declaration that puts a roster's handles out of their codes' order: UnsupportedOperation at the
- * roster's handle declared out of order. A stored code never changes meaning, so a roster's order, which is its
- * comparison order, is its codes' order, and a new handle goes after every handle declared before it.
+ * What a reordered roster's declaration does instead: append its new handles, since an ordered roster's order is its
+ * codes' order, or declare it closed.unordered where its order means nothing.
+ */
+const reorderFix =
+	"append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing"
+
+/**
+ * The refusal of a declaration that puts an ordered roster's handles out of their codes' order: UnsupportedOperation at
+ * the roster's handle declared out of order. A stored code never changes meaning, so an ordered roster's order, which
+ * is its comparison order, is its codes' order, and a new handle goes after every handle declared before it; a roster
+ * whose order means nothing is closed.unordered, whose handles any order declares.
  */
 export const reorderRefusal = (r: RosterReordered): CompileError =>
 	unsupported(
 		SourceLoc(`closed relation ${r.roster}`, ["handles", r.later]),
-		`append new handles; a roster's order is its codes' order: ${JSON.stringify(r.later)} holds a lower code than ${JSON.stringify(r.earlier)}, which is declared before it`
+		`${reorderFix}: ${JSON.stringify(r.later)} holds a lower code than ${JSON.stringify(r.earlier)}, which is declared before it`
 	)
 
 /**

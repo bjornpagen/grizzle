@@ -18,8 +18,9 @@ import {
 import { matching } from "@bjornpagen/testing/pattern"
 import { bigint } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
+import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { isOwnedDescriptor } from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
@@ -44,6 +45,7 @@ export type DescriptorSketch =
 	| {
 			readonly kind: "closedId"
 			readonly name: string
+			readonly order: RosterOrder
 			readonly handles: Arr.NonEmptyReadonlyArray<string>
 	  }
 	| {
@@ -83,7 +85,7 @@ export const descriptorOf = (sketch: DescriptorSketch): unknown => {
 		case "uuid":
 			return uuidDescriptor
 		case "closedId":
-			return admittedClosedId(closed(sketch.name, sketch.handles))
+			return admittedClosedId(closed[sketch.order](sketch.name, sketch.handles))
 		case "span":
 			return Option.match(sketch.width, {
 				onNone: () => spanDescriptor(descriptorOf(sketch.endpoint)),
@@ -126,7 +128,8 @@ export const spanCarrierOf = (sketch: DescriptorSketch): "range4" | "range8" | u
  * The type a sketch names, by its parts alone: two descriptors are one type exactly when their keys are equal. A
  * spelling names the SQL type PostgreSQL stores it as (which the catalog suite holds each spelling to), whatever its
  * writing; float(p) names real up to binary32's 24 bits and double precision past them; a typmod, a roster, a width and
- * a contract's name are each part of the type.
+ * a contract's name are each part of the type, a roster by its name, its order and its handles in that order, an
+ * unordered roster's a set, sorted.
  */
 export const typeKeyOf = (sketch: DescriptorSketch): string => {
 	switch (sketch.kind) {
@@ -141,7 +144,10 @@ export const typeKeyOf = (sketch: DescriptorSketch): string => {
 		case "uuid":
 			return "uuid"
 		case "closedId":
-			return `closedId ${sketch.name} [${Arr.join(sketch.handles, ",")}]`
+			return `closedId ${sketch.name} ${sketch.order} [${Arr.join(
+				sketch.order === "ordered" ? sketch.handles : Arr.sort(sketch.handles, Order.String),
+				","
+			)}]`
 		case "span":
 			return `span ${typeKeyOf(sketch.endpoint)} ${Option.match(sketch.width, {
 				onNone: () => "unbounded",
@@ -238,6 +244,7 @@ const vectorGen: Gen<DescriptorSketch> = map(
 const closedIdGen: Gen<DescriptorSketch> = (source) => ({
 	kind: "closedId",
 	name: source.draw(nameGen),
+	order: source.draw(element(rosterOrders)),
 	handles: source.draw(handlesGen)
 })
 

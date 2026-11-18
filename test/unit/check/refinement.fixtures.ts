@@ -45,7 +45,7 @@ const Brand = contract("Brand", pg.bigint)
 
 const Handle = contract("Handle", Slug, (x) => Compute.charLength(x).le(20))
 
-const Tier = closed("Tier", ["Free", "Pro"])
+const Tier = closed.ordered("Tier", ["Free", "Pro"])
 
 /** Each tier's plan: a closed relation keyed by its tier, one payload field of each refinement. */
 const TierPlan = closed.relation(
@@ -495,7 +495,7 @@ export const closedCaseGen: Gen<ClosedCase> = (source) => {
 export const closedSchema = (c: ClosedCase): SchemaDesc => ({
 	name: "Constants",
 	relations: [
-		closedDesc("Key", keyHandles),
+		closedDesc.ordered("Key", keyHandles),
 		closedRelation(
 			"Payloads",
 			Rec.fromEntries([

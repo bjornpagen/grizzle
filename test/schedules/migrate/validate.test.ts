@@ -146,7 +146,7 @@ const domains = (tightened: boolean) => {
 	)
 	const Desk = relation("Desk", { id: pg.integer, code }, ["id"])
 	const Badge = relation("Badge", { id: pg.integer, desk: pg.integer, issued: pg.boolean }, ["id"])
-	const Floor = closed("Floor", ["Ground", "Top"])
+	const Floor = closed.ordered("Floor", ["Ground", "Top"])
 	const FloorCode = closed.relation(
 		"FloorCode",
 		{ floor: closedId(Floor), code },

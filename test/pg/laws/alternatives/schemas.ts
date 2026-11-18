@@ -8,7 +8,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 
-const Stage = closed("Stage", ["draft", "approved", "paid", "voided"])
+const Stage = closed.ordered("Stage", ["draft", "approved", "paid", "voided"])
 const Run = relation(
 	"Run",
 	{ tenant: f.integer, id: f.integer, stage: f.closedId("Stage"), note: f.wildcard },

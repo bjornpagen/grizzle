@@ -91,7 +91,7 @@ export const schemaOf = (names: Names): SchemaDesc => {
 	const base = decodedSchema({
 		name: "Box",
 		relations: [
-			closed(kind, ["Low", "High"]),
+			closed.ordered(kind, ["Low", "High"]),
 			relation(
 				holder,
 				{

@@ -137,7 +137,7 @@ export const ledgerSchema: SchemaDesc = {
 			},
 			["id"]
 		),
-		closed("Kind", ["Automatic", "Manual"])
+		closed.ordered("Kind", ["Automatic", "Manual"])
 	],
 	statements: [],
 	extends: undefined

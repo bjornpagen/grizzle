@@ -7,7 +7,7 @@ import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
+import { handlesInOrder, Roster, type RosterHandles, rosterOrders } from "#compiler/ir/scalar.ts"
 import {
 	carrierSql,
 	defineField,
@@ -18,10 +18,12 @@ import {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 	typeof value === "object" && value !== null && !isList(value)
 
-/** The name and roster of a closed relation as the caller's value holds them, the roster in declared order: never empty. */
-interface ClosedRoster {
+/**
+ * The name, order and handles of a roster as the caller's value holds them, the handles in its order (ir/scalar.ts
+ * handlesInOrder): never empty.
+ */
+interface ClosedRoster extends RosterHandles {
 	readonly closed: string
-	readonly handles: NonEmptyReadonlyArray<string>
 }
 
 /** The roster the caller's value holds, read once: everything after it reads the admitted copy only. */
@@ -30,11 +32,20 @@ const readRoster = (closed: unknown): Result.Result<ClosedRoster, CompileError> 
 		return Result.err(
 			malformedDescription(
 				captureLoc("closedId", []),
-				"a closed relation, built by closed(name, handles)"
+				"a closed relation, built by closed.ordered(name, handles) or closed.unordered(name, handles)"
 			)
 		)
 	}
-	const { name, handles } = closed
+	const { name, handles, order } = closed
+	const stated = rosterOrders.find((o) => o === order)
+	if (stated === undefined) {
+		return Result.err(
+			malformedDescription(
+				captureLoc("closedId", []),
+				`a closed relation of a roster order, one of ${rosterOrders.join(", ")}`
+			)
+		)
+	}
 	if (typeof name !== "string" || name.length === 0 || !isValidText(name)) {
 		return Result.err(
 			malformedDescription(captureLoc("closedId", []), "a closed relation with a nonempty name")
@@ -76,7 +87,13 @@ const readRoster = (closed: unknown): Result.Result<ClosedRoster, CompileError> 
 		)
 	}
 	const admitted: NonEmptyReadonlyArray<string> = [first, ...rest]
-	return Result.ok(Object.freeze({ closed: name, handles: Object.freeze(admitted) }))
+	return Result.ok(
+		Object.freeze({
+			closed: name,
+			order: stated,
+			handles: Object.freeze(handlesInOrder(stated, admitted))
+		})
+	)
 }
 
 /**
@@ -117,32 +134,35 @@ export const closedIdParts = (closed: unknown): ClosedIdParts => {
 	}
 	const roster = read.value
 	return partsOf(roster, (name) =>
-		name === roster.closed ? Roster.of(name, roster.handles) : undefined
+		name === roster.closed ? Roster.of(name, roster.order, roster.handles) : undefined
 	)
 }
 
 /**
- * The parts of a closed id over a roster closed(name, handles) built: the name and handles its admission read, and the
- * roster it typed once, absent when its name is no declared name, which the registry refuses before it resolves one
- * (scalar/registry.ts rosterAt).
+ * The parts of a closed id over a roster closed.ordered(name, handles) or closed.unordered(name, handles) built: the
+ * name, order and handles its admission read, and the roster it typed once, absent when its name is no declared name,
+ * which the registry refuses before it resolves one (scalar/registry.ts rosterAt).
  */
 export const builtRosterParts = (
 	closed: string,
-	handles: NonEmptyReadonlyArray<string>,
+	roster: RosterHandles,
 	typed: Roster | undefined
 ): ClosedIdParts =>
-	partsOf({ closed, handles }, (name) => (typed?.closed === name ? typed : undefined))
+	partsOf({ closed, order: roster.order, handles: roster.handles }, (name) =>
+		typed?.closed === name ? typed : undefined
+	)
 
 /**
  * closedId(C): a reference to a closed relation's roster.
  *
- * The field's values are C's handles, stored as their codes, a smallint under the roster's domain, whose order is the
- * roster's declared order, which is comparison order and part of the type's identity. A closedId keeps its particular
- * roster identity: two rosters with equal handles are different types. The descriptor holds the closed
+ * The field's values are C's handles, stored as their codes, a smallint under the roster's domain. An ordered roster's
+ * closed id is ordered by its declared order, which is comparison order; an unordered roster's has no order, so its
+ * type lacks ordering and minMax (scalar/registry.ts closedIdCapabilities). A closedId keeps its particular roster
+ * identity: two rosters with equal handles are different types. The descriptor holds the closed
  * relation itself as `roster`, and its Description names the roster by the closed relation's name, which ownership
  * resolves.
  *
- * closedId reads only what a closed relation is: kind "closed", a nonempty name, and a nonempty
+ * closedId reads only what a closed relation is: kind "closed", a nonempty name, a roster order, and a nonempty
  * list of distinct nonempty handles, each storable text. Anything else from a JavaScript caller is
  * MalformedDescription, a value whose reading throws (a refusing proxy, a throwing getter) among them.
  *

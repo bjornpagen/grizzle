@@ -184,7 +184,7 @@ const probesOf = (name: string, states: ReadonlyArray<RosterState>): Probes => {
 	const declared: Record<string, AnyRelation | AnyClosed> = {}
 	const probes: Record<string, AnyRelation> = {}
 	for (const state of states) {
-		const roster = closed(state.closed, liveOf(state))
+		const roster = closed.ordered(state.closed, liveOf(state))
 		const probe = relation(probeOf(state), { id: pg.integer, code: closedId(roster) }, ["id"])
 		declared[state.closed] = roster
 		declared[probeOf(state)] = probe
@@ -466,7 +466,7 @@ const serverOf = (e: MigrateError) => {
 
 /** A bits relation's version: roster G of `handles`, Sets of an id and a set over G, written by `writer`. */
 const setsOf = (name: string, state: RosterState) => {
-	const roster = closed(state.closed, liveOf(state))
+	const roster = closed.ordered(state.closed, liveOf(state))
 	const Sets = relation("Sets", { id: pg.integer, members: bits(roster) }, ["id"])
 	const declared: Record<string, AnyRelation | AnyClosed> = { [state.closed]: roster, Sets }
 	const base = schema(name, Rec.values(declared), [])
@@ -718,7 +718,10 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc2", (it) => {
 						)
 						yield* applyNext(m, [next])
 						assert.deepEqual(
-							Arr.map(patterns, (s) => codecOf(next.codes, Roster.of(s.closed, liveOf(s))).names),
+							Arr.map(
+								patterns,
+								(s) => codecOf(next.codes, Roster.of(s.closed, "ordered", liveOf(s))).names
+							),
 							Arr.map(patterns, modelNames),
 							"the drafted codebook holds the model's codes"
 						)

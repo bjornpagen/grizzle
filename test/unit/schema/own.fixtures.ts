@@ -59,7 +59,7 @@ const kindHandles = ["Automatic", "Manual"] as const
  * breaks it, or one rewrite that keeps its meaning, over drawn names and shapes, and asserts the documented reason or
  * the documented invariance.
  */
-export const Kind = closed("Kind", kindHandles, [])
+export const Kind = closed("Kind", kindHandles, "ordered", [])
 
 export const Account = relation(
 	"Account",
@@ -268,7 +268,7 @@ export type FingerprintFeature =
 	| "repeated statements"
 	| "an extension"
 
-export const Level = closed("Level", [...levelHandles], [])
+export const Level = closed("Level", [...levelHandles], "ordered", [])
 
 export type Conflict =
 	| "a contract name over another base"

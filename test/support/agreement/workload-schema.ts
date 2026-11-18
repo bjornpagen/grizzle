@@ -22,7 +22,7 @@ import { str } from "#compiler/public/text.ts"
  * every ordinary relation, a reader of every relation that writes none, and a clerk holding Account alone; and every
  * kind of program over each of them: queries, ordered queries, ChangeSets and keys.
  */
-export const Kind = closed("Kind", ["Automatic", "Manual"])
+export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Account = relation("Account", { id: uuid, name: str.regex("^[a-z]{1,32}$") }, ["id"])
 export const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
 export const byName = key(on(Account, "name"))

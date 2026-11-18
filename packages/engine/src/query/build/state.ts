@@ -254,7 +254,10 @@ const relationCarriers = (value: unknown, label: string): Carriers => {
 		case "closedRelation":
 			break
 		case "closed":
-			out["id"] = Object.freeze({ column: codeColumn(named.name, named.roster), sql: "code" })
+			out["id"] = Object.freeze({
+				column: codeColumn(named.name, named.roster.handles),
+				sql: "code"
+			})
 			break
 	}
 	for (const [field, descriptor] of Object.entries(named.descriptors)) {
@@ -296,7 +299,8 @@ export const relationHeading = (value: unknown, env: ScalarEnv, label: string): 
 		const handles = named.roster
 		const rosterEnv: ScalarEnv = {
 			...env,
-			roster: (name) => (name === named.name ? Roster.of(name, handles) : env.roster(name))
+			roster: (name) =>
+				name === named.name ? Roster.of(name, handles.order, handles.handles) : env.roster(name)
 		}
 		return heading(
 			Object.entries(named.fields).map(
@@ -328,7 +332,7 @@ const derivedHeading = (
 
 /**
  * What a relation-like source is: an owned value's kind, or the kind a JavaScript caller's look-alike record states,
- * which schema/relation.ts relationDescOf re-admits through relation(...) or closed(...).
+ * which schema/relation.ts relationDescOf re-admits through relation(...), closed.ordered(...) or closed.unordered(...).
  */
 const relationKindOf = (value: Readonly<Record<string, unknown>>): OwnedKind | undefined => {
 	const owned = ownedKind(value)

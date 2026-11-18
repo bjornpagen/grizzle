@@ -100,14 +100,17 @@ const summable = (t: ScalarType): boolean => {
 
 /**
  * The carriers max admits: those with min and max and a least value, which its identity is: the integer types,
- * natural, a closed id and money.
+ * natural, money, and a closed id of an ordered roster, whose least value is its first handle; an unordered roster's
+ * closed id has no min or max (scalar/native.ts unorderedCodeCapabilities), since no handle comes before another.
  */
 const bounded = (t: ScalarType): boolean => {
-	switch (baseOf(t).carrier) {
+	const base = baseOf(t)
+	switch (base.carrier) {
+		case "code":
+			return base.caps.includes("minMax")
 		case "int2":
 		case "int4":
 		case "int8":
-		case "code":
 		case "money":
 			return true
 		case "numeric":
@@ -176,7 +179,10 @@ const zeroOf = (t: ScalarType): TypedLiteral => {
 	}
 }
 
-/** The least value of a carrier max admits: natural's 0, an integer type's minimum, a closed id's first code. */
+/**
+ * The least value of a carrier max admits: natural's 0, an integer type's minimum, an ordered roster's closed id's first
+ * handle, which holds its least code.
+ */
 const leastOf = (t: ScalarType): TypedLiteral => {
 	if (isNatural(t)) {
 		return zeroInteger

@@ -163,7 +163,7 @@ export const shop = (name: string, version: 1 | 2, programs: ShopWorkload): Shop
  * its own: a schema and its login are read from one call.
  */
 export const ledger = (name: string) => {
-	const Plan = closed("Plan", ["Card", "Invoice"])
+	const Plan = closed.ordered("Plan", ["Card", "Invoice"])
 	const Customer = relation("Customer", { id: uuid, name: customerName }, ["id"])
 	const Payment = relation(
 		"Payment",

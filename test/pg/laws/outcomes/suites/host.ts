@@ -41,7 +41,7 @@ const rates: Readonly<Record<TierHandle, number | undefined>> = {
 	gold: undefined
 }
 
-const Tier = closed("Tier", tiers)
+const Tier = closed.ordered("Tier", tiers)
 const Rate = closed.relation(
 	"Rate",
 	{ tier: closedId(Tier), rate: pg.integer },

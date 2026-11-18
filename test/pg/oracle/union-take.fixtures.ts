@@ -30,7 +30,7 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
 
-export const Kind = closed("Kind", ["Open", "Done", "Held"])
+export const Kind = closed.ordered("Kind", ["Open", "Done", "Held"])
 
 const Text = str.regex("^.{1,80}$", "su")
 

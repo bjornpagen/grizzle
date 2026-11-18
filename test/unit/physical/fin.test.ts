@@ -176,7 +176,7 @@ export const aCellReadAsAnIntegerPlansADeclaredRelationExactlyWhenTheProductOfIt
 			(_, k: Case<Declared>) =>
 			([a, b, c]) =>
 				Effect.sync(() => {
-					const Key = closed("Key", ["k"])
+					const Key = closed.ordered("Key", ["k"])
 					const A = rosterOf("A", a)
 					const B = rosterOf("B", b)
 					const C = rosterOf("C", c)

@@ -152,7 +152,7 @@ export const theOptimizedLoweringOfCheckedPublicProgramsLowersARosterMatchAnImpo
 				(_, n: Case<RosterFeature>) =>
 				({ handles, twin }) =>
 					Effect.sync(() => {
-						const Tier = closed("Tier", handles)
+						const Tier = closed.ordered("Tier", handles)
 						const Item = relation("Item", { id: uuid, tier: closedId(Tier) }, ["id"])
 						const Plant = schema("Plant", [Tier, Item], [])
 						/** The items of the tier a parameter names, by their tier. */

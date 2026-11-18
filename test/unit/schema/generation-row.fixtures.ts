@@ -22,7 +22,7 @@ import {
 } from "#compiler/schema/statements.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 
-const Flag = closed("Flag", ["a", "b"])
+const Flag = closed.ordered("Flag", ["a", "b"])
 
 type Writing = "drawn" | "accumulated" | "caller"
 

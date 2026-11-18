@@ -66,8 +66,8 @@ export const renames = property.explore(planGen, {
 		{
 			file: "packages/engine/src/ir/codes.ts",
 			original:
-				"\t\tconst codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster.handles)",
-			replacement: "\t\tconst codes = rosterCodes(before, noHandleRenames, roster.handles)",
+				"\t\tconst codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster)",
+			replacement: "\t\tconst codes = rosterCodes(before, noHandleRenames, roster)",
 			why: "The codebook draft ignores a declared handle rename, so the renamed handle takes a new code."
 		}
 	]

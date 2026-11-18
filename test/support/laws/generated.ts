@@ -118,7 +118,7 @@ const selectionOf = (s: Selection): HostSelection =>
 const longSelector = "flaggedForReviewByTheAuditTeamDuringTheQuarterlyClose"
 
 const stages = ["draft", "paid", "void"] as const
-const Stage = closed("Stage", stages)
+const Stage = closed.ordered("Stage", stages)
 
 const label = pg.integer
 const lang = str.regex("^[a-z]{2}$")

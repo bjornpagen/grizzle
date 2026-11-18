@@ -31,7 +31,7 @@ import { checking } from "#test/support/policy.ts"
  *
  * Features: each arm kind, each way a match fixes the handle, each type c takes, and each refusal.
  */
-const Kind = closed("Kind", ["A", "B"])
+const Kind = closed.ordered("Kind", ["A", "B"])
 
 const Short = str.regex("^.{0,4}$", "su")
 

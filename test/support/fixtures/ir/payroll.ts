@@ -52,14 +52,14 @@ const Memo = f.wildcard
 const dec = (exact: string): Decimal => Decimal.of(exact)
 
 /** The closed rosters. */
-const Basis = closed("Basis", ["salaried", "hourly"])
-const Stage = closed("Stage", ["draft", "approved", "paid", "voided"])
-const ShiftStatus = closed("ShiftStatus", ["pending", "approved"])
-const LeaveReason = closed("LeaveReason", ["vacation", "sick", "unpaid"])
-const Filing = closed("Filing", ["single", "joint", "head"])
-const LedgerAccount = closed("LedgerAccount", ["GrossWages", "NetPay", "Withholding"])
-const Side = closed("Side", ["debit", "credit"])
-const Levy = closed("Levy", ["SocialSecurity", "Medicare", "Futa"])
+const Basis = closed.ordered("Basis", ["salaried", "hourly"])
+const Stage = closed.ordered("Stage", ["draft", "approved", "paid", "voided"])
+const ShiftStatus = closed.ordered("ShiftStatus", ["pending", "approved"])
+const LeaveReason = closed.ordered("LeaveReason", ["vacation", "sick", "unpaid"])
+const Filing = closed.ordered("Filing", ["single", "joint", "head"])
+const LedgerAccount = closed.ordered("LedgerAccount", ["GrossWages", "NetPay", "Withholding"])
+const Side = closed.ordered("Side", ["debit", "credit"])
+const Levy = closed.ordered("Levy", ["SocialSecurity", "Medicare", "Futa"])
 
 /** Each levy's rates: a closed relation keyed by its levy. */
 const LevyRate = closedRelation(

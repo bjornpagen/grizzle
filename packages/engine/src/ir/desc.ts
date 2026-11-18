@@ -42,6 +42,8 @@ import { calendarDateShape, patternsShape, textLanguageShape } from "#compiler/i
 import {
 	type NumericBound,
 	type Patterns,
+	type RosterHandles,
+	type RosterOrder,
 	type TextLanguage,
 	languageOctets
 } from "#compiler/ir/scalar.ts"
@@ -1055,7 +1057,10 @@ export const fieldTypes = <L>(
 
 /**
  * A schema's relations. An ordinary relation stores the facts its callers write. A roster (closed) introduces its
- * handles, in declared order, which is their codes' order. A closed relation (closedRelation) relates existing values,
+ * handles: an ordered roster's in declared order, which is their codes' order and comparison order; an unordered one's,
+ * which states `order`, a set in one canonical order (ir/scalar.ts Roster), whose codes follow no order. An ordered
+ * roster states nothing beside its name and handles, whose order is its own, so its canonical form, and every
+ * fingerprint over it, is its name and handles alone. A closed relation (closedRelation) relates existing values,
  * the closed ids of its key and its payload, by rows fixed when the schema compiles: its key is required, a set lists
  * every field, and no two rows share a key. A derived relation is a named query, its rows its definition's, which
  * PostgreSQL stores as a materialized view where it is materialized.
@@ -1072,6 +1077,12 @@ export type RelationDesc<L = Located> = L &
 				readonly kind: "closed"
 				readonly name: string
 				readonly handles: NonEmptyReadonlyArray<string>
+		  }
+		| {
+				readonly kind: "closed"
+				readonly name: string
+				readonly handles: NonEmptyReadonlyArray<string>
+				readonly order: "unordered"
 		  }
 		| {
 				readonly kind: "closedRelation"
@@ -1109,6 +1120,19 @@ export type DerivedStorage = (typeof derivedStorages)[number]
 
 /** A closed relation's row: a value of each of its fields. */
 export type ClosedRow = Readonly<Record<string, LiteralDesc>>
+
+/** A roster's Description: an ordered roster's, or an unordered one's, which states its order. */
+export type RosterDesc<L = Located> = Extract<RelationDesc<L>, { readonly kind: "closed" }>
+
+/** The order a roster's Description states: an unordered roster's states it, and an ordered one's handles are its order. */
+export const rosterOrderOf = (desc: RosterDesc): RosterOrder =>
+	"order" in desc ? desc.order : "ordered"
+
+/** What a roster's Description declares beside its name: its order and its handles in that order. */
+export const declaredRoster = (desc: RosterDesc): RosterHandles => ({
+	order: rosterOrderOf(desc),
+	handles: desc.handles
+})
 
 /**
  * Whether a role holds a relation: whether PostgreSQL holds its rows, so neither a closed relation, whose rows are its

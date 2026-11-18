@@ -408,7 +408,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
  * rosters, drafted from the codes `previous` records, each under the name of the roster it continues as
  * (deploy/snapshot/build.ts rosterFates), and the declared handle renames (ir/codes.ts draftCodebook): a
  * roster's codes are its history, so a handle keeps its code, a renamed one its old one's, a removed one leaves a hole
- * and a new one takes the next, and a roster declared out of its codes' order is RosterReordered.
+ * and a new one takes the next, and an ordered roster declared out of its codes' order is RosterReordered.
  * The schema's basis is compiled once: the artifacts the workloads' access paths are planned against and the
  * installation the draft installs share one law model and one plan of the closed constants (physical/install/plan.ts
  * installBasis). Each login's ChangeSets are compiled once in the workload plan (plannedLogins), and its other programs

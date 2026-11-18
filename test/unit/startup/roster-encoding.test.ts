@@ -64,8 +64,8 @@ export const aPredicatesCanonicalEncodingHoldsTheSameCharactersWhateverTheSizeOf
 		kills: [
 			{
 				file: "packages/engine/src/ir/scalar.ts",
-				original: `\t\treturn { tag: "roster", payload: \`\${this.closed}:\${this.digest}\` }`,
-				replacement: `\t\treturn { tag: "roster", payload: \`\${this.closed}:\${this.handles.length}:\${this.digest}\` }`,
+				original: `\t\treturn { tag: rosterTags[this.order], payload: \`\${this.closed}:\${this.digest}\` }`,
+				replacement: `\t\treturn { tag: rosterTags[this.order], payload: \`\${this.closed}:\${this.handles.length}:\${this.digest}\` }`,
 				why: "A roster's canonical form carries its handle count."
 			}
 		]

@@ -207,8 +207,8 @@ const schemaOf = (s: Shape): SchemaDesc => {
 	return {
 		name: "Folds",
 		relations: [
-			closed("Flag", flagHandles),
-			closed("Kind", kindHandles),
+			closed.ordered("Flag", flagHandles),
+			closed.ordered("Kind", kindHandles),
 			relation(
 				"Owner",
 				{

@@ -25,7 +25,7 @@ const B = relation("B", { id: pg.integer, k: pg.integer, b: pg.integer }, ["id"]
 
 const T = relation("T", { a: pg.integer, b: pg.integer }, ["a", "b"])
 
-const Tier = closed("Tier", ["low", "high"])
+const Tier = closed.ordered("Tier", ["low", "high"])
 
 const TierRank = closed.relation(
 	"TierRank",

@@ -51,8 +51,8 @@ export const decimalOf = (tenths: number): Decimal => Decimal.of(tenthsText(tent
 
 /** The world's rosters and closed relations, each holding the rows the world draws: Succ a flag's flag. */
 export const closedOf = (w: World) => {
-	const Kind = closed("Kind", handlesOf(w.kinds, kindOf))
-	const Flag = closed("Flag", handlesOf(w.flags, flagOf))
+	const Kind = closed.ordered("Kind", handlesOf(w.kinds, kindOf))
+	const Flag = closed.ordered("Flag", handlesOf(w.flags, flagOf))
 	const Pick = closed.relation(
 		"Pick",
 		{

@@ -102,7 +102,7 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The roster the set monoids fold over: five handles, codes 0 to 4. */
-export const Tag = closed("Tag", ["a", "b", "c", "d", "e"])
+export const Tag = closed.ordered("Tag", ["a", "b", "c", "d", "e"])
 
 /** K, the handles at most one member may hold each of: the twos fold's check reads its plane against it. */
 const K = ["a", "b"] as const

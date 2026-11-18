@@ -78,7 +78,7 @@ import { servedGenerated } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Code = contract("Code", uuid)
-const Kind = closed("Kind", ["Practice", "Test"])
+const Kind = closed.ordered("Kind", ["Practice", "Test"])
 const Item = relation("Item", { id: Code, n: pg.integer }, ["id"])
 const Sitting = relation("Sitting", { id: uuid, item: Code, kind: closedId(Kind) }, ["id"])
 

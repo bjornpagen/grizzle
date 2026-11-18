@@ -37,6 +37,18 @@ export const readme = boxAgreement(statedRefusals, {
 				'\t\t\t\t: Refusal<"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes">',
 			replacement: "\t\t\t\t: unknown",
 			why: "A ChangeSet writes a world relation its role's write list does not name (types/changeset/changeset.ts WritableCheck admits it), so the README's writePost, an insert into MemberBlog's read-only MemberPost, compiles: armed, its directive is unused, and disarmed, the refusal is missing."
+		},
+		{
+			file: "packages/engine/src/types/query/query.ts",
+			original: "\t\t\t\t: [DomainOf<Hc[K]>] extends [Unordered]\n\t\t\t\t\t? readonly [",
+			replacement: "\t\t\t\t: [DomainOf<Hc[K]>] extends [never]\n\t\t\t\t\t? readonly [",
+			why: "An order names a closed id of an unordered roster (types/query/query.ts OrderedKeys requires nothing of it), so the README's statesInOrder, an orderBy of InvoiceState, compiles: armed, its directive is unused, and disarmed, the refusal is missing."
+		},
+		{
+			file: "packages/engine/src/types/compute/scalar.ts",
+			original: "\t: [T] extends [Unordered]\n\t\t? Refusal<",
+			replacement: "\t: [T] extends [never]\n\t\t? Refusal<",
+			why: "A row check's field of an unordered roster compares by its codes (types/compute/scalar.ts OrderedType requires nothing of it), so the README's stateCheck compiles: armed, its directive is unused, and disarmed, the refusal is missing."
 		}
 	]
 })

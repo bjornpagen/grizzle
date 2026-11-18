@@ -412,7 +412,7 @@ const descOf = (m: Model): SchemaDesc => ({
 	relations: [
 		...Arr.map(m.rosters, (r) => {
 			const live = liveOf(r)
-			return closed(nameOf(r), live)
+			return closed.ordered(nameOf(r), live)
 		}),
 		relation("T", { id: f.integer, r: fieldOf(m, "r"), s: fieldOf(m, "s"), q: fieldOf(m, "q") }, [
 			"id"

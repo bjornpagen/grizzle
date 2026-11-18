@@ -87,7 +87,7 @@ export const schemaOf = (d: Drawn) => {
 		handleOf(0),
 		...Array.from({ length: d.size - 1 }, (_, code) => handleOf(code + 1))
 	]
-	const S = closed("S", handles)
+	const S = closed.ordered("S", handles)
 	const C = closed.relation(
 		"C",
 		{ from: closedId(S), to: closedId(S) },

@@ -982,7 +982,7 @@ const downstream: Kept<Sketch, Situation> = {
 /** The handles of the roster a judged owner's declared set and its members' sets are over, in code order. */
 const flagHandles = ["a", "b", "c"] as const
 
-const Flag = closed("Flag", flagHandles)
+const Flag = closed.ordered("Flag", flagHandles)
 
 /** The roster's codes, in order. */
 const flagCodes: ReadonlyArray<number> = Arr.map(flagHandles, (_, code) => code)

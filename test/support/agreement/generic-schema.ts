@@ -8,8 +8,8 @@ import { closed, relation, schema } from "#compiler/public/schema.ts"
  * statements read beside them. A drawn or accumulated field is named by the family or fold of each statement over its
  * relation, so each relation is one a schema admits beside those statements.
  */
-export const Kind = closed("Kind", ["a", "b"])
-export const Other = closed("Other", ["x", "y"])
+export const Kind = closed.ordered("Kind", ["a", "b"])
+export const Other = closed.ordered("Other", ["x", "y"])
 
 /** The members' one heading: a key, a reference, a closed id and a number. */
 const heading = { id: uuid, owner: uuid, kind: closedId(Kind), n: pg.integer } as const

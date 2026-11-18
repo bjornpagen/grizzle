@@ -7,7 +7,7 @@ import type { VolumeFill } from "#test/support/substrate/fill.ts"
 
 const text = str.regex("^.*$", "su")
 
-const Kind = closed("Kind", ["Automatic", "Manual"])
+const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Account = relation("Account", { id: uuid, name: text }, ["id"])
 export const Posting = relation("Posting", { id: uuid, account: uuid, amount: pg.bigint }, ["id"])
 export const Entry = relation("Entry", { account: uuid, seq: pg.bigint, amount: pg.bigint }, [

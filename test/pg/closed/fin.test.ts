@@ -108,11 +108,11 @@ const states = Object.freeze([
 ])
 const codes: Codebook = codebookOfStates(states)
 
-const Version = closed("Version", ["v0", "v1"])
-const Kind = closed("Kind", ["k0", "k2"])
-const Position = closed("Position", ["p0", "p1", "p2"])
-const Label = closed("Label", ["x0", "x1"])
-const Payload = closed("Payload", [
+const Version = closed.ordered("Version", ["v0", "v1"])
+const Kind = closed.ordered("Kind", ["k0", "k2"])
+const Position = closed.ordered("Position", ["p0", "p1", "p2"])
+const Label = closed.ordered("Label", ["x0", "x1"])
+const Payload = closed.ordered("Payload", [
 	"w0",
 	"w1",
 	"w2",
@@ -130,7 +130,7 @@ const Payload = closed("Payload", [
 	"w14",
 	"w15"
 ])
-const Id = closed("Id", [
+const Id = closed.ordered("Id", [
 	"i0",
 	"i1",
 	"i2",

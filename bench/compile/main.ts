@@ -175,7 +175,7 @@ const handles = (prefix: string, count: number): readonly [string, ...Array<stri
 /** A roster of the generated schema: its handles, and the first, which the statements compare with. */
 const rosterOf = (k: number, scale: Scale) => {
 	const members = handles(`h${k}_`, scale.handles)
-	return { roster: closed(`Ros${k}`, members), first: members[0] }
+	return { roster: closed.ordered(`Ros${k}`, members), first: members[0] }
 }
 
 type GeneratedRoster = ReturnType<typeof rosterOf>

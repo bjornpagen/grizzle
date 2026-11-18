@@ -27,7 +27,7 @@ import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { internedRangeOp, rangeOpNamed } from "#compiler/ir/expr.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
+import { Roster, type RosterOrder } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -43,9 +43,9 @@ import type { ServedFile } from "#compiler/served/forms.ts"
  *
  * - a string beginning with `~`, escaped by a second;
  * - a bigint `~n:` and its digits, and NaN and the infinities `~f:` and the word naming each (floatSpecialNames);
- * - a Roster `~roster:` and its canonical payload, its declared name and its handles' digest, rebuilt at load over the
- *   live handles of the file's codes for it (`rosters`, below) with the digest generate took, so a load hashes no
- *   handle;
+ * - a Roster `~roster:`, or an unordered one `~unorderedroster:`, and its canonical payload, its declared name and its
+ *   handles' digest, rebuilt at load over the live handles of the file's codes for it (`rosters`, below), in its
+ *   order, with the digest generate took, so a load hashes no handle;
  * - a range overload `~op:` and its code and carrier, read back as its one instance (ir/expr.ts rangeOp), which the
  *   registry and the host evaluator know an overload by;
  * - a host Decimal `~decimal:`, a host Money `~money:`, a host vector `~vector:`, and the IR's DecimalText, MoneyText
@@ -90,6 +90,7 @@ const tags = {
 	float: "f",
 	shared: "s",
 	roster: "roster",
+	unorderedRoster: "unorderedroster",
 	rangeOp: "op",
 	decimal: "decimal",
 	money: "money",
@@ -155,7 +156,7 @@ const servedVector = (components: Float32Array): ServedObject => {
  */
 const servedClass = (value: object, tagged: TaggedValue): ServedObject => {
 	if (value instanceof Roster) {
-		return servedTagged(tags.roster, tagged.payload)
+		return servedTagged(rosterTag[value.order], tagged.payload)
 	}
 	if (value instanceof Decimal) {
 		return servedTagged(tags.decimal, tagged.payload)
@@ -545,7 +546,7 @@ export const servedText = (file: ServedFile): Result.Result<string, CompileError
 
 /**
  * The file's rosters as a load reads them, once (fileRosters): each roster's codes, which ServedFile holds, and its
- * live handles in code order, which every Roster the file names is rebuilt over.
+ * live handles in code order, which every Roster the file names is rebuilt over, in the roster's order.
  */
 interface FileRosters {
 	readonly codes: ReadonlyMap<DeclaredName, RosterCodes>
@@ -590,12 +591,19 @@ const fileRosters = (wire: unknown): FileRosters => {
 	return { codes, handles }
 }
 
+/** The tag a roster is served under, by its order: the tag of its canonical form (ir/scalar.ts Roster). */
+const rosterTag = { ordered: tags.roster, unordered: tags.unorderedRoster } as const satisfies {
+	readonly [O in RosterOrder]: ServedTag
+}
+
 /**
- * A roster by its canonical payload, its declared name and its handles' digest, each trusted as the compile wrote it,
- * over its live handles the file's rosters hold; refused, read `within`, where the file holds no codes of it.
+ * A roster of `order` by its canonical payload, its declared name and its handles' digest, each trusted as the compile
+ * wrote it, over its live handles the file's rosters hold, which the roster holds in its order (ir/scalar.ts
+ * handlesInOrder); refused, read `within`, where the file holds no codes of it.
  */
 const rosterOf = (
 	handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>,
+	order: RosterOrder,
 	payload: string,
 	within: Path
 ): Roster => {
@@ -605,7 +613,7 @@ const rosterOf = (
 	if (live === undefined) {
 		return unread(within, `a roster the file's rosters hold the codes of, not ${payload}`)
 	}
-	return new Roster(name, live, trusted<RosterDigest>(payload.slice(at + 1)))
+	return new Roster(name, order, live, trusted<RosterDigest>(payload.slice(at + 1)))
 }
 
 /**
@@ -711,7 +719,9 @@ class ServedReader {
 					)
 				)
 			case tags.roster:
-				return rosterOf(this.#handles, payload, within)
+				return rosterOf(this.#handles, "ordered", payload, within)
+			case tags.unorderedRoster:
+				return rosterOf(this.#handles, "unordered", payload, within)
 			case tags.rangeOp: {
 				const at = payload.lastIndexOf(":")
 				return (

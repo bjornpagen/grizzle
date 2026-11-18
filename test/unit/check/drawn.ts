@@ -228,7 +228,7 @@ export const relationAt = (s: DrawnSchema, index: number): DrawnRelation =>
 export const schemaDescOf = (s: DrawnSchema): SchemaDesc => ({
 	name: "Drawn",
 	relations: [
-		closed(rosterName, handles),
+		closed.ordered(rosterName, handles),
 		...Arr.map(s.relations, (r) => {
 			const fields: Record<string, FixtureField> = {}
 			for (const x of r.fields) {

@@ -98,7 +98,7 @@ export const theTextAnalysisRunsOnceForEachDistinctPatternASchemasFieldsDeclareW
 								)
 							)
 						}
-						const Kind = closed("Kind", ["A", "B"], [])
+						const Kind = closed("Kind", ["A", "B"], "ordered", [])
 						const label = patternAt(0)
 						const Labels = closedRelation(
 							"Labels",

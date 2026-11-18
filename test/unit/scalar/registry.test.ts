@@ -29,6 +29,7 @@ import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import {
+	type CapabilitySet,
 	type Carrier,
 	carriers,
 	contractOf,
@@ -90,7 +91,30 @@ import {
 } from "#test/unit/scalar/support.ts"
 
 /**
- * The capability registry gives every descriptor its carrier's capabilities, a serial and a contract their base's.
+ * The capabilities a sketch's type has by the rule the registry states: its carrier's, a contract's its base's, and a
+ * closed id's of an unordered roster its carrier's without ordering and minMax, since no handle comes before another.
+ */
+const carrierCapabilities = (sketch: DescriptorSketch, carrier: Carrier): CapabilitySet => {
+	const roster = rosterSketchOf(sketch)
+	const native = capabilitiesOf(carrier)
+	return roster?.order === "unordered"
+		? Arr.filter(native, (cap) => cap !== "ordering" && cap !== "minMax")
+		: native
+}
+
+/** The closed id a sketch's type is, through its contracts; none for any other sketch. */
+const rosterSketchOf = (
+	sketch: DescriptorSketch
+): Extract<DescriptorSketch, { readonly kind: "closedId" }> | undefined =>
+	sketch.kind === "closedId"
+		? sketch
+		: sketch.kind === "contract"
+			? rosterSketchOf(sketch.base)
+			: undefined
+
+/**
+ * The capability registry gives every descriptor its carrier's capabilities, a serial and a contract their base's, and
+ * a closed id of an unordered roster its carrier's but ordering and minMax.
  *
  * Budget: its suite's count before the conversion (unit/scalar/capabilities: 1000 independent cases and 0 steered,
  * Vitest at grizzle 4ca3036a).
@@ -105,7 +129,7 @@ export const theCapabilityRegistryGivesEveryDescriptorItsCarriersCapabilitiesASe
 			Effect.sync(() => {
 				const field = descriptorOf(sketch)
 				const scalar = succeeded(describeField(field, SourceLoc("test", []))).scalar
-				unorderedEqual(caps(field), capabilitiesOf(scalar.carrier))
+				unorderedEqual(caps(field), carrierCapabilities(sketch, scalar.carrier))
 				if (sketch.kind === "contract") {
 					c.note("a contract")
 					unorderedEqual(caps(field), caps(descriptorOf(sketch.base)))
@@ -126,9 +150,15 @@ export const theCapabilityRegistryGivesEveryDescriptorItsCarriersCapabilitiesASe
 		kills: [
 			{
 				file: "packages/engine/src/scalar/registry.ts",
-				original: '\t\t\t\t\tcaps: capabilitiesOf("code"),',
-				replacement: '\t\t\t\t\tcaps: capabilitiesOf("bits"),',
+				original: '\t\tcase "ordered":\n\t\t\treturn capabilitiesOf("code")',
+				replacement: '\t\tcase "ordered":\n\t\t\treturn capabilitiesOf("bits")',
 				why: "A closed id's ScalarType takes the bits carrier's capabilities; the capabilities property fails."
+			},
+			{
+				file: "packages/engine/src/scalar/registry.ts",
+				original: '\t\tcase "unordered":\n\t\t\treturn capabilitySet(unorderedCodeCapabilities)',
+				replacement: '\t\tcase "unordered":\n\t\t\treturn capabilitiesOf("code")',
+				why: "An unordered roster's closed id keeps ordering and minMax, so the engine orders by codes its roster says mean nothing; the capabilities property fails."
 			}
 		]
 	})
@@ -197,8 +227,8 @@ export const scalarTypeOfAFieldDescToItsScalarTypeReadsEveryDescriptorKindAndAgr
 				const env: ScalarEnv = {
 					kind: "builder",
 					roster: (name) => {
-						const handles = rosters.get(name)
-						return handles === undefined ? undefined : Roster.of(name, handles)
+						const roster = rosters.get(name)
+						return roster === undefined ? undefined : Roster.of(name, roster.order, roster.handles)
 					}
 				}
 				assert.deepEqual(succeeded(scalarTypeOf(desc, env, SourceLoc("field", []))), scalar)

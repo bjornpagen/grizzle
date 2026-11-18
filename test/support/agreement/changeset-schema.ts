@@ -40,7 +40,7 @@ import { str } from "#compiler/public/text.ts"
  * Work's worlds.
  */
 export const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
-export const Kind = closed("Kind", ["Automatic", "Manual"])
+export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Task = relation("Task", { id: uuid, account: uuid, kind: closedId(Kind) }, ["id"])
 export const Budget = relation("Budget", { task: uuid, cents: Cents }, ["task"])
 export const Ticket = relation("Ticket", { id: pg.bigserial, account: uuid, amount: Cents }, ["id"])
@@ -49,7 +49,7 @@ export const Ledger = relation("Ledger", { id: pg.bigint, balance: pg.bigint, fe
 	"id"
 ])
 /** A relation every field of which its caller writes, a closed id, a set and two texts of different patterns among them. */
-export const Flag = closed("Flag", ["on", "off"])
+export const Flag = closed.ordered("Flag", ["on", "off"])
 export const Tag = relation(
 	"Tag",
 	{

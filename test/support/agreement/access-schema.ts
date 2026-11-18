@@ -20,7 +20,7 @@ import { str } from "#compiler/public/text.ts"
  * reading a context at every place a definition can, or none; and two logins the DbConfig agreement
  * (test/support/agreement/dbconfig.ts) configures, one whose role reads no context and one whose role reads Session.
  */
-export const Tier = closed("Tier", ["Free", "Pro"])
+export const Tier = closed.ordered("Tier", ["Free", "Pro"])
 const TierInfo = closed.relation(
 	"TierInfo",
 	{ tier: closedId(Tier), seats: pg.integer },

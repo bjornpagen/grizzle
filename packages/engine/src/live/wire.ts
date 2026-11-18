@@ -151,7 +151,10 @@ interface WireExtras {
 	readonly exactMoney: { readonly digits: number }
 }
 
-/** One carrier's wire spec: its carrier, and what its spelling reads beside it (a roster's live handles in code order). */
+/**
+ * One carrier's wire spec: its carrier, and what its spelling reads beside it (a roster's live handles in its order,
+ * ir/scalar.ts Roster).
+ */
 export type WireSpec<C extends Carrier> = { readonly carrier: C } & WireExtras[C]
 
 /** A scalar's wire spec, of any carrier: pure JSON data, which a document carries for its client. */

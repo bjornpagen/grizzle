@@ -180,7 +180,9 @@ const computed = (
 
 /** The schema a draw declares. */
 export const schemaOf = (d: Draft): SchemaDesc => {
-	const rosters = Arr.map(d.sizes, (size, i) => closedBuilder(rosterName(i), handlesOf(size), []))
+	const rosters = Arr.map(d.sizes, (size, i) =>
+		closedBuilder(rosterName(i), handlesOf(size), "ordered", [])
+	)
 	const rosterAt = (i: number) => defined(rosters[i], "a drawn roster")
 	const sizeAt = (i: number): number => defined(d.sizes[i], "a drawn roster's size")
 	const keyNames = Arr.map(d.key, (_, j) => `k${j}`)
@@ -498,13 +500,13 @@ export const cellConstantOf = (d: CellString): Constant => ({
 	)
 })
 
-const Version = closed("Version", ["v0", "v1"])
+const Version = closed.ordered("Version", ["v0", "v1"])
 
-const Kind = closed("Kind", ["k0", "k1"])
+const Kind = closed.ordered("Kind", ["k0", "k1"])
 
-const Position = closed("Position", ["p0", "p1", "p2"])
+const Position = closed.ordered("Position", ["p0", "p1", "p2"])
 
-const Mark = closed("Mark", ["m0", "m1", "m2"])
+const Mark = closed.ordered("Mark", ["m0", "m1", "m2"])
 
 type Shape = "a set" | "a function" | "a dependent key"
 

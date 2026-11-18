@@ -22,7 +22,8 @@ import type {
 	SqlOfTerm,
 	Term,
 	TermBase,
-	TypeOfTerm
+	TypeOfTerm,
+	Unordered
 } from "#compiler/types/core/phantom.ts"
 import type { LiteralOf, NotStoredOnly } from "#compiler/types/fields/field.ts"
 
@@ -273,19 +274,19 @@ export interface Scalar<
 		other: B
 	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
 	lt<const B extends Operand<T, Sql, L>>(
-		other: B
+		other: B & OrderedType<T>
 	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
 	le<const B extends Operand<T, Sql, L>>(
-		other: B
+		other: B & OrderedType<T>
 	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
 	gt<const B extends Operand<T, Sql, L>>(
-		other: B
+		other: B & OrderedType<T>
 	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
 	ge<const B extends Operand<T, Sql, L>>(
-		other: B
+		other: B & OrderedType<T>
 	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
 	between<const Lo extends Operand<T, Sql, L>, const Hi extends Operand<T, Sql, L>>(
-		low: Lo,
+		low: Lo & OrderedType<T>,
 		high: Hi
 	): Predicate<
 		P & ParamsOfTerm<Lo> & ParamsOfTerm<Hi>,
@@ -296,6 +297,43 @@ export interface Scalar<
 
 /** A comparison's origin: a computation over the scalar, of origin O, and the operand B. */
 type ComparisonOrigin<O, B> = ComputedOrigin<O | OperandOrigin<B>>
+
+/**
+ * Whether a term's values have no order: its type carries Unordered, a closed id of a closed.unordered roster, whose
+ * codes are history and none of whose handles comes before another (types/core/phantom.ts RosterBrands). Never for a
+ * JavaScript value or a refused term, whose type is never.
+ */
+export type HasNoOrder<A> = [TypeOfTerm<A>] extends [never]
+	? false
+	: [TypeOfTerm<A>] extends [Unordered]
+		? true
+		: false
+
+/**
+ * Whether an ordered operation takes a term A by its order: every term but a closed id of a closed.unordered roster
+ * (HasNoOrder), which no comparison, range, orderBy, least, greatest, min, max or fold max reads.
+ */
+export type HasOrder<A> = HasNoOrder<A> extends true ? false : true
+
+/**
+ * An ordered operation's operand A: the refusal of an ordered operation over a closed id of a closed.unordered roster,
+ * the engine's (scalar/native.ts unorderedCodeCapabilities), where A has no order (HasOrder), and unknown, no
+ * requirement, otherwise. Its message names what gives the roster an order.
+ */
+export type OrderedOperand<A> =
+	HasOrder<A> extends true
+		? unknown
+		: Refusal<"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles">
+
+/**
+ * What a scalar of type T requires of an ordering's other operand: OrderedOperand's refusal where T, a closed id of a
+ * closed.unordered roster, has no order (HasNoOrder), and nothing otherwise.
+ */
+type OrderedType<T> = [T] extends [never]
+	? unknown
+	: [T] extends [Unordered]
+		? Refusal<"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles">
+		: unknown
 
 /**
  * A precondition on an inferred argument: `a: A & Requires<Cond, "message">` keeps A inferable from the argument and

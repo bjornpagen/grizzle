@@ -22,6 +22,7 @@ import type {
 	FactsOf,
 	LanguageOf,
 	Refusal,
+	RosterBrands,
 	Rostered
 } from "#compiler/types/core/phantom.ts"
 
@@ -253,12 +254,13 @@ export type SpanWidthOf<E> = [BaseOf<E>] extends [CalendarDate] ? number : BaseO
 
 /**
  * A closed reference: one of the roster's handles, stored as its code under the roster's domain, whose domain is its
- * handles under the roster's identity (Rostered), so two rosters of one member set never meet.
+ * handles under the roster's identity (Rostered), so two rosters of one member set never meet, and, an unordered
+ * roster's, under Unordered too, which no ordered operation reads (RosterBrands).
  */
 export interface ClosedIdField<out C> extends Field<
 	HandleOf<C>,
 	"code",
-	HandleOf<C> & Rostered<RosterName<C>>
+	HandleOf<C> & RosterBrands<RosterName<C>, OrderOf<C>>
 > {
 	readonly roster: C
 }
@@ -332,6 +334,14 @@ export type RosterName<C> = C extends {
 	readonly name: infer N extends string
 }
 	? N
+	: never
+
+/** The order of a roster, read from its `order` member (ir/scalar.ts RosterOrder). */
+export type OrderOf<C> = C extends {
+	readonly kind: "closed"
+	readonly order: infer O
+}
+	? O
 	: never
 
 /** The roster handles of a roster, read from its `handles` member. */

@@ -21,7 +21,7 @@ import { localVectorSchema, productionNames } from "#test/support/kernel/naming.
  * A vertex relation with a column of every kind a state may copy, an edge relation keyed by its endpoints, and a fixed
  * external relation of blocked vertices for negation in a step.
  */
-const Level = closed("Level", ["Low", "Mid", "High"])
+const Level = closed.ordered("Level", ["Low", "Mid", "High"])
 const Vertex = relation(
 	"Vertex",
 	{

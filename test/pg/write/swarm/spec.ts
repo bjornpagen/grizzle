@@ -632,7 +632,7 @@ const sourceField = (source: CopySource): string => {
 }
 
 /** The roster a member's set `b` and an or end are over. */
-const Mask = closed("Mask", maskHandles, [])
+const Mask = closed("Mask", maskHandles, "ordered", [])
 
 /** The fields of family relation `r`, fill.ts's in its order, then its set `b` and each extra end it owns. */
 const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {

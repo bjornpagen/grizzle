@@ -843,8 +843,8 @@ const nullable = (name: Generated): name is Exclude<Generated, NeverNull> =>
 
 /** The lookups' rosters Kind and Flag and closed relations FlagRel and Slot. */
 const lookupsOf = (sizes: Lookups) => {
-	const Kind = closed("Kind", handlesOf(sizes.kinds, kindOf))
-	const Flag = closed("Flag", handlesOf(sizes.flags, flagOf))
+	const Kind = closed.ordered("Kind", handlesOf(sizes.kinds, kindOf))
+	const Flag = closed.ordered("Flag", handlesOf(sizes.flags, flagOf))
 	const FlagRel = closed.relation(
 		"FlagRel",
 		{ from: closedId(Flag), to: closedId(Flag) },

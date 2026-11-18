@@ -61,7 +61,7 @@ export const uuidScalar = scalarOf(f.uuid, {})
  */
 const handles = ["Red", "Green", "Blue"] as const
 
-export const Color = closed("Color", handles)
+export const Color = closed.ordered("Color", handles)
 
 export const Sample = relation(
 	"Sample",

@@ -107,7 +107,7 @@ export const schemaOf = (c: RaceCase): unknown => {
 			return schema("Races", [R, M], c.mutable ? [family, race(R), mutable(R)] : [family, race(R)])
 		}
 		case "roster": {
-			const R = closed("R", ["a", "b"])
+			const R = closed.ordered("R", ["a", "b"])
 			return schema("Races", [R], [raceBuilder(R)])
 		}
 	}

@@ -51,7 +51,7 @@ const centsDomain = installationOf(
 	decodedSchema({
 		name: "Ledger",
 		relations: [
-			closed("Kind", ["Automatic", "Manual"]),
+			closed.ordered("Kind", ["Automatic", "Manual"]),
 			relation("Ledger", { id: f.uuid, cents: f.contract("Cents", f.bigint, undefined) }, ["id"])
 		],
 		statements: [],

@@ -327,6 +327,22 @@ export interface Facts {
 export type Rostered<Name extends string> = Brand.Brand<`roster ${Name}`>
 
 /**
+ * The brand a closed id of an unordered roster (closed.unordered) carries beside its roster's identity: its codes are
+ * history and no handle comes before another, so no ordered operation reads it (types/compute/scalar.ts HasNoOrder). Its
+ * name holds a space, which no contract's declared name does, so no contract's brand is it, and begins with no
+ * `roster `, so no roster's identity (Rostered) is it either.
+ */
+export type Unordered = Brand.Brand<"without order">
+
+/**
+ * The brands of a closed id of the roster Name whose order is O (ir/scalar.ts RosterOrder): its identity, and Unordered
+ * beside it where the roster is unordered.
+ */
+export type RosterBrands<Name extends string, O> = [O] extends ["unordered"]
+	? Rostered<Name> & Unordered
+	: Rostered<Name>
+
+/**
  * What carries a column and a SQL type: a descriptor or a term, an entry of a heading's record of carriers, from which
  * variables are minted. A is the values its column delivers; D its domain, F its values' facts and L its language,
  * which it states.

@@ -124,7 +124,7 @@ const rosterEdited = (
 ): Roster => {
 	if (part === "closed") {
 		const name = parseDeclaredName(`${roster.closed}x`)
-		return name.ok ? Roster.of(name.value, roster.handles) : roster
+		return name.ok ? Roster.of(name.value, roster.order, roster.handles) : roster
 	}
 	if (typeof at !== "number") {
 		return roster
@@ -132,7 +132,9 @@ const rosterEdited = (
 	const handles = drop
 		? Arr.filter(roster.handles, (_, i) => i !== at)
 		: Arr.map(roster.handles, (h, i) => (i === at ? `${h}x` : h))
-	return Arr.isReadonlyArrayNonEmpty(handles) ? Roster.of(roster.closed, handles) : roster
+	return Arr.isReadonlyArrayNonEmpty(handles)
+		? Roster.of(roster.closed, roster.order, handles)
+		: roster
 }
 
 /** The value with the edit applied: each container on the path copied, every other part shared. */

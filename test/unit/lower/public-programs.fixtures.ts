@@ -143,7 +143,7 @@ const Item = relation("Item", { id: uuid, x: pg.integer, y: pg.integer }, ["id"]
 
 const Items = schema("Items", [Item], [])
 
-const Route = closed("Route", ["Red", "Green", "Blue"])
+const Route = closed.ordered("Route", ["Red", "Green", "Blue"])
 
 const Stop = relation("Stop", { route: closedId(Route) }, ["route"])
 

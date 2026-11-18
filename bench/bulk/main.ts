@@ -65,7 +65,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 const Text = str.regex("^.+$", "su")
 
-const Grade = closed("Grade", [
+const Grade = closed.ordered("Grade", [
 	"PK",
 	"K",
 	"1",
@@ -81,7 +81,7 @@ const Grade = closed("Grade", [
 	"11",
 	"12"
 ])
-const StandardKind = closed("StandardKind", ["framework", "item"])
+const StandardKind = closed.ordered("StandardKind", ["framework", "item"])
 
 /** Every node of the hierarchy, its kind, and its ordered family of children. */
 const Standard = relation(

@@ -9,11 +9,11 @@ import { closed, schema } from "#compiler/public/schema.ts"
 import { defined } from "#test/support/assert.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 
-const Row = closed("Row", ["r0", "r1", "r2"])
+const Row = closed.ordered("Row", ["r0", "r1", "r2"])
 
-const Col = closed("Col", ["c0", "c1"])
+const Col = closed.ordered("Col", ["c0", "c1"])
 
-const Mark = closed("Mark", ["low", "high", "top"])
+const Mark = closed.ordered("Mark", ["low", "high", "top"])
 
 const rowAt = (code: number): "r0" | "r1" | "r2" => defined((["r0", "r1", "r2"] as const)[code])
 

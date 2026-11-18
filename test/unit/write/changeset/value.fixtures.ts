@@ -1431,7 +1431,7 @@ const faultCall = (fault: Fault, c: ChangeSetValue): unknown => {
 		case "another schema's relation":
 			return c.insert(BookEntry, [])
 		case "a closed relation of no schema":
-			return c.insert(closed("Other", ["a"]), [])
+			return c.insert(closed.ordered("Other", ["a"]), [])
 		case "a query over an unrelated schema":
 			return c.put(Task, foreign)
 		case "a read-back that is no function":

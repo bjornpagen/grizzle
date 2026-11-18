@@ -177,7 +177,7 @@ const aggregated = (a: Aggregate): { readonly key: AggregateKey; readonly kind: 
 /** The column a definition's conditional count is, `sum(cond(flag, 1, 0))`. */
 const condColumn = "p"
 
-const Color = closed("Color", ["red", "green", "blue"], [])
+const Color = closed("Color", ["red", "green", "blue"], "ordered", [])
 const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 const Word = str.regex("^[a-z]{0,4}$")
 

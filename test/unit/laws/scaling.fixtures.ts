@@ -117,7 +117,7 @@ const roster = (
 	const key = upTo(keyWidth, (i) => `k${i + 1}`)
 	const keyFields = Rec.fromEntries(Arr.map(key, (k) => [k, f.integer] as const))
 	const handles = upTo(size, (i) => `h${i}`)
-	const Roster = closed("Roster", handles)
+	const Roster = closed.ordered("Roster", handles)
 	const Node = relation("Node", { ...keyFields, kind: f.closedId("Roster") }, key)
 	const armIndexes = [
 		...new Set(Arr.flatMap(upTo(size, armOf), (j) => (j === undefined ? [] : [j])))
@@ -312,7 +312,7 @@ export const scaled = (dimension: Dimension, n: number): Scaled => {
 				schemaOf(
 					"Scaled",
 					[
-						closed(
+						closed.ordered(
 							"Color",
 							upTo(n, (i) => `c${i}`)
 						),

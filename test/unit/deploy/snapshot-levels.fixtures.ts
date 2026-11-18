@@ -6,7 +6,7 @@ import { closed, contained, key, on, relation, schema, select } from "#compiler/
 import { str } from "#compiler/public/text.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 
-const Kind = closed("Kind", ["One", "Two"])
+const Kind = closed.ordered("Kind", ["One", "Two"])
 
 const R = relation(
 	"R",

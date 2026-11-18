@@ -79,7 +79,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 const handles = ["A", "B", "C"] as const
 type Handle = (typeof handles)[number]
-const Kind = closed("Kind", handles)
+const Kind = closed.ordered("Kind", handles)
 const Text = str.regex("^.{0,4}$", "su")
 const Cell = relation(
 	"Cell",

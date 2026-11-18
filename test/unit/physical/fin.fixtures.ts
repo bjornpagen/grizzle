@@ -34,13 +34,13 @@ import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
-const Version = closed("Version", ["v0", "v1"])
+const Version = closed.ordered("Version", ["v0", "v1"])
 
-const Kind = closed("Kind", ["k0", "k1"])
+const Kind = closed.ordered("Kind", ["k0", "k1"])
 
-const Position = closed("Position", ["p0", "p1", "p2"])
+const Position = closed.ordered("Position", ["p0", "p1", "p2"])
 
-const Label = closed("Label", ["x0", "x1"])
+const Label = closed.ordered("Label", ["x0", "x1"])
 
 /** The owners, each a version and a kind, in the owner prefix's index order, version-major. */
 const owners: ReadonlyArray<readonly ["v0" | "v1", "k0" | "k1"]> = [
@@ -635,7 +635,7 @@ export const codesGen: Gen<bigint> = weighted([
 
 /** A roster of `size` handles, h0 to h<size - 1>. */
 export const rosterOf = (name: string, size: number) =>
-	closedBuilder(name, nonEmpty(Array.from({ length: size }, (_, i) => `h${i}`)), [])
+	closedBuilder(name, nonEmpty(Array.from({ length: size }, (_, i) => `h${i}`)), "ordered", [])
 
 /**
  * Three payload rosters whose sizes multiply to between 2^29 and 2^32, so a drawn declaration falls either side of

@@ -197,7 +197,7 @@ export const labelsGen: Gen<Labels> = (source) => {
 export const labelSchema = (labels: ReadonlyArray<Slug>) => {
 	const Slug = str.regex("^[a-z][a-z0-9-]*$")
 	const handles = nonEmpty(Arr.take(tierHandles, labels.length), "Tier's handles")
-	const Tier = closed("Tier", handles)
+	const Tier = closed.ordered("Tier", handles)
 	const TierLabel = closed.relation(
 		"TierLabel",
 		{ tier: closedId(Tier), label: Slug },

@@ -88,8 +88,8 @@ const tagNames = ["t0", "t1"] as const
 
 type TagName = (typeof tagNames)[number]
 
-const Kind = closed("Kind", kindNames)
-const Tag = closed("Tag", tagNames)
+const Kind = closed.ordered("Kind", kindNames)
+const Tag = closed.ordered("Tag", tagNames)
 
 /** Tagged's rows: the tag of each kind it holds. */
 type TaggedRows = ReadonlyArray<readonly [KindName, TagName]>

@@ -9,6 +9,7 @@ import {
 	builtNode,
 	type FieldDesc,
 	type RelationDesc,
+	type RosterDesc,
 	type SchemaDesc,
 	type SchemaRelationDesc,
 	type StatementDesc,
@@ -31,7 +32,6 @@ import {
 	type DerivedDraft,
 	derivedDraftOf,
 	type OrdinaryRelationDesc,
-	type RosterDesc,
 	relationDescOf,
 	rosterHandlesOf
 } from "#compiler/schema/relation.ts"

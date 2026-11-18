@@ -13,7 +13,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 
-const Region = closed("Region", ["North", "South"])
+const Region = closed.ordered("Region", ["North", "South"])
 export const Seats = contract("Seats", pg.integer, (x) => x.le(500))
 const code = str.regex("^.{1,20}$", "su")
 export const Club = relation(

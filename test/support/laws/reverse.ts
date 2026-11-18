@@ -48,8 +48,21 @@ export type ColumnType =
 	| { readonly kind: "set"; readonly roster: "few" | "many" }
 
 /** The rosters a set column is drawn over: three handles, and twelve, a set's bit(12) as edullm's ancestry flags. */
-const FewTags = closed("FewTags", ["a", "b", "c"])
-const ManyTags = closed("ManyTags", ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"])
+const FewTags = closed.ordered("FewTags", ["a", "b", "c"])
+const ManyTags = closed.ordered("ManyTags", [
+	"a",
+	"b",
+	"c",
+	"d",
+	"e",
+	"f",
+	"g",
+	"h",
+	"i",
+	"j",
+	"k",
+	"l"
+])
 
 /**
  * A set's datum as the index engine counts it in an index it creates (schema/representability.ts bitsBytes): its

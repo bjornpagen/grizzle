@@ -1,7 +1,7 @@
 import { codeColumn } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
 import {
@@ -13,7 +13,7 @@ import {
 	type Refs
 } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
+import { Roster, type RosterHandles } from "#compiler/ir/scalar.ts"
 import { plainColumns } from "#compiler/scalar/compute/tables.ts"
 import {
 	predicateExpr,
@@ -51,8 +51,11 @@ export interface RowTerm extends Built {
  */
 interface TermType {
 	readonly desc: FieldDesc
-	/** The handles of the closed relation a closedId field references, when its host descriptor carries them. */
-	readonly roster: ReadonlyArray<string> | undefined
+	/**
+	 * The order and handles of the roster a closedId field references, when its host descriptor carries them, or the
+	 * roster's own of its id.
+	 */
+	readonly roster: RosterHandles | undefined
 	readonly typing: HeadingTyping
 }
 
@@ -70,7 +73,7 @@ const typeOf = (value: unknown): TermType | undefined =>
 const typingOf = (
 	desc: FieldDesc,
 	descriptor: unknown,
-	roster: ReadonlyArray<string> | undefined
+	roster: RosterHandles | undefined
 ): HeadingTyping => {
 	const described =
 		descriptor === undefined ? undefined : describeField(descriptor, SourceLoc("check field", []))
@@ -81,19 +84,19 @@ const typingOf = (
 			carrier: { column: described.value.column, sql: described.value.sql }
 		}
 	}
-	if (roster === undefined || !isNonEmpty(roster) || desc.kind !== "closedId") {
+	if (roster === undefined || desc.kind !== "closedId") {
 		return { kind: "untyped" }
 	}
 	const scalar = scalarTypeOf(
 		desc,
-		{ kind: "builder", roster: (name) => Roster.of(name, roster) },
+		{ kind: "builder", roster: (name) => Roster.of(name, roster.order, roster.handles) },
 		SourceLoc("check field", [])
 	)
 	return scalar.ok
 		? {
 				kind: "typed",
 				scalar: scalar.value,
-				carrier: { column: codeColumn(desc.roster, roster), sql: "code" }
+				carrier: { column: codeColumn(desc.roster, roster.handles), sql: "code" }
 			}
 		: { kind: "untyped" }
 }
@@ -113,7 +116,7 @@ const operand = (value: unknown, type: TermType | undefined, label: string): Ope
 	const literal =
 		type === undefined
 			? untypedLiteral(value, label)
-			: literalFor(type.desc, value, label, type.roster)
+			: literalFor(type.desc, value, label, type.roster?.handles)
 	return { kind: "literal", value: literal }
 }
 
@@ -133,7 +136,9 @@ const literalList = (values: unknown, type: TermType | undefined, label: string)
 		throw malformed(label, "a finite list of literals")
 	}
 	return values.map((v) =>
-		type === undefined ? untypedLiteral(v, label) : literalFor(type.desc, v, label, type.roster)
+		type === undefined
+			? untypedLiteral(v, label)
+			: literalFor(type.desc, v, label, type.roster?.handles)
 	)
 }
 
@@ -332,7 +337,7 @@ const rowOf = <A>(
 export const rowScalars = (
 	fields: Readonly<Record<string, FieldDesc>>,
 	descriptors: Readonly<Record<string, unknown>>,
-	rosterOf: (field: string) => ReadonlyArray<string> | undefined
+	rosterOf: (field: string) => RosterHandles | undefined
 ): Readonly<Record<string, unknown>> =>
 	rowOf(Object.entries(fields), (name, desc) => {
 		const roster = rosterOf(name)

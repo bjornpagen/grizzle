@@ -367,7 +367,7 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 
 	const dictionarySchema = (d: Dictionary) => {
 		const handles = Arr.map(d.patterns, (_, i) => `D${i}`)
-		const Domain = closed("Domain", Arr.isReadonlyArrayNonEmpty(handles) ? handles : ["D0"])
+		const Domain = closed.ordered("Domain", Arr.isReadonlyArrayNonEmpty(handles) ? handles : ["D0"])
 		const Pattern = closed.relation(
 			"Pattern",
 			{ domain: closedId(Domain), pattern: str.regex("^.*$", "su") },

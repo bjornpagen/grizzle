@@ -32,6 +32,7 @@ import type {
 	FirstTerm,
 	FirstValue,
 	Guard,
+	HasOrder,
 	Holds,
 	Literal,
 	Operand,
@@ -223,6 +224,15 @@ type Conditional<C, A, Otherwise, X, S extends SqlTag, L> = Every<
 type Extremes<A, Bs extends ReadonlyArray<unknown>, X, S extends SqlTag> = Every<
 	[TakesFirst<A, OrderedSql>, TakesRest<Bs, ReadonlyArray<Meets<X, S>>>]
 >
+/**
+ * LEAST's or GREATEST's first operand's own requirement: an order (HasOrder), stated where the call takes every operand
+ * and they share one type, which the engine judges before it reads the common type's order.
+ */
+type ExtremeOrdered<A, Bs extends ReadonlyArray<unknown>, X, S extends SqlTag> = Precondition<
+	Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>]>,
+	HasOrder<A>,
+	"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles"
+>
 /** An operand B's own requirement opposite A: its contract's refusal, where the operation takes both (ContractAdmits). */
 type ValueAt<A, B, X, S extends SqlTag, F extends SqlTag> = ContractAdmits<
 	Binary<A, B, X, S, F>,
@@ -278,10 +288,25 @@ type Listed<A, Vs> = Every<
 type Between<A, Lo, Hi> = Every<
 	[TakesFirst<A, OrderedSql>, Takes<Lo, Opposite<A>>, Takes<Hi, Opposite<A>>]
 >
-/** The SQL types whose values are ordered: every one but a set's, whose bit string has no order in grizzle. */
+/**
+ * The SQL types whose values are ordered: every one but a set's, whose bit string has no order in grizzle. A closed id
+ * of a closed.unordered roster is of one, and has no order of its own (HasOrder).
+ */
 type OrderedSql = Exclude<SqlTag, "bits">
-/** An ordering's first operand: a term of an ordered type, and never a set (OrderedSql). */
-type Ordered<A> = [SqlOfTerm<A>] extends ["bits"] ? never : unknown
+/**
+ * An ordering's first operand: a term of an ordered type, never a set (OrderedSql), and, where the ordering takes its
+ * other operands (Taken), a term with an order (HasOrder): a closed id of a closed.unordered roster is refused by
+ * OrderedOperand's refusal (types/compute/scalar.ts), which the engine states once it has every operand.
+ */
+type Ordered<A, Taken extends boolean> = [SqlOfTerm<A>] extends ["bits"]
+	? never
+	: Precondition<
+			Taken,
+			HasOrder<A>,
+			"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles"
+		>
+/** Whether an ordering compares its first operand A with B: A of an ordered type with an order, and B opposite it. */
+type Orders<A, B> = Every<[Compares<A, B, OrderedSql>, HasOrder<A>]>
 
 /**
  * The Compute catalogue: PostgreSQL's scalar operators, functions and casts. `Compute` is the runtime catalogue of
@@ -600,12 +625,12 @@ export interface ComputeApi {
 		L,
 		const Bs extends ReadonlyArray<unknown>
 	>(
-		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L>,
+		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L> & ExtremeOrdered<A, Bs, X, S>,
 		...rest: Bs &
 			NoInfer<ReadonlyArray<Meets<X, S>>> &
 			NoInfer<{ readonly [K in keyof Bs]: SharesType<Extremes<A, Bs, X, S>, S, Bs[K]> }>
 	): Admitted<
-		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>]>,
+		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>, HasOrder<A>]>,
 		Term<
 			X,
 			PA & ParamsOfEach<Bs>,
@@ -626,12 +651,12 @@ export interface ComputeApi {
 		L,
 		const Bs extends ReadonlyArray<unknown>
 	>(
-		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L>,
+		first: A & First<A, Bs> & Term<X, PA, OA, S, V, Facts, L> & ExtremeOrdered<A, Bs, X, S>,
 		...rest: Bs &
 			NoInfer<ReadonlyArray<Meets<X, S>>> &
 			NoInfer<{ readonly [K in keyof Bs]: SharesType<Extremes<A, Bs, X, S>, S, Bs[K]> }>
 	): Admitted<
-		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>]>,
+		Every<[Extremes<A, Bs, X, S>, OneType<S, Bs[number]>, HasOrder<A>]>,
 		Term<
 			X,
 			PA & ParamsOfEach<Bs>,
@@ -927,27 +952,27 @@ export interface ComputeApi {
 		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, SqlTag>, ColumnFacts<A>, B>
 	): Admitted<Every<[Compares<A, B, SqlTag>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	lt<A extends TermBase | FirstValue, const B>(
-		a: A & First<A, [B]> & Ordered<A>,
+		a: A & First<A, [B]> & Ordered<A, Compares<A, B, OrderedSql>>,
 		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, OrderedSql>, ColumnFacts<A>, B>
-	): Admitted<Every<[Compares<A, B, OrderedSql>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
+	): Admitted<Every<[Orders<A, B>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	le<A extends TermBase | FirstValue, const B>(
-		a: A & First<A, [B]> & Ordered<A>,
+		a: A & First<A, [B]> & Ordered<A, Compares<A, B, OrderedSql>>,
 		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, OrderedSql>, ColumnFacts<A>, B>
-	): Admitted<Every<[Compares<A, B, OrderedSql>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
+	): Admitted<Every<[Orders<A, B>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	gt<A extends TermBase | FirstValue, const B>(
-		a: A & First<A, [B]> & Ordered<A>,
+		a: A & First<A, [B]> & Ordered<A, Compares<A, B, OrderedSql>>,
 		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, OrderedSql>, ColumnFacts<A>, B>
-	): Admitted<Every<[Compares<A, B, OrderedSql>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
+	): Admitted<Every<[Orders<A, B>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	ge<A extends TermBase | FirstValue, const B>(
-		a: A & First<A, [B]> & Ordered<A>,
+		a: A & First<A, [B]> & Ordered<A, Compares<A, B, OrderedSql>>,
 		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, OrderedSql>, ColumnFacts<A>, B>
-	): Admitted<Every<[Compares<A, B, OrderedSql>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
+	): Admitted<Every<[Orders<A, B>, Not<RefutedAt<A, B>>]>, Compared<A, B>>
 	between<A extends TermBase | FirstValue, const Lo, const Hi>(
-		a: A & First<A, [Lo, Hi]> & Ordered<A>,
+		a: A & First<A, [Lo, Hi]> & Ordered<A, Between<A, Lo, Hi>>,
 		low: Fit<Lo, NoInfer<Opposite<A>>> & ContractAdmits<Between<A, Lo, Hi>, ColumnFacts<A>, Lo>,
 		high: Fit<Hi, NoInfer<Opposite<A>>> & ContractAdmits<Between<A, Lo, Hi>, ColumnFacts<A>, Hi>
 	): Admitted<
-		Every<[Between<A, Lo, Hi>, Not<RefutedAt<A, Lo | Hi>>]>,
+		Every<[Between<A, Lo, Hi>, HasOrder<A>, Not<RefutedAt<A, Lo | Hi>>]>,
 		Predicate<P<A> & P<Lo> & P<Hi>, ComputedOrigin<O<A> | O<Lo> | O<Hi>>>
 	>
 	/**

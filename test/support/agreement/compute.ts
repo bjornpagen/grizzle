@@ -9,7 +9,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { contractOf, type RosterOrder, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bytes, Decimal, Money, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -86,7 +86,7 @@ const families = {
 	span: ["centsSpan", "intSpan", "daySpan", "divisorSpan"],
 	vector: ["vec", "wide"],
 	set: ["tones", "shades"],
-	code: ["tone"]
+	code: ["tone", "hue"]
 } as const satisfies Readonly<Record<string, Arr.NonEmptyReadonlyArray<FieldName>>>
 
 type Family = keyof typeof families
@@ -272,7 +272,9 @@ const refusalNotes = {
 	"a value its contract refuses: it lacks a fact the contract declares":
 		"refused: a contract's value",
 	"operands of one type: an exact value beside a plain value of its family; Compute.cast the exact one into the plain one's type":
-		"refused: an exact value beside a plain one"
+		"refused: an exact value beside a plain one",
+	"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles":
+		"refused: no order"
 } as const
 type ComputeRefusal = keyof typeof refusalNotes
 type RefusalNote = (typeof refusalNotes)[ComputeRefusal]
@@ -283,7 +285,8 @@ const computeRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: a power",
 	"refused: a cast",
 	"refused: a literal first",
-	"refused: an endpoint"
+	"refused: an endpoint",
+	"refused: no order"
 ]
 
 /** The inferences the program asserts of an admitted case, by what the engine typed it. */
@@ -834,8 +837,8 @@ const homes: { readonly [F in Fn]: Arr.NonEmptyReadonlyArray<Family> } = {
 	gcd: ["integer", "numeric", "float"],
 	lcm: ["integer", "numeric"],
 	power: ["numeric", "float", "integer"],
-	least: ["integer", "numeric", "float", "money", "text", "date"],
-	greatest: ["integer", "numeric", "float", "money", "text", "date"],
+	least: ["integer", "numeric", "float", "money", "text", "date", "code"],
+	greatest: ["integer", "numeric", "float", "money", "text", "date", "code"],
 	concat: ["text", "uuid"],
 	startsWith: ["text", "integer"],
 	endsWith: ["text", "integer"],
@@ -851,13 +854,17 @@ const homes: { readonly [F in Fn]: Arr.NonEmptyReadonlyArray<Family> } = {
 
 const numericHomes: Arr.NonEmptyReadonlyArray<Family> = ["integer", "numeric", "float", "money"]
 
-/** The families an aggregate's operand is drawn from: the numeric family's, money's, and an ordered and unordered other. */
+/**
+ * The families an aggregate's operand is drawn from: the numeric family's, money's, an ordered and unordered other, and
+ * closed ids of an ordered and an unordered roster.
+ */
 const aggregateHomes: Arr.NonEmptyReadonlyArray<Family> = [
 	...numericHomes,
 	"text",
 	"date",
 	"boolean",
-	"vector"
+	"vector",
+	"code"
 ]
 
 /** One case's drawing: its swarm, the source its decisions come from, the constructs it reached and its parameters. */
@@ -2638,7 +2645,15 @@ const claimOf = (reason: CompileReason): Claim => {
 					kind: "refusal",
 					refusal: "PostgreSQL has no cast between these types that Compute admits"
 				}
-			: { kind: "prose", why: `the engine: ${oneLine(reason.capability)}` }
+			: (Str.startsWith("ordering:")(reason.capability) ||
+						Str.startsWith("minMax:")(reason.capability)) &&
+				  Str.includes("unordered code ")(reason.capability)
+				? {
+						kind: "refusal",
+						refusal:
+							"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles"
+					}
+				: { kind: "prose", why: `the engine: ${oneLine(reason.capability)}` }
 	}
 	return { kind: "prose", why: `the engine: ${reason._tag}` }
 }
@@ -2659,6 +2674,7 @@ type Imported =
 	| "Vector"
 	| "Infer"
 	| "Rostered"
+	| "Unordered"
 
 /** The field of Cell each contract is the type of, through which the program names the contract's host type. */
 const contractFields: Readonly<Record<string, FieldName>> = {
@@ -2736,8 +2752,9 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 				)
 			}
 			uses.add("Rostered")
+			const brands = rosterBrandsText(t.roster.order, roster, uses)
 			return Arr.join(
-				Arr.map(t.roster.handles, (h) => `(${jsonText(h)} & Rostered<${roster}>)`),
+				Arr.map(t.roster.handles, (h) => `(${jsonText(h)} & ${brands})`),
 				" | "
 			)
 		}
@@ -2747,6 +2764,20 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 				Arr.map(t.roster.handles, (h) => jsonText(h)),
 				" | "
 			)}> & Rostered<${jsonText(t.roster.closed)}>`
+	}
+}
+
+/**
+ * The brands a closed id of a roster of `order` named `roster` carries, as the program spells them: its identity, and
+ * Unordered beside it where the roster is unordered.
+ */
+const rosterBrandsText = (order: RosterOrder, roster: string, uses: Set<Imported>): string => {
+	switch (order) {
+		case "ordered":
+			return `Rostered<${roster}>`
+		case "unordered":
+			uses.add("Unordered")
+			return `Rostered<${roster}> & Unordered`
 	}
 }
 
@@ -3558,6 +3589,7 @@ const readings: { readonly [F in FieldName]: Reading } = {
 	vec: asWritten,
 	wide: asWritten,
 	tone: asWritten,
+	hue: asWritten,
 	tones: asWritten,
 	shades: asWritten
 }
@@ -4099,6 +4131,7 @@ const constructsOf: { readonly [N in ComputeNote]?: ReadonlyArray<ComputeFeature
 	"refused: a power": ["power"],
 	"refused: a cast": ["cast"],
 	"refused: an endpoint": ["width", "lower", "upper"],
+	"refused: no order": ["lt", "le", "gt", "ge", "between", "least", "greatest", "min", "max"],
 	"exact money": ["add", "sub"],
 	"a guarded partial operation": ["when"],
 	"a guarded parameter": ["when"],

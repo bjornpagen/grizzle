@@ -68,7 +68,7 @@ export type Feature =
 	| "a served file calling none of the installation's functions"
 	| "two roles"
 
-const Kind = closed("Kind", ["Low", "High"])
+const Kind = closed.ordered("Kind", ["Low", "High"])
 const R = relation("R", { k: pg.integer, v: pg.integer, kind: closedId(Kind) }, ["k"])
 const Tag = relation("Tag", { r: pg.integer, label: pg.integer }, ["r"])
 const S = relation("S", { id: pg.serial, note: pg.integer }, ["id"])

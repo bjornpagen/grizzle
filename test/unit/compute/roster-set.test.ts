@@ -67,8 +67,8 @@ export const aSetOverARosterIsAdmittedAtAFieldExactlyWhenItStatesThatFieldsRoste
 			check: (_, k: Case<Feature>) => (c) =>
 				Effect.gen(function* () {
 					const rosters = {
-						Alpha: closed("Alpha", handlesOf(c.alpha)),
-						Beta: closed("Beta", handlesOf(c.beta))
+						Alpha: closed.ordered("Alpha", handlesOf(c.alpha)),
+						Beta: closed.ordered("Beta", handlesOf(c.beta))
 					}
 					const made = c.maker === "a plain Set" ? undefined : rosters[c.maker]
 					const pool = made === undefined ? names : made.handles

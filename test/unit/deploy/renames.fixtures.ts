@@ -367,7 +367,7 @@ const descOf = (dimension: Exclude<Dimension, "login">, held: ReadonlyArray<Name
 		case "handle":
 			return {
 				name: "Renames",
-				relations: [closed("R", held)],
+				relations: [closed.ordered("R", held)],
 				statements: [],
 				extends: undefined
 			}
@@ -708,7 +708,7 @@ export const respelledDesc = (respelling: Respelling, at: keyof Spelling): Schem
 	return {
 		name: "Renames",
 		relations: [
-			closed(kind, ["Low", "High"]),
+			closed.ordered(kind, ["Low", "High"]),
 			relation(name, { id: f.uuid, [fixed]: f.closedId(kind) }, ["id"])
 		],
 		statements: [key(onWhere(name, ["id"], eq(field(fixed), literal("Low"))))],

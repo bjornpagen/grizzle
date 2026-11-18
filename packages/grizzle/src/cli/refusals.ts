@@ -15,11 +15,13 @@ interface Refusal {
  * documentation fails that test. Each stage of the apply runner (packages/grizzle/src/adapter/migrate/errors.ts) and of the command line
  * (errors.ts) has its fix here too, typed by the stage, so a new stage cannot go undocumented.
  *
- * A roster's handles out of their codes' order are refused, by `grizzle check` and by `grizzle generate`, with one fix:
- * a stored code never changes meaning, so a roster's order, its comparison order, is its codes' order, and a new
- * handle goes after every handle declared before it.
+ * An ordered roster's handles out of their codes' order are refused, by `grizzle check` and by `grizzle generate`, with
+ * one fix, as the engine's refusal states it (ir/codes.ts reorderFix): a stored code never changes meaning, so an ordered roster's order,
+ * its comparison order, is its codes' order, and a new handle goes after every handle declared before it; a roster
+ * whose order means nothing is closed.unordered, whose handles any order declares.
  */
-const appendHandles = "append new handles; a roster's order is its codes' order"
+const appendHandles =
+	"append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing"
 
 /** The findings of `grizzle check`, which `grizzle migrate` runs first. */
 export const refusalText = {
@@ -72,7 +74,8 @@ export const refusalText = {
 		fix: "run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed"
 	},
 	rosterReordered: {
-		problem: "a roster declares a handle before one that holds a lower code in snapshot.json",
+		problem:
+			"an ordered roster declares a handle before one that holds a lower code in snapshot.json",
 		fix: appendHandles
 	},
 	placeholder: {

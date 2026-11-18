@@ -346,7 +346,7 @@ const versionOf = (
 ): SchemaDesc => {
 	const naming = at.kind === "plain" ? asFirst : at.naming
 	const spare = relation(naming.relation("Spare"), { id: integer }, ["id"])
-	const kinds = closed(naming.roster, Arr.map(handles, naming.handle))
+	const kinds = closed.ordered(naming.roster, Arr.map(handles, naming.handle))
 	const weights = closedRelation(
 		weight,
 		{ kind: { kind: "closedId", roster: naming.roster }, w: integer },

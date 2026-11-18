@@ -54,7 +54,7 @@ export type BuiltRelation = Relation<
 	Record<string, FieldBase>,
 	readonly [string, ...Array<string>]
 >
-export type BuiltClosed = Roster<string, readonly [string, ...Array<string>]>
+export type BuiltClosed = Roster<string, readonly [string, ...Array<string>], "ordered">
 /** A role built from a spec: its entries and lists are known only at run time, and its type reads no context. */
 export type BuiltRole = ReturnType<
 	typeof role<
@@ -459,7 +459,7 @@ export const buildBase = (
 	Effect.gen(function* () {
 		const rosters: Record<string, BuiltClosed> = {}
 		for (const c of spec.closed) {
-			rosters[c.name] = yield* attempt(`closed ${c.name}`, () => closed(c.name, c.members))
+			rosters[c.name] = yield* attempt(`closed ${c.name}`, () => closed.ordered(c.name, c.members))
 		}
 		const kit: Kit = { rosters, contracts: yield* contractsOf(spec) }
 		const relations: Record<string, BuiltRelation> = {}

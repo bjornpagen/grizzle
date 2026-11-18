@@ -53,7 +53,7 @@ import {
 	wildcard
 } from "#test/unit/schema/support.ts"
 
-export const Kind = closed("Kind", ["Automatic", "Manual"], [])
+export const Kind = closed("Kind", ["Automatic", "Manual"], "ordered", [])
 
 export const Task = relation(
 	"Task",
@@ -74,7 +74,7 @@ export const idsOf = (over: unknown, sources: Arr.NonEmptyReadonlyArray<unknown>
 		})
 	})
 
-/** A drawn roster, which every draw makes nonempty, as the nonempty list closed(...) takes. */
+/** A drawn roster, which every draw makes nonempty, as the nonempty list closed.ordered(...) takes. */
 export const rosterOf = (handles: ReadonlyArray<string>): Arr.NonEmptyReadonlyArray<string> => {
 	const [first, ...rest] = handles
 	if (first === undefined) {
@@ -927,7 +927,7 @@ export type AlternativesFeature =
 	| "an unarmed handle"
 	| "a two-field key"
 
-export const Alien = closed("Alien", ["X"], [])
+export const Alien = closed("Alien", ["X"], "ordered", [])
 
 const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"], [])
 

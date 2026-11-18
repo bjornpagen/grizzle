@@ -101,7 +101,7 @@ export const schemaOf = (w: World): SchemaDesc => {
 	return decodedSchema({
 		name: "World",
 		relations: [
-			...Arr.map(ss, (s) => closed(s.closed, liveOf(s))),
+			...Arr.map(ss, (s) => closed.ordered(s.closed, liveOf(s))),
 			relation("Item", fields, ["id"]),
 			relation("Tags", { id: f.uuid, set: { kind: "bits", roster: first.closed } }, ["id"]),
 			grade

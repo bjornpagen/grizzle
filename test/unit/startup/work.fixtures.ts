@@ -128,8 +128,8 @@ type Generated = Relation<string, Record<string, FieldBase>, readonly [string, .
  * relation of `rows` rows a relation's rows are held to. */
 const schemaOf = (size: Size) => {
 	const Ident = str.regex("^[a-z0-9_]{1,64}$")
-	const A = closed("GuardA", ["a0", ...upTo(size.rows - 1, (i) => `a${i + 1}`)])
-	const B = closed("GuardB", ["b0"])
+	const A = closed.ordered("GuardA", ["a0", ...upTo(size.rows - 1, (i) => `a${i + 1}`)])
+	const B = closed.ordered("GuardB", ["b0"])
 	const Weight = closed.relation(
 		"Weight",
 		{ a: closedId(A), b: closedId(B), w: pg.integer },

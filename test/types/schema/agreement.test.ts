@@ -52,6 +52,18 @@ export const schemas = agreement(schemaCases, {
 			replacement:
 				'\tconst parent = drawnField(t, fieldTerm(t, parentTerm, "a tree\'s side", loc), "parent", loc)\n\tconst at = drawnField(t, fieldTerm(t, atTerm, "a tree\'s side", loc), "index", loc)',
 			why: "A tree's parent and index go back on the generic family check (analysis/theory/families.ts treeShape), so the engine refuses a caller's parent or index as MalformedDescription where the types name the tree's shape; the treeSideWritten probe fails placement."
+		},
+		{
+			file: "packages/engine/src/ir/monoid.ts",
+			original: '\t\tcase "code":\n\t\t\treturn base.caps.includes("minMax")',
+			replacement: '\t\tcase "code":\n\t\t\treturn true',
+			why: "max admits a closed id of an unordered roster (ir/monoid.ts bounded), which has no least value and no order, so the engine admits the planted fold where the types refuse it; the unorderedMax probe fails."
+		},
+		{
+			file: "packages/engine/src/types/schema/statements.ts",
+			original: "\t\t\t: [D] extends [Unordered]\n\t\t\t\t? false\n\t\t\t\t: true",
+			replacement: "\t\t\t: [D] extends [Unordered]\n\t\t\t\t? true\n\t\t\t\t: true",
+			why: "A fold's max over a closed id of an unordered roster is typed admitted (types/schema/statements.ts MonoidAdmits), where the engine refuses it; the unorderedMax probe fails."
 		}
 	]
 })

@@ -640,7 +640,7 @@ export type WRelationValue = Relation<
 	readonly [string, ...Array<string>]
 >
 
-const rosterOf = () => closed(rosterName, [...rosterHandles])
+const rosterOf = () => closed.ordered(rosterName, [...rosterHandles])
 type WRoster = ReturnType<typeof rosterOf>
 
 const schemaOf = (

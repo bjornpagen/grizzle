@@ -48,7 +48,7 @@ const weighedKinds = ["light", "heavy"] as const
 
 const kinds = [...weighedKinds, "unweighed"] as const
 
-const Kind = closed("Kind", kinds)
+const Kind = closed.ordered("Kind", kinds)
 
 const Weights = closed.relation(
 	"Weights",

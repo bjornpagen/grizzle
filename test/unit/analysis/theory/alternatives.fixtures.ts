@@ -71,7 +71,7 @@ export const alternativesSchema = (arms: Assignment, restated: boolean): SchemaD
 	)
 	return schemaOf(
 		[
-			closed("R", handles),
+			closed.ordered("R", handles),
 			relation("P", { id: f.uuid, tag: f.closedId("R") }, ["id"]),
 			relation("A", { id: f.uuid }, ["id"]),
 			relation("B", { id: f.uuid }, ["id"])

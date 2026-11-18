@@ -19,10 +19,34 @@ import { type OrderSubject } from "#compiler/logical/order.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { asc as ascending, type BuiltQuery, Ir } from "#test/support/fixtures/ir/build.ts"
+import { closedIdTypeOf, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
 import { logicalEnv, noImmediate, theoryUnder } from "#test/unit/analysis/logical/support.ts"
 
 const int4 = plainType("int4")
+
+/**
+ * What a column of a case is, by how an order reads it: an integer and an ordered roster's closed id have an admitted
+ * order, which a stated key reads and a completion breaks ties by; an unordered roster's closed id has none to state,
+ * and its codes, which never move, still break a tie a completion leaves; a set has neither.
+ */
+const columnKinds = ["integer", "ordered closed id", "unordered closed id", "set"] as const
+type ColumnKind = (typeof columnKinds)[number]
+
+/** Whether an order the caller states may name a column of `kind`: its type has an admitted order. */
+export const statesOrder = (kind: ColumnKind): boolean =>
+	kind === "integer" || kind === "ordered closed id"
+
+/** Whether a completion may break a tie by a column of `kind`: an admitted order, or a closed id's codes. */
+const breaksTie = (kind: ColumnKind): boolean => kind !== "set"
+
+/** The type of a column of each kind. */
+const kindTypes: { readonly [K in ColumnKind]: ScalarType } = {
+	integer: int4,
+	"ordered closed id": closedIdTypeOf("Kind", "ordered", ["Automatic", "Manual"]),
+	"unordered closed id": closedIdTypeOf("Hue", "unordered", ["Automatic", "Manual"]),
+	set: scalarOf({ kind: "bits", roster: "Kind" }, { Kind: ["Automatic", "Manual"] })
+}
 
 const col = (name: string, type: ScalarType): HeadingColumn => ({ name, type })
 
@@ -76,12 +100,19 @@ type Spec =
 			readonly step: "stated" | "discriminant" | "key" | "heading"
 	  }
 
-export const specOrder = (s: OrderSubject, user: ReadonlyArray<OrderKey>): Spec => {
+export const specOrder = (
+	s: OrderSubject,
+	user: ReadonlyArray<OrderKey>,
+	kindOf: (column: string) => ColumnKind
+): Spec => {
 	const names = Arr.map(s.heading, (c) => c.name)
 	const ordered = new Set<string>()
 	for (const k of user) {
 		if (!names.includes(k.column) || ordered.has(k.column)) {
 			return { kind: "refused", reason: "MalformedDescription" }
+		}
+		if (!statesOrder(kindOf(k.column))) {
+			return { kind: "refused", reason: "UnsupportedOperation" }
 		}
 		ordered.add(k.column)
 	}
@@ -117,9 +148,9 @@ export const specOrder = (s: OrderSubject, user: ReadonlyArray<OrderKey>): Spec 
 				)
 			)
 		)
-	/** Every set of remaining fields, the fewest first, then by its sorted names. */
+	/** Every set of remaining fields that break ties, the fewest first, then by its sorted names. */
 	const sets = Arr.sort(
-		subsetsOf(remaining),
+		subsetsOf(Arr.filter(remaining, (c) => breaksTie(kindOf(c)))),
 		Order.combine(
 			Order.mapInput(Order.Number, (set: ReadonlyArray<string>) => set.length),
 			Order.mapInput(Arr.makeOrder(Order.String), (set: ReadonlyArray<string>) =>
@@ -143,7 +174,8 @@ export const specOrder = (s: OrderSubject, user: ReadonlyArray<OrderKey>): Spec 
 		}
 	}
 	const all = [...withDiscriminant, ...Arr.map(remaining, asc)]
-	return s.discriminant.length > 0 && !covered([...discriminant, ...remaining])
+	return Arr.some(remaining, (c) => !breaksTie(kindOf(c))) ||
+		(s.discriminant.length > 0 && !covered([...discriminant, ...remaining]))
 		? { kind: "refused", reason: "UnsupportedOperation" }
 		: { kind: "order", keys: all, step: "heading" }
 }
@@ -158,9 +190,17 @@ const names = ["a", "b", "c", "d"] as const
 const columnsOf = (heading: ReadonlyArray<string>, mask: number): ReadonlyArray<string> =>
 	Arr.flatMap([...heading.entries()], ([i, c]) => (((mask >> i) & 1) === 1 ? [c] : []))
 
+/**
+ * The kind of every column of a union case's heading: an id, an account, Kind's closed id and a payload field, each of a
+ * type with an admitted order.
+ */
+export const unionColumnKind = (): ColumnKind => "integer"
+
 /** The drawn parts of a case, before they are read as a subject. */
 interface CaseDraw {
 	readonly width: number
+	/** Each column's kind, an integer three times in four. */
+	readonly kinds: readonly [ColumnKind, ColumnKind, ColumnKind, ColumnKind]
 	/** Each column's link: an earlier column whose class it joins, or itself. */
 	readonly links: readonly [number, number, number, number]
 	readonly keys: ReadonlyArray<number>
@@ -172,8 +212,13 @@ interface CaseDraw {
 	readonly rows: ReadonlyArray<ReadonlyArray<number>>
 }
 
+/** A column's kind: an integer three times in four, and each other kind otherwise. */
+const kindGen: Gen<ColumnKind> = (source) =>
+	source.draw(int(0, 3)) < 3 ? "integer" : source.draw(element(columnKinds))
+
 const caseDrawGen: Gen<CaseDraw> = (source) => ({
 	width: source.draw(int(0, 4)),
+	kinds: [source.draw(kindGen), source.draw(kindGen), source.draw(kindGen), source.draw(kindGen)],
 	links: [0, source.draw(int(0, 1)), source.draw(int(0, 2)), source.draw(int(0, 3))],
 	keys: source.draw(array(int(0, 15), { min: 0, max: 3 })),
 	fixed: source.draw(int(0, 15)),
@@ -214,8 +259,10 @@ export const caseGen = map(caseDrawGen, (c) => {
 		c.discriminant.kind === "column" && c.discriminant.index < heading.length
 			? [defined(heading[c.discriminant.index], "the discriminant column")]
 			: []
+	const kindOf = (column: string): ColumnKind =>
+		defined(c.kinds[heading.indexOf(column)], "a heading column's kind")
 	const s = subject(
-		Arr.map(heading, (n) => col(n, int4)),
+		Arr.map(heading, (n) => col(n, kindTypes[kindOf(n)])),
 		Arr.map(c.keys, keyOf),
 		{ fixed: columnsOf(heading, c.fixed), discriminant }
 	)
@@ -230,7 +277,7 @@ export const caseGen = map(caseDrawGen, (c) => {
 			i < heading.length ? defined(row[root(i)], "the class's first column's value") : v
 		)
 	)
-	return { subject: s, user, rows }
+	return { subject: s, user, rows, kindOf }
 })
 
 /**
@@ -270,6 +317,8 @@ type Refusal = "MalformedDescription" | "UnsupportedOperation"
 
 export type OrderFeature =
 	| `refused ${Refusal}`
+	| "an order stated over a column of no order"
+	| "a tie broken by an unordered closed id"
 	| "total as stated"
 	| "completed by the discriminant"
 	| "completed by a narrower key"

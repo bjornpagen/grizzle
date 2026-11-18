@@ -68,7 +68,7 @@ const text = str.regex("^.{0,2}$", "su")
 /** Unbounded text, no key. */
 const prose = str.regex("^.*$", "su")
 
-const rosterValue = (s: ProgramSchema) => closed(s.roster.name, s.roster.handles)
+const rosterValue = (s: ProgramSchema) => closed.ordered(s.roster.name, s.roster.handles)
 type RosterValue = ReturnType<typeof rosterValue>
 
 /**

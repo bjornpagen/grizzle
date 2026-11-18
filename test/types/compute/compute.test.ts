@@ -44,6 +44,12 @@ export const compute = agreement(computeAimed, {
 				'export type FirstTerm<A> = A extends FirstValue\n\t? Refusal<"a term first: a literal takes its place opposite a term, never first">',
 			replacement: "export type FirstTerm<A> = A extends FirstValue\n\t? unknown",
 			why: "A literal is admitted as an operation's first operand (types/compute/scalar.ts FirstTerm answers unknown for a JavaScript value); the agreement's program fails."
+		},
+		{
+			file: "packages/engine/src/types/compute/scalar.ts",
+			original: "\t: [TypeOfTerm<A>] extends [Unordered]\n\t\t? true\n\t\t: false",
+			replacement: "\t: [TypeOfTerm<A>] extends [Unordered]\n\t\t? false\n\t\t: false",
+			why: "A closed id of a closed.unordered roster reads as ordered (types/compute/scalar.ts HasNoOrder answers false for it), so the types admit a comparison, a range, LEAST, GREATEST, min and max over it, which the engine refuses; the agreement's program fails."
 		}
 	]
 })

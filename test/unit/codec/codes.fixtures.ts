@@ -77,6 +77,7 @@ const installed = (live: number) => {
 	)
 	const roster = Roster.of(
 		closed,
+		"ordered",
 		nonEmpty(
 			Arr.map(
 				Arr.filter(

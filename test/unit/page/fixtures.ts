@@ -17,7 +17,7 @@ import { compileTemplate, inputArtifacts, type TestCompileOptions } from "#test/
 import { conservativePage } from "#test/support/conservative.ts"
 
 const Title = str.regex("^.+$", "su")
-const Level = closed("Level", ["Low", "High"])
+const Level = closed.ordered("Level", ["Low", "High"])
 export const Task = relation(
 	"Task",
 	{ id: uuid, account: uuid, priority: pg.integer, title: Title },

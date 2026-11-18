@@ -658,9 +658,10 @@ export class ChainRefused extends Data.TaggedError("ChainRefused")<{
 }
 
 /**
- * Roster `roster` of `schema` declares `earlier` before `later`, but the committed snapshot records the lower code for
- * `later` (ir/codes.ts RosterReordered). A stored code never changes meaning, so a roster's order, its comparison
- * order, is its codes' order, and no draft can reorder it: a new handle goes after every handle declared before it.
+ * Ordered roster `roster` of `schema` declares `earlier` before `later`, but the committed snapshot records the lower
+ * code for `later` (ir/codes.ts RosterReordered). A stored code never changes meaning, so an ordered roster's order,
+ * its comparison order, is its codes' order, and no draft can reorder it: a new handle goes after every handle declared
+ * before it. An unordered roster (closed.unordered) has no order, so no declaration of it is refused.
  */
 export class RosterReordered extends Data.TaggedError("RosterReordered")<{
 	readonly schema: string

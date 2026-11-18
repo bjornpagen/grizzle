@@ -65,6 +65,8 @@ import {
 	type RoleDesc,
 	type RoleEntryDesc,
 	type RoleWritingKey,
+	type RosterDesc,
+	rosterOrderOf,
 	type SchemaDesc,
 	type SchemaRelationDesc,
 	schemaLevelDesc,
@@ -743,9 +745,6 @@ const headingOf = (desc: StoredRelationDesc): Readonly<Record<string, FieldDesc>
 			return desc.fields
 	}
 }
-
-/** A roster's Description. */
-type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
 
 /** An ordinary relation's Description. */
 type OrdinaryRelationOf = Extract<RelationDesc, { readonly kind: "relation" }>
@@ -2375,7 +2374,7 @@ class Owner {
 					...owning,
 					kind: r.kind,
 					desc: r,
-					roster: Roster.of(name, r.handles),
+					roster: Roster.of(name, rosterOrderOf(r), r.handles),
 					named,
 					ident: identifierOf(named),
 					fields: this.#closedFields(owning, entry, rosterHeading(r)),

@@ -95,14 +95,14 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 							const [seats, label] = defined(c.payload[i])
 							return { id, seats, label: defined(labelPool[label]) }
 						})
-						const Tier = closed("Tier", c.tiers)
+						const Tier = closed.ordered("Tier", c.tiers)
 						const TierInfo = closed.relation(
 							"TierInfo",
 							{ id: closedId(Tier), seats: pg.integer, label: Label },
 							["id"],
 							tierFacts
 						)
-						const Region = closed("Region", c.regions)
+						const Region = closed.ordered("Region", c.regions)
 						const Plans = schema("Plans", [Tier, TierInfo, Region], [])
 						const tiers = query(Plans).rule((r) => {
 							const { id } = v(Tier, "tier")

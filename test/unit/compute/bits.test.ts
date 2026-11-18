@@ -76,8 +76,8 @@ export const theHostsSetAlgebraRefusesEveryOperationOverTwoSetsOfTwoRostersWhich
 		check: (_, c: Case<NativeFn>) => (op) =>
 			Effect.sync(() => {
 				const core = defined(twoOperandCores[op.fn], `the Compute member of ${op.fn}`)
-				const left = bits(closed("Left", ["a", "b"]))
-				const right = bits(closed("Right", ["a", "b"]))
+				const left = bits(closed.ordered("Left", ["a", "b"]))
+				const right = bits(closed.ordered("Right", ["a", "b"]))
 				const x = Compute.literal(left, new Set(["a"]))
 				const y = Compute.literal(right, new Set(["a"]))
 				throwsRefused(() => core(x, y), "MalformedDescription")

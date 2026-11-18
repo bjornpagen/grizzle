@@ -91,6 +91,7 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 				"an attachment",
 				"a change",
 				"a roster with a hole",
+				"an unordered roster served",
 				"a dropped member that does not read back",
 				"a file a host reads that loads",
 				"a stale program named",
@@ -134,6 +135,12 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
 					replacement: "\t\t\t\t\tthis.#shared[Number(payload)]",
 					why: "A reference is read as whatever the table holds at its index, an entry not read yet included; the table cut short is read rather than refused."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: '\t\t\t\treturn rosterOf(this.#handles, "unordered", payload, within)',
+					replacement: '\t\t\t\treturn rosterOf(this.#handles, "ordered", payload, within)',
+					why: "An unordered roster is read back as an ordered one, over its live handles in code order; the round trip fails."
 				}
 			]
 		}

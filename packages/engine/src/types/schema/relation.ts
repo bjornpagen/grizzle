@@ -1,6 +1,7 @@
 import type { Decoded, RowDecoder } from "#compiler/core/decoder.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Delivering, Phantom } from "#compiler/core/phantom.ts"
+import type { RosterOrder } from "#compiler/ir/scalar.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type {
 	Carrier,
@@ -14,7 +15,7 @@ import type {
 	Predicate,
 	Refusal,
 	Repeats,
-	Rostered,
+	RosterBrands,
 	SqlOfCarrier,
 	Source,
 	Term,
@@ -228,25 +229,32 @@ export interface Relation<
 }
 
 /**
- * A roster: the handles it introduces, a non-empty tuple in declared order, which is their codes' order and comparison
- * order, and the order the schema expands an alternatives law's arms in. Its facts are its handles under `id`.
- * Any roster: the members every one has.
+ * A roster: the handles it introduces, a non-empty tuple as declared, and its order (ir/scalar.ts RosterOrder), which its
+ * declaration states: an ordered roster's declared order is its handles' codes' order and comparison order, and an
+ * unordered roster has none, so its closed id's domain carries Unordered (RosterBrands), which no ordered operation
+ * reads. Its facts are its handles under `id`. Any roster: the members every one has.
  */
 export interface AnyRoster {
 	readonly kind: "closed"
 	readonly name: string
+	readonly order: RosterOrder
 	readonly handles: NonEmptyReadonlyArray<string>
 	readonly fact: RowDecoder<unknown>
 	readonly heading: unknown
 }
 
-export interface Roster<Name extends string, Handles extends NonEmptyReadonlyArray<string>>
+export interface Roster<
+	Name extends string,
+	Handles extends NonEmptyReadonlyArray<string>,
+	Order extends RosterOrder
+>
 	extends AnyRoster, Delivering<RosterFactOf<Handles[number]>> {
 	readonly kind: "closed"
 	readonly name: Name
+	readonly order: Order
 	readonly handles: Handles
 	readonly fact: RowDecoder<RosterFactOf<Handles[number]>>
-	readonly heading: ClosedId<Handles[number], Name>
+	readonly heading: ClosedId<Handles[number], Name, Order>
 	/**
 	 * A member of the roster as a typed constant: a term of the roster's closed id, whose one value, which its column
 	 * delivers, is the member, and whose language is every handle, which a JavaScript value opposite it may be. It
@@ -255,7 +263,7 @@ export interface Roster<Name extends string, Handles extends NonEmptyReadonlyArr
 	readonly handle: <const M extends Handles[number]>(
 		member: M
 	) => Term<
-		Handles[number] & Rostered<Name>,
+		Handles[number] & RosterBrands<Name, Order>,
 		unknown,
 		ConstantOrigin,
 		"code",
@@ -267,10 +275,10 @@ export interface Roster<Name extends string, Handles extends NonEmptyReadonlyArr
 
 /**
  * The id part of a roster's facts and heading: its handle column under `id`, a closed id of the roster Name's
- * identity. A record type, so it is a part of a record (core/decoder.ts Part).
+ * identity, of its order (RosterBrands). A record type, so it is a part of a record (core/decoder.ts Part).
  */
-export type ClosedId<Handle, Name extends string> = {
-	readonly id: Carrier<Handle, "code", Handle & Rostered<Name>>
+export type ClosedId<Handle, Name extends string, Order extends RosterOrder> = {
+	readonly id: Carrier<Handle, "code", Handle & RosterBrands<Name, Order>>
 }
 
 /** What a roster's fact decoder delivers: its handle under `id`. */
@@ -413,7 +421,7 @@ export type FactOfFields<Fields> = Decoded<[Fields]>
  * at its own name: its handle's domain is its roster's (Rostered<Name>), invariantly, so no other name meets it.
  */
 export type Fact<R> =
-	R extends Roster<infer _Name, infer Handles>
+	R extends Roster<infer _Name, infer Handles, infer _Order>
 		? { readonly id: Handles[number] }
 		: R extends { readonly fields: infer Fields }
 			? FactOfFields<Fields>

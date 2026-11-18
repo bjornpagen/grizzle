@@ -34,7 +34,7 @@ import {
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
-import { nativeCapabilities } from "#compiler/scalar/native.ts"
+import { nativeCapabilities, unorderedCodeCapabilities } from "#compiler/scalar/native.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 
 /** The capability set of a carrier. */
@@ -43,6 +43,15 @@ export const capabilitiesOf = (carrier: Carrier): CapabilitySet =>
 
 export const hasCapability = (t: ScalarType, capability: Capability): boolean =>
 	t.caps.includes(capability)
+
+/**
+ * Whether a type has a total order that an order grizzle completes may break ties by (logical/order.ts completeOrder):
+ * an admitted order (the ordering capability), or a closed id's codes. A closed id's codes are history and never move,
+ * so an unordered roster's closed id, which no stated order reads, still breaks a tie the caller left open, the same
+ * way on every run.
+ */
+export const breaksTies = (t: ScalarType): boolean =>
+	hasCapability(t, "ordering") || baseOf(t).carrier === "code"
 
 /**
  * Whether a type is stored only: its capability set is storage alone, so a value of it is written and read back whole
@@ -525,7 +534,7 @@ const scalarAt = (
 			return Result.map(rosterAt(desc.roster, env, loc), (roster) =>
 				Object.freeze({
 					carrier: "code",
-					caps: capabilitiesOf("code"),
+					caps: closedIdCapabilities(roster),
 					contract: undefined,
 					roster
 				})
@@ -551,6 +560,19 @@ const scalarAt = (
 			)
 		case "contract":
 			return Result.map(contractInfoOf(desc, env, loc), (info) => withContract(info.base, info))
+	}
+}
+
+/**
+ * A closed id's capabilities, by its roster's order: an ordered roster's are the code carrier's, and an unordered
+ * roster's have no ordering and no minMax (unorderedCodeCapabilities).
+ */
+const closedIdCapabilities = (roster: Roster): CapabilitySet => {
+	switch (roster.order) {
+		case "ordered":
+			return capabilitiesOf("code")
+		case "unordered":
+			return capabilitySet(unorderedCodeCapabilities)
 	}
 }
 

@@ -462,7 +462,7 @@ export const liveWorld = (c: LiveCase, name: string) => {
 	const Probe = relation(probeRelation, { id: pg.integer }, ["id"])
 	const Shelf = relation(familyRelations.owner, { id: pg.integer, n: drawn(natural) }, ["id"])
 	const Book = relation(familyRelations.member, { id: pg.integer, shelf: pg.integer }, ["id"])
-	const Tier = closed(closedRead.relation, ["gold", "silver"])
+	const Tier = closed.ordered(closedRead.relation, ["gold", "silver"])
 	const base = schema(
 		name,
 		[Item0, Item1, Probe, Shelf, Book, Tier],

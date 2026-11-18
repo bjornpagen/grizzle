@@ -910,7 +910,7 @@ type ProjectRelation = Relation<
 >
 
 const rosterOf = (spec: SchemaSpec) =>
-	closed(
+	closed.ordered(
 		"Kind",
 		Arr.map(spec.handles, (h) => h.name)
 	)

@@ -90,9 +90,12 @@ const identicalRegex = (a: RegexRef | "wildcard", b: RegexRef | "wildcard"): boo
 export const identicalText = (a: TextInfo, b: TextInfo): boolean =>
 	identicalRegex(a.regex, b.regex) && a.lengthBound === b.lengthBound && a.byteBound === b.byteBound
 
-/** A roster: its closed relation and its handles in code order, by their digest, as its canonical form states them. */
+/**
+ * A roster: its closed relation, its order and its handles in that order, by their digest, as its canonical form
+ * states them.
+ */
 export const identicalRoster = (a: Roster, b: Roster): boolean =>
-	a.closed === b.closed && a.digest === b.digest
+	a.closed === b.closed && a.order === b.order && a.digest === b.digest
 
 /** A span's endpoint type and its fixed width, none for a span of no fixed width. */
 export const identicalSpan = (

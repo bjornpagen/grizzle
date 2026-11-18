@@ -544,7 +544,10 @@ const admitAlternatives = (
 	requireFields(parentRel, [disc], label)
 	const rosterDesc = relationDescOf(roster, `${label} roster`)
 	if (rosterDesc.kind !== "closed") {
-		throw malformed(label, "a roster built by closed(name, handles)")
+		throw malformed(
+			label,
+			"a roster built by closed.ordered(name, handles) or closed.unordered(name, handles)"
+		)
 	}
 	const discDesc = parentRel.kind === "derived" ? undefined : parentRel.fields[disc]
 	if (

@@ -230,17 +230,36 @@ type ClosedFieldsCheck<Fields> = [
 	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no serial, span, set, vector or bytes">
 
 /**
- * closed(name, handles): a roster, the handles it introduces, each once, in declared order, which is their codes'
- * order and comparison order. Its `handle(member)` is the typed constant of a member.
+ * closed.ordered(name, handles): a roster whose order means something, the handles it introduces, each once, in
+ * declared order, which is their codes' order and comparison order: a closed id of it compares, ranges, orders and
+ * folds by it, and a declaration that puts two handles out of their codes' order is refused (RosterReordered). Its
+ * `handle(member)` is the typed constant of a member.
  */
-const closedRoster = <
+const orderedRoster = <
 	const Name extends string,
 	const Handles extends readonly [string, ...string[]]
 >(
 	name: Name,
 	handles: Handles & NonEmptyReadonlyArray<Handles[number]> & DistinctHandles<Handles>,
 	...extra: ReadonlyArray<never>
-): Roster<Name, readonly [...Handles]> => closedBuilder<Name, Handles>(name, handles, extra)
+): Roster<Name, readonly [...Handles], "ordered"> =>
+	closedBuilder<Name, Handles, "ordered">(name, handles, "ordered", extra)
+
+/**
+ * closed.unordered(name, handles): a roster whose order means nothing, the handles it introduces, each once, in any
+ * order: no comparison, range, orderBy, least, greatest, min, max or fold max reads a closed id of it, which its type
+ * refuses (types/compute/scalar.ts OrderedOperand), and its codes are history alone, so a declaration may list its handles in
+ * any order. Its `handle(member)` is the typed constant of a member.
+ */
+const unorderedRoster = <
+	const Name extends string,
+	const Handles extends readonly [string, ...string[]]
+>(
+	name: Name,
+	handles: Handles & NonEmptyReadonlyArray<Handles[number]> & DistinctHandles<Handles>,
+	...extra: ReadonlyArray<never>
+): Roster<Name, readonly [...Handles], "unordered"> =>
+	closedBuilder<Name, Handles, "unordered">(name, handles, "unordered", extra)
 
 /**
  * closed.relation(name, fields, key, rows): a closed relation, its rows fixed when the schema compiles. The key is
@@ -269,8 +288,15 @@ const closedRelation = <
 type DistinctRows<Name, Rows, KeyFields extends ReadonlyArray<string>> =
 	ConflictsAtKey<Rows, KeyFields> extends true ? KeyLawRefusal<Name, KeyFields> : unknown
 
-export const closed: typeof closedRoster & { readonly relation: typeof closedRelation } =
-	Object.freeze(Object.assign(closedRoster, { relation: closedRelation }))
+/**
+ * The closed relations: closed.ordered and closed.unordered, a roster that states whether its order means something, and
+ * closed.relation, a closed relation over rosters.
+ */
+export const closed: {
+	readonly ordered: typeof orderedRoster
+	readonly unordered: typeof unorderedRoster
+	readonly relation: typeof closedRelation
+} = Object.freeze({ ordered: orderedRoster, unordered: unorderedRoster, relation: closedRelation })
 
 /**
  * schema(name, relations, statements). The relations are a list, each relation carrying its own name, which the value

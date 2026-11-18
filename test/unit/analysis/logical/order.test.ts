@@ -12,8 +12,10 @@ import {
 	payloads,
 	rowsOf,
 	specOrder,
+	statesOrder,
 	subjectAt,
 	type UnionFeature,
+	unionColumnKind,
 	users,
 	wrapped,
 	wrappers
@@ -33,6 +35,8 @@ export const completingAnOrderIsThePolicysCompletionTheUsersFieldsTheDiscriminan
 		situations: [
 			"refused MalformedDescription",
 			"refused UnsupportedOperation",
+			"an order stated over a column of no order",
+			"a tie broken by an unordered closed id",
 			"total as stated",
 			"completed by the discriminant",
 			"completed by a narrower key",
@@ -43,10 +47,19 @@ export const completingAnOrderIsThePolicysCompletionTheUsersFieldsTheDiscriminan
 		] satisfies ReadonlyArray<Reached<OrderFeature>>,
 		check:
 			(_, c: Case<OrderFeature>) =>
-			({ subject: s, user, rows }) =>
+			({ subject: s, user, rows, kindOf }) =>
 				Effect.sync(() => {
 					const got = completeOrder(s, user)
-					const want = specOrder(s, user)
+					const want = specOrder(s, user, kindOf)
+					if (
+						Arr.some(
+							user,
+							(k) =>
+								Arr.some(s.heading, (h) => h.name === k.column) && !statesOrder(kindOf(k.column))
+						)
+					) {
+						c.note("an order stated over a column of no order")
+					}
 					if (want.kind === "refused") {
 						c.note(`refused ${want.reason}`)
 						assert.ok(
@@ -62,6 +75,14 @@ export const completingAnOrderIsThePolicysCompletionTheUsersFieldsTheDiscriminan
 						)
 					}
 					assert.deepEqual(got.value.keys, want.keys)
+					if (
+						Arr.some(
+							got.value.keys.slice(user.length),
+							(k) => kindOf(k.column) === "unordered closed id"
+						)
+					) {
+						c.note("a tie broken by an unordered closed id")
+					}
 					if (s.heading.length === 0) {
 						c.note("the empty heading")
 					}
@@ -117,6 +138,18 @@ export const completingAnOrderIsThePolicysCompletionTheUsersFieldsTheDiscriminan
 				original: "\t\tif (ordered.has(column) || fixed.has(column)) {",
 				replacement: "\t\tif (ordered.has(column)) {",
 				why: "A fixed column appended to the order (logical/order.ts completeOrder); the completion property fails."
+			},
+			{
+				file: "packages/engine/src/scalar/registry.ts",
+				original: '\thasCapability(t, "ordering") || baseOf(t).carrier === "code"',
+				replacement: '\thasCapability(t, "ordering")',
+				why: "A completion breaks no tie by an unordered roster's closed id (scalar/registry.ts breaksTies), so an order that needs one is refused, or completed by another key; the completion property fails."
+			},
+			{
+				file: "packages/engine/src/logical/order.ts",
+				original: '\t\tif (!hasCapability(column.type, "ordering")) {',
+				replacement: "\t\tif (!breaksTies(column.type)) {",
+				why: "An order the caller states names an unordered roster's closed id, which has no admitted order (logical/order.ts completeOrder admits it); the completion property fails."
 			}
 		]
 	})
@@ -145,7 +178,7 @@ export const completingAnOrderOverAUnionOfDifferentHeadingsCompletesAUnionReadTh
 						const s = subjectAt(q.build(at), at)
 						assert.deepEqual(s.discriminant, ["kind"])
 						const own = subjectAt(q.build(union), union)
-						const want = specOrder(own, user)
+						const want = specOrder(own, user, unionColumnKind)
 						const got = completeOrder(s, user)
 						if (want.kind === "refused") {
 							c.note(`${wrapper} refused`)

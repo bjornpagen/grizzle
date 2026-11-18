@@ -95,7 +95,7 @@ const Week = str.regex("^[ -~]{1,40}$", "u")
 
 export const statuses = ["pending", "approved"] as const
 export type ShiftStatus = (typeof statuses)[number]
-const Status = closed("Status", statuses)
+const Status = closed.ordered("Status", statuses)
 export const Sheet = relation("Sheet", { employee: uuid, week: Week, ceiling: pg.integer }, [
 	"employee",
 	"week"
@@ -248,7 +248,7 @@ export const batchesOf = (p: BatchesParams) => (name: string) =>
 export const batches = () => batchesOf({ mutable: false, selector: true })("Batches")
 
 export const priorities = ["low", "high"] as const
-const Priority = closed("Priority", priorities)
+const Priority = closed.ordered("Priority", priorities)
 export const Ticket = relation(
 	"Ticket",
 	{ id: uuid, level: pg.integer, lang: str.regex("^[a-z]{2}$", "u"), priority: closedId(Priority) },

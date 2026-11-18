@@ -386,7 +386,7 @@ const predicateOf = (p: Pred, r: Reads): Predicate => {
  * each written relation of the facts each call gives, and the query whose filter is the case's φ.
  */
 const schemaOf = (c: RewriteCase) => {
-	const Kind = closed("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
+	const Kind = closed.ordered("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
 	const Pick = closed.relation(
 		"Pick",
 		{ kind: closedId(Kind), t: Short, f: pg.float8 },

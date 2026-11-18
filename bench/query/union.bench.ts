@@ -81,7 +81,7 @@ import { has, shapeOf } from "#test/support/kernel/shape.ts"
  * tasks have one and some none. Notes are spread pseudo-randomly over the tasks, so some tasks have several: the
  * union over notes has no key in its common fields.
  */
-const Kind = closed("Kind", ["Open", "Done", "Held"])
+const Kind = closed.ordered("Kind", ["Open", "Done", "Held"])
 const Account = relation("Account", { id: pg.bigint, region: pg.integer }, ["id"])
 const Task = relation(
 	"Task",

@@ -113,8 +113,10 @@ interface Rosters {
 }
 
 const rostersOf = (): Rosters => ({
-	sets: new Map(Arr.map(setWidths, (w) => [w, closed(`R${w}`, setHandles(w), [])] as const)),
-	code: closed("K", codeHandles, [])
+	sets: new Map(
+		Arr.map(setWidths, (w) => [w, closed(`R${w}`, setHandles(w), "ordered", [])] as const)
+	),
+	code: closed("K", codeHandles, "ordered", [])
 })
 
 const setRoster = (rosters: Rosters, width: number): AnyRoster =>
