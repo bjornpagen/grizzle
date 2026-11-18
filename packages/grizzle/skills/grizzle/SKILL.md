@@ -259,16 +259,21 @@ breaking change may briefly break older application instances that are still run
 - **indexes**: `CREATE INDEX CONCURRENTLY` on tables that may hold rows, in a no-transaction file, so writes keep
   flowing. A table this migration creates gets an ordinary build. The extended statistics a workload program earns are
   created here too, on a table or a materialized view, each followed by an `ANALYZE` of a relation that may hold rows.
-- **validate**: `VALIDATE CONSTRAINT` and key swaps. A key replaced by another over the same fields (a candidate key
-  that becomes the primary key) is dropped here once the new key is attached, and the foreign keys over those fields
-  are added after it, so each depends on the new key. A roster domain's VALIDATE refuses every row that still holds a
-  removed handle's code, naming the table and column, never the row: change or delete those rows in a data step
-  before it. A rule over a query (a side over a derived relation) that is new, or whose rule or definition changed,
-  is checked here once every row the migration writes is written: a DO block running its violation query over the
-  stored rows, raising 23000 with the rule's name where a row breaks it. Its functions and its deferred constraint
-  triggers, one on each table its query reads, are created or replaced here too, and a renamed table's trigger is
-  created again.
-- **publish**: the refined constants' casts to their domains, so each is judged by the target's CHECK (one it refuses
+- **validate**: `VALIDATE CONSTRAINT`, and the rules over queries, in one transaction that takes no lock that blocks a
+  read, so the application reads every table while its checks read every row; writes to the tables a rule reads wait
+  for it. A roster domain's VALIDATE refuses every row that still holds a removed handle's code, naming the table and
+  column, never the row: change or delete those rows in a data step before it. A rule over a query (a side over a
+  derived relation) that is new, or whose rule or definition changed, is checked here once every row the migration
+  writes is written: a DO block running its violation query over the stored rows, raising 23000 with the rule's name
+  where a row breaks it. Its functions and its deferred constraint triggers, one on each table its query reads, are
+  created or replaced here too, before the checks, so no write runs past them; a renamed table's trigger, which
+  PostgreSQL drops under ACCESS EXCLUSIVE, is created again last, its table locked against writers before the checks.
+  A key a check reads is enforced by the unique index the indexes file built.
+- **publish**: first each key's constraint attached to its concurrently built index (`ADD CONSTRAINT ... USING
+  INDEX`), and the key swaps: a key replaced by another over the same fields (a candidate key that becomes the primary
+  key) is dropped once the new key is attached, the foreign keys over those fields dropped before it and added again
+  after it, `NOT VALID`, so each depends on the new key; a foreign key into a key this migration attaches is added the
+  same way. Then the refined constants' casts to their domains, so each is judged by the target's CHECK (one it refuses
   rolls the whole file back); the worlds: logins and roles, their memberships and settings, each role's schema of
   views (a security-barrier view for a query entry, a plain one for a whole entry, each closed id followed by its
   decoded `<field>_name`), its grants (EXECUTE on each constant its statements call among them), row-security policies
@@ -276,7 +281,10 @@ breaking change may briefly break older application instances that are still run
   functions (a constant by `DROP FUNCTION ... RESTRICT`, so PostgreSQL refuses a migration that left a reader of it
   standing), columns, tables, then types. A declared drop of a stored relation or field is drafted live. A world object
   holds no data, so a changed world needs no marker; a role the migration creates gets its views, policies and
-  functions here, after the role.
+  functions here, after the role. Every statement after structure that takes ACCESS EXCLUSIVE is in this short
+  transaction, which reads no rows but its constants'.
+- **validate**, again, when publish added a foreign key `NOT VALID`: its `VALIDATE CONSTRAINT`, in a transaction of
+  its own that blocks no read; the key is enforced on every write from its addition.
 
 `-- grizzle: no-transaction` as a file's first line runs each statement alone, each ending at a semicolon where psql
 would end it: outside quotes, dollar quotes, comments, parentheses and the `BEGIN ATOMIC … END` body of a function or

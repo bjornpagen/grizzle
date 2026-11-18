@@ -1,4 +1,4 @@
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { violations } from "#test/support/laws/model.ts"
 import { evaluateRules, hostSchemaOf, judgedSchemaOf } from "#test/support/worlds/model/host.ts"
 import {
@@ -256,7 +256,22 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	const native = added
 	const onHeld = (law: LawSpec): boolean => Arr.some(builtOn(now, law), held)
 	const notValid = Arr.filter(native, (law) => !uniqueIndexed(law) && onHeld(law))
-	const concurrent = Arr.some(native, (law) => uniqueIndexed(law) && onHeld(law))
+	/** The keys built concurrently on relations that may hold rows, each attached to its index in Publish. */
+	const attached = Arr.filter(native, (law) => uniqueIndexed(law) && onHeld(law))
+	const concurrent = attached.length > 0
+	/** A containment of every fact into a key this folder attaches: added NOT VALID in Publish once the key is, and
+	 * validated in a Validate file after it, whatever its source holds. */
+	const intoAttached = (law: LawSpec): boolean =>
+		law.kind === "contained" &&
+		Rec.keys(law.target.where).length === 0 &&
+		Arr.some(
+			attached,
+			(k) =>
+				k.kind === "key" &&
+				k.relation === law.target.relation &&
+				samePlain(Arr.sort(k.fields, Order.String), Arr.sort(law.target.fields, Order.String))
+		)
+	const revalidate = Arr.some(added, intoAttached)
 	/** A roster both bases hold whose handles differ: a new names constant in Setup, its domain's CHECK re-pointed in
 	 * Structure, and in Publish the old constant dropped, the CHECK VALIDATEd once every dropped column is gone and the
 	 * new constant's COMMENT. */
@@ -277,7 +292,10 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 			)
 		}) || Arr.some(now.derived, (d) => !Arr.some(was.derived, (x) => x.name === d.name))
 	const worlds = changesWorlds(from, to)
-	const structure = worlds || gains || notValid.length > 0 || rosterChanged
+	/** The laws Structure adds NOT VALID: every one built on a relation that may hold rows, but a containment into a key
+	 * this folder attaches, which Publish adds once the key is (intoAttached). */
+	const addedNotValid = Arr.filter(notValid, (law) => !intoAttached(law))
+	const structure = worlds || gains || addedNotValid.length > 0 || rosterChanged
 	const indexes = Arr.some(native, (law) => uniqueIndexed(law) && !onHeld(law))
 	/** An index the installation holds on a containment's source fields, which a new key leading with them serves instead. */
 	const servedAnew = Arr.some(
@@ -330,8 +348,9 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 		...(structure ? ["structure" as const] : []),
 		...(indexes ? ["indexes" as const] : []),
 		...(concurrent ? ["concurrent" as const] : []),
-		...(notValid.length > 0 || concurrent ? ["validate" as const] : []),
-		...(publish ? ["publish" as const] : [])
+		...(addedNotValid.length > 0 ? ["validate" as const] : []),
+		...(publish || concurrent ? ["publish" as const] : []),
+		...(revalidate ? ["validate" as const] : [])
 	]
 }
 

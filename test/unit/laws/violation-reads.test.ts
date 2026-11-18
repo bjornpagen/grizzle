@@ -25,18 +25,22 @@
  * Features: a stored table read plainly; a negated arm; a definition reading a definition; a join; a migration check.
  *
  * Where a migration runs a rule's check, every table it reads holds its target primary key, which is why reading it
- * plainly is exact: the check is a Validate step (deploy/diff/diff.ts ruleChecks), after validate.attach in the one
- * Validate transaction (deploy/diff/plan.ts slots, slotFile), where a key over a table that may hold rows is attached
- * to the unique index Indexes built, and before which every other key stands (diff.ts ownConstraint). The second box,
- * exhausted, drafts a migration adding the rule from a version without it, A's key kept, widened from (id) to (id, k),
- * or moved to (k, a), with or without M's negated arm. The oracle is the plan itself: each check is in Validate, and
- * every step that attaches a primary key to a table the check reads runs before it.
+ * plainly is exact: the check is a Validate step (deploy/diff/diff.ts ruleChecks), after the unique index Indexes built
+ * for a key over a table that may hold rows, which enforces the key from then, and before which every other key stands
+ * (diff.ts ownConstraint); the key's constraint is attached to that index in Publish (deploy/diff/plan.ts slots,
+ * slotFile), whose ACCESS EXCLUSIVE no long check runs under. The second box, exhausted, drafts a migration adding the
+ * rule from a version without it, A's key kept, widened from (id) to (id, k), or moved to (k, a), with or without M's
+ * negated arm. The oracle is the plan itself: each check is in Validate, every primary key a step attaches to a table
+ * the check reads has its unique index built before the check, and no statement that takes ACCESS EXCLUSIVE, by
+ * PostgreSQL's documented lock of each command (blocksReads), precedes a check in its transaction, so the app reads
+ * every table while the checks read every row.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
+import { planFiles } from "#compiler/deploy/phases/files.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -46,6 +50,7 @@ import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import {
+	blocksReads,
 	caseGen,
 	type Feature,
 	keyedBy,
@@ -55,6 +60,7 @@ import {
 	schemaOf,
 	tableKey,
 	tableReads,
+	uniquelyIndexedBy,
 	versionsOf,
 	widestJoin,
 	widestRule
@@ -157,13 +163,14 @@ export const aLawsFullViolationQueryReadsEachStoredTablePlainlyUnderItsKeyNeverA
 		]
 	})
 
-/** A law's full violation query runs each rule's check in Validate, after every primary key of a table it reads is attached. */
-export const aLawsFullViolationQueryRunsEachRulesCheckInValidateAfterEveryPrimaryKeyOfATableItReadsIsAttached =
+/** A law's full violation query runs each rule's check in Validate, after every primary key of a table it reads is enforced by its unique index. */
+export const aLawsFullViolationQueryRunsEachRulesCheckInValidateAfterEveryPrimaryKeyOfATableItReadsIsEnforcedByItsUniqueIndex =
 	property.exhaust(finite(migrationCaseGen), {
 		needs: {},
 		situations: [
 			"a key kept",
-			"a key attached before the check",
+			"a key's index built before the check, attached after it",
+			"a check in a transaction no lock blocking a read precedes",
 			"a negated arm"
 		] satisfies ReadonlyArray<Reached<MigrationFeature>>,
 		check: (_, k: CaseOf<MigrationFeature>) => (c) =>
@@ -176,7 +183,24 @@ export const aLawsFullViolationQueryRunsEachRulesCheckInValidateAfterEveryPrimar
 					],
 					fromEmpty
 				)
-				const steps = defined(drafted[1], "the second migration").plan.steps
+				const plan = defined(drafted[1], "the second migration").plan
+				const steps = plan.steps
+				for (const file of planFiles(plan)) {
+					const last = Arr.findLastIndex(file.drafts, (d) => d.kind === "violation")
+					if (Option.isNone(last)) {
+						continue
+					}
+					assert.deepEqual(
+						Arr.filter(Arr.take(file.drafts, last.value), blocksReads),
+						[],
+						`${file.name}: no statement that blocks a read before its checks`
+					)
+					assert.ok(
+						file.transaction,
+						`${file.name}: its checks in one transaction with the laws they check`
+					)
+					k.note("a check in a transaction no lock blocking a read precedes")
+				}
 				const checks = Arr.filter(
 					Arr.map(steps, (step, i) => ({ step, i })),
 					({ step }) => step.draft.kind === "violation"
@@ -192,11 +216,20 @@ export const aLawsFullViolationQueryRunsEachRulesCheckInValidateAfterEveryPrimar
 						Arr.map(steps, (s, j) => ({ tables: keyedBy(s), j })),
 						({ tables }) => Arr.some(tables, (t) => read.has(t))
 					)
-					for (const { j } of attaching) {
-						assert.ok(j < i, "a primary key of a table the check reads, attached before it")
-						if (steps[j]?.slot === "validate.attach") {
-							k.note("a key attached before the check")
+					for (const { tables, j } of attaching) {
+						if (j < i) {
+							continue
 						}
+						assert.ok(
+							Arr.some(
+								Arr.take(steps, i),
+								(s) =>
+									s.slot === "indexes.concurrent" &&
+									Arr.some(uniquelyIndexedBy(s), (t) => tables.includes(t))
+							),
+							"a primary key of a table the check reads, attached after it, enforced before it by its unique index"
+						)
+						k.note("a key's index built before the check, attached after it")
 					}
 				}
 				if (c.key === "kept") {
@@ -208,16 +241,24 @@ export const aLawsFullViolationQueryRunsEachRulesCheckInValidateAfterEveryPrimar
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the plan's own steps: each check in Validate, after every primary key attached to a table it reads"
+			name: "the plan's own steps: each check in Validate, after every primary key of a table it reads is enforced by its unique index, under no lock that blocks a read; and PostgreSQL's documented lock of each statement"
 		},
 		box: "a migration adding a rule of J = A ⋈ B into M of one arm or of two, A's key kept, widened or moved",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/deploy/diff/plan.ts",
-				original: '\t"validate.attach",\n\t"validate",',
-				replacement: '\t"validate",\n\t"validate.attach",',
-				why: "Validate's checks run before its keys are attached; it fails the second box."
+				original: '\t"indexes.concurrent",\n\t"validate",',
+				replacement: '\t"validate",\n\t"indexes.concurrent",',
+				why: "Validate's checks run before the unique indexes of the keys they read are built; it fails the second box."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/diff.ts",
+				original:
+					'\t\tthis.sql("publish.attach", [\n\t\t\talter(\n\t\t\t\tt,\n\t\t\t\treplacingOld({\n\t\t\t\t\tkind: "addConstraintUsingIndex",',
+				replacement:
+					'\t\tthis.sql("validate", [\n\t\t\talter(\n\t\t\t\tt,\n\t\t\t\treplacingOld({\n\t\t\t\t\tkind: "addConstraintUsingIndex",',
+				why: "A key's attach USING INDEX, which takes ACCESS EXCLUSIVE, runs in Validate before its checks, so every read of the table waits out every check; it fails the second box."
 			}
 		]
 	})

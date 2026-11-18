@@ -817,11 +817,11 @@ class Differ {
 	/** What publish.removed drops, gathered while drafting and drafted in order once every removal is known
 	 * (draftRemovals). */
 	readonly removals: Array<Removal> = []
-	/** Keys of relations that may hold rows that this migration attaches in Validate. */
+	/** Keys of relations that may hold rows that this migration attaches in Publish (publish.attach). */
 	readonly attached = new Set<KeyAfter>()
 	/** Every index this migration builds under a temporary name, as swapName mints it. */
 	readonly swaps: Array<Swap> = []
-	/** The keys of tables both snapshots install whose index this migration drops in Validate beside a key the target
+	/** The keys of tables both snapshots install whose index this migration drops in Publish beside a key the target
 	 * declares over the same columns, by identity (replacedKeysOf): each goes before the foreign keys over those columns
 	 * are added (replacedKey, unbind). */
 	readonly replaced: ReadonlyMap<string, ReplacedKey>
@@ -1695,6 +1695,14 @@ class Differ {
 					this.sql("validate", o.ddl)
 				} else if (!sameRecord(before, o)) {
 					this.sql("validate", [
+						{
+							kind: "lockTable",
+							tables: [v.create.table],
+							mode: "SHARE ROW EXCLUSIVE",
+							wait: "wait"
+						}
+					])
+					this.sql("validate.retrigger", [
 						{ kind: "dropTrigger", name: v.create.name, table: v.create.table, ifExists: false },
 						...o.ddl
 					])
@@ -2268,7 +2276,7 @@ class Differ {
 			if (was !== undefined) {
 				this.unbind(o.ident, was.ident)
 			}
-			this.sql("validate.attach", [
+			this.sql("publish.attach", [
 				alter(
 					t,
 					replacingOld({
@@ -2295,7 +2303,7 @@ class Differ {
 		if (was !== undefined) {
 			this.unbind(o.ident, was.ident)
 		}
-		this.sql("validate.attach", [
+		this.sql("publish.attach", [
 			alter(
 				t,
 				replacingOld({
@@ -2309,7 +2317,7 @@ class Differ {
 	}
 
 	/** The foreign keys that reference the key the target's key `key` swaps in for, the previous `was`, dropped just
-	 * before the key is swapped in the same Validate file, since PostgreSQL refuses to drop a key a foreign key depends
+	 * before the key is swapped in the same Publish file, since PostgreSQL refuses to drop a key a foreign key depends
 	 * on (2BP01): each removed one (Fate unbound), since a removed law cannot be enforced natively once its key is gone,
 	 * so it is dropped here rather than in publish.drop; and each one the target keeps unchanged (rebind). A foreign key
 	 * the target changes is foreignKey()'s. */
@@ -2317,13 +2325,13 @@ class Differ {
 		for (const { object: o, fate } of this.previous) {
 			const v = installed(o)
 			if (fate.kind === "unbound" && fate.by === key && v.kind === "foreignKey") {
-				this.sql("validate.attach", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
+				this.sql("publish.attach", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
 			}
 		}
 		this.rebind(was)
 	}
 
-	/** The keys of tables both snapshots install whose index this migration drops in Validate while the table holds
+	/** The keys of tables both snapshots install whose index this migration drops in Publish while the table holds
 	 * rows, by identity: each removed key, and each the target replaces under its name (ownConstraint), that stands over
 	 * the columns of a key the target declares there (keyImage), such as a candidate key that becomes the primary key, or
 	 * a primary key moved to other fields while a candidate key takes its old ones. A key a conversion takes away (Taken
@@ -2390,7 +2398,7 @@ class Differ {
 	/** A removed key of a table both snapshots install that a key the target declares on it may replace (replaced). A
 	 * foreign key referencing those columns depends on whichever unique index PostgreSQL found first when it was
 	 * created, the old key's included, and then refuses the old key's drop (2BP01). The two keys enforce one uniqueness,
-	 * so the old one is dropped in Validate, after the target's is attached and before the foreign keys over those
+	 * so the old one is dropped in Publish, after the target's is attached and before the foreign keys over those
 	 * columns are added (foreignKey): each removed foreign key that references it is dropped before it (remove), and each
 	 * one the target keeps unchanged as well (rebind). */
 	replacedKey(o: RecordedObject, name: string, t: ObjectName): boolean {
@@ -2398,12 +2406,12 @@ class Differ {
 			return false
 		}
 		this.rebind(o.ident)
-		this.sql("validate.attach", [alter(t, [{ kind: "dropConstraint", name }])])
+		this.sql("publish.attach", [alter(t, [{ kind: "dropConstraint", name }])])
 		return true
 	}
 
 	/** The foreign keys the target keeps unchanged over a key it declares beside the key `ident`, which this migration
-	 * drops in Validate (replaced): each may depend on the dropped key's index, which PostgreSQL then refuses to drop
+	 * drops in Publish (replaced): each may depend on the dropped key's index, which PostgreSQL then refuses to drop
 	 * (2BP01), so it is dropped before it and added again after the target's keys are attached, NOT VALID and validated,
 	 * so every reference depends on the target's key.
 	 *
@@ -2427,11 +2435,11 @@ class Differ {
 			if (!sameText(this.constraintOf(before, this.prev), fk)) {
 				continue
 			}
-			this.sql("validate.attach", [alter(source, [{ kind: "dropConstraint", name: fk.name }])])
-			this.sql("validate", [
+			this.sql("publish.attach", [alter(source, [{ kind: "dropConstraint", name: fk.name }])])
+			this.sql("publish.references", [
 				alter(source, [{ kind: "addConstraint", constraint: fk, notValid: true }])
 			])
-			this.sql("validate", [alter(source, [{ kind: "validateConstraint", name: fk.name }])])
+			this.sql("revalidate", [alter(source, [{ kind: "validateConstraint", name: fk.name }])])
 		}
 	}
 
@@ -2472,10 +2480,11 @@ class Differ {
 			return
 		}
 		if (afterKey) {
-			this.sql("validate", [add(true)])
-		} else {
-			constrained(add(true))
+			this.sql("publish.references", [add(true)])
+			this.sql("revalidate", [alter(t, [{ kind: "validateConstraint", name: c.name }])])
+			return
 		}
+		constrained(add(true))
 		this.sql("validate", [alter(t, [{ kind: "validateConstraint", name: c.name }])])
 	}
 
@@ -2519,7 +2528,7 @@ class Differ {
 		/** A changed index on a relation that may hold rows: built under a temporary name, then swapped in. */
 		const next = this.swapName(t, create.name)
 		this.buildConcurrently({ ...create, name: next })
-		this.sql("validate.attach", [
+		this.sql("publish.attach", [
 			{
 				kind: "dropIndex",
 				name: objectName(t.schema, create.name),
@@ -2564,7 +2573,7 @@ class Differ {
 	 * A stored relation's drop loses its rows, which the migration declares (`--drop`).
 	 *
 	 * A removed reference is dropped with every other removed reference, so no drop of a key it references waits on it:
-	 * in Validate, before the key, when the key it references is a removed one the target's replaces (replacedKey);
+	 * in Publish, before the key, when the key it references is a removed one the target's replaces (replacedKey);
 	 * otherwise in publish.drop, which drafts every foreign key before the keys, in the reverse install order.
 	 *
 	 * A table's isolation trigger is dropped with its table's other objects, or on its own where the target guards its
@@ -2663,7 +2672,7 @@ class Differ {
 			case "check":
 			case "foreignKey": {
 				if (v.kind === "foreignKey" && this.referencesReplaced(v.constraint)) {
-					this.sql("validate.attach", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
+					this.sql("publish.attach", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
 					return
 				}
 				if (this.replacedKey(o, v.name, v.table)) {
@@ -3013,7 +3022,7 @@ const referencedBefore = (fk: ForeignKey): KeyBefore =>
 	keyBefore(fk.references, referencedColumns(fk))
 const referencedAfter = (fk: ForeignKey): KeyAfter => keyAfter(fk.references, referencedColumns(fk))
 
-/** A key of a table both snapshots install whose index the migration drops in Validate beside a key the target declares
+/** A key of a table both snapshots install whose index the migration drops in Publish beside a key the target declares
  * over the same columns (Differ.replaced): the key as the previous snapshot's foreign keys reference it, and the
  * target's keys it may stand beside, over their columns (keyImage). */
 interface ReplacedKey {
@@ -3892,16 +3901,19 @@ const advance = (
  *   VALID (structure), then validated (validate). A text pattern's domain is named by its pattern, so changing a
  *   field's pattern changes its type to the new pattern's domain, which holds the old one's values: a conversion by
  *   its cast.
- * - Adding a key to a relation that may hold rows: its unique index built concurrently (indexes), then the constraint
- *   attached USING INDEX (validate); a key with a span field is added directly in Validate, since PostgreSQL attaches
- *   only B-tree indexes. Changing a key builds the new index under a temporary name and swaps it in one statement.
+ * - Adding a key to a relation that may hold rows: its unique index built concurrently (indexes), which enforces it
+ *   from then, then the constraint attached USING INDEX (publish), whose ACCESS EXCLUSIVE no long read runs under; a
+ *   key with a span field is added directly in Publish, since PostgreSQL attaches only B-tree indexes. Changing a key
+ *   builds the new index under a temporary name and swaps it in one statement.
  * - A key of a table both snapshots install that the migration removes or replaces under its name, over columns that
  *   are those of a key the target declares there: PostgreSQL binds a foreign key to the first unique index over its
- *   referenced columns and refuses that index's drop under it, so the key goes in Validate, once the target's keys are
+ *   referenced columns and refuses that index's drop under it, so the key goes in Publish, once the target's keys are
  *   attached and before the foreign keys over those columns are added; the foreign keys that may be bound to it go
- *   before it and are added again after (replacedKey).
+ *   before it and are added again after (replacedKey), NOT VALID, and validated in a transaction of their own
+ *   (revalidate).
  * - Adding a row check or a containment to a relation that may hold rows: NOT VALID (structure), VALIDATE (validate);
- *   a containment that needs a key this migration attaches is added after it, in Validate.
+ *   a containment that needs a key this migration attaches is added NOT VALID after it, in Publish, and validated in
+ *   revalidate, enforced on every write from its addition.
  * - An installation's validation statements, the refined constants' casts to their domains: run in Publish when they
  *   are new or changed, as a pattern change changes the domain they cast to, or when a domain they cast to takes a new
  *   constraint, as a contract's predicate change does, so either validates the closed facts as well as the existing

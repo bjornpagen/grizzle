@@ -77,10 +77,17 @@ export interface Declarations {
  *   followed by ANALYZE of a table that existed;
  * - indexes.concurrent: CREATE INDEX CONCURRENTLY on relations that may hold rows, each after dropping an invalid
  *   index a failed build left;
- * - validate.attach, validate: key constraints attached to their concurrently built indexes, then VALIDATE CONSTRAINT
- *   and the containments that need those keys;
- * - publish, publish.drop, publish.roles, publish.worlds, publish.grants, publish.defaults, publish.removed,
- *   publish.validate: the installation's validation statements (the refined constants' casts to their domains), the
+ * - validate, validate.retrigger: VALIDATE CONSTRAINT of the constraints Structure added NOT VALID, the rule judge's
+ *   functions and triggers, and the checks of the laws it holds over every row, in one transaction that takes no lock
+ *   that blocks a read, so the app reads every table while the checks read every row: a changed law trigger, which
+ *   PostgreSQL drops under ACCESS EXCLUSIVE, is replaced last (validate.retrigger), its table locked SHARE ROW
+ *   EXCLUSIVE where its trigger is created, so no write runs past the checks under the old one; the unique indexes
+ *   Indexes built enforce their keys from then, so a check reads a table plainly under its key's proof before the
+ *   key's constraint is attached;
+ * - publish.attach, publish.references, publish, publish.drop, publish.roles, publish.worlds, publish.grants,
+ *   publish.defaults, publish.removed, publish.validate: key constraints attached to their concurrently built indexes,
+ *   with the keys they replace dropped and the foreign keys over those keys dropped before them, and the changed
+ *   indexes swapped in; the foreign keys that reference those keys added NOT VALID; then the installation's validation statements (the refined constants' casts to their domains), the
  *   removed laws' native objects and constraints, the logins and roles, the roles' schemas, the views, world
  *   functions and policies of the roles this migration creates, and row security, the grants and memberships, the
  *   login defaults and PUBLIC revokes, every object the target no longer has, dropped in place: its indexes, roles and role schemas,
@@ -89,7 +96,10 @@ export interface Declarations {
  *   types, and the rows of a column the migration drops do not outlive it (a removed handle's code in a dropped
  *   relation, which no data step converts), while the CHECK, added NOT VALID in Structure, has held every write since;
  *   and last the COMMENT of every object this migration creates or renames, or whose comment the target changes
- *   (physical/install/comments.ts). */
+ *   (physical/install/comments.ts): every statement after Structure that takes ACCESS EXCLUSIVE is here but a changed
+ *   law trigger's, in one short transaction that reads no rows but its constants';
+ * - revalidate: VALIDATE CONSTRAINT of the foreign keys publish.references added NOT VALID, in a transaction of its own
+ *   that blocks no read, each enforced on every write since its addition. */
 export const slots = [
 	"setup.drop",
 	"setup",
@@ -104,8 +114,10 @@ export const slots = [
 	"structure.worlds",
 	"indexes",
 	"indexes.concurrent",
-	"validate.attach",
 	"validate",
+	"validate.retrigger",
+	"publish.attach",
+	"publish.references",
 	"publish",
 	"publish.drop",
 	"publish.roles",
@@ -114,7 +126,8 @@ export const slots = [
 	"publish.defaults",
 	"publish.removed",
 	"publish.validate",
-	"publish.comments"
+	"publish.comments",
+	"revalidate"
 ] as const
 export type Slot = (typeof slots)[number]
 
@@ -146,6 +159,7 @@ const indexesFile = slotsFile("indexes", true)
 const concurrentIndexesFile = slotsFile("indexes", false)
 const validateFile = slotsFile("validate", true)
 const publishFile = slotsFile("publish", true)
+const revalidateFile = slotsFile("validate", true)
 
 /** The file each slot's steps go to. A slot exists only with its file, and its phase is its file's. */
 export const slotFile: { readonly [S in Slot]: SlotsFile } = {
@@ -162,8 +176,10 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	"structure.worlds": structureFile,
 	indexes: indexesFile,
 	"indexes.concurrent": concurrentIndexesFile,
-	"validate.attach": validateFile,
 	validate: validateFile,
+	"validate.retrigger": validateFile,
+	"publish.attach": publishFile,
+	"publish.references": publishFile,
 	publish: publishFile,
 	"publish.drop": publishFile,
 	"publish.roles": publishFile,
@@ -172,7 +188,8 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	"publish.defaults": publishFile,
 	"publish.removed": publishFile,
 	"publish.validate": publishFile,
-	"publish.comments": publishFile
+	"publish.comments": publishFile,
+	revalidate: revalidateFile
 }
 
 /** Why no cast converts a column in place: `values`, the new type's values are other values; or `roster`, a value of one

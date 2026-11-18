@@ -303,6 +303,55 @@ export const keyedBy = (step: Step): ReadonlyArray<string> => {
 		: []
 }
 
+/**
+ * Whether a step's statement takes a lock that blocks a read of the table it names, ACCESS EXCLUSIVE, as PostgreSQL
+ * documents each command's lock (the SQL reference's ALTER TABLE, DROP, CREATE and LOCK): every ALTER TABLE action but
+ * VALIDATE CONSTRAINT (SHARE UPDATE EXCLUSIVE) and ADD FOREIGN KEY (SHARE ROW EXCLUSIVE); a DROP INDEX not
+ * CONCURRENTLY; a DROP TRIGGER; a rename but an index's (SHARE UPDATE EXCLUSIVE); any DROP of a relation; a view
+ * created or replaced; and a LOCK TABLE in ACCESS EXCLUSIVE MODE. A trigger's creation (SHARE ROW EXCLUSIVE), an index's
+ * (SHARE, or SHARE UPDATE EXCLUSIVE concurrently), a function's and a grant take none that does.
+ */
+export const blocksReads = (d: Step["draft"]): boolean => {
+	if (d.kind !== "statement") {
+		return false
+	}
+	const st = d.statement
+	if (st.kind === "alterTable") {
+		return Arr.some(
+			st.actions,
+			(a) =>
+				a.kind !== "validateConstraint" &&
+				!(a.kind === "addConstraint" && a.constraint.kind === "foreignKey")
+		)
+	}
+	if (st.kind === "dropIndex") {
+		return !st.concurrently
+	}
+	if (st.kind === "rename") {
+		return st.object !== "INDEX"
+	}
+	if (st.kind === "lockTable") {
+		return st.mode === "ACCESS EXCLUSIVE"
+	}
+	return (
+		st.kind === "dropTrigger" ||
+		st.kind === "drop" ||
+		st.kind === "renameColumn" ||
+		st.kind === "renameConstraint" ||
+		st.kind === "createView" ||
+		st.kind === "createMaterializedView"
+	)
+}
+
+/** The tables a step builds a unique index on, which a key attaches to (deploy/diff/diff.ts buildConcurrently): its
+ * CREATE UNIQUE INDEX's. */
+export const uniquelyIndexedBy = (step: Step): ReadonlyArray<string> => {
+	const d = step.draft
+	return d.kind === "statement" && d.statement.kind === "createIndex" && d.statement.unique
+		? [tableKey(d.statement.table)]
+		: []
+}
+
 /** The most FROM items one core of a query joins, a join chain's each counted, wherever the core stands. */
 export const widestJoin = (query: OperandSelect): number => {
 	const queries: Array<OperandSelect> = [query]
@@ -337,7 +386,11 @@ export const widestJoin = (query: OperandSelect): number => {
 /** The most matches one rule of the box's definitions joins: J's and V's A ⋈ B, JJ's and VV's J ⋈ T, M's B ⋈ T. */
 export const widestRule = 2
 
-export type MigrationFeature = "a key kept" | "a key attached before the check" | "a negated arm"
+export type MigrationFeature =
+	| "a key kept"
+	| "a key's index built before the check, attached after it"
+	| "a check in a transaction no lock blocking a read precedes"
+	| "a negated arm"
 
 export type Feature =
 	| "a stored table read plainly"

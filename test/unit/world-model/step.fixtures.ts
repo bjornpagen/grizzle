@@ -1,10 +1,12 @@
 /** What the properties of step.test.ts read: its spaces, models and helpers. */
 
 import { element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import { assert } from "#test/support/assert.ts"
 import { isDrawn, sameValues } from "#test/support/laws/model.ts"
+import { asDrafted, compile } from "#test/support/migrate/kit.ts"
+import { baseBuild } from "#test/support/worlds/execute/build.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import { knownNonEmpty, sameDomain } from "#test/support/worlds/generate/domain.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
@@ -252,6 +254,30 @@ export const phaseOf = (file: FolderFile): string => {
 
 export type FolderFeature = "worlds change" | "no worlds change" | "a new law"
 
+/**
+ * The laws the docs base does not hold that the law model discharges natively once added, read off the compiled schema:
+ * a containment it judges whole (laws/model/plan.ts containmentDischarge: immutable relations joined within one unit,
+ * into a target with a field the key does not reference), Share's document into Org's id, is a rule, which the worlds
+ * model, every law of it native, does not model. The base's installs keep its relations' mutability, so the laws native
+ * over the base are native over each.
+ */
+const addedNative: ReadonlyArray<LawSpec> = Arr.filter(
+	nativeLaws(docsBase),
+	(law) =>
+		!takenIdentity(docsBase, law) &&
+		!Arr.some(
+			compile(
+				Effect.runSync(
+					Effect.orDie(
+						baseBuild({ ...docsInstall, base: { ...docsBase, laws: [...docsBase.laws, law] } })
+					)
+				).base,
+				asDrafted
+			).laws.rules,
+			(r) => r.rule.kind === "whole"
+		)
+)
+
 /** A migration from one installation over the docs base: to another of its installations, or with one native law added. */
 export const migrationGen: Gen<{ readonly from: InstallSpec; readonly to: InstallSpec }> = (
 	source
@@ -261,12 +287,7 @@ export const migrationGen: Gen<{ readonly from: InstallSpec; readonly to: Instal
 		oneOf([
 			installGen(docsBase),
 			map(
-				element(
-					knownNonEmpty(
-						Arr.filter(nativeLaws(docsBase), (law) => !takenIdentity(docsBase, law)),
-						"the native laws the docs base does not hold"
-					)
-				),
+				element(knownNonEmpty(addedNative, "the native laws the docs base does not hold")),
 				(law): InstallSpec => ({ ...from, base: { ...from.base, laws: [...from.base.laws, law] } })
 			)
 		])
