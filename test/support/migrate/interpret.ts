@@ -830,6 +830,13 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 					return left.kind === "bits" && right.kind === "bits"
 						? { kind: "bits", value: bitwise(e.op, left.value, right.value) }
 						: unevaluable(`${left.kind} ${e.op} ${right.kind}`)
+				case "||":
+					if (left === undefined || right === undefined) {
+						return undefined
+					}
+					return left.kind === "text" && right.kind === "text"
+						? { kind: "text", value: `${left.value}${right.value}` }
+						: unevaluable(`${left.kind} || ${right.kind}`)
 				case "%":
 				case "&&":
 				case "&<":
@@ -841,7 +848,6 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 				case "<@":
 				case ">>":
 				case "@>":
-				case "||":
 				case "~":
 					return unevaluable(`the operator ${e.op}`)
 			}

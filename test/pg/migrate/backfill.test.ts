@@ -66,7 +66,11 @@ import {
 	type StoredForest,
 	forestFeatures,
 	forestGen,
+	foldExpectedOf,
+	foldRowsOf,
 	migratedOver,
+	type MonoidSeat,
+	monoidSeats,
 	ownersOf,
 	type Rekey,
 	rekeyAims,
@@ -75,6 +79,10 @@ import {
 	rekeyFeatures,
 	rekeyGen,
 	rowsOf,
+	seatAims,
+	type SeatFamily,
+	seatFamilyGen,
+	seatSpec,
 	SPEC,
 	treeAfter,
 	treeAims,
@@ -183,11 +191,73 @@ export const populatedFamilies = property.explore(aimed(familyGen, familyAims), 
 	kills: [
 		{
 			file: "packages/engine/src/deploy/diff/backfill.ts",
-			original:
-				'\t\tover("row_number", [], window(partition, key.map(tableCol), false)),\n\t\tlit.int(1n, types.bigint)',
-			replacement:
-				'\t\tover("row_number", [], window(partition, key.map(tableCol), false)),\n\t\tlit.int(0n, types.bigint)',
+			original: '\t\t\t\t\t\tlit.int(1n, types.bigint)\n\t\t\t\t\t)\n\t\t\t\t: col("m", index),',
+			replacement: '\t\t\t\t\t\tlit.int(0n, types.bigint)\n\t\t\t\t\t)\n\t\t\t\t: col("m", index),',
 			why: "A family's backfilled index counts from 1; the counted family's values disagree with the reference fold."
+		}
+	]
+})
+
+/** Backfilling a fold of every operation on PostgreSQL 19rc2 draws each member's before and after and each owner's count and end of populated families as the reference fold does in key order: a count over a selection, max over int4 and over a closed id, or over an ordered and a counted family and twos, every one the served scan run from slot 0. */
+export const everyMonoid = property.explore(aimed(seatFamilyGen, seatAims), {
+	needs: { substrate: Substrate.installing },
+	situations: Arr.map(monoidSeats, (seat) => seat.label),
+	budget: { runs: 12, steered: 24 },
+	check:
+		({ substrate }, c: Case<MonoidSeat["label"]>) =>
+		({ seat, family }: SeatFamily) =>
+			Effect.provideServiceEffect(
+				Effect.gen(function* () {
+					c.note(seat.label)
+					const spec = seatSpec(seat)
+					const m = yield* migratedOver(
+						"monoids",
+						seat.before,
+						seat.after,
+						foldRowsOf(spec, family)
+					)
+					const installed = yield* seatOfInstalled(m, ["Owner", "Member"], "backfill")
+					const read = yield* foldRead(
+						foldSeatOf({ ...spec, schema: seat.after(m.declared) }, installed)
+					)
+					assert.deepEqual(
+						read,
+						byMember(foldExpectedOf(spec, family)),
+						`the backfill draws the reference ${seat.label} of each family in key order`
+					)
+				}),
+				Substrate,
+				substrate
+			),
+	oracle: {
+		kind: "second-implementation",
+		name: "the reference fold of each owner's members in key order (test/support/families/fold.ts), exact"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/ir/monoid.ts",
+			original: '\t\taggregate: "sum",',
+			replacement: '\t\taggregate: "max",',
+			why: "Add accumulates by max (ir/monoid.ts accumulations): a count over two selected members draws one, not two."
+		},
+		{
+			file: "packages/engine/src/ir/monoid.ts",
+			original: '\t\taggregate: "bit_or",',
+			replacement: '\t\taggregate: "bit_and",',
+			why: "A union accumulates by bit_and (ir/monoid.ts accumulations): or and twos draw the codes every member sets, not some."
+		},
+		{
+			file: "packages/engine/src/ir/monoid.ts",
+			original: '\t\taggregate: "max",',
+			replacement: '\t\taggregate: "min",',
+			why: "The greater accumulates by min (ir/monoid.ts accumulations): max draws the least step."
+		},
+		{
+			file: "packages/engine/src/ir/monoid.ts",
+			original: '\t\t{ fn: "union", delta: "met" }',
+			replacement: '\t\t{ fn: "union", delta: "step" }',
+			why: "twos' second plane takes the union of the member's set, not its meet with the ones before it (ir/monoid.ts): its twos plane draws every code set once."
 		}
 	]
 })
@@ -289,8 +359,9 @@ export const keyedForest = property.explore(aimed(forestGen, treeAims), {
 		},
 		{
 			file: "packages/engine/src/deploy/diff/backfill.ts",
-			original: '\t\t\t\t\t\t[...parent.map((p) => tableCol(p)), tableCol("__root")],',
-			replacement: '\t\t\t\t\t\t[...parent.slice(-1).map((p) => tableCol(p)), tableCol("__root")],',
+			original: '\t\t\t\tgroup: mapNonEmpty(parent, (p) => col("r", p)),',
+			replacement:
+				'\t\t\t\tgroup: mapNonEmpty(parent, () => col("r", parent[parent.length - 1] ?? parent[0])),',
 			why: "A fold over a tree's siblings is partitioned by their parent's start alone; two trees sharing a start disagree with the pre-order reference."
 		}
 	]
@@ -417,8 +488,9 @@ export const rekeyedOrder = property.explore(aimed(rekeyGen, rekeyAims), {
 		},
 		{
 			file: "packages/engine/src/deploy/diff/backfill.ts",
-			original: "\tconst inOrder = [tableCol(indexName)]",
-			replacement: "\tconst inOrder = key.map(tableCol)",
+			original: '\t\t\t\t: col("m", index),',
+			replacement:
+				'\t\t\t\t: binary("-", over("row_number", [], window(partition, key.map((k) => col("m", k)), false)), lit.int(1n, types.bigint)),',
 			why: "The folds over a kept index run in member-key order."
 		},
 		{

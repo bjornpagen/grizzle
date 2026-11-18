@@ -23,7 +23,16 @@ import {
 } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	Bits,
+	bits,
+	closedId,
+	drawn as drawnField,
+	natural,
+	pg,
+	uuid
+} from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
 	contained,
@@ -52,7 +61,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { FOLD_SPECS } from "#test/pg/fin/folds.ts"
+import { FOLD_SPECS, type FoldSpec, Tag } from "#test/pg/fin/folds.ts"
 import { type Aim, refusedIn, refusedLaw } from "#test/pg/migrate/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
@@ -471,6 +480,325 @@ export const declaredMigratedOver = (
 		)
 		return m
 	})
+
+/** The least int4, max's identity over int4. */
+const int4Least = -2_147_483_648
+
+/** The empty set of Tag, the set monoids' identity. */
+const noTags = Bits.of(Tag, [])
+
+/** A fin fold seat's members before their family: keyed by member, each with its owner g and its step value x. */
+const storedMembers = <X extends FieldBase>(
+	name: string,
+	x: X,
+	rosters: ReadonlyArray<typeof Tag>
+) =>
+	schema(
+		name,
+		[
+			...rosters,
+			relation("Owner", { id: pg.int4 }, ["id"]),
+			relation("Member", { member: pg.int4, g: pg.int4, x }, ["member"])
+		],
+		[]
+	)
+
+/**
+ * The fin fold seats a backfill draws over stored members (test/pg/fin/folds.ts FOLD_SPECS, by label), each its
+ * relations before the migration and its schema after it, under any name: the monoids and carriers past the sums the
+ * other properties draw, each over an ordered family with named accumulators but or's over a counted one with hidden
+ * ones, so every operation a fold accumulates by (ir/monoid.ts accumulations) and twos' met plane is backfilled.
+ */
+export const monoidSeats = [
+	{
+		label: "count over a selection",
+		before: (name: string) =>
+			schema(
+				name,
+				[
+					relation("Owner", { id: pg.int4 }, ["id"]),
+					relation("Member", { member: pg.int4, g: pg.int4, on: pg.bool }, ["member"])
+				],
+				[]
+			),
+		after: (name: string) => {
+			const Owner = relation(
+				"Owner",
+				{ id: pg.int4, n: drawnField(natural), end: accumulated(natural, 0n) },
+				["id"]
+			)
+			const Member = relation(
+				"Member",
+				{
+					member: pg.int4,
+					g: pg.int4,
+					at: drawnField(natural),
+					on: pg.bool,
+					before: accumulated(natural, 0n),
+					after: accumulated(natural, 0n)
+				},
+				["member"]
+			)
+			const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
+			return schema(
+				name,
+				[Owner, Member],
+				[
+					family,
+					fold(
+						family,
+						Monoid.count,
+						on(
+							select(Member, (r) => r.eq(r.on, true)),
+							"g",
+							"before",
+							"after"
+						),
+						on(Owner, "id", "end")
+					)
+				]
+			)
+		}
+	},
+	{
+		label: "max of int4",
+		before: (name: string) => storedMembers(name, pg.int4, []),
+		after: (name: string) => {
+			const Owner = relation(
+				"Owner",
+				{ id: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, int4Least) },
+				["id"]
+			)
+			const Member = relation(
+				"Member",
+				{
+					member: pg.int4,
+					g: pg.int4,
+					at: drawnField(natural),
+					x: pg.int4,
+					before: accumulated(pg.int4, int4Least),
+					after: accumulated(pg.int4, int4Least)
+				},
+				["member"]
+			)
+			const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
+			return schema(
+				name,
+				[Owner, Member],
+				[
+					family,
+					fold(family, Monoid.max, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
+				]
+			)
+		}
+	},
+	{
+		label: "max of a closed id",
+		before: (name: string) => storedMembers(name, closedId(Tag), [Tag]),
+		after: (name: string) => {
+			const Owner = relation(
+				"Owner",
+				{ id: pg.int4, n: drawnField(natural), end: accumulated(closedId(Tag), "a") },
+				["id"]
+			)
+			const Member = relation(
+				"Member",
+				{
+					member: pg.int4,
+					g: pg.int4,
+					at: drawnField(natural),
+					x: closedId(Tag),
+					before: accumulated(closedId(Tag), "a"),
+					after: accumulated(closedId(Tag), "a")
+				},
+				["member"]
+			)
+			const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
+			return schema(
+				name,
+				[Tag, Owner, Member],
+				[
+					family,
+					fold(family, Monoid.max, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
+				]
+			)
+		}
+	},
+	{
+		label: "or of a set",
+		before: (name: string) => storedMembers(name, bits(Tag), [Tag]),
+		after: (name: string) => {
+			const Owner = relation(
+				"Owner",
+				{ id: pg.int4, n: drawnField(natural), end: accumulated(bits(Tag), noTags) },
+				["id"]
+			)
+			const Member = relation(
+				"Member",
+				{
+					member: pg.int4,
+					g: pg.int4,
+					at: drawnField(natural),
+					x: bits(Tag),
+					before: accumulated(bits(Tag), noTags),
+					after: accumulated(bits(Tag), noTags)
+				},
+				["member"]
+			)
+			const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
+			return schema(
+				name,
+				[Tag, Owner, Member],
+				[
+					family,
+					fold(family, Monoid.or, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
+				]
+			)
+		}
+	},
+	{
+		label: "twos of a set",
+		before: (name: string) => storedMembers(name, bits(Tag), [Tag]),
+		after: (name: string) => {
+			const Owner = relation(
+				"Owner",
+				{
+					id: pg.int4,
+					n: drawnField(natural),
+					ones: accumulated(bits(Tag), noTags),
+					twos: accumulated(bits(Tag), noTags)
+				},
+				["id"]
+			)
+			const Member = relation(
+				"Member",
+				{
+					member: pg.int4,
+					g: pg.int4,
+					at: drawnField(natural),
+					x: bits(Tag),
+					onesBefore: accumulated(bits(Tag), noTags),
+					onesAfter: accumulated(bits(Tag), noTags),
+					twosBefore: accumulated(bits(Tag), noTags),
+					twosAfter: accumulated(bits(Tag), noTags)
+				},
+				["member"]
+			)
+			const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
+			return schema(
+				name,
+				[Tag, Owner, Member],
+				[
+					family,
+					fold(
+						family,
+						Monoid.twos,
+						on(Member, "g", "x", "onesBefore", "onesAfter", "twosBefore", "twosAfter"),
+						on(Owner, "id", "ones", "twos")
+					)
+				]
+			)
+		}
+	},
+	{
+		label: "or of a set over a counted family",
+		before: (name: string) => storedMembers(name, bits(Tag), [Tag]),
+		after: (name: string) => {
+			const Owner = relation(
+				"Owner",
+				{ id: pg.int4, n: drawnField(natural), end: accumulated(bits(Tag), noTags) },
+				["id"]
+			)
+			const Member = relation("Member", { member: pg.int4, g: pg.int4, x: bits(Tag) }, ["member"])
+			const family = counted(on(Member, "g"), fin(Owner, "n"))
+			return schema(
+				name,
+				[Tag, Owner, Member],
+				[family, fold(family, Monoid.or, on(Member, "g", "x"), on(Owner, "id", "end"))]
+			)
+		}
+	}
+] as const
+
+/** A seat of monoidSeats. */
+export type MonoidSeat = (typeof monoidSeats)[number]
+
+/** The fin fold spec of a seat, the one whose label it carries. */
+export const seatSpec = (seat: MonoidSeat): FoldSpec =>
+	defined(
+		Arr.findFirst(FOLD_SPECS, (s) => s.label === seat.label).pipe(Option.getOrUndefined),
+		`the fin fold spec ${seat.label}`
+	)
+
+/** A written member's step, its value's place in a seat's five step values. */
+const stepAt = (mb: WrittenMember): number => ((mb.x % 5) + 5) % 5
+
+/** Whether a seat's selection holds of a member stepping by the value at `at`: every member where it selects none. */
+const selectedAt = (spec: FoldSpec, at: number): boolean =>
+	Option.match(spec.selected, { onNone: () => true, onSome: (holds) => holds(at) })
+
+/**
+ * A populated family stored under a seat's relations before its family (monoidSeats): each owner by its id; each member
+ * by its key and group, its step value the seat's value at its step's place, or, for a count, its selection there.
+ */
+export const foldRowsOf = (spec: FoldSpec, family: Family): ReadonlyArray<Stored> => [
+	{
+		relation: "Owner",
+		rows: Arr.map(ownersOf(family), (o) => ({ id: o.owner }))
+	},
+	{
+		relation: "Member",
+		rows: Arr.map(family.members, (mb) => {
+			const at = stepAt(mb)
+			return Option.match(spec.x, {
+				onNone: () => ({ member: mb.member, g: mb.g, on: String(selectedAt(spec, at)) }),
+				onSome: (x) => ({
+					member: mb.member,
+					g: mb.g,
+					[x]: spec.carrier.write(defined(spec.domain[at], "a step value"))
+				})
+			})
+		})
+	}
+]
+
+/** The reference fold of a populated family under a fin fold seat (foldRowsOf), each owner's members in key order. */
+export const foldExpectedOf = (spec: FoldSpec, family: Family) =>
+	foldStoredOf(
+		spec.monoid,
+		Arr.map(ownersOf(family), (o) => ({
+			owner: o.owner,
+			members: Arr.map(
+				Arr.sort(
+					o.members,
+					Order.mapInput(Order.Number, (mb: WrittenMember) => mb.member)
+				),
+				(mb) => ({
+					member: mb.member,
+					x: defined(spec.domain[stepAt(mb)], "a step value"),
+					selected: selectedAt(spec, stepAt(mb))
+				})
+			)
+		}))
+	)
+
+/** A seat and a family populated under its relations, which a migration adds the seat's family and fold to. */
+export interface SeatFamily {
+	readonly seat: MonoidSeat
+	readonly family: Family
+}
+
+/** Every seat of monoidSeats, each with a populated family. */
+export const seatFamilyGen: Gen<SeatFamily> = (source) => ({
+	seat: source.draw(element(monoidSeats)),
+	family: source.draw(familyGen)
+})
+
+/** The seat each pending seat's situation is aimed at: that seat, with any populated family. */
+export const seatAims: ReadonlyArray<Aim<SeatFamily, MonoidSeat["label"]>> = Arr.map(
+	monoidSeats,
+	(seat) => [seat.label, map(familyGen, (family) => ({ seat, family }))] as const
+)
 
 /** The rows of `relation` in the installation declared `declared`, each its `fields` as text joined by spaces, sorted. */
 export const rowsOf = (declared: string, relation: string, fields: ReadonlyArray<string>) =>

@@ -195,7 +195,7 @@ const spanEndpointPredicate = (
 	const side = (bound: "lower" | "upper"): Expr => {
 		const substituted = substituteEndpoint(predicate.value, bound, field, spanType, carrier)
 		return lowerPersistent(b.names, substituted, {
-			reads: { kind: "row", column: (ref) => (ref.name === field ? column : undefined) },
+			reads: { kind: "row", column: (ref) => (ref.name === field ? tableCol(column) : undefined) },
 			closed: persistentClosed(b.checked),
 			loc: SourceLoc(
 				`the ${bound} endpoint check of ${relation}.${field} over contract ${contract.name}`,

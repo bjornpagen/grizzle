@@ -1,6 +1,8 @@
 /**
  * A family's members drawn in SQL, in slot order, inside the statement that writes them: the values the host once drew
- * from a read of the stored group, computed by PostgreSQL from the group as the statement finds it.
+ * from a read of the stored group, computed by PostgreSQL from the group as the statement finds it. A migration's
+ * backfill draws a family added to stored rows by the same scan, every group from slot 0 (deploy/diff/backfill.ts), so
+ * a value is drawn one way, whoever draws it.
  *
  * A scan draws each group of one family from its first drawn slot to its last as windows over the group's rows in slot
  * order, never a walk of one member per step: each column a layer of its own, a derived table over the layer below it,
@@ -44,6 +46,8 @@ import {
 	monoidSpecs,
 	stepValue
 } from "#compiler/ir/monoid.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { columnReads } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
@@ -92,21 +96,25 @@ export interface PerGroup extends Shaped {
 
 /**
  * The members a scan walks, one row per member at its final slot: its group's key, its slot, its group's first drawn
- * slot and count, every column of the member the family's rules read, and every column of its owner its owner copies
- * read (`owner`), as the members copy them.
+ * slot and count, every column of the member the family's rules read, every column of its owner its owner copies
+ * read (`owner`), as the members copy them, and the columns it passes through by name, read by no rule (`through`):
+ * a backfill's tid of the row a member is stored at, none of a write's.
  */
 export interface ScanRows extends PerGroup {
 	readonly slot: string
 	readonly first: string
 	readonly count: string
 	readonly owner: ReadonlyMap<ColumnKey, string>
+	readonly through: ReadonlyArray<string>
 }
 
-/** A scan's own rows: the members it walked, each with the columns it carries and the ones it drew, by key. */
+/** A scan's own rows: the members it walked, each with the columns it carries and the ones it drew, by key, and those it
+ * passed through by name. */
 export interface Scanned extends PerGroup {
 	readonly slot: string
 	readonly first: string
 	readonly count: string
+	readonly through: ReadonlyArray<string>
 }
 
 /** What a scan draws: a family's member columns, each with its rule, in the order the family fills them. */
@@ -150,6 +158,16 @@ export const readAt =
 		return column === undefined ? undefined : col(alias, column)
 	}
 
+/** The columns of a scan's rows, each native column under the name `name` gives it, by the scan's key. */
+export const rowColumns = (
+	columns: ReadonlyArray<NativeColumn>,
+	name: (column: NativeColumn) => string
+): ReadonlyMap<ColumnKey, string> => new Map(columns.map((c) => [columnKey(c), name(c)] as const))
+
+/** The name of a native column among a scan's rows, none where it neither carries nor draws it. */
+export const scannedColumn = (rows: Shaped, column: NativeColumn): string | undefined =>
+	rows.columns.get(columnKey(column))
+
 /** Whether two rows' group key columns name one group of `family`, column by column, each at its group field's type. */
 const sameGroup = (
 	names: OperatorNames,
@@ -170,24 +188,43 @@ const sameGroup = (
 		)
 	)
 
-/** A row expression's value over a row's columns, each field it reads by `value` at its key. */
-const generation = (w: WriteContext, expr: ScalarExpr, value: (key: ColumnKey) => Expr): Expr => {
-	const env = new Map<Parameters<Env["get"]>[0], ColumnMap>()
-	for (const read of columnReads(expr)) {
-		const columns = new Map(env.get(read.node) ?? [])
-		columns.set(read.name, value(fieldKey(read.name)))
-		env.set(read.node, columns)
-	}
-	return lowerExpr(w.cx, expr, env)
+/**
+ * How a scan lowers what it reads of a row and writes of a type: a row expression (a generated field's generation, a
+ * conjunct of a fold's selection) over the row's columns, each field it reads by `field` at its name; a type's base,
+ * which every drawn column is cast to; and the installed names its literals and a group key's operators are spelled by
+ * (lowerLiteral, typedEq). A write lowers them as its statements do (`writeLowering`); a migration's backfill as the
+ * installation's persistent expressions are (deploy/diff/backfill.ts).
+ */
+export interface ScanLowering {
+	readonly names: PhysicalNames
+	readonly expression: (expr: ScalarExpr, field: (name: string) => Expr) => Expr
+	readonly baseType: (type: ScalarType) => TypeRef
 }
+
+/** A write's lowering of its scans: its statements' expressions, literals and types. */
+export const writeLowering = (w: WriteContext): ScanLowering => ({
+	names: w.names,
+	expression: (expr, field) => {
+		const env = new Map<Parameters<Env["get"]>[0], ColumnMap>()
+		for (const read of columnReads(expr)) {
+			const columns = new Map(env.get(read.node) ?? [])
+			columns.set(read.name, field(read.name))
+			env.set(read.node, columns)
+		}
+		return lowerExpr(w.cx, expr, env)
+	},
+	baseType: (type) => w.cx.baseTypeRef(type)
+})
 
 /** A fold's selection over the member's row, its conjuncts ANDed, none where it steps over every member. */
 const selection = (
-	w: WriteContext,
+	lowering: ScanLowering,
 	fold: FamilyFold,
 	value: (key: ColumnKey) => Expr
 ): Expr | undefined => {
-	const [first, ...rest] = fold.where.map((c) => generation(w, c, value))
+	const [first, ...rest] = fold.where.map((c) =>
+		lowering.expression(c, (name) => value(fieldKey(name)))
+	)
 	return first === undefined ? undefined : and([first, ...rest])
 }
 
@@ -197,7 +234,7 @@ const selection = (
  * hold every column a rule or a generation reads.
  */
 const ownValue =
-	(relation: LawRelation, own: Read, w: WriteContext) =>
+	(relation: LawRelation, own: Read, lowering: ScanLowering) =>
 	(key: ColumnKey): Expr => {
 		const value = (k: ColumnKey): Expr => {
 			const held = own(k)
@@ -206,7 +243,7 @@ const ownValue =
 			}
 			const field = relation.fields.find((f) => fieldKey(f.name) === k)
 			if (field?.writing.kind === "generated") {
-				return generation(w, field.writing.expr, value)
+				return lowering.expression(field.writing.expr, (name) => value(fieldKey(name)))
 			}
 			throw defect(`the column ${k} of ${relation.name}, which a write reads`)
 		}
@@ -225,7 +262,7 @@ export const scannedValue = (
 	column: NativeColumn
 ): Expr => {
 	const key = columnKey(column)
-	const value = ownValue(relation, readAt(alias, scanned), w)(key)
+	const value = ownValue(relation, readAt(alias, scanned), writeLowering(w))(key)
 	return scanned.columns.has(key) || column.kind !== "field"
 		? value
 		: cast(value, w.cx.baseTypeRef(column.field.type))
@@ -330,7 +367,7 @@ const runningAfter = (
  * The scan of `spec` (see the header): a CTE of every row `spec.rows` holds, each with the columns it carries and the
  * family's columns its rules draw, by key, drawn layer by layer over each group in slot order.
  */
-export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Scan => {
+export const scanOf = (lowering: ScanLowering, supply: NameSupply, spec: ScanSpec): Scan => {
 	const name = supply.relation(internal("family scan"))
 	const rows = spec.rows
 	const drawnKeys = new Set(spec.drawn.map((c) => columnKey(c.column)))
@@ -343,7 +380,8 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 		...carried.map(([key]) => [key, supply.column(internal("scan carried"))] as const),
 		...spec.drawn.map((c) => [columnKey(c.column), supply.column(internal("scan drawn"))] as const)
 	])
-	const out: Scanned = { name, group, slot, first, count, columns }
+	const { through } = rows
+	const out: Scanned = { name, group, slot, first, count, columns, through }
 	const own = new Map<ColumnKey, string>(
 		[...rows.columns.keys()].map((key) => [
 			key,
@@ -389,6 +427,7 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 				targetAs(col(r, rows.slot), slot),
 				targetAs(col(r, rows.first), first),
 				targetAs(col(r, rows.count), count),
+				...through.map((c) => targetAs(col(r, c), c)),
 				...[...rows.columns].map(([key, c]) =>
 					targetAs(col(r, c), defined(own.get(key), "a row column"))
 				),
@@ -397,7 +436,7 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 				),
 				...[...seed].map(([key, c]) => {
 					const reader = seedReader(key)
-					return targetAs(cast(seedColumn(key, reader), w.cx.baseTypeRef(reader.type)), c)
+					return targetAs(cast(seedColumn(key, reader), lowering.baseType(reader.type)), c)
 				})
 			],
 			from,
@@ -407,7 +446,7 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 	const r0 = supply.relation(internal("scan base row"))
 	/** The groups drawn from slot 0, whose first member reads the family's base. */
 	const fromBase = arm(r0, [cteRefAs(rows.name, r0)], eq(col(r0, rows.first), zero), (_, reader) =>
-		lowerLiteral(w.names, reader.base, reader.type)
+		lowerLiteral(lowering.names, reader.base, reader.type)
 	)
 	const seededFrom = (stored: PerGroup): SetCore => {
 		const r1 = supply.relation(internal("scan seeded row"))
@@ -418,7 +457,7 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 				join(
 					cteRefAs(rows.name, r1),
 					cteRefAs(stored.name, s1),
-					sameGroup(w.names, spec.family, r1, rows.group, s1, stored.group)
+					sameGroup(lowering.names, spec.family, r1, rows.group, s1, stored.group)
 				)
 			],
 			gt(col(r1, rows.first), zero),
@@ -433,14 +472,23 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 	)
 	let below: Layer = {
 		query: based,
-		columns: [...group, slot, first, count, ...own.values(), ...owner.values(), ...seed.values()]
+		columns: [
+			...group,
+			slot,
+			first,
+			count,
+			...through,
+			...own.values(),
+			...owner.values(),
+			...seed.values()
+		]
 	}
 	const drawn = new Set<ColumnKey>()
 	const pending: Array<FillColumn> = [...spec.drawn]
 	while (pending.length > 0) {
 		const at = supply.relation(internal("scan layer"))
 		const ready = pending.flatMap((c) => {
-			const built = columnOf(w, spec, layout, at, drawn, c)
+			const built = columnOf(lowering, spec, layout, at, drawn, c)
 			return built.kind === "built"
 				? [
 						{
@@ -483,7 +531,9 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 	const body = select(
 		provedCore(
 			"keyed",
-			[...group, slot, first, count, ...columns.values()].map((n) => targetAs(col(top, n), n)),
+			[...group, slot, first, count, ...through, ...columns.values()].map((n) =>
+				targetAs(col(top, n), n)
+			),
 			[over(below, top)],
 			undefined
 		)
@@ -491,7 +541,7 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 	return {
 		cte: {
 			name,
-			columns: [...group, slot, first, count, ...columns.values()],
+			columns: [...group, slot, first, count, ...through, ...columns.values()],
 			materialized: undefined,
 			query: body
 		},
@@ -519,7 +569,7 @@ const over = (layer: Layer, alias: string): FromSource =>
  * aggregate (runningAfter). It waits on each drawn column it reads that `at` does not hold.
  */
 const columnOf = (
-	w: WriteContext,
+	lowering: ScanLowering,
 	spec: ScanSpec,
 	layout: Layout,
 	at: string,
@@ -556,7 +606,7 @@ const columnOf = (
 			const column = layout.own.get(key)
 			return column === undefined ? undefined : col(at, column)
 		},
-		w
+		lowering
 	)
 	/** A column of the row as its rules read it: drawn where a rule draws it, else its own. */
 	const value = (key: ColumnKey): Expr =>
@@ -568,7 +618,7 @@ const columnOf = (
 			const e = holding(key)
 			return e === undefined ? undefined : lag(e)
 		},
-		w
+		lowering
 	)
 	const atFirst = eq(col(at, layout.slot), col(at, layout.first))
 	/** A predecessor copy's value at the group's first drawn slot: its base at slot 0, else the seed's column. */
@@ -578,7 +628,7 @@ const columnOf = (
 		whens: [{ when: eq(col(at, layout.first), lit.int(0, types.bigint)), result: base }],
 		else: col(at, defined(layout.seed.get(columnKey(to)), "a seed column"))
 	})
-	const to = w.cx.baseTypeRef(c.type)
+	const to = lowering.baseType(c.type)
 	const rule = c.rule
 	const built = (expr: Expr): Built =>
 		waits.size === 0 ? { kind: "built", expr: cast(expr, to) } : { kind: "waiting", on: waits }
@@ -595,11 +645,11 @@ const columnOf = (
 						const column = layout.owner.get(key)
 						return column === undefined ? undefined : col(at, column)
 					},
-					w
+					lowering
 				)(columnKey(rule.to))
 			)
 		case "predecessor": {
-			const base = lowerLiteral(w.names, rule.base, c.type)
+			const base = lowerLiteral(lowering.names, rule.base, c.type)
 			const later = before(columnKey(rule.to))
 			return built({
 				kind: "case",
@@ -618,8 +668,8 @@ const columnOf = (
 				)
 			}
 			const first = cast(
-				firstBefore(pred.rule.to, lowerLiteral(w.names, pred.rule.base, pred.type)),
-				w.cx.baseTypeRef(pred.type)
+				firstBefore(pred.rule.to, lowerLiteral(lowering.names, pred.rule.base, pred.type)),
+				lowering.baseType(pred.type)
 			)
 			const monoid = monoidSpecs[rule.fold.monoid]
 			const accumulates = defined(monoid.planes[plane], `the ${monoid.name} fold's plane ${plane}`)
@@ -631,7 +681,7 @@ const columnOf = (
 				() => value(columnKey(defined(rule.befores[0], "the first plane's before"))),
 				sqlCombine
 			)
-			const selected = selection(w, rule.fold, value)
+			const selected = selection(lowering, rule.fold, value)
 			return built(runningAfter(accumulates, first, delta, selected, running, to))
 		}
 		case "given":

@@ -30,7 +30,7 @@ import { nativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { and, lit, tableCol } from "#compiler/sql/build.ts"
+import { and, lit } from "#compiler/sql/build.ts"
 
 const refusePersistent = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))
@@ -70,11 +70,11 @@ export const persistentText = (
 	}
 }
 
-/** What a persistent expression reads: a row, a table CHECK's or a span endpoint check's, whose column references
- * name installed columns (`column` answers undefined for one outside the constrained row); or a domain CHECK's
+/** What a persistent expression reads: a row, a table CHECK's, a span endpoint check's or a backfill's, whose column
+ * references are each the row's value at it (`column` answers undefined for one outside the row); or a domain CHECK's
  * VALUE, where no column is in scope. */
 type PersistentReading =
-	| { readonly kind: "row"; readonly column: (ref: ColumnRef) => string | undefined }
+	| { readonly kind: "row"; readonly column: (ref: ColumnRef) => Expr | undefined }
 	| { readonly kind: "domain" }
 
 interface PersistentScope {
@@ -188,13 +188,14 @@ const persistentSite = (
 			switch (expr.kind) {
 				case "column": {
 					const column = scope.reads.kind === "row" ? scope.reads.column(expr.column) : undefined
-					return column === undefined
-						? refusePersistent(
-								"MalformedDescription",
-								at,
-								`a column ${expr.column.name} of the constrained row`
-							)
-						: tableCol(column)
+					return (
+						column ??
+						refusePersistent(
+							"MalformedDescription",
+							at,
+							`a column ${expr.column.name} of the constrained row`
+						)
+					)
 				}
 				case "value":
 					return scope.reads.kind === "domain"

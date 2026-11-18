@@ -97,10 +97,9 @@ export const backfillingAFamilyAddedToStoredRowsGeneratedDrawsEveryValueItsRefer
 		kills: [
 			{
 				file: "packages/engine/src/deploy/diff/backfill.ts",
-				original:
-					'\t\tover("row_number", [], window(partition, key.map(tableCol), false)),\n\t\tlit.int(1n, types.bigint)',
+				original: '\t\t\t\t\t\tlit.int(1n, types.bigint)\n\t\t\t\t\t)\n\t\t\t\t: col("m", index),',
 				replacement:
-					'\t\tover("row_number", [], window(partition, key.map(tableCol), false)),\n\t\tlit.int(0n, types.bigint)',
+					'\t\t\t\t\t\tlit.int(0n, types.bigint)\n\t\t\t\t\t)\n\t\t\t\t: col("m", index),',
 				why: "A counted family's indices are drawn from one, not zero (row_number() unshifted); the generated backfill's drawn values disagree with the references."
 			},
 			{

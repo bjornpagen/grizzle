@@ -93,6 +93,7 @@ import {
 	type ScanRows,
 	scannedValue,
 	scanOf,
+	writeLowering,
 	type Shaped
 } from "#compiler/write/family/scan.ts"
 import { endColumns, type RowLayout } from "#compiler/write/family/statements.ts"
@@ -1214,7 +1215,8 @@ const redraw = (
 			[...ownerReads.keys()].map(
 				(k) => [k, supply.column(internal("redrawn owner column"))] as const
 			)
-		)
+		),
+		through: []
 	}
 	/**
 	 * A member's value of each column as the edit leaves it: the put's where it updates the member, else stored, read as
@@ -1597,7 +1599,7 @@ const redraw = (
 			)
 		)
 	)
-	const scan = scanOf(w, supply, {
+	const scan = scanOf(writeLowering(w), supply, {
 		family,
 		member: member.relation,
 		drawn: drawnColumns,

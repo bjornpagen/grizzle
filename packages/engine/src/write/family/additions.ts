@@ -114,6 +114,7 @@ import {
 	type ScanRows,
 	scannedValue,
 	scanOf,
+	writeLowering,
 	type Shaped
 } from "#compiler/write/family/scan.ts"
 import {
@@ -1224,7 +1225,8 @@ const appendScan = (
 		),
 		owner: new Map(
 			[...ownerReads.keys()].map((k) => [k, supply.column(internal("row owner column"))] as const)
-		)
+		),
+		through: []
 	}
 	const a = supply.relation(internal("appended row"))
 	const g2 = supply.relation(internal("row group"))
@@ -1275,7 +1277,7 @@ const appendScan = (
 			)
 		)
 	)
-	const scan = scanOf(w, supply, {
+	const scan = scanOf(writeLowering(w), supply, {
 		family,
 		member: member.relation,
 		drawn: drawnColumns,

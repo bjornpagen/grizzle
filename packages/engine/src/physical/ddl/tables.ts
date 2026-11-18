@@ -773,9 +773,12 @@ const lowerRow = (
 	return lowerPersistent(b.names, expr, {
 		reads: {
 			kind: "row",
-			column: (ref) =>
-				relation.fields.find((f) => f.name === ref.name)?.column ??
-				(lawColumns.has(ref.name) ? ref.name : undefined)
+			column: (ref) => {
+				const column =
+					relation.fields.find((f) => f.name === ref.name)?.column ??
+					(lawColumns.has(ref.name) ? ref.name : undefined)
+				return column === undefined ? undefined : tableCol(column)
+			}
 		},
 		closed: persistentClosed(b.checked),
 		loc: SourceLoc(label, [])

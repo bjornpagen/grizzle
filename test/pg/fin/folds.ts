@@ -49,6 +49,7 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
+import type { AnySchema } from "#compiler/public/schema.ts"
 import {
 	closedLeaf,
 	type ColumnKey,
@@ -70,7 +71,6 @@ import {
 } from "#test/pg/fin/installed.ts"
 import { deepEquals } from "#test/support/assert.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
-import type { FixtureSchema } from "#test/support/compile.ts"
 import {
 	type FoldFamily,
 	type FoldLowering,
@@ -477,7 +477,7 @@ const code: Carrier = {
 /** One fold seat's specification: its schema, monoid, shape, carrier, step domain and accumulator roles. */
 export interface FoldSpec {
 	readonly label: string
-	readonly schema: FixtureSchema
+	readonly schema: AnySchema
 	readonly monoid: FoldMonoid
 	readonly shape: Shape
 	readonly carrier: Carrier
