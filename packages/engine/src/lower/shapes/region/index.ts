@@ -1,7 +1,7 @@
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { exprsOf, inputsOf, type NodeOf, type VarDecl } from "#compiler/ir/rel.ts"
+import { exprsOf, inputsOf, type NodeOf, type RelNode, type VarDecl } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import {
@@ -18,9 +18,9 @@ import {
 } from "#compiler/lower/conservative/match-region/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
-import type { Expr, FromItem, JoinStep, OperandBody } from "#compiler/sql/ast.ts"
-import { and, core, lit, operandSelect, target } from "#compiler/sql/build.ts"
-import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
+import type { Expr, FromItem, JoinStep, OperandBody, Select, Target } from "#compiler/sql/ast.ts"
+import { and, col, core, derived, lit, operandSelect, target } from "#compiler/sql/build.ts"
+import { identityHooks, inertVisitor, transformExpr, visitSelect } from "#compiler/sql/transform.ts"
 
 /**
  * PostgreSQL's default join_collapse_limit, which is from_collapse_limit's too: the most FROM items the planner flattens
@@ -146,7 +146,8 @@ const chainOrder = (
 	terms: ReadonlyArray<Term>,
 	read: ReadonlyArray<RegionColumn>,
 	facts: ShapeFacts,
-	within: ReadonlySet<string>
+	within: ReadonlySet<string>,
+	once: (node: RelNode) => boolean
 ): Chain => {
 	const fixed = (o: PlacedOccurrence): ReadonlySet<string> =>
 		new Set([
@@ -184,14 +185,20 @@ const chainOrder = (
 	}
 	const joined = (p: Pending, chained: ReadonlySet<string>): boolean =>
 		terms.some((t) => t.reads.has(p.placed.alias) && [...t.reads].some((a) => chained.has(a)))
-	/** The earliest candidate of the lowest tier. */
-	const best = (
-		candidate: Pending,
-		more: ReadonlyArray<Pending>,
-		chained: ReadonlySet<string>
-	): Pending =>
-		more.reduce((acc, p) => (tier(p, chained) < tier(acc, chained) ? p : acc), candidate)
 	const chained = new Set<string>()
+	/**
+	 * The chain's start by rank: an occurrence of at most one row; else one the statement derives once (`once`, a CTE),
+	 * which no index reads, so it stands outside every loop and each later occurrence is reached through what it binds;
+	 * else by tier.
+	 */
+	const startRank = (p: Pending): 0 | 1 | 2 | 3 => {
+		const t = tier(p, chained)
+		return t === 0 ? 0 : once(p.placed.occurrence.source) ? 1 : t === 1 ? 2 : 3
+	}
+	/** The earliest candidate of the lowest rank: the start's (startRank) while nothing is chained, the tier after. */
+	const rank = (p: Pending): number => (chained.size === 0 ? startRank(p) : tier(p, chained))
+	const best = (candidate: Pending, more: ReadonlyArray<Pending>): Pending =>
+		more.reduce((acc, p) => (rank(p) < rank(acc) ? p : acc), candidate)
 	let pending: ReadonlyArray<Pending> = others.map((o) => pendingOf(o, within))
 	/**
 	 * The next occurrence chained, of the pending `head` and `tail`: the best ready one joined to the chain, else the
@@ -200,8 +207,7 @@ const chainOrder = (
 	const take = (head: Pending, tail: ReadonlyArray<Pending>): PlacedOccurrence => {
 		const ready = tail.filter((p) => subset(p.reads, chained))
 		const [connected, ...more] = [head, ...ready].filter((p) => joined(p, chained))
-		const next =
-			connected === undefined ? best(head, ready, chained) : best(connected, more, chained)
+		const next = connected === undefined ? best(head, ready) : best(connected, more)
 		chained.add(next.placed.alias)
 		pending = [head, ...tail].filter((p) => p !== next)
 		return next.placed
@@ -372,15 +378,18 @@ const impliedBounds = (
  *
  * - It starts at the occurrence the evidence makes most selective: one whose columns fixed by values from outside the
  *   region (constants, parameters, outer correlations) determine a physical key of its source, so it delivers at most
- *   one row; else one with any fixed column; else the first placed. A column is fixed by a condition of the region, or
- *   by its only reader, a filter, that equates the variable bound to it with a value read from no relation: the
- *   parameter a rule's probe holds its row at reaches PostgreSQL there, and a chain that started elsewhere would plan
- *   its first subproblem, every relation it holds, before the parameter met any of them. An occurrence that reads
- *   another (LATERAL) never starts.
+ *   one row; else one its statement derives once (a CTE, lower/optimize/cte-policy rule 5b), which no index reads;
+ *   else one with any fixed column; else the first placed. A column is fixed by a condition of the region, or by its
+ *   only reader, a filter, that equates the variable bound to it with a value read from no relation: the parameter a
+ *   rule's probe holds its row at reaches PostgreSQL there, and a chain that started elsewhere would plan its first
+ *   subproblem, every relation it holds, before the parameter met any of them. An occurrence that reads another
+ *   (LATERAL) never starts.
  * - It continues with an occurrence a condition joins to those already chained, preferring one whose fixed columns and
  *   columns equated to chained ones determine a key (no fan-out), then one with a fixed column, then the first placed,
  *   and only when none is joined, one the query itself leaves unconnected. A LATERAL occurrence follows everything it
  *   reads.
+ * - A chain that starts at an occurrence derived once reads the rest of the region once per row of it, LATERAL by its
+ *   values (keyedByOnce), so the set stands outside every loop and the rest's scans are restricted by its row.
  *
  * Each condition is the ON of the join at which every occurrence it reads is chained; one that reads only the first,
  * or none, stays in WHERE. A join with no condition is a CROSS JOIN, which appears only where the query has one. For
@@ -399,7 +408,7 @@ const impliedBounds = (
  * else reads it.
  */
 export const regionLowerer =
-	(facts: ShapeFacts): NodeLowerer<"MatchRegion"> =>
+	(facts: ShapeFacts, once: (node: RelNode) => boolean): NodeLowerer<"MatchRegion"> =>
 	(node, cx, env) => {
 		const lowered = regionParts(node, cx, env)
 		const parts = {
@@ -422,7 +431,8 @@ export const regionLowerer =
 			terms,
 			readerFixed(node, cx, lowered, within),
 			facts,
-			within
+			within,
+			once
 		)
 		/**
 		 * Each term stands at the step of the chain that brings in the last occurrence it reads: in WHERE when that is
@@ -435,17 +445,101 @@ export const regionLowerer =
 		}))
 		const at = (step: number): ReadonlyArray<Expr> =>
 			placed.flatMap((t) => (t.step === step ? [t.expr] : []))
-		const chain: FromItem = isNonEmpty(rest)
-			? {
-					kind: "joins",
-					first: start.item,
-					steps: mapNonEmpty(rest, (o, i): JoinStep => {
-						const on = at(i + 1)
-						return isNonEmpty(on)
-							? { kind: "on", source: o.item, on: and(on) }
-							: { kind: "cross", source: o.item }
-					})
-				}
-			: start.item
-		return distinctSelect(parts.targets, [chain], at(0))
+		/** The chain of `head` then `tail`, steps `from` on of `steps`, each step's terms in the ON of its join. */
+		const chainOf = (
+			head: PlacedOccurrence,
+			tail: ReadonlyArray<PlacedOccurrence>,
+			from: number
+		): FromItem =>
+			isNonEmpty(tail)
+				? {
+						kind: "joins",
+						first: head.item,
+						steps: mapNonEmpty(tail, (o, i): JoinStep => {
+							const on = at(from + i + 1)
+							return isNonEmpty(on)
+								? { kind: "on", source: o.item, on: and(on) }
+								: { kind: "cross", source: o.item }
+						})
+					}
+				: head.item
+		const [next, ...after] = rest
+		if (next === undefined || !once(start.occurrence.source)) {
+			return distinctSelect(parts.targets, [chainOf(start, rest, 0)], at(0))
+		}
+		return keyedByOnce(
+			cx,
+			node,
+			parts.targets,
+			start,
+			chainOf(next, after, 1),
+			at(1),
+			at(0),
+			within
+		)
 	}
+
+/**
+ * A chain that starts at an occurrence its statement derives once (`start`, a CTE), read as that set and, for each of
+ * its rows, the rest of the region, a LATERAL derived table reading the row's values where the rest's terms read
+ * `start`'s columns:
+ *
+ *   SELECT DISTINCT <targets> FROM <start>, LATERAL (SELECT DISTINCT <the rest's columns the targets read>
+ *     FROM <the rest's chain> WHERE <its first step's terms>) AS l(...) WHERE <the terms of `start` alone>
+ *
+ * The rest, DISTINCT, is no subquery PostgreSQL pulls up, so it runs once for each row of `start` with that row's values
+ * fixed, its scans restricted by them: `start` stands outside the loop, read once, whatever PostgreSQL estimates. A
+ * join of the two would let PostgreSQL put the rest's join inside a nested loop over `start`'s rows, unrestricted,
+ * derived again for each (a set read whole is estimated as cheap as one that is restricted when both are estimated at
+ * one row), or `start`'s rows inside one over the rest's, each scanned whole. The region's rows are the same: an
+ * inner join's terms mean the same in ON and in WHERE, and DISTINCT keeps the bindings a set.
+ */
+const keyedByOnce = (
+	cx: LowerContext,
+	node: NodeOf<"MatchRegion">,
+	targets: NonEmptyReadonlyArray<Target>,
+	start: PlacedOccurrence,
+	rest: FromItem,
+	restWhere: ReadonlyArray<Expr>,
+	startWhere: ReadonlyArray<Expr>,
+	within: ReadonlySet<string>
+): Select => {
+	const restAliases = new Set([...within].filter((a) => a !== start.alias))
+	/** The rest's columns the targets read, each once, in the order they are first read. */
+	const read = new Map<string, { readonly alias: string; readonly column: string }>()
+	for (const t of targets) {
+		visitSelect(operandSelect(core([t], [], undefined)), {
+			...inertVisitor,
+			expr: (e) => {
+				if (e.kind === "column" && e.table !== undefined && restAliases.has(e.table)) {
+					read.set(`${e.table}.${e.column}`, { alias: e.table, column: e.column })
+				}
+			}
+		})
+	}
+	const origin = { kind: "node", node: node.id } as const
+	const alias = cx.relationAlias(origin)
+	const columns = [...read.values()].map((c) => ({ ...c, as: cx.supply.column(origin) }))
+	const carried: NonEmptyReadonlyArray<Target> = isNonEmpty(columns)
+		? mapNonEmpty(columns, (c) => target(col(c.alias, c.column)))
+		: [target(lit.bool(true))]
+	const body = distinctSelect(carried, [rest], restWhere)
+	const item = derived(
+		body,
+		alias,
+		isNonEmpty(columns) ? columns.map((c) => c.as) : [cx.supply.column(origin)],
+		true
+	)
+	const outside = new Map(columns.map((c) => [`${c.alias}.${c.column}`, col(alias, c.as)]))
+	const outer = mapNonEmpty(targets, (t) => ({
+		...t,
+		expr: transformExpr(t.expr, {
+			...identityHooks,
+			expr: (e) =>
+				e.kind === "column" && e.table !== undefined
+					? (outside.get(`${e.table}.${e.column}`) ?? e)
+					: e
+		})
+	}))
+	return distinctSelect(outer, [start.item, item], startWhere)
+}

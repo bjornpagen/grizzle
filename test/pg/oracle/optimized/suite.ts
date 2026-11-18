@@ -49,6 +49,7 @@ import { correlatedChildUnderNestedAttachment, keySetSites } from "#test/support
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import {
 	baseTypeSpecs,
+	bool,
 	canonicallySpelled,
 	int4,
 	literalEqualityKey,
@@ -57,7 +58,7 @@ import {
 	spelledAt,
 	valueClasses
 } from "#test/support/oracle/gen/domain.ts"
-import { aggregateOpId, aggregateResult } from "#test/support/oracle/gen/ops.ts"
+import { aggregateOpId, aggregateResult, compareOpId } from "#test/support/oracle/gen/ops.ts"
 import { normalQuery, queryExprs } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -410,12 +411,66 @@ const foldKeyTwiceGen: Gen<QueryCase> = (source) => {
 }
 
 /**
+ * The case cte.notMaterialized names: one relation R0(k integer, a integer, b integer) keyed by k, holding `facts`,
+ * each an (a, b) pair stored at k its position, and its join with itself where one row's a is another's b, read by
+ * two filters, the pairs of one row with itself and those of two rows, the union of the two the query. The join of two sources is read twice and
+ * by no reader per row of another, neither a region's occurrence nor a semi- or anti-join's right side, so the CTE
+ * policy shares it NOT MATERIALIZED (rule 6): PostgreSQL may fold it into each filter. Since a workload's read reads
+ * every shared join a region or a semi- or anti-join reads per row, materialized (rule 5b), the population's reads
+ * seldom share one otherwise.
+ */
+const sharedJoinCase = (facts: ReadonlyArray<readonly [SpelledValue, SpelledValue]>): QueryCase => {
+	const r0: GenRelation = {
+		name: "R0",
+		columns: [
+			{ name: "k", type: int4 },
+			{ name: "a", type: int4 },
+			{ name: "b", type: int4 }
+		],
+		primaryKey: ["k"],
+		keys: [],
+		mutable: false
+	}
+	const q = new Q()
+	const base = (): RelNode =>
+		q.base({ name: r0.name, heading: r0.columns, primaryKey: r0.primaryKey }, conservativeMeta)
+	const joined = q.region([
+		{ source: base(), bind: { k: "k", a: "v" }, constants: {} },
+		{ source: base(), bind: { k: "j", b: "v" }, constants: {} }
+	])
+	const compared = (op: "eq" | "ne") =>
+		q.filter(joined, q.op(compareOpId(int4, op), [q.col(joined, "k"), q.col(joined, "j")], bool))
+	const root = q.union([compared("eq"), compared("ne")], [])
+	return {
+		schema: { name: schemaName, relations: [r0], closed: [], containments: [] },
+		facts: {
+			R0: Arr.map(facts, ([a, b], k) => [canonicallySpelled(literalOfValue(BigInt(k), int4)), a, b])
+		},
+		query: { dag: normalQuery(q.b.build(Arr.of(root))), params: {} },
+		spelling: { mode: "drawn", edge: false }
+	}
+}
+
+/** A case sharedJoinCase builds, drawn: up to six (a, b) pairs of R0, each value one of three, in a spelling of its own. */
+const sharedJoinGen: Gen<QueryCase> = (source) => {
+	const values = valueClasses(int4, false)
+	const pick = (s: typeof source): SpelledValue =>
+		spelledAt(
+			int4,
+			elementAt(values, s.draw(int(0, Math.min(2, values.length - 1))), "an int4 value"),
+			s.draw(int(0, 3))
+		)
+	return sharedJoinCase(source.draw(array((s) => [pick(s), pick(s)] as const, { min: 0, max: 6 })))
+}
+
+/**
  * The required situations the drawn populations seldom reach, each with the case built to reach it: a case whose turn
  * aims at one draws that case in place of the population's (resolved), the case it runs, prints and keeps. A suite
  * that does not require a situation never aims at it.
  */
 const aims: ReadonlyArray<readonly [OptimizedFeature, Gen<QueryCase>]> = [
-	["a fold key correlated with two parent columns", foldKeyTwiceGen]
+	["a fold key correlated with two parent columns", foldKeyTwiceGen],
+	["cte.notMaterialized", sharedJoinGen]
 ]
 
 /**
@@ -560,7 +615,7 @@ export const validRewriteRules = [
 
 /**
  * The rewrite and placement rules a generated population of a few thousand cases reliably fires, so a suite whose
- * differential held also held for each of them.
+ * differential held also held for each of them, or that its aims reach (cte.notMaterialized, sharedJoinGen).
  */
 export const generatedRules = [
 	...validRewriteRules,

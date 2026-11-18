@@ -30,6 +30,7 @@ import {
 	partialOrder
 } from "#compiler/lower/conservative/take/order.ts"
 import type { DeliveredBreach } from "#compiler/lower/conservative/types.ts"
+import type { CteStrategy } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
@@ -303,14 +304,21 @@ export const attachmentOrder =
 					})
 				]
 
-/** The child as a fold by every column the Attach correlates, a Group whose keys hold them; none for any other. */
+/**
+ * The child as a fold by every column the Attach correlates, a Group whose keys hold them, which the part restricts to
+ * each parent row's values; none for any other, and none for a fold the statement computes once (`read`
+ * materialized: lower/optimize/cte-policy rule 5b, a fold no stored relation's range binds by its keys), which the part
+ * reads beside its parents' keys.
+ */
 const foldedByCorrelation = (
 	child: RelNode,
-	attach: NodeOf<"Attach">
+	attach: NodeOf<"Attach">,
+	read: CteStrategy | undefined
 ): NodeOf<"Group"> | undefined =>
 	child.kind === "Group" &&
 	child.keys.length > 0 &&
-	attach.correlation.every((c) => child.keys.includes(c.child))
+	attach.correlation.every((c) => child.keys.includes(c.child)) &&
+	read !== "materialized"
 		? child
 		: undefined
 
@@ -333,7 +341,9 @@ const foldedByCorrelation = (
  * reads every row of the child's relation: a grant's debited total folded every debit of every grant. Wrapping the
  * fold in a derived table that restricts it does not help: PostgreSQL flattens the wrapper (prepjointree.c
  * pull_up_subqueries) and its condition is a join condition again. Any other child is correlated beside it, which
- * PostgreSQL pushes into a child it flattens.
+ * PostgreSQL pushes into a child it flattens. A fold the statement computes once (`read`, the CTE policy's strategy for
+ * the child) is that relation, one group per key, its correlation beside it: no stored relation's range binds its
+ * keys, so a restriction inside the grouping would derive its input again for each parent row.
  */
 export const pipelinedAttachment = (
 	cx: LowerContext,
@@ -341,7 +351,8 @@ export const pipelinedAttachment = (
 	spine: ReadonlyArray<RelNode>,
 	rows: DeliveredRows<ChoiceInput>,
 	facts: ShapeFacts,
-	parentColumns: Heading
+	parentColumns: Heading,
+	read: CteStrategy | undefined
 ): PipelinedAttachment => {
 	const child = attach.child
 	const parent = parentKeysSource(cx, rows, parentColumns, { kind: "node", node: attach.id })
@@ -349,7 +360,7 @@ export const pipelinedAttachment = (
 	const keys = parentColumns.map((c) => ({ name: c.name, expr: parent.column(c.name) }))
 	const parentMap: ColumnMap = new Map(keys.map((k) => [k.name, k.expr]))
 	const env: Env = new Map<NodeId, ColumnMap>(spine.map((n) => [n.id, parentMap]))
-	const folded = foldedByCorrelation(child, attach)
+	const folded = foldedByCorrelation(child, attach, read)
 	const source =
 		folded === undefined
 			? cx.sourceAs(child, env, true)

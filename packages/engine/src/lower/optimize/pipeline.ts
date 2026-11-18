@@ -159,7 +159,10 @@ const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, Optimi
 			return placed
 		}
 		const plan = placed.value
-		const planned = ctePolicyPass.run(query, ctx)
+		const planned = ctePolicyPass(options.subject.kind === "query" ? "query" : "other").run(
+			query,
+			ctx
+		)
 		if (!planned.ok) {
 			return planned
 		}

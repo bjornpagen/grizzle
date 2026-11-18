@@ -9,7 +9,7 @@ import {
 import { nodeScopes } from "#compiler/ir/dag.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import type { RelKind, RelNode, ValidDag } from "#compiler/ir/rel.ts"
+import type { NodeOf, RelKind, RelNode, ValidDag, VarDecl } from "#compiler/ir/rel.ts"
 import {
 	feedbackReadsOf,
 	nodeGraph,
@@ -29,6 +29,7 @@ type CteReason =
 	| "cheapScan"
 	| "sharedExpensive"
 	| "sharedJoin"
+	| "readPerRow"
 
 interface CteDecision {
 	readonly node: NodeId
@@ -47,6 +48,12 @@ export interface CtePlan {
 
 /** The plan of a statement whose stages no policy shared: every node is inlined. */
 export const emptyCtePlan: CtePlan = { decisions: {} }
+
+/**
+ * What a compilation is, as the policy reads it: a workload's read (`query`), or another subject (a rule's probe over
+ * its region, a derived relation's definition, a read-back, a membership), which rule 5b leaves as rule 1 has it.
+ */
+export type CteSubject = "query" | "other"
 
 interface CtePlannedQuery extends LogicalQuery {
 	readonly cte: CtePlan
@@ -93,17 +100,86 @@ interface Decided {
 }
 
 /**
- * The policy's decision for every shared node of a DAG, a node read more than once, in topological order: an expensive
- * one is materialized.
+ * Whether every column of `columns` of `node` is bound, through filters and projections of columns, by one occurrence
+ * of a stored relation in a region: a restriction by them is then a range of that relation, which the index the
+ * workload's access paths request for it reads (physical/access), and the rest of the region joins each row of that
+ * range by the variables it binds.
  */
-const ctePlan = (dag: ValidDag): ReadonlyArray<Decided> => {
+const probedByKey = (node: RelNode, columns: ReadonlyArray<string>): boolean => {
+	if (node.kind === "Filter") {
+		return probedByKey(node.input, columns)
+	}
+	if (node.kind === "ProjectSet") {
+		const read = columns.flatMap((c) => {
+			const e = node.out.find((o) => o.name === c)?.expr
+			return e?.kind === "column" && e.column.node === node.input.id ? [e.column.name] : []
+		})
+		return read.length === columns.length && probedByKey(node.input, read)
+	}
+	if (node.kind !== "MatchRegion") {
+		return false
+	}
+	const vars = columns.flatMap((c) => node.vars.filter((v) => v.name === c))
+	return (
+		vars.length === columns.length &&
+		node.occurrences.some(
+			(o) => o.source.kind === "Base" && vars.every((v) => o.bindings.some((b) => b.var === v))
+		)
+	)
+}
+
+/** The variables of a region a value fixes: a correlation that reads no relation, a parameter or a literal. */
+const fixedByValue = (region: NodeOf<"MatchRegion">): ReadonlySet<VarDecl> =>
+	new Set(region.correlated.flatMap((c) => (c.expr.deps.nodes.length === 0 ? [c.var] : [])))
+
+/**
+ * The nodes a reader reads once per row of its other input, as PostgreSQL evaluates them where they stand: the source
+ * of a region's occurrence no value restricts (no constant fixes one of its columns, and no parameter or literal one of
+ * the variables it binds), which the region joins to its other occurrences; the right side of a semi- or anti-join,
+ * which it tests for each row of its left; and an attachment's fold by the columns it correlates whose keys no stored
+ * relation's range binds (probedByKey), which the attachment would restrict to each parent row's values.
+ */
+const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
+	const out = new Set<RelNode>()
+	for (const node of order) {
+		if (node.kind === "MatchRegion") {
+			const fixed = fixedByValue(node)
+			for (const o of node.occurrences) {
+				if (o.constants.length === 0 && o.bindings.every((b) => !fixed.has(b.var))) {
+					out.add(o.source)
+				}
+			}
+		} else if (node.kind === "SemiJoin" || node.kind === "AntiJoin") {
+			out.add(node.right)
+		} else if (node.kind === "Attach") {
+			const child = node.child
+			const keys = node.correlation.map((c) => c.child)
+			if (
+				child.kind === "Group" &&
+				keys.length > 0 &&
+				keys.every((k) => child.keys.includes(k)) &&
+				!probedByKey(child.input, keys)
+			) {
+				out.add(child)
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * The policy's decision for every node of a DAG it computes as a CTE, in topological order: a node read more than
+ * once, and, in a workload's read (`reads`), a node read once per row of another (readPerRow).
+ */
+const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 	const d = analyzeDemand(dag, noPins)
 	const scopes = nodeScopes(dag)
 	const feedback = feedbackReadsOf(nodeGraph, d.order)
+	const perRow = reads === "query" ? readPerRow(d.order) : new Set<RelNode>()
 	const decided: Array<Decided> = []
 	for (const node of d.order) {
 		const references = d.references(node)
-		if (references < 2) {
+		if (references < 2 && !(perRow.has(node) && node.kind !== "Recursive")) {
 			continue
 		}
 		const cost = costClass(node)
@@ -129,6 +205,8 @@ const ctePlan = (dag: ValidDag): ReadonlyArray<Decided> => {
 			decision = decide("inline", "correlated")
 		} else if (cost === "scan") {
 			decision = decide("inline", "cheapScan")
+		} else if (perRow.has(node)) {
+			decision = decide("materialized", "readPerRow")
 		} else if (cost === "expensive") {
 			decision = decide("materialized", "sharedExpensive")
 		} else {
@@ -156,13 +234,25 @@ const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `
  *
  * The rules, in order:
  *
- * 1. A node read once, or never shared, is inlined: an eligible single-use stage folds.
+ * 1. A node read once, or never shared, is inlined: an eligible single-use stage folds, but for a node a workload's
+ *    read reads once per row of another (readPerRow), which rule 5b decides.
  * 2. A recursive relation is a WITH RECURSIVE: always a CTE, computed once per statement.
  * 3. A correlated node, a node some expression reads laterally, and a node on a recursive step are inlined: a CTE
  *    cannot read an outer row, and a recursive term admits one self-reference.
  * 4. A node whose stages are all scans, filters and projections of one source is inlined at each use: each use can then
  *    probe the source's indexes with its own restrictions, which a shared result would hide ("sharing an unfiltered
  *    computation is not automatically preferable to two selective indexed probes").
+ * 5b. In a workload's read, a node of several sources, or one that folds, sorts, bounds, deduplicates a set operation
+ *    or recurses, that a reader reads once per row of another (readPerRow) is MATERIALIZED, read once or shared: the
+ *    statement derives it once, whatever PostgreSQL estimates. Inlined there, PostgreSQL plans it as the inner side of
+ *    a nested loop it re-derives for each outer row, with the join key a filter above it, wherever its estimates make
+ *    that look as cheap as reading it once: a scan of a relation whose rows a constant picks a few of from many
+ *    (one LOM element per package of a table of every XML node) is estimated at one row, so a derivation of such scans
+ *    is too, and a nested loop over it costs nothing to the planner, while it reads all of it for every row it joins
+ *    (2026-11-18, edullm's `sets`: Current derived once per classification term row, 579 times, and the items
+ *    attachment's ItemSet once per term). Its readers then join or test each row against rows the statement holds, and
+ *    read no relation again. A rule's probe and every other compilation keep rule 1: they read a unit's rows, which a
+ *    once-derived relation would read all of.
  * 5. A node that folds, sorts, bounds, deduplicates a set operation or recurses is expensive. Shared, it is
  *    MATERIALIZED: one evaluation feeds every use.
  * 6. Any other shared node, a join of several sources, is NOT MATERIALIZED: PostgreSQL may optimize each use jointly
@@ -173,11 +263,11 @@ const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `
  * predicate movement. Distinct imports with different parameter bindings are different nodes, so they are never shared.
  * CTE rows belong to one execution and are never a result cache.
  */
-export const ctePolicyPass: Pass<LogicalQuery, CtePlannedQuery> = {
+export const ctePolicyPass = (reads: CteSubject): Pass<LogicalQuery, CtePlannedQuery> => ({
 	name: "ctePolicy",
 	run: (query, ctx) =>
 		catchRefusal(() => {
-			const decided = ctePlan(query.dag)
+			const decided = ctePlan(query.dag, reads)
 			const decisions: Record<NodeId, CteDecision> = {}
 			for (const { node, decision } of decided) {
 				decisions[node.id] = decision
@@ -202,4 +292,4 @@ export const ctePolicyPass: Pass<LogicalQuery, CtePlannedQuery> = {
 			}
 			return { ...query, cte: { decisions } }
 		})
-}
+})

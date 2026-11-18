@@ -665,7 +665,10 @@ const optimizedLowerers = <I extends ChoiceInput>(
 	Context: realized(facts, conservativeLowerers.Context),
 	InputSet: inputSetLowerer(facts),
 	Delta: realized(facts, conservativeLowerers.Delta),
-	MatchRegion: realized(facts, regionLowerer(facts)),
+	MatchRegion: realized(
+		facts,
+		regionLowerer(facts, (n) => state.strategy(n) === "materialized")
+	),
 	Filter: realized(facts, conservativeLowerers.Filter),
 	ProjectSet: realized(facts, conservativeLowerers.ProjectSet),
 	SemiJoin: semiJoinShape(facts),
@@ -1269,7 +1272,15 @@ export class OptimizedDelivery<
 		})
 		return (
 			seededAttachment(child, attach, spine, rows, this.facts, parentKey) ??
-			pipelinedAttachment(child, attach, spine, rows, this.facts, parentKey)
+			pipelinedAttachment(
+				child,
+				attach,
+				spine,
+				rows,
+				this.facts,
+				parentKey,
+				this.state.strategy(attach.child)
+			)
 		)
 	}
 

@@ -127,8 +127,7 @@ export const aRegionPastTheCollapseLimitIsAnExplicitJOINChainJoinsEveryOccurrenc
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/region/index.ts",
-				original:
-					"\t\tmore.reduce((acc, p) => (tier(p, chained) < tier(acc, chained) ? p : acc), candidate)",
+				original: "\t\tmore.reduce((acc, p) => (rank(p) < rank(acc) ? p : acc), candidate)",
 				replacement: "\t\tmore.reduce((acc) => acc, candidate)",
 				why: "The chain takes its occurrences in written order, never preferring the selective one, so it starts wherever the region was written; the search fails."
 			}
