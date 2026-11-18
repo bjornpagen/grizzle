@@ -1,4 +1,4 @@
-import { catchRefusal, Refusal, sameText } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { TemporaryCensus } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -41,11 +41,7 @@ import {
 	targetState,
 	withAttnums
 } from "#compiler/deploy/snapshot/build.ts"
-import type {
-	DeploySnapshot,
-	SnapshotContent,
-	SnapshotDerived
-} from "#compiler/deploy/snapshot/types.ts"
+import type { DeploySnapshot, SnapshotDerived } from "#compiler/deploy/snapshot/types.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -105,9 +101,6 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	}
 	return r.value
 }
-
-/** Everything of a snapshot but its fingerprint, for the no-change test. */
-const contentOf = ({ fingerprint, ...content }: DeploySnapshot): SnapshotContent => content
 
 /** One table's constraint names to their laws, each also under every name `swaps` builds it under on `table`. */
 const builtUnder = (
@@ -213,12 +206,12 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 				rosters
 			})
 		)
-		/** The target's content, its attribute numbers continuing the previous snapshot's. A changed one is the new
-		 * snapshot, fingerprinted where it is born; an unchanged one leaves the previous snapshot standing, and no
-		 * fingerprint of it is taken. */
+		/** The target's content, its attribute numbers continuing the previous snapshot's, fingerprinted: the new
+		 * snapshot where its fingerprint is another than the previous one's, the previous snapshot itself, as the
+		 * schemas compile it, where it is the same, since the fingerprint digests the whole content. */
 		const content = unwrap(withAttnums(state, applied.previous, plan, tableMaxColumns))
-		const changed = plan.steps.length > 0 || !sameText(content, contentOf(previous))
-		const snapshot = changed ? unwrap(finishSnapshot(content)) : previous
+		const snapshot = unwrap(finishSnapshot(content))
+		const changed = plan.steps.length > 0 || snapshot.fingerprint !== previous.fingerprint
 		const drafted = changed ? planFiles(plan) : []
 		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(f)) }))
 		const recorded = drafted.map((f) => unwrap(recordFile(f)))

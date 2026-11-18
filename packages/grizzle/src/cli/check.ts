@@ -46,7 +46,13 @@ import {
 	servedPartingText,
 	splitStatements
 } from "#compiler/plan/migration.ts"
-import { type DeploySnapshot, derivedHolds, snapshotFileName } from "#compiler/plan/serve.ts"
+import {
+	type DeploySnapshot,
+	derivedHolds,
+	manifestFileName,
+	recordHolds,
+	snapshotFileName
+} from "#compiler/plan/serve.ts"
 
 /** A refusal a finding is of: any of the refusal table's but an edited literal pack's, which carries its own facts. */
 type PlainKind = Exclude<keyof typeof refusalText, "literalPack">
@@ -105,6 +111,10 @@ export type CheckFinding = FindingOf & {
  *   records beside it, outside its fingerprint, are not the ones the compile derives (build.ts derivedHolds), or it
  *   records none, which `grizzle generate` writes again with no migration; beside an ungenerated change they follow
  *   from it, and the folder generate drafts for it writes them, so they are no finding of their own;
+ * - a manifest.json out of date: the schemas compile to snapshot.json's own snapshot, but manifest.json's record of it,
+ *   which its seal alone trusts, is not the record the compile reaches (build.ts recordHolds); or manifest.json is of
+ *   the form an earlier grizzle wrote, every installed statement whole, which only generate reads, converting it once
+ *   (boundary/snapshot.ts readSnapshot); generate writes either again, with no migration where nothing else changed;
  * - a served workload out of date: each login of the configuration over the schema compiled under the snapshot the
  *   draft lays out, as generate compiles it (generate.ts servedFiles), whose committed `served/<login>.json` is not
  *   that text byte for byte, each named with the first member where they part (served/compile.ts servedDifference); a
@@ -188,6 +198,13 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 		at("unreadableSnapshot", path(snapshotFileName), refusalText.unreadableSnapshot.problem)
 	}
 	const recorded = Result.getSuccess(committed)
+	if (
+		Option.isSome(recorded) &&
+		recorded.value.kind === "files" &&
+		recorded.value.form === "earlier"
+	) {
+		at("earlierManifest", path(manifestFileName), refusalText.earlierManifest.problem)
+	}
 
 	/** The chain, folder by folder, from the empty snapshot (committed.ts, the walk generate continues). */
 	const chain = committedChain(schema, tree)
@@ -442,6 +459,15 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				!derivedHolds(recorded.value.derived, draft.success.derived)
 			) {
 				at("derivedFacts", schema.declared, refusalText.derivedFacts.problem)
+			}
+			if (
+				draft.success.change === "none" &&
+				Option.isSome(recorded) &&
+				recorded.value.kind === "files" &&
+				recorded.value.form === "recorded" &&
+				!recordHolds(recorded.value.snapshot, draft.success.snapshot)
+			) {
+				at("manifestRecord", schema.declared, refusalText.manifestRecord.problem)
 			}
 			const served = yield* Effect.result(
 				servedFiles(compiled, draft.success, draft.success.served)

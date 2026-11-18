@@ -167,7 +167,7 @@ export const arrayOf = (type: TypeRef): TypeRef | undefined => {
 }
 
 /** The function a CREATE FUNCTION creates, as GRANT, REVOKE and DROP name it. */
-export const functionNameOf = (fn: CreateFunction): FunctionName => ({
+export const functionNameOf = (fn: Pick<CreateFunction, "name" | "params">): FunctionName => ({
 	...fn.name,
 	args: fn.params.map((p) => p.type)
 })

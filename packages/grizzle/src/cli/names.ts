@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, type FileSystem, type Path } from "effect"
-import { committedSnapshot } from "#cli/committed.ts"
+import { recordedCommitted } from "#cli/committed.ts"
 import type { ResolvedConfig } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
 import { readSchemaTree } from "#cli/files.ts"
@@ -18,7 +18,7 @@ export const names = (
 		Effect.forEach(config.schemas, (schema) =>
 			Effect.gen(function* () {
 				const tree = yield* readSchemaTree(schema.declared, schema.directory)
-				const { snapshot } = yield* committedSnapshot(schema, tree)
+				const { snapshot } = yield* recordedCommitted(schema, tree)
 				return [
 					`${schema.declared} in PostgreSQL schema ${schema.ident}:`,
 					...Arr.flatMap(snapshot.manifest.comments, (c) =>

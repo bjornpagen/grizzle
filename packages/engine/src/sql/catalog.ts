@@ -39,6 +39,7 @@ export const catalogRelations = [
 	"pg_enum",
 	"pg_extension",
 	"pg_index",
+	"pg_language",
 	"pg_namespace",
 	"pg_policy",
 	"pg_proc",
@@ -62,6 +63,7 @@ export const catalogFunctions = [
 	"array_agg",
 	"bool_or",
 	"concat_ws",
+	"convert_to",
 	"current_database",
 	"current_setting",
 	"encode",
@@ -73,6 +75,8 @@ export const catalogFunctions = [
 	"has_sequence_privilege",
 	"has_table_privilege",
 	"has_type_privilege",
+	"left",
+	"length",
 	"pg_advisory_lock",
 	"pg_advisory_unlock",
 	"pg_create_logical_replication_slot",
@@ -100,7 +104,10 @@ export const catalogFunctions = [
 	"pg_try_advisory_lock",
 	"pg_wal_lsn_diff",
 	"quote_ident",
+	"reverse",
+	"sha256",
 	"string_agg",
+	"strpos",
 	"to_regnamespace",
 	"to_regprocedure",
 	"to_regtype",
@@ -195,6 +202,13 @@ export type CatalogExpr =
 			/** A relation as a regclass value, by its qualified name (sql/ast.ts RegclassRef). */
 			readonly kind: "regclass"
 			readonly relation: ObjectName
+	  }
+	| {
+			/** Integer arithmetic of two catalog values: a length or a position offset by another. */
+			readonly kind: "arithmetic"
+			readonly op: "+" | "-" | "*"
+			readonly left: CatalogExpr
+			readonly right: CatalogExpr
 	  }
 
 /** A FROM item of a catalog read; a function's column alias list names its columns. */
@@ -565,6 +579,26 @@ export const currentUser: CatalogExpr = { kind: "currentUser" }
 
 /** A relation as a regclass value. */
 export const regclass = (relation: ObjectName): CatalogExpr => ({ kind: "regclass", relation })
+
+/** `left` minus `right`, `left` plus `right`, `left` times `right`: integer arithmetic of catalog values. */
+export const minus = (left: CatalogExpr, right: CatalogExpr): CatalogExpr => ({
+	kind: "arithmetic",
+	op: "-",
+	left,
+	right
+})
+export const plus = (left: CatalogExpr, right: CatalogExpr): CatalogExpr => ({
+	kind: "arithmetic",
+	op: "+",
+	left,
+	right
+})
+export const times = (left: CatalogExpr, right: CatalogExpr): CatalogExpr => ({
+	kind: "arithmetic",
+	op: "*",
+	left,
+	right
+})
 
 /** A pg_catalog relation as a regclass value. */
 export const catalogRegclass = (relation: CatalogRelation): CatalogExpr =>

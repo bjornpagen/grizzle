@@ -8,6 +8,7 @@ import {
 	ChainRefused,
 	type CliError,
 	cliError,
+	SnapshotEarlier,
 	SnapshotForeign,
 	SnapshotUnreadable
 } from "#cli/errors.ts"
@@ -27,7 +28,8 @@ export type Committed =
 /**
  * A schema's committed migration state as the command line reads it: its snapshot's two files and its folders.
  *
- * The snapshot is read by the generator's own reader, which trusts it once its fingerprint holds. A schema without them is at
+ * The snapshot is read by the generator's own reader, which trusts it once its seal holds, or, in the form an earlier
+ * grizzle wrote, every installed statement whole, once its fingerprint holds, recording it (`form`). A schema without them is at
  * its empty snapshot, whose fingerprint depends on the installed schema identifier alone (snapshot/build.ts
  * emptySnapshot): the empty snapshot is never a file. The snapshot must be the configured schema's: its PostgreSQL
  * schema and declared name are the configuration's. It names no owner: the migration identity is whoever connects.
@@ -68,6 +70,24 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 		)
 	}
 	const committed: Committed = { kind: "files", ...read.success }
+	return committed
+})
+
+/**
+ * A schema's committed snapshot as a command that reads it but drafts nothing reads it (committedSnapshot): `grizzle
+ * migrate`, drift and names, which refuse a manifest.json of the form an earlier grizzle wrote, every installed
+ * statement whole, since only `grizzle generate` converts it, writing its record in its place.
+ */
+export const recordedCommitted = Effect.fn("recordedCommitted")(function* (
+	schema: ConfiguredSchema,
+	tree: SchemaTree
+): Effect.fn.Return<Committed, CliError> {
+	const committed = yield* committedSnapshot(schema, tree)
+	if (committed.kind === "files" && committed.form === "earlier") {
+		return yield* cliError(
+			new SnapshotEarlier({ schema: schema.declared, directory: tree.directory })
+		)
+	}
 	return committed
 })
 

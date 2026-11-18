@@ -12,8 +12,10 @@ import {
 	type QualifiedRenames,
 	partsAt,
 	partsByTable,
-	renameQualified
+	renameQualified,
+	renameRecorded
 } from "#compiler/deploy/snapshot/objects.ts"
+import type { RecordedObject, RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { innerIdent, parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
 import type { ObjectName, RenameObject, SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
@@ -363,10 +365,13 @@ export const withNames = (previous: DeploySnapshot, names: Renamed): DeploySnaps
 	}
 	const statements = (list: ReadonlyArray<SqlStatement>): ReadonlyArray<SqlStatement> =>
 		maps.reduce<ReadonlyArray<SqlStatement>>((acc, m) => renameQualified(acc, schema, m), list)
-	const object = (o: ManifestObject): ManifestObject => ({
+	const object = (o: RecordedObject): RecordedObject => ({
 		...o,
 		ident: ident(o.ident),
-		ddl: statements(o.ddl)
+		ddl: maps.reduce<ReadonlyArray<RecordedStatement>>(
+			(acc, m) => renameRecorded(acc, schema, m),
+			o.ddl
+		)
 	})
 	return {
 		...previous,

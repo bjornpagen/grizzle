@@ -4,9 +4,10 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
+import type { AnyObject } from "#compiler/deploy/snapshot/objects.ts"
+import type { RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import type { CreateDomain } from "#compiler/sql/ast.ts"
+import type { CreateDomain, SqlStatement } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { paramsOver } from "#test/support/compile.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -41,15 +42,14 @@ export const servedParams = (value: ReturnType<typeof versionOf>) =>
 	paramsOver([{ login: "server", workloads: [workload(value, { passed: passedOver(value) })] }])
 
 /** The domains `objects` create, by name. */
-export const domainsOf = (
-	objects: Installation["manifest"]["objects"]
-): ReadonlyMap<string, CreateDomain> =>
+export const domainsOf = (objects: ReadonlyArray<AnyObject>): ReadonlyMap<string, CreateDomain> =>
 	new Map(
-		Arr.flatMap(objects, (o) =>
-			Arr.flatMap(o.ddl, (st) =>
+		Arr.flatMap(objects, (o) => {
+			const ddl: ReadonlyArray<SqlStatement | RecordedStatement> = o.ddl
+			return Arr.flatMap(ddl, (st) =>
 				st.kind === "createDomain" ? [[printObjectName(st.name), st] as const] : []
 			)
-		)
+		})
 	)
 
 /** Whether a printed domain name is a parameter's pattern domain, and the parameter's, `code` or `slug`. */

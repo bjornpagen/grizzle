@@ -20,8 +20,11 @@ export {
 	isEmptySnapshot,
 	joinedSnapshot,
 	noWorkload,
+	recordedSnapshot,
+	recordHolds,
 	rosterFates,
-	snapshotFingerprint
+	snapshotFingerprint,
+	snapshotSeal
 } from "#compiler/deploy/snapshot/build.ts"
 export {
 	type InstalledIndexes,
@@ -36,6 +39,7 @@ export {
 	type LawColumnHolds,
 	manifestFileName,
 	type ServedSnapshot,
+	type SnapshotContent,
 	type SnapshotDerived,
 	type SnapshotFiles,
 	snapshotFileName,

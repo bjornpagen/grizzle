@@ -562,13 +562,3 @@ export const constraintLaw = (
 	const named = owned[owner.name]
 	return named !== undefined && Object.hasOwn(named, name) ? named[name] : undefined
 }
-
-export interface Snapshot<Ddl = unknown> {
-	readonly fingerprint: SchemaFingerprint
-	readonly schemaName: string
-	readonly theory: unknown
-	readonly manifest: InstallationManifest<Ddl>
-	readonly constraintToLaw: ConstraintLaws
-	readonly workload: WorkloadAccess
-	readonly accessPaths: ReadonlyArray<StoredIndexRequest>
-}

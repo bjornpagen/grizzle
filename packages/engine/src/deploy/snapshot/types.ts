@@ -1,12 +1,13 @@
 import type { ColumnIdent, LawId, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { RecordedManifest } from "#compiler/deploy/snapshot/recorded.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
 	ConstraintLaws,
 	InstallationManifest,
 	PhysicalReason,
-	Snapshot,
+	StoredIndexRequest,
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
 import type { FkCycles } from "#compiler/laws/model/model.ts"
@@ -31,8 +32,8 @@ export const manifestFileName = "manifest.json"
 
 /**
  * The texts of a snapshot's two files as `grizzle generate` writes them (build.ts writeSnapshot): snapshot.json and
- * manifest.json, which hold each member of the snapshot once between them, under the one fingerprint snapshot.json
- * records over both.
+ * manifest.json, which hold each member of the committed snapshot (DeploySnapshot) once between them, under the one
+ * fingerprint snapshot.json records of its content and the one seal manifest.json carries over both.
  */
 export interface SnapshotFiles {
 	readonly snapshot: string
@@ -134,26 +135,24 @@ export interface SnapshotLogin {
 	readonly role: string
 }
 
-/** The canonical schema snapshot: the canonical serialization of what an installation is. It holds a summary of the
- * CheckedTheory (its relations, their fields and mutability, its rosters' codes, and its laws), the installation manifest
- * with every object's DDL and justification (a law identity, the workload's access, or the enforcement of a
- * declaration), the constraint-to-law map, each login by its declared name with its PostgreSQL role, each login's
- * workload programs' access (ProgramAccess: the paths and
- * statistics each program reads through, by login and program name) and the access requests they make. The application
- * commits it beside its code as `migrations/<schema>/snapshot.json`, one per declared schema; the next migration is
- * drafted from it, the current schema and the current workloads, never from the live catalog, and DbLayer.make and
- * `grizzle check` compare the workloads' access with it, naming a program whose access moved. A program edit that moves
- * no path leaves it unchanged. Its history is each roster's codes and each table's attribute numbers: everything else in
- * it is derived from the current schema and those codes alone, so a fresh installation and a migrated one are the same
- * snapshot exactly when no roster has a hole or a renamed handle and no table a dropped column.
- * The fingerprint is SHA-256, in the domain `snapshot`, over the canonical text of everything else, so it covers the
- * manifest, the workload access and the rosters' codes as well as the owned schema's own fingerprint (`theory.schema`):
- * a program whose access moves, or a roster whose handle is removed, is a new snapshot. It is what a folder's meta.json and the migrations ledger record as the source and
- * target of each migration and what every Db's prologue guards. The committed snapshot is two files (SnapshotFiles):
- * snapshot.json, what an application reads, and manifest.json, the rest, which together hold the one canonical value
- * the fingerprint digests. */
-export interface DeploySnapshot extends Snapshot<SqlStatement> {
-	readonly fingerprint: SchemaFingerprint
+/**
+ * The members of a schema snapshot whose installation manifest is `M`: the compile's, every object whole with its
+ * reasons, its state and its phase, in the snapshot's content (SnapshotContent); or the record a committed snapshot
+ * holds (DeploySnapshot).
+ *
+ * A snapshot is the canonical serialization of what an installation is. It holds a summary of the CheckedTheory (its
+ * relations, their fields and mutability, its rosters' codes, and its laws), the installation manifest with every
+ * object's DDL and justification (a law identity, the workload's access, or the enforcement of a declaration), the
+ * constraint-to-law map, each login by its declared name with its PostgreSQL role, each login's workload programs'
+ * access (ProgramAccess: the paths and statistics each program reads through, by login and program name) and the access
+ * requests they make. The next migration is drafted from the committed one, the current schema and the current
+ * workloads, never from the live catalog, and DbLayer.make and `grizzle check` compare the workloads' access with it,
+ * naming a program whose access moved. A program edit that moves no path leaves it unchanged. Its history is each
+ * roster's codes and each table's attribute numbers: everything else in it is derived from the current schema and those
+ * codes alone, so a fresh installation and a migrated one are the same snapshot exactly when no roster has a hole or a
+ * renamed handle and no table a dropped column.
+ */
+interface SnapshotMembers<M> {
 	/**
 	 * The installation's root's declared name and PostgreSQL schema, which name the installation: its migrations
 	 * directory, its ledger's schema and its empty snapshot's fingerprint, whatever levels stand above the root.
@@ -163,11 +162,12 @@ export interface DeploySnapshot extends Snapshot<SqlStatement> {
 	/** The installed levels, root first; none before the first migration. */
 	readonly levels: ReadonlyArray<SnapshotLevel>
 	readonly theory: SnapshotTheory
-	readonly manifest: InstallationManifest<SqlStatement>
+	readonly manifest: M
 	readonly constraintToLaw: ConstraintLaws
 	/** Each login the installation creates, by its declared name. */
 	readonly logins: Readonly<Record<string, SnapshotLogin>>
 	readonly workload: WorkloadAccess
+	readonly accessPaths: ReadonlyArray<StoredIndexRequest>
 	/**
 	 * The installation's live plan (live/notify.ts LivePlan): every stored relation a login's read program reads, each with
 	 * every field some read program routes a change of it by, and every materialized derived relation one reads
@@ -175,6 +175,30 @@ export interface DeploySnapshot extends Snapshot<SqlStatement> {
 	 * installation signals a change of is part of what it is.
 	 */
 	readonly live: LivePlan
+}
+
+/**
+ * A snapshot's content, what its fingerprint digests: its members with the compile's installation manifest, every
+ * installed statement whole. The fingerprint is SHA-256, in the domain `snapshot`, over its canonical text (build.ts
+ * contentForm), so it covers the manifest, the workload access and the rosters' codes as well as the owned schema's
+ * own fingerprint (`theory.schema`): a program whose access moves, or a roster whose handle is removed, is a new
+ * snapshot. It is what a folder's meta.json and the migrations ledger record as the source and target of each migration
+ * and what every Db's prologue guards. Only a compile holds it whole: the committed snapshot records it (DeploySnapshot).
+ */
+export type SnapshotContent = SnapshotMembers<InstallationManifest<SqlStatement>>
+
+/**
+ * The committed schema snapshot: a snapshot's content as its two files record it (SnapshotFiles), under the fingerprint
+ * of the whole content. snapshot.json holds what an application reads; manifest.json holds the rest, its installation
+ * manifest recorded (snapshot/recorded.ts RecordedManifest): every installed statement whole but a PL/pgSQL function's
+ * and a constant's, each by its header, a function with its source's digest, and no object's reasons, state or phase,
+ * which no reader of a committed snapshot reads. The record is what a draft reads of the installation it migrates from,
+ * where only the record can say what is installed, since the schema has changed since, and what the drift check judges
+ * a database by; manifest.json is sealed by its own digest over the whole record, its fingerprint included (build.ts
+ * snapshotSeal), and `grizzle check` holds the record to the one the schemas compile to.
+ */
+export interface DeploySnapshot extends SnapshotMembers<RecordedManifest> {
+	readonly fingerprint: SchemaFingerprint
 }
 
 /**
@@ -307,6 +331,3 @@ export interface SnapshotDerived extends CompileFacts {
 	 */
 	readonly params: InstalledParams
 }
-
-/** A snapshot without its fingerprint: what the fingerprint is computed over. */
-export type SnapshotContent = Omit<DeploySnapshot, "fingerprint">

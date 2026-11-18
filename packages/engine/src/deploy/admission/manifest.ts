@@ -2,12 +2,14 @@ import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
+import { replayedStatement, type SourceDigest } from "#compiler/deploy/snapshot/recorded.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type {
 	AlterRole,
 	AlterRoleAction,
 	AlterTable,
 	AlterTableAction,
+	ObjectName,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
 
@@ -144,22 +146,42 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 	}
 }
 
-/** The statements that install a snapshot, each a manifest statement, parsed once: every object's DDL in install order,
- * then the PUBLIC revokes and the logins' defaults.
+/** The statements that install a snapshot as the drift check replays them, each a manifest statement, parsed once:
+ * every object's recorded DDL in install order, a PL/pgSQL function with its header and a stub body and a constant
+ * returning the empty value of its type (snapshot/recorded.ts replayedStatement), then the PUBLIC revokes, the logins'
+ * defaults and the comments.
  * Admission reads them twice over: the role checks read the grants, memberships, policies and defaults each login and
  * role is installed with, and the drift check replays the objects' statements into scratch schemas, where PostgreSQL
- * deparses them beside the installed ones. Each statement is one of the installation subset of the SQL AST
- * (`ManifestStatement`); a statement only a migration runs (a drop, a rename, a revocation, a constraint's validation,
- * a domain altered, a default reset, a lock) or any data or transaction statement is a
- * malformed snapshot, refused as MalformedArtifact. */
+ * deparses them beside the installed ones, each function but by its header (recordedSources). Each statement is one of
+ * the installation subset of the SQL AST (`ManifestStatement`); a statement only a migration runs (a drop, a rename, a
+ * revocation, a constraint's validation, a domain altered, a default reset, a lock) or any data or transaction
+ * statement is a malformed snapshot, refused as MalformedArtifact. */
 export const manifestStatements = (
 	snapshot: DeploySnapshot
 ): Result.Result<ReadonlyArray<ManifestStatement>, CompileError> =>
 	catchRefusal(() =>
 		[
-			...snapshot.manifest.objects.flatMap((o) => o.ddl),
+			...snapshot.manifest.objects.flatMap((o) => o.ddl.map(replayedStatement)),
 			...snapshot.manifest.publicRevokes,
 			...snapshot.manifest.roleDefaults,
 			...snapshot.manifest.comments
 		].map((s) => manifestStatement(s))
+	)
+
+/** A PL/pgSQL function a snapshot installs, by its name, with the digest of the source it installs as. */
+export interface RecordedSource {
+	readonly function: ObjectName
+	readonly source: SourceDigest
+}
+
+/**
+ * Every PL/pgSQL function a snapshot installs, by its name, with the digest of its source (snapshot/recorded.ts
+ * RecordedFunction), in install order: what the drift check holds each installed function's source to, its
+ * pg_proc.prosrc's SHA-256, since its replay holds only the function's header.
+ */
+export const recordedSources = (snapshot: DeploySnapshot): ReadonlyArray<RecordedSource> =>
+	snapshot.manifest.objects.flatMap((o) =>
+		o.ddl.flatMap((s): ReadonlyArray<RecordedSource> =>
+			s.kind === "recordedFunction" ? [{ function: s.header.name, source: s.source }] : []
+		)
 	)

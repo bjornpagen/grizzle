@@ -1,11 +1,19 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { malformedArtifact } from "#compiler/core/errors.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
+import {
+	type ConstantHeader,
+	constantHeader,
+	type FunctionHeader,
+	functionHeader,
+	type RecordedObject,
+	type RecordedStatement,
+	transformRecorded
+} from "#compiler/deploy/snapshot/recorded.ts"
 import type { PhysicalObject } from "#compiler/ir/products.ts"
 import { parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
 import {
 	type ColumnDef,
-	type CreateConstant,
 	type CreateDomain,
 	type CreateConstraintTrigger,
 	type CreateTransitionTrigger,
@@ -25,8 +33,6 @@ import {
 	type GrantRole,
 	type InlineConstraint,
 	type ObjectName,
-	type PackConstant,
-	type PlFunction,
 	type PrimaryKey,
 	type SqlFunction,
 	type SqlStatement,
@@ -36,8 +42,14 @@ import {
 
 import { type AstHooks, identityHooks, transformStatements } from "#compiler/sql/transform.ts"
 
-/** An object of an installation manifest, as the deployment passes read it. */
+/** An object of an installation manifest as the compile installs it, every statement whole. */
 export type ManifestObject = PhysicalObject<SqlStatement>
+
+/**
+ * An installed object as the deployment passes read it: the compile's (ManifestObject), or the record a committed
+ * snapshot holds of it (snapshot/recorded.ts RecordedObject), which every reader of an installed object reads alike.
+ */
+export type AnyObject = ManifestObject | RecordedObject
 
 /**
  * A snapshot's installed object `ident` that is not the form `what` states, which grizzle wrote: a malformed snapshot.
@@ -56,8 +68,10 @@ export function refuseLaw(law: string, what: string): never {
 }
 
 /** An installed object read once with the statement that defines it, by its kind: the diff reads each object through
- * this view, so every object's form is checked here, once, and no rule probes a statement list again. An object whose
- * statements are not its kind's form is a defect of the compiler that built the snapshot.
+ * this view, the compile's and the committed record's alike (AnyObject), so every object's form is checked here, once,
+ * and no rule probes a statement list again. An object whose statements are not its kind's form is a defect of the
+ * compiler that built the snapshot. A PL/pgSQL function and a constant are read by their header (snapshot/recorded.ts
+ * FunctionHeader, ConstantHeader), which the record holds of each, so no rule reads a body the record digests.
  * A domain carries at most one CHECK. A `constant` is a function named by its content's digest, created by a CREATE
  * FUNCTION ... RETURN, a closed relation's stated as its hex literal, then its EXECUTE revoked from PUBLIC. A `worldFunction` is a writable
  * entry's filter function. A `role` is a login's
@@ -69,42 +83,42 @@ export function refuseLaw(law: string, what: string): never {
  * owns, where its definition stands, or a reference out of it with the definition its one ALTER TABLE ... ADD
  * CONSTRAINT adds (a foreign key is never inline). The `ledger` is the migrations ledger, by the CREATE TABLE of its
  * table. */
-export type Installed =
-	| { readonly kind: "table"; readonly object: ManifestObject; readonly create: CreateTable }
+export type Installed<O extends AnyObject = ManifestObject> =
+	| { readonly kind: "table"; readonly object: O; readonly create: CreateTable }
 	| {
 			readonly kind: "constant"
-			readonly object: ManifestObject
-			readonly create: CreateConstant | PackConstant
+			readonly object: O
+			readonly create: ConstantHeader
 	  }
 	| {
 			readonly kind: "domain"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly create: CreateDomain
 			readonly constraint: DomainConstraint | undefined
 	  }
 	| {
 			readonly kind: "materializedView"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly create: CreateMaterializedView
 	  }
 	| {
 			readonly kind: "index" | "uniqueIndex"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly create: CreateIndex
 	  }
 	| {
 			readonly kind: "statistics"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly create: CreateStatistics
 	  }
 	| {
 			readonly kind: "isolationTrigger"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly create: CreateGuardTrigger
 	  }
 	| {
 			readonly kind: "lawTrigger"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly create: CreateConstraintTrigger | CreateTransitionTrigger
 	  }
 	| {
@@ -116,62 +130,62 @@ export type Installed =
 				| "snapshotGuard"
 				| "ruleJudge"
 				| "lawFunction"
-			readonly object: ManifestObject
-			readonly create: PlFunction
+			readonly object: O
+			readonly create: FunctionHeader
 	  }
 	| {
 			readonly kind: "worldFunction"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly create: SqlFunction
 	  }
-	| { readonly kind: "role"; readonly object: ManifestObject; readonly create: CreateRole }
-	| { readonly kind: "membership"; readonly object: ManifestObject; readonly grant: GrantRole }
-	| { readonly kind: "privileges"; readonly object: ManifestObject; readonly grantee: string }
-	| { readonly kind: "roleSchema"; readonly object: ManifestObject; readonly create: CreateSchema }
-	| { readonly kind: "view"; readonly object: ManifestObject; readonly create: CreateView }
-	| { readonly kind: "policy"; readonly object: ManifestObject; readonly create: CreatePolicy }
-	| { readonly kind: "rowSecurity"; readonly object: ManifestObject; readonly table: ObjectName }
+	| { readonly kind: "role"; readonly object: O; readonly create: CreateRole }
+	| { readonly kind: "membership"; readonly object: O; readonly grant: GrantRole }
+	| { readonly kind: "privileges"; readonly object: O; readonly grantee: string }
+	| { readonly kind: "roleSchema"; readonly object: O; readonly create: CreateSchema }
+	| { readonly kind: "view"; readonly object: O; readonly create: CreateView }
+	| { readonly kind: "policy"; readonly object: O; readonly create: CreatePolicy }
+	| { readonly kind: "rowSecurity"; readonly object: O; readonly table: ObjectName }
 	| {
 			readonly kind: "replicaIdentity"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly table: ObjectName
 	  }
 	| {
 			readonly kind: "liveSecret"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly create: CreateLiveSecret
 	  }
 	| {
 			readonly kind: "publication"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly create: CreatePublication
 	  }
-	| { readonly kind: "decoder"; readonly object: ManifestObject; readonly create: CreateRole }
+	| { readonly kind: "decoder"; readonly object: O; readonly create: CreateRole }
 	| {
 			readonly kind: "lawColumn"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly table: ObjectName
 			readonly column: string
 			readonly definition: ColumnDef
 	  }
 	| {
 			readonly kind: "primaryKey" | "unique" | "check"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly table: ObjectName
 			readonly name: string
 			readonly placement: Placement
 	  }
 	| {
 			readonly kind: "foreignKey"
-			readonly object: ManifestObject
+			readonly object: O
 			readonly table: ObjectName
 			readonly name: string
 			readonly constraint: ForeignKey
 	  }
-	| { readonly kind: "ledger"; readonly object: ManifestObject; readonly create: CreateTable }
+	| { readonly kind: "ledger"; readonly object: O; readonly create: CreateTable }
 	| {
 			readonly kind: "schema" | "extension" | "validation" | "databaseDefault"
-			readonly object: ManifestObject
+			readonly object: O
 	  }
 
 /** The definition a key or CHECK object's kind admits: a primary key's, a candidate key's (a unique key, or a span key's
@@ -204,7 +218,7 @@ const keyOrCheckOf = (
 
 /** The table and constraint of an object's one statement, an ALTER TABLE whose one action adds the constraint `name`. */
 const addedConstraint = (
-	o: ManifestObject,
+	o: AnyObject,
 	name: string
 ): { readonly table: ObjectName; readonly constraint: TableConstraint } | undefined => {
 	const [s, ...rest] = o.ddl
@@ -223,7 +237,7 @@ const addedConstraint = (
  * of an installed decoder login takes from its snapshot, never from what the naming door mints now; none where they
  * install no live source. Objects holding two are a malformed snapshot: an installation has one live source.
  */
-export const decoderLoginOf = (objects: ReadonlyArray<ManifestObject>): string | undefined => {
+export const decoderLoginOf = (objects: ReadonlyArray<AnyObject>): string | undefined => {
 	const [decoder, second] = objects.filter((o) => o.kind === "decoder")
 	if (second !== undefined) {
 		return refuse(second.ident, "no second decoder login: an installation has one live source")
@@ -232,8 +246,30 @@ export const decoderLoginOf = (objects: ReadonlyArray<ManifestObject>): string |
 	return v?.kind === "decoder" ? v.create.name : undefined
 }
 
-/** The view of one object: its kind's statement, read from its DDL. */
-export const installed = (o: ManifestObject): Installed => {
+/** A constant's statement's header, the compile's CREATE FUNCTION or literal pack's or the record's own; none for any
+ * other statement. */
+const constantHeaderOf = (
+	s: SqlStatement | RecordedStatement | undefined
+): ConstantHeader | undefined =>
+	s?.kind === "createConstant" || s?.kind === "packConstant"
+		? constantHeader(s)
+		: s?.kind === "recordedConstant"
+			? s.header
+			: undefined
+
+/** A PL/pgSQL function's statement's header, the compile's CREATE FUNCTION's or the record's own; none for any other
+ * statement. */
+const functionHeaderOf = (
+	s: SqlStatement | RecordedStatement | undefined
+): FunctionHeader | undefined =>
+	s?.kind === "createFunction" && s.language === "plpgsql"
+		? functionHeader(s)
+		: s?.kind === "recordedFunction"
+			? s.header
+			: undefined
+
+/** The view of one object, the compile's or the record's: its kind's statement, read from its DDL. */
+export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 	const s = o.ddl[0]
 	const malformed = (form: string): never => refuse(o.ident, form)
 	switch (o.kind) {
@@ -241,11 +277,12 @@ export const installed = (o: ManifestObject): Installed => {
 			return s?.kind === "createTable"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a CREATE TABLE")
-		case "constant":
-			return (s?.kind === "createConstant" || s?.kind === "packConstant") &&
-				o.ddl.slice(1).every((r) => r.kind === "revoke")
-				? { kind: o.kind, object: o, create: s }
+		case "constant": {
+			const header = constantHeaderOf(s)
+			return header !== undefined && o.ddl.slice(1).every((r) => r.kind === "revoke")
+				? { kind: o.kind, object: o, create: header }
 				: malformed("a constant's CREATE FUNCTION or hex literal, then its revokes")
+		}
 		case "domain": {
 			if (o.ddl.length !== 1 || s?.kind !== "createDomain") {
 				return malformed("exactly one CREATE DOMAIN")
@@ -285,10 +322,12 @@ export const installed = (o: ManifestObject): Installed => {
 		case "isolationFunction":
 		case "snapshotGuard":
 		case "ruleJudge":
-		case "lawFunction":
-			return s?.kind === "createFunction" && s.language === "plpgsql"
-				? { kind: o.kind, object: o, create: s }
-				: malformed("a CREATE FUNCTION ... LANGUAGE plpgsql")
+		case "lawFunction": {
+			const header = functionHeaderOf(s)
+			return header === undefined
+				? malformed("a CREATE FUNCTION ... LANGUAGE plpgsql")
+				: { kind: o.kind, object: o, create: header }
+		}
 		case "worldFunction":
 			return s?.kind === "createFunction" && s.language === "sql"
 				? { kind: o.kind, object: o, create: s }
@@ -420,7 +459,7 @@ export const installed = (o: ManifestObject): Installed => {
 /** The table or materialized view an object belongs to, read off its view: a relation's own, the table an index, a
  * statistics object, a law or isolation trigger, a constraint or a law column is on, and the ledger's. Every other kind
  * stands outside any table. */
-export const objectTable = (o: ManifestObject): ObjectName | undefined => {
+export const objectTable = (o: AnyObject): ObjectName | undefined => {
 	const v = installed(o)
 	switch (v.kind) {
 		case "table":
@@ -525,14 +564,16 @@ const indexColumns = (s: CreateIndex): ReadonlyArray<string> =>
 	columnsOf(s.keys).concat(s.include, columnsOf(s.where ?? []))
 
 /** A key or CHECK object, read through its view. */
-export type KeyOrCheckView = Installed & { readonly kind: "primaryKey" | "unique" | "check" }
+export type KeyOrCheckView<O extends AnyObject = ManifestObject> = Installed<O> & {
+	readonly kind: "primaryKey" | "unique" | "check"
+}
 
 /** The definition of a key or CHECK object: its own, or the one its table's CREATE TABLE among `objects` declares under
  * its name, of its kind. An inline constraint its table does not declare is a defect of the compiler that built the
  * snapshot. */
 export const keyOrCheckDefinition = (
-	c: KeyOrCheckView,
-	objects: ReadonlyMap<string, ManifestObject>
+	c: KeyOrCheckView<AnyObject>,
+	objects: ReadonlyMap<string, AnyObject>
 ): KeyOrCheck => {
 	if (c.placement.kind === "own") {
 		return c.placement.constraint
@@ -561,8 +602,8 @@ export type BuiltOverKind =
 
 /** An object built over columns of a table: the object, read as one of the kinds built over columns, the table and the
  * columns of it that its definition reads. */
-export interface BuiltOver {
-	readonly part: Installed & { readonly kind: BuiltOverKind }
+export interface BuiltOver<O extends AnyObject = ManifestObject> {
+	readonly part: Installed<O> & { readonly kind: BuiltOverKind }
 	readonly table: ObjectName
 	readonly columns: ReadonlyArray<string>
 }
@@ -575,10 +616,10 @@ export interface BuiltOver {
  * those of its selection and its term, an alternatives parent's arm tag its discriminator and a constant none. Nothing
  * else is built over a table's columns: a table holds them, a table's isolation trigger reads none, and every other kind
  * stands outside any table. */
-export const builtOver = (
-	v: Installed,
-	constraint: (c: KeyOrCheckView) => KeyOrCheck
-): BuiltOver | undefined => {
+export const builtOver = <O extends AnyObject>(
+	v: Installed<O>,
+	constraint: (c: KeyOrCheckView<O>) => KeyOrCheck
+): BuiltOver<O> | undefined => {
 	switch (v.kind) {
 		case "index":
 		case "uniqueIndex":
@@ -688,9 +729,9 @@ export type PartOf<K extends PartKind> = Extract<Part, { readonly kind: K }>
  * inside its table's CREATE TABLE; an index; a statistics object; a law column; and a table's identity
  * sequences, one per serial field, in its field order. Nothing else is a part: the table itself is the relation, and
  * every other kind stands outside any table. */
-const objectParts = (
-	v: Installed,
-	constraint: (c: KeyOrCheckView) => KeyOrCheck
+const objectParts = <O extends AnyObject>(
+	v: Installed<O>,
+	constraint: (c: KeyOrCheckView<O>) => KeyOrCheck
 ): ReadonlyArray<Part> => {
 	switch (v.kind) {
 		case "primaryKey":
@@ -800,8 +841,8 @@ export const partsAt = (parts: ReadonlyMap<string, Parts>, t: ObjectName): Parts
  * that hold them (objectParts); a constraint declared inside its table's CREATE TABLE read from `objects`. One pass reads
  * every object once, whatever number of relations a caller then reads the parts of. */
 export const partsByTable = (
-	among: Iterable<ManifestObject>,
-	objects: ReadonlyMap<string, ManifestObject>
+	among: Iterable<AnyObject>,
+	objects: ReadonlyMap<string, AnyObject>
 ): ReadonlyMap<string, Parts> => {
 	const byTable = new Map<
 		string,
@@ -934,3 +975,15 @@ export const renameQualified = (
 	renames.names.size === 0
 		? statements
 		: transformStatements(statements, renameHooks(schema, renames))
+
+/** Recorded statements with every schema-qualified name in `schema` that `renames` maps renamed, a function's header
+ * as its CREATE FUNCTION's and its source's digest kept, since PostgreSQL carries no rename into a PL/pgSQL function's
+ * source (snapshot/recorded.ts transformRecorded): the same list when none is. */
+export const renameRecorded = (
+	statements: ReadonlyArray<RecordedStatement>,
+	schema: string,
+	renames: QualifiedRenames
+): ReadonlyArray<RecordedStatement> =>
+	renames.names.size === 0
+		? statements
+		: transformRecorded(statements, renameHooks(schema, renames))

@@ -25,14 +25,19 @@ import {
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { drawnWriting, fieldWriting } from "#compiler/deploy/snapshot/build.ts"
 import {
+	type AnyObject,
 	decoderLoginOf,
 	installed,
-	type ManifestObject,
 	nameKey,
 	type PartOf,
 	partsAt,
 	partsByTable
 } from "#compiler/deploy/snapshot/objects.ts"
+import type {
+	RecordedObject,
+	RecordedStatement,
+	WholeStatement
+} from "#compiler/deploy/snapshot/recorded.ts"
 import type {
 	DeploySnapshot,
 	SnapshotContent,
@@ -864,7 +869,7 @@ const lawColumnRenames = (
 			...previous,
 			manifest: {
 				...previous.manifest,
-				objects: previous.manifest.objects.map((o): ManifestObject => ({
+				objects: previous.manifest.objects.map((o): RecordedObject => ({
 					...o,
 					ident: ident(o.ident),
 					ddl: o.ddl.map((statement) => withColumns(statement, renamedOn))
@@ -877,7 +882,7 @@ const lawColumnRenames = (
 
 /** The object of a relation record in a manifest: its table's or its roster domain's. */
 const holderOf = (
-	snapshot: { readonly manifest: { readonly objects: ReadonlyArray<ManifestObject> } },
+	snapshot: { readonly manifest: { readonly objects: ReadonlyArray<AnyObject> } },
 	schema: string,
 	r: Held
 ): ObjectName => {
@@ -1252,7 +1257,7 @@ const columnRenames = (
 			objects:
 				tableColumns.size === 0
 					? previous.manifest.objects
-					: previous.manifest.objects.map((o): ManifestObject => ({
+					: previous.manifest.objects.map((o): RecordedObject => ({
 							...o,
 							ddl: o.ddl.map((statement) => withColumns(statement, renamedOn))
 						}))
@@ -1281,9 +1286,9 @@ const columnRenames = (
  * they read a column a migration changes.
  */
 const withColumns = (
-	s: SqlStatement,
+	s: RecordedStatement,
 	renamed: (table: ObjectName) => ReadonlyMap<string, string> | undefined
-): SqlStatement => {
+): RecordedStatement => {
 	const nameIn =
 		(into: ReadonlyMap<string, string> | undefined) =>
 		(column: string): string =>
@@ -1486,8 +1491,8 @@ const withColumns = (
 		case "dropFunction":
 		case "dropTrigger":
 		case "createFunction":
-		case "packConstant":
-		case "createConstant":
+		case "recordedFunction":
+		case "recordedConstant":
 		case "createGuardTrigger":
 		case "createTransitionTrigger":
 		case "alterDatabaseDefault":
@@ -1516,7 +1521,7 @@ const withColumns = (
 
 /** `s` with every role name it holds that `roles` maps renamed: a role's own statements, the grants to it and of it,
  * a policy's role, a schema's owner and a comment on a role. A statement of any other kind names no role. */
-const withRoles = (s: SqlStatement, roles: ReadonlyMap<string, string>): SqlStatement => {
+const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): WholeStatement => {
 	const role = (name: string): string => roles.get(name) ?? name
 	const grantee = (g: Grantee): Grantee =>
 		g.kind === "role" ? { kind: "role", name: role(g.name) } : g
@@ -1572,8 +1577,6 @@ const withRoles = (s: SqlStatement, roles: ReadonlyMap<string, string>): SqlStat
 		case "dropFunction":
 		case "dropTrigger":
 		case "createFunction":
-		case "packConstant":
-		case "createConstant":
 		case "createPublication":
 		case "dropPublication":
 		case "createLiveSecret":
@@ -1712,14 +1715,21 @@ const manifestUnderRoles = (
 		const to = roles.get(parsed.name)
 		return to === undefined ? id : namedIdent(parsed.kind, to)
 	}
+	/** A statement with its roles renamed: neither a function nor a constant names a role. */
+	const renamed = (s: SqlStatement): SqlStatement =>
+		s.kind === "createFunction" || s.kind === "createConstant" || s.kind === "packConstant"
+			? s
+			: withRoles(s, roles)
 	const renamedIn = (list: ReadonlyArray<SqlStatement>): ReadonlyArray<SqlStatement> =>
-		list.map((s) => withRoles(s, roles))
+		list.map(renamed)
 	return {
 		...manifest,
-		objects: manifest.objects.map((o): ManifestObject => ({
+		objects: manifest.objects.map((o): RecordedObject => ({
 			...o,
 			ident: ident(o.ident),
-			ddl: renamedIn(o.ddl)
+			ddl: o.ddl.map((s) =>
+				s.kind === "recordedFunction" || s.kind === "recordedConstant" ? s : withRoles(s, roles)
+			)
 		})),
 		edges: manifest.edges.map((e) => ({ from: ident(e.from), to: ident(e.to) })),
 		roleDefaults: renamedIn(manifest.roleDefaults),

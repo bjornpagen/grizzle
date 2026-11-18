@@ -3,6 +3,7 @@ import { identifierOf, identity, roleIdentity } from "#compiler/core/identity.ts
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
+import type { RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { serialDraw } from "#compiler/ir/desc.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
@@ -54,7 +55,7 @@ export interface InstalledScope {
 const created = (
 	snapshot: DeploySnapshot,
 	kind: PhysicalKind,
-	name: (statement: SqlStatement) => Option.Option<string>
+	name: (statement: RecordedStatement) => Option.Option<string>
 ): ReadonlySet<string> =>
 	new Set(
 		Arr.flatMap(snapshot.manifest.objects, (o) =>
@@ -76,28 +77,32 @@ const drawsIdentity = (installation: Installation, relation: string, field: stri
 	return serialDraw(f.desc) === "identity"
 }
 
-const tableOf = (s: SqlStatement): Option.Option<string> =>
+const tableOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createTable" ? Option.some(s.table.name) : Option.none()
 
-const viewOf = (s: SqlStatement): Option.Option<string> =>
+const viewOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createMaterializedView" ? Option.some(s.name.name) : Option.none()
 
-const functionOf = (s: SqlStatement): Option.Option<string> =>
-	s.kind === "createFunction" ? Option.some(s.name.name) : Option.none()
+const functionOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
+	s.kind === "createFunction"
+		? Option.some(s.name.name)
+		: s.kind === "recordedFunction"
+			? Option.some(s.header.name.name)
+			: Option.none()
 
-const guardTriggerOf = (s: SqlStatement): Option.Option<string> =>
+const guardTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createGuardTrigger" ? Option.some(s.name) : Option.none()
 
-const guardedTableOf = (s: SqlStatement): Option.Option<string> =>
+const guardedTableOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createGuardTrigger" ? Option.some(s.table.name) : Option.none()
 
-const ruleTriggerOf = (s: SqlStatement): Option.Option<string> =>
+const ruleTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createConstraintTrigger" ? Option.some(s.name) : Option.none()
 
-const captureTriggerOf = (s: SqlStatement): Option.Option<string> =>
+const captureTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createTransitionTrigger" ? Option.some(s.name) : Option.none()
 
-const rowSecureOf = (s: SqlStatement): Option.Option<string> =>
+const rowSecureOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "alterTable" && Arr.some(s.actions, (a) => a.kind === "enableRowSecurity")
 		? Option.some(s.table.name)
 		: Option.none()
@@ -234,16 +239,16 @@ export const lawTriggersOf = (
 	)
 
 /**
- * The constants the manifest's constant objects create, each as what it is: a names constant (it returns name[]) and a
- * live-codes constant (it returns bit varying as one hex literal), each with the domain whose CHECK
- * calls it among the manifest's domains; every other, a pack or a dictionary, a closed constant (`closedClassifier`).
+ * The constants the installation's constant objects create, each as what it is: a names constant (it returns name[])
+ * and a live-codes constant (it returns bit varying as one hex literal), each with the domain whose CHECK calls it among
+ * the installation's domains; every other, a pack or a dictionary, a closed constant (`closedClassifier`). The
+ * installation holds each constant's body, which its snapshot records by its header alone.
  */
 const constantsOf = (
-	installation: Installation,
-	snapshot: DeploySnapshot
+	installation: Installation
 ): ReadonlyArray<readonly [string, InstalledFunction]> => {
 	const closedConstant = closedClassifier(installation)
-	const domains = Arr.flatMap(snapshot.manifest.objects, (o) =>
+	const domains = Arr.flatMap(installation.manifest.objects, (o) =>
 		o.kind === "domain"
 			? Arr.flatMap(o.ddl, (s): ReadonlyArray<CreateDomain> =>
 					s.kind === "createDomain" ? [s] : []
@@ -257,7 +262,7 @@ const constantsOf = (
 			),
 			() => new Error(`the manifest's constant ${fn} is read by no domain's CHECK`)
 		).name.name
-	return Arr.flatMap(snapshot.manifest.objects, (o) =>
+	return Arr.flatMap(installation.manifest.objects, (o) =>
 		o.kind === "constant"
 			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledFunction]> => {
 					if (s.kind === "packConstant") {
@@ -293,7 +298,7 @@ export const installedScope = (
 	/** Each trigger the manifest's objects of `kind` create, as `what`. */
 	const triggersOf = (
 		kind: PhysicalKind,
-		name: (s: SqlStatement) => Option.Option<string>,
+		name: (s: RecordedStatement) => Option.Option<string>,
 		what: InstalledTrigger
 	) => Arr.map([...created(snapshot, kind, name)], (trigger) => [trigger, what] as const)
 	const ledger = Option.getOrThrowWith(
@@ -361,7 +366,7 @@ export const installedScope = (
 						st.kind === "retirable" ? [st.header.relation] : []
 					)
 				),
-				...constantsOf(installation, snapshot),
+				...constantsOf(installation),
 				...Arr.flatMap(Rec.toEntries(snapshot.theory.relations), ([name, r]) =>
 					r.kind === "relation"
 						? Arr.flatMap(r.fields, (f) =>

@@ -2,7 +2,7 @@
 
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { DeploySnapshot, SnapshotContent } from "#compiler/deploy/snapshot/types.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -127,7 +127,7 @@ const constraintKeys = (constraint: TableConstraint): ReadonlyArray<KeyColumn> =
  * its table's CREATE TABLE declares.
  */
 const constraintOf = (
-	snapshot: DeploySnapshot,
+	content: SnapshotContent,
 	ownStatement: SqlStatement | undefined,
 	schemaName: string,
 	table: string,
@@ -139,7 +139,7 @@ const constraintOf = (
 			? action.constraint
 			: assert.fail(`the constraint ${name} added`)
 	}
-	const declared = Arr.findFirst(snapshot.manifest.objects, (o) => {
+	const declared = Arr.findFirst(content.manifest.objects, (o) => {
 		const [create] = o.ddl
 		return (
 			o.kind === "table" &&
@@ -161,9 +161,10 @@ const constraintOf = (
 	)
 }
 
-/** Each index object of the manifest, read off its own statement or its constraint. */
-export const manifestIndexes = (snapshot: DeploySnapshot): ReadonlyArray<ManifestIndex> =>
-	Arr.flatMap(snapshot.manifest.objects, (o): ReadonlyArray<ManifestIndex> => {
+/** Each index object of a snapshot's content, read off its own statement or its constraint, with the reasons the
+ * compile states for it. */
+export const manifestIndexes = (content: SnapshotContent): ReadonlyArray<ManifestIndex> =>
+	Arr.flatMap(content.manifest.objects, (o): ReadonlyArray<ManifestIndex> => {
 		if (o.kind === "index" || o.kind === "uniqueIndex") {
 			const [create] = o.ddl
 			return create?.kind === "createIndex"
@@ -191,7 +192,7 @@ export const manifestIndexes = (snapshot: DeploySnapshot): ReadonlyArray<Manifes
 							table: ident.relation,
 							name: ident.name,
 							keys: constraintKeys(
-								constraintOf(snapshot, o.ddl[0], ident.schema, ident.relation, ident.name)
+								constraintOf(content, o.ddl[0], ident.schema, ident.relation, ident.name)
 							),
 							reasons: o.reasons
 						}
@@ -233,12 +234,13 @@ export const relationAt = (
 	}
 }
 
-/** The laws each law column's manifest object records, by its table's schema, its table and its column. */
+/** The laws each law column's object of a snapshot's content states, by its table's schema, its table and its
+ * column. */
 export const lawColumnLaws = (
-	snapshot: DeploySnapshot
+	content: SnapshotContent
 ): ReadonlyMap<string, ReadonlyArray<string>> =>
 	new Map(
-		Arr.flatMap(snapshot.manifest.objects, (o) => {
+		Arr.flatMap(content.manifest.objects, (o) => {
 			const ident = parseIdent(o.ident)
 			return o.kind === "lawColumn" && ident.kind === "column"
 				? [

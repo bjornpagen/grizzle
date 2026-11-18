@@ -98,7 +98,7 @@ export const admittedAlone = (tapped: Tapped, m: MigrationSession, target: Migra
 		const snapshot = target.snapshot
 		const statements = succeeded(statementsFor(snapshot.schema))
 		const mark = tapped.mark()
-		yield* checkDrift(m, snapshot, statements)
+		yield* checkDrift(m, snapshot, statements, [])
 		const window = tapped.since(mark)
 		assert.equal(window.roundTrips, 1, "the drift check is one round trip")
 		assert.deepEqual(

@@ -4,7 +4,7 @@ import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"
 import { installationRoles, type UninstallReport, uninstall } from "#adapter/migrate/uninstall.ts"
-import { committedSnapshot } from "#cli/committed.ts"
+import { recordedCommitted } from "#cli/committed.ts"
 import type { ResolvedConfig } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
 import { readSchemaTree } from "#cli/files.ts"
@@ -19,7 +19,7 @@ export const readTargets = (
 	Effect.forEach(config.schemas, (schema) =>
 		Effect.gen(function* () {
 			const tree = yield* readSchemaTree(schema.declared, schema.directory)
-			const { snapshot } = yield* committedSnapshot(schema, tree)
+			const { snapshot } = yield* recordedCommitted(schema, tree)
 			return { snapshot, folders: tree.folders } satisfies MigrationTarget
 		})
 	)

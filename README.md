@@ -3275,6 +3275,20 @@ deploy.
   `snapshot.json` records: `snapshot.json` (the fingerprint, the levels, the constraints' laws and the rosters' codes)
   and `manifest.json`, the rest. Beside them, `served/<login>.json` holds each login's workloads compiled under the
   snapshot, the one file an app imports for `DbLayer.make`. Commit all of them.
+- **`manifest.json` is the record of what is installed**, which a draft reads of the installation it migrates from,
+  where only the record can say what is installed, and the drift check judges a database by: each installed
+  statement compact on a line of its own, but a PL/pgSQL function and a constant, each recorded by its header alone, a
+  function with the SHA-256 of its source as PostgreSQL stores it (`pg_proc.prosrc`), a constant by its name, which
+  digests its content. Their whole text is in the migration file that installed them, never twice in a file of its
+  size. It records no object's reasons, state or phase, which only the compile reads, and carries its own seal, the
+  digest of both files, so a file edited, corrupted or merged, or one of another snapshot, is refused; `check` holds
+  the record to the one the schemas compile to.
+- **A `manifest.json` an earlier grizzle wrote**, every installed statement whole and no seal, is converted once, by
+  `grizzle generate` alone: it reads it, holds its content to the fingerprint `snapshot.json` records, writes the
+  record in its place, and drafts no migration where nothing else changed; `snapshot.json`, every fingerprint, every
+  ledger and every served file stay as they are. `check` reports it (manifest.json is of the form an earlier grizzle
+  wrote) and `migrate`, `drift` and `names` refuse it, at stage `manifest`, until then. After upgrading grizzle, run
+  `grizzle generate grizzle.config.ts` once in each installation's package and commit its `manifest.json`.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says, and the drift check after the apply
   judges every edit by the catalog it reaches. Any text tool may read and write a drafted file back: every constant
   whose value holds a control character or a line or paragraph separator is written as an escape string (`E'\r'`, a
@@ -3369,7 +3383,10 @@ deploy.
   the schema's ledger, and refuses an applied file edited, removed or added since. Then it refuses drift, a database
   that is not exactly the snapshot's, so on a database changed by hand it applies its files, then refuses, one line a
   fact: a missing or unexpected one, or a changed one by where its two definitions first differ, at which character,
-  and each around it, every control character escaped. `drift` runs that check alone, for CI or a schedule. Both judge the database as it stands: a grant already held, or a revoke
+  and each around it, every control character escaped. A PL/pgSQL function is judged by its definition's header and
+  by its source's SHA-256 apart: one whose source differs is reported with both digests and the committed statement
+  that last defines it (`statement <n> of <folder>/<file>`), the text to compare the installed source with.
+  `drift` runs that check alone, for CI or a schedule. Both judge the database as it stands: a grant already held, or a revoke
   of a privilege never held, changes nothing. Both refuse a process environment that
   sets `PGOPTIONS` or `PGREPLICATION`, at stage `environment`.
 - **Names come from your code.** A declared name is ASCII letters, digits and underscores, starting with a letter.

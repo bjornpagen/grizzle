@@ -4,7 +4,12 @@
  * and the manifest it records, and the workload's access compile. What a runtime also reads, the snapshot, the ledger,
  * the slice and the basis, is plan/serve.ts's.
  */
-export { type ManifestStatement, manifestStatements } from "#compiler/deploy/admission/manifest.ts"
+export {
+	type ManifestStatement,
+	manifestStatements,
+	type RecordedSource,
+	recordedSources
+} from "#compiler/deploy/admission/manifest.ts"
 export type { AbandonedSchema, Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 export { decideFolder, type Redraft } from "#compiler/deploy/ledger/decide.ts"
 export {

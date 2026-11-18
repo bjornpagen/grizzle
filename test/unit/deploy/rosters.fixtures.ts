@@ -463,8 +463,7 @@ const constantsRule = (
 				if (v.kind !== "constant") {
 					return []
 				}
-				const name =
-					v.create.kind === "createConstant" ? v.create.name.name : v.create.function.name
+				const name = v.create.name.name
 				return named.has(name) ? [] : [name]
 			})
 		)

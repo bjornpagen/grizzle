@@ -51,6 +51,7 @@ import {
 	fromEmpty,
 	fromSnapshot,
 	generate,
+	installedStatements,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { oldFormTree } from "#test/support/migrate/old-form-tree.ts"
@@ -160,12 +161,9 @@ const columnOf = (c: NativeColumn): string => (c.kind === "field" ? c.field.colu
 
 const int = (value: number): TypedLiteral => ({ kind: "int", value: BigInt(value) })
 
-/** The model state of a snapshot's objects installed from nothing. */
-const freshState = (schemaName: string, draft: GenerateResult): State => {
-	const state = installState(
-		schemaName,
-		Arr.flatMap(draft.snapshot.manifest.objects, (o) => o.ddl)
-	)
+/** The model state of an installation's objects installed from nothing. */
+const freshState = (schemaName: string, installation: Installation): State => {
+	const state = installState(schemaName, installedStatements(installation))
 	assert.ok(Result.isSuccess(state), "the snapshot installs on the model")
 	return state.success
 }
@@ -193,7 +191,7 @@ const continued = (m: Migration, state: State): State => {
 const migrated = (m: Migration, stored: ReadonlyArray<Rows>): State =>
 	continued(
 		m,
-		Arr.reduce(stored, freshState(m.first.names.schema, m.firstDraft), (state, r) =>
+		Arr.reduce(stored, freshState(m.first.names.schema, m.first), (state, r) =>
 			load(
 				state,
 				tableOf(m.first, r.relation),
@@ -1029,7 +1027,7 @@ const concatMigrated = (
 		m,
 		load(
 			load(
-				freshState(m.first.names.schema, m.firstDraft),
+				freshState(m.first.names.schema, m.first),
 				tableOf(m.first, "Attr"),
 				Arr.map(owners, (id) => new Map([[fieldColumn(m.first, "Attr", "id"), int(id)]]))
 			),
@@ -1664,7 +1662,7 @@ const foldCaseOf = (family: Extract<Backfill, { readonly kind: "fold" }>["family
 
 /** The catalog a migration leaves is the one its target installs from nothing, every constraint validated. */
 const assertFresh = (m: Migration, state: State): void =>
-	assert.deepEqual(catalogOf(state), catalogOf(freshState(m.second.names.schema, m.secondDraft)))
+	assert.deepEqual(catalogOf(state), catalogOf(freshState(m.second.names.schema, m.second)))
 
 /** What a folded family drawn over `stored` and then reshaped must hold: the reference fold's values over the stored
  * rows in key order, and the catalog its reshaped target installs from nothing. */
@@ -1847,7 +1845,7 @@ const assertRemoved = (
 	drops: ReadonlyArray<readonly [string, string]>
 ): void => {
 	const removed = continued(successorOf(m, m.before, droppedFields(drops)), migrated(m, stored))
-	assert.deepEqual(catalogOf(removed), catalogOf(freshState(m.first.names.schema, m.firstDraft)))
+	assert.deepEqual(catalogOf(removed), catalogOf(freshState(m.first.names.schema, m.first)))
 	for (const r of stored) {
 		const fields = Arr.flatMap(r.rows, (row) => Rec.keys(row))
 		const heading = Arr.dedupe(fields)
@@ -1887,7 +1885,7 @@ export const judgeReversal = (r: Reversal): void => {
 				catalogOf(
 					freshState(
 						countedCase.migration.second.names.schema,
-						migrationOf(countedWritten, countedWritten).firstDraft
+						migrationOf(countedWritten, countedWritten).first
 					)
 				),
 				"the family's law columns and natives are gone"

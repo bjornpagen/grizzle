@@ -39,6 +39,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/migrate/lowering.test.ts",
 	"test/pg/migrate/param-domains.test.ts",
 	"test/pg/migrate/paths.test.ts",
+	"test/pg/migrate/recorded-drift.test.ts",
 	"test/pg/migrate/redraft.test.ts",
 	"test/pg/migrate/renames.test.ts",
 	"test/pg/migrate/rewrites.test.ts",

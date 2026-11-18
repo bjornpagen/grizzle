@@ -57,6 +57,7 @@ import {
 } from "#compiler/deploy/diff/plan.ts"
 import { ledgerPrivilegesIdent } from "#compiler/deploy/ledger/ledger.ts"
 import {
+	type AnyObject,
 	type BuiltOver,
 	builtOver,
 	constraintColumns,
@@ -72,6 +73,15 @@ import {
 	partsByTable,
 	refuse
 } from "#compiler/deploy/snapshot/objects.ts"
+import {
+	type ConstantHeader,
+	type FunctionHeader,
+	type RecordedManifest,
+	type RecordedObject,
+	type RecordedStatement,
+	recordedManifest,
+	sameRecord
+} from "#compiler/deploy/snapshot/recorded.ts"
 import type {
 	DeploySnapshot,
 	SnapshotContent,
@@ -92,7 +102,6 @@ import type {
 	AlterTableAction,
 	Collation,
 	ColumnDef,
-	CreateConstant,
 	CreateDomain,
 	CreateIndex,
 	CreateTable,
@@ -102,8 +111,6 @@ import type {
 	Grant,
 	GrantRole,
 	ObjectName,
-	PackConstant,
-	PlFunction,
 	Revoke,
 	SqlStatement,
 	TableConstraint,
@@ -416,7 +423,7 @@ interface Removal {
  * One the target keeps is created again; one it no longer has cannot outlive what it reads. */
 interface ViewDrop {
 	readonly key: string
-	readonly view: Installed & { readonly kind: "materializedView" }
+	readonly view: Installed<RecordedObject> & { readonly kind: "materializedView" }
 	/** Created again when the target keeps it, dropped for good when it does not. */
 	readonly fate: "recreated" | "dropped"
 }
@@ -445,7 +452,7 @@ type Fate =
 
 /** An object of the previous installation with its position in the install order and its fate. */
 interface Previous {
-	readonly object: ManifestObject
+	readonly object: RecordedObject
 	readonly order: number
 	readonly fate: Fate
 }
@@ -457,7 +464,7 @@ interface Previous {
  * previous one away (`replaced`). */
 type Arrival =
 	| { readonly kind: "new" }
-	| { readonly kind: "follows"; readonly before: ManifestObject }
+	| { readonly kind: "follows"; readonly before: RecordedObject }
 	| { readonly kind: "replaced"; readonly how: Replacement }
 
 const arrivedNew: Arrival = { kind: "new" }
@@ -794,7 +801,7 @@ class Differ {
 	readonly constrainedKeys = new Set<KeyAfter>()
 	/** Each table's fill of its set-aside fields, by table key (setAside). */
 	readonly fills = new Map<string, TableFill>()
-	readonly prev: ReadonlyMap<string, ManifestObject>
+	readonly prev: ReadonlyMap<string, RecordedObject>
 	readonly next: ReadonlyMap<string, ManifestObject>
 	/** The parts of every relation of the previous and of the target installation, by name key (partsByTable). */
 	readonly prevParts: ReadonlyMap<string, Parts>
@@ -903,7 +910,7 @@ class Differ {
 		const worlds = worldChangesOf(input.previous.manifest, input.target.manifest, beneath)
 		const viewKeys = new Set(this.viewDrops.map((d) => d.key))
 		/** What takes a previous object away in Structure, if anything does. */
-		const takenOf = (o: ManifestObject): Taken | undefined => {
+		const takenOf = (o: RecordedObject): Taken | undefined => {
 			if (worlds.drops.has(o.ident)) {
 				return { kind: "world" }
 			}
@@ -929,7 +936,7 @@ class Differ {
 		}
 		this.arrivals = arrivals
 		/** Whether a previous object is removed by the target and taken away by no step of Structure. */
-		const removed = (o: ManifestObject): boolean => !this.next.has(o.ident) && !taken.has(o.ident)
+		const removed = (o: RecordedObject): boolean => !this.next.has(o.ident) && !taken.has(o.ident)
 		/** The removed primary key of each table both install whose new primary key the target names anew (an aliased
 		 * relation keeps its table and names its key anew): the target's swaps in for it. */
 		const swapped = new Set<string>()
@@ -1027,8 +1034,8 @@ class Differ {
 		const lawColumnsByTable = new Map<
 			string,
 			Array<{
-				readonly object: ManifestObject
-				readonly column: Installed & { readonly kind: "lawColumn" }
+				readonly object: RecordedObject
+				readonly column: Installed<RecordedObject> & { readonly kind: "lawColumn" }
 			}>
 		>()
 		for (const p of previousObjects) {
@@ -1095,11 +1102,7 @@ class Differ {
 					const lawColumns = (lawColumnsByTable.get(key) ?? []).map(({ object: p, column: w }) => {
 						const now = this.next.get(p.ident)
 						const fate =
-							now === undefined
-								? droppedColumn
-								: sameText(p.ddl, now.ddl)
-									? keptColumn
-									: redefinedColumn
+							now === undefined ? droppedColumn : sameRecord(p, now) ? keptColumn : redefinedColumn
 						const reads = builtOver(w, (c) => keyOrCheckDefinition(c, this.prev))?.columns ?? []
 						return { column: w.column, reads, fate }
 					})
@@ -1266,20 +1269,20 @@ class Differ {
 
 	/** The previous object a target object follows (Arrival), which stands until its visit: none when it is new or
 	 * created again, so the target's is drafted as new. */
-	beforeOf(o: ManifestObject): ManifestObject | undefined {
+	beforeOf(o: ManifestObject): RecordedObject | undefined {
 		const arrival = this.arrivalOf(o)
 		return arrival.kind === "follows" ? arrival.before : undefined
 	}
 
 	/** The definition of a table object; another kind has none. */
-	createTableOf(o: ManifestObject): CreateTable | undefined {
+	createTableOf(o: AnyObject): CreateTable | undefined {
 		const v = installed(o)
 		return v.kind === "table" ? v.create : undefined
 	}
 
 	/** The definition of a constraint object of `objects`' manifest: a foreign key's own, or a key's or CHECK's
 	 * (keyOrCheckDefinition). Every caller passes a constraint object, so another kind refuses. */
-	constraintOf(o: ManifestObject, objects: ReadonlyMap<string, ManifestObject>): TableConstraint {
+	constraintOf(o: AnyObject, objects: ReadonlyMap<string, AnyObject>): TableConstraint {
 		const v = installed(o)
 		if (v.kind === "foreignKey") {
 			return v.constraint
@@ -1368,7 +1371,7 @@ class Differ {
 		for (const o of this.input.target.manifest.objects) {
 			const v = installed(o)
 			const before = this.prev.get(o.ident)
-			if (v.kind === "materializedView" && before !== undefined && !sameText(o.ddl, before.ddl)) {
+			if (v.kind === "materializedView" && before !== undefined && !sameRecord(before, o)) {
 				seeds.add(relationKey(v))
 			}
 		}
@@ -1577,7 +1580,7 @@ class Differ {
 			case "refusalFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
-				if (before === undefined || !sameText(before.ddl, o.ddl)) {
+				if (before === undefined || !sameRecord(before, o)) {
 					this.sql("setup", o.ddl)
 				}
 				return
@@ -1586,7 +1589,7 @@ class Differ {
 			case "extension":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
-				} else if (!sameText(before.ddl, o.ddl)) {
+				} else if (!sameRecord(before, o)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
 						capability:
@@ -1627,19 +1630,19 @@ class Differ {
 			case "unitFunction":
 				if (before === undefined) {
 					this.sql("structure", o.ddl)
-				} else if (!sameText(before.ddl, o.ddl)) {
+				} else if (!sameRecord(before, o)) {
 					this.unitFunction(before, v.create, o.ddl)
 				}
 				return
 			case "advanceFunction":
-				if (before === undefined || !sameText(before.ddl, o.ddl)) {
+				if (before === undefined || !sameRecord(before, o)) {
 					this.sql("structure", o.ddl)
 				}
 				return
 			case "role":
 				if (before === undefined) {
 					this.roleObject(v)
-				} else if (!sameText(before.ddl, o.ddl)) {
+				} else if (!sameRecord(before, o)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
 						capability: loginRoleExchange
@@ -1668,7 +1671,7 @@ class Differ {
 			case "membership":
 				if (before === undefined) {
 					this.sql("publish.grants", o.ddl)
-				} else if (!sameText(before.ddl, o.ddl)) {
+				} else if (!sameRecord(before, o)) {
 					const was = installed(before)
 					this.sql("publish.grants", [
 						...(was.kind === "membership" ? [revokeRoleOf(was.grant)] : []),
@@ -1683,14 +1686,14 @@ class Differ {
 				return
 			case "ruleJudge":
 			case "lawFunction":
-				if (before === undefined || !sameText(before.ddl, o.ddl)) {
+				if (before === undefined || !sameRecord(before, o)) {
 					this.sql("validate", o.ddl)
 				}
 				return
 			case "lawTrigger":
 				if (before === undefined) {
 					this.sql("validate", o.ddl)
-				} else if (!sameText(before.ddl, o.ddl)) {
+				} else if (!sameRecord(before, o)) {
 					this.sql("validate", [
 						{ kind: "dropTrigger", name: v.create.name, table: v.create.table, ifExists: false },
 						...o.ddl
@@ -1704,10 +1707,10 @@ class Differ {
 				}
 				return
 			case "publication":
-				if (before !== undefined && !sameText(before.ddl, o.ddl)) {
+				if (before !== undefined && !sameRecord(before, o)) {
 					this.sql("structure.drop", [{ kind: "dropPublication", name: v.create.name }])
 				}
-				if (before === undefined || !sameText(before.ddl, o.ddl)) {
+				if (before === undefined || !sameRecord(before, o)) {
 					this.sql("publish", o.ddl)
 				}
 				return
@@ -1780,7 +1783,7 @@ class Differ {
 	 * they changed its privileges are granted again by their own changed statements; the one change of a result there
 	 * has been, a retirement's from void to its counts, came while no role held EXECUTE on any retirement.
 	 */
-	unitFunction(before: ManifestObject, create: PlFunction, ddl: ManifestObject["ddl"]): void {
+	unitFunction(before: RecordedObject, create: FunctionHeader, ddl: ManifestObject["ddl"]): void {
 		const previous = installed(before)
 		const drop: ReadonlyArray<SqlStatement> =
 			previous.kind === "unitFunction" &&
@@ -1797,9 +1800,9 @@ class Differ {
 
 	/** The installed schema: created by the first migration, under the loss of the abandoned schemas' rows when the
 	 * migrations directory holds any, and never changed. */
-	schemaObject(o: ManifestObject, before: ManifestObject | undefined): void {
+	schemaObject(o: ManifestObject, before: RecordedObject | undefined): void {
 		if (before !== undefined) {
-			if (!sameText(before.ddl, o.ddl)) {
+			if (!sameRecord(before, o)) {
 				refuseUnsupported({
 					loc: SourceLoc(`object ${o.ident}`, []),
 					capability:
@@ -1834,25 +1837,21 @@ class Differ {
 	 * constant has one statement, so equal content prints alike. */
 	constantObject(
 		v: Installed & { readonly kind: "constant" },
-		before: ManifestObject | undefined
+		before: RecordedObject | undefined
 	): void {
 		if (before === undefined) {
 			this.sql("setup", v.object.ddl)
 			return
 		}
 		const was = installed(before)
-		if (
-			was.kind !== "constant" ||
-			!sameText(was.create, v.create) ||
-			!sameText(before.ddl.slice(1), v.object.ddl.slice(1))
-		) {
+		if (was.kind !== "constant" || !sameRecord(before, v.object)) {
 			refuse(before.ident, "a constant whose name digests what it installs")
 		}
 	}
 
 	domainObject(
 		v: Installed & { readonly kind: "domain" },
-		before: ManifestObject | undefined
+		before: RecordedObject | undefined
 	): void {
 		const { object: o } = v
 		const create = v.create
@@ -1962,7 +1961,7 @@ class Differ {
 				continue
 			}
 			const before = this.prev.get(o.ident)
-			const changed = before === undefined || !sameText(before.ddl, o.ddl)
+			const changed = before === undefined || !sameRecord(before, o)
 			const recast = [...qualifiedNames(o.ddl, this.levelSchemas)].some((k) =>
 				this.reconstrained.has(k)
 			)
@@ -2196,11 +2195,11 @@ class Differ {
 	 * dropped and added again when it changes. */
 	lawColumn(
 		v: Installed & { readonly kind: "lawColumn" },
-		before: ManifestObject | undefined
+		before: RecordedObject | undefined
 	): void {
 		const { object: o, table: t, column } = v
 		if (before !== undefined) {
-			if (sameText(before.ddl, o.ddl)) {
+			if (sameRecord(before, o)) {
 				return
 			}
 			this.sql("structure", [alter(t, [{ kind: "dropColumn", column }])])
@@ -2394,7 +2393,7 @@ class Differ {
 	 * so the old one is dropped in Validate, after the target's is attached and before the foreign keys over those
 	 * columns are added (foreignKey): each removed foreign key that references it is dropped before it (remove), and each
 	 * one the target keeps unchanged as well (rebind). */
-	replacedKey(o: ManifestObject, name: string, t: ObjectName): boolean {
+	replacedKey(o: RecordedObject, name: string, t: ObjectName): boolean {
 		if (!this.replaced.has(o.ident)) {
 			return false
 		}
@@ -2449,7 +2448,7 @@ class Differ {
 	 * alteration its own may stand before: then it is its own statement, after the key's, where it is drafted. */
 	foreignKey(
 		v: Installed & { readonly kind: "foreignKey" },
-		before: ManifestObject | undefined
+		before: RecordedObject | undefined
 	): void {
 		const { table: t, constraint: c } = v
 		if (before !== undefined) {
@@ -2486,7 +2485,7 @@ class Differ {
 	 * leaves it, never the column the fill drops. */
 	view(
 		v: Installed & { readonly kind: "materializedView" },
-		before: ManifestObject | undefined
+		before: RecordedObject | undefined
 	): void {
 		if (before === undefined) {
 			this.sql("structure.views", v.object.ddl)
@@ -2495,11 +2494,11 @@ class Differ {
 
 	index(
 		v: Installed & { readonly kind: "index" | "uniqueIndex" },
-		before: ManifestObject | undefined
+		before: RecordedObject | undefined
 	): void {
 		const { object: o, create } = v
 		const t = create.table
-		if (before !== undefined && sameText(before.ddl, o.ddl)) {
+		if (before !== undefined && sameRecord(before, o)) {
 			return
 		}
 		if (!this.mayHoldRows(t)) {
@@ -2533,10 +2532,10 @@ class Differ {
 
 	statistics(
 		v: Installed & { readonly kind: "statistics" },
-		before: ManifestObject | undefined
+		before: RecordedObject | undefined
 	): void {
 		const { object: o, create } = v
-		if (before !== undefined && sameText(before.ddl, o.ddl)) {
+		if (before !== undefined && sameRecord(before, o)) {
 			return
 		}
 		if (before !== undefined) {
@@ -2571,7 +2570,7 @@ class Differ {
 	 * A table's isolation trigger is dropped with its table's other objects, or on its own where the target guards its
 	 * table no more: every role that writes it is certified READ COMMITTED (physical/ddl/isolation.ts
 	 * readCommittedRelations). */
-	remove(o: ManifestObject, order: number): void {
+	remove(o: RecordedObject, order: number): void {
 		const v = installed(o)
 		const drop = (kind: Dropped, d: Action): void => {
 			this.removal(dropOrder[kind], order, d)
@@ -2740,8 +2739,8 @@ class Differ {
 	 * A column grant is revoked by the table's revoke of its privilege, which PostgreSQL applies to every
 	 * column, whatever a rename called it since. */
 	grants(): void {
-		const byRole = (objects: ReadonlyArray<ManifestObject>) => {
-			const out = new Map<string, Array<ManifestObject>>()
+		const byRole = <O extends AnyObject>(objects: ReadonlyArray<O>) => {
+			const out = new Map<string, Array<O>>()
 			for (const o of objects) {
 				const v = installed(o)
 				if (v.kind !== "privileges" || o.ident === ledgerPrivilegesIdent(this.schema)) {
@@ -2767,10 +2766,12 @@ class Differ {
 			const a = before.get(role) ?? []
 			const b = after.get(role) ?? []
 			const namesRecreated = b.some((o) => o.ddl.some((s) => s.kind === "grant" && recreated(s)))
-			return sameText(
-				a.map((o) => o.ddl),
-				b.map((o) => o.ddl)
-			) && !namesRecreated
+			return a.length === b.length &&
+				a.every((o, i) => {
+					const now = b[i]
+					return now !== undefined && sameRecord(o, now)
+				}) &&
+				!namesRecreated
 				? []
 				: [{ role, a, b }]
 		})
@@ -2803,7 +2804,7 @@ class Differ {
 		}
 		const ledgerA = this.prev.get(ledgerPrivilegesIdent(this.schema))
 		const ledgerB = this.next.get(ledgerPrivilegesIdent(this.schema))
-		if (ledgerA !== undefined && (ledgerB === undefined || !sameText(ledgerA.ddl, ledgerB.ddl))) {
+		if (ledgerA !== undefined && (ledgerB === undefined || !sameRecord(ledgerA, ledgerB))) {
 			const granted = ledgerB === undefined ? [] : ledgerB.ddl
 			const holds = (name: string): boolean =>
 				granted.some(
@@ -2818,7 +2819,7 @@ class Differ {
 			})
 			this.sql("publish.grants", revokes)
 		}
-		if (ledgerB !== undefined && (ledgerA === undefined || !sameText(ledgerA.ddl, ledgerB.ddl))) {
+		if (ledgerB !== undefined && (ledgerA === undefined || !sameRecord(ledgerA, ledgerB))) {
 			this.sql("publish.grants", ledgerB.ddl)
 		}
 	}
@@ -3056,7 +3057,10 @@ const rosterConstantsOf = (
  * constant; a law's, every other.
  */
 const domainsOf = (
-	manifest: InstallationManifest<SqlStatement>,
+	manifest: {
+		readonly objects: ReadonlyArray<AnyObject>
+		readonly edges: RecordedManifest["edges"]
+	},
 	constants: ReadonlyMap<string, RosterFate>
 ): ReadonlyMap<string, DomainReading> => {
 	const readers = new Map(
@@ -3532,7 +3536,7 @@ const sequenceFatesOf = (kept: Iterable<KeptTable>): ReadonlyMap<string, Sequenc
 
 /** The drop of a domain or a relation, which must find it. */
 const dropObject = (
-	v: Installed & { readonly kind: "domain" | "table" | "materializedView" }
+	v: Installed<AnyObject> & { readonly kind: "domain" | "table" | "materializedView" }
 ): SqlStatement => {
 	const [object, name] =
 		v.kind === "table"
@@ -3544,7 +3548,7 @@ const dropObject = (
 }
 
 /** The PostgreSQL schema a schema object creates, its manifest identity's name. */
-const schemaOf = (o: ManifestObject): string => {
+const schemaOf = (o: AnyObject): string => {
 	const ident = parseIdent(o.ident)
 	if (ident.kind !== "schema") {
 		throw defect(`the schema object ${o.ident} is named as a schema`)
@@ -3553,14 +3557,15 @@ const schemaOf = (o: ManifestObject): string => {
 }
 
 /** A constant's signature: its name and its parameters' types, none for a packed constant, which takes none. */
-const constantName = (c: CreateConstant | PackConstant): FunctionName =>
-	c.kind === "createConstant"
-		? { ...c.name, args: c.params.map((p) => p.type) }
-		: { ...c.function, args: [] }
+const constantName = (c: ConstantHeader): FunctionName => ({
+	...c.name,
+	args: c.params.map((p) => p.type)
+})
 
 /** The table key of a table or a materialized view: the name its definition creates. */
-const relationKey = (v: Installed & { readonly kind: "table" | "materializedView" }): string =>
-	nameKey(v.kind === "table" ? v.create.table : v.create.name)
+const relationKey = (
+	v: Installed<AnyObject> & { readonly kind: "table" | "materializedView" }
+): string => nameKey(v.kind === "table" ? v.create.table : v.create.name)
 
 /** The keys of every name qualified by one of the installation's level schemas `schemas` that a value holds:
  * relations, types, sequences and functions. */
@@ -3635,7 +3640,7 @@ const installedReads = (
 /** The drop of an object built over a column (objects.ts builtOver), which a replacement of the column takes away, in
  * the drop order (dropOrder): the foreign keys and rule triggers first, then the keys and CHECKs, the indexes, the
  * statistics objects and the law columns whose generation reads the column. */
-const replacementDrop = (v: BuiltOver["part"]): Drop => {
+const replacementDrop = (v: BuiltOver<AnyObject>["part"]): Drop => {
 	switch (v.kind) {
 		case "foreignKey":
 		case "check":
@@ -3700,12 +3705,12 @@ const worldKinds: ReadonlySet<PhysicalKind> = new Set(["view", "worldFunction", 
  * existence by, whose DDL says whether it holds at every statement, which decides whether a definition may rely on it.
  * Each input by its object, with its DDL. */
 const compileInputsOf = (
-	manifest: InstallationManifest<SqlStatement>
-): ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<SqlStatement>>> => {
+	manifest: RecordedManifest
+): ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<RecordedStatement>>> => {
 	const objects = new Map(manifest.objects.map((o) => [o.ident, o]))
 	const inputs = new Map(
 		manifest.objects.flatMap(
-			(o): ReadonlyArray<readonly [string, Map<string, ReadonlyArray<SqlStatement>>]> =>
+			(o): ReadonlyArray<readonly [string, Map<string, ReadonlyArray<RecordedStatement>>]> =>
 				o.kind === "table" || o.kind === "materializedView" ? [[o.ident, new Map()]] : []
 		)
 	)
@@ -3724,8 +3729,8 @@ const compileInputsOf = (
 
 /** Whether a relation's compile inputs are the same objects in two manifests, each with the same DDL. */
 const sameInputs = (
-	a: ReadonlyMap<string, ReadonlyArray<SqlStatement>>,
-	b: ReadonlyMap<string, ReadonlyArray<SqlStatement>>
+	a: ReadonlyMap<string, ReadonlyArray<RecordedStatement>>,
+	b: ReadonlyMap<string, ReadonlyArray<RecordedStatement>>
 ): boolean =>
 	a.size === b.size &&
 	[...a].every(([input, ddl]) => {
@@ -3750,7 +3755,7 @@ const sameInputs = (
  * is kept. Which world objects a migration creates again then follows from the schema's change, never from whether the
  * optimizer's output for them happens to differ. */
 const worldChangesOf = (
-	previous: InstallationManifest<SqlStatement>,
+	previous: RecordedManifest,
 	target: InstallationManifest<SqlStatement>,
 	beneath: ReadonlySet<string>
 ): { readonly drops: ReadonlySet<string>; readonly creates: ReadonlySet<string> } => {
@@ -3759,12 +3764,12 @@ const worldChangesOf = (
 	const changed = new Set<string>(beneath)
 	for (const o of target.objects) {
 		const was = before.get(o.ident)
-		if (was === undefined || !sameText(was.ddl, o.ddl)) {
+		if (was === undefined || !sameRecord(was, o)) {
 			changed.add(o.ident)
 		}
 	}
 	const inputsBefore = compileInputsOf(previous)
-	for (const [relation, inputs] of compileInputsOf(target)) {
+	for (const [relation, inputs] of compileInputsOf(recordedManifest(target))) {
 		const was = inputsBefore.get(relation)
 		if (was !== undefined && !sameInputs(was, inputs)) {
 			changed.add(relation)

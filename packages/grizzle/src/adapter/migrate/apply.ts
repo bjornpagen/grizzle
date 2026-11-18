@@ -1,5 +1,6 @@
 import { Array as Arr, Effect, Option, Result, type Scope } from "effect"
 import {
+	type DriftFolder,
 	driftFlight,
 	driftTransaction,
 	type FlightSpan,
@@ -329,6 +330,8 @@ const schemaOwner: CatalogQuery<string> = {
 
 interface Planned {
 	readonly snapshot: DeploySnapshot
+	/** The schema's committed folders as parsed, which the drift check names a function's defining statement from. */
+	readonly folders: ReadonlyArray<ParsedFolder>
 	readonly statements: LedgerStatements
 	readonly plan: ApplyPlan
 	/** Whether the ledger existed when the apply read it, under its apply lock. */
@@ -469,6 +472,7 @@ const planSchema = (
 					}
 		return {
 			snapshot: parsed.snapshot,
+			folders: parsed.folders,
 			statements,
 			plan,
 			ledger: read.table,
@@ -814,13 +818,14 @@ const driftFailure = (
 export const checkDrift = Effect.fn("checkDrift")(function* (
 	session: MigrationSession,
 	snapshot: DeploySnapshot,
-	statements: LedgerStatements
+	statements: LedgerStatements,
+	folders: ReadonlyArray<DriftFolder>
 ): Effect.fn.Return<void, MigrateError> {
 	const schema = snapshot.schema
 	const unchecked = (failure: DriftUnchecked["failure"]) =>
 		stopped(new DriftUnchecked({ schema, failure }))
 	const drift = yield* Effect.mapError(
-		Effect.fromResult(driftFlight(snapshot, session.installation)),
+		Effect.fromResult(driftFlight(snapshot, session.installation, folders)),
 		unchecked
 	)
 	const answered = yield* Effect.mapError(
@@ -876,7 +881,7 @@ export const applyOnSession = Effect.fn("applyOnSession")(function* (
 		yield* grantReplicationRight(session, p.snapshot.schema, p.decoder, grants)
 	}
 	for (const p of planned) {
-		yield* checkDrift(session, p.snapshot, p.statements)
+		yield* checkDrift(session, p.snapshot, p.statements, p.folders)
 	}
 	return reports
 }, Effect.scoped)
@@ -891,7 +896,7 @@ const driftOnSession = Effect.fn("driftOnSession")(function* (
 ): Effect.fn.Return<void, MigrateError> {
 	for (const t of targets) {
 		const checked = yield* Effect.fromResult(checkTarget(t, session.installation))
-		yield* checkDrift(session, checked.parsed.snapshot, checked.statements)
+		yield* checkDrift(session, checked.parsed.snapshot, checked.statements, checked.parsed.folders)
 	}
 })
 

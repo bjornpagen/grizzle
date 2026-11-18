@@ -76,22 +76,19 @@ export const indexesOfNamesEachIndexsReasonsAndKeyColumnsInOrderAndMappedThrough
 						)
 					)
 				)
-				const snapshot = succeeded(
-					finishSnapshot(
-						succeeded(
-							targetState({
-								installation,
-								workload: noWorkload,
-								checks: lawChecks(installation)
-							})
-						)
-					)
+				const content = succeeded(
+					targetState({
+						installation,
+						workload: noWorkload,
+						checks: lawChecks(installation)
+					})
 				)
+				const snapshot = succeeded(finishSnapshot(content))
 				const files = succeeded(writeSnapshot(snapshot, derivedOf(installation)))
 				const read = succeeded(readSnapshot(files)).snapshot
-				const laws = lawColumnLaws(read)
+				const laws = lawColumnLaws(content)
 				const expected = Arr.sort(
-					Arr.map(manifestIndexes(read), (index): Compared => {
+					Arr.map(manifestIndexes(content), (index): Compared => {
 						const r = relationAt(read, index.schema, index.table)
 						return {
 							relation: r.name,

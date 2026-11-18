@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Order, pipe, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, pipe, Result, String as Str } from "effect"
 import {
 	attributeDifferences,
 	attributesQuery,
@@ -57,7 +57,9 @@ import {
 	escaped,
 	nominal,
 	type NonEmptyReadonlyArray,
+	type ObjectName,
 	type ParamText,
+	printObjectName,
 	quoteIdent,
 	SourceLoc,
 	sha256Hex,
@@ -69,8 +71,11 @@ import {
 	filledText,
 	type InstallationNames,
 	type InstalledRoleTooLong,
+	lex,
 	type ManifestStatement,
 	manifestStatements,
+	type RecordedSource,
+	recordedSources,
 	resolveVariables,
 	type VariableFault
 } from "#compiler/plan/migration.ts"
@@ -104,6 +109,13 @@ import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
  * and it is described by its owner and its result type alone, never by its body, which for a closed relation runs to
  * many kilobytes. A constant the snapshot names is installed or missing by its key; one only the database holds, as a
  * migration that did not drop a replaced constant leaves, is unexpected by its key.
+ *
+ * The snapshot records a PL/pgSQL function and a constant by its header alone, a function with the digest of its
+ * source (snapshot/recorded.ts), so the replay creates each with a stub body (replayedStatement): a constant is
+ * described as above, and a PL/pgSQL function by its definition's header alone (plpgsqlHeader), its source held apart
+ * to the record's digest, the SHA-256 of pg_proc.prosrc (sourcesQuery). A source that differs is reported with both
+ * digests and the committed migration statement that last defines the function (definitionOf), the text to compare
+ * the installed one with.
  *
  * The scratch name is `grizzle_admission_` and 24 hex digits of the schema name's SHA-256: lower case, no keyword, so
  * PostgreSQL never quotes it, and a description of the scratch schema reads as the installed schema's once each
@@ -142,6 +154,88 @@ export type DriftMismatch =
 			readonly expected: string
 			readonly installed: string
 	  }
+	| {
+			/** A PL/pgSQL function whose installed source is not the one the snapshot records: the record's digest, the
+			 * installed source's, and the committed statement that last defines the function. */
+			readonly kind: "source"
+			readonly fact: string
+			readonly expected: string
+			readonly installed: string
+			readonly definedBy: DefinedBy
+	  }
+
+/**
+ * The committed migration statement that last defines a function: the newest folder's last file holding a statement
+ * whose head is CREATE [OR REPLACE] FUNCTION of the function's name (`statement`, counted from 1 in its file, as
+ * `grizzle check` counts it); or none, where no committed file holds one (`none`).
+ */
+export type DefinedBy =
+	| {
+			readonly kind: "statement"
+			readonly folder: string
+			readonly file: string
+			readonly statement: number
+	  }
+	| { readonly kind: "none" }
+
+/** A committed migration folder as the drift check reads it: its name and each file's statements, in order. */
+export interface DriftFolder {
+	readonly name: string
+	readonly files: ReadonlyArray<{
+		readonly name: string
+		readonly statements: ReadonlyArray<string>
+	}>
+}
+
+/**
+ * Whether a statement's head is CREATE [OR REPLACE] FUNCTION of `fn`, as PostgreSQL's scanner reads it (lexer.ts): the
+ * statement read up to the first spelling of the name as the printer writes it, where the head ends, never its body.
+ */
+const createsFunction = (statement: string, fn: ObjectName): boolean => {
+	const named = printObjectName(fn)
+	const at = Str.indexOf(named)(statement)
+	if (Option.isNone(at)) {
+		return false
+	}
+	const tokens = lex(Str.slice(0, at.value + named.length)(statement)).tokens
+	const verbs = Arr.join(
+		Arr.map(Arr.dropRight(tokens, 3), (t) => (t.kind === "word" ? t.upper : t.kind)),
+		" "
+	)
+	const [schema, dot, name] = Arr.takeRight(tokens, 3)
+	return (
+		(verbs === "CREATE FUNCTION" || verbs === "CREATE OR REPLACE FUNCTION") &&
+		schema?.kind === "quotedIdent" &&
+		schema.text === fn.schema &&
+		dot?.kind === "punct" &&
+		dot.text === "." &&
+		name?.kind === "quotedIdent" &&
+		name.text === fn.name
+	)
+}
+
+/** The committed statement that last defines `fn` among `folders`, in creation order (DefinedBy). */
+const definitionOf = (folders: ReadonlyArray<DriftFolder>, fn: ObjectName): DefinedBy => {
+	for (const folder of Arr.reverse(folders)) {
+		for (const file of Arr.reverse(folder.files)) {
+			const at = Arr.findLastIndex(file.statements, (statement) => createsFunction(statement, fn))
+			if (Option.isSome(at)) {
+				return { kind: "statement", folder: folder.name, file: file.name, statement: at.value + 1 }
+			}
+		}
+	}
+	return { kind: "none" }
+}
+
+/** Where a function is last defined, in words. */
+const definedByText = (d: DefinedBy): string => {
+	switch (d.kind) {
+		case "statement":
+			return `last defined by statement ${d.statement} of ${d.folder}/${d.file}`
+		case "none":
+			return "defined by no committed migration file"
+	}
+}
 
 /**
  * A mismatch as the report prints it, one line each: its kind and its fact, every control character and line separator
@@ -158,6 +252,8 @@ export const mismatchLine = (m: DriftMismatch): string => {
 			const shown = differenceShown(m.expected, m.installed)
 			return `differs ${escaped(m.fact)} from character ${shown.at} (the snapshot's of ${shown.characters.first}, the database's of ${shown.characters.second}): the snapshot's ${shown.first} where the database's is ${shown.second}`
 		}
+		case "source":
+			return `differs ${escaped(m.fact)}: the snapshot's digests to ${m.expected} where the database's digests to ${m.installed}, ${definedByText(m.definedBy)}`
 	}
 }
 
@@ -194,6 +290,44 @@ const notExtensionMember = (catalog: C.CatalogRelation, oid: C.CatalogExpr): C.C
 			])
 		)
 	)
+}
+
+/** Whether a function's language, `prolang`, is PL/pgSQL. */
+const isPlpgsql = (prolang: C.CatalogExpr): C.CatalogExpr => {
+	const l = C.from("pg_language", "l")
+	return C.exists(
+		C.anyRow(
+			[l.item],
+			C.and([C.eq(l.col("oid"), prolang), C.eq(l.col("lanname"), C.text("plpgsql"))])
+		)
+	)
+}
+
+/**
+ * A PL/pgSQL function's definition as PostgreSQL deparses it (pg_get_functiondef), its header alone: the definition is
+ * its header, `AS `, its source between two dollar-quote tags and a line feed, the tag `$function` and an `x` for each
+ * time the source holds one shorter, then `$` (ruleutils.c pg_get_functiondef), so the header is the definition but its
+ * last `length(source) + 2 × tag + 1` characters, the tag's length found from the definition's end, where the reversed
+ * definition holds `noitcnuf$` behind its line feed, its tag's `$` and the tag's `x`s. A stub replayed in the scratch
+ * schema (snapshot/recorded.ts replayedStatement) and the installed function so describe their headers alike, and the
+ * source is judged by its digest apart (sourcesQuery).
+ */
+const plpgsqlHeader = (oid: C.CatalogExpr, source: C.CatalogExpr): C.CatalogExpr => {
+	const definition = (): C.CatalogExpr => C.catalogCall("pg_get_functiondef", [oid])
+	const tag = C.plus(
+		C.catalogCall("strpos", [C.catalogCall("reverse", [definition()]), C.text("noitcnuf$")]),
+		C.literal(7n, "integer")
+	)
+	return C.catalogCall("left", [
+		definition(),
+		C.minus(
+			C.minus(
+				C.minus(C.catalogCall("length", [definition()]), C.catalogCall("length", [source])),
+				C.times(C.literal(2n, "integer"), tag)
+			),
+			C.literal(1n, "integer")
+		)
+	])
 }
 
 /** `text` and `value`, joined: NULL where the value is, so concat_ws leaves the part out. */
@@ -603,6 +737,10 @@ const descriptionSelect = (): C.CatalogSelect => {
 								)
 							},
 							{
+								when: C.and([C.eq(p.col("prokind"), C.letter("f")), isPlpgsql(p.col("prolang"))]),
+								result: plpgsqlHeader(p.col("oid"), p.col("prosrc"))
+							},
+							{
 								when: C.inList(p.col("prokind"), C.letters(["f", "p"])),
 								result: C.catalogCall("pg_get_functiondef", [p.col("oid")])
 							}
@@ -706,6 +844,72 @@ const descriptions: CatalogQuery<readonly [string, string]> = {
 	what: "an object's key and its description",
 	row: ([key, description]) =>
 		key === undefined || description === undefined ? undefined : [key, description]
+}
+
+/**
+ * Every PL/pgSQL function of the schemas $1 names, as three text columns: its schema, its name, and its source's digest,
+ * the SHA-256 of pg_proc.prosrc's UTF-8, in lowercase hex, which the snapshot records of each (snapshot/recorded.ts
+ * SourceDigest).
+ */
+const sourcesQuery: CatalogQuery<readonly [string, string, string]> = (() => {
+	const n = C.from("pg_namespace", "n")
+	const p = C.from("pg_proc", "p")
+	return {
+		sql: emitCatalog(
+			C.query(
+				[
+					C.asText(n.col("nspname")),
+					C.asText(p.col("proname")),
+					C.catalogCall("encode", [
+						C.catalogCall("sha256", [
+							C.catalogCall("convert_to", [p.col("prosrc"), C.literal("UTF8", "name")])
+						]),
+						C.text("hex")
+					])
+				],
+				[inNamespace(p.item, n, p.col("pronamespace"))],
+				C.and([
+					C.any(n.col("nspname"), C.arrayParam(1, "text")),
+					C.eq(p.col("prokind"), C.letter("f")),
+					isPlpgsql(p.col("prolang")),
+					notExtensionMember("pg_proc", p.col("oid"))
+				])
+			)
+		),
+		what: "a function's schema, its name and its source's digest",
+		row: ([schema, name, source]) =>
+			schema === undefined || name === undefined || source === undefined
+				? undefined
+				: [schema, name, source]
+	}
+})()
+
+/**
+ * Each recorded source that the installed function of its name does not hold: where the installed schema holds exactly
+ * one PL/pgSQL function of the name, its source's digest is the record's. One it lacks, or holds twice over, is a
+ * missing or unexpected function the descriptions find by its key.
+ */
+const sourceMismatches = (
+	recorded: ReadonlyArray<RecordedSource>,
+	installed: ReadonlyArray<readonly [string, string, string]>,
+	folders: ReadonlyArray<DriftFolder>
+): ReadonlyArray<DriftMismatch> => {
+	const byName = Arr.groupBy(installed, ([schema, name]) => `${schema}.${name}`)
+	return Arr.flatMap(recorded, (r): ReadonlyArray<DriftMismatch> => {
+		const held = byName[`${r.function.schema}.${r.function.name}`] ?? []
+		const [only, second] = held
+		return only === undefined || second !== undefined || only[2] === r.source
+			? []
+			: [
+					{
+						kind: "source",
+						fact: `source of function ${printObjectName(r.function)}`,
+						expected: r.source,
+						installed: only[2],
+						definedBy: definitionOf(folders, r.function)
+					}
+				]
+	})
 }
 
 /** A name as PostgreSQL prints it. */
@@ -1122,11 +1326,13 @@ export interface DriftFlight {
  */
 export const driftFlight = (
 	snapshot: DeploySnapshot,
-	installation: InstallationNames
+	installation: InstallationNames,
+	folders: ReadonlyArray<DriftFolder>
 ): Result.Result<DriftFlight, CompileError> =>
 	Result.gen(function* () {
 		const schema = snapshot.schema
 		const statements = yield* toResult(manifestStatements(snapshot))
+		const sources = recordedSources(snapshot)
 		const schemas = judgedSchemas(statements, schema)
 		const scratchOf = new Map(Arr.map(schemas, (s) => [s, scratchSchema(s)] as const))
 		const replay = yield* scratchStatements(statements, scratchOf, installation)
@@ -1154,6 +1360,9 @@ export const driftFlight = (
 			installed: flight.query(descriptions, [textParam(s), textParam(s)]),
 			expected: flight.query(descriptions, [textParam(scratchSchema(s)), textParam(s)])
 		}))
+		const installedSources = flight.query(sourcesQuery, [
+			textArray(Arr.dedupe(Arr.map(sources, (r) => r.function.schema)))
+		])
 		const extensionSchemas = Arr.map(createdExtensions, (x) => ({
 			extension: x,
 			slot: flight.query(extensionSchema, [textParam(x.name)])
@@ -1209,6 +1418,13 @@ export const driftFlight = (
 								for (const mismatch of mismatches) {
 									out.push(mismatch)
 								}
+							}
+							for (const mismatch of sourceMismatches(
+								sources,
+								yield* installedSources.rows(outcomes),
+								folders
+							)) {
+								out.push(mismatch)
 							}
 							for (const { extension: x, slot } of extensionSchemas) {
 								const at = yield* slot.rows(outcomes)

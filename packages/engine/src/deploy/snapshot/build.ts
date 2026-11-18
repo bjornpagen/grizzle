@@ -32,6 +32,12 @@ import {
 } from "#compiler/deploy/ledger/ledger.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
 import {
+	type RecordedManifest,
+	type RecordedObject,
+	type RecordedStatement,
+	recordedManifest
+} from "#compiler/deploy/snapshot/recorded.ts"
+import {
 	type CompileFacts,
 	type DeploySnapshot,
 	type IndexKeyColumn,
@@ -108,9 +114,11 @@ const withoutFingerprint: EncodeOptions = {
 
 /**
  * The fingerprint of a snapshot's JSON value: the digest of every property but its own fingerprint. It is the content
- * fingerprint a finished snapshot records, and the integrity check of a read one, computed over the value JSON gave
- * before anything reads it as a snapshot: the digest is total over any value, so an edited or corrupted snapshot.json is
- * refused by its fingerprint and never reaches typed code (the shell's boundary/snapshot.ts).
+ * fingerprint a finished snapshot records (finishSnapshot), digested over its content whole (contentForm), and the
+ * integrity check of a snapshot an earlier grizzle laid out with its content whole, computed over the value JSON gave
+ * before anything reads it as a snapshot: the digest is total over any value, so an edited or corrupted pair of that
+ * form is refused by its fingerprint and never reaches typed code (the shell's boundary/snapshot.ts). A committed record
+ * is checked by its seal instead (snapshotSeal).
  */
 export const snapshotFingerprint = (
 	value: unknown
@@ -395,12 +403,12 @@ const addedColumns = (plan: MigrationPlan): ReadonlyMap<string, number> => {
  * with. A table past `limit` counting its dropped columns is refused: PostgreSQL never reuses an attribute number, so
  * only recreating the table frees them. A draft's limit is PostgreSQL's (tableMaxColumns).
  */
-export const withAttnums = (
-	state: SnapshotContent,
+export const withAttnums = <S extends Pick<SnapshotContent, "theory" | "schemaName">>(
+	state: S,
 	previous: DeploySnapshot,
 	plan: MigrationPlan,
 	limit: number
-): Result.Result<SnapshotContent, CompileError> => {
+): Result.Result<S, CompileError> => {
 	const added = addedColumns(plan)
 	const relations: Record<string, SnapshotRelation> = {}
 	for (const [name, r] of Object.entries(state.theory.relations)) {
@@ -926,19 +934,20 @@ const sortedOwners = <V>(
 		)
 	)
 
-/** The form of a snapshot, before the canonical tags: what its fingerprint digests and what snapshot.json writes. Each
- * record of the documented form holds exactly its documented fields, and each installed statement is the statement
- * itself, every clause stated. A key whose value is absent is left out, as an undefined clause of a statement and the
- * type's default operator class of an access path's key are. The shell reads exactly this value back as the snapshot,
- * once its fingerprint holds (boundary/snapshot.ts). */
+/** The form of a snapshot, before the canonical tags: what its fingerprint digests (contentForm), what its seal
+ * digests (recordForm) and what its files write. Each record of the documented form holds exactly its documented
+ * fields, and each installed statement is the statement itself, every clause stated, or its record. A key whose value is
+ * absent is left out, as an undefined clause of a statement and the type's default operator class of an access path's
+ * key are. The shell reads exactly the record back as the committed snapshot, once its seal holds
+ * (boundary/snapshot.ts). */
 type SnapshotForm = RecordOf<never>
 
 /** A unit of snapshot.json laid out compact, on one line of its own, as its one canonical value: an installed
  * statement, the unit the diff compares and a review reads, so a changed statement is one changed line; or a level's
  * law as an outcome names it. */
 class CompactLine {
-	readonly value: SqlStatement | DescribedLaw
-	constructor(value: SqlStatement | DescribedLaw) {
+	readonly value: SqlStatement | RecordedStatement | DescribedLaw
+	constructor(value: SqlStatement | RecordedStatement | DescribedLaw) {
 		this.value = value
 	}
 }
@@ -957,14 +966,17 @@ type FormOf<S> =
 /** A record of the snapshot's form whose installed statements are `S`. */
 type RecordOf<S> = { readonly [key: string]: FormOf<S> }
 
-/** How a form holds its compact units: an installed statement and a level's law. */
+/** How a form holds its compact units: an installed statement, whole or recorded, and a level's law. */
 interface Units<S> {
-	readonly statement: (s: SqlStatement) => S
+	readonly statement: (s: SqlStatement | RecordedStatement) => S
 	readonly law: (l: DescribedLaw) => S
 }
 
 /** Each unit as itself. */
-const asValues: Units<SqlStatement | DescribedLaw> = { statement: (s) => s, law: (l) => l }
+const asValues: Units<SqlStatement | RecordedStatement | DescribedLaw> = {
+	statement: (s) => s,
+	law: (l) => l
+}
 
 /** Each unit as its line of snapshot.json. */
 const asLines: Units<CompactLine> = {
@@ -1071,6 +1083,8 @@ const reasonForm = (r: PhysicalReason): SnapshotForm => {
 	}
 }
 
+/** An object of the compile's manifest as the fingerprint digests it: every statement whole, with its reasons, its
+ * state and its phase. */
 const objectForm = <S>(o: PhysicalObject<SqlStatement>, units: Units<S>): RecordOf<S> => ({
 	kind: o.kind,
 	ident: o.ident,
@@ -1080,12 +1094,32 @@ const objectForm = <S>(o: PhysicalObject<SqlStatement>, units: Units<S>): Record
 	phase: o.phase
 })
 
-const manifestForm = <S>(m: InstallationManifest<SqlStatement>, units: Units<S>): RecordOf<S> => ({
-	objects: m.objects.map((o) => objectForm(o, units)),
+/** An object as manifest.json records it: its kind, its identity and its recorded statements. */
+const recordedObjectForm = <S>(o: RecordedObject, units: Units<S>): RecordOf<S> => ({
+	kind: o.kind,
+	ident: o.ident,
+	ddl: o.ddl.map(units.statement)
+})
+
+/** The members a manifest holds besides its objects: the dependencies, the logins' defaults, the PUBLIC revokes and
+ * the comments, the compile's and the record's alike. */
+const manifestRest = <S>(m: RecordedManifest, units: Units<S>): RecordOf<S> => ({
 	edges: m.edges.map((e) => ({ from: e.from, to: e.to })),
 	roleDefaults: m.roleDefaults.map(units.statement),
 	publicRevokes: m.publicRevokes.map(units.statement),
 	comments: m.comments.map(units.statement)
+})
+
+/** The compile's manifest as the fingerprint digests it. */
+const manifestForm = <S>(m: InstallationManifest<SqlStatement>, units: Units<S>): RecordOf<S> => ({
+	objects: m.objects.map((o) => objectForm(o, units)),
+	...manifestRest({ ...m, objects: [] }, units)
+})
+
+/** A manifest as manifest.json records it. */
+const recordedManifestForm = <S>(m: RecordedManifest, units: Units<S>): RecordOf<S> => ({
+	objects: m.objects.map((o) => recordedObjectForm(o, units)),
+	...manifestRest(m, units)
 })
 
 const requestForm = (r: StoredIndexRequest): SnapshotForm => ({
@@ -1208,30 +1242,63 @@ const levelsForm = <S>(levels: ReadonlyArray<SnapshotLevel>, units: Units<S>): F
 		laws: l.laws.map(units.law)
 	}))
 
-/** The members of the content manifest.json holds, the theory's relations written by `relation`: every member but
- * the ones snapshot.json holds (runtimeForm). */
-const migrationForm = <S>(
-	c: SnapshotContent,
-	units: Units<S>,
+/** The members manifest.json holds besides the manifest, the theory's relations written by `relation`. */
+const membersForm = (
+	c: Pick<
+		DeploySnapshot,
+		"schemaName" | "schema" | "theory" | "logins" | "workload" | "accessPaths"
+	>,
 	relation: (r: SnapshotRelation) => SnapshotForm
-): RecordOf<S> => ({
+): SnapshotForm => ({
 	schemaName: c.schemaName,
 	schema: c.schema,
 	theory: theoryForm(c.theory, relation),
-	manifest: manifestForm(c.manifest, units),
 	logins: valuesForm(c.logins, (l): SnapshotForm => ({ role: l.role })),
 	workload: valuesForm(c.workload, (programs) => valuesForm(programs, accessForm)),
 	accessPaths: c.accessPaths.map(requestForm)
 })
 
-/** The JSON form of a snapshot's content: every field of the snapshot but its fingerprint, the one value the
- * fingerprint digests, whichever file holds each member. */
+/** The members of a committed snapshot manifest.json holds, the theory's relations written by `relation`, its
+ * manifest recorded: every member but the ones snapshot.json holds (runtimeForm). */
+const migrationForm = <S>(
+	s: DeploySnapshot,
+	units: Units<S>,
+	relation: (r: SnapshotRelation) => SnapshotForm
+): RecordOf<S> => ({
+	...membersForm(s, relation),
+	manifest: recordedManifestForm(s.manifest, units)
+})
+
+/** The JSON form of a snapshot's content: every field of the snapshot but its fingerprint, its manifest the compile's
+ * with every statement whole, the one value the fingerprint digests. */
 const contentForm = <S>(c: SnapshotContent, units: Units<S>): RecordOf<S> => ({
-	...migrationForm(c, units, relationForm),
+	...membersForm(c, relationForm),
+	manifest: manifestForm(c.manifest, units),
 	levels: levelsForm(c.levels, units),
 	constraintToLaw: c.constraintToLaw,
 	live: liveForm(c.live)
 })
+
+/** The JSON form of a committed snapshot whole, both its files' members joined, its fingerprint included and its
+ * derived facts left out: the value its seal digests (snapshotSeal), as joinedSnapshot puts it back together. */
+const recordForm = <S>(s: DeploySnapshot, units: Units<S>): RecordOf<S> => ({
+	...migrationForm(s, units, relationForm),
+	levels: levelsForm(s.levels, units),
+	constraintToLaw: s.constraintToLaw,
+	live: liveForm(s.live),
+	fingerprint: s.fingerprint
+})
+
+/**
+ * The seal of a committed snapshot's JSON value, both its files joined (joinedSnapshot): the digest of every property
+ * of it, in the domain `manifest`, its fingerprint included, over the value JSON gave. manifest.json carries it, since
+ * no reader can digest its fingerprint again from a record, which holds a PL/pgSQL function's and a constant's body
+ * by its digest; it is total over any value, so a read pair is checked by it before anything reads it as a snapshot
+ * (the shell's boundary/snapshot.ts), and a file edited, corrupted or merged, or one of another snapshot than the other,
+ * is refused.
+ */
+export const snapshotSeal = (value: unknown): Result.Result<string, CompileError> =>
+	digest("manifest", value, everyProperty)
 
 /**
  * The JSON form of a live plan: its kind, and for one that reads, each footprint table's relation and the fields it
@@ -1263,14 +1330,13 @@ const runtimeForm = <S>(
 	derived: derivedForm(derived)
 })
 
-/** The finished snapshot: the target state, fingerprinted. */
+/** The finished snapshot: the target state, fingerprinted over its whole content, its manifest recorded. */
 export const finishSnapshot = (
 	state: SnapshotContent
 ): Result.Result<DeploySnapshot, CompileError> =>
-	Result.map(snapshotFingerprint(contentForm(state, asValues)), (fingerprint) => ({
-		...state,
-		fingerprint
-	}))
+	Result.map(snapshotFingerprint(contentForm(state, asValues)), (fingerprint) =>
+		recordedSnapshot({ ...state, fingerprint })
+	)
 
 /**
  * A JSON form's list or record written with tabs, `head` before its first line and `tail` after its last: one item or
@@ -1367,17 +1433,21 @@ const fileText = (form: RecordOf<CompactLine>): string =>
 	)
 
 /** The texts of a snapshot's two files in `migrations/<schema>/`: snapshot.json, what an application imports
- * (runtimeForm), and manifest.json, every other member (migrationForm), each member in one of them. Together they are
- * the snapshot's canonical JSON form laid out for review, so a changed statement is one changed line and the same
- * snapshot is the same bytes on every machine. The layout is the writer's: the fingerprint digests the content's
- * canonical text (contentForm), which no layout changes, and joinedSnapshot puts the two back together. */
+ * (runtimeForm), and manifest.json, every other member (migrationForm), each member in one of them, and the seal of the
+ * whole (snapshotSeal). Together they are the committed snapshot's canonical JSON form laid out for review, so a
+ * changed statement is one changed line and the same snapshot is the same bytes on every machine. The layout is the
+ * writer's: the seal digests the record's canonical text (recordForm) and the fingerprint the content's (contentForm),
+ * which no layout changes, and joinedSnapshot puts the two files back together. */
 export const writeSnapshot = (
 	snapshot: DeploySnapshot,
 	derived: SnapshotDerived
 ): Result.Result<SnapshotFiles, CompileError> =>
 	catchRefusal(() => ({
 		snapshot: fileText(runtimeForm(snapshot, derived, asLines)),
-		manifest: fileText(migrationForm(snapshot, asLines, laidOutRelationForm))
+		manifest: fileText({
+			...migrationForm(snapshot, asLines, laidOutRelationForm),
+			seal: valueOf(snapshotSeal(recordForm(snapshot, asValues)))
+		})
 	}))
 
 /**
@@ -1399,12 +1469,36 @@ export const writeRuntimeSnapshot = (
 export const derivedHolds = (recorded: unknown, computed: SnapshotDerived): boolean =>
 	canonicalEquals(recorded, derivedForm(computed), everyProperty)
 
-/** A snapshot's two files joined (joinedSnapshot): the JSON form of its whole content, which its fingerprint digests,
- * and snapshot.json's derived runtime facts as recorded, kept out of the content, absent from a file that holds none. */
-export interface JoinedSnapshot {
-	readonly content: Readonly<Record<string, unknown>>
-	readonly derived: unknown
-}
+/**
+ * Whether a committed snapshot, as its files record it, is `computed`, the record of the snapshot the compile reaches
+ * (finishSnapshot): their canonical texts are equal (recordForm), their seals' value. A committed record is trusted by
+ * its seal alone, which no fingerprint binds to the content any more, since the record holds a body by its digest; so
+ * where the fingerprints are one, `grizzle check` holds the record to the compile's and refuses any other, and `grizzle
+ * generate` writes manifest.json again, with no migration.
+ */
+export const recordHolds = (committed: DeploySnapshot, computed: DeploySnapshot): boolean =>
+	canonicalEquals(recordForm(committed, asValues), recordForm(computed, asValues), everyProperty)
+
+/**
+ * A snapshot's two files joined (joinedSnapshot), by the form manifest.json holds: the record, sealed by the seal it
+ * carries (`recorded`), the JSON form of the committed snapshot whole, its fingerprint included; or the form a grizzle
+ * before records wrote (`earlier`), every installed statement whole and no seal, the JSON form of the snapshot's whole
+ * content, which its fingerprint digests and `grizzle generate` alone reads, once, to write its record (the shell's
+ * boundary/snapshot.ts earlierSnapshot). Either holds snapshot.json's derived runtime facts as recorded, kept out of
+ * the content, absent from a file that holds none.
+ */
+export type JoinedSnapshot =
+	| {
+			readonly form: "recorded"
+			readonly content: Readonly<Record<string, unknown>>
+			readonly seal: unknown
+			readonly derived: unknown
+	  }
+	| {
+			readonly form: "earlier"
+			readonly content: Readonly<Record<string, unknown>>
+			readonly derived: unknown
+	  }
 
 /** A member a snapshot file must hold that it does not: no pair grizzle wrote. */
 const unjoined = (file: string, at: ReadonlyArray<string>, what: string): CompileError =>
@@ -1413,9 +1507,9 @@ const unjoined = (file: string, at: ReadonlyArray<string>, what: string): Compil
 /**
  * The JSON form of a whole snapshot from the JSON values of its two files, the layout writeSnapshot writes undone:
  * manifest.json's members and snapshot.json's, which share none, each roster's codes put back into the record of the
- * theory manifest.json holds for it, and snapshot.json's derived runtime facts set apart from the content. A pair that
- * does not join so is none grizzle wrote, refused as MalformedArtifact;
- * what joins is trusted only once its fingerprint holds over the whole (the shell's boundary/snapshot.ts).
+ * theory manifest.json holds for it, manifest.json's seal and snapshot.json's derived runtime facts set apart from the
+ * snapshot. A pair that does not join so is none grizzle wrote, refused as MalformedArtifact; what joins is trusted only
+ * once its seal holds over the whole, or, in the earlier form, its fingerprint (the shell's boundary/snapshot.ts).
  */
 export const joinedSnapshot = (
 	runtime: unknown,
@@ -1456,8 +1550,20 @@ export const joinedSnapshot = (
 		}
 		joined[name] = { ...relation, codes }
 	}
-	return Result.ok({
-		content: { ...migration, ...served, theory: { ...theory, relations: joined } },
-		derived
-	})
+	const { seal, ...members } = migration
+	const content = { ...members, ...served, theory: { ...theory, relations: joined } }
+	return Result.ok(
+		Object.hasOwn(migration, "seal")
+			? { form: "recorded", content, seal, derived }
+			: { form: "earlier", content, derived }
+	)
 }
+
+/**
+ * A snapshot whose content was read whole, its fingerprint holding, as its two files record it: its manifest recorded
+ * (snapshot/recorded.ts recordedManifest). It is the one way from a snapshot an earlier grizzle laid out, every
+ * installed statement whole in its manifest.json, to the record (the shell's boundary/snapshot.ts earlierSnapshot).
+ */
+export const recordedSnapshot = (
+	whole: SnapshotContent & { readonly fingerprint: SchemaFingerprint }
+): DeploySnapshot => ({ ...whole, manifest: recordedManifest(whole.manifest) })

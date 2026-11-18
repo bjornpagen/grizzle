@@ -80,7 +80,7 @@ export const markerLine = (
 
 /** The next step after a generate that wrote no folder: commit what it wrote, snapshot.json, the served files or both. */
 const commitStep = (rederived: boolean, served: boolean): string =>
-	`next: commit ${rederived && served ? "snapshot.json and the served files" : rederived ? "snapshot.json" : "the served files"}, then run grizzle check`
+	`next: commit ${rederived && served ? "snapshot.json, manifest.json and the served files" : rederived ? "snapshot.json and manifest.json" : "the served files"}, then run grizzle check`
 
 /** A role's level as generate prints it: read committed, or serializable with the count of each condition it failed. */
 const levelLine = (role: SchemaGenerateReport["certification"][number]): string => {

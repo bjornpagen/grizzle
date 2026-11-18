@@ -20,9 +20,11 @@ import {
 	type DraftWorkload,
 	emptySnapshot,
 	noWorkload,
-	rosterFates
+	rosterFates,
+	targetState
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import {
 	type Codebook,
 	draftCodebook,
@@ -40,6 +42,7 @@ import { manifestFileName, snapshotFileName } from "#compiler/plan/serve.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
+import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	allocatedLevels,
@@ -252,6 +255,21 @@ export const generate = (input: DraftInput): Result.Result<GenerateResult, Compi
 		timestamp: input.timestamp,
 		abandoned: input.previous.kind === "empty" ? input.previous.abandoned : []
 	})
+
+/**
+ * Every statement a fresh installation of `installation` runs, as a draft from the empty snapshot creates it: each
+ * object of the snapshot's content whole, the migrations ledger's among them, in install order (build.ts targetState).
+ * A committed snapshot records a function and a constant by its header (snapshot/recorded.ts), so a model of the
+ * catalog that evaluates a constant installs from these.
+ */
+export const installedStatements = (installation: Installation): ReadonlyArray<SqlStatement> =>
+	Arr.flatMap(
+		succeeded(
+			targetState({ installation, workload: noWorkload, checks: lawChecks(installation) }),
+			"the installation's content"
+		).manifest.objects,
+		(o) => o.ddl
+	)
 
 /** One step of a chain: the schema drafted, what it is compiled under, and the renames and drops it declares. */
 interface Step {

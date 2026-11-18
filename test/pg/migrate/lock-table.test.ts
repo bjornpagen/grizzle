@@ -120,7 +120,7 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 							const ledgerBefore = yield* Effect.result(readLedger(m, schema, ledgerStatements))
 							const relationsBefore = yield* relations()
 							const snapshot = target(1).snapshot
-							const replay = succeeded(driftFlight(snapshot, m.installation)).replay
+							const replay = succeeded(driftFlight(snapshot, m.installation, [])).replay
 							/** The place the refused statement is at, which `pick` notes. */
 							let place: LockPlace = "the drift check's replay"
 							/** The case's statement among a file transaction's, at the place its text names. */
@@ -142,7 +142,8 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 											checkDrift(
 												refusingAlongside(m, replay.from + indexAmong(x, replay.count)),
 												snapshot,
-												ledgerStatements
+												ledgerStatements,
+												[]
 											)
 										)
 									: yield* Effect.flip(

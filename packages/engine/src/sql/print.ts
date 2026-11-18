@@ -1632,10 +1632,24 @@ const dollarQuoteTag = (body: ReadonlyArray<string>): string => {
 	}
 }
 
-/** `<opener> <tag>`, the block's lines, and the tag: a function's `AS` body or a DO statement. */
-const dollarQuoted = (out: Lines, opener: "AS" | "DO", block: PlBlock): void => {
+/** A PL/pgSQL block's lines as its dollar-quoted body holds them, from its DECLARE or BEGIN to its END. */
+const blockLines = (block: PlBlock): ReadonlyArray<string> => {
 	const body: Array<string> = []
 	plBlock(new BlockLines(body, sqlUnit, ""), block)
+	return body
+}
+
+/**
+ * The source PostgreSQL stores of a PL/pgSQL function this printer writes, its pg_proc.prosrc: the value of the
+ * dollar-quoted string between `AS <tag>` and `<tag>`, each on a line of its own (dollarQuoted), so a line feed begins
+ * and ends it around the block's lines. A drafted file that spells the body as an escape string (deploy/render/filed.ts)
+ * spells this value too.
+ */
+export const functionSource = (block: PlBlock): string => `\n${blockLines(block).join("\n")}\n`
+
+/** `<opener> <tag>`, the block's lines, and the tag: a function's `AS` body or a DO statement. */
+const dollarQuoted = (out: Lines, opener: "AS" | "DO", block: PlBlock): void => {
+	const body = blockLines(block)
 	const tag = dollarQuoteTag(body)
 	out.line(`${opener} ${tag}`)
 	for (const line of body) {
@@ -2278,6 +2292,8 @@ export const catalogExpr = (e: CatalogExpr): Printed => {
 			return printed("CURRENT_USER", "atom")
 		case "regclass":
 			return printed(regclassText(e.relation), "cast")
+		case "arithmetic":
+			return printed(`(${catalogExpr(e.left).text} ${e.op} ${catalogExpr(e.right).text})`, "atom")
 	}
 }
 

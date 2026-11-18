@@ -38,6 +38,11 @@ export const refusalText = {
 			"the derived facts snapshot.json records differ from the ones the schemas compile to, or are missing (an ungenerated change)",
 		fix: "run grizzle generate, which writes snapshot.json again and drafts no migration"
 	},
+	manifestRecord: {
+		problem:
+			"manifest.json's record of the snapshot differs from the one the schemas compile to (an ungenerated change)",
+		fix: "run grizzle generate, which writes manifest.json again and drafts no migration"
+	},
 	servedStale: {
 		problem:
 			"the login's served file differs from what its workload compiles to under snapshot.json (an ungenerated change)",
@@ -100,6 +105,11 @@ export const refusalText = {
 		problem:
 			"snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema",
 		fix: "restore them from git"
+	},
+	earlierManifest: {
+		problem:
+			"manifest.json is of the form an earlier grizzle wrote, every installed statement whole (an ungenerated change)",
+		fix: "run grizzle generate, which writes manifest.json again and drafts no migration where nothing else changed"
 	},
 	unreadableMeta: {
 		problem: "meta.json does not decode as a migration's meta.json, or names another schema",
@@ -169,6 +179,8 @@ export const cliStageFix: Readonly<Record<CliStage, string>> = {
 		"unset the variable it names in the environment grizzle runs in, then run the command again",
 	filesystem: "fix the migrations directory, then run grizzle check",
 	snapshot: "restore snapshot.json, manifest.json and the migration folders from git",
+	manifest:
+		"run grizzle generate, which writes manifest.json again and drafts no migration where nothing else changed",
 	codes: appendHandles,
 	generate: "fix the schema or workload it names, then run grizzle generate again"
 }

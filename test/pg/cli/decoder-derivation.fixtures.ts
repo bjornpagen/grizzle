@@ -17,6 +17,7 @@ import {
 	Stream
 } from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
+import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
@@ -24,7 +25,11 @@ import { decode, noRevivers } from "#compiler/core/canonical.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { metaFileName, type MigrationMeta, writeMeta } from "#compiler/deploy/render/folder.ts"
-import { joinedSnapshot, snapshotFingerprint } from "#compiler/deploy/snapshot/build.ts"
+import {
+	joinedSnapshot,
+	snapshotFingerprint,
+	snapshotSeal
+} from "#compiler/deploy/snapshot/build.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { fold, opening, type SetEvent } from "#compiler/live/index.ts"
 import { defineConfig } from "#index.ts"
@@ -111,41 +116,42 @@ const spelledEarlier = (now: string, segments: ReadonlyArray<string>): string =>
 	`${Str.slice(0, -digestChars)(now)}${Arr.join(segments, "_")}_${Str.slice(-digestChars)(now)}`
 
 /**
- * The fingerprint of the snapshot whose two files' texts are `runtime` and `migration`, read as the command line reads
- * them (boundary/snapshot.ts readSnapshot): each decoded with its canonical tags, the two joined, the content digested.
+ * The committed snapshot whose two files' texts are `runtime` and `migration`, joined as the command line reads them
+ * (boundary/snapshot.ts readSnapshot): each decoded with its canonical tags, the two joined, with manifest.json's seal.
  */
-const fingerprintOf = (runtime: string, migration: string): string =>
-	succeeded(
-		snapshotFingerprint(
-			succeeded(
-				joinedSnapshot(
-					succeeded(decode(runtime, noRevivers), "snapshot.json decodes"),
-					succeeded(decode(migration, noRevivers), "manifest.json decodes")
-				),
-				"the snapshot's files join"
-			).content
+const joinedOf = (runtime: string, migration: string) => {
+	const joined = succeeded(
+		joinedSnapshot(
+			succeeded(decode(runtime, noRevivers), "snapshot.json decodes"),
+			succeeded(decode(migration, noRevivers), "manifest.json decodes")
 		),
-		"the snapshot's fingerprint"
+		"the snapshot's files join"
 	)
+	assert.ok(joined.form === "recorded", "manifest.json holds the record generate writes")
+	return joined
+}
 
 /**
  * The committed output at `root`, the live source `now` spelled `earlier` in every file, as a grizzle that minted
- * `earlier` drafted it: the snapshot's fingerprint made again over the respelled content, written wherever the old one
- * was, and meta.json sealed again over its respelled meta.
+ * `earlier` drafted it: the snapshot named by a fingerprint of its own, the digest of the respelled record, written
+ * wherever the old one was, manifest.json sealed again over the respelled record and meta.json over its respelled meta.
  */
 const respell = (root: string, now: string, earlier: string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const runtime = yield* fs.readFileString(`${root}/${snapshotFileName}`)
 		const migration = yield* fs.readFileString(`${root}/${manifestFileName}`)
-		const before = fingerprintOf(runtime, migration)
-		assert.ok(
-			Str.includes(`"${before}"`)(runtime),
-			"snapshot.json records the fingerprint its files' content digests to"
+		const read = succeeded(
+			readSnapshot({ snapshot: runtime, manifest: migration }),
+			"the committed files read as the snapshot generate wrote"
 		)
-		const after = fingerprintOf(
-			Str.replaceAll(now, earlier)(runtime),
-			Str.replaceAll(now, earlier)(migration)
+		const before = read.snapshot.fingerprint
+		const after = succeeded(
+			snapshotFingerprint(
+				joinedOf(Str.replaceAll(now, earlier)(runtime), Str.replaceAll(now, earlier)(migration))
+					.content
+			),
+			"the respelled snapshot's fingerprint"
 		)
 		const spelled = (text: string): string =>
 			Str.replaceAll(before, after)(Str.replaceAll(now, earlier)(text))
@@ -166,6 +172,14 @@ const respell = (root: string, now: string, earlier: string) =>
 				yield* fs.writeFileString(path, spelled(text))
 			}
 		}
+		const respelledRuntime = yield* fs.readFileString(`${root}/${snapshotFileName}`)
+		const unsealed = yield* fs.readFileString(`${root}/${manifestFileName}`)
+		const respelled = joinedOf(respelledRuntime, unsealed)
+		const seal = succeeded(snapshotSeal(respelled.content), "the respelled record's seal")
+		yield* fs.writeFileString(
+			`${root}/${manifestFileName}`,
+			Str.replaceAll(String(respelled.seal), seal)(unsealed)
+		)
 	})
 
 /** The OID of the cluster role `role`, none where it stands no longer. */
