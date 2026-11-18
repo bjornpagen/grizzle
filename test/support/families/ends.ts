@@ -274,7 +274,7 @@ const cellsOf = (kind: FamilyKind): ReadonlyArray<Arr.NonEmptyReadonlyArray<Cell
 				Arr.map(refines(monoid, p) ? [false, true] : [false], (refined): Cell => {
 					const key = refined ? `${planeLabel(p)}_refined` : planeLabel(p)
 					const label = `${monoid}_${key}`
-					const planes = upTo(spec.planes, (i) => i)
+					const planes = upTo(spec.planes.length, (i) => i)
 					return {
 						monoid,
 						plane: p,

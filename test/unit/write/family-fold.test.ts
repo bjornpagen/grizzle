@@ -142,10 +142,10 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/runtime/write/fill.ts",
-				original: "\t\t\t\t: new Set([...twos, ...[...ones].filter((h) => x.has(h))])",
-				replacement: "\t\t\t\t: new Set([...twos, ...ones, ...x])",
-				why: "twos' second plane takes the union of its ones and the member's set, not their intersection; the reference fold disagrees."
+				file: "packages/engine/src/ir/monoid.ts",
+				original: '\t\t{ fn: "union", delta: "met" }',
+				replacement: '\t\t{ fn: "union", delta: "step" }',
+				why: "twos' second plane takes the union of the member's set, not of its meet with the ones before it (ir/monoid.ts, which every site reads); the reference fold disagrees."
 			},
 			{
 				file: "packages/engine/src/runtime/write/fill.ts",

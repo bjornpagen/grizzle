@@ -94,7 +94,7 @@ import {
 	type SpanField,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
-import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
+import { accumulations, type CombineFn, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { conservativeMeta, type HeadingColumn } from "#compiler/ir/rel.ts"
 import {
@@ -682,7 +682,8 @@ type FoldSides =
 	  }
 	| {
 			readonly kind: "aggregate"
-			readonly monoid: "count" | "sum" | "max"
+			/** Its end's aggregate over its members' steps (ir/monoid.ts Accumulation): count's a sum of ones, their count. */
+			readonly aggregate: "sum" | "max"
 			/** The members the fold steps over, by their group. */
 			readonly members: ResolvedSide
 			/** The owner over its key and its end. */
@@ -972,9 +973,9 @@ export class LawSides {
 					identity: p.identity
 				}
 			})
-			const monoid = monoidSpecs[fold.monoid]
 			const befores = mapNonEmpty(planes, (p) => based(p.before))
-			const combined = monoid.combine<ExprDesc>(
+			const combined = combine<ExprDesc>(
+				monoidSpecs[fold.monoid],
 				befores,
 				x === undefined ? { kind: "one" } : { kind: "value", expr: based(x) },
 				{
@@ -1018,22 +1019,21 @@ export class LawSides {
 			}
 		}
 		const stepping = memberSide(group, fold.where)
-		switch (fold.monoid) {
-			case "count":
+		const { aggregate } = accumulations[headNonEmpty(monoidSpecs[fold.monoid].planes).fn]
+		switch (aggregate) {
 			case "sum":
 			case "max": {
 				const p = headNonEmpty(fold.planes)
 				return {
 					kind: "aggregate",
-					monoid: fold.monoid,
+					aggregate,
 					members: stepping,
 					owner: ownerSide([...keys, termOf(p.end)], []),
 					x,
 					identity: p.identity
 				}
 			}
-			case "or":
-			case "twos": {
+			case "bit_or": {
 				const roster =
 					x === undefined
 						? undefined
@@ -1052,7 +1052,7 @@ export class LawSides {
 					}))
 				}
 			}
-			case "concat":
+			case "string_agg":
 				throw defect("foldRule admits a concat fold only with its (before, after) pair named")
 		}
 	}
@@ -3127,7 +3127,7 @@ const foldArms = (
 				env,
 				s.members,
 				s.owner,
-				s.monoid,
+				s.aggregate,
 				s.x,
 				s.identity,
 				loc

@@ -35,7 +35,7 @@ import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -50,6 +50,7 @@ import {
 	type GeneratedLaw,
 	type NativeColumn
 } from "#compiler/ir/law.ts"
+import { type CombineBuild, type CombineStep, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { PatternSource, ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -739,8 +740,8 @@ export const stepped = (
 	return stored.ok ? Result.ok(stored.value) : Result.err({ kind: "range", family })
 }
 
-/** One step of a monoid's combine on host values, at the after's carrier, a set's a fresh Set; undefined when the result
- * leaves it. */
+/** One step of a fold's combine on host values (ir/monoid.ts combine), plane `plane`'s after, at the after's carrier, a
+ * set's a fresh Set; undefined when the result leaves it. */
 const combineHost = (
 	fold: { readonly monoid: MonoidName },
 	plane: 0 | 1,
@@ -748,29 +749,36 @@ const combineHost = (
 	x: unknown,
 	spec: CarrierSpec
 ): unknown => {
-	const before = befores[plane]
-	switch (fold.monoid) {
-		case "count":
-			return typeof before === "bigint" ? before + 1n : undefined
-		case "sum":
-			return sumHost(before, x)
-		case "max":
-			return maxHost(spec, before, x)
-		case "or":
-			return isSetOf(before) && isSetOf(x) ? new Set([...before, ...x]) : undefined
-		case "twos": {
-			const [ones, twos] = befores
-			if (!isSetOf(ones) || !isSetOf(twos) || !isSetOf(x)) {
-				return undefined
-			}
-			return plane === 0
-				? new Set([...ones, ...x])
-				: new Set([...twos, ...[...ones].filter((h) => x.has(h))])
-		}
-		case "concat":
-			return concatHost(before, x)
+	const monoid = monoidSpecs[fold.monoid]
+	if (!isNonEmpty(befores)) {
+		throw defect("a fold's after reads a before per plane")
 	}
+	const step: CombineStep<unknown> =
+		monoid.step === "none" ? { kind: "one" } : { kind: "value", expr: x }
+	return combine(monoid, befores, step, hostCombine(spec))[plane]
 }
+
+/**
+ * How the host builds a combine: the bigint one a count adds, and each Compute operation over host values at the
+ * after's carrier, undefined where an operand is not of it or the result leaves it.
+ */
+const hostCombine = (spec: CarrierSpec): CombineBuild<unknown> => ({
+	one: 1n,
+	apply: (fn, a, b) => {
+		switch (fn) {
+			case "add":
+				return sumHost(a, b)
+			case "union":
+				return isSetOf(a) && isSetOf(b) ? new Set([...a, ...b]) : undefined
+			case "intersection":
+				return isSetOf(a) && isSetOf(b) ? new Set([...a].filter((h) => b.has(h))) : undefined
+			case "greatest":
+				return maxHost(spec, a, b)
+			case "concat":
+				return concatHost(a, b)
+		}
+	}
+})
 
 /**
  * Text's concatenation, of two storable texts a storable text; undefined past V8's longest string, which no host text

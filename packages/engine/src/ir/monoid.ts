@@ -1,11 +1,16 @@
-import { defect } from "#compiler/core/invariant.ts"
 /**
- * The closed monoids a fold accumulates in, each over the carriers it admits: its planes, its identity on each, and how
- * each plane's after is combined from the befores and the step. Every one but concat is commutative, so a fold over a
- * counted family, whose order is hidden, has one value whatever order its members are in; concat, text's free monoid,
- * is not, so only a sequence, an ordered family or a tree, folds by it (check/fold.ts foldRule).
+ * The closed monoids a fold accumulates in, each over the carriers it admits: its planes, each the operation it
+ * accumulates by and what it accumulates at a step, and its identity on each. Every operation but concat commutes, so a
+ * fold over a counted family, whose order is hidden, has one value whatever order its members are in; concat, text's
+ * free monoid, does not, so only a sequence, an ordered family or a tree, folds by it (check/fold.ts foldRule).
+ *
+ * A monoid is data, read by every site that draws or proves a fold: the CHECK that proves each after and the law of a
+ * fold's ends (`combine` over descriptions), the host's fill (`combine` over host values), and each window a statement
+ * draws a plane by (`accumulations`: its aggregate, its arithmetic, and a step off the fold's selection). No site
+ * dispatches on a monoid's name.
  */
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { int8Min } from "#compiler/ir/carriers.ts"
 import { integerRanges, MoneyText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
@@ -13,8 +18,12 @@ import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 
-/** The Compute operations a combine applies: each total over the carriers its monoid admits. */
-export type CombineFn = "add" | "union" | "intersection" | "greatest" | "concat"
+/** The associative operations a plane accumulates by, each total over the carriers its monoid admits: an exact sum, a
+ * set's union, the greater of two values, and text's concatenation. */
+export type AccumulateFn = "add" | "union" | "greatest" | "concat"
+
+/** The Compute operations a combine applies: a plane's accumulation, and the meet twos's second plane steps by. */
+export type CombineFn = AccumulateFn | "intersection"
 
 /** What a fold's step reads of its member: nothing, the count's step of one, or a value. */
 export type CombineStep<E> = { readonly kind: "one" } | { readonly kind: "value"; readonly expr: E }
@@ -28,13 +37,73 @@ export interface CombineBuild<E> {
 	readonly apply: (fn: CombineFn, left: E, right: E) => E
 }
 
-/** A closed monoid: its name, its planes, the step it reads, the carriers it admits, its identity and its combine. */
+/**
+ * One plane of a monoid: its after is `fn(before, delta)`, the delta at a step its value (count's one), or (`met`)
+ * that value met with the first plane's before, the handles a step sets that a step before it set (twos's second
+ * plane).
+ */
+export interface MonoidPlane {
+	readonly fn: AccumulateFn
+	readonly delta: "step" | "met"
+}
+
+/**
+ * A step off a fold's selection, as a window of masked steps reads it: a value the operation leaves any accumulation
+ * unchanged by, its identity where it has one of its own (`zero`, add's 0; `empty`, concat's empty text), or, for an
+ * idempotent operation (greatest, union), the plane's first before, which it combines with to itself.
+ */
+export type OffStep = "zero" | "empty" | "first"
+
+/**
+ * How an operation accumulates a run of steps: whether their order is invisible (`commutative`); the aggregate a window
+ * of a group's rows in slot order accumulates them by, which is also the one a counted family's hidden end is stated by
+ * where the theory has it (sum and max; a union's end is stated handle by handle, and concat's order is visible);
+ * whether the steps accumulate exactly, in numeric (`exact`, add's), so no sum rounds or overflows before it is
+ * stored; and the step off a fold's selection (`off`).
+ */
+export interface Accumulation {
+	readonly commutative: boolean
+	readonly aggregate: "sum" | "max" | "bit_or" | "string_agg"
+	readonly exact: boolean
+	readonly off: OffStep
+}
+
+/** Each operation's accumulation. */
+export const accumulations: { readonly [F in AccumulateFn]: Accumulation } = Object.freeze({
+	add: Object.freeze({
+		commutative: true,
+		aggregate: "sum",
+		exact: true,
+		off: "zero"
+	}),
+	union: Object.freeze({
+		commutative: true,
+		aggregate: "bit_or",
+		exact: false,
+		off: "first"
+	}),
+	greatest: Object.freeze({
+		commutative: true,
+		aggregate: "max",
+		exact: false,
+		off: "first"
+	}),
+	concat: Object.freeze({
+		commutative: false,
+		aggregate: "string_agg",
+		exact: false,
+		off: "empty"
+	})
+})
+
+/** A closed monoid: its name, its planes, the step it reads, the carriers it admits and its identity. */
 export interface MonoidSpec {
 	readonly name: MonoidName
-	readonly planes: 1 | 2
+	readonly planes: NonEmptyReadonlyArray<MonoidPlane>
 	/**
-	 * Whether its combine's order is invisible: count, sum, or, twos and max are, so a counted family admits each and
-	 * refuses only a visible accumulator; concat is not, so a counted family refuses it.
+	 * Whether its combine's order is invisible, its planes' operations all commuting: count, sum, or, twos and max are,
+	 * so a counted family admits each and refuses only a visible accumulator; concat is not, so a counted family refuses
+	 * it.
 	 */
 	readonly commutative: boolean
 	/** count takes no step value; the others one of a carrier `admits` accepts. */
@@ -46,16 +115,48 @@ export interface MonoidSpec {
 	 * not admit is a defect: the checker admits the fold's carriers first.
 	 */
 	readonly identity: (carrier: ScalarType) => NonEmptyReadonlyArray<TypedLiteral>
-	/**
-	 * Each plane's after from the befores, one per plane, and the step, built by `build`: total operations only, so
-	 * every after is a generation expression.
-	 */
-	readonly combine: <E>(
-		befores: NonEmptyReadonlyArray<E>,
-		step: CombineStep<E>,
-		build: CombineBuild<E>
-	) => NonEmptyReadonlyArray<E>
 }
+
+/** A step's value: its own, or the one a count adds. */
+export const stepValue = <E>(step: CombineStep<E>, build: CombineBuild<E>): E =>
+	step.kind === "value" ? step.expr : build.one
+
+/**
+ * A plane's delta at `step` (MonoidPlane): the step itself, or its value met with the first plane's before, `ones`,
+ * which only a met plane reads.
+ */
+export const deltaOf = <E>(
+	plane: MonoidPlane,
+	step: CombineStep<E>,
+	ones: () => E,
+	build: CombineBuild<E>
+): CombineStep<E> => {
+	switch (plane.delta) {
+		case "step":
+			return step
+		case "met":
+			return { kind: "value", expr: build.apply("intersection", ones(), stepValue(step, build)) }
+	}
+}
+
+/**
+ * Each plane's after from the befores, one per plane, and the step, built by `build`: `fn(before, delta)` (MonoidPlane),
+ * total operations only, so every after is a generation expression.
+ */
+export const combine = <E>(
+	monoid: MonoidSpec,
+	befores: NonEmptyReadonlyArray<E>,
+	step: CombineStep<E>,
+	build: CombineBuild<E>
+): NonEmptyReadonlyArray<E> =>
+	mapNonEmpty(monoid.planes, (plane, p) => {
+		const before = defined(befores[p], "a combine reads a before per plane")
+		const delta = stepValue(
+			deltaOf(plane, step, () => befores[0], build),
+			build
+		)
+		return build.apply(plane.fn, before, delta)
+	})
 
 /** Whether a type is natural: the builtin contract over bigint whose values are never below zero. */
 const isNatural = (t: ScalarType): boolean => {
@@ -216,73 +317,57 @@ const leastOf = (t: ScalarType): TypedLiteral => {
 	}
 }
 
-/** The step value of a monoid that reads one: count's reads none, so a value step there is a defect. */
-const stepValue = <E>(step: CombineStep<E>, build: CombineBuild<E>): E =>
-	step.kind === "value" ? step.expr : build.one
+/** A monoid of `planes`, its commutativity theirs. */
+const monoid = (spec: Omit<MonoidSpec, "commutative">): MonoidSpec =>
+	Object.freeze({
+		...spec,
+		planes: Object.freeze(mapNonEmpty(spec.planes, (p) => Object.freeze(p))),
+		commutative: spec.planes.every((p) => accumulations[p.fn].commutative)
+	})
 
-const count: MonoidSpec = {
+const count = monoid({
 	name: "count",
-	planes: 1,
-	commutative: true,
+	planes: [{ fn: "add", delta: "step" }],
 	step: "none",
 	admits: isNatural,
-	identity: () => [zeroInteger],
-	combine: ([before], step, build) => {
-		if (step.kind === "value") {
-			throw defect("count reads no step value")
-		}
-		return [build.apply("add", before, build.one)]
-	}
-}
+	identity: () => [zeroInteger]
+})
 
-const sum: MonoidSpec = {
+const sum = monoid({
 	name: "sum",
-	planes: 1,
-	commutative: true,
+	planes: [{ fn: "add", delta: "step" }],
 	step: "value",
 	admits: summable,
-	identity: (carrier) => [zeroOf(carrier)],
-	combine: ([before], step, build) => [build.apply("add", before, stepValue(step, build))]
-}
+	identity: (carrier) => [zeroOf(carrier)]
+})
 
-const or: MonoidSpec = {
+const or = monoid({
 	name: "or",
-	planes: 1,
-	commutative: true,
+	planes: [{ fn: "union", delta: "step" }],
 	step: "value",
 	admits: isSet,
-	identity: () => [emptySet],
-	combine: ([before], step, build) => [build.apply("union", before, stepValue(step, build))]
-}
+	identity: () => [emptySet]
+})
 
-const twos: MonoidSpec = {
+/** Two planes over a set: the handles some step sets, and the handles two steps set. */
+const twos = monoid({
 	name: "twos",
-	planes: 2,
-	commutative: true,
+	planes: [
+		{ fn: "union", delta: "step" },
+		{ fn: "union", delta: "met" }
+	],
 	step: "value",
 	admits: isSet,
-	identity: () => [emptySet, emptySet],
-	combine: ([ones, plane], step, build) => {
-		if (plane === undefined) {
-			throw defect("twos has two planes")
-		}
-		const x = stepValue(step, build)
-		return [
-			build.apply("union", ones, x),
-			build.apply("union", plane, build.apply("intersection", ones, x))
-		]
-	}
-}
+	identity: () => [emptySet, emptySet]
+})
 
-const max: MonoidSpec = {
+const max = monoid({
 	name: "max",
-	planes: 1,
-	commutative: true,
+	planes: [{ fn: "greatest", delta: "step" }],
 	step: "value",
 	admits: bounded,
-	identity: (carrier) => [leastOf(carrier)],
-	combine: ([before], step, build) => [build.apply("greatest", before, stepValue(step, build))]
-}
+	identity: (carrier) => [leastOf(carrier)]
+})
 
 /**
  * Text's free monoid: the empty text, and `before || x`. A separator is no part of it: a separated join has no identity
@@ -290,22 +375,20 @@ const max: MonoidSpec = {
  * states the separator in its own step value instead: its token with the separator before it, but at index 0, so the
  * fold's end is the tokens joined by the separator.
  */
-const concat: MonoidSpec = {
+const concat = monoid({
 	name: "concat",
-	planes: 1,
-	commutative: false,
+	planes: [{ fn: "concat", delta: "step" }],
 	step: "value",
 	admits: isText,
-	identity: () => [emptyText],
-	combine: ([before], step, build) => [build.apply("concat", before, stepValue(step, build))]
-}
+	identity: () => [emptyText]
+})
 
 /** The admitted monoids, by name. */
 export const monoidSpecs: { readonly [M in MonoidName]: MonoidSpec } = Object.freeze({
-	count: Object.freeze(count),
-	sum: Object.freeze(sum),
-	or: Object.freeze(or),
-	twos: Object.freeze(twos),
-	max: Object.freeze(max),
-	concat: Object.freeze(concat)
+	count,
+	sum,
+	or,
+	twos,
+	max,
+	concat
 })

@@ -132,6 +132,12 @@ export const aFoldsLawWithHiddenAccumulatorsIsViolatedExactlyWhenTheEndIsNotTheN
 				original: "\t\t\treturn [w(unequal), w(off)]",
 				replacement: "\t\t\treturn [w(unequal)]",
 				why: "A hidden fold's violation omits the arm of an end off its members' combine (analysis/theory/laws.ts foldArms); the hidden box fails."
+			},
+			{
+				file: "packages/engine/src/ir/monoid.ts",
+				original: '\t\taggregate: "max",',
+				replacement: '\t\taggregate: "min",',
+				why: "The greater of two values accumulates by min (ir/monoid.ts accumulations, which every window reads too), so a hidden max fold's law states its end the least step; the hidden box fails."
 			}
 		]
 	})

@@ -11,8 +11,8 @@
  *   drawn slot its seed's (the stored member before it, GroupState `stored`), or the family's base at slot 0;
  * - a fold plane's after `combine(befores, x)` where the fold's selection holds and its before elsewhere, combined as the
  *   fold's CHECK proves it, drawn whole as its first before combined with the running aggregate of every step of the
- *   group up to it (count's and sum's a sum, max's a max, or's and twos' a union, concat's the texts in slot order), the
- *   frame ROWS from the group's first row to the current one; and its before, the after before it, lag() again.
+ *   group up to it, by its operation's aggregate (ir/monoid.ts accumulations), the frame ROWS from the group's first
+ *   row to the current one; and its before, the after before it, lag() again.
  *
  * A generated field a rule reads is its generation over the row, as PostgreSQL stores it. Every column is placed in the
  * first layer whose columns below it hold everything it reads: its own row's columns and, for a predecessor copy, the
@@ -34,6 +34,16 @@ import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import {
+	type Accumulation,
+	accumulations,
+	type CombineBuild,
+	type CombineStep,
+	deltaOf,
+	type MonoidPlane,
+	monoidSpecs,
+	stepValue
+} from "#compiler/ir/monoid.ts"
 import { columnReads } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
@@ -245,22 +255,59 @@ type Built =
 	| { readonly kind: "built"; readonly expr: Expr }
 	| { readonly kind: "waiting"; readonly on: ReadonlySet<ColumnKey> }
 
+/** How a scan builds a combine in SQL: the bigint one a count adds, and each Compute operation's SQL. */
+const sqlCombine: CombineBuild<Expr> = {
+	one: lit.int(1, types.bigint),
+	apply: (fn, left, right) => {
+		switch (fn) {
+			case "add":
+				return binary("+", left, right)
+			case "union":
+				return binary("|", left, right)
+			case "intersection":
+				return binary("&", left, right)
+			case "greatest":
+				return { kind: "greatest", args: [left, right] }
+			case "concat":
+				return binary("||", left, right)
+		}
+	}
+}
+
+/** The empty text: string_agg's delimiter, since concat has no separator, and concat's step off a fold's selection. */
+const emptyText = (): Expr => lit.text("", types.text)
+
 /**
- * The running aggregate of a fold plane's steps, the step its value where the selection holds and `neutral` elsewhere,
- * over its group's rows in slot order from the first through the current one, combined with the plane's first before:
- * count's and sum's the first before plus the sum of the steps in exact arithmetic, max's the greater, or's and twos'
- * their union with it, concat's it followed by the steps' texts. Each is what the fold's CHECK proves of the after at
- * every slot from the first before on, since every monoid of a fold is associative.
+ * A fold plane's running after (ir/monoid.ts MonoidPlane) over its group's rows in slot order from the first through
+ * the current one: its first before combined with the running aggregate of its deltas (Accumulation), each the delta
+ * where the fold's selection holds and the step off it elsewhere: add's 0, concat's empty text, or an idempotent
+ * operation's first before. An exact accumulation sums a value delta in numeric, its first before with it; count's ones
+ * are bigints, whose sum PostgreSQL takes in numeric. Each is what the fold's CHECK proves of the after at every slot
+ * from the first before on, since every monoid of a fold is associative.
  */
 const runningAfter = (
-	fold: FamilyFold,
+	plane: MonoidPlane,
 	first: Expr,
-	step: Expr | undefined,
+	delta: CombineStep<Expr>,
 	selected: Expr | undefined,
-	running: (fn: "sum" | "max" | "bit_or" | "string_agg", args: NonEmptyReadonlyArray<Expr>) => Expr,
+	running: (fn: Accumulation["aggregate"], args: NonEmptyReadonlyArray<Expr>) => Expr,
 	to: TypeRef
 ): Expr => {
-	const masked = (value: Expr, neutral: Expr): Expr =>
+	const { aggregate, exact, off } = accumulations[plane.fn]
+	const numeric = exact && delta.kind === "value"
+	const arithmetic = (e: Expr): Expr => (numeric ? cast(e, types.numeric) : e)
+	const value = arithmetic(stepValue(delta, sqlCombine))
+	const neutral = ((): Expr => {
+		switch (off) {
+			case "zero":
+				return lit.int(0, numeric ? types.numeric : types.bigint)
+			case "empty":
+				return emptyText()
+			case "first":
+				return first
+		}
+	})()
+	const masked: Expr =
 		selected === undefined
 			? value
 			: {
@@ -269,41 +316,14 @@ const runningAfter = (
 					whens: [{ when: selected, result: value }],
 					else: neutral
 				}
-	const x = (): Expr => defined(step, `the step value of a ${fold.monoid} fold`)
-	switch (fold.monoid) {
-		case "count":
-			return cast(
-				binary(
-					"+",
-					first,
-					running("sum", [masked(lit.int(1, types.bigint), lit.int(0, types.bigint))])
-				),
-				to
-			)
-		case "sum":
-			return cast(
-				binary(
-					"+",
-					cast(first, types.numeric),
-					running("sum", [masked(cast(x(), types.numeric), lit.int(0, types.numeric))])
-				),
-				to
-			)
-		case "max":
-			return cast({ kind: "greatest", args: [first, running("max", [masked(x(), first)])] }, to)
-		case "or":
-		case "twos":
-			return cast(binary("|", first, running("bit_or", [masked(x(), first)])), to)
-		case "concat":
-			return cast(
-				binary(
-					"||",
-					first,
-					running("string_agg", [masked(x(), lit.text("", types.text)), lit.text("", types.text)])
-				),
-				to
-			)
-	}
+	return cast(
+		sqlCombine.apply(
+			plane.fn,
+			arithmetic(first),
+			running(aggregate, aggregate === "string_agg" ? [masked, emptyText()] : [masked])
+		),
+		to
+	)
 }
 
 /**
@@ -522,10 +542,7 @@ const columnOf = (
 		...call("lag", [e, lit.int(1, types.integer), e]),
 		over: windowOf(partition, order)
 	})
-	const running = (
-		fn: "sum" | "max" | "bit_or" | "string_agg",
-		args: NonEmptyReadonlyArray<Expr>
-	): Expr => ({
+	const running = (fn: Accumulation["aggregate"], args: NonEmptyReadonlyArray<Expr>): Expr => ({
 		...call(fn, args),
 		over: {
 			partitionBy: partition,
@@ -604,17 +621,18 @@ const columnOf = (
 				firstBefore(pred.rule.to, lowerLiteral(w.names, pred.rule.base, pred.type)),
 				w.cx.baseTypeRef(pred.type)
 			)
-			const x = rule.x === undefined ? undefined : value(columnKey(rule.x))
-			const step =
-				plane === 1
-					? binary(
-							"&",
-							value(columnKey(defined(rule.befores[0], "the ones plane's before"))),
-							defined(x, "the step value of a twos fold")
-						)
-					: x
+			const monoid = monoidSpecs[rule.fold.monoid]
+			const accumulates = defined(monoid.planes[plane], `the ${monoid.name} fold's plane ${plane}`)
+			const step: CombineStep<Expr> =
+				rule.x === undefined ? { kind: "one" } : { kind: "value", expr: value(columnKey(rule.x)) }
+			const delta = deltaOf(
+				accumulates,
+				step,
+				() => value(columnKey(defined(rule.befores[0], "the first plane's before"))),
+				sqlCombine
+			)
 			const selected = selection(w, rule.fold, value)
-			return built(runningAfter(rule.fold, first, step, selected, running, to))
+			return built(runningAfter(accumulates, first, delta, selected, running, to))
 		}
 		case "given":
 		case "owner":

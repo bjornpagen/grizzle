@@ -80,10 +80,10 @@ export const theHostFillOfAConcatFoldDrawsTheNaiveLeftFoldOfItsSlotsTexts = prop
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/runtime/write/fill.ts",
-				original: "\t\t\treturn concatHost(before, x)",
-				replacement: "\t\t\treturn concatHost(x, before)",
-				why: "A concat step puts its piece before the running text, not after it."
+				file: "packages/engine/src/ir/monoid.ts",
+				original: "\t\treturn build.apply(plane.fn, before, delta)",
+				replacement: "\t\treturn build.apply(plane.fn, delta, before)",
+				why: "A combine puts its step before its before (ir/monoid.ts, which every site reads), so a concat step puts its piece before the running text, not after it."
 			}
 		]
 	}

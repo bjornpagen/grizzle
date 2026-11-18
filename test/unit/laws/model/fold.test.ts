@@ -132,6 +132,12 @@ export const aFoldsNativesAre23sItsCopiesOnTwoAxesItsCombineAndItsIdentityPinsEv
 				original: '\t\tif (start === undefined || axis === "owner") {',
 				replacement: '\t\tif (start === undefined || axis === "owner" || axis === "predecessor") {',
 				why: "The predecessor axis's base pin, and so the first-slot identity pin, dropped (laws/model/plan.ts pin); the natives fail."
+			},
+			{
+				file: "packages/engine/src/ir/monoid.ts",
+				original: '\t\t{ fn: "union", delta: "met" }',
+				replacement: '\t\t{ fn: "union", delta: "step" }',
+				why: "twos' second plane takes the union of the member's set, not of its meet with the ones before it (ir/monoid.ts, which the host's fill reads too), so the CHECK of its combine admits a row the reference combine refuses; the natives fail."
 			}
 		]
 	})

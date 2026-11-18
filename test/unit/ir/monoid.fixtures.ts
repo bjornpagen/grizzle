@@ -7,7 +7,7 @@ import { combineRule } from "#compiler/check/fold.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { type MonoidName, monoidNames } from "#compiler/ir/desc.ts"
 import { literalProblem, type TypedLiteral } from "#compiler/ir/expr.ts"
-import { type CombineBuild, type MonoidSpec, monoidSpecs } from "#compiler/ir/monoid.ts"
+import { type CombineBuild, combine, type MonoidSpec, monoidSpecs } from "#compiler/ir/monoid.ts"
 import { Roster, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
@@ -206,9 +206,9 @@ export const laws = (
 		const step = (v: Value) =>
 			spec.step === "none" ? ({ kind: "one" } as const) : ({ kind: "value", expr: v } as const)
 		const run = (planes: ReadonlyArray<Value>, v: Value) =>
-			spec.combine(nonEmpty(planes), step(v), host)
+			combine(spec, nonEmpty(planes), step(v), host)
 		const identity = Arr.map(spec.identity(carrier), hostOf)
-		assert.equal(identity.length, spec.planes, "an identity per plane")
+		assert.equal(identity.length, spec.planes.length, "an identity per plane")
 		const first = run(identity, x)
 		const alone: ReadonlyArray<Value> =
 			monoid === "count" ? [1n] : monoid === "twos" ? [x, new Set<string>()] : [x]
@@ -283,7 +283,7 @@ export const constructs = (spec: MonoidSpec, carrier: ScalarType): boolean =>
 	Option.match(identityAt(spec, carrier), {
 		onNone: () => false,
 		onSome: (identity) =>
-			identity.length === spec.planes &&
+			identity.length === spec.planes.length &&
 			Arr.every(identity, (literal) => literalProblem(literal, carrier) === undefined) &&
 			combineRule(spec, carrier) === undefined
 	})

@@ -60,6 +60,7 @@ import {
 	appendNonEmpty,
 	dedupeNonEmpty,
 	flatMapNonEmpty,
+	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -70,6 +71,7 @@ import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
 import type { NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
+import { type Accumulation, accumulations, monoidSpecs } from "#compiler/ir/monoid.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -264,7 +266,7 @@ const window = (
 
 /** A window function's call over `over`. */
 const over = (
-	fn: "row_number" | "sum" | "max" | "min" | "bit_or" | "string_agg" | "lag" | "first_value",
+	fn: "row_number" | Accumulation["aggregate"] | "min" | "lag" | "first_value",
 	args: ReadonlyArray<Expr>,
 	spec: WindowSpec
 ): Expr => ({
@@ -323,33 +325,25 @@ const stepName = (f: number): string => `__x_${f}`
 const afterName = (f: number, p: number): string => `__after_${f}_${p}`
 const beforeName = (f: number, p: number): string => `__before_${f}_${p}`
 
-/** The running aggregate of a monoid's first plane over its masked steps (count's and sum's a sum of the steps, each 0
- * where its selection fails, max's a max, each the least value there, or's a union, each the empty set there, and
- * concat's the steps' concatenation in the family's order, each the empty text there), with the arguments it takes
- * beside the step: string_agg's empty delimiter. */
+/** The running aggregate of a fold's first plane over its masked steps, its operation's (ir/monoid.ts accumulations),
+ * with the arguments it takes beside the step: string_agg's empty delimiter. */
 const runningOf = (
 	fold: FamilyFold
 ): {
-	readonly fn: "sum" | "max" | "bit_or" | "string_agg"
+	readonly fn: Accumulation["aggregate"]
 	readonly after: ReadonlyArray<Expr>
 } => {
-	switch (fold.monoid) {
-		case "count":
-		case "sum":
-			return { fn: "sum", after: [] }
-		case "max":
-			return { fn: "max", after: [] }
-		case "or":
-		case "twos":
-			return { fn: "bit_or", after: [] }
-		case "concat":
-			return { fn: "string_agg", after: [lit.text("", types.text)] }
-	}
+	const { aggregate } = accumulationOf(fold)
+	return { fn: aggregate, after: aggregate === "string_agg" ? [lit.text("", types.text)] : [] }
 }
 
+/** The accumulation of a fold's first plane. */
+const accumulationOf = (fold: FamilyFold): Accumulation =>
+	accumulations[headNonEmpty(monoidSpecs[fold.monoid].planes).fn]
+
 /** The step of a fold on a member's row, masked by its selection: the value it combines where the selection holds, and
- * the value its monoid's running aggregate leaves unchanged elsewhere (0 for count and sum, the identity for max, or and
- * twos). Count and sum step in numeric, exactly; max, or and twos in their end's base type. */
+ * the value its running aggregate leaves unchanged elsewhere (0 for an exact accumulation, the identity otherwise). An
+ * exact accumulation steps in numeric; any other in its end's base type. */
 const maskedStep = (
 	installation: Installation,
 	member: RelationInfo,
@@ -357,7 +351,7 @@ const maskedStep = (
 	base: TypeRef,
 	identity: Expr
 ): Expr => {
-	const exact = fold.monoid === "count" || fold.monoid === "sum"
+	const { exact } = accumulationOf(fold)
 	const value =
 		fold.step.kind === "one"
 			? lit.int(1n, types.numeric)

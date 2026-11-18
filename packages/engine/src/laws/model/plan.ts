@@ -46,7 +46,7 @@ import {
 	spanKeySet,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
-import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
+import { type CombineFn, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { keyOf, literalKey } from "#compiler/laws/model/names.ts"
@@ -2920,7 +2920,7 @@ class FamilyPlanner {
 			fold.step.kind === "one"
 				? { kind: "one" as const }
 				: { kind: "value" as const, expr: conditions.column(fieldColumn(fold.step.field)) }
-		const combined = monoidSpecs[fold.monoid].combine(befores, step, combineBuild)
+		const combined = combine(monoidSpecs[fold.monoid], befores, step, combineBuild)
 		const stepped = and(
 			mapNonEmpty(afters, (a, p) => cmp("eq", a, combined[p] ?? missing("a combine per plane")))
 		)

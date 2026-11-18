@@ -87,6 +87,12 @@ export const aConcatFoldIsViolatedExactlyWhenItsAccumulatorsAreNotTheNaiveFolds 
 				original: '\t\t\t[test("startsWith", p), test("endsWith", q)],',
 				replacement: '\t\t\t[test("startsWith", p), test("startsWith", p)],',
 				why: "The equation's concatenation checked by its length and its head alone (scalar/compute/lower.ts concatEquation); the fold property fails."
+			},
+			{
+				file: "packages/engine/src/ir/monoid.ts",
+				original: "\t\treturn build.apply(plane.fn, before, delta)",
+				replacement: "\t\treturn build.apply(plane.fn, delta, before)",
+				why: "A combine puts its step before its before (ir/monoid.ts, which the host's fill reads too), so a concat fold's law states each after as its piece followed by the running text; the fold property fails."
 			}
 		]
 	}

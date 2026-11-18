@@ -8,12 +8,12 @@ import {
 } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import type { CombineFn, MonoidSpec } from "#compiler/ir/monoid.ts"
+import { type CombineFn, combine, type MonoidSpec } from "#compiler/ir/monoid.ts"
 import { type ScalarType, sameEnteredType, typeLabel, enteredType } from "#compiler/ir/scalar.ts"
 import {
 	exprEmitter,
@@ -91,13 +91,13 @@ export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): RuleBreach | und
 			"a fold over a counted family hides its accumulators: name the step's value alone"
 		)
 	}
-	if (fold.pairs.length !== 0 && fold.pairs.length !== monoid.planes) {
+	if (fold.pairs.length !== 0 && fold.pairs.length !== monoid.planes.length) {
 		return proseBreach(
-			`a ${monoid.name} fold's step names no accumulator or one (before, after) pair per plane, ${monoid.planes}; it names ${fold.pairs.length}`
+			`a ${monoid.name} fold's step names no accumulator or one (before, after) pair per plane, ${monoid.planes.length}; it names ${fold.pairs.length}`
 		)
 	}
 	const [firstEnd] = fold.ends
-	if (firstEnd === undefined || fold.ends.length !== monoid.planes) {
+	if (firstEnd === undefined || fold.ends.length !== monoid.planes.length) {
 		return namedBreach("a fold's end names one accumulated field of the owner per plane")
 	}
 	const plane = x?.type ?? firstEnd.type
@@ -162,9 +162,9 @@ export const combineRule = (monoid: MonoidSpec, plane: ScalarType): string | und
 	const loc = SourceLoc(`fold ${monoid.name}`, [])
 	const carrier = enteredType(plane)
 	const patterns = new CompilePatterns()
-	const befores: NonEmptyReadonlyArray<ExprDesc> =
-		monoid.planes === 2 ? [operand, operand] : [operand]
-	const combined = monoid.combine<ExprDesc>(
+	const befores: NonEmptyReadonlyArray<ExprDesc> = mapNonEmpty(monoid.planes, () => operand)
+	const combined = combine<ExprDesc>(
+		monoid,
 		befores,
 		monoid.step === "none" ? { kind: "one" } : { kind: "value", expr: operand },
 		{ one, apply: (fn: CombineFn, left, right) => ({ kind: "compute", fn, args: [left, right] }) }
