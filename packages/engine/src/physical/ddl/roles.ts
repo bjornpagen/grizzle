@@ -1103,6 +1103,36 @@ export const grantedPrivileges = (
 }
 
 /**
+ * Every relation a statement of a role can read, by its declared name, in code-unit order, as its installation grants
+ * it: each relation its views read as their owner, a whole entry's relation and each relation a query entry's
+ * definition reads, a live derived relation by the relations its own definition reads, since its view stores no row;
+ * and each relation it holds a table privilege on (grantedPrivileges), what it writes and the owners of the families
+ * whose members it writes. Its filter functions and key and unique probes, the one other way it reads, read a relation
+ * it writes and its entry's membership, which its view reads. PostgreSQL refuses a statement's read of any other
+ * relation with 42501 as its executor starts (ExecCheckPermissions), before it reads a row. What certification reads of
+ * a role with no change member (analysis/isolation/facts.ts RoleWrites `readable`); the reads its writes' foreign key
+ * checks and rule triggers make as the owner are its writes' own, which certification reads off them.
+ */
+export const readableRelations = (
+	model: LawModel,
+	checked: CheckedSchema<RoleWorld>
+): ReadonlyArray<string> => {
+	const role = checked.world.role
+	const stored = (name: string): ReadonlyArray<string> => {
+		const relation = role.base.relations[name]
+		return relation?.kind === "derived" && relation.view.kind === "live"
+			? relation.reads.flatMap(stored)
+			: [name]
+	}
+	const viewed = Object.values(role.relations).flatMap((entry) =>
+		entry.kind === "whole" ? [entry.relation.name] : entry.reads.flatMap(stored)
+	)
+	return [...new Set([...viewed, ...grantedPrivileges(model, checked).keys()])].toSorted(
+		compareText
+	)
+}
+
+/**
  * The field of a family's owner O that a field of its member reads as, for every member: a group field's paired owner
  * key field, or, for a copy, the field of O the owner axis carries into it. The owner axis's foreign key proves each
  * equal; undefined for any other field of the member.

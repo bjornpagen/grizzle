@@ -31,7 +31,7 @@
  *   `end`, then the fold's accumulator where it folds); every reference but an owner axis NO ACTION.
  * - Roles: one fact for each role, in order, its privileges grantedPrivileges' answer for its own input, and its
  *   writes served by memberFacts' answers for its members in order, every variant of each, or unknown where it has no
- *   change member, so it writes by direct SQL alone.
+ *   change member, so it writes by direct SQL alone, reading what readableRelations answers for its own input.
  *
  * Features: an immutable and a mutable owner's family, an immutable tree, a role with no change member, a member of
  * several variants, a relation some trigger law reads, a member's reference to its owner.
@@ -83,6 +83,13 @@ export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuild
 				replacement:
 					'\t\t\t\t\tcolumns: object.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field.name] : [])),\n\t\t\t\t\tonUpdate: object.onUpdate',
 				why: "A foreign key's law columns left out of its referenced columns, so its check by an alternatives arm's or a family slot's key binds no whole key."
+			},
+			{
+				file: "packages/engine/src/program/isolation/input.ts",
+				original:
+					'\t\t\t\t? { kind: "unknown", readable: sources.readableRelations(model, role.checked) }',
+				replacement: '\t\t\t\t? { kind: "unknown", readable: [...relations.keys()] }',
+				why: "A role with no change member read as reading every relation regardless of its grants (a17decc0's bound), so a ChangeSet-less writer keeps every writing role SERIALIZABLE, met's and the write races' READ COMMITTED inserters among them."
 			}
 		]
 	})

@@ -44,6 +44,8 @@ export type SourceMembers<Compiled> =
  * - `triggerLawsOver` (laws/model/model.ts): the laws a relation's rule-over-query triggers still discharge, each with
  *   its rule's witnesses;
  * - `grantedPrivileges` (physical/ddl/roles.ts): a role's table privileges by relation, as its grant plan holds them;
+ * - `readableRelations` (physical/ddl/roles.ts): every relation a statement of a role can read, as its grants let it,
+ *   which bounds the reads of a role with no change member;
  * - `memberFacts` (program/isolation/extract.ts): a change member's statements, one set per variant of it that sends
  *   any.
  *
@@ -57,6 +59,7 @@ export interface IsolationSources<Checked, Names, Compiled> {
 		model: LawModel,
 		checked: Checked
 	) => ReadonlyMap<string, ReadonlySet<TablePrivilege>>
+	readonly readableRelations: (model: LawModel, checked: Checked) => ReadonlyArray<string>
 	readonly memberFacts: (
 		name: string,
 		compiled: Compiled,
@@ -162,7 +165,8 @@ const insertsOf = (relation: OwnedRelation): InsertsFact =>
  * declared name, each a retirable unit's header or body where a retirable statement names it, and one RoleFacts for
  * every role of `sources`, in their order, its privileges its grant plan's and its
  * members' facts the extractor's for each of its change members, in member order, every variant's: its writes served,
- * or unknown where it has no change member, so it writes by direct SQL alone (RoleWrites).
+ * or unknown where it has no change member, so it writes by direct SQL alone, bounded by what its grants let it read
+ * (RoleWrites).
  */
 export const isolationInput = <Checked, Names, Compiled>(
 	sources: IsolationSources<Checked, Names, Compiled>
@@ -191,7 +195,7 @@ export const isolationInput = <Checked, Names, Compiled>(
 		privileges: sources.grantedPrivileges(model, role.checked),
 		writes:
 			role.members.kind === "none"
-				? { kind: "unknown" }
+				? { kind: "unknown", readable: sources.readableRelations(model, role.checked) }
 				: {
 						kind: "served",
 						members: role.members.members.flatMap((member) =>

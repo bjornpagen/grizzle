@@ -68,13 +68,15 @@ const relations = Object.freeze({ Pub, Seen, Log })
  * The schema under its installed name with its worlds: in the login `server`, the `publisher`, whose `replace(v, s, n)`
  * deletes the stored Pub at v and inserts Pub(v, s), then inserts Log(n), and the `learner`, whose `see(k, v)` inserts
  * Seen(k, v), each with the empty ChangeSet a writer's first call applies, named for its role; and in the login `psql`, the role `direct`
- * the blocker takes on, which writes Log.
+ * the blocker takes on, which holds and writes Log alone. It has no ChangeSet, so generate bounds its direct
+ * transactions by what its grants let them read (README, "READ COMMITTED writes"): a grant of Seen would let one read
+ * the learner's rows for their absence and keep the learner SERIALIZABLE, and the blocker reads nothing.
  */
 const renamed = (name: string) => {
 	const base = schema(name, Rec.values(relations), [contained(on(Seen, "v"), on(Pub, "v"))])
 	const publisher = role(base, "publisher", relations, { write: ["Pub", "Log"] })
 	const learner = role(base, "learner", relations, { insert: ["Seen"] })
-	const direct = role(base, "direct", relations, { write: ["Log"] })
+	const direct = role(base, "direct", { Log }, { write: ["Log"] })
 	const p = publisher.relations
 	const storedPub = query(publisher).rule((r) => {
 		const row = v(p.Pub, "p")

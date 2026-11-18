@@ -198,6 +198,8 @@ type Shape =
 	| "updatedCheck"
 	| "fencedPublisher"
 	| "unfencedPivot"
+	| "directReached"
+	| "directUnreached"
 	| "fencedDeleter"
 	| "updatedDeleter"
 	| "monotoneWriter"
@@ -1629,11 +1631,11 @@ const publication: Sketch = {
  * A deleted referenced relation: r0 inserts into R(b), whose foreign key references R(a) at its key, reading nothing
  * else; r1 holds a privilege on R(a) and serves no member, deleting it from another login than r2's (`held`), deleting
  * it from r2's login (`fenced`), or updating it (`updated`); r2 inserts into R(a). r1 writes by direct SQL alone, so
- * its writes are unknown (facts.ts RoleWrites): a transaction of it may read any relation, R(b) among them, for its
- * absence, delete R(a) at the key r0's check finds and, from r2's login, insert it again, and take no fence grizzle
- * serves. r0 runs SERIALIZABLE: r1's reads of what r0 writes fail conditions 2 and 3, and r1 may miss another call's
- * write. A deleter by a member keeps r0 READ COMMITTED with its fence (fencedDeleter, fencedPublisher). An update may
- * move the key: r0's check is unsealed.
+ * its writes are unknown (facts.ts RoleWrites): a transaction of it may read what its grants reach, R(a), for its
+ * absence, so it may miss another call's write, delete R(a) at the key r0's check finds and, from r2's login, insert it
+ * again, and take no fence grizzle serves. r0's check of R(a) is unsealed (certify.ts referencingSeal), so r0 runs
+ * SERIALIZABLE, though r1's grants never reach R(b). A deleter by a member keeps r0 READ COMMITTED with its fence
+ * (fencedDeleter, fencedPublisher). An update may move the key: r0's check is unsealed by it too.
  */
 const referencedWriterOf = (s: Source, kind: "held" | "fenced" | "updated"): Sketch => {
 	const [a, b] = threeOf(s)
@@ -1720,7 +1722,7 @@ const fencedPublisher = (s: Source): Sketch => {
  * inserts R(a) where it reads R(c) absent, so it may miss another call's write. r0's fenced check of R(a) could miss
  * r3's row in flight and refuse r0, which no serial order in real time explains once r3's read missed a write
  * committed before r0 began, so r3's login fences R(a) too; but r1 serves no member, so its writes are unknown, a
- * direct replace of R(a) that takes no fence and reads R(b), which r0 writes, for its absence: r0 runs SERIALIZABLE.
+ * direct replace of R(a) that takes no fence, and r0's check of R(a) is unsealed: r0 runs SERIALIZABLE.
  */
 const unfencedPivot = (s: Source): Sketch => {
 	const [a, b, c] = threeOf(s)
@@ -1808,6 +1810,40 @@ const deleterOf = (s: Source, kind: "fenced" | "updated"): Sketch => {
 				serializable: [],
 				privileges: [{ relation: a, privilege: "INSERT" }],
 				members: [[{ writes: [insertOf(a, [])], reads: [], probes: [], cores: [] }]]
+			}
+		]
+	}
+}
+
+/**
+ * A direct writer beside an insert-only role: r0 inserts into R(b), which no other role writes; r1 serves no member, so
+ * it writes by direct SQL alone, deleting and inserting R(a), which no foreign key joins to R(b), and, where its grants
+ * reach R(b) (`reached`), holding SELECT on it. A transaction of r1 reads only what its grants let it read
+ * (facts.ts RoleWrites `readable`): where they reach R(b) it may read R(b)'s absence and miss r0's row, condition 3, so
+ * r0 runs SERIALIZABLE; where they do not, PostgreSQL refuses its read of R(b) with 42501 before it reads a row, nothing
+ * of r1 meets r0, and r0 runs READ COMMITTED (`unreached`: test/pg/write/met's rc beside its direct deleter, and the
+ * write races' inserter and claimer beside theirs).
+ */
+const directWriterOf = (s: Source, reach: "reached" | "unreached"): Sketch => {
+	const [a, b] = threeOf(s)
+	return {
+		relations: Arr.makeBy(RELATIONS, () => clean([0])),
+		roles: [
+			{
+				login: s.draw(int(0, 1)),
+				serializable: [],
+				privileges: [{ relation: b, privilege: "INSERT" }],
+				members: [[{ writes: [insertOf(b, [])], reads: [], probes: [], cores: [] }]]
+			},
+			{
+				login: s.draw(int(0, 1)),
+				serializable: [],
+				privileges: [
+					{ relation: a, privilege: "DELETE" },
+					{ relation: a, privilege: "INSERT" },
+					...(reach === "reached" ? [{ relation: b, privilege: "SELECT" as const }] : [])
+				],
+				members: []
 			}
 		]
 	}
@@ -2075,6 +2111,10 @@ const shapeSketch = (
 			return fencedPublisher(s)
 		case "unfencedPivot":
 			return unfencedPivot(s)
+		case "directReached":
+			return directWriterOf(s, "reached")
+		case "directUnreached":
+			return directWriterOf(s, "unreached")
 		case "fencedDeleter":
 			return deleterOf(s, "fenced")
 		case "updatedDeleter":
@@ -2142,6 +2182,8 @@ export const caseGen: Gen<Case> = (s) => {
 			[1, () => "updatedCheck"],
 			[1, () => "fencedPublisher"],
 			[1, () => "unfencedPivot"],
+			[1, () => "directReached"],
+			[1, () => "directUnreached"],
 			[1, () => "fencedDeleter"],
 			[1, () => "updatedDeleter"],
 			[1, (t) => t.draw(element(monotoneShapes))]
@@ -2318,15 +2360,30 @@ export const inputOf = (sketch: Sketch): IsolationInput => ({
 		login: `L${role.login}`,
 		role: `r${i}`,
 		privileges: privilegesOf(role.privileges),
-		writes: writesOf(role.members, membersOf(role.members))
+		writes: writesOf(role.privileges, role.members, membersOf(role.members))
 	}))
 })
 
-/** A role's writes: served by its members' facts, or unknown where it has no change member (RoleWrites). */
+/**
+ * The relations a role's grants let it read, by index in order: each it holds a privilege on, a sketch's SELECT standing
+ * for every way a role reads a relation it does not write, a view's as a table's (physical/ddl/roles.ts
+ * readableRelations).
+ */
+const readableOf = (privileges: RoleSketch["privileges"]): ReadonlyArray<number> =>
+	Arr.sort(Arr.dedupe(Arr.map(privileges, (p) => p.relation)), Order.Number)
+
+/**
+ * A role's writes: served by its members' facts, or unknown where it has no change member, reading what its grants let
+ * it read (RoleWrites).
+ */
 const writesOf = (
+	privileges: RoleSketch["privileges"],
 	sketched: ReadonlyArray<unknown>,
 	members: ReadonlyArray<MemberFacts>
-): RoleWrites => (sketched.length > 0 ? { kind: "served", members } : { kind: "unknown" })
+): RoleWrites =>
+	sketched.length > 0
+		? { kind: "served", members }
+		: { kind: "unknown", readable: Arr.map(readableOf(privileges), relationName) }
 
 /**
  * Each role of a sketch as certification takes it, its relations' facts `relations`: its READ COMMITTED facts, and its
@@ -2564,8 +2621,8 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 	const unknown = (i: number): boolean => Arr.getUnsafe(roles, i).members.length === 0
 	/**
 	 * The members role i's writes are read by at READ COMMITTED: its own; or, where its writes are unknown and it holds a
-	 * writer's privilege, one member of one statement that reads every relation for its absence, by no group, and writes
-	 * each relation by each write its privileges permit, joined with nothing.
+	 * writer's privilege, one member of one statement that reads every relation its grants let it read (readableOf) for
+	 * its absence, by no group, and writes each relation by each write its privileges permit, joined with nothing.
 	 */
 	const served = (i: number): ReadonlyArray<ReadonlyArray<StatementSketch>> => {
 		const role = Arr.getUnsafe(roles, i)
@@ -2584,7 +2641,7 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 					return [{ relation: p.relation, op: "delete", from: [] }]
 			}
 		})
-		const reads = Arr.map(relations, (_, relation): ReadSketch => ({
+		const reads = Arr.map(readableOf(role.privileges), (relation): ReadSketch => ({
 			relation,
 			mode: "negated",
 			own: false,
@@ -2713,6 +2770,15 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 				) ||
 					Arr.some(writesOf(i), (w) => w.relation === relation && w.op === op))
 		)
+	/** Whether a role whose writes are unknown holds a writer's privilege on the relation: its direct transactions take
+	 * no fence, so no check of the relation is sealed. */
+	const direct = (relation: number) =>
+		Arr.some(
+			roles,
+			(r, i) =>
+				unknown(i) &&
+				Arr.some(r.privileges, (p) => p.relation === relation && p.privilege !== "SELECT")
+		)
 	/** Whether `login`'s roles delete the relation, by a privilege or a member, and no role updates it: the login fences
 	 * it. */
 	const fences = (login: number, relation: number) =>
@@ -2760,7 +2826,9 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 					(ref): OracleCheck => {
 						const seal: OracleSeal = !anyWrites(ref.relation)
 							? "unwritten"
-							: !covers(ref.relation, keyOf(ref.key)) || updates(ref.relation)
+							: !covers(ref.relation, keyOf(ref.key)) ||
+								  updates(ref.relation) ||
+								  direct(ref.relation)
 								? "unsealed"
 								: replaced(ref.relation)
 									? "fenced"
@@ -3287,6 +3355,8 @@ export const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"updatedCheck",
 	"fencedPublisher",
 	"unfencedPivot",
+	"directReached",
+	"directUnreached",
 	"fencedDeleter",
 	"updatedDeleter",
 	"monotoneWriter",
@@ -3382,6 +3452,7 @@ export const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "heldCheck":
 		case "fencedCheck":
 		case "unfencedPivot":
+		case "directReached":
 		case "monotoneDeleted":
 		case "monotoneSelfJoin":
 		case "monotonePresent":
@@ -3400,6 +3471,7 @@ export const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "droppedReference":
 		case "fencedPublisher":
 		case "fencedDeleter":
+		case "directUnreached":
 		case "monotoneWriter":
 		case "monotoneCure":
 		case "newlyFenced":
@@ -3416,6 +3488,7 @@ export const certifiedRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "monotoneWriter":
 			return [0, 1]
 		case "monotoneCure":
+		case "directUnreached":
 			return [0]
 		case "refusedCopy":
 		case "newlyFenced":
@@ -3461,6 +3534,7 @@ export const certifiedRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "triggered":
 		case "droppedReference":
 		case "unfencedPivot":
+		case "directReached":
 		case "heldCheck":
 		case "fencedCheck":
 		case "updatedCheck":
@@ -3958,11 +4032,11 @@ const sharedMembers = (
 
 /**
  * The member that stands for the unknown writes of a role with no change member (certify.ts writtenFacts), restated: by
- * its name, one statement that reads every relation for its absence, by no group, and writes each relation the role
- * holds a writer's privilege on by each write the privilege permits, joined with nothing; none where it holds none.
+ * its name, one statement that reads every relation its grants let it read (readableOf) for its absence, by no group,
+ * and writes each relation the role holds a writer's privilege on by each write the privilege permits, joined with
+ * nothing; none where it holds none.
  */
 const directOf = (
-	relations: ReadonlyArray<RelationSketch>,
 	privileges: RoleSketch["privileges"]
 ): ReadonlyArray<readonly [string, ReadonlyArray<StatementFacts>]> => {
 	const writes = Arr.flatMap(privileges, (p): ReadonlyArray<StatementFacts["writes"][number]> => {
@@ -3977,7 +4051,7 @@ const directOf = (
 				return [{ relation: relationName(p.relation), op: "delete", from: [] }]
 		}
 	})
-	const reads = Arr.map(relations, (_, r): ReadFact => ({
+	const reads = Arr.map(readableOf(privileges), (r): ReadFact => ({
 		relation: relationName(r),
 		mode: "negated",
 		base: "negated",
@@ -4001,7 +4075,7 @@ export const sharedInput = (
 		login: `L${role.login}`,
 		role: `r${i}`,
 		privileges: privilegesOf(role.privileges),
-		writes: writesOf(role.members, sharedMembers(role.members, as))
+		writes: writesOf(role.privileges, role.members, sharedMembers(role.members, as))
 	}))
 })
 
@@ -4141,7 +4215,7 @@ export const unjoinedOracle = (
 	const members: ReadonlyArray<readonly [string, ReadonlyArray<StatementFacts>]> =
 		role.members.length > 0
 			? Arr.map(role.members, (statements, m) => [`m${m}`, statements] as const)
-			: directOf(c.relations, role.privileges)
+			: directOf(role.privileges)
 	return Arr.flatMap(members, ([name, statements]) => {
 		const flats = Arr.map(statements, expanded)
 		const placed = Arr.flatMap(sharedMembers([statements], flatFacts), (member) =>

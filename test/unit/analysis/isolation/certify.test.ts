@@ -70,7 +70,8 @@
  * run once; a pivot's write before a group read only later let through; a pivot's write after an outside read joined
  * with no row of its call let through; an unsealed read sharing a member with an outside read in another statement let
  * through; condition 5c left out; a read binding part of a declared key sealed as a point; a role with no change member
- * certified; a role with no change member read as writing and reading nothing, or reading rows present alone; an
+ * certified; a role with no change member read as writing and reading nothing, or reading rows present alone, or its
+ * checks of what it writes sealed as a served writer's, though its direct transactions take no fence; an
  * arbitration of no whole key sealed; an arbitration of a relation a role deletes sealed; a relation
  * another role deletes written READ COMMITTED; 5c's exemption of sealed reads restored; a read of one group per own row
  * sealed; foreign key checks left out of 5c; the checks of rows that reference a changed one left out; a cascading
@@ -455,13 +456,20 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 					file: "packages/engine/src/analysis/isolation/certify.ts",
 					original: "\t\t\treturn isNonEmpty(writes)",
 					replacement: "\t\t\treturn isNonEmpty(writes) && writes.length < 0",
-					why: "A role with no change member read as writing nothing and reading nothing, no pivot cause, so a referencer of what it deletes and inserts by direct SQL is certified READ COMMITTED (the heldCheck shape); the search fails."
+					why: "A role with no change member read as writing nothing and reading nothing, no pivot cause, so an inserter of what its grants let it read is certified READ COMMITTED beside its direct writes (the directReached shape); the search fails."
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
-					original: "\t\t\t\t\t\t\t\t\treads: [...relations.keys()].map(anyRead),",
+					original: "\t\t\t\t\t\t\t\t\treads: role.writes.readable.map(anyRead),",
 					replacement: "\t\t\t\t\t\t\t\t\treads: [],",
-					why: "Unknown writes bounded as reading nothing, so conditions 2 and 3 never weigh what a direct writer may read; the search fails."
+					why: "Unknown writes bounded as reading nothing, so conditions 2 and 3 never weigh what a direct writer's grants let it read (the directReached shape); the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original:
+						'\tif (at.writers.direct(relation)) {\n\t\treturn {\n\t\t\tkind: "unsealed",\n\t\t\tdetail: "a role writes it by direct SQL alone, whose transactions take no fence"\n\t\t}\n\t}\n',
+					replacement: "",
+					why: "A check of a relation a role writes by direct SQL alone sealed as a served writer's, relying on a fence its direct transactions never take, so the referencer of what it deletes is certified READ COMMITTED (the heldCheck and unfencedPivot shapes), which NEGATION's case 3 refutes; the search fails."
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",

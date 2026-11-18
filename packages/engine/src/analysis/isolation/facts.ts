@@ -264,11 +264,13 @@ export interface Unformed {
  * facts are its lowering's, certify.ts Candidate); or `unknown`, where it has no change member, so it writes, if at all,
  * by direct SQL alone, which grizzle never sees. A fact grizzle cannot know is no fact that is absent: unknown writes
  * are not writes of nothing, but any transaction its privileges permit, which the certifier bounds (certify.ts
- * writtenFacts).
+ * writtenFacts). Its grants are a fact grizzle knows, which PostgreSQL holds a direct transaction to as it holds a
+ * member: `readable`, by declared name, is every relation a statement of the role can read (physical/ddl/roles.ts
+ * readableRelations), and a read of any other is refused with 42501 before its plan reads a row.
  */
 export type RoleWrites =
 	| { readonly kind: "served"; readonly members: ReadonlyArray<MemberFacts> }
-	| { readonly kind: "unknown" }
+	| { readonly kind: "unknown"; readonly readable: ReadonlyArray<string> }
 
 /**
  * One role of one login: the privileges its grant plan holds, by relation, and what it writes (RoleWrites), its change

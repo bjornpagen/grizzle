@@ -54,6 +54,7 @@ interface Recorded {
 	readonly laws: Map<string, ReadonlyArray<TriggerLaw>>
 	readonly asked: Array<string>
 	readonly privileges: Map<number, ReadonlyMap<string, ReadonlySet<TablePrivilege>>>
+	readonly readable: Map<number, ReadonlyArray<string>>
 	readonly facts: Map<string, NonEmptyReadonlyArray<MemberFacts>>
 }
 
@@ -202,6 +203,7 @@ export const run = (c: Case, note: (feature: Feature) => void) =>
 			laws: new Map(),
 			asked: [],
 			privileges: new Map(),
+			readable: new Map(),
 			facts: new Map()
 		}
 		const input = isolationInput({
@@ -241,6 +243,12 @@ export const run = (c: Case, note: (feature: Feature) => void) =>
 				])
 				recorded.privileges.set(checked, privileges)
 				return privileges
+			},
+			readableRelations: (given: LawModel, checked: number) => {
+				assert.equal(given, model, "readableRelations is asked over the installation's model")
+				const readable = [relationName((checked + 1) % c.spec.relations.length)]
+				recorded.readable.set(checked, readable)
+				return readable
 			},
 			memberFacts: (name: string, compiled: number, names: number) => {
 				const facts: NonEmptyReadonlyArray<MemberFacts> = [
@@ -342,6 +350,12 @@ export const run = (c: Case, note: (feature: Feature) => void) =>
 				sketch.members.length > 0 ? "served" : "unknown",
 				`role ${r}'s writes are served by its members' facts, unknown where it has no change member`
 			)
+			if (role.writes.kind === "unknown") {
+				assert.ok(
+					role.writes.readable === recorded.readable.get(r),
+					`role ${r}'s unknown writes read what readableRelations answers, never more`
+				)
+			}
 			assert.equal(members.length, expected.length, `role ${r}: every variant of every member`)
 			for (const [i, member] of members.entries()) {
 				assert.ok(

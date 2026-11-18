@@ -18,7 +18,7 @@ import { TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
 import { triggerLawsOver } from "#compiler/laws/model/model.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { checkedRole, grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
+import { checkedRole, grantedPrivileges, readableRelations } from "#compiler/physical/ddl/roles.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import { type ExtractNames, memberFacts } from "#compiler/program/isolation/extract.ts"
 import { isolationInput, type RoleSource } from "#compiler/program/isolation/input.ts"
@@ -413,6 +413,7 @@ export const certification = <S extends ParamSource>(
 		roles: sources.map((r) => r.source),
 		triggerLawsOver,
 		grantedPrivileges,
+		readableRelations,
 		memberFacts: changeFacts("readCommitted")
 	})
 	const certified = certify(

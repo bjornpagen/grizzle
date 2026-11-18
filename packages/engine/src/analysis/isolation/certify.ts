@@ -34,8 +34,10 @@ import { TupleSet } from "#compiler/core/tuple-map.ts"
  *
  * - `members`: the role has a change member. A role with none writes, if at all, by direct SQL alone, which no member's
  *   facts prove: its writes are unknown (facts.ts RoleWrites), and every other role is judged beside the one member that
- *   bounds them (writtenFacts), which reads anything, present or absent, and writes all its privileges permit, so it is
- *   a pivot cause of every relation it writes, and conditions 2, 3 and 5c weigh its reads of every relation;
+ *   bounds them (writtenFacts), which reads anything its grants let it read, present or absent, and writes all its
+ *   privileges permit, so it is a pivot cause of every relation it writes, and conditions 2, 3 and 5c weigh its reads of
+ *   every relation it can read. It takes no fence grizzle serves, so no foreign key check of a relation it writes is
+ *   sealed (Writers.direct);
  * - `privileges`: the role holds only INSERT and SELECT, and every relation it writes is insert-only for every role of
  *   every login (Writers.insertOnly): no role holds UPDATE or DELETE on it, no member updates or deletes it, and no
  *   update of a relation it references cascades to it. The insert protocol at READ COMMITTED rests on it: a row DO
@@ -330,16 +332,17 @@ const anyRead = (relation: string): ReadFact => ({
 /**
  * The member facts a role's writes are read by (RoleWrites): its served members; or, for unknown writes, one member that
  * bounds every direct transaction its privileges permit, since a fact grizzle cannot know is no fact that is absent. Its
- * one statement reads every relation the installation states, each by no group and for its absence (anyRead), so it
- * reads anything, present or absent, and may miss another call's write (pivotCauseOf); and it writes each relation the
- * role holds a writer's privilege on by each write that privilege permits, joined with no read, so it makes every row
- * of it present or absent that the privilege lets it, with every foreign key check those writes make. A role that holds
- * no writer's privilege writes nothing, and a transaction of it, a read member's like, is never a pivot (RoleFacts).
+ * one statement reads every relation the role's grants let it read (RoleWrites `readable`), each by no group and for
+ * its absence (anyRead), so it reads anything of them, present or absent, and may miss another call's write
+ * (pivotCauseOf); and it writes each relation the role holds a writer's privilege on by each write that privilege
+ * permits, joined with no read, so it makes every row of it present or absent that the privilege lets it, with every
+ * foreign key check those writes make, and fires every trigger-held law a write of it breaks (RoleView.probed, which
+ * reads the role's privileges). No other relation is read: PostgreSQL checks a plan's table privileges as its executor
+ * starts (ExecCheckPermissions), so a statement that reads a relation outside the role's grants is refused with 42501
+ * before it reads a row, and observes nothing a serial order must explain. A role that holds no writer's privilege
+ * writes nothing, and a transaction of it, a read member's like, is never a pivot (RoleFacts).
  */
-const writtenFacts = (
-	relations: ReadonlyMap<string, RelationFacts>,
-	role: RoleFacts
-): ReadonlyArray<MemberFacts> => {
+const writtenFacts = (role: RoleFacts): ReadonlyArray<MemberFacts> => {
 	switch (role.writes.kind) {
 		case "served":
 			return role.writes.members
@@ -357,7 +360,7 @@ const writtenFacts = (
 							statements: [
 								{
 									writes,
-									reads: [...relations.keys()].map(anyRead),
+									reads: role.writes.readable.map(anyRead),
 									probes: [],
 									cores: [],
 									uses: [],
@@ -382,10 +385,13 @@ interface LoginWrites {
  * deletes it, and whether any updates it, an update carried by a cascading foreign key among them; the logins whose
  * roles delete it, by a privilege or a member; and whether one login's roles both delete and insert it, so one
  * transaction of that login may delete a row and insert another at its key: a login acts as each of its roles by SET
- * ROLE (physical/ddl/roles.ts), and a direct transaction may change role between its statements.
+ * ROLE (physical/ddl/roles.ts), and a direct transaction may change role between its statements; and the relations a
+ * role with unknown writes holds a writer's privilege on (`direct`), which its direct transactions write taking no
+ * fence grizzle serves.
  */
 class Writers {
 	readonly #written = new Set<string>()
+	readonly #direct = new Set<string>()
 	readonly #changed = new Set<string>()
 	readonly #updated = new Set<string>()
 	readonly #deleters = new Map<string, Set<string>>()
@@ -405,6 +411,9 @@ class Writers {
 					const op = permitted(p)
 					if (op !== undefined) {
 						this.#note(relation, op, login)
+						if (served.role.writes.kind === "unknown") {
+							this.#direct.add(relation)
+						}
 					}
 				}
 			}
@@ -471,6 +480,14 @@ class Writers {
 	 * present, or absent (Made). */
 	makes(relation: string, made: Made): boolean {
 		return this.#made.get(relation)?.has(made) ?? false
+	}
+
+	/**
+	 * Whether a role with unknown writes writes the relation (facts.ts RoleWrites): its direct transactions take no lock
+	 * a fence orders, so a foreign key check of the relation is ordered against them by no fence (referencingSeal).
+	 */
+	direct(relation: string): boolean {
+		return this.#direct.has(relation)
 	}
 
 	/** Whether no role updates or deletes the relation: a row of it, once committed, stays as it is. */
@@ -540,7 +557,7 @@ export const readSeal = (input: IsolationInput, read: ReadFact): ReadSeal =>
 	sealOf(
 		installationOf(
 			input.relations,
-			input.roles.map((role) => ({ role, members: writtenFacts(input.relations, role) }))
+			input.roles.map((role) => ({ role, members: writtenFacts(role) }))
 		),
 		read
 	)
@@ -1288,7 +1305,7 @@ export const readModes = (
 	readsOf(
 		installationOf(
 			input.relations,
-			input.roles.map((role) => ({ role, members: writtenFacts(input.relations, role) }))
+			input.roles.map((role) => ({ role, members: writtenFacts(role) }))
 		),
 		member
 	).map((p) => ({ statement: p.statement, at: p.at, mode: p.mode, outside: outside(p.seal) }))
@@ -1319,7 +1336,13 @@ interface Check {
 /**
  * A referencing check's seal: of the referenced relation, at its referenced key's columns, law columns among them. A
  * point where the relation is insert-only; where no role updates it, held (ReadSeal) where no login both deletes and
- * inserts it, and fenced where one does; unsealed where a role updates it.
+ * inserts it, and fenced where one does; unsealed where a role updates it, and where a role with unknown writes writes
+ * it (Writers.direct). Every sealed check rests on the fence of each writer of its relation that may miss another
+ * call's write (fencesOf), and such a role is one: its direct transactions read what its grants reach, which some role
+ * writes, and take no fence grizzle serves, so a check may miss a row one of them has in flight (NEGATION's case 3).
+ * The checks its own deletions make of the rows that reference a deleted one stay sites of conditions 2 and 3 where its
+ * login fences the deleted relation (fencedSite), but no READ COMMITTED role writes those rows: it only inserts them, so
+ * it checks the relation they reference, which is this unsealed check.
  */
 const referencingSeal = (
 	at: Installation,
@@ -1332,6 +1355,12 @@ const referencingSeal = (
 	}
 	if (at.writers.unwritten(relation)) {
 		return { kind: "unwritten" }
+	}
+	if (at.writers.direct(relation)) {
+		return {
+			kind: "unsealed",
+			detail: "a role writes it by direct SQL alone, whose transactions take no fence"
+		}
 	}
 	if (at.writers.insertOnly(relation)) {
 		return keyedSeal("point", facts, columns)
@@ -2170,15 +2199,12 @@ type Judgement<R, S, E> =
  * lowered. A lowered role keeps its READ COMMITTED form among the facts it judges others by, so each round reads every
  * fact the one before it read and every reason a round gave holds at the fixpoint.
  */
-const servedOf = <R, S, E>(
-	relations: ReadonlyMap<string, RelationFacts>,
-	standing: Standing<R, S, E>
-): Served => ({
+const servedOf = <R, S, E>(standing: Standing<R, S, E>): Served => ({
 	role: standing.candidate.role,
 	members:
 		standing.kind === "judged"
-			? writtenFacts(relations, standing.candidate.role)
-			: [...writtenFacts(relations, standing.candidate.role), ...standing.lowering.facts]
+			? writtenFacts(standing.candidate.role)
+			: [...writtenFacts(standing.candidate.role), ...standing.lowering.facts]
 })
 
 /** One role of a round, read once into its view: judged, with the reasons of its own conditions, or lowered. */
@@ -2211,7 +2237,7 @@ const round = <R, S, E>(
 	relations: ReadonlyMap<string, RelationFacts>,
 	standings: ReadonlyArray<Standing<R, S, E>>
 ): Round<R, S, E> => {
-	const forms = standings.map((standing) => ({ standing, served: servedOf(relations, standing) }))
+	const forms = standings.map((standing) => ({ standing, served: servedOf(standing) }))
 	const at = installationOf(
 		relations,
 		forms.map((f) => f.served)
