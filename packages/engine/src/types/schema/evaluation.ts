@@ -8,7 +8,10 @@ import type { Fact } from "#compiler/types/schema/relation.ts"
 import type { RelationOf, StatementsOf } from "#compiler/types/schema/schema.ts"
 import type { Selection } from "#compiler/types/schema/statements.ts"
 
-/** What a row is evaluated as a row of: a relation of S, stored or derived, or a selection of one, select(R, φ). */
+/**
+ * What a row is evaluated as a row of: a relation of S, stored, derived or closed, a roster among the closed ones, or a
+ * selection of one, select(R, φ).
+ */
 export type RowSource<S> = RelationOf<S> | Selection<RelationOf<S>>
 
 /** The relation a row source's rows are of: a selection's relation, or the relation itself. */

@@ -1,7 +1,8 @@
 /**
  * The host's evaluation of a row, rowEvaluator (program/evaluate.ts), against PostgreSQL 19rc2: what PostgreSQL computes
- * of a row of a relation, its generated field's value, each row check's verdict and whether a selection keeps it, the
- * host computes alike, and a row PostgreSQL's domains refuse the host refuses at a field they refuse.
+ * of a row of a relation, stored, derived or closed, its generated field's value, each row check's verdict and whether
+ * a selection keeps it, the host computes alike, and a row PostgreSQL's domains refuse the host refuses at a field they
+ * refuse.
  *
  * The box: a world of the NULL language (test/support/null/language.ts World), closed relations over two rosters with
  * some keys held by no row, so a closed read is NULL; two to six of its rows, each with a text of the pattern
@@ -9,13 +10,16 @@
  * drawn sort (every sort a generated field stores, a closed id, a set, a numeric and both floats among them); one to
  * three row checks; one to three checks of derived relations, in the vocabulary both a check and a query admit; and a
  * selection's predicate. Terms and predicates are the language's, two levels deep, over every operator family a check
- * admits. The schema states Gen, the rows' fields and the generated field g; All, under every row check; for each
- * check, a relation under it alone, named as All's; for each derived check, SrcJ, under none, and on a level above it
- * DJ, live, every row of SrcJ, under the check; and select(Gen, φ). It is installed through its first migration, and a
- * direct writer writes each row into each relation. For every row:
+ * admits; and a predicate in the closed vocabulary, over a row of Pick, the world's closed relation of a kind's
+ * payload, which holds every field of the rows but their set and their span. The schema states Gen, the rows' fields
+ * and the generated field g; All, under every row check; for each check, a relation under it alone, named as All's;
+ * for each derived check, SrcJ, under none, and on a level above it DJ, live, every row of SrcJ, under the check;
+ * Refined, a closed relation over a kind and the rows' refined fields; select(Gen, φ); and select(Pick, ψ). It is
+ * installed through its first migration, and a direct writer writes each row into each relation. For every row:
  *
  * - PostgreSQL's domains refuse it (pg_input_is_valid, and the insert's 23514 naming a domain's CHECK) exactly where the
- *   host's evaluation of it, as a row of every source, is DomainRefused, at a field a domain refuses;
+ *   host's evaluation of it, as a row of every source, Refined's among them, is DomainRefused, at a field a domain
+ *   refuses, and otherwise Refined's evaluation is a closed row's (below);
  * - otherwise the host's g is PostgreSQL's stored value of the column, or NULL where PostgreSQL refuses the row by g's
  *   NOT NULL (23502);
  * - each check's verdict is PostgreSQL's: a row of the relation under it alone is stored where it holds and refused by
@@ -27,11 +31,18 @@
  *   breaks, its predicate false or NULL, as the rule's violation query, WHERE (p) IS NOT TRUE, reads it;
  * - the selection keeps it exactly where `SELECT … WHERE φ` does, φ written in plain SQL from its meaning alone.
  *
+ * And for the world's closed relations, rosters among them, a closed relation being a row source as a stored one is:
+ *
+ * - each row of each is evaluated as a row of it with no generated field and no row check, which a closed relation
+ *   holds none of, and selected, as select(C, TRUE) keeps every row;
+ * - select(Pick, ψ) keeps a row of Pick exactly where `SELECT … FROM pick WHERE ψ` does, Pick's rows as values and ψ
+ *   in plain SQL from its meaning alone.
+ *
  * Oracle: PostgreSQL itself, its domains, its stored generated column, its CHECKs and its WHERE.
  *
  * Features: each domain's refusal and both at once, a generated value of every stored sort and a NULL one, each truth
- * of a check, of a derived check and of the selection, a row every check holds of, and a refusal among several broken
- * checks.
+ * of a check, of a derived check, of the selection and of the selection of Pick, a row every check holds of, and a
+ * refusal among several broken checks.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -112,6 +123,12 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 				original: '\t\tif (derived.desc.kind !== "derived") {',
 				replacement: '\t\tif (derived.desc.kind === "derived") {',
 				why: "No derived relation is read as a source, as before a live derived relation was, which the checked schema holds no analysis of."
+			},
+			{
+				file: "packages/engine/src/program/evaluate.ts",
+				original: "\t\tread.set(name, { fields: statedFields(closed.heading), checks: [] })",
+				replacement: "\t\tread.delete(name)",
+				why: "No closed relation is read as a source, as before: a row of a closed relation or of a selection of one, which RowSource admits, is a defect thrown, a row source of the schema not found."
 			}
 		]
 	})

@@ -4,7 +4,7 @@
  * (runtime/write/witness.ts judgeOf), over each value's one host form, its codec's (scalar/values/identity.ts
  * CarrierHost), and its one order (identity.ts compareValues).
  *
- * A row is evaluated as a row of a source: a relation of the schema, stored or derived, or a selection of one,
+ * A row is evaluated as a row of a source: a relation of the schema, stored, derived or closed, or a selection of one,
  * select(R, φ). A relation is its selection of every row, select(R, TRUE), so every source states one predicate, which
  * is read once, where the source is first evaluated. Its evaluation is what PostgreSQL computes of the row:
  * - each field PostgreSQL generates, its value, NULL as null, by the generation expression its column holds;
@@ -12,6 +12,11 @@
  *   it: a stored relation's CHECK, `CHECK ((φ) IS TRUE)` (the law model's native), and a derived relation's rule's
  *   violation query, `WHERE (φ) IS NOT TRUE` over the derived row (ir/desc.ts refusalCondition);
  * - whether the source selects it, its predicate's truth, NULL selecting no row, as `WHERE` reads it.
+ *
+ * A closed relation, a roster among them, is a source as the others are: its rows are facts of its heading, and a
+ * selection of it is a side a rule reads (a containment into it selects by its fields' literals, and one between closed
+ * relations by any predicate, which the migration's violation query reads). Its evaluation has no generated field and no
+ * row check, since closed.relation refuses a field grizzle writes and the schema a check over facts it fixes.
  *
  * Before any of it, PostgreSQL holds each value to its domain: a value outside its type's contract or pattern is
  * refused (DomainRefused), which a brand, unchecked, does not exclude. A row inside its domains meets every partial
@@ -149,12 +154,17 @@ const rowPredicate = (
 	return Result.mapError(lowered, refusedLowering)
 }
 
+/** A heading's columns as the judge reads a row's fields: each one the row states, none generated. */
+const statedFields = (heading: ReadonlyArray<HeadingColumn>): ReadonlyArray<JudgedField> =>
+	heading.map((c) => ({ name: c.name, type: c.type, writing: { kind: "caller" } }))
+
 /**
  * Every relation of the model as a source reads it, by name: a stored relation's fields as its table holds them and its
  * row checks by the CHECK each is installed as (decide.ts lawChecksOf, the witness's reading); a derived relation's,
  * live or materialized, its definition's heading as the checker types it (check/index.ts checkDefinition, the theory's
- * typing of a rule over it) and its row checks, each its predicate over the derived row (rowPredicate). The model
- * compiled, so each definition checks.
+ * typing of a rule over it) and its row checks, each its predicate over the derived row (rowPredicate); a closed
+ * relation's, rosters among them, its heading as a query matches it (check/schema.ts ClosedRelation) and no row check,
+ * which the schema refuses over the facts it fixes. The model compiled, so each definition checks.
  */
 const readRelations = (model: LawModel): ReadonlyMap<string, ReadRelation> => {
 	const read = new Map<string, ReadRelation>()
@@ -196,14 +206,10 @@ const readRelations = (model: LawModel): ReadonlyMap<string, ReadRelation> => {
 				predicate: rowPredicate(model, derived.name, heading, statement.predicate)
 			})
 		}
-		read.set(derived.name, {
-			fields: heading.map((c): JudgedField => ({
-				name: c.name,
-				type: c.type,
-				writing: { kind: "caller" }
-			})),
-			checks
-		})
+		read.set(derived.name, { fields: statedFields(heading), checks })
+	}
+	for (const [name, closed] of model.checked.closed) {
+		read.set(name, { fields: statedFields(closed.heading), checks: [] })
 	}
 	return read
 }

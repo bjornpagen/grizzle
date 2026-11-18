@@ -799,7 +799,8 @@ The command line's own refusals, by stage:
   derived relation's is its triggers' digest name: a direct writer or a test that matches a refusal's constraint takes it
   from there, never spelling it. To know on the host what PostgreSQL computes of a row, bind
   `const evaluate = rowEvaluator(schema)` once, which compiles (a `Result` over `CompileError`), then call
-  `evaluate(R, row)` or `evaluate(select(R, φ), row)`, the row typed off R without its generated fields: it is
+  `evaluate(R, row)` or `evaluate(select(R, φ), row)`, R any relation of the schema, stored, derived or closed, the
+  row typed off R without its generated fields: it is
   `DomainRefused` naming a field PostgreSQL's domain refuses, or `{ generated, checks, selected }`, each generated
   value (`null` for NULL), each row check's `"holds"` or `"breaks"` by name, NULL breaking a table's check and a derived
   relation's alike, and whether the source keeps the row, each item a `Result` whose error is

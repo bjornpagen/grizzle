@@ -3609,7 +3609,8 @@ throws `CompileError` for a rule that is no check of the schema.
 `rowEvaluator(schema)` compiles the schema once and gives the host's evaluation of a row: what PostgreSQL computes of
 it, by the one evaluator grizzle judges a refused write's rows by. Bind it once,
 `const evaluate = rowEvaluator(Accounts)`, a `Result` whose error is the schema's `CompileError`, then
-`evaluate(Account, row)`, or `evaluate(select(Account, (a) => a.units.gt(3)), row)` for a selection. The row is typed
+`evaluate(Account, row)`, or `evaluate(select(Account, (a) => a.units.gt(3)), row)` for a selection. A source is any
+relation of the schema, stored, derived or closed, a roster among the closed ones, or a selection of one. The row is typed
 off the relation: every field but the generated ones, each its codec's value, so a contract's value is its brand,
 `Units(5)`. PostgreSQL's domains refuse a value outside its contract or its pattern before anything else, which a brand
 does not check, and so does the evaluation: `{ _tag: "DomainRefused", field }`, a field a domain refuses. Otherwise it
@@ -3622,6 +3623,12 @@ is `{ generated, checks, selected }`, each item its own `Result`:
   TRUE` over the derived row;
 - `selected`: whether the source keeps the row, its predicate true, as `WHERE` reads it; a relation keeps every row,
   being `select(R, TRUE)`.
+
+A closed relation's row is evaluated as any other: its facts are rows of its heading, and a selection of it is a side a
+rule reads, by its fields' literals in a containment into it and by any predicate in one between closed relations. It
+has no generated field, since `closed.relation` refuses a field grizzle writes, and no check, since the schema refuses a
+row check over facts it fixes, so its evaluation is its domains and `selected`: `evaluate(PlanLimits, row)` of each of
+`PlanLimits.rows` gives no generated value, no verdict, and `selected` true.
 
 An item whose expression the host does not lower or evaluate, such as float arithmetic in a derived relation's check,
 is `{ _tag: "Unevaluated", why }`, the other items keeping theirs. Nothing is thrown, and nothing stands in for a value. Each source is read where it is first evaluated,

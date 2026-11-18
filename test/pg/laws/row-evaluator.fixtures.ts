@@ -1,15 +1,17 @@
 /**
  * The cases of row-evaluator.test.ts: a world of the NULL language (test/support/null/language.ts), rows of it each
- * with two refined values, a generated field, one to three row checks and a selection, drawn over the language; the
- * schema that states them; and one case's check, the host's rowEvaluator against PostgreSQL.
+ * with two refined values, a generated field, one to three row checks, a selection and a selection of the world's
+ * closed relation Pick, drawn over the language; the schema that states them; and one case's check, the host's
+ * rowEvaluator against PostgreSQL.
  */
 import { array, characterOf, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Result } from "#compiler/core/result.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
+	closed,
 	constraintNamesOf,
 	derived,
 	relation,
@@ -34,6 +36,7 @@ import {
 	fromStored,
 	itemFact,
 	itemFields,
+	kindOf,
 	storedField
 } from "#test/support/null/build.ts"
 import {
@@ -42,6 +45,8 @@ import {
 	itemColumns,
 	itemGen,
 	itemValues,
+	parseTruth,
+	pickTruthSql,
 	type Pred,
 	predGen,
 	selectedSql,
@@ -69,7 +74,8 @@ export interface EvalRow {
 
 /**
  * A case: its world, its rows, its generated field's sort and term, its row checks, the checks of its derived
- * relations, each in the rule vocabulary, and its selection's predicate.
+ * relations, each in the rule vocabulary, its selection's predicate, and the predicate of its selection of Pick, in the
+ * closed vocabulary, over Pick's row.
  */
 export interface EvalCase {
 	readonly world: World
@@ -78,9 +84,13 @@ export interface EvalCase {
 	readonly checks: NonEmptyReadonlyArray<Pred>
 	readonly rules: NonEmptyReadonlyArray<Pred>
 	readonly selection: Pred
+	readonly closedSelection: Pred
 }
 
-/** What a case reaches: each domain's refusal, each stored sort, a NULL generated value, and each truth of a check and of the selection. */
+/**
+ * What a case reaches: each domain's refusal, each stored sort, a NULL generated value, and each truth of a check, of
+ * the selection and of the selection of Pick.
+ */
 export type Feature =
 	| "a row its pattern refuses"
 	| "a row its contract refuses"
@@ -98,6 +108,9 @@ export type Feature =
 	| "a row selected"
 	| "a row its selection leaves at false"
 	| "a row its selection leaves at NULL"
+	| "a closed row selected"
+	| "a closed row its selection leaves at false"
+	| "a closed row its selection leaves at NULL"
 
 /** Every situation a witness must reach. */
 export const required: NonEmptyReadonlyArray<Feature> = [
@@ -124,7 +137,10 @@ export const required: NonEmptyReadonlyArray<Feature> = [
 	"a refusal naming one check of several a row breaks",
 	"a row selected",
 	"a row its selection leaves at false",
-	"a row its selection leaves at NULL"
+	"a row its selection leaves at NULL",
+	"a closed row selected",
+	"a closed row its selection leaves at false",
+	"a closed row its selection leaves at NULL"
 ]
 
 const Short = str.regex("^[a-c]{0,3}$")
@@ -146,7 +162,7 @@ const uGen: Gen<number> = weighted([
 
 /**
  * A case: a world, two to six rows, a generated field of a drawn sort, one to three row checks, one to three checks of
- * derived relations and a selection.
+ * derived relations, a selection and a selection of Pick.
  */
 export const caseGen: Gen<EvalCase> = (s) => {
 	const world = s.draw(worldGen)
@@ -163,7 +179,8 @@ export const caseGen: Gen<EvalCase> = (s) => {
 		generated: s.draw(storedFieldGen(world)),
 		checks: [s.draw(pred), ...s.draw(array(pred, { min: 0, max: 2 }))],
 		rules: [s.draw(rule), ...s.draw(array(rule, { min: 0, max: 2 }))],
-		selection: s.draw(pred)
+		selection: s.draw(pred),
+		closedSelection: s.draw(predGen(world, 2, "closed"))
 	}
 }
 
@@ -178,10 +195,11 @@ const slots = [
 ] as const
 
 /**
- * The schema of a case. Its first level holds its world's closed relations; Gen, the rows' fields and the generated
- * field g; All, the rows' fields under every row check; for each check, EachJ under it alone, named as All's; and SrcJ,
- * the rows' fields under none. Its second level holds DJ, live, every row of SrcJ, under the case's Jth derived check,
- * which a trigger on SrcJ holds. The selection is of Gen by the case's predicate.
+ * The schema of a case. Its first level holds its world's closed relations; Refined, a closed relation of no row over
+ * a kind and the rows' two refined fields; Gen, the rows' fields and the generated field g; All, the rows' fields under
+ * every row check; for each check, EachJ under it alone, named as All's; and SrcJ, the rows' fields under none. Its
+ * second level holds DJ, live, every row of SrcJ, under the case's Jth derived check, which a trigger on SrcJ holds.
+ * The selection is of Gen by the case's predicate, and the closed selection of Pick by its closed one.
  */
 const builtOf = (ec: EvalCase) => {
 	const c = closedOf(ec.world)
@@ -196,6 +214,12 @@ const builtOf = (ec: EvalCase) => {
 		[]
 	)
 	const All = relation("All", fields, ["id"])
+	const Refined = closed.relation(
+		"Refined",
+		{ kind: closedId(c.Kind), p: Short, u: Units },
+		["kind"],
+		[]
+	)
 	const holding = (pred: Pred) => (r: Readonly<Record<string, unknown>>) => buildPred(c, r, pred)
 	const [s0, s1, s2] = slots
 	const Each0 = relation(s0.each, fields, ["id"])
@@ -228,6 +252,7 @@ const builtOf = (ec: EvalCase) => {
 			c.Succ,
 			c.Next,
 			c.Allowed,
+			Refined,
 			Gen,
 			All,
 			Each0,
@@ -269,11 +294,13 @@ const builtOf = (ec: EvalCase) => {
 	)
 	return {
 		c,
+		Refined,
 		Gen,
 		All,
 		checks,
 		rules,
 		selected: selectBuilder(Gen, holding(ec.selection)),
+		pickSelected: selectBuilder(c.Pick, holding(ec.closedSelection)),
 		declared: schema.extend(
 			level,
 			"RowEvaluatorDerived",
@@ -358,9 +385,28 @@ const selectionNote = (truth: Truth): Feature =>
 			? "a row its selection leaves at false"
 			: "a row its selection leaves at NULL"
 
+const closedSelectionNote = (truth: Truth): Feature =>
+	truth === true
+		? "a closed row selected"
+		: truth === false
+			? "a closed row its selection leaves at false"
+			: "a closed row its selection leaves at NULL"
+
+/**
+ * The evaluation of a row of a closed relation, a roster among them, as a row of that relation, its domains admitting
+ * it: no generated field and no row check, which a closed relation holds none of, and selected, as a relation keeps
+ * every row, being select(C, TRUE).
+ */
+const closedEvaluation = {
+	ok: true,
+	value: { generated: {}, checks: {}, selected: { ok: true, value: true } }
+} as const
+
 /**
  * One case: the schema compiled by rowEvaluator and installed through its first migration; each row evaluated by the
- * host as a row of Gen, of All, of each EachJ and of the selection, and written by a direct writer into each relation.
+ * host as a row of Gen, of All, of each EachJ, of each DJ, of Refined and of the selection, and written by a direct
+ * writer into each relation; each row of the world's closed relations, rosters among them, evaluated as a row of its
+ * relation; and each row of Pick as a row of the closed selection, held to PostgreSQL's WHERE over Pick.
  */
 export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 	Effect.gen(function* () {
@@ -408,6 +454,11 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 			const ofGen = evaluate(Gen, fact)
 			const ofAll = evaluate(All, fact)
 			const ofSelection = evaluate(built.selected, fact)
+			const ofRefined = evaluate(built.Refined, {
+				kind: kindOf(row.item.kind),
+				p: row.p,
+				u: Units(row.u)
+			})
 			const judged = Arr.map(built.checks, (check) => ({
 				...check,
 				of: evaluate(check.Each, fact)
@@ -431,6 +482,7 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 					[ofGen, "Gen"],
 					[ofAll, "All"],
 					[ofSelection, "the selection"],
+					[ofRefined, "Refined"],
 					...Arr.map(judged, (j) => [j.of, `Each of ${j.name}`] as const),
 					...Arr.map(ruled, (j) => [j.of, j.D.name] as const)
 				] as const) {
@@ -459,6 +511,11 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 			if (!ofGen.ok || !ofAll.ok || !ofSelection.ok) {
 				return assert.fail(`the host admits ${at}, inside its domains`)
 			}
+			assert.deepEqual(
+				ofRefined,
+				closedEvaluation,
+				`the host evaluates ${at} as a row of the closed Refined, inside its domains`
+			)
 			const g = evaluatedItem(ofGen.value.generated.g, `g at ${at}`)
 			const stored = yield* insert(Gen, id, row)
 			if (g === null) {
@@ -571,4 +628,46 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 				`the host selects the rows PostgreSQL's WHERE keeps, of ${Formatter.format(ec)}`
 			)
 		}
+		const { c } = built
+		const closedRows = [
+			...Arr.map(c.Kind.handles, (id) => evaluate(c.Kind, { id })),
+			...Arr.map(c.Flag.handles, (id) => evaluate(c.Flag, { id })),
+			...Arr.map(c.Pick.rows, (row) => evaluate(c.Pick, row)),
+			...Arr.map(c.Wt.rows, (row) => evaluate(c.Wt, row)),
+			...Arr.map(c.Succ.rows, (row) => evaluate(c.Succ, row)),
+			...Arr.map(c.Next.rows, (row) => evaluate(c.Next, row)),
+			...Arr.map(c.Allowed.rows, (row) => evaluate(c.Allowed, row))
+		]
+		for (const evaluation of closedRows) {
+			assert.deepEqual(
+				evaluation,
+				closedEvaluation,
+				`the host evaluates a row of a closed relation as a row of it, of ${Formatter.format(ec.world)}`
+			)
+		}
+		const hostPicked = Rec.fromEntries(
+			Arr.map(c.Pick.rows, (row) => {
+				const evaluation = evaluate(built.pickSelected, row)
+				return evaluation.ok
+					? ([
+							row.kind,
+							evaluatedItem(evaluation.value.selected, `the closed selection at ${row.kind}`)
+						] as const)
+					: assert.fail(`the host admits Pick's row ${row.kind}: ${Formatter.format(evaluation)}`)
+			})
+		)
+		const truths = yield* session.values(pickTruthSql(ec.world, ec.closedSelection), [])
+		assert.deepEqual(
+			hostPicked,
+			Rec.fromEntries(
+				Arr.map(truths, ([code, truth]) => {
+					k.note(closedSelectionNote(parseTruth(truth)))
+					return [
+						kindOf(Number(textOf(code, "a Pick row's kind"))),
+						parseTruth(truth) === true
+					] as const
+				})
+			),
+			`the host selects the rows of Pick PostgreSQL's WHERE keeps, of ${Formatter.format(ec)}`
+		)
 	})
