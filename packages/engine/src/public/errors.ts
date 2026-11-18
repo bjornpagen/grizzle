@@ -25,5 +25,6 @@ export {
 	type RoleAccess
 } from "#compiler/core/errors.ts"
 export type { ConstraintName } from "#compiler/core/ids.ts"
+export type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 export type { SourceLoc } from "#compiler/core/loc.ts"
 export { Sqlstate } from "#compiler/core/sqlstate.ts"

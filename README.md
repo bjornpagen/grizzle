@@ -3636,6 +3636,35 @@ carrier's is the codec's own, which PostgreSQL's input function reads as the val
 `numeric_out` text, a double's shortest round-trip decimal, `true` or `false`, a date's ISO 8601 text, a text itself.
 Key a set or a map of rows by these texts, and never by `String()` of a host value. A bytes field is a type error.
 
+`insertPreview(schema)` compiles the schema once and gives the rows `ChangeSet.empty(schema).insertAll(rows)` stores
+as the first write of an installation holding no row, closed relations aside, with nothing sent: bind
+`const preview = insertPreview(BoxOffice)`, a `Result` whose error is the schema's `CompileError`, then call
+`preview(rows)`. `rows` is insertAll's record over every top-level relation with every serial field stated
+(`PreviewInputOf<S>`): a preview states every value, and PostgreSQL draws nothing in it. Each call is the write's own
+binding of its rows, the one every application of it runs before any SQL, so every count, index, interval, fold end
+and copy the write draws, a fresh counted group's whole among them, is the preview's. It is a `Result` of
+`PreviewRows<S>`: every writable relation by name, an empty array where the write stores none of it, each row every
+field the relation stores but those PostgreSQL generates, each its codec's host value, a closed id its handle, so
+`rowEvaluator(schema)` evaluates a row as it is, its generated fields and its checks in one place. A relation's rows
+are a set, each once, in no order that means anything. Or it is the refusal the write meets before any SQL, a tagged
+value, never thrown:
+
+- `InputRefused`: `failure`, the `EncodingFailure` of a value outside its type or a fact of another shape, a serial
+  field left out among them, or the `MessageBound` or `LiteralBound` of an input past what one statement carries, which
+  the write meets as `input`;
+- `KeyConflict`: two rows of one relation at one key that differ, `law` the key's and `witness` its values, as the
+  write's `refused` names them;
+- `GeneratedNull`: a generated field with no value at a row a family's fill reads it of, `law` the field's and
+  `witness` the row's key;
+- `OwnerAbsent`: a counted family's member whose owner the call does not insert, which no installation holding no row
+  stores, `law` the family's as `lawsOf` lists it, so `sameLaw` reads it.
+
+A law PostgreSQL judges once the statements run, a check, a containment, a rule over a query, a generated field's NOT
+NULL where no fill reads it, refuses no preview: its rows are the rows the write would send, which `rowEvaluator` and
+the laws judge. A code is a storage detail of one installation: a preview binds under its rosters' declared order and
+gives handles alone, so its rows are the same whatever codes an installation holds
+(test/pg/write/preview/preview.test.ts holds them to a fresh installation's and to one migrated past a dropped handle).
+
 **Errors**: `DbLayer.make` and `Db.open` fail with `OpenError` in the Effect's error channel; every call of a member
 fails with its `CallError`, by kind:
 

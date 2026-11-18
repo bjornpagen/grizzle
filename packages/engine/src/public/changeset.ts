@@ -4,7 +4,8 @@ import { changeSets } from "#compiler/write/changeset/value.ts"
 
 /**
  * Public barrel: ChangeSet, Delta, the rows a caller writes (Written, Addition, AdditionIn), outcomes, witnesses, the
- * laws an outcome names. packages/grizzle/src/index.ts re-exports it.
+ * laws an outcome names, and what an insertion preview reads and gives (PreviewInputOf, InsertPreview, PreviewRows and
+ * the PreviewRefusal arms), whose function, insertPreview, is the shell's (packages/grizzle/src/adapter/public/preview.ts). packages/grizzle/src/index.ts re-exports it.
  *
  * ChangeSet is the sealed canonical value of packages/engine/src/write/changeset, built under its public signature
  * (types/changeset ChangeSetConstructor): the runtime records the Description and the inputs and holds the builders'
@@ -39,6 +40,7 @@ export type {
 	LawSide,
 	Member,
 	OwnLaw,
+	PreviewInputOf,
 	Refused,
 	RefusedLaw,
 	RefusingObject,
@@ -47,6 +49,11 @@ export type {
 	Written
 } from "#compiler/types/changeset/changeset.ts"
 export type { GeneratedLawId, LawId } from "#compiler/core/ids.ts"
+export type {
+	InsertPreview,
+	PreviewRefusal,
+	PreviewRows
+} from "#compiler/types/changeset/preview.ts"
 
 /**
  * sameLaw(a, b): whether two laws, as an `invariant-rejected` outcome or lawsOf names them, are one law of a schema:

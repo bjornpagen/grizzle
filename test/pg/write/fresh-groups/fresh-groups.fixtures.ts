@@ -177,7 +177,7 @@ const caseOf =
 	}
 
 /** A case: a drawn schema (`freshSpecGen`) and an instance of it. */
-const freshCases: Gen<FreshCase> = caseOf(freshSpecGen)
+export const freshCases: Gen<FreshCase> = caseOf(freshSpecGen)
 
 /**
  * A schema whose counted member R2 is nested in R1's ordered family, R0 its counted family's owner, so the host draws

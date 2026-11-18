@@ -46,6 +46,8 @@ export {
 	type RoleChanges
 } from "#compiler/program/workload/change.ts"
 export { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
+export { insertPreviewOver } from "#compiler/program/preview.ts"
+export type { InsertPreview } from "#compiler/types/changeset/preview.ts"
 export type { WorkloadProgram } from "#compiler/program/workload/value.ts"
 export type { WriteNames } from "#compiler/write/insert/statement.ts"
 export { type GroupData, type MemberFacts, memberSlots } from "#compiler/runtime/write/normalize.ts"

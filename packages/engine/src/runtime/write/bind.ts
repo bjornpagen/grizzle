@@ -9,10 +9,11 @@ import {
 	parameterNormalizer,
 	positionalColumns
 } from "#compiler/codec/recordset.ts"
-import { carrierSpecOf, paramEncoder } from "#compiler/codec/scalar.ts"
+import { admittedParam, carrierSpecOf, paramEncoder } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { isIterable } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
@@ -35,7 +36,7 @@ import type {
 	JudgedRelation,
 	OwnedColumn
 } from "#compiler/runtime/write/binding.ts"
-import { type Owner, rowTexts } from "#compiler/runtime/write/draw.ts"
+import { type MemberKey, type Owner, rowTexts } from "#compiler/runtime/write/draw.ts"
 import {
 	type ColumnKey,
 	fieldKey,
@@ -100,6 +101,7 @@ import {
 import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import { admitted, compareValues } from "#compiler/scalar/values/identity.ts"
 import type { OwnLaw, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { SingleAct } from "#compiler/write/frontend/compile.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
 
 interface BindInputs {
@@ -138,6 +140,39 @@ export interface BoundWrite {
 	/** The rows the ChangeSet states as the write fills them (runtime/write/witness.ts StatedRows), which a refusal of
 	 * one of its statements judges. */
 	readonly stated: StatedRows
+	/** The rows the write's statements insert, as this application filled them before any SQL, by stratum
+	 * (`InsertedStratum`), each read where it is asked for. */
+	readonly inserted: () => ReadonlyArray<InsertedStratum>
+}
+
+/**
+ * A row one stratum's statements insert, whole as the host filled it (BoundWrite `inserted`): `values`, every column the
+ * host gives it, by key (keys.ts Values), its caller's fields, the counts and ends the stratum's appends draw on an
+ * owner, the fields a nesting's walk draws, each counted family's columns where a fresh fill drew its group, and the law
+ * columns among them; and what the SQL gives it instead. `scanned` is each counted family it is a member of whose
+ * group no fresh fill drew, the stratum inserting none of its owner, so the family's statement draws its columns past
+ * the group's stored members (write/family/additions.ts); `serial` is each serial field its insert leaves out, which
+ * PostgreSQL draws, its classed input's generated slot's (frontend/compile.ts EnumeratedInput "classed"). A row the host
+ * filled whole has neither. A group a fresh fill drew that holds stored members is the scan's as the statement runs
+ * (additions.ts HostDrawn), so where no row is stored, as in a fresh installation, a row the host filled whole is the
+ * row the write stores.
+ */
+export interface InsertedRow {
+	readonly values: Values
+	readonly scanned: ReadonlyArray<CountedFamily>
+	readonly serial: ReadonlyArray<string>
+}
+
+/**
+ * The rows one stratum's statements insert (BoundWrite `inserted`), by relation, each row once by its primary key: each
+ * insert slot's facts stated in their relation's own words, an owner's with the counts and ends its fresh fill drew
+ * (`slotFacts`), its nested writes' rows (`nestedRowsOf`), and on each counted member the columns of each family a
+ * fresh fill drew its group of (`freshMembersOf`), a member of two such families holding both. A query entry's facts,
+ * stated in the entry's words, are rows of its target only as the entry's statement maps them, and none of these.
+ */
+export interface InsertedStratum {
+	readonly stratum: StratumAt
+	readonly rows: ReadonlyMap<StoredRelationName, ReadonlyArray<InsertedRow>>
 }
 
 /**
@@ -614,22 +649,20 @@ export const bindWrite = (
 	})
 	/**
 	 * Every stratum's nested rows of a relation a statement of the flight sends, by stratum and relation, as each
-	 * statement that sends them reads them (staged.ts NestedSource): built once for the write, so no statement builds,
-	 * writes or measures the cells or a column another statement sends.
+	 * statement that sends them reads them (staged.ts NestedSource): built once for the write, where a statement first
+	 * sends them (`sourceOf`), so no statement builds, writes or measures the cells or a column another statement sends,
+	 * and a binding none of whose statements is sent, an insertion preview's (program/preview.ts), encodes none.
 	 */
 	const sources = new TupleMap<readonly [StratumAt, StoredRelationName, string], NestedSource>()
-	for (const statement of flight.statements) {
-		for (const slot of form(statement).paramSlots) {
-			if (
-				slot.kind === "nestedRows" &&
-				!sources.has([slot.stratum, slot.relation, filledRowsKey(slot.rows)])
-			) {
-				sources.set(
-					[slot.stratum, slot.relation, filledRowsKey(slot.rows)],
-					nestedSource(filledCellsOf(nestedRowsOf, slot.stratum, slot.relation, slot.rows))
-				)
-			}
+	const sourceOf = (slot: Extract<WriteSlot, { readonly kind: "nestedRows" }>): NestedSource => {
+		const key = [slot.stratum, slot.relation, filledRowsKey(slot.rows)] as const
+		const built = sources.get(key)
+		if (built !== undefined) {
+			return built
 		}
+		const source = nestedSource(filledCellsOf(nestedRowsOf, slot.stratum, slot.relation, slot.rows))
+		sources.set(key, source)
+		return source
 	}
 	/** A member slot's facts as its statements send them: an owner slot's with the counts and ends its fresh fill drew
 	 * (`freshOwners`), any other's normal facts. */
@@ -637,20 +670,12 @@ export const bindWrite = (
 	/**
 	 * The executions under `transport` of a statement: its one, or, where its nested rows' arrays are past the
 	 * transport's message, its staged form's (`Chunks`); each placeholder of nested rows sends its source as the write
-	 * built it (`sources`).
+	 * built it (`sourceOf`).
 	 */
 	const chunks: Chunks = (statement, transport) => {
 		const sent = form(statement)
 		const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>
-			slot.kind === "nestedRows"
-				? {
-						part: slot.part,
-						source: defined(
-							sources.get([slot.stratum, slot.relation, filledRowsKey(slot.rows)]),
-							`the nested rows of ${slot.relation} in stratum ${slot.stratum}, which a statement of the flight sends`
-						)
-					}
-				: undefined
+			slot.kind === "nestedRows" ? { part: slot.part, source: sourceOf(slot) } : undefined
 		)
 		const executions = executionsOf(
 			{ text: sent.text, staged: statement.staged, nested },
@@ -669,14 +694,142 @@ export const bindWrite = (
 		const refused = executions.error
 		return Result.err(refused._tag === "NestedRowBound" ? nestedRowBound(refused) : refused)
 	}
+	/** A row's primary key texts in `relation`, which its rows are a set by, as a nested row's key is (NestedRow `key`). */
+	const keyOf = (relation: StoredRelationName, filled: Values): MemberKey =>
+		mapNonEmpty(judgedOf(relation).layout.key, (c) =>
+			admittedParam(carrierSpecOf(c.type, codes), filled.get(c.key))
+		)
+	/** Each stratum's inserted rows (`InsertedStratum`), from the sources its statements send. */
+	const inserted = (): ReadonlyArray<InsertedStratum> =>
+		[...new Set([...binding.groups.map((g) => g.stratum), ...binding.nested.map((n) => n.stratum)])]
+			.toSorted((a, b) => a - b)
+			.map((stratum): InsertedStratum => {
+				/** Each relation's rows whose key the host holds, by it, and those whose serial fields PostgreSQL draws, as
+				 * their slot states them: their key may be among those fields, so no other source's row is theirs. */
+				const keyed = new Map<StoredRelationName, TupleMap<MemberKey, KeyedRow>>()
+				const drawnBySql = new Map<StoredRelationName, Array<InsertedRow>>()
+				const add = (relation: StoredRelationName, filled: Values): void => {
+					const of = keyed.get(relation) ?? new TupleMap<MemberKey, KeyedRow>()
+					keyed.set(relation, of)
+					const key = keyOf(relation, filled)
+					const row = of.get(key)
+					if (row === undefined) {
+						of.set(key, { values: new Map(filled), scanned: [] })
+						return
+					}
+					for (const [column, value] of filled) {
+						row.values.set(column, value)
+					}
+				}
+				const addFacts = (relation: StoredRelationName, slot: ParamId): void => {
+					for (const fact of slotFacts(slot).facts) {
+						add(relation, valuesOfFact(fact))
+					}
+				}
+				for (const group of binding.groups) {
+					if (group.stratum !== stratum || group.facts.stated.kind !== "relation") {
+						continue
+					}
+					for (const input of group.inputs) {
+						switch (input.kind) {
+							case "single":
+								if (insertsRows(input.act)) {
+									addFacts(group.relation, input.slot.slot)
+								}
+								break
+							case "classed": {
+								addFacts(group.relation, input.complete.slot)
+								const of = drawnBySql.get(group.relation) ?? []
+								drawnBySql.set(group.relation, of)
+								for (const fact of slotFacts(input.generated.slot).facts) {
+									of.push({ values: valuesOfFact(fact), scanned: [], serial: input.serial })
+								}
+								break
+							}
+							case "nested":
+								addFacts(group.relation, input.slot.slot)
+								break
+						}
+					}
+				}
+				for (const n of binding.nested) {
+					if (n.stratum === stratum) {
+						for (const relation of n.layouts.keys()) {
+							for (const row of nestedRowsOf(stratum, relation)) {
+								add(relation, row.values)
+							}
+						}
+					}
+				}
+				for (const s of binding.fresh) {
+					if (s.stratum !== stratum) {
+						continue
+					}
+					for (const f of s.counted) {
+						/** The columns the family's statement takes of a member it drew, its fresh layout's beside its key: a
+						 * member's own fields, its counts and ends among them where it owns a family, are its other sources'. */
+						const { columns } = freshLayoutAt(stratum, familyKey(f.id))
+						const drawn = new TupleMap<MemberKey, Values>()
+						for (const member of freshMembersOf(stratum, familyKey(f.id))) {
+							drawn.set(keyOf(f.member, member), member)
+						}
+						for (const [key, row] of keyed.get(f.member) ?? []) {
+							const member = drawn.get(key)
+							if (member === undefined) {
+								row.scanned.push(f)
+								continue
+							}
+							for (const column of columns) {
+								row.values.set(column.key, member.get(column.key))
+							}
+						}
+					}
+				}
+				const relations = new Set([...keyed.keys(), ...drawnBySql.keys()])
+				return {
+					stratum,
+					rows: new Map(
+						[...relations].map((relation) => [
+							relation,
+							[
+								...[...(keyed.get(relation)?.values() ?? [])].map((row): InsertedRow => ({
+									values: row.values,
+									scanned: row.scanned,
+									serial: []
+								})),
+								...(drawnBySql.get(relation) ?? [])
+							]
+						])
+					)
+				}
+			})
 	return Result.ok({
 		kind: "bound",
 		skip,
 		form,
 		values,
 		chunks,
-		stated: statedRowsOf({ kind: "drawn", drawn: (slot) => fresh.get(slot) })
+		stated: statedRowsOf({ kind: "drawn", drawn: (slot) => fresh.get(slot) }),
+		inserted
 	})
+}
+
+/** A row `inserted` keys by its primary key, as it builds it: its columns, and the families that scan it, still growing. */
+interface KeyedRow {
+	readonly values: Map<ColumnKey, unknown>
+	readonly scanned: Array<CountedFamily>
+}
+
+/** Whether a single input's act inserts rows: an insert, never a delete, a put or a retirement. */
+const insertsRows = (act: SingleAct): boolean => {
+	switch (act.op) {
+		case "insert":
+			return true
+		case "delete":
+		case "put":
+		case "retire":
+			return false
+	}
 }
 
 /** What a statement of `step` does, as its executions are read (write/program/staged.ts ExecutionPart). */

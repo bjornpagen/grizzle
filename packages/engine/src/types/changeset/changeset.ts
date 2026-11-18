@@ -468,6 +468,39 @@ export type InsertAllRowsOf<S extends AnySchema> = {
 	readonly [K in InsertableNameOf<S>]: ReadonlyArray<AdditionIn<S, InsertedRelation<S, K>>>
 }
 
+/**
+ * The record an insertion preview reads (insertPreview): InsertAllRowsOf's, each addition stating every serial field
+ * of its relation, so PostgreSQL draws nothing of a row it previews. A schema none of whose top-level relations holds a
+ * serial field reads InsertAllRowsOf<S> itself, so a record typed by it is the preview's with no comparison of its
+ * relations' additions; any other reads StatedRowsOf<S>.
+ */
+export type PreviewInputOf<S extends AnySchema> = [
+	Extract<FieldTypesOf<RelationOf<S>>, { readonly writing: "serial" }>
+] extends [never]
+	? InsertAllRowsOf<S>
+	: StatedRowsOf<S>
+
+/**
+ * The field descriptors of R, over the union of a schema's relations each distinct descriptor once, which
+ * PreviewInputOf tells a serial one among by its writing alone (types/fields SerialField `writing`).
+ */
+type FieldTypesOf<R> = R extends { readonly fields: object }
+	? R["fields"][keyof R["fields"]]
+	: never
+
+/** InsertAllRowsOf<S> with every serial field of each relation stated (StatedAddition). */
+type StatedRowsOf<S extends AnySchema> = {
+	readonly [K in InsertableNameOf<S>]: ReadonlyArray<StatedAddition<S, InsertedRelation<S, K>>>
+}
+
+/**
+ * R's addition in S with every serial field of R stated: AdditionIn<S, R> itself where R has none, else with each serial
+ * field required, which closes the addition's arm that leaves them to PostgreSQL's draw (Addition).
+ */
+type StatedAddition<S, R> = [SerialFieldsOf<R>] extends [never]
+	? AdditionIn<S, R>
+	: AdditionIn<S, R> & { readonly [F in SerialFieldsOf<R> & keyof Fact<R>]-?: Fact<R>[F] }
+
 /** What insert requires of the relation it writes, as one type: unknown where it writes R. */
 type InsertChecks<S, R, Done extends Strata, Last extends Stratum> = WritableCheck<S, R> &
 	NotSequenceMember<S, R> &

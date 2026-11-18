@@ -79,6 +79,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/values/**/*.test.ts",
 	"test/pg/world-model/inductive.test.ts",
 	"test/pg/write/fresh-groups/fresh-groups.test.ts",
+	"test/pg/write/preview/preview.test.ts",
 	"test/pg/write/oracle/oracle.test.ts",
 	"test/types/**/*.test.ts",
 	"test/unit/adapter/**/*.test.ts",
