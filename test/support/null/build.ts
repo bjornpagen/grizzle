@@ -394,7 +394,7 @@ const maskOfHandles = (handles: Iterable<string>): number =>
 	Arr.reduce(Arr.fromIterable(handles), 0, (mask, handle) => mask | (1 << codeOfHandle(handle)))
 
 /** A host value as the model's, by the sort it was evaluated at; NULL as null. */
-export const fromHost = (sort: Sort, value: SqlValue): Val | null => {
+export const fromHost = (sort: Sort, value: unknown): Val | null => {
 	if (value === sqlNull) {
 		return null
 	}

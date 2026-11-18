@@ -1498,7 +1498,8 @@ const maskBits = (mask: number, flags: number): string =>
 const codesBits = (codes: ReadonlyArray<number>, flags: number): string =>
 	maskBits(maskOf(codes), flags)
 
-const sqlText = (text: string): string => `'${text}'::text`
+/** A text in plain SQL: the language's texts hold no quote. */
+export const sqlText = (text: string): string => `'${text}'::text`
 
 /** A literal in plain SQL. */
 const literalSql = (w: World, literal: Literal | ListLiteral): string => {
@@ -1740,19 +1741,53 @@ const valuesCte = (
 		? `${name}(${columns}) AS (SELECT ${empty} WHERE false)`
 		: `${name}(${columns}) AS (VALUES ${Arr.join(rows, ", ")})`
 
-/** A row's values in plain SQL, in the order worldSql's `items` lists its columns. */
-const itemSql = (w: World, id: number, item: Item): string =>
-	`(${id}, ${item.kind}, ${item.flag}, B'${codesBits(item.flags, w.flags)}', ${item.n}, ${item.m}, (${tenthsText(item.d)})::numeric, ${sqlText(item.t)}, ${item.b ? "true" : "false"}, ${floatSql(item.x, "f8")}, ${floatSql(item.y, "f4")}, int4range(${item.s[0]}, ${item.s[1]}))`
+/** A row's columns, in the order worldSql's `items` lists them: its id and the fields of an Item (build.ts itemFields). */
+export const itemColumns = [
+	"id",
+	"kind",
+	"flag",
+	"flags",
+	"n",
+	"m",
+	"d",
+	"t",
+	"b",
+	"x",
+	"y",
+	"s"
+] as const
+export type ItemColumn = (typeof itemColumns)[number]
 
-/**
- * One SELECT that evaluates `columns` at every row of `rows`, each row `r` under its id: the world's closed relations
- * as values (pick, wt, nxt), each column a text PostgreSQL prints (answerSql, truthSql).
- */
-export const worldSql = (
+/** A row's values in plain SQL, each by its column. */
+export const itemValues = (
 	w: World,
-	rows: ReadonlyArray<readonly [id: number, item: Item]>,
-	columns: NonEmptyReadonlyArray<string>
-): string => {
+	id: number,
+	item: Item
+): Readonly<Record<ItemColumn, string>> => ({
+	id: `${id}`,
+	kind: `${item.kind}`,
+	flag: `${item.flag}`,
+	flags: `B'${codesBits(item.flags, w.flags)}'`,
+	n: `${item.n}`,
+	m: `${item.m}`,
+	d: `(${tenthsText(item.d)})::numeric`,
+	t: sqlText(item.t),
+	b: item.b ? "true" : "false",
+	x: floatSql(item.x, "f8"),
+	y: floatSql(item.y, "f4"),
+	s: `int4range(${item.s[0]}, ${item.s[1]})`
+})
+
+const itemSql = (w: World, id: number, item: Item): string => {
+	const values = itemValues(w, id, item)
+	return `(${Arr.join(
+		Arr.map(itemColumns, (column) => values[column]),
+		", "
+	)})`
+}
+
+/** The world's closed relations as values (pick, wt, succ, nxt) and `rows` as items, each row under its id. */
+const worldWith = (w: World, rows: ReadonlyArray<readonly [id: number, item: Item]>): string => {
 	const pick = valuesCte(
 		"pick",
 		"kind, flag, n, d, t, b, x, y",
@@ -1785,12 +1820,31 @@ export const worldSql = (
 	)
 	const items = valuesCte(
 		"items",
-		"id, kind, flag, flags, n, m, d, t, b, x, y, s",
+		Arr.join(itemColumns, ", "),
 		Arr.map(rows, ([id, item]) => itemSql(w, id, item)),
 		`0, 0, 0, B'${maskBits(0, w.flags)}', 0, 0, 0::numeric, ''::text, false, 0::float8, 0::real, int4range(0, 1)`
 	)
-	return `WITH ${pick}, ${wt}, ${succ}, ${nxt}, ${items} SELECT r.id::text, ${Arr.join(columns, ", ")} FROM items r ORDER BY r.id`
+	return `WITH ${pick}, ${wt}, ${succ}, ${nxt}, ${items}`
 }
+
+/**
+ * One SELECT that evaluates `columns` at every row of `rows`, each row `r` under its id: the world's closed relations
+ * as values (pick, wt, nxt), each column a text PostgreSQL prints (answerSql, truthSql).
+ */
+export const worldSql = (
+	w: World,
+	rows: ReadonlyArray<readonly [id: number, item: Item]>,
+	columns: NonEmptyReadonlyArray<string>
+): string =>
+	`${worldWith(w, rows)} SELECT r.id::text, ${Arr.join(columns, ", ")} FROM items r ORDER BY r.id`
+
+/** One SELECT of the ids of the rows of `rows` that `WHERE` a predicate keeps: those it is true at, in order. */
+export const selectedSql = (
+	w: World,
+	rows: ReadonlyArray<readonly [id: number, item: Item]>,
+	pred: Pred
+): string =>
+	`${worldWith(w, rows)} SELECT r.id::text FROM items r WHERE ${predSql(w, pred)} ORDER BY r.id`
 
 /** The world an aim draws under: its last kind held by no Pick row, so a read at it is NULL at every row. */
 export const aimedWorld = (w: World): World => ({

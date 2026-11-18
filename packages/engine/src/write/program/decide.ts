@@ -27,6 +27,7 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import type {
 	Binding,
@@ -554,7 +555,7 @@ const levels = (t: ScalarType): ReadonlyArray<ScalarType> => {
 }
 
 /** A written relation's field as the witness reads it (witness.ts WitnessField). */
-const witnessField = (f: WrittenRelation["fields"][number]): WitnessField => ({
+export const witnessField = (f: RelationInfo["fields"][number]): WitnessField => ({
 	name: f.name,
 	column: f.column,
 	type: f.type,
@@ -566,19 +567,20 @@ const witnessField = (f: WrittenRelation["fields"][number]): WitnessField => ({
 
 /**
  * Every CHECK of `relation`'s table that states laws (witness.ts LawCheckData): its row CHECKs and its containments into
- * closed relations, the law model's, each the native object the model names it by, and its spans' endpoint CHECKs of a
- * contract, which state the contract's law.
+ * closed relations, the law model's `laws`, each the native object the model names it by, and its spans' endpoint
+ * CHECKs of a contract, which state the contract's law. The one reading of a stored relation's CHECKs, a write's
+ * witness's and a public row evaluation's (program/evaluate.ts).
  */
-const lawChecksOf = (
-	frontend: WriteFrontend,
-	relation: WrittenRelation
+export const lawChecksOf = (
+	laws: LawModel,
+	relation: Pick<RelationInfo, "ident" | "name" | "fields">
 ): ReadonlyArray<LawCheckData> => {
-	const model = frontend.laws.constraints.flatMap((c): ReadonlyArray<LawCheckData> => {
+	const model = laws.constraints.flatMap((c): ReadonlyArray<LawCheckData> => {
 		if (c.kind !== "constraint" || c.owner !== relation.ident) {
 			return []
 		}
 		const native = defined(
-			frontend.laws.natives.find(
+			laws.natives.find(
 				(n) =>
 					n.namespace === "constraint" && n.owner === c.owner && identifierOf(n.named) === c.name
 			),
@@ -637,7 +639,7 @@ const lawChecksOf = (
 			const law =
 				contract === undefined
 					? undefined
-					: frontend.laws.natives
+					: laws.natives
 							.flatMap((n) =>
 								n.namespace === "domain" && n.object.name === contract.name ? n.object.lawIds : []
 							)
@@ -690,7 +692,7 @@ const witnessTable = (frontend: WriteFrontend, relation: WrittenRelation): Witne
 					)
 				: []
 		),
-		checks: lawChecksOf(frontend, relation)
+		checks: lawChecksOf(frontend.laws, relation)
 	}
 }
 

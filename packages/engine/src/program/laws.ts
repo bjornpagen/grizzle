@@ -1,5 +1,6 @@
 import { generatedFieldLaws, lawDescription } from "#compiler/analysis/theory/description.ts"
 import { canonicalEquals, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -40,17 +41,22 @@ interface SchemaLaws {
 }
 
 /**
- * The law model of a schema built by schema(...) or schema.extend, compiled for `operation`: CompileError, thrown, for
- * any other value, a role's included, and for a schema that does not compile.
+ * The law model of a schema built by schema(...) or schema.extend, compiled for `operation`, every slice of it planned:
+ * CompileError for any other value, a role's included, and for a schema that does not compile.
  */
-const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
-	orThrow(
-		Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), (built) =>
-			Result.flatMap(ownBuilt(built), (owned) =>
-				compileLaws(owned, everySlice(owned), { kind: "planned" })
-			)
+export const lawModel = (
+	schema: AnySchema,
+	operation: string
+): Result.Result<LawModel, CompileError> =>
+	Result.flatMap(parseBuiltSchema(schema, captureLoc(operation, [])), (built) =>
+		Result.flatMap(ownBuilt(built), (owned) =>
+			compileLaws(owned, everySlice(owned), { kind: "planned" })
 		)
 	)
+
+/** The law model of a schema (lawModel), its CompileError thrown, as lawsOf and its siblings document. */
+const lawModelOf = (schema: AnySchema, operation: string): LawModel =>
+	orThrow(lawModel(schema, operation))
 
 /**
  * The theory's laws in theory order, each described as an outcome describes it, each owned statement's beside it as

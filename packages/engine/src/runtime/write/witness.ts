@@ -43,6 +43,7 @@ import { keyWitness } from "#compiler/runtime/write/outcome.ts"
 import {
 	comparisonHolds,
 	type EvalLeaves,
+	type EvalStop,
 	evaluateTable,
 	type SqlValue,
 	sqlNull,
@@ -700,26 +701,45 @@ const statedFacts = (w: Witnessing, stated: StatedRows, at: StatementAt): Statem
 	}
 }
 
-/** What an expression is over one row, as PostgreSQL computes it by its three-valued logic (scalar/compute/evaluate.ts
- * sqlNull): a value, NULL, or unknown to the host. */
-type Evaluated =
+/**
+ * What an expression is over one row, as PostgreSQL computes it by its three-valued logic (scalar/compute/evaluate.ts
+ * sqlNull): a value, NULL, or unknown to the host, with why the evaluator has none (EvalStop).
+ */
+export type Evaluated =
 	| { readonly kind: "value"; readonly value: HostValue }
 	| { readonly kind: "null" }
-	| { readonly kind: "unknown" }
+	| { readonly kind: "unknown"; readonly stop: EvalStop }
+
+/** A field as the judge reads it over a row: its name, its type, and how it is written (WitnessField). */
+export type JudgedField = Pick<WitnessField, "name" | "type" | "writing">
 
 /**
- * The judge of one installation's stated rows on the host: an expression's value over a row, and whether a value is a
- * member of a type. A row's values are their codecs' host values, which are the evaluator's own.
+ * A relation as the judge reads its rows: its fields, and the law columns its write fills, by key (WitnessTable). A
+ * written relation's witness table is one, and so is any relation a row is evaluated as a row of (program/evaluate.ts).
  */
-interface Judge {
-	readonly evaluate: (relation: WitnessTable, expr: ExprTable, row: JudgedRow) => Evaluated
+export interface JudgedTable {
+	readonly fields: ReadonlyArray<JudgedField>
+	readonly lawColumns: ReadonlyMap<ColumnKey, ScalarType>
+}
+
+/**
+ * The judge of one installation's rows on the host: an expression's value over a row, and whether a value is a member
+ * of a type. A row's values are their codecs' host values, which are the evaluator's own. The one host judge of a row,
+ * a refused write's witness's and a public row evaluation's (program/evaluate.ts rowEvaluator).
+ */
+export interface Judge {
+	readonly evaluate: (relation: JudgedTable, expr: ExprTable, row: JudgedRow) => Evaluated
 	readonly member: (value: HostValue, type: ScalarType) => boolean | undefined
 }
 
-/** The judge of a write's stated rows by what its witness data's evaluation reads, its patterns read from `patterns`. */
-const judgeOf = (evaluation: Evaluation, table: ClosedTable, patterns: PatternReads): Judge => {
+/** The judge of rows by what an evaluation reads, its closed relations' `table`'s, its patterns read from `patterns`. */
+export const judgeOf = (
+	evaluation: Evaluation,
+	table: ClosedTable,
+	patterns: PatternReads
+): Judge => {
 	const closed = closedLeaf(closedNamed(evaluation.closed, table))
-	const evaluate = (relation: WitnessTable, expr: ExprTable, row: JudgedRow): Evaluated => {
+	const evaluate = (relation: JudgedTable, expr: ExprTable, row: JudgedRow): Evaluated => {
 		/**
 		 * A column's value: a field the row states or its write fills, a generated field's as PostgreSQL generates it
 		 * from the row, NULL included, or a law column its write fills; none where the host does not hold it.
@@ -748,7 +768,7 @@ const judgeOf = (evaluation: Evaluation, table: ClosedTable, patterns: PatternRe
 		const leaves: EvalLeaves = { value: undefined, column: (ref) => valueOf(ref.name), closed }
 		const value = evaluateTable(expr.exprs, expr.root, leaves, patterns)
 		return !value.ok
-			? { kind: "unknown" }
+			? { kind: "unknown", stop: value.error }
 			: value.value === sqlNull
 				? { kind: "null" }
 				: { kind: "value", value: value.value }
@@ -807,7 +827,7 @@ const domainValue = (
 	}
 	const host = hostField(row, field)
 	return host === undefined
-		? { kind: "unknown" }
+		? { kind: "unknown", stop: { kind: "unsupported", what: `the field ${field.name}` } }
 		: { kind: "value", value: hostOf(field.type.carrier, host) }
 }
 

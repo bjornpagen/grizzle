@@ -35,6 +35,19 @@ export {
 	tree
 } from "#compiler/schema/api.ts"
 export { constraintNamesOf, lawIdsOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
+export { rowEvaluator } from "#compiler/program/evaluate.ts"
+export type {
+	CheckNameOf,
+	CheckVerdict,
+	DomainRefused,
+	EvaluatedRow,
+	GeneratedFieldOf,
+	RowEvaluation,
+	RowEvaluator,
+	RowSource,
+	SourceRelation,
+	Unevaluated
+} from "#compiler/types/schema/evaluation.ts"
 export { schemaNameOf } from "#compiler/program/names.ts"
 export { login } from "#compiler/program/workload/login.ts"
 export { insertableNamesOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"

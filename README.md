@@ -3558,6 +3558,26 @@ query reads, named from its rule (`__<readable part>_<digest>`), since its own n
 writer's refusal by the check names it, so take it from grizzle and never spell it. A lookup compiles nothing, and
 throws `CompileError` for a rule that is no check of the schema.
 
+`rowEvaluator(schema)` compiles the schema once and gives the host's evaluation of a row: what PostgreSQL computes of
+it, by the one evaluator grizzle judges a refused write's rows by. Bind it once,
+`const evaluate = rowEvaluator(Accounts)`, a `Result` whose error is the schema's `CompileError`, then
+`evaluate(Account, row)`, or `evaluate(select(Account, (a) => a.units.gt(3)), row)` for a selection. The row is typed
+off the relation: every field but the generated ones, each its codec's value, so a contract's value is its brand,
+`Units(5)`. PostgreSQL's domains refuse a value outside its contract or its pattern before anything else, which a brand
+does not check, and so does the evaluation: `{ _tag: "DomainRefused", field }`, a field a domain refuses. Otherwise it
+is `{ generated, checks, selected }`, each item its own `Result`:
+
+- `generated`: each generated field's value, by name, or `null` where PostgreSQL computes NULL, as a closed read at a
+  key no row holds does, which the column's NOT NULL refuses;
+- `checks`: each row check of the relation, by name, `"holds"` or `"breaks"`, as `CHECK ((p) IS TRUE)` judges it, NULL
+  breaking it: a table's by the CHECK it holds, a derived relation's by its predicate over the derived row;
+- `selected`: whether the source keeps the row, its predicate true, as `WHERE` reads it; a relation keeps every row,
+  being `select(R, TRUE)`.
+
+An item whose expression reads what the host does not evaluate is `{ _tag: "Unevaluated", why }`, the other items
+keeping theirs. Nothing is thrown, and nothing stands in for a value. Each source is read where it is first evaluated,
+and once.
+
 **Errors**: `DbLayer.make` and `Db.open` fail with `OpenError` in the Effect's error channel; every call of a member
 fails with its `CallError`, by kind:
 
