@@ -1,5 +1,7 @@
+import { restrictedImports, restrictedProperties } from "@bjornpagen/devtools/preset"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
 	Console,
@@ -14,10 +16,13 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
 
 /**
  * The runtime gate: generates the runtime-gate fixture, whose operations reach every module of the generated runtime,
- * into a fresh directory and runs the generated package's own typecheck against the workspace's installed
- * dependencies. It fails when generation fails, when the generator refuses anything other than token acquisition
- * (which it refuses for every OAuth 2 flow and OpenID Connect, schemes the fixture holds on purpose), or when the
- * package does not typecheck. It stands until the property that every emitted package typechecks covers it.
+ * into a fresh directory, runs the generated package's own typecheck against the workspace's installed
+ * dependencies, and lints its sources with the shared lint's import and property bans, which every process of every
+ * repository holds (the platform's index, Effect's metrics). The emitter writes an import's module as a string, so
+ * the repository's own lint never sees what a generated CLI imports. It fails when generation fails, when the
+ * generator refuses anything other than token acquisition (which it refuses for every OAuth 2 flow and OpenID
+ * Connect, schemes the fixture holds on purpose), when the package does not typecheck, or when it imports or reaches
+ * what a shared ban names. It stands until the property that every emitted package typechecks covers it.
  */
 
 /** The generator package. */
@@ -47,6 +52,65 @@ const Report = Schema.fromJsonString(
 )
 
 const decodeReport = Schema.decodeUnknownEffect(Report)
+
+/** A module, or some of its exports, the shared lint bans, and why. */
+const BannedModule = Schema.Struct({
+	name: Schema.String,
+	importNames: Schema.optionalKey(Schema.Array(Schema.String)),
+	allowImportNames: Schema.optionalKey(Schema.Array(Schema.String)),
+	message: Schema.String
+})
+
+/**
+ * The shared lint's no-restricted-imports, read by value from the preset over no list of the generator's own: its
+ * banned modules. Its patterns, the relative-import ban, are hand-written code's rule and stay out: an emitted
+ * package's own modules reach each other by relative paths.
+ */
+const SharedImportBans = Schema.Tuple([
+	Schema.Literal("error"),
+	Schema.Struct({ paths: Schema.Array(BannedModule) })
+])
+
+/** A property the shared lint bans, and why. */
+const BannedProperty = Schema.Struct({
+	object: Schema.optionalKey(Schema.String),
+	property: Schema.String,
+	message: Schema.String
+})
+
+/** The shared lint's no-restricted-properties, read by value from the preset over no list of the generator's own. */
+const SharedPropertyBans = Schema.TupleWithRest(Schema.Tuple([Schema.Literal("error")]), [
+	BannedProperty
+])
+
+/** The emitted package's lint: oxlint's own categories off, and the shared bans alone, as oxlint's JSON configuration. */
+const emittedLint = Effect.all([
+	Schema.decodeUnknownEffect(SharedImportBans)(restrictedImports({ paths: [], patterns: [] })),
+	Schema.decodeUnknownEffect(SharedPropertyBans)(restrictedProperties([]))
+]).pipe(
+	Effect.mapBoth({
+		onSuccess: ([[level, { paths }], properties]) =>
+			jsonTextOf({
+				categories: {
+					correctness: "off",
+					nursery: "off",
+					pedantic: "off",
+					perf: "off",
+					restriction: "off",
+					style: "off",
+					suspicious: "off"
+				},
+				rules: {
+					"no-restricted-imports": [level, { paths }],
+					"no-restricted-properties": properties
+				}
+			}),
+		onFailure: () =>
+			RuntimeGateFailure.make({
+				detail: "the shared lint's import and property bans are unreadable"
+			})
+	})
+)
 
 /** Runs one step of the gate to its end and answers its standard output; any exit but zero fails the gate. */
 const run = Effect.fn("runtimeGate.run")(function* (
@@ -137,7 +201,24 @@ const main = Effect.gen(function* () {
 			)
 		)
 	yield* run("the generated package's typecheck", node, ["--run", "typecheck"], out)
-	yield* Console.log("runtime gate: the runtime-gate fixture's generated package typechecks.")
+	const lint = path.join(scratch, "emitted.oxlintrc.json")
+	yield* emittedLint.pipe(
+		Effect.flatMap((text) => fs.writeFileString(lint, text)),
+		Effect.mapError(() =>
+			RuntimeGateFailure.make({
+				detail: "the emitted package's lint configuration could not be written"
+			})
+		)
+	)
+	yield* run(
+		"the shared lint bans over the generated package",
+		node,
+		[path.resolve(ROOT, "node_modules/oxlint/bin/oxlint"), "-c", lint, "src"],
+		out
+	)
+	yield* Console.log(
+		"runtime gate: the runtime-gate fixture's generated package typechecks and holds the shared lint bans."
+	)
 })
 
 NodeRuntime.runMain(

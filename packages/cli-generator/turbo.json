@@ -63,7 +63,7 @@
 			]
 		},
 		"runtime-gate": {
-			"description": "Generates the runtime-gate fixture into a scratch directory and typechecks the generated package against the installed dependencies, until the property that every emitted package typechecks covers it.",
+			"description": "Generates the runtime-gate fixture into a scratch directory, typechecks the generated package against the installed dependencies and lints its sources with the shared lint's import and property bans, until the property that every emitted package typechecks covers it.",
 			"dependsOn": ["^surface"]
 		},
 		"benchmark": {
