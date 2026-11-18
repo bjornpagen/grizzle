@@ -15,12 +15,13 @@
  * no width is probed.
  *
  * The judge reads a whole rule's violation restricted to the units a transaction wrote (`restrictToUnits`): every
- * outermost rule of the query that reads a stored relation itself, by a match or a negation in its conditions, inside a
- * negation or not, is read per unit (`perUnit`), the region of the units' keys first, then the rule as a step, a
- * subquery PostgreSQL plans apart and reads LATERAL once per unit, its unit's variables the step's channels. The unit is
- * bound once, there: every rule the step's imports and negations read reads it from the channels, joined or correlated
- * at them, and matches no region of its own (`Restriction`), which the step would read again for each unit of the
- * region outside it, the delta's every row once per written unit. So every read of a stored relation is an index range
+ * outermost rule of the query that binds a unit, from a stored relation it matches or a query that delivers one, is
+ * read per unit (`perUnit`), the region of the units' keys first, then the rule as a step, a subquery PostgreSQL plans
+ * apart and reads LATERAL once per unit, its unit's variables the step's channels. The unit is bound once, there:
+ * every rule the step's imports and negations read reads it from the channels, joined or correlated at them, and
+ * matches no region of its own (`Restriction`), which the step would read again for each unit of the region outside
+ * it, the delta's every row once per written unit, or which PostgreSQL would anti-join against a second copy of the
+ * region by a nested loop. So every read of a stored relation is an index range
  * at the unit key, which leads each stored relation's primary key, inside a step whose region holds the written units
  * alone: an aggregate's rule groups that unit's rows alone, and a negation reads the written units' rows alone, whether
  * PostgreSQL probes it at each fact or hashes it whole, whatever PostgreSQL estimates of the region. The region is a
@@ -299,33 +300,25 @@ interface WalkedRule {
 	readonly unit: ReadonlyArray<string> | undefined
 }
 
+/** A rule's matches and conditions as a walk leaves them, and the unit its sources bind (`walkedRule`). */
+interface RuleBody {
+	readonly matches: ReadonlyArray<InferredMatch>
+	readonly where: ReadonlyArray<InferredExpr>
+	readonly unit: ReadonlyArray<string> | undefined
+	readonly hidden: boolean
+}
+
 /**
- * A rule walked. Its unit is its sources' (`SourceUnit`): every source that gives variables gives the same ones, its
- * unit; a source whose unit is hidden is its only source with a unit, and its facts each lie within one unit hidden in
- * turn, so it negates nothing of a unit and aggregates nothing. Each negation in its conditions is correlated at its
- * unit. An aggregating rule's matches are read at both polarities and its head delivers its unit, so its groups lie
- * inside one unit. Where the walk restricts at the root and the rule reads a stored relation itself, by a match or a
- * negation in its conditions, the region is matched first, bound to its unit, and the rule is read per unit
- * (`perUnit`); every rule its imports and its negations read is then walked with the unit bound (`Restriction`), so
- * the unit is bound once, by the outermost rule that reads it.
+ * A rule's matches and conditions walked under `w` (`walkedRule`): its unit is its sources' (`SourceUnit`), every
+ * source that gives variables giving the same ones; a source whose unit is hidden is its only source with a unit, and
+ * its facts each lie within one unit hidden in turn, so it negates nothing of a unit and aggregates nothing; and each
+ * negation in its conditions is correlated at its unit.
  */
-const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal => {
-	if (r.interiors.length > 0 || r.attach.length > 0) {
-		return notLocal
-	}
-	const aggregates = Object.values(r.head).some((h) => h.kind === "aggregate")
-	const at: At = aggregates ? { polarity: "both" } : outer
-	const region =
-		w.restrict.kind === "region" &&
-		(r.matches.some((m) => m.source.kind === "relation" && w.holders.has(m.source.name)) ||
-			r.where.some((x) => negatesHolder(x, w.holders)))
-			? w.restrict.region
-			: undefined
-	const inner: Walk = region === undefined ? w : { ...w, restrict: { kind: "bound", region } }
+const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBody | NotLocal => {
 	const units: Array<SourceUnit> = []
 	const matches: Array<InferredMatch> = []
 	for (const match of r.matches) {
-		const read = sourceUnit(match.source, match.bindings, at, inner)
+		const read = sourceUnit(match.source, match.bindings, at, w)
 		if (read === notLocal) {
 			return notLocal
 		}
@@ -342,14 +335,49 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 	if (unit !== undefined && !vars.every((v) => sameNames(v, unit))) {
 		return notLocal
 	}
-	const where = walkedExprs(r.where, unit, at, inner)
-	if (where === notLocal) {
+	const where = walkedExprs(r.where, unit, at, w)
+	return where === notLocal ? notLocal : { matches, where, unit, hidden }
+}
+
+/**
+ * A rule walked (`ruleBody`). An aggregating rule's matches are read at both polarities and its head delivers its unit,
+ * so its groups lie inside one unit. Where the walk restricts at the root and the rule binds a unit, from a stored
+ * relation it matches or a query that delivers one, the region is matched first, bound to its unit, and the rule is
+ * read per unit (`perUnit`), every rule its imports and its negations read walked with the unit bound
+ * (`Restriction`): the unit is bound once, by the outermost rule that binds it, so the two sides of a containment
+ * between two queries are read inside one step, not each per unit of a region of its own. A rule at the root that
+ * binds no unit, which reads closed relations alone or a query whose unit is hidden, leaves the root's restriction to
+ * the rules it reads.
+ */
+const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal => {
+	if (r.interiors.length > 0 || r.attach.length > 0) {
 		return notLocal
 	}
+	const aggregates = Object.values(r.head).some((h) => h.kind === "aggregate")
+	const at: At = aggregates ? { polarity: "both" } : outer
+	const restriction = w.restrict
+	const bound =
+		restriction.kind === "region"
+			? ruleBody(r, at, aggregates, {
+					...w,
+					restrict: { kind: "bound", region: restriction.region }
+				})
+			: ruleBody(r, at, aggregates, w)
+	if (bound === notLocal) {
+		return notLocal
+	}
+	const body =
+		restriction.kind === "region" && bound.unit === undefined
+			? ruleBody(r, at, aggregates, w)
+			: bound
+	if (body === notLocal) {
+		return notLocal
+	}
+	const { matches, where, unit } = body
 	if (unit === undefined) {
 		return {
 			rule: { ...r, matches, where },
-			delivered: hidden ? hiddenUnit : noUnit,
+			delivered: body.hidden ? hiddenUnit : noUnit,
 			unit: undefined
 		}
 	}
@@ -363,17 +391,12 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 	}
 	const walkedText: InferredRule = { ...r, matches, where }
 	return {
-		rule: region === undefined ? walkedText : perUnit(walkedText, unit, region),
+		rule:
+			restriction.kind === "region" ? perUnit(walkedText, unit, restriction.region) : walkedText,
 		delivered,
 		unit
 	}
 }
-
-/** Whether `e` negates a stored relation itself, at any depth of it: an absent whose source is a holder. */
-const negatesHolder = (e: InferredExpr, holders: Walk["holders"]): boolean =>
-	e.kind === "absent"
-		? e.source.kind === "relation" && holders.has(e.source.name)
-		: exprChildren(e).some((c) => negatesHolder(c.term, holders))
 
 /**
  * The bind map of an import whose query, walked with the unit bound (`Restriction`), reads the channels of the step it

@@ -3,7 +3,7 @@
 import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "effect"
-import { parsePlan, rowsRead, rowsTouched } from "#bench/harness/explain.ts"
+import { type PlanNode, parsePlan, planNodes, rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
@@ -809,10 +809,9 @@ const wholeStatementsOf = (installation: Installation): ReadonlyArray<OperandSel
  */
 export interface Locality {
 	/**
-	 * The one-field shape alone, for now. At a key of two or three place fields Rooted's statement's work grows with the
-	 * square of the units written: its containment's negation matches the region again, apart from the region its
-	 * outer rule matches, so the two meet in an anti join that PostgreSQL runs as a nested loop over both (lane RULEREC's
-	 * multi-field generator; analysis/theory/unit.ts restrictToUnits, lane SELECTWHOLE's, draws every shape with its fix).
+	 * Its judge's shape, drawn: at a key of two or three place fields as at one, every statement's work grows with the
+	 * units written, Rooted's included, whose two sides it reads through queries inside one step
+	 * (analysis/theory/unit.ts walkedRule).
 	 */
 	readonly shape: ShapeKey
 	readonly stored: number
@@ -824,7 +823,7 @@ export interface Locality {
 
 /** Hundreds of stored documents beside the written one, each a lawful unit of a root and two children. */
 export const localityGen: Gen<Locality> = (s) => ({
-	shape: "1 key",
+	shape: s.draw(shapeGen),
 	stored: s.draw(int(2000, 3000)),
 	more: s.draw(int(2000, 3000)),
 	statistics: s.draw(element(["none", "analyzed"] as const)),
@@ -859,12 +858,30 @@ const plansOf = (installed: Installed, connection: PgConnection) =>
 const readsOf = (installed: Installed, connection: PgConnection) =>
 	Effect.map(plansOf(installed, connection), Arr.map(rowsRead))
 
-/**
- * The rows each whole rule's statement handles at every node of its plan, over all of its loops (rowsTouched), on
- * `connection`: its work, the region's rows and every step's among them.
- */
-const workOf = (installed: Installed, connection: PgConnection) =>
-	Effect.map(plansOf(installed, connection), Arr.map(rowsTouched))
+/** A plan node that runs more than once, with the rows it handles a run: its output and what its filters removed. */
+interface Rerun {
+	readonly node: string
+	readonly loops: number
+	readonly rows: number
+}
+
+/** The heaviest run of a node of `plan` that runs more than once (`Rerun`), none where every node runs once. */
+const heaviestRerun = (plan: PlanNode): Rerun | undefined =>
+	Iterator.from(planNodes(plan))
+		.filter((n) => n.actualLoops > 1)
+		.map((n): Rerun => ({
+			node: n.nodeType,
+			loops: n.actualLoops,
+			rows: n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByJoinFilter
+		}))
+		.reduce<Rerun | undefined>(
+			(most, r) => (most === undefined || r.rows > most.rows ? r : most),
+			undefined
+		)
+
+/** Each whole rule's statement's heaviest rerun node (`heaviestRerun`), on `connection`. */
+const rerunsOf = (installed: Installed, connection: PgConnection) =>
+	Effect.map(plansOf(installed, connection), Arr.map(heaviestRerun))
 
 /** The statements writing lawful documents `from` to `to` through the captures, as a publish writes them whole. */
 const writtenWhole = ({ node, expr }: Tables, from: number, to: number): ReadonlyArray<string> => [
@@ -882,11 +899,12 @@ const writtenWhole = ({ node, expr }: Tables, from: number, to: number): Readonl
  * whichever plan PostgreSQL chooses, and never a row of another document, a read of which reads past the written unit's
  * key range into all of them.
  *
- * Then `written` more documents are written whole and each statement explained, and three times as many again: each
- * statement's work, every row each node of its plan handles over all of its loops, must grow at most twice as fast as
- * the documents written, under eight times for four times the units. Its steps run once per written unit, each reading
- * that unit alone, so its work grows with the units, four times; a region read again inside a step, once per unit of
- * the region outside, grows with their square, sixteen times.
+ * Then `written` more documents are written whole, and three times as many again, each statement explained both times:
+ * every node of its plan that runs more than once must handle fewer rows a run than there are documents written. A
+ * node runs more than once inside a step, once per written unit, and reads that unit's rows alone, a few of each
+ * table, whatever the units written; one that reads the region again inside a step, or a second copy of it that an
+ * anti join loops over, handles every written unit at every run, so the statement's work grows with the square of the
+ * units written.
  */
 export const runLocality = (
 	installed: Installed,
@@ -921,17 +939,19 @@ export const runLocality = (
 			Arr.every([...first, ...again], (rows) => rows < beside),
 			`${Formatter.format(locality)}: each whole rule's statement reads the written document's rows alone, fewer than the ${beside} documents beside it, ${Formatter.format(first)} and then ${Formatter.format(again)} beside ${locality.more} more`
 		)
-		for (const sql of writtenWhole(tables, -locality.written, -1)) {
-			yield* connection.query(sql, [])
+		for (const [from, to] of [
+			[-locality.written, -1],
+			[-4 * locality.written, -locality.written - 1]
+		] as const) {
+			for (const sql of writtenWhole(tables, from, to)) {
+				yield* connection.query(sql, [])
+			}
+			const documents = 1 - from
+			const reruns = yield* rerunsOf(installed, connection)
+			assert.ok(
+				Arr.every(reruns, (r) => r === undefined || r.rows < documents),
+				`${Formatter.format(locality)}: each node a whole rule's statement runs more than once reads one written unit a run, fewer rows than the ${documents} documents written: ${Formatter.format(reruns)}`
+			)
 		}
-		const some = yield* workOf(installed, connection)
-		for (const sql of writtenWhole(tables, -4 * locality.written, -locality.written - 1)) {
-			yield* connection.query(sql, [])
-		}
-		const more = yield* workOf(installed, connection)
-		assert.ok(
-			Arr.every(Arr.zip(some, more), ([w, m]) => m < 8 * Math.max(w, 1)),
-			`${Formatter.format(locality)}: each whole rule's statement's work grows with the units written, under eight times for four times as many documents, ${Formatter.format(some)} for ${locality.written + 1} documents written and then ${Formatter.format(more)} for ${4 * locality.written + 1}`
-		)
 		c.note(locality.statistics === "none" ? "measured with no statistics" : "measured analyzed")
 	})

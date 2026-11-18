@@ -16,8 +16,9 @@
  *   that are not unit-local keep, refuses, wherever the aggregate's rule holds.
  * - **locality**: hundreds of documents stored, analyzed or not, beside one a transaction writes whole: each whole
  *   rule's statement reads the same rows when as many documents again are stored, the written document's alone; and
- *   with tens of documents written, then four times as many, its work grows with the units written, not with their
- *   square, since the unit is bound once, by the outermost rule that reads it (analysis/theory/unit.ts Restriction).
+ *   with tens of documents written, then four times as many, each node it runs once per unit reads that unit alone,
+ *   so its work grows with the units written, not with their square, since the unit is bound once, by the outermost
+ *   rule that binds it (analysis/theory/unit.ts Restriction).
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -84,7 +85,7 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 
 /**
  * Each whole rule's statement reads the rows of the units a transaction wrote alone, however many units stand beside
- * them, with statistics or none, and its work grows with the units written.
+ * them, with statistics or none, and its work grows with the units written, not with their square.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -99,14 +100,15 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
 			}),
 		oracle: {
 			kind: "universal",
-			name: "bound: a whole rule's statement reads fewer rows than the documents stored beside the written one, however many stand beside it, and its work grows under twice as fast as the documents written"
+			name: "bound: a whole rule's statement reads fewer rows than the documents stored beside the written one, however many stand beside it, and each node it runs more than once reads fewer rows a run than the documents written"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: '\t\tw.restrict.kind === "region" &&',
-				replacement: "\t\tfalse &&",
+				original:
+					'\t\t\trestriction.kind === "region" ? perUnit(walkedText, unit, restriction.region) : walkedText,',
+				replacement: "\t\t\twalkedText,",
 				why: "No rule of a whole rule's violation query matches the region of the units a transaction wrote, so the judge reads every unit stored, and a write of one document reads every document."
 			},
 			{
@@ -118,9 +120,9 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original:
-					'\tconst inner: Walk = region === undefined ? w : { ...w, restrict: { kind: "bound", region } }',
-				replacement: "\tconst inner: Walk = w",
-				why: "A rule read per unit binds no unit for the rules its imports and negations read, so each matches the region again inside the step, once per written unit: Leafed's leaves and Reached's walk read the region's every unit for each, and the statement's work grows with the square of the units written."
+					'\t\t\t? ruleBody(r, at, aggregates, {\n\t\t\t\t\t...w,\n\t\t\t\t\trestrict: { kind: "bound", region: restriction.region }\n\t\t\t\t})',
+				replacement: "\t\t\t? ruleBody(r, at, aggregates, w)",
+				why: "A rule read per unit binds no unit for the rules its imports and negations read, so each matches the region again inside the step, once per written unit, or beside it, Rooted's two sides each over a region of its own: a node run once per unit reads every written unit's rows at each run, and the statement's work grows with the square of the units written."
 			}
 		]
 	})

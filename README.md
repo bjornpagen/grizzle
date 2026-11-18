@@ -2149,11 +2149,13 @@ definition too.
   `(package, path, …)` are one such family of units, each document a unit. Every fact of such a rule's violation lies
   within one unit, so a write changes the rule's verdict only within the units it writes, and the judge reads the
   rule's violation query, the one the migration that adds the rule runs, over the units the transaction wrote alone:
-  once, set-based, whatever rows of them it wrote, never a probe per row. Each rule of the query that reads a stored
-  relation, by a match or a negation, reads it once per written unit, as a LATERAL subquery at that unit's key, so
-  every read is an index range at the unit, an aggregate groups that unit's rows alone, a negation reads the written
-  units' rows whether PostgreSQL probes it or hashes it, and no estimate PostgreSQL makes, with statistics or none,
-  widens a read past the written units. The unit is as narrow as the rule's joins allow: a rule over one relation's
+  once, set-based, whatever rows of them it wrote, never a probe per row. The outermost rule of the query that binds a
+  unit, from a table it matches or a query that delivers one, reads it once per written unit, as a LATERAL subquery at
+  that unit's key, and every rule it reads through a query it joins or negates reads that same unit's rows, so the
+  unit is bound once: every read is an index range at the unit, an aggregate groups that unit's rows alone, a negation
+  reads the written units' rows whether PostgreSQL probes it or hashes it, the work grows with the units written and
+  never with their square, and no estimate PostgreSQL makes, with statistics or none, widens a read past the written
+  units. The unit is as narrow as the rule's joins allow: a rule over one relation's
   rows by their whole key is judged a row at a time. Whether a rule is unit-local is decided when the schema compiles,
   from its query; any other rule is judged by its probes, below. Its outcome and its law are the same either way.
 - **A recursion is unit-local** when its row carries the unit: every base rule delivers it from a stored relation's
