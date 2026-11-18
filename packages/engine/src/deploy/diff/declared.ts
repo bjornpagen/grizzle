@@ -1392,6 +1392,7 @@ const withColumns = (
 				return { ...a, column: nameIn(into)(a.column) }
 			case "addConstraintUsingIndex":
 			case "validateConstraint":
+			case "alterConstraintDeferral":
 			case "dropConstraint":
 			case "enableRowSecurity":
 			case "disableRowSecurity":

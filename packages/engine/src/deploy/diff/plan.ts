@@ -283,6 +283,7 @@ export const alterationPass = (a: Alteration): AlterTablePass => {
 		case "setRetirementDefault":
 			return "addOtherConstraint"
 		case "validateConstraint":
+		case "alterConstraintDeferral":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
 		case "replicaIdentity":
@@ -311,6 +312,7 @@ const printedAction = (a: Alteration): AlterTableAction => {
 		case "addConstraint":
 		case "addConstraintUsingIndex":
 		case "validateConstraint":
+		case "alterConstraintDeferral":
 		case "dropConstraint":
 		case "enableRowSecurity":
 		case "disableRowSecurity":

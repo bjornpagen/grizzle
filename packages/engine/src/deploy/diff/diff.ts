@@ -605,6 +605,7 @@ const addedColumn = (a: Alteration): ColumnDef | undefined => {
 		case "addConstraint":
 		case "addConstraintUsingIndex":
 		case "validateConstraint":
+		case "alterConstraintDeferral":
 		case "dropConstraint":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
@@ -2460,7 +2461,14 @@ class Differ {
 	): void {
 		const { table: t, constraint: c } = v
 		if (before !== undefined) {
-			if (sameText(this.constraintOf(before, this.prev), c)) {
+			const old = this.constraintOf(before, this.prev)
+			if (sameText(old, c)) {
+				return
+			}
+			if (this.deferralAlone(old, c)) {
+				this.sql("publish.attach", [
+					alter(t, [{ kind: "alterConstraintDeferral", name: c.name, deferrable: c.deferrable }])
+				])
 				return
 			}
 			this.sql("structure", [alter(t, [{ kind: "dropConstraint", name: c.name }])])
@@ -2486,6 +2494,23 @@ class Differ {
 		}
 		constrained(add(true))
 		this.sql("validate", [alter(t, [{ kind: "validateConstraint", name: c.name }])])
+	}
+
+	/**
+	 * Whether a foreign key the target keeps changes its deferral alone, over a key no part of this migration attaches or
+	 * replaces: ALTER CONSTRAINT then changes it in place, in Publish (publish.attach), a catalog update that reads no row
+	 * and keeps every reference it holds, where a drop, a NOT VALID addition and a VALIDATE would read every row again.
+	 * A key attached or replaced here takes the foreign key with it (foreignKey, rebind).
+	 */
+	deferralAlone(old: TableConstraint, c: ForeignKey): boolean {
+		return (
+			old.kind === "foreignKey" &&
+			old.deferrable !== c.deferrable &&
+			sameText({ ...old, deferrable: c.deferrable }, c) &&
+			!this.attached.has(referencedAfter(c)) &&
+			!this.replaces(referencedAfter(c)) &&
+			!this.referencesReplaced(old)
+		)
 	}
 
 	/** A materialized view, created WITH NO DATA when it follows no previous view (Arrival): new, or dropped at the start

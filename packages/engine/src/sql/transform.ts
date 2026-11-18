@@ -954,6 +954,7 @@ export class Transform {
 				return name === a.name && index === a.index ? a : { ...a, name, index }
 			}
 			case "validateConstraint":
+			case "alterConstraintDeferral":
 			case "dropConstraint": {
 				const name = this.constraintName(table, a.name)
 				return name === a.name ? a : { ...a, name }

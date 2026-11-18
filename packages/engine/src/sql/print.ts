@@ -1383,6 +1383,8 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return `ADD CONSTRAINT ${quoteIdent(action.name)} ${action.constraint} USING INDEX ${quoteIdent(action.index)}`
 		case "validateConstraint":
 			return `VALIDATE CONSTRAINT ${quoteIdent(action.name)}`
+		case "alterConstraintDeferral":
+			return `ALTER CONSTRAINT ${quoteIdent(action.name)} ${action.deferrable === undefined ? "NOT DEFERRABLE" : `DEFERRABLE ${action.deferrable}`}`
 		case "dropConstraint":
 			return `DROP CONSTRAINT ${quoteIdent(action.name)}`
 		case "enableRowSecurity":

@@ -659,6 +659,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 						case "addIdentity":
 						case "dropIdentity":
 						case "validateConstraint":
+						case "alterConstraintDeferral":
 						case "dropConstraint":
 						case "enableRowSecurity":
 						case "disableRowSecurity":

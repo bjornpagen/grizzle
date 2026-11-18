@@ -26,6 +26,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/migrate/backfill.test.ts",
 	"test/pg/migrate/catalog-names.test.ts",
 	"test/pg/migrate/concurrent.test.ts",
+	"test/pg/migrate/deferral.test.ts",
 	"test/pg/migrate/drops.test.ts",
 	"test/pg/migrate/family-renames.test.ts",
 	"test/pg/migrate/fixtures.test.ts",

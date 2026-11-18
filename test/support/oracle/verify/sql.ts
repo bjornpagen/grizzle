@@ -2571,6 +2571,7 @@ class StatementAuditor {
 									this.ident(action.column, "column", "column")
 									return
 								case "validateConstraint":
+								case "alterConstraintDeferral":
 								case "dropConstraint":
 									this.ident(action.name, "constraint", "name")
 									return

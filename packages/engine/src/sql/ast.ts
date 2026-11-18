@@ -1363,6 +1363,15 @@ export type AlterTableAction =
 			readonly index: string
 	  }
 	| { readonly kind: "validateConstraint"; readonly name: string }
+	| {
+			/**
+			 * ALTER CONSTRAINT ... [NOT] DEFERRABLE [INITIALLY ...]: a foreign key's deferral changed in place, a
+			 * catalog update under ACCESS EXCLUSIVE that reads no row, the constraint and its every reference kept.
+			 */
+			readonly kind: "alterConstraintDeferral"
+			readonly name: string
+			readonly deferrable: ForeignKey["deferrable"]
+	  }
 	| { readonly kind: "dropConstraint"; readonly name: string }
 	| { readonly kind: "enableRowSecurity" }
 	| { readonly kind: "disableRowSecurity" }

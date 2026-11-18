@@ -76,6 +76,7 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 		case "setExpression":
 		case "dropIdentity":
 		case "validateConstraint":
+		case "alterConstraintDeferral":
 		case "dropConstraint":
 		case "enableRowSecurity":
 		case "disableRowSecurity":

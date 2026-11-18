@@ -299,6 +299,7 @@ export type ModelSqlstate =
 	| "42710"
 	| "42723"
 	| "42804"
+	| "42809"
 	| "42830"
 	| "42883"
 	| "428C9"
@@ -3212,6 +3213,23 @@ class Model {
 					const calls = callsOf([a.expr], this.#schema)
 					this.#callable(calls, `the generated column ${a.column}`)
 					t.columns[at] = { ...c, generation: { kind: "stored", calls } }
+					break
+				}
+				case "alterConstraintDeferral": {
+					this.#table(s.table)
+					const c = this.#constraintsOf(s.table.name).get(a.name)
+					if (c === undefined) {
+						refuse(
+							"42704",
+							`the constraint ${a.name} of ${printObjectName(s.table)} does not exist`
+						)
+					}
+					if (c.kind !== "foreignKey") {
+						refuse(
+							"42809",
+							`the constraint ${a.name} of ${printObjectName(s.table)} is not a foreign key constraint`
+						)
+					}
 					break
 				}
 				case "dropConstraint":
