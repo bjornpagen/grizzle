@@ -5,6 +5,7 @@ import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeDesc, type LoginDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
+import { fullRoleDesc } from "#compiler/schema/own.ts"
 import { catalogSpelling, type CatalogTypeName } from "#compiler/sql/ast.ts"
 import {
 	type AmbientFeature,
@@ -156,20 +157,25 @@ export const schemaOf = (names: Names): SchemaDesc => {
 	})
 }
 
-/** The login of a case's schema: a writer holding and writing its stored relations, and a reader holding every one. */
+/**
+ * The login of a case's schema: a writer holding and writing its stored relations, and a reader holding every one, each
+ * the full role's description over it (schema/own.ts fullRoleDesc, which states every list a role describes) narrowed
+ * to what it holds, writes and refreshes.
+ */
 export const loginOf = (desc: SchemaDesc, names: Names): LoginDesc => {
 	const loc = SourceLoc("the catalog-names box", [])
 	const whole = (held: ReadonlyArray<string>) =>
 		Arr.map(held, (name) => ({ kind: "whole" as const, name, loc }))
 	const stored = [names.relation.declared, entry]
 	const read = [names["closed relation"].declared, ...stored, names["derived relation"].declared]
+	const full = succeeded(fullRoleDesc(desc, "full", loc), "the full role over the box's schema")
 	return succeeded(
 		decodeDesc("login", {
 			name: "server",
 			base: desc,
 			roles: [
-				{ name: "writer", base: desc, relations: whole(stored), write: stored, refresh: [], loc },
-				{ name: "reader", base: desc, relations: whole(read), write: [], refresh: [], loc }
+				{ ...full, name: "writer", relations: whole(stored), write: stored, refresh: [] },
+				{ ...full, name: "reader", relations: whole(read), write: [], refresh: [] }
 			],
 			loc
 		}),
