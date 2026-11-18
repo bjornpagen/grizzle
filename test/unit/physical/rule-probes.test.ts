@@ -41,8 +41,8 @@ export const theSetJudgeRunsEachProbeStatementOnceInEachGuardedBlock = property.
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\tconst statements = probeStatements(probes)",
-				replacement: "\t\t\t\tconst statements = probes.map((p) => p.statement)",
+				original: "\t\t\tconst statements = probeStatements(probes)",
+				replacement: "\t\t\tconst statements = probes.map((p) => p.statement)",
 				why: "A guarded block of the judge runs every probe its table and side compile, each once per occurrence of the touched relation, so two arms that hold nothing of the row apart run one query twice; the property fails."
 			}
 		]

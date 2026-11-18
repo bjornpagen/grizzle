@@ -2135,15 +2135,35 @@ definition too.
 - **What a side's query may be.** Matches, `where` conditions and the head's fields: joins, selections, projections
   and semijoins, a union of such rules, and negations. `r.not(Q, …)`, alone or inside `r.and(...)`, negates a table, a
   query of such rules or a derived relation whose query is one, so a rule can read "the rows of R with no S" and "the
-  rows of R that no join of S and U names". A negation of a union negates each of its rules. An aggregate,
-  `orderBy(...).take(k)`, `attach`, an approximate search or a recursion, in the query or in a query it negates, and a
-  negation inside a negated query, are refused: `UnsupportedLawFamily` from JavaScript naming what the query does
-  (`Refused` over a derived relation, its refusal the type error's words), and a type error where the query does it
-  itself. A family and a fold read tables only.
+  rows of R that no join of S and U names". A negation of a union negates each of its rules. An aggregate (`r.count()`,
+  `r.min(x)` and the others) is read by a unit-local rule, below, and refused in any other: `UnsupportedLawFamily`
+  naming what the query does. `orderBy(...).take(k)`, `attach`, an approximate search or a recursion, in the query or
+  in a query it negates, and a negation inside a negated query, are refused the same way (`Refused` over a derived
+  relation, its refusal the type error's words), and a type error where the query does it itself. A family and a fold
+  read tables only.
+- **Unit-local rules are judged whole.** A rule is unit-local when every stored relation its query reads is immutable
+  and leads its primary key with the same fields, its unit key, and its query joins within one unit: every match of a
+  stored relation, in every rule of its violation query at any depth, binds those fields to the same variables, every
+  negation is correlated at them, and every aggregate's groups hold them. A content package's relations keyed
+  `(package, path, …)` are one such family of units, each document a unit. Every fact of such a rule's violation lies
+  within one unit, so a write changes the rule's verdict only within the units it writes, and the judge reads the
+  rule's violation query, the one the migration that adds the rule runs, over the units the transaction wrote alone:
+  once, set-based, whatever rows of them it wrote, never a probe per row. Each rule of the query that reads a stored
+  relation, by a match or a negation, reads it once per written unit, as a LATERAL subquery at that unit's key, so
+  every read is an index range at the unit, an aggregate groups that unit's rows alone, a negation reads the written
+  units' rows whether PostgreSQL probes it or hashes it, and no estimate PostgreSQL makes, with statistics or none,
+  widens a read past the written units. The unit is as narrow as the rule's joins allow: a rule over one relation's
+  rows by their whole key is judged a row at a time. Whether a rule is unit-local is decided when the schema compiles,
+  from its query; any other rule is judged by its probes, below. Its outcome and its law are the same either way.
+- **The cost of a unit-local rule** is a read of each unit the transaction wrote, whole, once per rule. A write of
+  whole units, as a content package's publish is, reads the rows it wrote once more for each rule. A write of a sliver
+  of a large unit, one row into a package of thousands, still reads the whole unit for each rule that reads that row's
+  relation: a relation written row by row into large units is better declared `mutable`, whose rules are probed.
 - **Judged live.** A rule reads its query as the tables stand at commit, `derived.materialized(...)` included: never
   its view's rows, and never as of a refresh.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is
-  judged once per transaction, over the rows it wrote. On each table the query reads, an AFTER statement trigger for
+  judged once per transaction, over the rows it wrote: a unit-local rule over the units of those rows, any other over
+  the rows themselves. On each table the query reads, an AFTER statement trigger for
   each write that can break it copies the statement's rows into a temporary table of the session: for a containment,
   a write that adds rows to its source or takes rows from its target, and so also a delete from a table its source
   negates and an insert into one its target negates. The rows a transaction adds are kept as its net write: a delete,
@@ -2151,11 +2171,11 @@ definition too.
   the transaction leaves it and never reads it again from its table. The copy arms a deferred constraint trigger,
   `DEFERRABLE INITIALLY DEFERRED`, whose function, the judge, runs at COMMIT: each rule's violation query, compiled by
   grizzle's own query compiler, read once over every row the transaction wrote, a chain of index lookups from those
-  rows. It raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. After `SET
+  rows, or, for a unit-local rule, over the set of the units those rows hold. It raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. After `SET
   CONSTRAINTS ALL IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a
   pinned `search_path`, no role may run them, and a temporary table another role made under the judge's names is
   refused.
-- **Statistics.** Each lookup of the chain after the rows the transaction wrote is PostgreSQL's plan, a read of one
+- **Statistics.** Each lookup of a probe's chain after the rows the transaction wrote is PostgreSQL's plan, a read of one
   table at the columns the steps before it bound. On a table with no statistics, a lookup at the table's key may be
   planned through a narrower index of some of the key's columns, which reads every row those columns share, until
   ANALYZE runs: PostgreSQL prices both reads at one row (selfuncs.c btcostestimate, the key's one tuple against the

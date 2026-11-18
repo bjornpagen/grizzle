@@ -13,7 +13,7 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
 import { exists } from "#compiler/sql/build.ts"
@@ -58,7 +58,11 @@ const R = relation("R", { package: Path, path: Path, start: pg.bigint, name: pg.
 /** A name a package declares. */
 const Q = relation("Q", { package: Path, name: pg.smallint }, ["package", "name"])
 
-const Base = schema("NetWrite", [P, A, R, Q], [])
+/**
+ * Mutable, so no rule over them is unit-local: each is judged by its probes, whose net write the properties read, never
+ * whole over its units (analysis/theory/unit.ts).
+ */
+const Base = schema("NetWrite", [P, A, R, Q], [mutable(P), mutable(A), mutable(R), mutable(Q)])
 
 /** The attributes of governor 1, each at its key. */
 const Media = derived(

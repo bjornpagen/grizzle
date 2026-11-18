@@ -37,17 +37,28 @@ import {
 } from "#compiler/analysis/theory/families.ts"
 import {
 	derivedSideArms,
+	headingOf,
+	type LawSide,
 	type LiveEnv,
 	liveArms,
 	type QueryRule,
+	type RuleLaw,
 	type RuleSide,
 	ruleReads,
 	storedSideArm,
 	violationQuery
 } from "#compiler/analysis/theory/query.ts"
+import { wholeRule } from "#compiler/analysis/theory/unit.ts"
 import { unwrap } from "#compiler/check/fail.ts"
 import { combineRule, foldPlane } from "#compiler/check/fold.ts"
-import { compareText, ownedText, Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import {
+	catchRefusal,
+	compareText,
+	ownedText,
+	Refusal,
+	withoutSourceLocs
+} from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -152,6 +163,35 @@ interface StatedRule {
 	readonly kind: "rule"
 	readonly rule: QueryRule
 }
+
+/** A side of a rule over a query as its statement writes it: its scope, its terms, and its variables' prefix. */
+interface SideInput {
+	readonly scope: SideScope
+	readonly terms: NonEmptyReadonlyArray<TermDesc>
+	readonly prefix: string
+}
+
+/** A side as its statement writes it (`SideInput`), with its declaration resolved (query.ts LawSide). */
+interface WrittenSide {
+	readonly input: SideInput
+	readonly declared: LawSide
+}
+
+/** A law with each side mapped by `f`. */
+const lawOver = <A, B>(law: RuleLaw<A>, f: (side: A) => B): RuleLaw<B> => {
+	switch (law.kind) {
+		case "contained":
+			return { kind: "contained", from: f(law.from), to: f(law.to) }
+		case "key":
+			return { kind: "key", side: f(law.side) }
+		case "check":
+			return { kind: "check", name: law.name, predicate: law.predicate, side: f(law.side) }
+	}
+}
+
+/** A law over its sides' declarations. */
+const lawSides = (law: RuleLaw<WrittenSide>): RuleLaw<LawSide> =>
+	lawOver(law, (side) => side.declared)
 
 /**
  * One foreign key a containment rule over a query lowers to: the source side over the terms one match of its target's
@@ -1216,8 +1256,11 @@ export class Normalizer {
 			case "key":
 				if (this.env.definition(s.side.relation) !== undefined) {
 					this.#queryRule(
-						{ kind: "key", side: this.#ruleSide(s.side, s.side.terms, "side.", loc) },
-						byTriggers,
+						{
+							kind: "key",
+							side: this.#declared({ scope: s.side, terms: s.side.terms, prefix: "side." }, loc)
+						},
+						() => byTriggers,
 						"key",
 						{ statement: index, kind: "key" },
 						sources,
@@ -1230,37 +1273,24 @@ export class Normalizer {
 			case "check": {
 				const definition = this.env.definition(s.relation)
 				if (definition !== undefined) {
-					const arms = liveArms(s.relation, definition, {
-						definition: this.env.definition,
-						columnType: this.env.columnType,
-						loc
-					})
-					const [field, ...fields] = Object.keys(arms[0].head)
-					if (field === undefined) {
-						return refuse(
-							"MalformedDescription",
-							loc,
-							`a definition of ${s.relation} that derives a field`
-						)
-					}
-					const heading = mapNonEmpty([field, ...fields], (f): TermDesc => ({
-						kind: "field",
-						field: f
-					}))
 					this.#queryRule(
 						{
 							kind: "check",
 							name: s.name,
 							predicate: s.predicate,
-							side: {
-								relation: s.relation,
-								terms: heading,
-								selection: everyFact,
-								texts: [],
-								arms: derivedSideArms(arms, heading, everyFact, loc)
-							}
+							side: this.#declared(
+								{
+									scope: { relation: s.relation, selection: everyFact },
+									terms: mapNonEmpty(headingOf(s.relation, definition, loc), (f): TermDesc => ({
+										kind: "field",
+										field: f
+									})),
+									prefix: "side."
+								},
+								loc
+							)
 						},
-						byTriggers,
+						() => byTriggers,
 						"check",
 						{ statement: index, kind: "check" },
 						sources,
@@ -1345,50 +1375,76 @@ export class Normalizer {
 	}
 
 	/**
-	 * A side of a rule over a query (analysis/theory/query.ts RuleSide): a derived relation's live arms, or the one arm of
-	 * a stored or closed relation, `prefix` keeping its variables apart from the rule's other side's.
+	 * A side of a rule over a query as its statement declares it (analysis/theory/query.ts LawSide): its relation, its
+	 * terms, each a field of a stored relation's or of a derived relation's heading, its selection and its texts, and
+	 * its relation's heading, a derived relation's its definition's.
 	 */
-	#ruleSide(
-		scope: SideScope,
-		terms: NonEmptyReadonlyArray<TermDesc>,
-		prefix: string,
-		loc: SourceLoc
-	): RuleSide {
+	#declared(side: SideInput, loc: SourceLoc): WrittenSide {
+		return { input: side, declared: this.#lawSide(side, loc) }
+	}
+
+	/** A side's declaration (query.ts LawSide), read off the statement's scope and terms (`#declared`). */
+	#lawSide(side: SideInput, loc: SourceLoc): LawSide {
+		const scope = side.scope
 		const definition = this.env.definition(scope.relation)
 		const texts = scope.selection.conjuncts.map((c) => ownedText(c, withoutSourceLocs))
 		if (definition === undefined) {
 			const r = this.#sides.relation(scope.relation, loc)
-			for (const t of terms) {
+			for (const t of side.terms) {
 				this.#sides.term(r, t, loc)
 			}
 			return {
 				relation: scope.relation,
-				terms,
+				terms: side.terms,
 				selection: scope.selection,
 				texts,
-				arms: [storedSideArm(scope.relation, terms, scope.selection, prefix, loc)]
+				heading: mapNonEmpty(r.heading, (f) => f.name)
 			}
 		}
 		return {
 			relation: scope.relation,
-			terms,
+			terms: side.terms,
 			selection: scope.selection,
 			texts,
-			arms: derivedSideArms(
-				liveArms(scope.relation, definition, {
-					definition: this.env.definition,
-					columnType: this.env.columnType,
-					loc
-				}),
-				terms,
-				scope.selection,
-				loc
-			)
+			heading: headingOf(scope.relation, definition, loc)
 		}
 	}
 
-	/** A containment one of whose sides reads a derived relation: a rule over a query, each side read as arms, discharged
-	 * by foreign keys where its target lowers to them (`#lowering`). */
+	/**
+	 * A side of a probed rule (analysis/theory/query.ts RuleSide): its declaration, and its arms, a derived relation's
+	 * live arms (query.ts liveArms), or the one arm of a stored or closed relation, its prefix keeping its variables apart
+	 * from the rule's other side's; or the refusal of a definition the probes cannot read.
+	 */
+	#ruleSide(
+		declared: LawSide,
+		side: SideInput,
+		loc: SourceLoc
+	): Result.Result<RuleSide, CompileError> {
+		const definition = this.env.definition(declared.relation)
+		if (definition === undefined) {
+			return Result.ok({
+				...declared,
+				arms: [
+					storedSideArm(declared.relation, declared.terms, declared.selection, side.prefix, loc)
+				]
+			})
+		}
+		return Result.map(
+			catchRefusal(() =>
+				liveArms(declared.relation, definition, {
+					definition: this.env.definition,
+					columnType: this.env.columnType,
+					loc
+				})
+			),
+			(arms) => ({
+				...declared,
+				arms: derivedSideArms(arms, declared.terms, declared.selection, loc)
+			})
+		)
+	}
+
+	/** A containment one of whose sides reads a derived relation: a rule over a query (`#queryRule`). */
 	#queryContainment(
 		left: SideScope,
 		right: SideScope,
@@ -1397,24 +1453,25 @@ export class Normalizer {
 		sources: ReadonlyArray<StatementSource>,
 		loc: SourceLoc
 	): void {
-		const to = this.#ruleSide(
-			right,
-			mapNonEmpty(pairs, (p) => p.right),
-			"to.",
-			loc
-		)
 		this.#queryRule(
 			{
 				kind: "contained",
-				from: this.#ruleSide(
-					left,
-					mapNonEmpty(pairs, (p) => p.left),
-					"from.",
+				from: this.#declared(
+					{ scope: left, terms: mapNonEmpty(pairs, (p) => p.left), prefix: "from." },
 					loc
 				),
-				to
+				to: this.#declared(
+					{ scope: right, terms: mapNonEmpty(pairs, (p) => p.right), prefix: "to." },
+					loc
+				)
 			},
-			this.#lowering(left, pairs, to, loc),
+			(law) => {
+				if (law.kind !== "contained") {
+					return byTriggers
+				}
+				const to = this.#ruleSide(law.to.declared, law.to.input, loc)
+				return to.ok ? this.#lowering(left, pairs, to.value, loc) : byTriggers
+			},
 			"contained",
 			{ statement: index, kind: "contained" },
 			sources,
@@ -1550,25 +1607,44 @@ export class Normalizer {
 			: byTriggers
 	}
 
-	/** A rule over a query, kept with its violation query as a description the checker reads, discharged as `lowering`
-	 * says. */
+	/**
+	 * A rule over a query, kept with its violation query (query.ts violationQuery) as a description the checker reads,
+	 * which the migration that adds it runs, and discharged by the one strategy decided here, once, in order: a
+	 * containment whose target lowers to foreign keys (`#lowering`) by them; a unit-local rule whole (unit.ts wholeRule),
+	 * its violation judged over the units a transaction wrote; any other by its probes, its sides read as arms, a
+	 * definition the probes cannot read refused (query.ts liveArms). Its identity is the rule as its statement states
+	 * it, whichever strategy discharges it.
+	 */
 	#queryRule(
-		rule: QueryRule,
-		lowering: RuleLowering,
+		law: RuleLaw<WrittenSide>,
+		lowered: (law: RuleLaw<WrittenSide>) => RuleLowering,
 		shape: LawShape,
 		source: LawSource,
 		sources: ReadonlyArray<StatementSource>,
 		loc: SourceLoc
 	): void {
-		const stated: StatedRule = { kind: "rule", rule }
+		const stated = lawSides(law)
+		const violation = violationQuery(stated, this.env.definition, loc)
+		const lowering = lowered(law)
+		const whole =
+			lowering.kind === "foreignKeys"
+				? undefined
+				: wholeRule(stated, violation, this.env.relations, loc)
+		const discharged: QueryRule =
+			whole ?? lawOver(law, (side) => unwrap(this.#ruleSide(side.declared, side.input, loc)))
 		this.#keep(
 			{
-				identity: { shape, source, reads: ruleReads(rule), detail: stated },
+				identity: {
+					shape,
+					source,
+					reads: ruleReads(discharged),
+					detail: { kind: "rule", rule: discharged }
+				},
 				sources,
 				write: {
 					kind: "query",
-					violation: violationQuery(rule, this.env.definition, loc),
-					detail: { ...stated, lowering }
+					violation,
+					detail: { kind: "rule", rule: discharged, lowering }
 				}
 			},
 			loc,

@@ -10,7 +10,7 @@ import type {
 	UnionArm,
 	UnionArms
 } from "#compiler/types/query/query.ts"
-import type { Aggregate, Producer } from "#compiler/types/query/terms.ts"
+import type { Producer } from "#compiler/types/query/terms.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
 
 /** A definition: a query holding its heading of carriers. */
@@ -37,17 +37,17 @@ export interface RuleRead<out R> {
 }
 
 /**
- * The refusal of a definition's arm a rule cannot read, or never for an arm that joins, selects and projects: a rule or
- * a union of rules, no head term an aggregate or a span producer (analysis/theory/query.ts, UnsupportedLawFamily).
+ * The refusal of a definition's arm a rule cannot read, or never for an arm a rule reads: a rule or a union of rules,
+ * no head term a span producer. An aggregate is no refusal here: a rule over one is judged whole, over the units a
+ * transaction wrote, where it is unit-local, which only the schema's compile decides (analysis/theory/unit.ts), and
+ * refused there where it is not (UnsupportedLawFamily).
  */
 type ArmRefusal<A> =
 	A extends UnionArm<infer C, PropertyKey, infer Stage, boolean>
 		? Stage extends "rule" | "union"
-			? [KeysOfCarrier<C, Aggregate<unknown, never>>] extends [never]
-				? [KeysOfCarrier<C, Producer<unknown, never>>] extends [never]
-					? never
-					: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans">
-				: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates">
+			? [KeysOfCarrier<C, Producer<unknown, never>>] extends [never]
+				? never
+				: Refusal<"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans">
 			: Refusal<StageRefusals[Exclude<Stage, "rule" | "union">]>
 		: never
 

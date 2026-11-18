@@ -1,5 +1,5 @@
 import type { LawIdentity, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
-import type { QueryRule, RuleSide } from "#compiler/analysis/theory/query.ts"
+import type { LawSide, QueryRule, RuleLaw } from "#compiler/analysis/theory/query.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { GeneratedLawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -98,20 +98,32 @@ export const lawDescription = (law: LawIdentity): OwnLaw => {
 const ruleDescription = (rule: QueryRule): OwnLaw => {
 	switch (rule.kind) {
 		case "contained":
+		case "key":
+		case "check":
+			return ruleLawDescription(rule)
+		case "whole":
+			return ruleLawDescription(rule.law)
+	}
+}
+
+/** A rule over a query's law as an outcome names it (`ruleDescription`). */
+const ruleLawDescription = (law: RuleLaw<LawSide>): OwnLaw => {
+	switch (law.kind) {
+		case "contained":
 			return Object.freeze({
 				kind: "contained",
-				from: ruleSideOf(rule.from),
-				to: ruleSideOf(rule.to)
+				from: ruleSideOf(law.from),
+				to: ruleSideOf(law.to)
 			})
 		case "key":
-			return Object.freeze({ kind: "key", side: ruleSideOf(rule.side) })
+			return Object.freeze({ kind: "key", side: ruleSideOf(law.side) })
 		case "check":
-			return Object.freeze({ kind: "check", relation: rule.side.relation, name: rule.name })
+			return Object.freeze({ kind: "check", relation: law.side.relation, name: law.name })
 	}
 }
 
 /** A rule over a query's side as its statement declares it. */
-const ruleSideOf = (side: RuleSide): SideDesc => sideDesc(side, [...side.selection.conjuncts])
+const ruleSideOf = (side: LawSide): SideDesc => sideDesc(side, [...side.selection.conjuncts])
 
 /** A contract's law, wherever its domain is installed (theory.ts contractLawIdentity): its name. */
 export const contractLaw = (contract: string): OwnLaw =>

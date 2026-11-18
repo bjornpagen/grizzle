@@ -3,14 +3,21 @@ import {
 	newProbes,
 	oldProbes,
 	type Probe,
+	type ProbedRule,
+	type QueryRule,
 	regionQuery,
-	type TouchedField
+	type RuleLaw,
+	type LawSide,
+	type TouchedField,
+	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { canonicalTextOf, Refusal, sameText } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { defined } from "#compiler/core/invariant.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
 	headNonEmpty,
@@ -21,10 +28,12 @@ import {
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
+import { weightOf } from "#compiler/core/zset.ts"
+import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { defaultOpclass, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
-import type { DeltaSide } from "#compiler/ir/rel.ts"
+import type { DeltaSide, RelNode } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
@@ -101,8 +110,23 @@ const probeStatements = (probes: ReadonlyArray<Compiled>): ReadonlyArray<Operand
 }
 
 /** The SQLSTATE condition a rule's kind raises under. */
-const conditionOf = (rule: RuleTrigger): string => {
-	switch (rule.rule.kind) {
+const conditionOf = (rule: RuleTrigger): string => conditionOfRule(rule.rule)
+
+/** The SQLSTATE condition a rule raises under, its law's. */
+const conditionOfRule = (rule: QueryRule): string => {
+	switch (rule.kind) {
+		case "contained":
+		case "key":
+		case "check":
+			return conditionOfLaw(rule)
+		case "whole":
+			return conditionOfLaw(rule.law)
+	}
+}
+
+/** The SQLSTATE condition a law raises under: 23503 for a containment, 23505 for a key, 23514 for a check. */
+const conditionOfLaw = (law: RuleLaw<LawSide>): string => {
+	switch (law.kind) {
 		case "contained":
 			return "foreign_key_violation"
 		case "key":
@@ -118,9 +142,8 @@ const columnsOf = (relation: RelationInfo, fields: ReadonlyArray<string>): Reado
 
 /**
  * A probe read over its region (analysis/theory/query.ts regionQuery), the rows the transaction wrote of `relation` at
- * `record`, checked as a region read (check/checker.ts QueryRead `region`) and lowered by the optimized pipeline under
- * the transaction's evidence, its Delta node read from the session's delta table `deltas` names (RegionLowering), with
- * the index requests of its access paths.
+ * `record`, checked and lowered as every query the judge reads is (`judgedStatement`), with the index requests of its
+ * access paths.
  *
  * What lowers is the probe navigated (analysis/theory/navigate.ts navigateMember): one chain of steps from its region,
  * each a lookup of one relation by the columns the steps before it bound, so no estimate PostgreSQL makes, with
@@ -143,21 +166,43 @@ const compileProbe = (
 	if (!written.ok) {
 		throw new Refusal(written.error)
 	}
-	const lowered = Result.flatMap(
-		checkQuery(
-			b.checked,
-			navigateMember(regionQuery(probe, relation.name, record, rule.law.loc), relation.loc),
-			{ read: "region", label }
-		),
-		(checked) =>
-			Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
-				lowerOptimized(annotated, {
-					names: b.names,
-					subject: { kind: "ruleRegion", deltas },
-					context: "transaction",
-					catalog
-				})
-			)
+	const lowered = judgedStatement(
+		b,
+		catalog,
+		navigateMember(regionQuery(probe, relation.name, record, rule.law.loc), relation.loc),
+		label,
+		relation.loc,
+		deltas
+	)
+	return { statement: lowered.statement, requests: requestsOf(b, rule, written.value.dag.roots[0]) }
+}
+
+/**
+ * A query the judge reads, a probe over its region or a unit-scoped rule's violation over its units: checked as a
+ * region read (check/checker.ts QueryRead `region`) and lowered by the optimized pipeline under the transaction's
+ * evidence, each Delta node read from the session's delta table `deltas` names (RegionLowering), to one main statement
+ * of no parameter, its outputs unaliased; with the root of its checked DAG, whose access paths are its index requests'
+ * where it is its own.
+ */
+const judgedStatement = (
+	b: InstallBuilder,
+	catalog: ReturnType<typeof evidenceCatalog>,
+	query: InferredQuery,
+	label: string,
+	loc: SourceLoc,
+	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
+): { readonly statement: OperandSelect; readonly root: RelNode } => {
+	const checked = checkQuery(b.checked, query, { read: "region", label })
+	if (!checked.ok) {
+		throw new Refusal(checked.error)
+	}
+	const lowered = Result.flatMap(optimizedInput(checked.value, queryEvidence), (annotated) =>
+		lowerOptimized(annotated, {
+			names: b.names,
+			subject: { kind: "ruleRegion", deltas },
+			context: "transaction",
+			catalog
+		})
 	)
 	if (!lowered.ok) {
 		throw new Refusal(lowered.error)
@@ -170,51 +215,65 @@ const compileProbe = (
 		program.statement.forms.kind !== "one"
 	) {
 		throw new Refusal(
-			unsupported(relation.loc, `${label}: a probe that lowers to one main statement`)
+			unsupported(loc, `${label}: a judged query that lowers to one main statement`)
 		)
 	}
 	const main = parts.delivered
 	if (main.params.length > 0) {
-		throw new Refusal(
-			unsupported(relation.loc, `${label}: a probe over its region that reads a parameter`)
-		)
+		throw new Refusal(unsupported(loc, `${label}: a judged query that reads a parameter`))
 	}
 	const statement = main.ast
-	const access = extractAccess([written.value.dag.roots[0]], { pageable: [] })
 	return {
 		statement: { ...statement, body: unaliased(statement.body) },
-		requests: access.paths.flatMap((path): ReadonlyArray<IndexRequest> => {
-			const target = b.model.relations.get(path.relation)?.relation
-			if (target === undefined || path.method === "hnsw" || path.derived) {
-				return []
-			}
-			const keys = path.keys.flatMap((k) =>
-				target.fields.flatMap((f) =>
-					f.name === k.field
-						? [
-								{
-									column: { kind: "field" as const, field: f },
-									dir: k.dir,
-									opclass: defaultOpclass
-								}
-							]
-						: []
-				)
-			)
-			return isNonEmpty(keys)
-				? [
-						{
-							relation: target.name,
-							keys,
-							method: path.method,
-							role: "lawMaintenance",
-							use: "rule probe",
-							justification: { kind: "law", law: rule.law.id }
-						}
-					]
-				: []
-		})
+		root: checked.value.dag.roots[0]
 	}
+}
+
+/**
+ * The index requests of a judged query's access paths (physical/access/extract.ts), read from the root of its checked
+ * DAG: law-maintenance requests of `rule`, so a judged read reads by index wherever the planner can.
+ */
+const requestsOf = (
+	b: InstallBuilder,
+	rule: RuleTrigger,
+	root: RelNode
+): ReadonlyArray<IndexRequest> =>
+	extractAccess([root], { pageable: [] }).paths.flatMap((path): ReadonlyArray<IndexRequest> => {
+		const target = b.model.relations.get(path.relation)?.relation
+		if (target === undefined || path.method === "hnsw" || path.derived) {
+			return []
+		}
+		const keys = path.keys.flatMap((k) =>
+			target.fields.flatMap((f) =>
+				f.name === k.field
+					? [
+							{
+								column: { kind: "field" as const, field: f },
+								dir: k.dir,
+								opclass: defaultOpclass
+							}
+						]
+					: []
+			)
+		)
+		return isNonEmpty(keys)
+			? [
+					{
+						relation: target.name,
+						keys,
+						method: path.method,
+						role: "lawMaintenance",
+						use: "rule probe",
+						justification: { kind: "law", law: rule.law.id }
+					}
+				]
+			: []
+	})
+
+/** A block of the judge's statements that holds one rule, ordered among the judge's blocks by its rule's trigger. */
+interface Judged {
+	readonly order: string
+	readonly body: ReadonlyArray<PlStatement>
 }
 
 /** The two sides of a table's writes a probe reads: its rows as a statement leaves them, and as it found them. */
@@ -234,9 +293,9 @@ interface SessionDelta {
 }
 
 /**
- * The column a side of news counts each image it holds in (`addRules`): 1 for an image a statement put, -1 for one it
- * removed. No heading column is so named: a declared field's column never starts with `__`, and a law column's name
- * carries its digest after its stem.
+ * The column a side of news counts each image it holds in (`addRules`): the image's weight in the transaction's change,
+ * a Z-set (core/zset.ts weightOf), 1 for an image a statement put and -1 for one it removed. No heading column is so
+ * named: a declared field's column never starts with `__`, and a law column's name carries its digest after its stem.
  */
 export const countColumn = "__count"
 
@@ -399,10 +458,11 @@ const imageOf = (relation: RelationInfo, side: JudgedSide): NonEmptyReadonlyArra
  * The rows of one side a statement wrote into its delta: every row of the transition table `rows`, or, for an UPDATE,
  * each row the other transition table holds no row of with the same image (`imageOf`), so an UPDATE of columns no rule
  * reads there captures nothing. Every row stands once in a transition table, and its key with it, so the rows are a
- * set. The side of olds takes the rows a statement found as they are. The side of news counts each image: 1 for a row
- * the statement put (`news`), -1 for one it removed (`olds`), which the judge nets (`netted`). A removal is counted
- * only once the delta holds a row: before any image the transaction put stands there it cancels none, and an image it
- * removed that the transaction puts again is then judged as any it put, so a write that only removes rows logs none.
+ * set. The side of olds takes the rows a statement found as they are. The side of news counts each image by its
+ * weight (core/zset.ts weightOf): 1 for a row the statement put (`news`), -1 for one it removed (`olds`), which the
+ * judge nets (`netted`). A removal is counted only once the delta holds a row: before any image the transaction put
+ * stands there it cancels none, and an image it removed that the transaction puts again is then judged as any it put,
+ * so a write that only removes rows logs none.
  */
 const captured = (
 	relation: RelationInfo,
@@ -449,7 +509,12 @@ const captured = (
 				[
 					...columns.map((c) => ({ expr: col("r1", c), alias: undefined })),
 					...(counted
-						? [{ expr: lit.int(removed ? -1 : 1, types.smallint), alias: undefined }]
+						? [
+								{
+									expr: lit.int(weightOf[removed ? "removed" : "added"], types.smallint),
+									alias: undefined
+								}
+							]
 						: [])
 				],
 				[{ kind: "transition", table: rows, alias: "r1" }],
@@ -464,11 +529,12 @@ const captured = (
  * The side of news a delta nets (`addRules`'s judge): it deletes every row of an image whose counts sum to 0 or less,
  * and every row but one of each other image, which stands at COMMIT and stood nowhere before the transaction, so the
  * delta holds delta.added of its relation's images, each once: the relation's rows as the transaction leaves them minus
- * those it found (check/checker.ts Delta). An image's sum is its puts less its removals, whatever order a statement's
- * captures ran in: 1 where the transaction put it and it stands, -1 where it removed one it found, 0 otherwise. An image
- * of sum -1 goes too: a removal is counted only to cancel a put, and one the transaction puts again is judged as any it
- * put. A later statement's captures count on from what the delta holds, so the judge at SET CONSTRAINTS ALL IMMEDIATE
- * nets it again from there.
+ * those it found (check/checker.ts Delta). That is the Z-set's one netting rule (core/zset.ts): an image's sum is its
+ * weights, its puts less its removals, whatever order a statement's captures ran in, 1 where the transaction put it and
+ * it stands, -1 where it removed one it found, 0 otherwise; and it stands added where its sum is positive (sideOf). An
+ * image of sum -1 goes too: a removal is counted only to cancel a put, and one the transaction puts again is judged as
+ * any it put. A later statement's captures count on from what the delta holds, so the judge at SET CONSTRAINTS ALL
+ * IMMEDIATE nets it again from there.
  */
 const netted = (relation: RelationInfo, side: JudgedSide): PlStatement => {
 	const image = mapNonEmpty(imageOf(relation, side), (c) => col("r2", c))
@@ -697,81 +763,142 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 	const deltaOf = (t: JudgedTable, side: Side): SessionDelta | undefined =>
 		t.sides.find((s) => s.side === side)?.delta
 	const requests: Array<IndexRequest> = []
-	const judged = tables.flatMap((t) =>
-		t.rules.map(({ rule, table: rt }) => {
-			const relation = t.relation
-			const key = mapNonEmpty(relation.primaryFields, touched)
-			const fields = relation.fields.map(touched)
-			const deltas = (name: string, side: DeltaSide): DeltaRelation | undefined => {
-				const delta =
-					name !== relation.name
-						? undefined
-						: side === "added"
-							? deltaOf(t, "news")
-							: side === "removed"
-								? deltaOf(t, "olds")
-								: undefined
-				return delta === undefined
-					? undefined
-					: {
-							kind: "session",
-							table: sessionTable(delta.name),
-							columns: delta.columns.map((c) => c.name)
+	const tableOf = (relation: string): JudgedTable | undefined =>
+		tables.find((t) => t.relation.name === relation)
+	/** The session's delta of `t`'s side `side` as a Delta node reads it: news as delta.added, olds as delta.removed. */
+	const sessionDelta = (t: JudgedTable, side: DeltaSide): DeltaRelation | undefined => {
+		const delta =
+			side === "added" ? deltaOf(t, "news") : side === "removed" ? deltaOf(t, "olds") : undefined
+		return delta === undefined
+			? undefined
+			: {
+					kind: "session",
+					table: sessionTable(delta.name),
+					columns: delta.columns.map((c) => c.name)
+				}
+	}
+	/**
+	 * The judge's statements of a probed rule over one table it reads: each probe of the table's sides its touches name
+	 * (newProbes, oldProbes), run over that side's delta where the session holds it.
+	 */
+	const probedBlock = (rule: RuleTrigger, probed: ProbedRule, rt: RuleTable): Judged => {
+		const relation = rt.relation
+		const t = defined(
+			tableOf(relation.name),
+			`the judged table ${relation.name}, a table its rule reads`
+		)
+		const key = mapNonEmpty(relation.primaryFields, touched)
+		const fields = relation.fields.map(touched)
+		const deltas = (name: string, side: DeltaSide): DeltaRelation | undefined =>
+			name === relation.name ? sessionDelta(t, side) : undefined
+		const compile =
+			(record: "NEW" | "OLD") =>
+			(probe: Probe): Compiled =>
+				compileProbe(b, catalog, rule, relation, probe, record, deltas)
+		const raise = raiseOf(b, rule, relation)
+		const sideProbes = (
+			side: Side,
+			probes: ReadonlyArray<Compiled>
+		): ReadonlyArray<PlStatement> => {
+			const delta = deltaOf(t, side)
+			appendAll(
+				requests,
+				probes.flatMap((p) => p.requests)
+			)
+			const statements = probeStatements(probes)
+			return delta === undefined || statements.length === 0
+				? []
+				: [
+						{
+							kind: "if",
+							branches: [
+								{
+									condition: standing(delta.name),
+									body: statements.map((statement): PlStatement => ({
+										kind: "if",
+										branches: [{ condition: exists(statement), body: [raise] }],
+										else: []
+									}))
+								}
+							],
+							else: []
 						}
-			}
-			const compile =
-				(record: "NEW" | "OLD") =>
-				(probe: Probe): Compiled =>
-					compileProbe(b, catalog, rule, relation, probe, record, deltas)
-			const raise = raiseOf(b, rule, relation)
-			const sideProbes = (
-				side: Side,
-				probes: ReadonlyArray<Compiled>
-			): ReadonlyArray<PlStatement> => {
-				const delta = deltaOf(t, side)
-				appendAll(
-					requests,
-					probes.flatMap((p) => p.requests)
-				)
-				const statements = probeStatements(probes)
-				return delta === undefined || statements.length === 0
+					]
+		}
+		return {
+			order: identifierOf(rule.named),
+			body: [
+				...(rt.touches.kind === "olds"
 					? []
-					: [
-							{
-								kind: "if",
-								branches: [
-									{
-										condition: standing(delta.name),
-										body: statements.map((statement): PlStatement => ({
-											kind: "if",
-											branches: [{ condition: exists(statement), body: [raise] }],
-											else: []
-										}))
-									}
-								],
-								else: []
-							}
-						]
-			}
-			return {
-				order: identifierOf(rule.named),
-				body: [
-					...(rt.touches.kind === "olds"
-						? []
-						: sideProbes(
-								"news",
-								newProbes(rule.rule, relation.name, key, fields, rule.law.loc).map(compile("NEW"))
-							)),
-					...(rt.touches.kind === "news"
-						? []
-						: sideProbes(
-								"olds",
-								oldProbes(rule.rule, relation.name, fields, rule.law.loc).map(compile("OLD"))
-							))
-				]
-			}
-		})
-	)
+					: sideProbes(
+							"news",
+							newProbes(probed, relation.name, key, fields, rule.law.loc).map(compile("NEW"))
+						)),
+				...(rt.touches.kind === "news"
+					? []
+					: sideProbes(
+							"olds",
+							oldProbes(probed, relation.name, fields, rule.law.loc).map(compile("OLD"))
+						))
+			]
+		}
+	}
+	/**
+	 * The judge's statement of a whole rule: its violation over the units the transaction wrote (WholeRule `judged`), read once whatever tables the transaction wrote of it, every delta it reads stood up first
+	 * (`unitDeltas`), raising where it holds a row.
+	 */
+	const unitBlock = (rule: RuleTrigger, unit: WholeRule): Judged => {
+		const label = `rule ${rule.law.named.display} over the units a transaction wrote`
+		const deltas = (name: string, side: DeltaSide): DeltaRelation | undefined => {
+			const t = tableOf(name)
+			return t === undefined ? undefined : sessionDelta(t, side)
+		}
+		const lowered = judgedStatement(b, catalog, unit.judged, label, rule.law.loc, deltas)
+		appendAll(requests, requestsOf(b, rule, lowered.root))
+		const holder = defined(
+			tableOf(headNonEmpty(unit.unit.holders).relation),
+			"a unit-scoped rule's holder, a table it reads"
+		)
+		return {
+			order: identifierOf(rule.named),
+			body: [
+				{
+					kind: "if",
+					branches: [
+						{ condition: exists(lowered.statement), body: [raiseOf(b, rule, holder.relation)] }
+					],
+					else: []
+				}
+			]
+		}
+	}
+	/** The judge's statements that hold `rule`, by the one strategy its kind states. */
+	const judgedBy = (rule: RuleTrigger): ReadonlyArray<Judged> => {
+		const r = rule.rule
+		switch (r.kind) {
+			case "contained":
+			case "key":
+			case "check":
+				return rule.tables.map((rt) => probedBlock(rule, r, rt))
+			case "whole":
+				return [unitBlock(rule, r)]
+		}
+	}
+	const judged = b.model.rules.flatMap(judgedBy)
+	/** Every delta a whole rule reads, each once: its statement reads each, so the judge stands each up first. */
+	const unitDeltas = [
+		...new Set(
+			b.model.rules.flatMap((rule) => {
+				const r = rule.rule
+				return r.kind === "whole"
+					? r.unit.holders.flatMap((h) => {
+							const t = tableOf(h.relation)
+							return t === undefined ? [] : t.sides.map((side) => side.delta)
+						})
+					: []
+			})
+		)
+	].toSorted((x, y) => compareStrings(x.name, y.name))
 	const deltas = tables.flatMap((t) => t.sides.map((s) => s.delta.name)).toSorted(compareStrings)
 	const reasons: ReadonlyArray<PhysicalReason> = [
 		enforcement(`the rules over queries of schema ${b.owned.name}`),
@@ -810,6 +937,7 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 							],
 							else: []
 						})),
+						...unitDeltas.map(ensured),
 						...tables
 							.flatMap((t) =>
 								t.sides.flatMap((s) => (s.side === "news" ? [{ name: s.delta.name, t, s }] : []))

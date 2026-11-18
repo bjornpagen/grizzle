@@ -6,12 +6,13 @@ import { oldProbes, type TouchedField } from "#compiler/analysis/theory/query.ts
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { owning } from "#test/support/policy.ts"
+import { probedRule } from "#test/support/probed.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
 
 /** One case: D's arms, whether each holds T's a to a literal of its own, and whether each joins U by k. */
@@ -34,7 +35,8 @@ const schemaOf = (shape: Shape) => {
 	const T = relation("T", { k: pg.integer, a: pg.integer }, ["k"])
 	const U = relation("U", { k: pg.integer }, ["k"])
 	const S = relation("S", { k: pg.integer }, ["k"])
-	const Base = schema("rule_probes", [T, U, S], [])
+	/** Mutable, so the containment over them is no unit-local rule but a probed one, whose probes the test reads. */
+	const Base = schema("rule_probes", [T, U, S], [mutable(T), mutable(U), mutable(S)])
 	const first = query(Base).rule((r) => {
 		const { k } = v(T, "t")
 		const held = r.match(T, shape.literal ? { k, a: 1 } : { k })
@@ -86,7 +88,7 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 				? m
 				: m +
 					oldProbes(
-						rule.rule,
+						probedRule(rule.rule),
 						table.relation.name,
 						Arr.map(table.relation.fields, (f): TouchedField => ({ name: f.name, desc: f.desc })),
 						rule.law.loc

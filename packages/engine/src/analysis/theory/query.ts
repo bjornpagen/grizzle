@@ -33,6 +33,7 @@ import type {
 	VarDesc
 } from "#compiler/ir/desc.ts"
 import { connectiveExpr } from "#compiler/ir/desc.ts"
+import type { Unit } from "#compiler/ir/unit.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 
 /**
@@ -98,31 +99,76 @@ export interface SideArm extends LiveArm {
 }
 
 /**
- * A side of a rule over a query, as its statement declares it and as its arms read it: its relation, stored or derived,
- * its terms and selection, the selection's canonical texts, and its arms.
+ * A side of a rule over a query as its statement declares it: its relation, stored or derived, its terms and selection,
+ * the selection's canonical texts, and its relation's heading, every field a fact of it holds, which a key's and a
+ * check's violation reads whole.
  */
-export interface RuleSide {
+export interface LawSide {
 	readonly relation: string
 	readonly terms: NonEmptyReadonlyArray<TermDesc>
 	readonly selection: SelectionDesc
 	readonly texts: ReadonlyArray<string>
+	readonly heading: NonEmptyReadonlyArray<string>
+}
+
+/** A side of a rule over a query as its probes read it: its declaration, and its arms (`SideArm`). */
+export interface RuleSide extends LawSide {
 	readonly arms: NonEmptyReadonlyArray<SideArm>
 }
 
-/**
- * A rule at least one of whose sides reads a derived relation: a containment, a key over a derived relation's side,
- * or a row check over a derived relation's facts.
- */
-export type QueryRule =
-	| { readonly kind: "contained"; readonly from: RuleSide; readonly to: RuleSide }
-	| { readonly kind: "key"; readonly side: RuleSide }
+/** A rule over a query's law over sides `S`: a containment, a key over a side, or a row check over a relation's facts. */
+export type RuleLaw<S> =
+	| { readonly kind: "contained"; readonly from: S; readonly to: S }
+	| { readonly kind: "key"; readonly side: S }
 	| {
 			readonly kind: "check"
 			readonly name: string
 			readonly predicate: InferredExpr
 			/** The derived relation's facts: a side of every fact, its terms every heading field. */
-			readonly side: RuleSide
+			readonly side: S
 	  }
+
+/**
+ * A rule at least one of whose sides reads a derived relation, judged at COMMIT by the rule judge (physical/ddl/rules.ts)
+ * by the one strategy its kind states, chosen when the schema compiles (analysis/theory/unit.ts): a unit-local rule
+ * whole, its violation read once over each unit a transaction wrote (`WholeRule`); any other by its probes of the facts
+ * each row a transaction wrote touches (`ProbedRule`).
+ */
+export type QueryRule = ProbedRule | WholeRule
+
+/**
+ * A rule that is not unit-local, which the judge's probes judge, each reading the facts that break it about the rows a
+ * write touched (`newProbes`, `oldProbes`), its sides read as their arms.
+ */
+export type ProbedRule = RuleLaw<RuleSide>
+
+/**
+ * A unit-local rule (analysis/theory/unit.ts), whatever its query reads: every relation it reads immutable and leading
+ * its key with one unit key, which every rule of its violation query joins on, so every fact of its violation lies
+ * within one unit. The judge reads its violation query, the one the migration that adds it runs, over the units a
+ * transaction wrote (`judged`), once whatever rows of them it wrote, never row by row.
+ */
+export interface WholeRule {
+	readonly kind: "whole"
+	readonly law: RuleLaw<LawSide>
+	/** Each occurrence of a stored relation its violation query reads, in the order the query reads them. */
+	readonly reads: NonEmptyReadonlyArray<RelationRead>
+	readonly unit: Unit
+	/** The violation query restricted to the units a transaction wrote (unit.ts restrictToUnits): what the judge runs. */
+	readonly judged: InferredQuery
+}
+
+/**
+ * One occurrence of a stored relation in a whole rule's violation query, and the columns it binds: positive where a
+ * row it gains can add a violation (a match), negative where a row it loses can (a match under a negation), and both
+ * where either can (a match an aggregate reads, which a row added or removed changes alike), its polarity composed
+ * through every negation and aggregate it stands under.
+ */
+export interface RelationRead {
+	readonly relation: string
+	readonly polarity: "positive" | "negative" | "both"
+	readonly columns: ReadonlyArray<string>
+}
 
 /**
  * Where a live definition is read: each derived relation's definition by name, undefined for a stored or closed one, and
@@ -245,7 +291,7 @@ const typedAs = (e: BareLiteral, type: InferredFieldDesc): InferredExpr => ({ ..
 const equal = (left: InferredExpr, right: InferredExpr): InferredExpr =>
 	isBare(left) ? eq(right, left) : eq(left, right)
 
-const varRef = (id: string): InferredExpr => ({ kind: "var", var: id })
+export const varRef = (id: string): InferredExpr => ({ kind: "var", var: id })
 
 /** Whether a filter holds a negation as a filter of its rule: it is one, or a conjunction one of whose conjuncts does. */
 const holdsNegation = (e: InferredExpr): boolean =>
@@ -653,8 +699,36 @@ export const liveArms = (
 ): NonEmptyReadonlyArray<LiveArm> => new Flattener(env).arms(relation, query)
 
 /** The heading of a definition's arms: the fields every arm derives, in the first arm's order. */
-const armHeading = (arms: NonEmptyReadonlyArray<LiveArm>): ReadonlyArray<string> =>
-	Object.keys(arms[0].head)
+/**
+ * The heading of a derived relation's definition, `relation`'s: the fields its first rule derives, every rule of a
+ * definition deriving one heading (schema/own.ts admits no other).
+ */
+export const headingOf = (
+	relation: string,
+	query: InferredQuery,
+	loc: SourceLoc
+): NonEmptyReadonlyArray<string> => {
+	const first = (stage: InferredStage): InferredRule | undefined => {
+		switch (stage.kind) {
+			case "rules":
+				return stage.arms[0]
+			case "union":
+			case "named":
+			case "attach":
+			case "order":
+			case "take":
+			case "approx":
+				return first(stage.input)
+			case "recursive":
+				return undefined
+		}
+	}
+	const rule = first(query.stage)
+	const [field, ...fields] = rule === undefined ? [] : Object.keys(rule.head)
+	return field === undefined
+		? refuse("MalformedDescription", loc, `a definition of ${relation} that derives a field`)
+		: [field, ...fields]
+}
 
 /**
  * The arms of a side over the derived relation whose live arms are `arms`: each arm with the side's selection, its
@@ -736,18 +810,29 @@ export const storedSideArm = (
 const negatedMatches = (arm: LiveArm): ReadonlyArray<ArmMatch> =>
 	arm.negated.flatMap((n) => n.arm.matches)
 
-/** The stored relations a rule's arms read, by a match or inside a negated arm, sorted, each once. */
-export const ruleReads = (rule: QueryRule): ReadonlyArray<string> =>
-	[
-		...new Set(
-			[...breakingArms(rule), ...targetArms(rule)].flatMap((a) =>
-				[...a.matches, ...negatedMatches(a)].map((m) => m.relation)
-			)
-		)
-	].toSorted(compareText)
+/**
+ * The stored relations a rule reads, sorted, each once: a probed rule's by a match of its arms or inside a negated arm,
+ * a whole rule's every occurrence its violation query reads.
+ */
+export const ruleReads = (rule: QueryRule): ReadonlyArray<string> => {
+	switch (rule.kind) {
+		case "contained":
+		case "key":
+		case "check":
+			return [
+				...new Set(
+					[...breakingArms(rule), ...targetArms(rule)].flatMap((a) =>
+						[...a.matches, ...negatedMatches(a)].map((m) => m.relation)
+					)
+				)
+			].toSorted(compareText)
+		case "whole":
+			return [...new Set(rule.reads.map((r) => r.relation))].toSorted(compareText)
+	}
+}
 
 /** The arms of a rule's breaking side: a containment's source, a key's side, a check's relation's facts. */
-const breakingArms = (rule: QueryRule): NonEmptyReadonlyArray<SideArm> => {
+const breakingArms = (rule: ProbedRule): NonEmptyReadonlyArray<SideArm> => {
 	switch (rule.kind) {
 		case "contained":
 			return rule.from.arms
@@ -758,7 +843,7 @@ const breakingArms = (rule: QueryRule): NonEmptyReadonlyArray<SideArm> => {
 }
 
 /** The arms a rule's facts are withdrawn from: a containment's target's; a key and a check withdraw none. */
-const targetArms = (rule: QueryRule): ReadonlyArray<SideArm> =>
+const targetArms = (rule: ProbedRule): ReadonlyArray<SideArm> =>
 	rule.kind === "contained" ? rule.to.arms : []
 
 /** The name of a rule's i-th pair, or of its i-th key term, in the queries the rule is written in. */
@@ -780,7 +865,10 @@ const imported = (arms: NonEmptyReadonlyArray<InferredRule>, loc: SourceLoc): In
 	bind: {}
 })
 
-const queryOf = (arms: NonEmptyReadonlyArray<InferredRule>, loc: SourceLoc): InferredQuery => ({
+export const queryOf = (
+	arms: NonEmptyReadonlyArray<InferredRule>,
+	loc: SourceLoc
+): InferredQuery => ({
 	stage: { kind: "rules", arms, loc }
 })
 
@@ -790,7 +878,7 @@ const matchDesc = (m: ArmMatch): InferredMatch => ({
 	loc: m.loc
 })
 
-const ruleDesc = (
+export const ruleDesc = (
 	vars: ReadonlyArray<VarDesc>,
 	matches: ReadonlyArray<InferredMatch>,
 	where: ReadonlyArray<InferredExpr>,
@@ -991,7 +1079,7 @@ interface ProbeArm extends Omit<SideArm, "matches"> {
  * the condition refuses.
  */
 const violating = (
-	rule: QueryRule,
+	rule: ProbedRule,
 	arm: ProbeArm,
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<InferredRule> => {
@@ -1007,7 +1095,7 @@ const violating = (
 				)
 			]
 		case "key": {
-			const heading = armHeading(rule.side.arms)
+			const heading = rule.side.heading
 			const other = Object.fromEntries(
 				heading.map((f) => [headName(f), varRef(otherId(f))] as const)
 			)
@@ -1176,7 +1264,7 @@ interface WholeSide {
 }
 
 const wholeSide = (
-	side: RuleSide,
+	side: LawSide,
 	definition: LiveEnv["definition"],
 	also: ReadonlyArray<string>,
 	prefix: string,
@@ -1221,7 +1309,7 @@ const wholeField = (side: WholeSide, field: string, loc: SourceLoc): InferredExp
  * of every relation the definitions read, whose join search grows with the subsets of those relations.
  */
 export const violationQuery = (
-	rule: QueryRule,
+	rule: RuleLaw<LawSide>,
 	definition: LiveEnv["definition"],
 	loc: SourceLoc
 ): InferredQuery => {
@@ -1253,7 +1341,7 @@ export const violationQuery = (
 			)
 		}
 		case "key": {
-			const heading = armHeading(rule.side.arms)
+			const heading = rule.side.heading
 			const one = wholeSide(rule.side, definition, heading, "s0.", loc)
 			const other = wholeSide(rule.side, definition, heading, "s1.", loc)
 			const otherFacts = imported(
@@ -1302,7 +1390,7 @@ export const violationQuery = (
 			)
 		}
 		case "check": {
-			const heading = armHeading(rule.side.arms)
+			const heading = rule.side.heading
 			const one = wholeSide(rule.side, definition, heading, "s0.", loc)
 			const leaves: LeafRewrite = { var: () => undefined, field: (f) => wholeField(one, f, loc) }
 			return queryOf(
@@ -1617,7 +1705,7 @@ const negatedProbes = <A extends LiveArm>(
  * of every arm of the target.
  */
 export const newProbes = (
-	rule: QueryRule,
+	rule: ProbedRule,
 	relation: string,
 	key: NonEmptyReadonlyArray<TouchedField>,
 	fields: ReadonlyArray<TouchedField>,
@@ -1734,7 +1822,7 @@ export const newProbes = (
  * Every probe reads the side its candidates meet by arm (`readAs`), as newProbes' do.
  */
 export const oldProbes = (
-	rule: QueryRule,
+	rule: ProbedRule,
 	relation: string,
 	fields: ReadonlyArray<TouchedField>,
 	loc: SourceLoc
@@ -1766,7 +1854,7 @@ export const oldProbes = (
 
 /** The probes of `touched`, the `at`-th match of an arm of a containment's target, held to OLD's values (oldProbes). */
 const lostProbes = (
-	rule: Extract<QueryRule, { readonly kind: "contained" }>,
+	rule: Extract<ProbedRule, { readonly kind: "contained" }>,
 	arm: SideArm,
 	touched: ArmMatch,
 	at: number,
@@ -1832,6 +1920,38 @@ const columnsOf = (
 
 /** What writing `relation` can break of `rule` (`Touches`), undefined where the rule reads no row of it. */
 export const touches = (rule: QueryRule, relation: string): Touches | undefined => {
+	switch (rule.kind) {
+		case "contained":
+		case "key":
+		case "check":
+			return probedTouches(rule, relation)
+		case "whole":
+			return wholeTouches(rule, relation)
+	}
+}
+
+/**
+ * What writing `relation` can break of a whole rule (`touches`): the columns its positive occurrences bind, by INSERT,
+ * and its negative ones', by DELETE, an occurrence of both polarities on each side.
+ */
+const wholeTouches = (rule: WholeRule, relation: string): Touches | undefined => {
+	const of = rule.reads.filter((r) => r.relation === relation)
+	const columns = (polarity: "positive" | "negative"): ReadonlyArray<string> | undefined => {
+		const read = of.filter((r) => r.polarity === polarity || r.polarity === "both")
+		return read.length === 0
+			? undefined
+			: [...new Set(read.flatMap((r) => r.columns))].toSorted(compareText)
+	}
+	const news = columns("positive")
+	const olds = columns("negative")
+	if (news === undefined) {
+		return olds === undefined ? undefined : { kind: "olds", olds }
+	}
+	return olds === undefined ? { kind: "news", news } : { kind: "both", news, olds }
+}
+
+/** What writing `relation` can break of a probed rule (`touches`). */
+const probedTouches = (rule: ProbedRule, relation: string): Touches | undefined => {
 	const news = columnsOf(breakingArms(rule), targetArms(rule), relation)
 	const olds = columnsOf(targetArms(rule), breakingArms(rule), relation)
 	if (news === undefined) {
@@ -1849,6 +1969,10 @@ export const touches = (rule: QueryRule, relation: string): Touches | undefined 
  *   containment's target, each blocking a target tuple the source's fact would meet;
  * - `absent`: rows it needs absent: the matches of the negated arms of its breaking arms and of every arm of a
  *   containment's target.
+ *
+ * A whole rule's one witness is every occurrence its violation query reads: its positive occurrences among `rows` and
+ * its negative ones among `absent`, an occurrence of both polarities in each, so a relation it reads twice counts
+ * twice, as two matches of an arm do. With no positive occurrence, every occurrence stands among `rows`.
  *
  * Every violation of the rule is a violation through one of its witnesses. A write that makes a row present can break
  * the rule exactly where its relation stands among some witness's `rows` or `present`, and one that makes a row absent
@@ -1874,6 +1998,20 @@ const negatedOf = (arm: LiveArm): ReadonlyArray<string> =>
  */
 export const witnesses = (rule: QueryRule): NonEmptyReadonlyArray<Witness> => {
 	switch (rule.kind) {
+		case "whole": {
+			const at = (polarity: "positive" | "negative"): ReadonlyArray<string> =>
+				rule.reads.flatMap((r) =>
+					r.polarity === polarity || r.polarity === "both" ? [r.relation] : []
+				)
+			const [first, ...rest] = at("positive")
+			return [
+				{
+					rows: first === undefined ? mapNonEmpty(rule.reads, (r) => r.relation) : [first, ...rest],
+					present: [],
+					absent: at("negative")
+				}
+			]
+		}
 		case "check":
 			return mapNonEmpty(rule.side.arms, (arm) => ({
 				rows: matched(arm.matches),

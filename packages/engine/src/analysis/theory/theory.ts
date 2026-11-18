@@ -17,7 +17,7 @@ import {
 	selectorsOf,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
-import type { RuleSide } from "#compiler/analysis/theory/query.ts"
+import type { LawSide, QueryRule, RuleLaw } from "#compiler/analysis/theory/query.ts"
 import {
 	familyStatement,
 	ownSpelling,
@@ -306,7 +306,7 @@ export const lawStatement = (law: LawIdentity, spell: Spelling): LawStatement =>
 		case "tree":
 			return familyStatement(familyStated(d.family), spell)
 		case "rule":
-			return ruleStatement(law.shape, d.rule, spell)
+			return ruleStatement(law.shape, lawOfRule(d.rule), spell)
 		case "fold": {
 			const owner = spell.relation(d.family.owner)
 			const count = spell.field(d.family.owner, d.family.count)
@@ -319,15 +319,27 @@ export const lawStatement = (law: LawIdentity, spell: Spelling): LawStatement =>
 	}
 }
 
+/** The law a rule over a query states, whichever strategy judges it: its identity is the law's alone. */
+const lawOfRule = (rule: QueryRule): RuleLaw<LawSide> => {
+	switch (rule.kind) {
+		case "contained":
+		case "key":
+		case "check":
+			return rule
+		case "whole":
+			return rule.law
+	}
+}
+
 /** A side of a rule over a query as its law's identity states it: its relation, its terms and its conjuncts' texts. */
-const rulePart = (side: RuleSide, spell: Spelling): Part => [
+const rulePart = (side: LawSide, spell: Spelling): Part => [
 	spell.relation(side.relation),
 	side.terms.map((t) => [t.kind, spell.field(side.relation, t.field)]),
 	side.texts
 ]
 
 /** A side of a rule over a query as its law's display spells it. */
-const ruleDisplay = (side: RuleSide, spell: Spelling): string =>
+const ruleDisplay = (side: LawSide, spell: Spelling): string =>
 	`${spell.relation(side.relation)}(${side.terms
 		.map((t) => termText({ ...t, field: spell.field(side.relation, t.field) }))
 		.join(", ")})${side.texts.length === 0 ? "" : ` where ${side.texts.join(" and ")}`}`
@@ -336,7 +348,7 @@ const ruleDisplay = (side: RuleSide, spell: Spelling): string =>
  * relation and name, as the same rule over stored relations is. */
 const ruleStatement = (
 	shape: LawIdentity["shape"],
-	rule: Extract<LawIdentity["detail"], { readonly kind: "rule" }>["rule"],
+	rule: RuleLaw<LawSide>,
 	spell: Spelling
 ): LawStatement => {
 	switch (rule.kind) {

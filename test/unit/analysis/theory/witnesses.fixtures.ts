@@ -84,6 +84,7 @@ const sideOf = (arms: Arr.NonEmptyReadonlyArray<ArmPlan>, prefix: string): RuleS
 	terms: [{ kind: "field", field: "f" }],
 	selection: everyFact,
 	texts: [],
+	heading: ["f"],
 	arms: Arr.map(arms, (arm, i) => sideArmOf(arm, `${prefix}${i}.`))
 })
 

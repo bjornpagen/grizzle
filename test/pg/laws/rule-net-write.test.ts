@@ -68,6 +68,12 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 				original: "\tconst removed = rows === transitionTables.olds",
 				replacement: "\tconst removed = false",
 				why: "A removal is counted as a put on the side of news, so a row a transaction put and removed sums to two and is judged as if it stood."
+			},
+			{
+				file: "packages/engine/src/core/zset.ts",
+				original: "export const weightOf = { added: 1, removed: -1 } as const",
+				replacement: "export const weightOf = { added: 1, removed: 1 } as const",
+				why: "A removal weighs as an addition in the one netting rule the judge and a write's outcome share (core/zset.ts weightOf), so a row a transaction put and removed sums to two on the side of news and is judged as if it stood."
 			}
 		]
 	})
