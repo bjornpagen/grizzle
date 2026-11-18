@@ -29,6 +29,9 @@ import {
 	type Lowered,
 	lowerPredicate,
 	adoptedType,
+	type ConstantGuard,
+	constantGuardNames,
+	constantGuardTests,
 	lowerTerm,
 	noClosedRelations,
 	noParams,
@@ -69,7 +72,7 @@ import {
 	termOf,
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
-import { compatible, isFloat } from "#compiler/scalar/compute/types.ts"
+import { compatible, valueType } from "#compiler/scalar/compute/types.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, matchRefusalAt } from "#compiler/scalar/regex/admit.ts"
@@ -83,9 +86,7 @@ import {
 	isOwnedDescriptor,
 	type SqlTag
 } from "#compiler/scalar/registry.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
-import { Money } from "#compiler/scalar/values/money.ts"
 
 const malformed = (loc: SourceLoc, capability: string): never => {
 	throw malformedDescription(loc, capability)
@@ -665,54 +666,6 @@ const cond = (p: unknown, then: unknown, otherwise: unknown): CarriedChecked => 
 	)
 }
 
-/** Zero as the host value of a subject's type, which a guard compares it with. */
-const zeroOf = (t: ScalarType): unknown => {
-	switch (baseOf(t).carrier) {
-		case "int8":
-		case "exactInteger":
-			return 0n
-		case "numeric":
-			return Decimal.zero
-		case "money":
-		case "exactMoney":
-			return Money.zero
-		case "int2":
-		case "int4":
-		case "float4":
-		case "float8":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-			return 0
-	}
-}
-
-/** An infinity as the host value of a numeric or float subject's type, -1 for the negative one. */
-const infinityOf = (t: ScalarType, sign: 1 | -1): unknown =>
-	baseOf(t).carrier === "numeric"
-		? sign > 0
-			? Decimal.infinity
-			: Decimal.negativeInfinity
-		: sign > 0
-			? Number.POSITIVE_INFINITY
-			: Number.NEGATIVE_INFINITY
-
-/** A guard builder's name, as its diagnostics spell it. */
-const guardNames = {
-	nonzero: "Compute.nonzero",
-	nonnegative: "Compute.nonnegative",
-	positive: "Compute.positive",
-	finite: "Compute.isFinite"
-} as const
-
 /**
  * What a guard builder records: its test, the guard Compute.when reads, its subject term, and the subject's expression,
  * type and carrier, from which the term its branch receives is made.
@@ -734,41 +687,23 @@ interface GuardParts {
  * numeric typmod no infinity.
  */
 const factGuard =
-	(kind: "nonzero" | "nonnegative" | "positive" | "finite") =>
+	(kind: ConstantGuard) =>
 	(subject: unknown): GuardParts => {
-		const call = new Call(guardNames[kind])
-		const s = call.term(subject, `${guardNames[kind]}'s subject`)
+		const call = new Call(constantGuardNames[kind])
+		const s = call.term(subject, `${constantGuardNames[kind]}'s subject`)
 		if (!hasProperties(subject)) {
 			return malformed(call.loc, "a term as a guard's subject")
 		}
-		if (kind === "finite" && baseOf(s.type).carrier !== "numeric" && !isFloat(s.type)) {
-			return malformed(
-				call.loc,
-				`Compute.isFinite over a numeric or float term, not ${typeLabel(s.type)}, which is finite by its type`
-			)
+		const tests = constantGuardTests(kind, valueType(s.type))
+		if (!tests.ok) {
+			return malformed(call.loc, tests.error)
 		}
 		const value: OpenExpr = { kind: "base", arg: s.real }
 		const valuePh: ExprDesc = { kind: "base", arg: s.ph }
-		const literal = (constant: unknown): LiteralExpr => ({
-			kind: "literal",
-			value: call.literal(constant, s.type)
-		})
-		const comparisons = (): ReadonlyArray<readonly [CompareOp, LiteralExpr]> => {
-			switch (kind) {
-				case "nonzero":
-					return [["ne", literal(zeroOf(s.type))]]
-				case "nonnegative":
-					return [["ge", literal(zeroOf(s.type))]]
-				case "positive":
-					return [["gt", literal(zeroOf(s.type))]]
-				case "finite":
-					return [
-						["gt", literal(infinityOf(s.type, -1))],
-						["lt", literal(infinityOf(s.type, 1))]
-					]
-			}
-		}
-		const atoms = comparisons()
+		const atoms = tests.value.map(([op, constant]): readonly [CompareOp, LiteralExpr] => [
+			op,
+			{ kind: "literal", value: constant }
+		])
 		const real: ReadonlyArray<OpenExpr> = atoms.map(([op, right]) => ({
 			kind: "compare",
 			op,

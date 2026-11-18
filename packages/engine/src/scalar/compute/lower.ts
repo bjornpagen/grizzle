@@ -26,6 +26,7 @@ import { int4Digits, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import type {
+	CompareOp,
 	ExprDesc,
 	FieldDesc,
 	GuardDesc,
@@ -3536,33 +3537,27 @@ class Lowering<R extends Refs> {
 			this.literal(literal, this.adopt(subject.nominal, "compare"), at)
 		switch (guard.kind) {
 			case "nonzero":
-				return {
-					predicate: this.comparison("ne", [subject, compareTo(zeroLiteral(v))], at),
-					within: undefined
-				}
 			case "nonnegative":
-				return {
-					predicate: this.comparison("ge", [subject, compareTo(zeroLiteral(v))], at),
-					within: undefined
-				}
 			case "positive":
-				return {
-					predicate: this.comparison("gt", [subject, compareTo(zeroLiteral(v))], at),
-					within: undefined
-				}
 			case "finite": {
-				if (v.carrier !== "numeric" && !isFloat(v)) {
-					return stop(
-						"MalformedDescription",
-						at,
-						`Compute.isFinite over a numeric or float term, not ${typeLabel(v)}, which is finite by its type`
-					)
+				const tests = constantGuardTests(guard.kind, v)
+				if (!tests.ok) {
+					return stop("MalformedDescription", at, tests.error)
 				}
-				const above = this.comparison("gt", [subject, compareTo(infiniteLiteral(v, -1))], at)
-				const below = this.comparison("lt", [subject, compareTo(infiniteLiteral(v, 1))], at)
-				const op = this.overload("and", [plainType("bool")], at)
+				const [first, ...rest] = mapNonEmpty(tests.value, ([op, constant]) =>
+					this.comparison(op, [subject, compareTo(constant)], at)
+				)
 				return {
-					predicate: this.native(op, [above, below], plainType("bool"), undefined, at, "and"),
+					predicate: isNonEmpty(rest)
+						? this.native(
+								this.overload("and", [plainType("bool")], at),
+								[first, ...rest],
+								plainType("bool"),
+								undefined,
+								at,
+								"and"
+							)
+						: first,
 					within: undefined
 				}
 			}
@@ -4876,9 +4871,20 @@ export const bucketInRange = (
 	(compareExact(lowHigh, highLow) < 0 || compareExact(highHigh, lowLow) < 0) &&
 	insideRange(countLow, countHigh, exactOf(1n, 0), exactOf(BigInt(int4Max) - 1n, 0))
 
-/** Zero as a literal of `v`'s family, which a guard compares its subject with. */
-const zeroLiteral = (v: ScalarType): LiteralDesc => {
-	switch (v.carrier) {
+/** A Compute.when guard whose test compares its subject's value with constants alone (constantGuardTests). */
+export type ConstantGuard = "nonzero" | "nonnegative" | "positive" | "finite"
+
+/** Each constant guard's builder, as its diagnostics name it. */
+export const constantGuardNames: { readonly [G in ConstantGuard]: string } = {
+	nonzero: "Compute.nonzero",
+	nonnegative: "Compute.nonnegative",
+	positive: "Compute.positive",
+	finite: "Compute.isFinite"
+}
+
+/** Zero of a number's carrier; none of another carrier, whose values a sign guard compares with no zero. */
+const zeroOf = (carrier: Carrier): LiteralDesc | undefined => {
+	switch (carrier) {
 		case "int8":
 		case "exactInteger":
 			return 0n
@@ -4891,6 +4897,7 @@ const zeroLiteral = (v: ScalarType): LiteralDesc => {
 		case "int4":
 		case "float4":
 		case "float8":
+			return 0
 		case "bool":
 		case "uuid":
 		case "date":
@@ -4902,17 +4909,45 @@ const zeroLiteral = (v: ScalarType): LiteralDesc => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
-			return 0
+			return undefined
 	}
 }
 
-/** An infinity of `v`'s family, -1 for the negative one. */
-const infiniteLiteral = (v: ScalarType, sign: 1 | -1): LiteralDesc =>
-	v.carrier === "numeric"
-		? sign > 0
-			? Decimal.infinity
-			: Decimal.negativeInfinity
-		: { float: sign > 0 ? "Infinity" : "-Infinity" }
+/** The negative and the positive infinity of a numeric's or a float's carrier; none of another, finite by its type. */
+const infinitiesOf = (carrier: Carrier): readonly [LiteralDesc, LiteralDesc] | undefined =>
+	carrier === "numeric"
+		? [Decimal.negativeInfinity, Decimal.infinity]
+		: carrier === "float4" || carrier === "float8"
+			? [{ float: "-Infinity" }, { float: "Infinity" }]
+			: undefined
+
+/**
+ * The comparisons a constant guard tests its subject's value by, each with its constant, a value of the subject's value
+ * carrier: `<> 0`, `>= 0` and `> 0` of a number, `> -Infinity AND < Infinity` of a numeric or a float; or the refusal
+ * of a subject of another carrier. What a guard's builder records (builders.ts factGuard) and what a Compute.when's
+ * lowering tests (Lowering.guardPredicate), one table.
+ */
+export const constantGuardTests = (
+	guard: ConstantGuard,
+	value: ScalarType
+): Result.Result<NonEmptyReadonlyArray<readonly [CompareOp, LiteralDesc]>, string> => {
+	if (guard === "finite") {
+		const infinities = infinitiesOf(value.carrier)
+		return infinities === undefined
+			? Result.err(
+					`Compute.isFinite over a numeric or float term, not ${typeLabel(value)}, which is finite by its type`
+				)
+			: Result.ok([
+					["gt", infinities[0]],
+					["lt", infinities[1]]
+				])
+	}
+	const constant = zeroOf(value.carrier)
+	const op = guard === "nonzero" ? "ne" : guard === "nonnegative" ? "ge" : "gt"
+	return constant === undefined
+		? Result.err(`${constantGuardNames[guard]} over a number, not ${typeLabel(value)}`)
+		: Result.ok([[op, constant]])
+}
 
 /** How a value's refinement is checked before any SQL, where it is: a literal at compile time, a parameter at bind. */
 const checkedKind = (e: ScalarExpr): "literal" | "parameter" | undefined =>
