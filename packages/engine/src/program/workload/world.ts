@@ -7,7 +7,9 @@ import {
 	type HeadTermDesc,
 	type InteriorDesc,
 	type MatchDesc,
-	mapProducer,
+	mapBindingTerms,
+	mapExpr,
+	mapHeadTerms,
 	type QueryDesc,
 	type QueryStageDesc,
 	type RuleDesc,
@@ -87,88 +89,9 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 				return s
 		}
 	}
-	const bindings = (b: BindingsDesc): BindingsDesc =>
-		Object.fromEntries(Object.entries(b).map(([field, e]) => [field, expr(e)]))
-	const expr = (e: ExprDesc): ExprDesc => {
-		switch (e.kind) {
-			case "absent":
-				return { ...e, source: source(e.source), bindings: bindings(e.bindings) }
-			case "cast":
-			case "guarded":
-			case "base":
-			case "not":
-				return { ...e, arg: expr(e.arg) }
-			case "cond":
-				return { ...e, pred: expr(e.pred), onTrue: expr(e.onTrue), onFalse: expr(e.onFalse) }
-			case "when":
-				return {
-					...e,
-					subject: expr(e.subject),
-					proved: expr(e.proved),
-					otherwise: expr(e.otherwise)
-				}
-			case "compare":
-				return { ...e, left: expr(e.left), right: expr(e.right) }
-			case "between":
-				return { ...e, arg: expr(e.arg), low: expr(e.low), high: expr(e.high) }
-			case "in":
-				return { ...e, arg: expr(e.arg) }
-			case "and":
-			case "or":
-				return { ...e, args: mapNonEmpty(e.args, expr) }
-			case "allen":
-				return { ...e, left: expr(e.left), right: expr(e.right) }
-			case "pointIn":
-				return { ...e, point: expr(e.point), span: expr(e.span) }
-			case "compute":
-				return { ...e, args: e.args.map(expr) }
-			case "closedAt":
-			case "closedHas":
-				return { ...e, args: mapNonEmpty(e.args, expr) }
-			case "closedRow":
-				return { ...e, args: e.args.map(expr) }
-			case "var":
-			case "field":
-			case "value":
-			case "parent":
-			case "param":
-			case "literal":
-				return e
-		}
-	}
-	const head = (t: HeadTermDesc): HeadTermDesc => {
-		switch (t.kind) {
-			case "aggregate":
-				return t.fn === "count" ? t : { ...t, arg: expr(t.arg) }
-			case "producer":
-				return mapProducer(t, expr)
-			case "absent":
-			case "allen":
-			case "and":
-			case "guarded":
-			case "base":
-			case "between":
-			case "cast":
-			case "compare":
-			case "compute":
-			case "cond":
-			case "when":
-			case "field":
-			case "in":
-			case "literal":
-			case "not":
-			case "or":
-			case "param":
-			case "parent":
-			case "pointIn":
-			case "value":
-			case "var":
-			case "closedAt":
-			case "closedRow":
-			case "closedHas":
-				return expr(t)
-		}
-	}
+	const bindings = (b: BindingsDesc): BindingsDesc => mapBindingTerms(b, expr)
+	const expr = (e: ExprDesc): ExprDesc => mapExpr(e, { leaf: (x) => x, term: expr, source })
+	const head = (t: HeadTermDesc): HeadTermDesc => mapHeadTerms(t, expr)
 	const variable = (v: VarDesc): VarDesc =>
 		v.origin !== undefined && worlds.has(v.origin.relation) ? { ...v, origin: undefined } : v
 	/** A match of the rule at `place`, with the variables it adds for the fields of a world relation it leaves unbound. */

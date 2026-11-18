@@ -76,6 +76,7 @@ import {
 	connectiveExpr,
 	type ExprDesc,
 	everyFact,
+	exprChildren,
 	expandAlternatives,
 	expandRetirable,
 	type FieldDesc,
@@ -2342,45 +2343,8 @@ const fieldEquality = (
 }
 
 /** Whether a row check's predicate reads `field`. */
-export const mentions = (e: ExprDesc, field: string): boolean => {
-	switch (e.kind) {
-		case "field":
-			return e.field === field
-		case "compute":
-		case "and":
-		case "or":
-			return e.args.some((a) => mentions(a, field))
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-		case "in":
-			return mentions(e.arg, field)
-		case "cond":
-			return mentions(e.pred, field) || mentions(e.onTrue, field) || mentions(e.onFalse, field)
-		case "when":
-			return mentions(e.subject, field) || mentions(e.proved, field) || mentions(e.otherwise, field)
-		case "compare":
-			return mentions(e.left, field) || mentions(e.right, field)
-		case "between":
-			return mentions(e.arg, field) || mentions(e.low, field) || mentions(e.high, field)
-		case "allen":
-			return mentions(e.left, field) || mentions(e.right, field)
-		case "pointIn":
-			return mentions(e.point, field) || mentions(e.span, field)
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			return e.args.some((a) => mentions(a, field))
-		case "var":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-		case "absent":
-			return false
-	}
-}
+export const mentions = (e: ExprDesc, field: string): boolean =>
+	e.kind === "field" ? e.field === field : exprChildren(e).some((c) => mentions(c.term, field))
 
 /**
  * Two facts of R agreeing on the key and differing elsewhere; for a key with span fields, two different

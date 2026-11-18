@@ -10,9 +10,10 @@ import type {
 } from "#compiler/check/params.ts"
 import { entries } from "#compiler/check/scan.ts"
 import type { RecursionArm } from "#compiler/core/causes.ts"
-import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { childLoc, locBelow, type SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { exprChildren } from "#compiler/ir/desc.ts"
 
 /** One arm of the definition, with the location every refusal inside it names. */
 export interface Arm {
@@ -61,50 +62,10 @@ type Absent = {
 	readonly loc: SourceLoc
 }
 
-const absents = (e: ResolvedExpr, loc: SourceLoc): ReadonlyArray<Absent> => {
-	const sub = (x: ResolvedExpr, segment: string | number): ReadonlyArray<Absent> =>
-		absents(x, childLoc(loc, segment))
-	switch (e.kind) {
-		case "absent":
-			return [{ absent: e, loc }, ...entries(e.bindings).flatMap(([column, b]) => sub(b, column))]
-		case "compute":
-		case "and":
-		case "or":
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			return e.args.flatMap((a, i) => sub(a, i))
-		case "cast":
-		case "base":
-		case "not":
-		case "in":
-			return sub(e.arg, "arg")
-		case "guarded":
-			return absents(e.arg, loc)
-		case "cond":
-			return [...sub(e.pred, "pred"), ...sub(e.onTrue, "onTrue"), ...sub(e.onFalse, "onFalse")]
-		case "when":
-			return [
-				...sub(e.subject, "subject"),
-				...sub(e.proved, "proved"),
-				...sub(e.otherwise, "otherwise")
-			]
-		case "compare":
-		case "allen":
-			return [...sub(e.left, "left"), ...sub(e.right, "right")]
-		case "between":
-			return [...sub(e.arg, "arg"), ...sub(e.low, "low"), ...sub(e.high, "high")]
-		case "pointIn":
-			return [...sub(e.point, "point"), ...sub(e.span, "span")]
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-			return []
-	}
-}
+const absents = (e: ResolvedExpr, loc: SourceLoc): ReadonlyArray<Absent> => [
+	...(e.kind === "absent" ? [{ absent: e, loc }] : []),
+	...exprChildren(e).flatMap((c) => absents(c.term, locBelow(loc, c.at)))
+]
 
 /** Every source a rule reads in its own scope, its matches' and its negations', with their locations. */
 const ownSources = (

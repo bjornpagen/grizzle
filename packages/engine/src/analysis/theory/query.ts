@@ -32,7 +32,7 @@ import type {
 	TermDesc,
 	VarDesc
 } from "#compiler/ir/desc.ts"
-import { connectiveExpr } from "#compiler/ir/desc.ts"
+import { connectiveExpr, exprChildren, mapExpr } from "#compiler/ir/desc.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 
@@ -189,82 +189,41 @@ export interface LiveEnv {
 type ColumnTypes = (column: string) => InferredFieldDesc
 
 /**
- * What an expression reads beyond a definition's own row: a negation below a disjunction, a negation or a scalar
- * expression, where it is no filter of the rule (check/scan.ts splitWhere), a parameter, a parent's column or a VALUE.
+ * What each kind of node reads beyond a definition's own row, by itself: a negation below a disjunction, a negation or a
+ * scalar expression, where it is no filter of the rule (check/scan.ts splitWhere), a parameter, a parent's column or a
+ * VALUE; any other kind reads nothing beyond the row but through its children.
  */
-const foreignLeaf = (e: InferredExpr): string | undefined => {
-	let found: string | undefined
-	const visit = (x: InferredExpr): void => {
-		if (found !== undefined) {
-			return
-		}
-		switch (x.kind) {
-			case "absent":
-				found = "negates a relation below a disjunction, a negation or a scalar expression"
-				return
-			case "param":
-				found = "reads a parameter"
-				return
-			case "parent":
-				found = "reads a parent's column"
-				return
-			case "value":
-				found = "reads a contract's VALUE"
-				return
-			case "var":
-			case "field":
-			case "literal":
-				return
-			case "compute":
-				x.args.forEach(visit)
-				return
-			case "cast":
-			case "guarded":
-			case "base":
-			case "not":
-				visit(x.arg)
-				return
-			case "cond":
-				visit(x.pred)
-				visit(x.onTrue)
-				visit(x.onFalse)
-				return
-			case "when":
-				visit(x.subject)
-				visit(x.proved)
-				visit(x.otherwise)
-				return
-			case "compare":
-			case "allen":
-				visit(x.left)
-				visit(x.right)
-				return
-			case "between":
-				visit(x.arg)
-				visit(x.low)
-				visit(x.high)
-				return
-			case "in":
-				visit(x.arg)
-				return
-			case "and":
-			case "or":
-				x.args.forEach(visit)
-				return
-			case "pointIn":
-				visit(x.point)
-				visit(x.span)
-				return
-			case "closedAt":
-			case "closedRow":
-			case "closedHas":
-				x.args.forEach(visit)
-				return
-		}
-	}
-	visit(e)
-	return found
+const foreignReads: { readonly [K in InferredExpr["kind"]]: string | undefined } = {
+	absent: "negates a relation below a disjunction, a negation or a scalar expression",
+	param: "reads a parameter",
+	parent: "reads a parent's column",
+	value: "reads a contract's VALUE",
+	var: undefined,
+	field: undefined,
+	literal: undefined,
+	compute: undefined,
+	cast: undefined,
+	base: undefined,
+	guarded: undefined,
+	cond: undefined,
+	when: undefined,
+	compare: undefined,
+	between: undefined,
+	in: undefined,
+	and: undefined,
+	or: undefined,
+	not: undefined,
+	allen: undefined,
+	pointIn: undefined,
+	closedAt: undefined,
+	closedRow: undefined,
+	closedHas: undefined
 }
+
+/** What an expression reads beyond a definition's own row (foreignReads), the first in description order, if any. */
+const foreignLeaf = (e: InferredExpr): string | undefined =>
+	foreignReads[e.kind] ??
+	exprChildren(e).reduce<string | undefined>((found, c) => found ?? foreignLeaf(c.term), undefined)
 
 const eq = (left: InferredExpr, right: InferredExpr): InferredExpr => ({
 	kind: "compare",
@@ -1142,54 +1101,7 @@ const violating = (
 const sourcesThrough = (
 	e: InferredExpr,
 	source: (s: InferredSource) => InferredSource
-): InferredExpr => {
-	const m = (x: InferredExpr): InferredExpr => sourcesThrough(x, source)
-	switch (e.kind) {
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-			return e
-		case "compute":
-			return { ...e, args: e.args.map(m) }
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-			return { ...e, arg: m(e.arg) }
-		case "cond":
-			return { ...e, pred: m(e.pred), onTrue: m(e.onTrue), onFalse: m(e.onFalse) }
-		case "when":
-			return { ...e, subject: m(e.subject), proved: m(e.proved), otherwise: m(e.otherwise) }
-		case "compare":
-		case "allen":
-			return { ...e, left: m(e.left), right: m(e.right) }
-		case "between":
-			return { ...e, arg: m(e.arg), low: m(e.low), high: m(e.high) }
-		case "in":
-			return { ...e, arg: m(e.arg) }
-		case "and":
-		case "or":
-			return { ...e, args: mapNonEmpty(e.args, m) }
-		case "pointIn":
-			return { ...e, point: m(e.point), span: m(e.span) }
-		case "absent":
-			return { ...e, source: source(e.source), bindings: bindingsThrough(e.bindings, m) }
-		case "closedAt":
-		case "closedHas":
-			return { ...e, args: mapNonEmpty(e.args, m) }
-		case "closedRow":
-			return { ...e, args: e.args.map(m) }
-	}
-}
-
-/** Bindings with each term mapped by `m`. */
-const bindingsThrough = (
-	b: InferredBindings,
-	m: (e: InferredExpr) => InferredExpr
-): InferredBindings => Object.fromEntries(Object.entries(b).map(([f, e]) => [f, m(e)] as const))
+): InferredExpr => mapExpr(e, { leaf: (x) => x, term: (x) => sourcesThrough(x, source), source })
 
 /**
  * The source a rule's full violation query reads the relation `relation` through: a stored or closed relation by its

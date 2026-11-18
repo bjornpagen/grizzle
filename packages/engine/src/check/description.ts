@@ -3,15 +3,16 @@ import { fail } from "#compiler/check/fail.ts"
 import { entries } from "#compiler/check/scan.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { childLoc, locBelow, type SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
-import type {
-	InferredExpr,
-	InferredHead,
-	InferredQuery,
-	InferredRule,
-	InferredSource,
-	InferredStage
+import {
+	exprChildren,
+	type InferredExpr,
+	type InferredHead,
+	type InferredQuery,
+	type InferredRule,
+	type InferredSource,
+	type InferredStage
 } from "#compiler/ir/desc.ts"
 
 export interface StructureOptions {
@@ -189,98 +190,42 @@ class Structure {
 		cx: Context,
 		loc: SourceLoc
 	): void {
-		const sub = (x: InferredExpr, segment: string | number): void => {
-			this.expr(x, vars, interiors, cx, childLoc(loc, segment))
-		}
-		switch (e.kind) {
-			case "var":
-				if (!vars.has(e.var)) {
-					fail(
-						"MalformedDescription",
-						loc,
-						`a variable this rule declares; ${JSON.stringify(e.var)} is another scope's or no one's`
-					)
-				}
-				return
-			case "parent":
-				if (!cx.attachment && this.options.read !== "page") {
-					fail(
-						"MalformedDescription",
-						loc,
-						`a parent variable inside an attachment's own rules; ${e.column} is read outside one`
-					)
-				}
-				return
-			case "field":
-			case "value":
-				return fail(
+		if (e.kind === "var") {
+			if (!vars.has(e.var)) {
+				fail(
 					"MalformedDescription",
 					loc,
-					`a rule variable, parameter or literal; a ${e.kind} reference belongs to a row check or a contract predicate`
+					`a variable this rule declares; ${JSON.stringify(e.var)} is another scope's or no one's`
 				)
-			case "param":
-			case "literal":
-				return
-			case "compute":
-				for (const [i, a] of e.args.entries()) {
-					sub(a, i)
-				}
-				return
-			case "cast":
-			case "base":
-			case "not":
-			case "in":
-				sub(e.arg, "arg")
-				return
-			case "guarded":
-				this.expr(e.arg, vars, interiors, cx, loc)
-				return
-			case "cond":
-				sub(e.pred, "pred")
-				sub(e.onTrue, "onTrue")
-				sub(e.onFalse, "onFalse")
-				return
-			case "when":
-				sub(e.subject, "subject")
-				sub(e.proved, "proved")
-				sub(e.otherwise, "otherwise")
-				return
-			case "compare":
-				sub(e.left, "left")
-				sub(e.right, "right")
-				return
-			case "between":
-				sub(e.arg, "arg")
-				sub(e.low, "low")
-				sub(e.high, "high")
-				return
-			case "and":
-			case "or":
-				for (const [i, a] of e.args.entries()) {
-					sub(a, i)
-				}
-				return
-			case "allen":
-				sub(e.left, "left")
-				sub(e.right, "right")
-				return
-			case "pointIn":
-				sub(e.point, "point")
-				sub(e.span, "span")
-				return
-			case "absent":
-				this.source(e.source, vars, interiors, cx, loc)
-				for (const [column, b] of entries(e.bindings)) {
-					this.expr(b, vars, interiors, cx, childLoc(childLoc(loc, "bindings"), column))
-				}
-				return
-			case "closedAt":
-			case "closedRow":
-			case "closedHas":
-				for (const [i, a] of e.args.entries()) {
-					sub(a, i)
-				}
-				return
+			}
+			return
+		}
+		if (e.kind === "parent") {
+			if (!cx.attachment && this.options.read !== "page") {
+				fail(
+					"MalformedDescription",
+					loc,
+					`a parent variable inside an attachment's own rules; ${e.column} is read outside one`
+				)
+			}
+			return
+		}
+		if (e.kind === "field" || e.kind === "value") {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`a rule variable, parameter or literal; a ${e.kind} reference belongs to a row check or a contract predicate`
+			)
+		}
+		if (e.kind === "absent") {
+			this.source(e.source, vars, interiors, cx, loc)
+			for (const [column, b] of entries(e.bindings)) {
+				this.expr(b, vars, interiors, cx, childLoc(childLoc(loc, "bindings"), column))
+			}
+			return
+		}
+		for (const c of exprChildren(e)) {
+			this.expr(c.term, vars, interiors, cx, locBelow(loc, c.at))
 		}
 	}
 }

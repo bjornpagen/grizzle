@@ -51,6 +51,7 @@ import {
 	descText,
 	descTextOver,
 	type ExprDesc,
+	exprChildren,
 	type FieldDesc,
 	fieldTypes,
 	type LiteralDesc,
@@ -975,62 +976,13 @@ export const canonicalStatementText = (s: StatementDesc): string => canonicalSta
 
 /** The row's fields an expression references, added to `out`; a variable, value, parameter or literal holds none. */
 const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {
-	switch (expr.kind) {
-		case "field":
-			out.add(expr.field)
-			return out
-		case "compute":
-		case "and":
-		case "or":
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			for (const a of expr.args) {
-				fieldRefs(a, out)
-			}
-			return out
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-		case "in":
-			fieldRefs(expr.arg, out)
-			return out
-		case "cond":
-			fieldRefs(expr.pred, out)
-			fieldRefs(expr.onTrue, out)
-			fieldRefs(expr.onFalse, out)
-			return out
-		case "when":
-			fieldRefs(expr.subject, out)
-			fieldRefs(expr.proved, out)
-			fieldRefs(expr.otherwise, out)
-			return out
-		case "compare":
-			fieldRefs(expr.left, out)
-			fieldRefs(expr.right, out)
-			return out
-		case "between":
-			fieldRefs(expr.arg, out)
-			fieldRefs(expr.low, out)
-			fieldRefs(expr.high, out)
-			return out
-		case "allen":
-			fieldRefs(expr.left, out)
-			fieldRefs(expr.right, out)
-			return out
-		case "pointIn":
-			fieldRefs(expr.point, out)
-			fieldRefs(expr.span, out)
-			return out
-		case "var":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-		case "absent":
-			return out
+	if (expr.kind === "field") {
+		out.add(expr.field)
 	}
+	for (const c of exprChildren(expr)) {
+		fieldRefs(c.term, out)
+	}
+	return out
 }
 
 /** A statement as a diagnostic names it: its kind and the relations it is over. */

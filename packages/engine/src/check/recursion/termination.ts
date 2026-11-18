@@ -14,7 +14,7 @@ import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
-import type { LiteralDesc } from "#compiler/ir/desc.ts"
+import { exprChildren, headTerms, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { RelNode, TerminationCert } from "#compiler/ir/rel.ts"
 import { baseOf, contractOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { inferredType } from "#compiler/scalar/registry.ts"
@@ -187,48 +187,14 @@ const readCount = (derived: ReadonlyMap<string, ReadonlySet<string>>): number =>
  * The state columns a term reads: through a variable the `self` match binds, its state columns, and through a
  * variable a state-correlated import binds, the columns its bind map reads; a variable bound to data reads none.
  */
-const stateReads = (e: ResolvedExpr | ResolvedHead, b: Bindings): ReadonlyArray<string> => {
-	const sub = (x: ResolvedExpr): ReadonlyArray<string> => stateReads(x, b)
-	switch (e.kind) {
-		case "var":
-			return b.data.has(e.var) ? [] : [...(b.state.get(e.var) ?? b.derived.get(e.var) ?? [])]
-		case "aggregate":
-			return e.fn === "count" ? [] : sub(e.arg)
-		case "producer":
-		case "compute":
-		case "and":
-		case "or":
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			return e.args.flatMap(sub)
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-		case "in":
-			return sub(e.arg)
-		case "cond":
-			return [...sub(e.pred), ...sub(e.onTrue), ...sub(e.onFalse)]
-		case "when":
-			return [...sub(e.subject), ...sub(e.proved), ...sub(e.otherwise)]
-		case "compare":
-		case "allen":
-			return [...sub(e.left), ...sub(e.right)]
-		case "between":
-			return [...sub(e.arg), ...sub(e.low), ...sub(e.high)]
-		case "pointIn":
-			return [...sub(e.point), ...sub(e.span)]
-		case "absent":
-			return entries(e.bindings).flatMap(([, x]) => sub(x))
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-			return []
-	}
-}
+const stateReads = (e: ResolvedExpr | ResolvedHead, b: Bindings): ReadonlyArray<string> =>
+	e.kind === "aggregate" || e.kind === "producer"
+		? headTerms(e).flatMap((x) => stateReads(x, b))
+		: e.kind === "var"
+			? b.data.has(e.var)
+				? []
+				: [...(b.state.get(e.var) ?? b.derived.get(e.var) ?? [])]
+			: exprChildren(e).flatMap((c) => stateReads(c.term, b))
 
 /** A variable that is the current value of state column `column` and nothing else. */
 const isState = (e: ResolvedExpr, column: string, b: Bindings): boolean => {

@@ -355,6 +355,15 @@ export const guardedExpr = <L, R extends Refs>(
 ): GuardedDesc<L, R> => ({ kind: "guarded", guard, arg, [standInTag]: "arg" })
 
 /**
+ * An expression's leaves, the nodes that hold no term: a leaf of the references' (a rule variable, a check's field, the
+ * contract's VALUE or a parent column), a scalar parameter and a literal.
+ */
+export type ExprLeaf<R extends Refs = Spelled> =
+	| R["leaf"]
+	| ({ readonly kind: "param"; readonly type: R["paramType"] } & R["param"])
+	| { readonly kind: "literal"; readonly value: LiteralDesc; readonly type?: R["literalType"] }
+
+/**
  * Terms and predicates in one vocabulary: one builder serves contract predicates, row checks,
  * query filters and computed outputs. `when` is the one guard of a partial operation: its then branch is computed
  * only where its guard holds of its subject, and the branch's parameter, a `guarded` node of the guard over the subject
@@ -364,9 +373,7 @@ export const guardedExpr = <L, R extends Refs>(
  * core/canonical.ts standInTag), so a Description's identity text, digests and SQL are its subject's.
  */
 export type ExprDesc<L = Located, R extends Refs = Spelled> =
-	| R["leaf"]
-	| ({ readonly kind: "param"; readonly type: R["paramType"] } & R["param"])
-	| { readonly kind: "literal"; readonly value: LiteralDesc; readonly type?: R["literalType"] }
+	| ExprLeaf<R>
 	| {
 			readonly kind: "compute"
 			readonly fn: Exclude<ComputeFn, ScaledComputeFn>
@@ -497,6 +504,213 @@ export type BindingsDesc<L = Located, R extends Refs = Spelled> = Readonly<
 >
 
 /**
+ * A term an expression holds in its own scope, one of its children, with the segments the checker locates it below the
+ * expression by (core/loc.ts childLoc): an operand of a list by its index, a named operand by its name, the arg a
+ * guarded node stands in for by none, since it stands where the node does (GuardedDesc), a binding of an absent by
+ * "bindings" and its column, and a term its source's bind map binds a parameter to by "bind" and the parameter.
+ */
+export interface ExprChild<L, R extends Refs> {
+	readonly term: ExprDesc<L, R>
+	readonly at: ReadonlyArray<string | number>
+}
+
+/** The segments of the named operands, one list each, shared by every child that stands at one. */
+const named = {
+	arg: ["arg"],
+	pred: ["pred"],
+	onTrue: ["onTrue"],
+	onFalse: ["onFalse"],
+	subject: ["subject"],
+	proved: ["proved"],
+	otherwise: ["otherwise"],
+	left: ["left"],
+	right: ["right"],
+	low: ["low"],
+	high: ["high"],
+	point: ["point"],
+	span: ["span"]
+} as const satisfies Readonly<Record<string, readonly [string]>>
+
+const standsWhereItsNodeDoes: ReadonlyArray<never> = Object.freeze([])
+
+/**
+ * The children of `e`: every term it holds in its own scope, in the order its description states them, each with the
+ * segments it is located at (ExprChild). A leaf holds none. An absent holds the terms its source's bind map binds its
+ * scalar parameters to, then its bindings: the bind map is read in the importing rule's scope, and the query the source
+ * imports is a scope of its own, none of whose terms is a child of `e`. With mapExpr, the one spelling of which terms
+ * each kind of expression holds, which every structural walk over expressions reads.
+ */
+export const exprChildren = <L, R extends Refs>(
+	e: ExprDesc<L, R>
+): ReadonlyArray<ExprChild<L, R>> => {
+	const listed = (terms: ReadonlyArray<ExprDesc<L, R>>): ReadonlyArray<ExprChild<L, R>> =>
+		terms.map((term, i) => ({ term, at: [i] }))
+	switch (e.kind) {
+		case "var":
+		case "field":
+		case "value":
+		case "parent":
+		case "param":
+		case "literal":
+			return []
+		case "compute":
+		case "and":
+		case "or":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
+			return listed(e.args)
+		case "cast":
+		case "base":
+		case "not":
+		case "in":
+			return [{ term: e.arg, at: named.arg }]
+		case "guarded":
+			return [{ term: e.arg, at: standsWhereItsNodeDoes }]
+		case "cond":
+			return [
+				{ term: e.pred, at: named.pred },
+				{ term: e.onTrue, at: named.onTrue },
+				{ term: e.onFalse, at: named.onFalse }
+			]
+		case "when":
+			return [
+				{ term: e.subject, at: named.subject },
+				{ term: e.proved, at: named.proved },
+				{ term: e.otherwise, at: named.otherwise }
+			]
+		case "compare":
+		case "allen":
+			return [
+				{ term: e.left, at: named.left },
+				{ term: e.right, at: named.right }
+			]
+		case "between":
+			return [
+				{ term: e.arg, at: named.arg },
+				{ term: e.low, at: named.low },
+				{ term: e.high, at: named.high }
+			]
+		case "pointIn":
+			return [
+				{ term: e.point, at: named.point },
+				{ term: e.span, at: named.span }
+			]
+		case "absent":
+			return [
+				...bindTerms(e.source).map(([param, term]) => ({ term, at: ["bind", param] })),
+				...Object.entries(e.bindings).map(([column, term]) => ({ term, at: ["bindings", column] }))
+			]
+	}
+}
+
+/**
+ * The terms a source's bind map binds its scalar parameters to, by parameter, in the importing rule's scope: an
+ * imported query's and a navigation step's; every other source binds none, and a relation parameter is no term.
+ */
+export const bindTerms = <L, R extends Refs>(
+	s: SourceDesc<L, R>
+): ReadonlyArray<readonly [string, ExprDesc<L, R>]> =>
+	s.kind === "query" || s.kind === "step"
+		? Object.entries(s.bind).flatMap(([param, b]) =>
+				b.kind === "relationParam" ? [] : [[param, b] as const]
+			)
+		: []
+
+/**
+ * How mapExpr rebuilds an expression over references R as one over references S: each leaf by `leaf`, each child by
+ * `term`, and an absent's source by `source`, which holds the bind map read in the expression's scope and the query
+ * that is a scope of its own.
+ */
+export interface ExprMap<L, R extends Refs, S extends Refs> {
+	readonly leaf: (e: ExprLeaf<R>) => ExprDesc<L, S>
+	readonly term: (e: ExprDesc<L, R>) => ExprDesc<L, S>
+	readonly source: (s: SourceDesc<L, R>) => SourceDesc<L, S>
+}
+
+/**
+ * `e` rebuilt by `m` (ExprMap): a leaf as `m.leaf` makes it, any other node with each child (exprChildren) mapped by
+ * `m.term`, an absent's source by `m.source` before its bindings, and every other part as it is.
+ */
+export const mapExpr = <L, R extends Refs, S extends Refs>(
+	e: ExprDesc<L, R>,
+	m: ExprMap<L, R, S>
+): ExprDesc<L, S> => {
+	const term = (x: ExprDesc<L, R>): ExprDesc<L, S> => m.term(x)
+	switch (e.kind) {
+		case "var":
+		case "field":
+		case "value":
+		case "parent":
+		case "param":
+		case "literal":
+			return m.leaf(e)
+		case "compute":
+		case "closedRow":
+			return { ...e, args: e.args.map(term) }
+		case "and":
+		case "or":
+		case "closedAt":
+		case "closedHas":
+			return { ...e, args: mapNonEmpty(e.args, term) }
+		case "cast":
+		case "base":
+		case "guarded":
+		case "not":
+		case "in":
+			return { ...e, arg: term(e.arg) }
+		case "cond":
+			return { ...e, pred: term(e.pred), onTrue: term(e.onTrue), onFalse: term(e.onFalse) }
+		case "when":
+			return {
+				...e,
+				subject: term(e.subject),
+				proved: term(e.proved),
+				otherwise: term(e.otherwise)
+			}
+		case "compare":
+		case "allen":
+			return { ...e, left: term(e.left), right: term(e.right) }
+		case "between":
+			return { ...e, arg: term(e.arg), low: term(e.low), high: term(e.high) }
+		case "pointIn":
+			return { ...e, point: term(e.point), span: term(e.span) }
+		case "absent":
+			return { ...e, source: m.source(e.source), bindings: mapBindingTerms(e.bindings, term) }
+	}
+}
+
+/** Bindings with each term mapped by `f`, in their order. */
+export const mapBindingTerms = <L, R extends Refs, S extends Refs>(
+	b: BindingsDesc<L, R>,
+	f: (e: ExprDesc<L, R>) => ExprDesc<L, S>
+): BindingsDesc<L, S> =>
+	Object.fromEntries(Object.entries(b).map(([column, e]) => [column, f(e)] as const))
+
+/** A source with each term its bind map binds (bindTerms) mapped by `f`, the query it imports kept whole. */
+export const mapBindTerms = <L, R extends Refs>(
+	s: SourceDesc<L, R>,
+	f: (e: ExprDesc<L, R>) => ExprDesc<L, R>
+): SourceDesc<L, R> =>
+	s.kind === "query" || s.kind === "step"
+		? {
+				...s,
+				bind: Object.fromEntries(
+					Object.entries(s.bind).map(([param, b]) => [param, b.kind === "relationParam" ? b : f(b)])
+				)
+			}
+		: s
+
+/**
+ * `e` with each child (exprChildren) mapped by `f` and every other part as it is: the bind map of an absent's source
+ * among them, and the query it imports kept whole.
+ */
+export const mapExprChildren = <L, R extends Refs>(
+	e: ExprDesc<L, R>,
+	f: (term: ExprDesc<L, R>) => ExprDesc<L, R>
+): ExprDesc<L, R> => mapExpr(e, { leaf: (x) => x, term: f, source: (s) => mapBindTerms(s, f) })
+
+/**
  * What an imported query's bind map binds one of its parameters to: a scalar term, or, for a relation parameter, a
  * relation parameter of the importing rule by name.
  */
@@ -620,13 +834,35 @@ export type ProducerDesc<L = Located, R extends Refs = Spelled> =
 	  }
 
 /** A producer with each argument mapped by `f`, keeping its arity. */
-export const mapProducer = <L, M, R1 extends Refs, R2 extends Refs>(
+const mapProducer = <L, M, R1 extends Refs, R2 extends Refs>(
 	p: ProducerDesc<L, R1>,
 	f: (e: ExprDesc<L, R1>) => ExprDesc<M, R2>
 ): ProducerDesc<M, R2> =>
 	p.fn === "pack"
 		? { kind: "producer", fn: p.fn, args: [f(p.args[0])] }
 		: { kind: "producer", fn: p.fn, args: [f(p.args[0]), f(p.args[1])] }
+
+/**
+ * The scalar terms a head term holds: an aggregate's argument, none for count, a producer's arguments, or the term
+ * itself where it is a scalar expression.
+ */
+export const headTerms = <L, R extends Refs>(
+	h: HeadTermDesc<L, R>
+): ReadonlyArray<ExprDesc<L, R>> =>
+	h.kind === "aggregate" ? (h.fn === "count" ? [] : [h.arg]) : h.kind === "producer" ? h.args : [h]
+
+/** A head term with each scalar term it holds (headTerms) mapped by `f`, keeping its kind and arity. */
+export const mapHeadTerms = <L, M, R1 extends Refs, R2 extends Refs>(
+	h: HeadTermDesc<L, R1>,
+	f: (e: ExprDesc<L, R1>) => ExprDesc<M, R2>
+): HeadTermDesc<M, R2> =>
+	h.kind === "aggregate"
+		? h.fn === "count"
+			? { kind: "aggregate", fn: h.fn }
+			: { kind: "aggregate", fn: h.fn, arg: f(h.arg) }
+		: h.kind === "producer"
+			? mapProducer(h, f)
+			: f(h)
 
 export interface InteriorDesc<L = Located, R extends Refs = Spelled> {
 	readonly id: string
@@ -767,37 +1003,12 @@ export const everyFact: SelectionDesc = Object.freeze({ conjuncts: Object.freeze
  * The conjuncts a selection's predicate states: a conjunction's operands, through every nested conjunction, the
  * constant true, a conjunction's unit, stating none; any other predicate is one conjunct.
  */
-export const conjunctsOf = (predicate: ExprDesc): ReadonlyArray<ExprDesc> => {
-	switch (predicate.kind) {
-		case "and":
-			return predicate.args.flatMap(conjunctsOf)
-		case "literal":
-			return predicate.value === true ? [] : [predicate]
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "compute":
-		case "cast":
-		case "base":
-		case "guarded":
-		case "cond":
-		case "when":
-		case "compare":
-		case "between":
-		case "in":
-		case "or":
-		case "not":
-		case "allen":
-		case "pointIn":
-		case "absent":
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			return [predicate]
-	}
-}
+export const conjunctsOf = (predicate: ExprDesc): ReadonlyArray<ExprDesc> =>
+	predicate.kind === "and"
+		? predicate.args.flatMap(conjunctsOf)
+		: predicate.kind === "literal" && predicate.value === true
+			? []
+			: [predicate]
 
 /**
  * A law side, a partial projection: for each fact of `relation` its selection admits, the tuple of its terms, read
@@ -1441,7 +1652,7 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 	}
 
 	bindings(b: BindingsDesc<Located, SpelledAs<T, D>>): BindingsDesc<Located, ParamsAs<P, T, D>> {
-		return Object.fromEntries(Object.entries(b).map(([k, e]) => [k, this.expr(e)]))
+		return mapBindingTerms(b, (e) => this.expr(e))
 	}
 
 	bound(b: BindTermDesc<Located, SpelledAs<T, D>>): BindTermDesc<Located, ParamsAs<P, T, D>> {
@@ -1475,65 +1686,16 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 	}
 
 	head(h: HeadTermDesc<Located, SpelledAs<T, D>>): HeadTermDesc<Located, ParamsAs<P, T, D>> {
-		if (h.kind === "aggregate") {
-			return h.fn === "count"
-				? { kind: "aggregate", fn: h.fn }
-				: { kind: "aggregate", fn: h.fn, arg: this.expr(h.arg) }
-		}
-		return h.kind === "producer" ? mapProducer(h, (e) => this.expr(e)) : this.expr(h)
+		return mapHeadTerms(h, (e) => this.expr(e))
 	}
 
 	expr(e: ExprDesc<Located, SpelledAs<T, D>>): ExprDesc<Located, ParamsAs<P, T, D>> {
-		switch (e.kind) {
-			case "param":
-				return { kind: "param", type: e.type, ...this.#spelling.param(e.name) }
-			case "var":
-			case "field":
-			case "value":
-			case "parent":
-			case "literal":
-				return e
-			case "compute":
-				return { ...e, args: e.args.map((a) => this.expr(a)) }
-			case "cast":
-			case "base":
-			case "guarded":
-			case "not":
-			case "in":
-				return { ...e, arg: this.expr(e.arg) }
-			case "cond":
-				return {
-					...e,
-					pred: this.expr(e.pred),
-					onTrue: this.expr(e.onTrue),
-					onFalse: this.expr(e.onFalse)
-				}
-			case "when":
-				return {
-					...e,
-					subject: this.expr(e.subject),
-					proved: this.expr(e.proved),
-					otherwise: this.expr(e.otherwise)
-				}
-			case "compare":
-				return { ...e, left: this.expr(e.left), right: this.expr(e.right) }
-			case "between":
-				return { ...e, arg: this.expr(e.arg), low: this.expr(e.low), high: this.expr(e.high) }
-			case "and":
-			case "or":
-				return { ...e, args: mapNonEmpty(e.args, (a) => this.expr(a)) }
-			case "allen":
-				return { ...e, left: this.expr(e.left), right: this.expr(e.right) }
-			case "pointIn":
-				return { ...e, point: this.expr(e.point), span: this.expr(e.span) }
-			case "absent":
-				return { ...e, source: this.source(e.source), bindings: this.bindings(e.bindings) }
-			case "closedAt":
-			case "closedHas":
-				return { ...e, args: mapNonEmpty(e.args, (a) => this.expr(a)) }
-			case "closedRow":
-				return { ...e, args: e.args.map((a) => this.expr(a)) }
-		}
+		return mapExpr(e, {
+			leaf: (x) =>
+				x.kind === "param" ? { kind: "param", type: x.type, ...this.#spelling.param(x.name) } : x,
+			term: (x) => this.expr(x),
+			source: (x) => this.source(x)
+		})
 	}
 }
 

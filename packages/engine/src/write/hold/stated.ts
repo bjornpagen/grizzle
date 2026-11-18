@@ -6,14 +6,16 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
-import type {
-	BindingsDesc,
-	ExprDesc,
-	HeadTermDesc,
-	QueryDesc,
-	QueryStageDesc,
-	RuleDesc,
-	SourceDesc
+import {
+	type BindingsDesc,
+	type ExprDesc,
+	exprChildren,
+	type HeadTermDesc,
+	headTerms,
+	type QueryDesc,
+	type QueryStageDesc,
+	type RuleDesc,
+	type SourceDesc
 } from "#compiler/ir/desc.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -679,75 +681,17 @@ const absents = (
 	e: ExprDesc | HeadTermDesc,
 	source: (s: SourceDesc, bindings: BindingsDesc) => void
 ): void => {
-	const walk = (x: ExprDesc | HeadTermDesc): void => {
-		switch (x.kind) {
-			case "absent":
-				source(x.source, x.bindings)
-				for (const b of Object.values(x.bindings)) {
-					walk(b)
-				}
-				return
-			case "aggregate":
-				if (x.fn !== "count") {
-					walk(x.arg)
-				}
-				return
-			case "producer":
-				for (const a of x.args) {
-					walk(a)
-				}
-				return
-			case "compute":
-			case "and":
-			case "or":
-			case "closedAt":
-			case "closedRow":
-			case "closedHas":
-				for (const a of x.args) {
-					walk(a)
-				}
-				return
-			case "cast":
-			case "guarded":
-			case "base":
-			case "not":
-			case "in":
-				walk(x.arg)
-				return
-			case "cond":
-				walk(x.pred)
-				walk(x.onTrue)
-				walk(x.onFalse)
-				return
-			case "when":
-				walk(x.subject)
-				walk(x.proved)
-				walk(x.otherwise)
-				return
-			case "compare":
-			case "allen":
-				walk(x.left)
-				walk(x.right)
-				return
-			case "between":
-				walk(x.arg)
-				walk(x.low)
-				walk(x.high)
-				return
-			case "pointIn":
-				walk(x.point)
-				walk(x.span)
-				return
-			case "param":
-			case "var":
-			case "field":
-			case "value":
-			case "parent":
-			case "literal":
-				return
+	const walk = (x: ExprDesc): void => {
+		if (x.kind === "absent") {
+			source(x.source, x.bindings)
+		}
+		for (const c of exprChildren(x)) {
+			walk(c.term)
 		}
 	}
-	walk(e)
+	for (const x of headTerms(e)) {
+		walk(x)
+	}
 }
 
 /**

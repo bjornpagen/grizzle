@@ -64,11 +64,12 @@ export const sitedLoc = (
 })
 
 /** A location the given segments deeper, keeping the label and call site. */
-export const childLoc = (
-	loc: SourceLoc,
-	...segments: ReadonlyArray<string | number>
-): SourceLoc => ({
-	path: [...loc.path, ...segments],
+export const childLoc = (loc: SourceLoc, ...segments: ReadonlyArray<string | number>): SourceLoc =>
+	locBelow(loc, segments)
+
+/** A location the segments of `path` deeper, keeping the label and call site: childLoc of a path held as a list. */
+export const locBelow = (loc: SourceLoc, path: ReadonlyArray<string | number>): SourceLoc => ({
+	path: [...loc.path, ...path],
 	label: loc.label,
 	site: loc.site
 })

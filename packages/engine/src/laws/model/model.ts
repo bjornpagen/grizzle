@@ -52,7 +52,7 @@ import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
 import { mergeDags } from "#compiler/ir/dag.ts"
-import { descText, type ExprDesc } from "#compiler/ir/desc.ts"
+import { descText, type ExprDesc, mapExprChildren } from "#compiler/ir/desc.ts"
 import type { ExistenceConstraint } from "#compiler/ir/evidence.ts"
 import {
 	type ExprSpec,
@@ -1972,52 +1972,11 @@ const baseLeaves = (
 	typeOf: (name: string) => ScalarType | undefined
 ): ExprDesc => {
 	const walk = (d: ExprDesc): ExprDesc => {
-		switch (d.kind) {
-			case "field": {
-				const type = typeOf(d.field)
-				return type !== undefined && contractOf(type) !== undefined ? { kind: "base", arg: d } : d
-			}
-			case "compute":
-				return { ...d, args: d.args.map(walk) }
-			case "compare":
-				return { ...d, left: walk(d.left), right: walk(d.right) }
-			case "and":
-			case "or":
-				return { ...d, args: mapNonEmpty(d.args, walk) }
-			case "not":
-			case "cast":
-			case "in":
-			case "guarded":
-				return { ...d, arg: walk(d.arg) }
-			case "cond":
-				return { ...d, pred: walk(d.pred), onTrue: walk(d.onTrue), onFalse: walk(d.onFalse) }
-			case "when":
-				return {
-					...d,
-					subject: walk(d.subject),
-					proved: walk(d.proved),
-					otherwise: walk(d.otherwise)
-				}
-			case "between":
-				return { ...d, arg: walk(d.arg), low: walk(d.low), high: walk(d.high) }
-			case "allen":
-				return { ...d, left: walk(d.left), right: walk(d.right) }
-			case "pointIn":
-				return { ...d, point: walk(d.point), span: walk(d.span) }
-			case "closedAt":
-			case "closedHas":
-				return { ...d, args: mapNonEmpty(d.args, walk) }
-			case "closedRow":
-				return { ...d, args: d.args.map(walk) }
-			case "base":
-			case "literal":
-			case "param":
-			case "absent":
-			case "var":
-			case "value":
-			case "parent":
-				return d
+		if (d.kind === "field") {
+			const type = typeOf(d.field)
+			return type !== undefined && contractOf(type) !== undefined ? { kind: "base", arg: d } : d
 		}
+		return d.kind === "base" ? d : mapExprChildren(d, walk)
 	}
 	return walk(predicate)
 }

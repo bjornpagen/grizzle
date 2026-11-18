@@ -1,16 +1,18 @@
-import type {
-	ContextDesc,
-	ExprDesc,
-	InferredExpr,
-	InferredHead,
-	InferredQuery,
-	InferredRule,
-	InferredSource,
-	InferredStage,
-	QueryDesc,
-	QueryStageDesc,
-	RuleDesc,
-	SourceDesc
+import {
+	type ContextDesc,
+	type ExprDesc,
+	exprChildren,
+	headTerms,
+	type InferredExpr,
+	type InferredHead,
+	type InferredQuery,
+	type InferredRule,
+	type InferredSource,
+	type InferredStage,
+	type QueryDesc,
+	type QueryStageDesc,
+	type RuleDesc,
+	type SourceDesc
 } from "#compiler/ir/desc.ts"
 import { type PayloadReads, patternParts } from "#compiler/scalar/compute/lower.ts"
 
@@ -193,120 +195,34 @@ class Collector {
 	}
 
 	head(h: InferredHead): void {
-		switch (h.kind) {
-			case "aggregate":
-				if (h.fn !== "count") {
-					this.expr(h.arg)
-				}
-				return
-			case "producer":
-				for (const a of h.args) {
-					this.expr(a)
-				}
-				return
-			case "absent":
-			case "allen":
-			case "and":
-			case "guarded":
-			case "base":
-			case "between":
-			case "cast":
-			case "compare":
-			case "compute":
-			case "cond":
-			case "when":
-			case "field":
-			case "in":
-			case "literal":
-			case "not":
-			case "or":
-			case "param":
-			case "parent":
-			case "pointIn":
-			case "value":
-			case "var":
-			case "closedAt":
-			case "closedRow":
-			case "closedHas":
-				this.expr(h)
+		for (const e of headTerms(h)) {
+			this.expr(e)
 		}
 	}
 
 	expr(e: InferredExpr): void {
-		switch (e.kind) {
-			case "param":
-				this.inputs.add(`parameter ${e.name}`)
-				return
-			case "var":
-			case "field":
-			case "value":
-			case "parent":
-			case "literal":
-				return
-			case "compute": {
-				const [, pattern] = e.args
-				if (e.fn === "matches" && pattern !== undefined) {
-					this.#pattern(pattern)
-				}
-				for (const a of e.args) {
-					this.expr(a)
-				}
-				return
+		if (e.kind === "param") {
+			this.inputs.add(`parameter ${e.name}`)
+			return
+		}
+		if (e.kind === "absent") {
+			this.source(e.source)
+			for (const b of Object.values(e.bindings)) {
+				this.expr(b)
 			}
-			case "cast":
-			case "guarded":
-			case "base":
-			case "not":
-			case "in":
-				this.expr(e.arg)
-				return
-			case "cond":
-				this.expr(e.pred)
-				this.expr(e.onTrue)
-				this.expr(e.onFalse)
-				return
-			case "when":
-				this.expr(e.subject)
-				this.expr(e.proved)
-				this.expr(e.otherwise)
-				return
-			case "compare":
-				this.expr(e.left)
-				this.expr(e.right)
-				return
-			case "between":
-				this.expr(e.arg)
-				this.expr(e.low)
-				this.expr(e.high)
-				return
-			case "and":
-			case "or":
-				for (const a of e.args) {
-					this.expr(a)
-				}
-				return
-			case "allen":
-				this.expr(e.left)
-				this.expr(e.right)
-				return
-			case "pointIn":
-				this.expr(e.point)
-				this.expr(e.span)
-				return
-			case "absent":
-				this.source(e.source)
-				for (const b of Object.values(e.bindings)) {
-					this.expr(b)
-				}
-				return
-			case "closedAt":
-			case "closedRow":
-			case "closedHas":
-				this.relations.add(e.relation)
-				for (const a of e.args) {
-					this.expr(a)
-				}
-				return
+			return
+		}
+		if (e.kind === "compute") {
+			const [, pattern] = e.args
+			if (e.fn === "matches" && pattern !== undefined) {
+				this.#pattern(pattern)
+			}
+		}
+		if (e.kind === "closedAt" || e.kind === "closedRow" || e.kind === "closedHas") {
+			this.relations.add(e.relation)
+		}
+		for (const c of exprChildren(e)) {
+			this.expr(c.term)
 		}
 	}
 }

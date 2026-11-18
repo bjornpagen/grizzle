@@ -41,16 +41,18 @@ import { compareText } from "#compiler/core/canonical.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type {
-	FieldDesc,
-	InferredExpr,
-	InferredHead,
-	InferredMatch,
-	InferredQuery,
-	InferredRule,
-	InferredSource,
-	InferredStage,
-	VarDesc
+import {
+	exprChildren,
+	type FieldDesc,
+	type InferredExpr,
+	type InferredHead,
+	type InferredMatch,
+	type InferredQuery,
+	type InferredRule,
+	type InferredSource,
+	type InferredStage,
+	mapExprChildren,
+	type VarDesc
 } from "#compiler/ir/desc.ts"
 import type { RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
@@ -250,84 +252,26 @@ const walkedExpr = (
 	at: At,
 	w: Walk
 ): InferredExpr | NotLocal => {
-	const m = (x: InferredExpr): InferredExpr | NotLocal => walkedExpr(x, unit, at, w)
-	switch (e.kind) {
-		case "absent": {
-			const read = sourceUnit(e.source, e.bindings, { polarity: flipped(at.polarity) }, w)
-			if (read === notLocal) {
-				return notLocal
-			}
-			const correlated =
-				read.unit.kind === "none" ||
-				(read.unit.kind === "vars" && unit !== undefined && sameNames(read.unit.vars, unit))
-			return correlated ? { ...e, source: read.source } : notLocal
+	if (e.kind === "absent") {
+		const read = sourceUnit(e.source, e.bindings, { polarity: flipped(at.polarity) }, w)
+		if (read === notLocal) {
+			return notLocal
 		}
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-			return e
-		case "and":
-		case "or": {
-			const args = walkedExprs(e.args, unit, at, w)
-			return args === notLocal || !isNonEmpty(args) ? notLocal : { ...e, args }
-		}
-		case "closedAt":
-		case "closedHas": {
-			const args = walkedExprs(e.args, unit, at, w)
-			return args === notLocal || !isNonEmpty(args) ? notLocal : { ...e, args }
-		}
-		case "compute":
-		case "closedRow": {
-			const args = walkedExprs(e.args, unit, at, w)
-			return args === notLocal ? notLocal : { ...e, args }
-		}
-		case "not":
-		case "cast":
-		case "guarded":
-		case "base":
-		case "in": {
-			const arg = m(e.arg)
-			return arg === notLocal ? notLocal : { ...e, arg }
-		}
-		case "compare":
-		case "allen": {
-			const left = m(e.left)
-			const right = m(e.right)
-			return left === notLocal || right === notLocal ? notLocal : { ...e, left, right }
-		}
-		case "cond": {
-			const pred = m(e.pred)
-			const onTrue = m(e.onTrue)
-			const onFalse = m(e.onFalse)
-			return pred === notLocal || onTrue === notLocal || onFalse === notLocal
-				? notLocal
-				: { ...e, pred, onTrue, onFalse }
-		}
-		case "when": {
-			const subject = m(e.subject)
-			const proved = m(e.proved)
-			const otherwise = m(e.otherwise)
-			return subject === notLocal || proved === notLocal || otherwise === notLocal
-				? notLocal
-				: { ...e, subject, proved, otherwise }
-		}
-		case "between": {
-			const arg = m(e.arg)
-			const low = m(e.low)
-			const high = m(e.high)
-			return arg === notLocal || low === notLocal || high === notLocal
-				? notLocal
-				: { ...e, arg, low, high }
-		}
-		case "pointIn": {
-			const point = m(e.point)
-			const span = m(e.span)
-			return point === notLocal || span === notLocal ? notLocal : { ...e, point, span }
-		}
+		const correlated =
+			read.unit.kind === "none" ||
+			(read.unit.kind === "vars" && unit !== undefined && sameNames(read.unit.vars, unit))
+		return correlated ? { ...e, source: read.source } : notLocal
 	}
+	const children = { local: true }
+	const each = mapExprChildren(e, (x) => {
+		const r = walkedExpr(x, unit, at, w)
+		if (r === notLocal) {
+			children.local = false
+			return x
+		}
+		return r
+	})
+	return children.local ? each : notLocal
 }
 
 /** A rule as a walk leaves it: its text, and how it delivers its facts' units. */
@@ -408,7 +352,7 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 const negatesHolder = (e: InferredExpr, holders: Walk["holders"]): boolean =>
 	e.kind === "absent"
 		? e.source.kind === "relation" && holders.has(e.source.name)
-		: childrenOf(e).some((x) => negatesHolder(x, holders))
+		: exprChildren(e).some((c) => negatesHolder(c.term, holders))
 
 /** The channel a rule read per unit binds position `j` of its unit key to (`perUnit`). */
 const unitParam = (j: number): InferredExpr => ({
@@ -897,8 +841,8 @@ const storedReads = (
 			inSource(e.source)
 			return
 		}
-		for (const x of childrenOf(e)) {
-			inExpr(x)
+		for (const c of exprChildren(e)) {
+			inExpr(c.term)
 		}
 	}
 	const inRule = (r: InferredRule): void => {
@@ -937,42 +881,4 @@ const storedReads = (
 		const r = relations.get(name)
 		return r?.kind === "relation" ? [r] : []
 	})
-}
-
-/** The expressions directly inside `e`, a negation's none: its source is a query of its own. */
-const childrenOf = (e: InferredExpr): ReadonlyArray<InferredExpr> => {
-	switch (e.kind) {
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-		case "absent":
-			return []
-		case "and":
-		case "or":
-		case "compute":
-		case "closedRow":
-		case "closedAt":
-		case "closedHas":
-			return e.args
-		case "not":
-		case "cast":
-		case "guarded":
-		case "base":
-		case "in":
-			return [e.arg]
-		case "compare":
-		case "allen":
-			return [e.left, e.right]
-		case "cond":
-			return [e.pred, e.onTrue, e.onFalse]
-		case "when":
-			return [e.subject, e.proved, e.otherwise]
-		case "between":
-			return [e.arg, e.low, e.high]
-		case "pointIn":
-			return [e.point, e.span]
-	}
 }

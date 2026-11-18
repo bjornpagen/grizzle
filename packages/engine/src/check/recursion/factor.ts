@@ -15,7 +15,7 @@ import { entries, ruleLeaves } from "#compiler/check/scan.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { mapProducer } from "#compiler/ir/desc.ts"
+import { mapBindingTerms, mapBindTerms, mapExprChildren, mapHeadTerms } from "#compiler/ir/desc.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 
 /** Parent variables replaced by the variables an arm reads them through. */
@@ -29,74 +29,18 @@ const channel = (cell: ParamCell): ResolvedExpr => ({
 })
 const variable = (id: string): ResolvedExpr => ({ kind: "var", var: id })
 
-const substExpr = (e: ResolvedExpr, s: Subst): ResolvedExpr => {
-	const sub = (x: ResolvedExpr) => substExpr(x, s)
-	switch (e.kind) {
-		case "parent":
-			return s.get(e.column) ?? e
-		case "var":
-		case "field":
-		case "value":
-		case "param":
-		case "literal":
-			return e
-		case "compute":
-			return { ...e, args: e.args.map(sub) }
-		case "and":
-		case "or":
-			return { ...e, args: mapNonEmpty(e.args, sub) }
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-		case "in":
-			return { ...e, arg: sub(e.arg) }
-		case "cond":
-			return { ...e, pred: sub(e.pred), onTrue: sub(e.onTrue), onFalse: sub(e.onFalse) }
-		case "when":
-			return { ...e, subject: sub(e.subject), proved: sub(e.proved), otherwise: sub(e.otherwise) }
-		case "compare":
-		case "allen":
-			return { ...e, left: sub(e.left), right: sub(e.right) }
-		case "between":
-			return { ...e, arg: sub(e.arg), low: sub(e.low), high: sub(e.high) }
-		case "pointIn":
-			return { ...e, point: sub(e.point), span: sub(e.span) }
-		case "absent":
-			return { ...e, source: substSource(e.source, s), bindings: substBindings(e.bindings, s) }
-		case "closedAt":
-		case "closedHas":
-			return { ...e, args: mapNonEmpty(e.args, sub) }
-		case "closedRow":
-			return { ...e, args: e.args.map(sub) }
-	}
-}
+const substExpr = (e: ResolvedExpr, s: Subst): ResolvedExpr =>
+	e.kind === "parent" ? (s.get(e.column) ?? e) : mapExprChildren(e, (x) => substExpr(x, s))
 
-const substBindings = (b: ResolvedBindings, s: Subst): ResolvedBindings => {
-	const out: Record<string, ResolvedExpr> = {}
-	for (const [k, e] of entries(b)) {
-		out[k] = substExpr(e, s)
-	}
-	return out
-}
+const substBindings = (b: ResolvedBindings, s: Subst): ResolvedBindings =>
+	mapBindingTerms(b, (e) => substExpr(e, s))
 
 /** An imported query's bind map is read in the importing rule's scope; the query itself is its own scope. */
 const substSource = (src: ResolvedSource, s: Subst): ResolvedSource =>
-	src.kind === "query" || src.kind === "step"
-		? {
-				...src,
-				bind: Object.fromEntries(
-					entries(src.bind).map(([k, b]) => [k, b.kind === "relationParam" ? b : substExpr(b, s)])
-				)
-			}
-		: src
+	mapBindTerms(src, (e) => substExpr(e, s))
 
-const substHead = (h: ResolvedHead, s: Subst): ResolvedHead => {
-	if (h.kind === "aggregate") {
-		return h.fn === "count" ? h : { ...h, arg: substExpr(h.arg, s) }
-	}
-	return h.kind === "producer" ? mapProducer(h, (a) => substExpr(a, s)) : substExpr(h, s)
-}
+const substHead = (h: ResolvedHead, s: Subst): ResolvedHead =>
+	mapHeadTerms(h, (e) => substExpr(e, s))
 
 /**
  * A counter column's value in a transition, as an exact integer: a step already is one, and a bare literal takes the

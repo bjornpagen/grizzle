@@ -6,7 +6,9 @@ import {
 	type BindingsDesc,
 	type ContextDesc,
 	candidateKeyFields,
+	bindTerms,
 	type ExprDesc,
+	exprChildren,
 	type FieldDesc,
 	type LiteralDesc,
 	type MatchDesc,
@@ -161,67 +163,13 @@ const keyFieldsOf = (schema: SchemaDesc, relation: OrdinaryDesc): ReadonlySet<st
 	return out
 }
 
-/** The variables an expression reads. */
+/** The variables an expression reads in its own scope (ir/desc.ts exprChildren). */
 const exprVars = (e: ExprDesc, into: Set<string>): void => {
-	switch (e.kind) {
-		case "var":
-			into.add(e.var)
-			return
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-			return
-		case "compute":
-			for (const a of e.args) {
-				exprVars(a, into)
-			}
-			return
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-		case "in":
-			exprVars(e.arg, into)
-			return
-		case "cond":
-			exprVars(e.pred, into)
-			exprVars(e.onTrue, into)
-			exprVars(e.onFalse, into)
-			return
-		case "when":
-			exprVars(e.subject, into)
-			exprVars(e.proved, into)
-			exprVars(e.otherwise, into)
-			return
-		case "compare":
-		case "allen":
-			exprVars(e.left, into)
-			exprVars(e.right, into)
-			return
-		case "between":
-			exprVars(e.arg, into)
-			exprVars(e.low, into)
-			exprVars(e.high, into)
-			return
-		case "and":
-		case "or":
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			for (const a of e.args) {
-				exprVars(a, into)
-			}
-			return
-		case "pointIn":
-			exprVars(e.point, into)
-			exprVars(e.span, into)
-			return
-		case "absent":
-			sourceVars(e.source, into)
-			bindingVars(e.bindings, into)
-			return
+	if (e.kind === "var") {
+		into.add(e.var)
+	}
+	for (const c of exprChildren(e)) {
+		exprVars(c.term, into)
 	}
 }
 
@@ -233,12 +181,8 @@ const bindingVars = (bindings: BindingsDesc, into: Set<string>): void => {
 
 /** The variables of the enclosing rule a source reads: an import's bind map; every other source reads none itself. */
 const sourceVars = (source: SourceDesc, into: Set<string>): void => {
-	if (source.kind === "query" || source.kind === "step") {
-		for (const b of Object.values(source.bind)) {
-			if (b.kind !== "relationParam") {
-				exprVars(b, into)
-			}
-		}
+	for (const [, b] of bindTerms(source)) {
+		exprVars(b, into)
 	}
 }
 

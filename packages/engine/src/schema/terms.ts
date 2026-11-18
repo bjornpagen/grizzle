@@ -8,6 +8,7 @@ import {
 	type CompareOp,
 	connectiveExpr,
 	type ExprDesc,
+	exprChildren,
 	type FieldDesc,
 	type Located,
 	type Refs
@@ -529,60 +530,41 @@ const rowExprsNonEmpty = (
 	return Object.freeze(out)
 }
 
-export const foreignInput = <R extends Refs>(expr: ExprDesc<Located, R>): string | undefined => {
-	switch (expr.kind) {
-		case "field":
-		case "literal":
-			return undefined
-		case "var":
-			return "a query variable"
-		case "param":
-			return "a parameter"
-		case "parent":
-			return "a parent column"
-		case "value":
-			return "a contract's value"
-		case "absent":
-			return "a relational negation"
-		case "compute":
-			return firstForeign(expr.args)
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-			return foreignInput(expr.arg)
-		case "cond":
-			return firstForeign([expr.pred, expr.onTrue, expr.onFalse])
-		case "when":
-			return firstForeign([expr.subject, expr.proved, expr.otherwise])
-		case "compare":
-			return firstForeign([expr.left, expr.right])
-		case "between":
-			return firstForeign([expr.arg, expr.low, expr.high])
-		case "in":
-			return foreignInput(expr.arg)
-		case "and":
-		case "or":
-			return firstForeign(expr.args)
-		case "allen":
-			return firstForeign([expr.left, expr.right])
-		case "pointIn":
-			return firstForeign([expr.point, expr.span])
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			return firstForeign(expr.args)
-	}
+/**
+ * What each kind of node reads beyond a row check's row, by itself: a query variable, a parameter, a parent column, a
+ * contract's value or a relational negation; any other kind reads nothing beyond the row but through its children.
+ */
+const rowForeign: { readonly [K in ExprDesc["kind"]]: string | undefined } = {
+	var: "a query variable",
+	param: "a parameter",
+	parent: "a parent column",
+	value: "a contract's value",
+	absent: "a relational negation",
+	field: undefined,
+	literal: undefined,
+	compute: undefined,
+	cast: undefined,
+	base: undefined,
+	guarded: undefined,
+	cond: undefined,
+	when: undefined,
+	compare: undefined,
+	between: undefined,
+	in: undefined,
+	and: undefined,
+	or: undefined,
+	not: undefined,
+	allen: undefined,
+	pointIn: undefined,
+	closedAt: undefined,
+	closedRow: undefined,
+	closedHas: undefined
 }
 
-const firstForeign = <R extends Refs>(
-	exprs: ReadonlyArray<ExprDesc<Located, R>>
-): string | undefined => {
-	for (const e of exprs) {
-		const found = foreignInput(e)
-		if (found !== undefined) {
-			return found
-		}
-	}
-	return undefined
-}
+/** The first input `expr` reads beyond a row check's row (rowForeign), in description order, if any. */
+export const foreignInput = <R extends Refs>(expr: ExprDesc<Located, R>): string | undefined =>
+	rowForeign[expr.kind] ??
+	exprChildren(expr).reduce<string | undefined>(
+		(found, c) => found ?? foreignInput(c.term),
+		undefined
+	)

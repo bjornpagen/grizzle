@@ -1,7 +1,7 @@
 import type { GeneratedRule } from "#compiler/core/causes.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import type { ExprDesc } from "#compiler/ir/desc.ts"
+import { type ExprDesc, exprChildren } from "#compiler/ir/desc.ts"
 import { type ScalarType, sameEnteredType, typeLabel } from "#compiler/ir/scalar.ts"
 
 /**
@@ -18,45 +18,6 @@ import { type ScalarType, sameEnteredType, typeLabel } from "#compiler/ir/scalar
 
 /** An input beyond a generation expression's own row: the ExprDesc kinds a row-local expression never holds. */
 type ForeignKind = Extract<GeneratedRule, { readonly kind: "notRowLocal" }>["input"]
-
-/** An expression's direct subexpressions, in the order its description states them. */
-const subterms = (e: ExprDesc): ReadonlyArray<ExprDesc> => {
-	switch (e.kind) {
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-			return []
-		case "compute":
-		case "and":
-		case "or":
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			return e.args
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-		case "in":
-			return [e.arg]
-		case "cond":
-			return [e.pred, e.onTrue, e.onFalse]
-		case "when":
-			return [e.subject, e.proved, e.otherwise]
-		case "compare":
-		case "allen":
-			return [e.left, e.right]
-		case "between":
-			return [e.arg, e.low, e.high]
-		case "pointIn":
-			return [e.point, e.span]
-		case "absent":
-			return Object.values(e.bindings)
-	}
-}
 
 /** The kind of `e` when it is an input beyond the row, or undefined for a row-local node. */
 const foreignKind = (e: ExprDesc): ForeignKind | undefined => {
@@ -96,8 +57,8 @@ const firstForeign = (e: ExprDesc): ForeignKind | undefined => {
 	if (own !== undefined) {
 		return own
 	}
-	for (const s of subterms(e)) {
-		const found = firstForeign(s)
+	for (const { term } of exprChildren(e)) {
+		const found = firstForeign(term)
 		if (found !== undefined) {
 			return found
 		}
@@ -110,8 +71,8 @@ const fieldReads = (e: ExprDesc, out: Set<string>): Set<string> => {
 	if (e.kind === "field") {
 		out.add(e.field)
 	}
-	for (const s of subterms(e)) {
-		fieldReads(s, out)
+	for (const { term } of exprChildren(e)) {
+		fieldReads(term, out)
 	}
 	return out
 }
@@ -120,8 +81,8 @@ const fieldReads = (e: ExprDesc, out: Set<string>): Set<string> => {
 export const closedReadNames = (e: ExprDesc): ReadonlyArray<string> => {
 	const out = new Set<string>()
 	const visit = (x: ExprDesc): void => {
-		for (const s of subterms(x)) {
-			visit(s)
+		for (const { term } of exprChildren(x)) {
+			visit(term)
 		}
 		if (x.kind === "closedAt" || x.kind === "closedRow" || x.kind === "closedHas") {
 			out.add(x.relation)

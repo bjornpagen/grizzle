@@ -252,9 +252,9 @@ export const theWorldsModelsHostSemanticsProvesARoleRelationsFieldSetAKeyExactly
 			{
 				file: "packages/engine/src/ir/desc.ts",
 				original:
-					"\t\treturn Object.fromEntries(Object.entries(b).map(([k, e]) => [k, this.expr(e)]))",
-				replacement: "\t\treturn Object.fromEntries(Object.entries(b).map(([k, e]) => [k]))",
-				why: "Operator mutant (element) at packages/engine/src/ir/desc.ts:1392 in <module>: `[k, this.expr(e)]` becomes `[k]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+					"\tObject.fromEntries(Object.entries(b).map(([column, e]) => [column, f(e)] as const))",
+				replacement: "\tObject.fromEntries(Object.entries(b).map(([column]) => [column] as const))",
+				why: "Operator mutant (element) at packages/engine/src/ir/desc.ts mapBindingTerms, the one map of a binding record, which ParamWalk's bindings read since lane SCALARONE: `[column, f(e)]` becomes `[column]`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

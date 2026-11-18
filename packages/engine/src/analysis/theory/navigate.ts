@@ -4,15 +4,16 @@ import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import type {
-	Channel,
-	InferredBindings,
-	InferredExpr,
-	InferredMatch,
-	InferredQuery,
-	InferredRule,
-	InferredSource,
-	VarDesc
+import {
+	type Channel,
+	exprChildren,
+	type InferredBindings,
+	type InferredExpr,
+	type InferredMatch,
+	type InferredQuery,
+	type InferredRule,
+	type InferredSource,
+	type VarDesc
 } from "#compiler/ir/desc.ts"
 
 /**
@@ -596,44 +597,8 @@ const navigate = (rule: InferredRule, loc: SourceLoc): InferredRule =>
 	new Navigator(loc).rule(rule, 0)
 
 /** Whether a scalar condition holds a negation anywhere below its top, where navigation reads none (`navigable`). */
-const negatesBelow = (e: InferredExpr): boolean => {
-	switch (e.kind) {
-		case "absent":
-			return true
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "param":
-		case "literal":
-			return false
-		case "compute":
-		case "closedRow":
-			return e.args.some(negatesBelow)
-		case "and":
-		case "or":
-		case "closedAt":
-		case "closedHas":
-			return e.args.some(negatesBelow)
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-		case "in":
-			return negatesBelow(e.arg)
-		case "cond":
-			return negatesBelow(e.pred) || negatesBelow(e.onTrue) || negatesBelow(e.onFalse)
-		case "when":
-			return negatesBelow(e.subject) || negatesBelow(e.proved) || negatesBelow(e.otherwise)
-		case "compare":
-		case "allen":
-			return negatesBelow(e.left) || negatesBelow(e.right)
-		case "between":
-			return negatesBelow(e.arg) || negatesBelow(e.low) || negatesBelow(e.high)
-		case "pointIn":
-			return negatesBelow(e.point) || negatesBelow(e.span)
-	}
-}
+const negatesBelow = (e: InferredExpr): boolean =>
+	e.kind === "absent" || exprChildren(e).some((c) => negatesBelow(c.term))
 
 /**
  * The stored and closed relations and the deltas `rule` reads once its imports are inlined (`Navigator.#inline`), or

@@ -1,16 +1,18 @@
 import type { ResolvedExpr } from "#compiler/check/params.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
-import type {
-	BindingsDesc,
-	ExprDesc,
-	HeadTermDesc,
-	InferredFieldDesc,
-	Located,
-	ParamsAs,
-	QueryDesc,
-	QueryStageDesc,
-	RuleDesc,
-	SourceDesc
+import {
+	type BindingsDesc,
+	type ExprDesc,
+	exprChildren,
+	type HeadTermDesc,
+	headTerms,
+	type InferredFieldDesc,
+	type Located,
+	type ParamsAs,
+	type QueryDesc,
+	type QueryStageDesc,
+	type RuleDesc,
+	type SourceDesc
 } from "#compiler/ir/desc.ts"
 
 /** The entries of a Description record in canonical order: a record is unordered at the boundary. */
@@ -48,76 +50,19 @@ const exprLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	e: ExprDesc<Located, ParamsAs<P, T, D>>,
 	into: Leaves<P, T>
 ): void => {
-	switch (e.kind) {
-		case "var":
-			into.vars.add(e.var)
-			return
-		case "parent":
-			into.parents.add(e.column)
-			return
-		case "param":
-			into.params.push(e)
-			return
-		case "field":
-		case "value":
-		case "literal":
-			return
-		case "compute":
-			for (const a of e.args) {
-				exprLeaves(a, into)
-			}
-			return
-		case "cast":
-		case "guarded":
-		case "base":
-		case "not":
-		case "in":
-			exprLeaves(e.arg, into)
-			return
-		case "cond":
-			exprLeaves(e.pred, into)
-			exprLeaves(e.onTrue, into)
-			exprLeaves(e.onFalse, into)
-			return
-		case "when":
-			exprLeaves(e.subject, into)
-			exprLeaves(e.proved, into)
-			exprLeaves(e.otherwise, into)
-			return
-		case "compare":
-			exprLeaves(e.left, into)
-			exprLeaves(e.right, into)
-			return
-		case "between":
-			exprLeaves(e.arg, into)
-			exprLeaves(e.low, into)
-			exprLeaves(e.high, into)
-			return
-		case "and":
-		case "or":
-			for (const a of e.args) {
-				exprLeaves(a, into)
-			}
-			return
-		case "allen":
-			exprLeaves(e.left, into)
-			exprLeaves(e.right, into)
-			return
-		case "pointIn":
-			exprLeaves(e.point, into)
-			exprLeaves(e.span, into)
-			return
-		case "absent":
-			bindingLeaves(e.bindings, into)
-			sourceLeaves(e.source, into)
-			return
-		case "closedAt":
-		case "closedRow":
-		case "closedHas":
-			for (const a of e.args) {
-				exprLeaves(a, into)
-			}
-			return
+	if (e.kind === "var") {
+		into.vars.add(e.var)
+	} else if (e.kind === "parent") {
+		into.parents.add(e.column)
+	} else if (e.kind === "param") {
+		into.params.push(e)
+	} else if (e.kind === "absent") {
+		bindingLeaves(e.bindings, into)
+		sourceLeaves(e.source, into)
+	} else {
+		for (const c of exprChildren(e)) {
+			exprLeaves(c.term, into)
+		}
 	}
 }
 
@@ -159,19 +104,9 @@ const headLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	h: HeadTermDesc<Located, ParamsAs<P, T, D>>,
 	into: Leaves<P, T>
 ): void => {
-	if (h.kind === "aggregate") {
-		if (h.fn !== "count") {
-			exprLeaves(h.arg, into)
-		}
-		return
+	for (const e of headTerms(h)) {
+		exprLeaves(e, into)
 	}
-	if (h.kind === "producer") {
-		for (const a of h.args) {
-			exprLeaves(a, into)
-		}
-		return
-	}
-	exprLeaves(h, into)
 }
 
 /**
