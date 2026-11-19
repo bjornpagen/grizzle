@@ -8,8 +8,8 @@ import {
 import { type KeyLaws, keyLawsOf, type LawsAbove } from "#adapter/witness/keylaw.ts"
 import type { KeyHost, KeyWitness } from "#compiler/plan/change.ts"
 import type { Codebook, EntryName, StoredRelationName } from "#compiler/plan/common.ts"
-import { keyWitness, witnessDecoder } from "#compiler/plan/runtime.ts"
-import type { ServedEntryKey, ServedParamDomain, ServedRefusals } from "#compiler/plan/serve.ts"
+import { type EntryKey, entryKey, keyWitness, witnessDecoder } from "#compiler/plan/runtime.ts"
+import type { ServedParamDomain, ServedRefusals } from "#compiler/plan/serve.ts"
 
 /**
  * Witness decoding in the adapter.
@@ -46,28 +46,13 @@ export interface InstallationWitness {
 	readonly declaring: (domains: ReadonlyMap<string, ServedParamDomain>) => InstallationWitness
 }
 
-/** A query entry's key, from the key values of its target `values`: each head field's, the target field's it writes. */
-const entryKey = <V>(
-	entry: ServedEntryKey,
-	values: Readonly<Record<string, V>>
-): Readonly<Record<string, V>> => {
-	const out: Record<string, V> = {}
-	for (const [head, field] of entry.head) {
-		const value = values[field]
-		if (value !== undefined) {
-			out[head] = value
-		}
-	}
-	return Object.freeze(out)
-}
-
 /**
  * The witness of a key of the stored relation `relation`, in the words its role states its facts in: the relation's
  * own, or `entry`'s, the query entry the role writes the relation through.
  */
 const statedWitness = (
 	relation: StoredRelationName,
-	entry: ServedEntryKey | undefined
+	entry: EntryKey | undefined
 ): ((values: Readonly<Record<string, KeyHost>>) => KeyWitness) =>
 	entry === undefined
 		? (values) => keyWitness(relation, values)

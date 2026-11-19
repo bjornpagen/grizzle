@@ -104,6 +104,8 @@ export { constraintLawsOf, usesLaws } from "#compiler/runtime/write/laws.ts"
 export { inForce } from "#compiler/runtime/write/transport.ts"
 export {
 	aboveJudgement,
+	type EntryKey,
+	entryKey,
 	hostJudgement,
 	statementRelations
 } from "#compiler/runtime/write/witness.ts"

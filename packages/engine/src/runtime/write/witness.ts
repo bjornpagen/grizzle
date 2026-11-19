@@ -172,11 +172,19 @@ export interface WitnessTable {
 	readonly checks: ReadonlyArray<LawCheckData>
 }
 
-/** A query entry a slot group writes through, as the witness reads it: its name, each head field with the target field
- * it writes, and each literal-fixed target field with its literal. */
-export interface WitnessEntry {
+/**
+ * A query entry's key in its own words (write/frontend/entry.ts entryKeyOf): its name, and each head field to the target
+ * field it writes. A served role's refusals hold it of every entry the role writes through (served/forms.ts
+ * ServedRefusals), and a slot group's facts of the entry they are stated in (`WitnessEntry`).
+ */
+export interface EntryKey {
 	readonly entry: EntryName
-	readonly head: ReadonlyArray<{ readonly head: string; readonly field: string }>
+	readonly head: ReadonlyMap<string, string>
+}
+
+/** A query entry a slot group writes through, as the witness reads it: its key (`EntryKey`), and each literal-fixed
+ * target field with its literal. */
+export interface WitnessEntry extends EntryKey {
 	readonly fixed: ReadonlyArray<{
 		readonly field: string
 		readonly type: ScalarType
@@ -423,7 +431,7 @@ const statedKey = (
  * field at its literal; a context-fixed field, whose value the claims hold, left out. */
 const targetFact = (entry: WitnessEntry, fact: HostFact): HostFact => {
 	const out: Record<string, unknown> = {}
-	for (const { head, field } of entry.head) {
+	for (const [head, field] of entry.head) {
 		if (Object.hasOwn(fact, head)) {
 			out[field] = fact[head]
 		}
@@ -434,14 +442,18 @@ const targetFact = (entry: WitnessEntry, fact: HostFact): HostFact => {
 	return out
 }
 
-/** A target's key values in a query entry's words: each head field's, by the target field it writes
- * (write/frontend/entry.ts entryKey). */
-const entryKey = <V>(
-	entry: WitnessEntry,
+/**
+ * A key of the target written through a query entry in the entry's own words: each head field's value, by the target
+ * field it writes, a fixed field, which the entry does not expose, left out. A program over a role never sees the
+ * target's name or a field the entry hides, so every witness of a write through the entry names the entry: the host's
+ * (`slotFacts`) and a refusal's the layer decodes (packages/grizzle adapter/witness/index.ts statedWitness).
+ */
+export const entryKey = <V>(
+	entry: EntryKey,
 	values: Readonly<Record<string, V>>
 ): Readonly<Record<string, V>> => {
 	const out: Record<string, V> = {}
-	for (const { head, field } of entry.head) {
+	for (const [head, field] of entry.head) {
 		const value = values[field]
 		if (value !== undefined) {
 			out[head] = value

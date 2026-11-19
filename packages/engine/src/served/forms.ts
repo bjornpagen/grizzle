@@ -3,7 +3,6 @@ import type { DeclaredName, ParamPlace } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
 	DomainName,
-	EntryName,
 	GeneratedLawId,
 	LawId,
 	RelationIdent,
@@ -28,6 +27,7 @@ import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { ServedWrite } from "#compiler/runtime/write/flight.ts"
 import type { ArrayMember } from "#compiler/runtime/write/members.ts"
+import type { EntryKey } from "#compiler/runtime/write/witness.ts"
 import type { ServedMatchers } from "#compiler/scalar/regex/matcher.ts"
 import type {
 	ServedProgram,
@@ -499,15 +499,6 @@ export interface ServedKeyLaws {
 }
 
 /**
- * A query entry a role writes through, by its target: the entry's name, and each head field to the target field it
- * writes.
- */
-export interface ServedEntryKey {
-	readonly entry: EntryName
-	readonly head: ReadonlyMap<string, string>
-}
-
-/**
  * A parameter's pattern domain as a refusal by it names the parameter (physical/ddl/domains.ts paramDomainsOf): its
  * place, a scalar parameter or a field of a relation parameter's facts (core/identity.ts ParamPlace), and its pattern as
  * its type spells it.
@@ -526,6 +517,6 @@ export interface ServedParamDomain {
 export interface ServedRefusals {
 	readonly laws: ServedKeyLaws
 	readonly relations: ReadonlyMap<StoredRelationName, Heading>
-	readonly entries: ReadonlyMap<StoredRelationName, ServedEntryKey>
+	readonly entries: ReadonlyMap<StoredRelationName, EntryKey>
 	readonly params: ReadonlyMap<string, ServedParamDomain>
 }

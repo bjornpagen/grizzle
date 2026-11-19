@@ -2,7 +2,7 @@ import { Array as Arr } from "effect"
 import { type InstallationWitness, servedWitness } from "#adapter/witness/index.ts"
 import type { LawsAbove } from "#adapter/witness/keylaw.ts"
 import { type InstallNames, paramDomainsOf } from "#compiler/plan/catalog.ts"
-import { generatedFieldLaws, type TableRelation } from "#compiler/plan/change.ts"
+import { entryKeyOf, generatedFieldLaws, type TableRelation } from "#compiler/plan/change.ts"
 import {
 	type CheckedEntry,
 	type DeclaredName,
@@ -12,7 +12,7 @@ import {
 	type SchemaArtifacts,
 	type StoredRelationName
 } from "#compiler/plan/common.ts"
-import type { ServedEntryKey, ServedKeyLaws, ServedRefusals } from "#compiler/plan/serve.ts"
+import type { ServedKeyLaws, ServedRefusals } from "#compiler/plan/serve.ts"
 
 /**
  * The refusals of a role's installation as data, what a served file holds of them, drawn from the role's artifacts at
@@ -85,12 +85,6 @@ const writtenEntries = (
 		)
 	)
 }
-
-/** A query entry's key mapping as data: its name, and each head field to the target field it writes. */
-const entryKeyOf = (entry: CheckedEntry): ServedEntryKey => ({
-	entry: entry.entry,
-	head: new Map(Arr.map([...entry.head], ([head, { field }]) => [head, field.name] as const))
-})
 
 /**
  * The refusals of a role's artifacts as data (served ServedRefusals), cut to `raisable`, what its writes can raise

@@ -69,7 +69,6 @@ export {
 	type ServedChange,
 	type ServedContext,
 	servedDirectory,
-	type ServedEntryKey,
 	type ServedFile,
 	type ServedFootprint,
 	type ServedInstantRead,

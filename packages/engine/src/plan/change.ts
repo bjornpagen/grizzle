@@ -34,7 +34,7 @@ export { outcomeKind, type RelationCounts } from "#compiler/runtime/write/net.ts
 export { type BindFrame, inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 export type { Unsendable } from "#compiler/runtime/write/staged.ts"
 export type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
-export { entryKey, fillContexts } from "#compiler/write/frontend/entry.ts"
+export { entryKeyOf, fillContexts } from "#compiler/write/frontend/entry.ts"
 export {
 	type ChangeEntry,
 	type ChangeRefused,

@@ -15,7 +15,7 @@ import type {
 } from "#compiler/ir/desc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { HostChecks, HostKeyField } from "#compiler/runtime/write/normalize.ts"
-import type { WitnessEntry } from "#compiler/runtime/write/witness.ts"
+import type { EntryKey, WitnessEntry } from "#compiler/runtime/write/witness.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
 import type { SlotFacts } from "#compiler/write/frontend/compile.ts"
@@ -150,28 +150,17 @@ export const fillQuery = (entry: CheckedEntry, input: Heading, loc: SourceLoc): 
 	}
 }
 
-/** A key of the target written through `entry` in the entry's own vocabulary: each head-mapped field under its head
- * field's name, a fixed field, which the entry does not expose, left out. A program over a role never sees the target's
- * name or a field the entry hides, so every witness of a write through the entry names the entry. */
-export const entryKey = <V>(
-	entry: CheckedEntry,
-	values: Readonly<Record<string, V>>
-): Readonly<Record<string, V>> => {
-	const out: Record<string, V> = {}
-	for (const [head, { field }] of entry.head) {
-		const value = values[field.name]
-		if (value !== undefined) {
-			out[head] = value
-		}
-	}
-	return Object.freeze(out)
-}
+/** A query entry's key in its own words (runtime/write/witness.ts EntryKey): its name, and each head field to the
+ * target field it writes. */
+export const entryKeyOf = (entry: CheckedEntry): EntryKey => ({
+	entry: entry.entry,
+	head: new Map([...entry.head].map(([head, { field }]) => [head, field.name] as const))
+})
 
 /** A query entry as the host reads its facts back into facts of its target (runtime/write/witness.ts WitnessEntry): its
- * name, each head field with the target field it writes, and each literal-fixed target field with its literal. */
+ * key (`entryKeyOf`), and each literal-fixed target field with its literal. */
 const witnessEntry = (entry: CheckedEntry): WitnessEntry => ({
-	entry: entry.entry,
-	head: [...entry.head].map(([head, { field }]) => ({ head, field: field.name })),
+	...entryKeyOf(entry),
 	fixed: entry.fixed.flatMap((fixed) => {
 		if (fixed.value.kind !== "literal") {
 			return []
