@@ -2,7 +2,12 @@ import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	isNonEmpty,
+	lastNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { TupleSet } from "#compiler/core/tuple-map.ts"
 import type { NodeScope, OuterRefs } from "#compiler/ir/dag.ts"
 import { type EvidenceContext, type Premise, strongest } from "#compiler/ir/evidence.ts"
@@ -23,7 +28,7 @@ import {
 	declaredKey,
 	type EqualWitness,
 	type FixedWitness,
-	distinctColumn,
+	distinctColumns,
 	equalColumns,
 	fixedColumn,
 	groupKeeps,
@@ -1183,6 +1188,65 @@ type Subject = Pick<Props, "node" | "reading" | "attachment" | "outer">
  * key over: a dependency a parent closes over the product of the factors' keys determines what each factor's own
  * dependencies reach, and joins no two of them.
  */
+/**
+ * The keys of a constant relation's rows: every minimal set of its columns, by index in ascending order, whose value
+ * tuples no two of its `rows` rows share, each value read by equality. A closed relation is keyed by every set its rows
+ * key, its declared key among them (no two of its facts share it), and by no other. The sets are searched smaller
+ * first, each a set no key found holds extended by a column after its last, so every set is read once and none that
+ * holds a key; a set is a key when the tuples of its columns' codes, each value numbered within its column, are
+ * distinct, read row by row until one repeats.
+ */
+const rowKeys = (
+	columns: ReadonlyArray<ReadonlyArray<EqualityKey>>,
+	rows: number
+): ReadonlyArray<NonEmptyReadonlyArray<number>> => {
+	const codes = columns.map((values) => {
+		const numbered = new Map<EqualityKey, number>()
+		return values.map((value) => {
+			const known = numbered.get(value)
+			if (known !== undefined) {
+				return known
+			}
+			numbered.set(value, numbered.size)
+			return numbered.size - 1
+		})
+	})
+	const keys: Array<NonEmptyReadonlyArray<number>> = []
+	const holdsKey = (set: ReadonlyArray<number>): boolean =>
+		keys.some((key) => key.every((i) => set.includes(i)))
+	const keyed = (set: ReadonlyArray<number>): boolean => {
+		const seen = new Set<string>()
+		for (let row = 0; row < rows; row++) {
+			const tuple = set.map((i) => defined(codes[i]?.[row], "a row's code")).join(",")
+			if (seen.has(tuple)) {
+				return false
+			}
+			seen.add(tuple)
+		}
+		return true
+	}
+	let level: ReadonlyArray<NonEmptyReadonlyArray<number>> = columns.map((_, i) => [i] as const)
+	while (level.length > 0) {
+		const open: Array<NonEmptyReadonlyArray<number>> = []
+		for (const set of level) {
+			if (holdsKey(set)) {
+				continue
+			}
+			if (keyed(set)) {
+				keys.push(set)
+			} else {
+				open.push(set)
+			}
+		}
+		level = open.flatMap((set) =>
+			columns.flatMap((_, j): ReadonlyArray<NonEmptyReadonlyArray<number>> =>
+				j > lastNonEmpty(set) ? [[...set, j]] : []
+			)
+		)
+	}
+	return keys
+}
+
 const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest: Rest): Props => {
 	const { node } = subject
 	const columns = node.heading.map((c) => c.name)
@@ -1525,12 +1589,22 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 				readonly type: ScalarType
 				readonly values: ReadonlyArray<EqualityKey>
 			}> = []
+			const columns = reading.heading.map((_, i) =>
+				closedColumn(reading, i).map((v) => nativeEqualityKey(v))
+			)
+			if (rows.length > 1) {
+				for (const key of rowKeys(columns, rows.length)) {
+					deps.push(
+						distinctColumns(
+							key.map((i) => defined(reading.heading[i], "a key column").name),
+							all
+						)
+					)
+				}
+			}
 			for (const [i, h] of reading.heading.entries()) {
 				const c = h.name
-				const values = closedColumn(reading, i).map((v) => nativeEqualityKey(v))
-				if (new Set(values).size === values.length) {
-					deps.push(distinctColumn(c, all))
-				}
+				const values = defined(columns[i], "a column's values")
 				if (values.length > 0 && new Set(values).size === 1) {
 					deps.push(fixedColumn(c, { kind: "closedValue" }))
 				}

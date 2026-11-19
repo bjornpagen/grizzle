@@ -501,9 +501,9 @@ export const rowsKeep = (from: KeySet, to: KeySet, input: Implication): Dependen
 export const atMostOneRow = (heading: KeySet, witness: AtMostOneWitness): Dependency =>
 	dependency([], heading, { rule: "atMostOne", witness })
 
-/** A closed column distinct across its facts determines the fact. */
-export const distinctColumn = (column: string, heading: KeySet): Dependency =>
-	dependency([column], heading, { rule: "distinct" })
+/** Closed columns whose values no two of its facts share, together, determine the fact: a key of its rows. */
+export const distinctColumns = (columns: KeySet, heading: KeySet): Dependency =>
+	dependency(columns, heading, { rule: "distinct" })
 
 /** A produced fact is determined by its input's carried key, and its produced span when there may be several. */
 export const producedFact = (from: KeySet, heading: KeySet, input: KeyProof): Dependency =>

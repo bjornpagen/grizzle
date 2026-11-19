@@ -2,6 +2,7 @@ import { Array as Arr, Option } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ExprId, NodeId, OccurrenceId } from "#compiler/core/ids.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { type NodeScope, nodeScopes, nodesByLabel, postorder } from "#compiler/ir/dag.ts"
 import {
 	type EvidenceContext,
@@ -720,21 +721,23 @@ export class KeyKernel {
 					? []
 					: ["no witness of at most one row"]
 			case "distinct": {
-				const [c] = d.from
-				if (n.kind !== "Closed" || c === undefined || d.from.length !== 1) {
-					return ["a distinct column outside a closed relation"]
+				if (n.kind !== "Closed" || !Arr.isReadonlyArrayNonEmpty(d.from)) {
+					return ["distinct columns outside a closed relation"]
 				}
-				const at = Arr.findFirstIndex(n.heading, (h) => h.name === c)
-				if (Option.isNone(at)) {
+				const at = Arr.map(d.from, (c) => Arr.findFirstIndex(n.heading, (h) => h.name === c))
+				if (!Arr.every(at, Option.isSome)) {
 					return ["a distinct column outside the heading"]
 				}
-				const values = Arr.map(n.rows, (row) => {
-					const literal = row[at.value]
-					return literal === undefined ? "" : nativeEqualityKey(literal)
-				})
-				return new Set(values).size === values.length && within(heading, d.to)
+				const tuples = Arr.map(n.rows, (row) =>
+					Arr.map(at, (i) => {
+						const literal = Option.isSome(i) ? row[i.value] : undefined
+						return literal === undefined ? "" : nativeEqualityKey(literal)
+					})
+				)
+				const texts = Arr.map(tuples, (t) => jsonText(t))
+				return new Set(texts).size === texts.length && within(heading, d.to)
 					? []
-					: ["a column whose values repeat"]
+					: ["columns whose value tuples repeat"]
 			}
 			case "produced": {
 				if (
