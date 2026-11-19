@@ -13,7 +13,9 @@ import {
 	type GeneratedRule,
 	generatedRuleText,
 	type InstantRule,
+	type PlaceRule,
 	instantRuleText,
+	placeRuleText,
 	type KeyFault,
 	keyFaultText,
 	type LoginRule,
@@ -447,6 +449,8 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   (UnwritableCause).
  * - `InstantRefused`: instant field `field` of `relation` breaks the rule `rule` (InstantRule): as the schema declares
  *   it, a clock outside its primary key, or as a ChangeSet writes it.
+ * - `PlaceRefused`: place field `field` of `relation` breaks the rule `rule` (PlaceRule): as the schema declares it,
+ *   outside the end of its primary key or ordered by no key, or as a ChangeSet writes it.
  * - `CascadedCopyAppend`: a write at `at` of `member`, an `op`, edits `family`, whose copy `copy` reads `owner`'s
  *   `through`, which `owner` copies from `changed`, a relation the same stratum puts from a query: grizzle never sees
  *   the query's rows, so it cannot draw the copy the put's change reaches `owner` with.
@@ -647,6 +651,13 @@ export type CompileReason =
 			readonly relation: string
 			readonly field: string
 			readonly rule: InstantRule
+	  }
+	| {
+			readonly _tag: "PlaceRefused"
+			readonly at: SourceLoc
+			readonly relation: string
+			readonly field: string
+			readonly rule: PlaceRule
 	  }
 	| {
 			readonly _tag: "CascadedCopyAppend"
@@ -919,7 +930,8 @@ export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason
 		? { _tag: tag, at, what: text }
 		: { _tag: tag, at, capability: text }
 
-/** Why an insert has no READ COMMITTED form (NoReadCommittedForm): a span primary key, or an instant it stamps. */
+/** Why an insert has no READ COMMITTED form (NoReadCommittedForm): a span primary key, or an instant or a place it
+ * stamps. */
 export type NoFormWhy = "spanKey" | "stamp"
 
 /** Why an insert into `relation` has no READ COMMITTED form, as `why` says (NoReadCommittedForm). */
@@ -928,7 +940,7 @@ export const noReadCommittedFormText = (relation: string, why: NoFormWhy): strin
 		case "spanKey":
 			return `an insert into ${relation}, whose primary key holds a span, has no READ COMMITTED form: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no statement tells a requested fact it met from one it made, and it runs SERIALIZABLE`
 		case "stamp":
-			return `an insert into ${relation} that stamps an instant has no READ COMMITTED form: two calls of one child would both read its head before either commits, so their instants need not follow their commits, and it runs SERIALIZABLE, where they do`
+			return `an insert into ${relation} that stamps an instant or a place has no READ COMMITTED form: two calls of one child would both read its head before either commits, so their instants need not follow their commits nor their places differ, and it runs SERIALIZABLE, where they do`
 	}
 }
 
@@ -992,6 +1004,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return unfillableText(reason)
 		case "InstantRefused":
 			return `instant ${reason.relation}.${reason.field}: ${instantRuleText(reason.rule)}`
+		case "PlaceRefused":
+			return `place ${reason.relation}.${reason.field}: ${placeRuleText(reason.rule)}`
 		case "UnwritableRelation":
 			return unwritableRelationText(reason.relation, reason.cause)
 		case "CascadedCopyAppend":

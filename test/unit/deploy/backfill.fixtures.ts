@@ -16,12 +16,13 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg, place } from "#compiler/public/fields.ts"
 import {
 	contained,
 	counted,
 	fin,
 	fold,
+	key,
 	Monoid,
 	on,
 	ordered,
@@ -1503,6 +1504,86 @@ type Backfill =
 			readonly stored: ReadonlyArray<Stored>
 	  }
 	| { readonly kind: "keyed tree" }
+	| { readonly kind: "place"; readonly stored: ReadonlyArray<Placed> }
+
+/** A stored session of the place case, by its child, its item and its stage. */
+interface Placed {
+	readonly child: number
+	readonly item: number
+	readonly stage: number
+}
+
+/** Every session the place case may store: two children, two items, six stages. */
+const placeable: ReadonlyArray<Placed> = Arr.flatMap(
+	upTo(2, (child) => child),
+	(child) =>
+		Arr.flatMap(
+			upTo(2, (item) => item),
+			(item) => upTo(6, (stage) => ({ child, item, stage }))
+		)
+)
+
+/** Sessions keyed by child, item and stage, which a migration numbers by a place within each child's item, by stage. */
+const placedBefore = schema(
+	"Backfill",
+	[
+		relation("Session", { child: pg.integer, item: pg.integer, stage: pg.integer }, [
+			"child",
+			"item",
+			"stage"
+		])
+	],
+	[]
+)
+
+/** The sessions keyed by their place n within each child's item, which a migration numbers by stage, their old key a key
+ * still. */
+const placedAfter = (() => {
+	const Session = relation(
+		"Session",
+		{ child: pg.integer, item: pg.integer, n: place({ by: "stage" }), stage: pg.integer },
+		["child", "item", "n"]
+	)
+	return schema("Backfill", [Session], [key(on(Session, "child", "item", "stage"))])
+})()
+
+/** The place case's migration: each stored session numbered within its child's item by its stage. */
+const placedMigration = migrationOf(placedBefore, placedAfter)
+
+/** What the place case's migration must leave: each session's place, the count of its group's sessions of an earlier
+ * stage, and the catalog its target installs from nothing. */
+const judgePlaces = (stored: ReadonlyArray<Placed>): void => {
+	const m = placedMigration
+	const state = migrated(m, [
+		{
+			relation: "Session",
+			rows: Arr.map(stored, (s) => ({ child: s.child, item: s.item, stage: s.stage }))
+		}
+	])
+	const column = (field: string) => fieldColumn(m.second, "Session", field)
+	assert.deepEqual(
+		rowsOf(
+			m,
+			state,
+			"Session",
+			(cell) =>
+				`${cell(column("child"))} ${cell(column("item"))} ${cell(column("stage"))}: ${cell(column("n"))}`
+		),
+		Arr.sort(
+			Arr.map(
+				stored,
+				(s) =>
+					`${s.child} ${s.item} ${s.stage}: ${
+						Arr.filter(stored, (o) => o.child === s.child && o.item === s.item && o.stage < s.stage)
+							.length
+					}`
+			),
+			Order.String
+		),
+		"each session's place is the count of its child's sessions of its item at an earlier stage"
+	)
+	assertFresh(m, state)
+}
 
 /** The owners' ids: 0 to `count - 1`, at least one. */
 const ownersOf = (count: number): ReadonlyArray<number> => upTo(count, (i) => i)
@@ -1535,6 +1616,7 @@ const membersGen =
 const pieces = ["", "a", " c", "\u{1F600}", "é"] as const
 
 export const backfillGen: Gen<Backfill> = weighted<Backfill>([
+	[1, map(shuffled(placeable, { min: 0, max: 8 }), (stored) => ({ kind: "place", stored }))],
 	[
 		1,
 		(source) => {
@@ -1631,6 +1713,9 @@ export type BackfillFeature =
 	| `end moved: ${EndMove}`
 	| `stored key ${StoredKeyFate}`
 	| "a keyed tree owing a key check"
+	| "a place over stored rows"
+	| "a group of three places"
+	| "places stored out of their order"
 
 export const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 	const unsorted = (keys: ReadonlyArray<number>) =>
@@ -1686,6 +1771,20 @@ export const notesOf = (b: Backfill): ReadonlyArray<BackfillFeature> => {
 			return [`stored key ${b.fate}`, ...members(b.owners, b.stored)]
 		case "keyed tree":
 			return ["a keyed tree owing a key check"]
+		case "place": {
+			const groups = Arr.flatMap(
+				upTo(2, (child) => child),
+				(child) =>
+					upTo(2, (item) => Arr.filter(b.stored, (s) => s.child === child && s.item === item))
+			)
+			return [
+				"a place over stored rows",
+				...(Arr.some(groups, (g) => g.length >= 3) ? (["a group of three places"] as const) : []),
+				...(Arr.some(groups, (g) => unsorted(Arr.map(g, (s) => s.stage)))
+					? (["places stored out of their order"] as const)
+					: [])
+			]
+		}
 	}
 }
 
@@ -1833,6 +1932,8 @@ export const judgeBackfill = (b: Backfill): void => {
 			)
 			return
 		}
+		case "place":
+			return judgePlaces(b.stored)
 		case "kind changed": {
 			const k = kindChanged[b.change]
 			const owners = ownersOf(b.owners)

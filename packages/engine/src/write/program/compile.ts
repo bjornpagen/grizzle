@@ -716,7 +716,7 @@ const placeSpec = (
 }
 
 /** A statement of one form placed at the next position. */
-export const place = (
+export const placeStatement = (
 	b: ArtifactBuilder,
 	statement: WriteStatement | PutStatement,
 	step: Extract<WriteStep, { readonly kind: "write" | "carrier" | "check" }>,

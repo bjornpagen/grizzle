@@ -51,17 +51,38 @@ export const isInstantType = (t: ScalarType): boolean => t.contract?.name === in
 /** A clock: an instant no containment carries, by its relation, its field and its child, its primary key's fields
  * before it, in key order. */
 export interface Clock {
+	readonly kind: "clock"
 	readonly relation: StoredRelationName
 	readonly field: LawField
 	readonly child: NonEmptyReadonlyArray<LawField>
 }
 
 /**
- * What stamps an instant a write leaves out: the clock `clock`, at the child the stamped row's fields `child` hold,
- * position for position with the clock's own child fields. A clock's stamp is itself at its own child.
+ * A place (ir/desc.ts Writing place): a natural last in its relation's primary key, after at least one field, its child
+ * the key's fields before it, its group, which the insert that adds a row stamps `coalesce(h + 1, 0)`, h the greatest
+ * place the group holds, none where it holds none: one place for every row of the call in the group, so a group's
+ * places run gapless from 0 in the order its rows' calls commit, and its relation admits no put and no delete, which
+ * would state a place or leave a gap. `by` is the field that orders the group's rows where a migration adds the place
+ * to stored rows, `row_number() OVER (PARTITION BY <group> ORDER BY <by>) - 1` (deploy/diff/backfill.ts), which a key
+ * of the relation within the group and `by` makes total (analysis/theory/instants.ts).
+ */
+export interface PlaceHead {
+	readonly kind: "place"
+	readonly relation: StoredRelationName
+	readonly field: LawField
+	readonly child: NonEmptyReadonlyArray<LawField>
+	readonly by: LawField
+}
+
+/** What a stamp counts on from: the head of a clock or a place, the greatest value its child holds. */
+export type Head = Clock | PlaceHead
+
+/**
+ * What stamps a field a write leaves out: the head `head`, at the child the stamped row's fields `child` hold,
+ * position for position with the head's own child fields. A clock's or a place's stamp is itself at its own child.
  */
 export interface StampSource {
-	readonly clock: Clock
+	readonly head: Head
 	readonly child: NonEmptyReadonlyArray<LawField>
 }
 
@@ -79,20 +100,25 @@ export type InstantRole =
 			readonly stamp: StampSource | undefined
 	  }
 
-/** An instant field an insert's rows leave out, and what stamps it (StampSource). */
+/** A field an insert's rows leave out, an instant or a place, and what stamps it (StampSource). */
 export interface Stamped {
 	readonly field: LawField
 	readonly stamp: StampSource
 }
 
-/** The schema's instants, each by its relation's name and its field's (InstantRole). */
+/** The schema's instants, each by its relation's name and its field's (InstantRole), and its places, each by its
+ * relation's name, which holds one at most, last in its primary key. */
 export interface Instants {
 	readonly roles: ReadonlyMap<StoredRelationName, ReadonlyMap<string, InstantRole>>
+	readonly places: ReadonlyMap<StoredRelationName, PlaceHead>
 }
 
-/** Whether two stamps are one: the same clock, at the same fields of the stamped row. */
+/** A head's spelling, in a refusal: its relation and field. */
+export const headText = (head: Head): string => `${head.relation}.${head.field.name}`
+
+/** Whether two stamps are one: the same head, at the same fields of the stamped row. */
 export const sameStamp = (a: StampSource, b: StampSource): boolean =>
-	a.clock.relation === b.clock.relation &&
-	a.clock.field.name === b.clock.field.name &&
+	a.head.relation === b.head.relation &&
+	a.head.field.name === b.head.field.name &&
 	a.child.length === b.child.length &&
 	a.child.every((f, i) => b.child[i]?.name === f.name)

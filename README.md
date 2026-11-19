@@ -3290,6 +3290,30 @@ export const signIn = ChangeSet.empty(Auth)
   each child needs one place that serializes its writes, its rows on one machine, which stamps them, and children
   shard freely.
 
+### Places
+
+`place({ by })` is a row's place in its group, a natural the database stamps when an insert adds the row: one past the
+greatest place the group holds, 0 for its first. It stands last in its relation's primary key, and the key's fields
+before it are its **group**: `relation("ItemSession", { child, package, item, n: place({ by: "stage" }), stage }, ["child",
+"package", "item", "n"])` numbers each child's sessions of an item 0, 1, 2, … in the order their calls commit, so a
+group's places are gapless from 0 with no law to state it and no count for a write to read.
+
+- **Declared once.** A place first in its key (`groupless`), before another field of it (`notLast`) or outside it
+  (`outsideKey`) is refused when the schema compiles (`PlaceRefused`). `by` names another field of the relation
+  (`byUnknown`, `byItself`), and a key of the relation holds no field but the group's and `by`'s (`byUnkeyed`, which
+  names the key the group and `by` would be): above, `key(on(ItemSession, "child", "package", "item", "stage"))`.
+- **Stamped by its insert.** An insert's rows leave the place out, as they leave out every field grizzle writes: a row
+  that states one is refused as its heading's mismatch. Every row a call stamps in one group holds one place, so a
+  call adds one row a group. A place is stamped as a clock is, in one statement of one stratum (`stampedApart`), never
+  at a group the same insert stamps (`groupStamped`), and a role whose ChangeSet stamps one runs SERIALIZABLE: two
+  calls that stamp one group each read the other's head or are refused with 40001, a retryable `transient`, so no two
+  commit one place.
+- **Written by inserts alone.** A put would state a place and a delete would leave a gap, so neither writes a relation
+  with a place (`written`).
+- **A migration that adds one** numbers each group's stored rows from 0 in `by`'s order, `row_number() OVER (PARTITION
+  BY <group> ORDER BY <by>) - 1`, total by the key above, in its backfill ([Migrations](#migrations)), with no
+  placeholder; the inserts after it stamp on from each group's greatest.
+
 ## Derived tables
 
 `derived(name, query)` names a query as a relation of the schema; declare it in a level over the schema its query reads,

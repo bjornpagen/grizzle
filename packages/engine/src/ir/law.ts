@@ -62,13 +62,16 @@ export interface LawField extends HeadingColumn {
  * by (analysis/schema.ts #generated: a cast into the field's own type its operand's); drawn by grizzle from the nested arrays it is a
  * family's index, count, start or end of; accumulated by grizzle on the host, the copy the one axis that carries it
  * gives it, `start` at the axis's base, and proved by PostgreSQL; retirement, a header's boolean PostgreSQL defaults
- * to false and its group's retirement alone sets true; or instant, by the database's clock, stamped where it is its
- * relation's clock or a stored instant where it is a reference (analysis/theory/instants.ts). Only a caller field is in
- * an insert's head, and an instant one where the insert states a stored instant into it.
+ * to false and its group's retirement alone sets true; instant, by the database's clock, stamped where it is its
+ * relation's clock or a stored instant where it is a reference (analysis/theory/instants.ts); or place, by the insert
+ * that adds its row, one past its group's greatest place, `by` the field of its relation that orders the rows a
+ * migration that adds it finds stored (ir/instant.ts Head). Only a caller field is in an insert's head, and an instant
+ * one where the insert states a stored instant into it.
  */
 export type FieldWriting =
 	| { readonly kind: "caller" | "drawn" | "retirement" | "instant" }
 	| { readonly kind: "generated"; readonly desc: ExprDesc; readonly expr: ScalarExpr }
+	| { readonly kind: "place"; readonly by: string }
 	| { readonly kind: "accumulated"; readonly start: TypedLiteral }
 
 /**

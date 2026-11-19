@@ -442,6 +442,7 @@ export const startOf = (names: PhysicalNames, field: LawField): Expr | undefined
 		case "caller":
 		case "generated":
 		case "instant":
+		case "place":
 			return undefined
 	}
 }

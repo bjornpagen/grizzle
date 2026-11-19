@@ -35,9 +35,9 @@ import {
 	finish,
 	newBuilder,
 	placeAdmission,
-	place,
 	placeFamily,
 	placeReadBack,
+	placeStatement,
 	uniqueAbortsOf
 } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
@@ -206,7 +206,7 @@ const conservativeArtifact = (
 				break
 			case "carrier": {
 				const result = step.statement.result
-				place(
+				placeStatement(
 					b,
 					step.statement,
 					{
@@ -223,7 +223,7 @@ const conservativeArtifact = (
 			case "action": {
 				const { statement, stratum, action, relation } = step
 				const result = statement.result
-				place(
+				placeStatement(
 					b,
 					statement,
 					{
@@ -244,7 +244,7 @@ const conservativeArtifact = (
 			}
 			case "check": {
 				const { statement } = step
-				place(
+				placeStatement(
 					b,
 					statement,
 					{

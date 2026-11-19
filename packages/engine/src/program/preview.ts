@@ -65,7 +65,8 @@ interface PreviewField {
 	readonly writing: PreviewWriting
 }
 
-/** A field's writing as a preview states it (PreviewWriting), none for a generated field or an instant. */
+/** A field's writing as a preview states it (PreviewWriting), none for a generated field, an instant or a place, which
+ * the database computes or stamps. */
 const previewWriting = (writing: FieldWriting): PreviewWriting | undefined => {
 	switch (writing.kind) {
 		case "caller":
@@ -76,6 +77,7 @@ const previewWriting = (writing: FieldWriting): PreviewWriting | undefined => {
 			return writing
 		case "generated":
 		case "instant":
+		case "place":
 			return undefined
 	}
 }

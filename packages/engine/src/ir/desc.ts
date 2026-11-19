@@ -1375,6 +1375,9 @@ export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<C
  *   `start` at the axis's base, which exactly one fold or axis containment carries.
  * - retirement: by its group's retirement, a boolean false when its row is inserted and true once the group it heads is
  *   retired, which exactly one retirable statement names (`RetirableDesc`).
+ * - place: by the insert that adds its row, a natural the database stamps one past its group's greatest, 0 for the
+ *   first, so every group's places run gapless from 0 in the order its rows were inserted; `by` the relation's field
+ *   that orders the rows a migration finds stored when it adds the place (ir/instant.ts Head).
  */
 export type Writing<L = Located> =
 	| { readonly kind: "caller" }
@@ -1390,6 +1393,7 @@ export type Writing<L = Located> =
 			readonly start: LiteralDesc
 	  }
 	| { readonly kind: "retirement" }
+	| { readonly kind: "place"; readonly by: string }
 
 /** A stored relation's field as declared: its type, and how it is written. */
 export interface FieldDecl<L = Located> {
@@ -2568,7 +2572,8 @@ const writingShape: S.Shape<Writing> = S.tagged("kind", {
 	generated: S.struct({ expr: exprDescShape }),
 	drawn: S.struct({}),
 	accumulated: S.struct({ start: literalDescShape }),
-	retirement: S.struct({})
+	retirement: S.struct({}),
+	place: S.struct({ by: S.string })
 })
 
 /** Whether a field's declaration is no retirement field, or one of boolean, the one type a group's state is of. */
@@ -2583,14 +2588,15 @@ const fieldDeclShape: S.Shape<FieldDecl> = S.refine(
 )
 
 /**
- * Whether a field may be in a primary key: one whose value a fact holds when it is written, its caller's or its
- * family's. A generated or accumulated field is computed from the row it would identify, and a
+ * Whether a field may be in a primary key: one whose value a fact holds when it is written, its caller's, its
+ * family's or its insert's place. A generated or accumulated field is computed from the row it would identify, and a
  * retirement field changes when its group is retired.
  */
 const keyWriting = (decl: FieldDecl | undefined): boolean => {
 	switch (decl?.writing.kind) {
 		case "caller":
 		case "drawn":
+		case "place":
 			return true
 		case "generated":
 		case "accumulated":

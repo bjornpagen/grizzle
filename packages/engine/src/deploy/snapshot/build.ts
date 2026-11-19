@@ -220,6 +220,7 @@ const recordedWriting = (
 		case "caller":
 		case "retirement":
 		case "instant":
+		case "place":
 			return w.kind
 		case "generated":
 			return { generated: recordedDigest("generation", w.desc, withoutSourceLocs) }

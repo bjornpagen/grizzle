@@ -267,6 +267,7 @@ const entriesAt = (
 			case "accumulated":
 			case "retirement":
 			case "instant":
+			case "place":
 				break
 		}
 	}

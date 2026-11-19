@@ -13,8 +13,8 @@ import {
 
 /**
  * Whether a member that adds facts writes a field written so: a caller's field, and an instant, which its rows state
- * from a stored instant or leave out to be stamped; never one PostgreSQL generates or grizzle draws or accumulates
- * (types/changeset UnwrittenFieldsOf).
+ * from a stored instant or leave out to be stamped; never one PostgreSQL generates, grizzle draws or accumulates, or
+ * its insert places (types/changeset UnwrittenFieldsOf).
  */
 const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 	switch (writing) {
@@ -25,6 +25,7 @@ const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 		case "drawn":
 		case "accumulated":
 		case "retirement":
+		case "place":
 			return false
 	}
 }

@@ -52,6 +52,7 @@ export type SnapshotWriting =
 	| "caller"
 	| "retirement"
 	| "instant"
+	| "place"
 	| { readonly generated: string }
 	| { readonly drawn: string }
 	| { readonly accumulated: string }
