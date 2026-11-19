@@ -127,14 +127,14 @@ interface RelationSpec {
 }
 
 /**
- * A sum fold that steps a copy of its member's instead of its `v`: family `family`'s fold, stepping copy `copy`, a copy
+ * A sum fold that steps another field of its member than its `v`: family `family`'s fold, stepping copy `copy`, a copy
  * of a caller's `v` or a generated `g` along an owner axis onto the family's member, its own family's or, for a counted
- * family, a sequence's.
+ * family, a sequence's (`copy`); or stepping the member's generated `g` (`generated`), which may read a field the
+ * family's own scan draws on the member.
  */
-interface StepSpec {
-	readonly family: number
-	readonly copy: number
-}
+type StepSpec =
+	| { readonly kind: "copy"; readonly family: number; readonly copy: number }
+	| { readonly kind: "generated"; readonly family: number }
 
 export interface FillSpec {
 	readonly relations: Arr.NonEmptyReadonlyArray<RelationSpec>
@@ -169,15 +169,19 @@ export const rootEntries = (f: number, id: number): ReadonlyArray<readonly [stri
 const foldName = (f: number): string => `s${f}`
 const copyName = (j: number): string => `c${j}`
 
-/** The copy family `f`'s sum fold steps, none where it steps its member's `v`. */
-const stepCopyOf = (spec: FillSpec, f: number): number | undefined =>
-	Option.getOrUndefined(Arr.findFirst(spec.steps, (step) => step.family === f))?.copy
+/** The source family `f`'s sum fold steps on its member: a copy or its `g` a step names, else its `v`. */
+const stepSourceOf = (spec: FillSpec, f: number): CopySource =>
+	Option.match(
+		Arr.findFirst(spec.steps, (step) => step.family === f),
+		{
+			onNone: (): CopySource => ({ kind: "caller" }),
+			onSome: (step): CopySource =>
+				step.kind === "copy" ? { kind: "copy", copy: step.copy } : { kind: "generated" }
+		}
+	)
 
-/** The field family `f`'s sum fold steps on its member: a copy a step names, else `v`. */
-const stepField = (spec: FillSpec, f: number): string => {
-	const copy = stepCopyOf(spec, f)
-	return copy === undefined ? "v" : copyName(copy)
-}
+/** The field family `f`'s sum fold steps on its member (`stepSourceOf`). */
+const stepField = (spec: FillSpec, f: number): string => sourceField(stepSourceOf(spec, f))
 
 export const familyAt = (spec: FillSpec, f: number): FamilySpec =>
 	defined(spec.families[f], `family ${f}`)
@@ -494,7 +498,13 @@ const draftedSpec =
 			return family.fold === "sum" &&
 				Arr.isReadonlyArrayNonEmpty(candidates) &&
 				kept("fold over a copy")
-				? [{ family: f, copy: defined(candidates[source.draw(int(0, candidates.length - 1))]) }]
+				? [
+						{
+							kind: "copy",
+							family: f,
+							copy: defined(candidates[source.draw(int(0, candidates.length - 1))])
+						}
+					]
 				: []
 		})
 		return { ...drafted, steps }
@@ -553,25 +563,53 @@ const rowSourcesOf = (spec: FillSpec, r: number): ReadonlyArray<RowSource> => [
 /**
  * The specifications `specs` draws, each relation whose `g` is generated from its `v` drawn to read a field of its own
  * row grizzle draws or accumulates instead (`rowSourcesOf`), the greater of the two: where `admitted`, only among the
- * sources that leave the specification one the reference admits (`verdictOf`), a relation no source admits keeping its
- * `v`. The draws follow the specification's own, so a specification `specs` draws is drawn as it was.
+ * sources that leave the specification one the reference admits (`verdictOf`) and whose first insert it writes
+ * (`writesVerdict`), a relation no source admits keeping its
+ * `v`; then each sum fold that steps its member's `v`, where its member's `g` reads a column the family itself draws on
+ * it (its index, or a copy along its owner or predecessor axis of a caller's `v`, which no append of the family
+ * recounts), drawn to step that `g` instead. The
+ * draws follow the specification's own, so a specification `specs` draws is drawn as it was.
  */
 export const generationDrawn =
 	(specs: Gen<FillSpec>, admitted: boolean): Gen<FillSpec> =>
 	(source) => {
+		/** Whether the reference admits `next` and writes its instance's first insert, every relation a caller writes
+		 * inserted, which an insert that leaves a value stale on rows it may meet stored refuses. */
+		const writes = (next: FillSpec): boolean =>
+			!admitted ||
+			(verdictOf(next).kind === "admitted" &&
+				writesVerdict(
+					next,
+					Arr.map(insertedRelations(next), (relation) => ({ relation, op: "insert" as const }))
+				).kind === "written")
 		let spec = source.draw(specs)
 		for (const [r, relation] of spec.relations.entries()) {
 			if (relation.generated.kind !== "v" || !source.draw(boolean)) {
 				continue
 			}
-			const offered = Arr.filter(
-				rowSourcesOf(spec, r),
-				(read) =>
-					!admitted ||
-					verdictOf(withGeneration(spec, r, { kind: "row", source: read })).kind === "admitted"
+			const offered = Arr.filter(rowSourcesOf(spec, r), (read) =>
+				writes(withGeneration(spec, r, { kind: "row", source: read }))
 			)
 			if (Arr.isReadonlyArrayNonEmpty(offered)) {
 				spec = withGeneration(spec, r, { kind: "row", source: source.draw(element(offered)) })
+			}
+		}
+		for (const [f, family] of spec.families.entries()) {
+			const stepped = Arr.some(spec.steps, (step) => step.family === f)
+			const generation = relationAt(spec, family.member).generated
+			const drawnByFamily =
+				generation.kind === "row" &&
+				((generation.source.kind === "index" && generation.source.family === f) ||
+					(generation.source.kind === "copy" &&
+						((copy) => copy.family === f && copy.axis !== "last" && copy.source.kind === "caller")(
+							copyAt(spec, generation.source.copy)
+						)))
+			if (family.fold !== "sum" || stepped || !drawnByFamily) {
+				continue
+			}
+			const next: FillSpec = { ...spec, steps: [...spec.steps, { kind: "generated", family: f }] }
+			if (writes(next) && source.draw(boolean)) {
+				spec = next
 			}
 		}
 		return spec
@@ -1387,13 +1425,9 @@ export const writtenRows = (
 			case "fold": {
 				const family = familyAt(spec, source.family)
 				const members = membersOf(row.id, source.family)
-				const stepped = stepCopyOf(spec, source.family)
+				const stepped = stepSourceOf(spec, source.family)
 				return family.fold === "sum"
-					? Arr.reduce(
-							members,
-							0n,
-							(sum, m) => sum + (stepped === undefined ? m.v : copyValue(m, stepped))
-						)
+					? Arr.reduce(members, 0n, (sum, m) => sum + sourceValue(m, stepped))
 					: BigInt(members.length)
 			}
 			case "copy":
@@ -2159,7 +2193,7 @@ export const plantedGen =
 						}
 					],
 					copies: [{ family: 0, axis: "owner", source: { kind: "caller" } }],
-					steps: [{ family: 0, copy: 0 }]
+					steps: [{ kind: "copy", family: 0, copy: 0 }]
 				}
 			case "generated copy":
 				return {
@@ -2232,7 +2266,7 @@ export const plantedGen =
 					copies: [
 						{ family: 0, axis: "owner", source: { kind: generated ? "generated" : "caller" } }
 					],
-					steps: [{ family: 1, copy: 0 }]
+					steps: [{ kind: "copy", family: 1, copy: 0 }]
 				}
 			}
 			case "unit cycle": {
@@ -2295,7 +2329,11 @@ export const besides = (base: FillSpec, planted: FillSpec): FillSpec => {
 		],
 		steps: [
 			...base.steps,
-			...Arr.map(planted.steps, (x) => ({ family: x.family + f, copy: x.copy + c }))
+			...Arr.map(planted.steps, (x): StepSpec =>
+				x.kind === "copy"
+					? { kind: "copy", family: x.family + f, copy: x.copy + c }
+					: { kind: "generated", family: x.family + f }
+			)
 		]
 	}
 }

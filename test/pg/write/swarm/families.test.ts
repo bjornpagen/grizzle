@@ -471,7 +471,7 @@ const steppedCopy = coreOf(
 	[true, true],
 	[{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
 	[{ family: 0, axis: "owner", source: { kind: "caller" } }],
-	[{ family: 0, copy: 0 }]
+	[{ kind: "copy", family: 0, copy: 0 }]
 )
 
 /** A mutable owner R0 of an ordered family of R1, itself the owner of a counted family of R2 whose sum fold steps R2's
@@ -488,7 +488,7 @@ const twoHopCopy = coreOf(
 		{ family: 0, axis: "owner", source: { kind: "caller" } },
 		{ family: 1, axis: "owner", source: { kind: "copy", copy: 0 } }
 	],
-	[{ family: 1, copy: 1 }]
+	[{ kind: "copy", family: 1, copy: 1 }]
 )
 
 /** A mutable owner R0 of a counted family of R1 whose members copy R0's `v` along its owner axis, which their sum fold
@@ -498,7 +498,7 @@ const copiedCount = coreOf(
 	[true, true],
 	[{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
 	[{ family: 0, axis: "owner", source: { kind: "caller" } }],
-	[{ family: 0, copy: 0 }]
+	[{ kind: "copy", family: 0, copy: 0 }]
 )
 
 /** A mutable owner R0 of an ordered family of R1, itself the owner of a counted family of R2 folded by count: a member
@@ -1111,7 +1111,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 						{ kind: "counted", owner: 1, member: 0, fold: "none" }
 					],
 					copies: [{ family: 0, axis: "owner", source: { kind: "caller" } }],
-					steps: [{ family: 0, copy: 0 }]
+					steps: [{ kind: "copy", family: 0, copy: 0 }]
 				},
 				ends: [],
 				plains: [],
@@ -1431,7 +1431,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 						{ kind: "counted", owner: 2, member: 3, fold: "sum" }
 					],
 					copies: [{ family: 1, axis: "owner", source: { kind: "caller" } }],
-					steps: [{ family: 1, copy: 0 }]
+					steps: [{ kind: "copy", family: 1, copy: 0 }]
 				},
 				ends: [],
 				plains: [],
@@ -1671,7 +1671,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 						{ kind: "counted", owner: 1, member: 0, fold: "sum" }
 					],
 					[{ family: 0, axis: "owner", source: { kind: "caller" } }],
-					[{ family: 1, copy: 0 }]
+					[{ kind: "copy", family: 1, copy: 0 }]
 				)
 			),
 			steps: [
@@ -2135,7 +2135,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 					],
 					families: [{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
 					copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
-					steps: [{ family: 0, copy: 0 }]
+					steps: [{ kind: "copy", family: 0, copy: 0 }]
 				},
 				ends: [],
 				plains: [],

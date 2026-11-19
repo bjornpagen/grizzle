@@ -360,7 +360,7 @@ const coreGen =
 			return family.fold === "sum" &&
 				Arr.isReadonlyArrayNonEmpty(candidates) &&
 				kept("fold over a copy")
-				? [{ family: f, copy: source.draw(pick(candidates)) }]
+				? [{ kind: "copy" as const, family: f, copy: source.draw(pick(candidates)) }]
 				: []
 		})
 		return { ...drafted, steps }
@@ -859,7 +859,7 @@ export const buildSwarm = (spec: SwarmSpec): BuiltSwarm => {
 	const stepField = (f: number): string =>
 		Option.match(
 			Arr.findFirst(core.steps, (s) => s.family === f),
-			{ onNone: () => "v", onSome: (s) => copyName(s.copy) }
+			{ onNone: () => "v", onSome: (s) => (s.kind === "copy" ? copyName(s.copy) : "g") }
 		)
 	for (const [f, family] of core.families.entries()) {
 		const owner = valueAt(family.owner)

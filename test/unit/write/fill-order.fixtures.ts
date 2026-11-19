@@ -823,6 +823,9 @@ export const property = (
 			}
 		}
 		for (const step of spec.steps) {
+			if (step.kind !== "copy") {
+				continue
+			}
 			const along = defined(spec.families[defined(spec.copies[step.copy]).family])
 			if (defined(spec.families[step.family]).kind === "counted" && along.kind !== "counted") {
 				note("admitted: a counted fold stepping a sequence's copy of its owner's")
@@ -1404,8 +1407,8 @@ export const staleSpec = (shape: StaleShape): FillSpec | undefined => {
 						{ family: 1, axis: "owner", source: { kind: "fold", family: 0 } }
 					],
 					steps: [
-						{ family: 0, copy: 0 },
-						{ family: 1, copy: 1 }
+						{ kind: "copy", family: 0, copy: 0 },
+						{ kind: "copy", family: 1, copy: 1 }
 					]
 				}
 			: undefined
@@ -1485,7 +1488,7 @@ export const staleSpec = (shape: StaleShape): FillSpec | undefined => {
 							relations,
 							families: [{ kind: "ordered", owner: 0, member: 1, fold: "sum" }],
 							copies: [{ family: 0, axis: "owner", source: ownerSource }],
-							steps: [{ family: 0, copy: 0 }]
+							steps: [{ kind: "copy", family: 0, copy: 0 }]
 						}
 					: {
 							relations,
@@ -1519,7 +1522,7 @@ export const staleSpec = (shape: StaleShape): FillSpec | undefined => {
 							? []
 							: [{ family: 1, axis, source: { kind: "copy", copy: 1 } } as const])
 					],
-					steps: shape.reader === "step" ? [{ family: 1, copy: 1 }] : []
+					steps: shape.reader === "step" ? [{ kind: "copy", family: 1, copy: 1 }] : []
 				}
 			case "edit of a member owner":
 				return {

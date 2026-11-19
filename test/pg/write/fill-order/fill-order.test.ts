@@ -104,6 +104,7 @@ type ClusterSituation =
 	| "a copy of a generated field"
 	| "a generated field reading a field grizzle draws or accumulates"
 	| "a copy of a generated field reading a field grizzle draws or accumulates"
+	| "a fold stepping a generated field that reads a column its family draws"
 	| "a follow-up written over the stored instance"
 	| "an owner put in place beside an append to its family"
 	| "a follow-up that refills a value it leaves stale"
@@ -225,6 +226,9 @@ const shapesOf = (spec: FillSpec): ReadonlyArray<ClusterSituation> => {
 		...copyShapes,
 		...(Arr.some(spec.relations, (r) => r.generated.kind === "row")
 			? (["a generated field reading a field grizzle draws or accumulates"] as const)
+			: []),
+		...(Arr.some(spec.steps, (step) => step.kind === "generated")
+			? (["a fold stepping a generated field that reads a column its family draws"] as const)
 			: [])
 	]
 }
@@ -632,7 +636,7 @@ const ownerPutBesideAppend: ClusterCase = {
 			{ kind: "counted", owner: 2, member: 3, fold: "sum" }
 		],
 		copies: [{ family: 1, axis: "owner", source: { kind: "caller" } }],
-		steps: [{ family: 1, copy: 0 }]
+		steps: [{ kind: "copy", family: 1, copy: 0 }]
 	},
 	rows: [
 		{ relation: 0, id: 1, v: 0n, memberOf: [] },
@@ -676,7 +680,7 @@ const movedSequenceCopy: ClusterCase = {
 			{ kind: "counted", owner: 1, member: 0, fold: "sum" }
 		],
 		copies: [{ family: 0, axis: "owner", source: { kind: "caller" } }],
-		steps: [{ family: 1, copy: 0 }]
+		steps: [{ kind: "copy", family: 1, copy: 0 }]
 	},
 	rows: [
 		{ relation: 2, id: 1, v: 1n, memberOf: [] },
@@ -790,6 +794,7 @@ const generationCaseGen: Gen<ClusterCase> = caseOver(
 const generationSituations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a generated field reading a field grizzle draws or accumulates",
 	"a copy of a generated field reading a field grizzle draws or accumulates",
+	"a fold stepping a generated field that reads a column its family draws",
 	"a follow-up written over the stored instance"
 ]
 
