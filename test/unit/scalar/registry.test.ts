@@ -394,7 +394,7 @@ export const literalDescForLiteralOperandsAdoptTheBasesHostTypeReturnsTheLiteral
 			]),
 			...Arr.map(WILD_KINDS, (kind): LiteralFeature => `wild ${kind}`),
 			"vector snapshot at build",
-			"negative zero normalized"
+			"a negative zero"
 		] satisfies ReadonlyArray<Reached<LiteralFeature>>,
 		check:
 			(_, c: Case<LiteralFeature>) =>
@@ -409,7 +409,7 @@ export const literalDescForLiteralOperandsAdoptTheBasesHostTypeReturnsTheLiteral
 					if (verdict.kind === "literal") {
 						assert.deepEqual(succeeded(result), verdict.literal)
 						if (Object.is(value, -0)) {
-							c.note("negative zero normalized")
+							c.note("a negative zero")
 						}
 					} else if (verdict.kind === "fault") {
 						faulted(result, verdict.fault)

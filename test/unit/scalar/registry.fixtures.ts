@@ -492,7 +492,7 @@ export type LiteralFeature =
 	| `${LiteralCarrier} ${"literal" | "refused"}`
 	| DrawnFeature<never>
 	| "vector snapshot at build"
-	| "negative zero normalized"
+	| "a negative zero"
 
 /** What a carrier's judge answers for a value: the literal, the carrier's fault, or some fault of the vocabulary. */
 type Verdict =
@@ -551,7 +551,7 @@ const numericJudge = (value: unknown): Verdict => {
 	return parsed.ok ? literalOf(parsed.value) : faultOf(parsed.error)
 }
 
-/** real and double precision: a JavaScript number, -0 written 0, the specials wrapped. */
+/** real and double precision: a JavaScript number, the specials, -0 among them, by their words. */
 const floatJudge = (value: unknown): Verdict => {
 	if (typeof value !== "number") {
 		return faultOf("floatType")
@@ -565,7 +565,10 @@ const floatJudge = (value: unknown): Verdict => {
 	if (value === Number.NEGATIVE_INFINITY) {
 		return literalOf({ float: "-Infinity" })
 	}
-	return literalOf(value === 0 ? 0 : value)
+	if (Object.is(value, -0)) {
+		return literalOf({ float: "-0" })
+	}
+	return literalOf(value)
 }
 
 const hyphenated = regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "i")
@@ -847,7 +850,7 @@ const foreignOf =
 const wildOnly = <T, From extends string>(kind: WildKind): Gen<Drawn<T, From>> =>
 	map(wild([kind]), (drawn): Drawn<T, From> => ({ kind: "wild", wild: drawn }))
 
-/** The carriers a live -0 is a literal of, which normalize it to 0. */
+/** The carriers a live -0 is a literal of: an integer's, which reads it as 0, and a float's, which keeps its sign. */
 const zeroCarriers = nonEmpty(
 	Arr.filter(literalCases, (c) => c.judge(-0).kind === "literal"),
 	"the carriers of a -0 literal"
@@ -883,7 +886,7 @@ export const literalOperandSpace = aimed<LiteralOperand, LiteralFeature>(
 				] as const
 		],
 		[
-			"negative zero normalized",
+			"a negative zero",
 			(source) => [source.draw(element(zeroCarriers)), { kind: "live", value: -0 }] as const
 		],
 		...Arr.map(WILD_KINDS, (kind): readonly [LiteralFeature, Gen<LiteralOperand>] => [
