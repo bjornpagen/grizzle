@@ -28,7 +28,7 @@ import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
-import { isDateParse } from "#compiler/scalar/compute/registry.ts"
+import { binaryCoercion, isDateParse } from "#compiler/scalar/compute/registry.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { cast, lit, qualifiedCall, types } from "#compiler/sql/build.ts"
@@ -118,6 +118,14 @@ export const lowerLiteral = (
 }
 
 const exprLabel = (expr: ScalarExpr): string => `expression ${expr.id} (${expr.kind})`
+
+/**
+ * Whether a cast's value is its target's by a proof: a relabel (scalar/compute/registry.ts binaryCoercion) or a domain
+ * cast, whose proof the typing completed (scalar/compute/typing.ts domainCast), so its target names no check PostgreSQL
+ * must make where the installation holds no domain of it (ir/physical.ts provedCastType).
+ */
+export const isProvedCast = (expr: ScalarExpr): boolean =>
+	expr.kind === "domainCast" || (expr.kind === "cast" && expr.cast === binaryCoercion)
 
 /**
  * Where a scalar expression is lowered, everything its SQL varies by (lowerScalar): a query's lowering, whose leaves are

@@ -256,6 +256,20 @@ export const fieldColumnType = (names: PhysicalNames, t: ScalarType): ColumnType
 }
 
 /**
+ * The type a cast into `t` names in a persistent expression where a proof made its value `t`'s (a relabel or a domain
+ * cast, lower/conservative/expr/index.ts isProvedCast): a cast's type (fieldColumnType), but a text refinement no stored
+ * field declares, whose installation holds no domain, is its base, since every value of the refinement is one of it and
+ * the proof holds it to the refinement.
+ */
+export const provedCastType = (names: PhysicalNames, t: ScalarType): TypeRef =>
+	t.contract === undefined &&
+	t.carrier === "text" &&
+	t.text !== "wildcard" &&
+	names.textDomain(t.text) === undefined
+		? baseTypeRef(names, t)
+		: fieldColumnType(names, t).type
+
+/**
  * The type a value of `t` is stored and cast as once its contract and text refinement are set aside: a closed id's
  * roster domain, its codes' range proof, or the base type.
  */

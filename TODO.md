@@ -281,8 +281,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   settled-or-unknown outcome the caller can read beside the interruption.
 
 ### Next
-- **A Compute.cast into a refinement no stored field declares (FULLSUITE3-BYTESGUARD, 2026-11-16):** the types admit it,
-  but a persistent expression refuses it as MalformedDescription at physical names, a query as UnsupportedOperation.
 - **A flight stages every staged slot, empty ones included (BULKLOAD, 2026-11-15; main: not now):** since fdd184b2
   (write/program/slot-carriers.ts withStagedSlots) every member slot two statements read is staged into a carrier of
   its own, so pantry's publish creates and fills 241 carriers in every flight, 900 statements in place of 418, whether
