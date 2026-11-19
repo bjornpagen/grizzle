@@ -82,10 +82,9 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "\t\t\tmemoized(admission.generated, name, () =>",
-				replacement:
-					"\t\t\tmemoized(new Map<string, Result.Result<unknown, Unevaluated>>(), name, () =>",
-				why: "Each evaluation of an admitted row computes its generated values again, for every source of its relation, so two sources of Gen over one admitted row read two values of g, not the one item they share."
+				original: "\tconst items = admission.items()",
+				replacement: "\tconst items = itemsOf(relation, judged)",
+				why: "Each evaluation of an admitted row builds its relation's records again, for every source of its relation, so two sources of Gen over one admitted row read two records and two values of g, not the one record they share."
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",

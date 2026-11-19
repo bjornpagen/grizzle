@@ -526,6 +526,10 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 					evaluate(Gen, asGen.value).generated.g,
 				`two sources of Gen over one admitted row share the item both read, g at ${at}`
 			)
+			assert.ok(
+				evaluate(built.selected, asGen.value).generated === evaluate(Gen, asGen.value).generated,
+				`two sources of Gen over one admitted row read one record of its generated values, built once for the row, at ${at}`
+			)
 			assert.deepEqual(
 				ofRefined,
 				closedEvaluation,

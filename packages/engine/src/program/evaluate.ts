@@ -330,27 +330,6 @@ const truthOf = (e: Evaluated): Result.Result<boolean, Unevaluated> => {
 /** A row check's verdict from its predicate's truth: it holds where the predicate is true and breaks elsewhere. */
 const verdictOf = (truth: boolean): CheckVerdict => (truth ? "holds" : "breaks")
 
-/** A row's evaluation as the host builds it, before its keys are read off its source's type (isEvaluationOf). */
-interface BuiltEvaluation {
-	readonly generated: Readonly<Record<string, Result.Result<unknown, Unevaluated>>>
-	readonly checks: Readonly<Record<string, Result.Result<CheckVerdict, Unevaluated>>>
-	readonly selected: Result.Result<boolean, Unevaluated>
-}
-
-/**
- * The one site of the fact "a built evaluation of a row of R is R's evaluation": its generated values are keyed by R's
- * generated fields and its verdicts by R's check names, which the schema's type of R states and the prepared source
- * reads at run time, a correlation no TypeScript type ties. Its keys are read against the source's, so a value of
- * other keys is a defect.
- */
-const isEvaluationOf = <S, R>(
-	built: BuiltEvaluation,
-	prepared: Prepared
-): built is BuiltEvaluation & RowEvaluation<S, R> =>
-	Object.keys(built.generated).length === prepared.generated.length &&
-	prepared.generated.every((g) => Object.hasOwn(built.generated, g.name)) &&
-	prepared.checks.every((c) => Object.hasOwn(built.checks, c.name))
-
 /** Whether a field a domain refused is a field of R's evaluated row: one the row holds. */
 const isRowField = <R>(
 	row: Readonly<Record<string, unknown>>,
@@ -358,16 +337,29 @@ const isRowField = <R>(
 ): field is keyof EvaluatedRow<R> & string => Object.hasOwn(row, field)
 
 /**
+ * An admitted row's items as its relation reads them, each computed where it is first read and memoized there
+ * (lazyRecord): its generated values and its check verdicts, keyed by the names of `relation`, the reading of R that
+ * built them (itemsOf), and shared by every source of R's evaluation of the row.
+ */
+interface Items {
+	readonly relation: Prepared
+	readonly generated: Readonly<Record<string, Result.Result<unknown, Unevaluated>>>
+	readonly checks: Readonly<Record<string, Result.Result<CheckVerdict, Unevaluated>>>
+}
+
+/** An admitted row's items as R's evaluation types them (isItemsOf). */
+type ItemsOf<S, R> = Items & Pick<RowEvaluation<S, R>, "generated" | "checks">
+
+/**
  * What admitting a row records of it, by the admitted row's identity: its relation, read as a whole source of itself
- * (select(R, TRUE)); the row as the judge reads it, built once; and each item evaluated so far, memoized: its relation's
- * generated values and check verdicts, which every source of the relation shares, and each source's selection of it.
- * A WeakMap holds nothing alive and is never enumerated, so it is no cache: it is the admitted row's state.
+ * (select(R, TRUE)); the row as the judge reads it, built once; its relation's items (Items), built where the row is
+ * first evaluated, which every source of the relation shares; and each source's selection of it, memoized. A WeakMap
+ * holds nothing alive and is never enumerated, so it is no cache: it is the admitted row's state.
  */
 interface Admission {
 	readonly relation: Prepared
 	readonly judged: JudgedRow
-	readonly generated: Map<string, Result.Result<unknown, Unevaluated>>
-	readonly checks: Map<string, Result.Result<CheckVerdict, Unevaluated>>
+	readonly items: () => Items
 	readonly selected: Map<Prepared, Result.Result<boolean, Unevaluated>>
 }
 
@@ -387,17 +379,54 @@ const memoized = <K, A>(memo: Map<K, A>, key: K, compute: () => A): A => {
 	return value
 }
 
-/** A record whose each member is computed where it is first read (memoized). */
-const lazyRecord = <A>(
-	names: ReadonlyArray<string>,
-	read: (name: string) => A
+/** A value computed where it is first read, then read from its memo. */
+const once = <A>(compute: () => A): (() => A) => {
+	let computed: { readonly value: A } | undefined
+	return () => {
+		computed ??= { value: compute() }
+		return computed.value
+	}
+}
+
+/** A record of an item for each of `items`, by its name, each computed where it is first read (once). */
+const lazyRecord = <T extends { readonly name: string }, A>(
+	items: ReadonlyArray<T>,
+	compute: (item: T) => A
 ): Readonly<Record<string, A>> => {
 	const out: Record<string, A> = {}
-	for (const name of names) {
-		Object.defineProperty(out, name, { enumerable: true, get: () => read(name) })
+	for (const item of items) {
+		Object.defineProperty(out, item.name, { enumerable: true, get: once(() => compute(item)) })
 	}
 	return Object.freeze(out)
 }
+
+/**
+ * The items of a row admitted to `relation` (Items): each generated field's value and each row check's verdict, by its
+ * name, evaluated over the row as the judge reads it where it is first read.
+ */
+const itemsOf = (relation: Prepared, judged: JudgedRow): Items => {
+	const { judge, table } = relation
+	return {
+		relation,
+		generated: lazyRecord(relation.generated, (g) =>
+			valueOf(judge.evaluate(table, g.expr, judged))
+		),
+		checks: lazyRecord(relation.checks, (c) =>
+			Result.flatMap(c.predicate, (predicate) =>
+				Result.map(truthOf(judge.evaluate(table, predicate, judged)), verdictOf)
+			)
+		)
+	}
+}
+
+/**
+ * The one site of the fact "an admitted row's items are R's": its generated values are keyed by R's generated fields and
+ * its verdicts by R's check names, which the schema's type of R states and R's reading, the relation the row was
+ * admitted to, reads at run time, a correlation no TypeScript type ties. Items are built over the names of the reading
+ * that built them (itemsOf), which they record, so items of another reading are a defect.
+ */
+const isItemsOf = <S, R>(items: Items, relation: Prepared): items is ItemsOf<S, R> =>
+	items.relation === relation
 
 /**
  * A row of R admitted (see rowEvaluator's admit): each refined field of R the row holds is held to its domain, its
@@ -424,11 +453,11 @@ const admitted = <R>(
 		return Result.err({ _tag: "DomainRefused", field: field.name })
 	}
 	const value = Object.freeze({ row })
+	const judged = judgedRow(fields)
 	admissions.set(value, {
 		relation,
-		judged: judgedRow(fields),
-		generated: new Map(),
-		checks: new Map(),
+		judged,
+		items: once(() => itemsOf(relation, judged)),
 		selected: new Map()
 	})
 	if (!isAdmittedRow<R>(value)) {
@@ -451,22 +480,13 @@ const evaluated = <S, R>(source: Prepared, row: AdmittedRow<R>): RowEvaluation<S
 	if (source.relation !== relation.relation) {
 		throw defect(`a source of ${relation.relation}, the relation the row was admitted to`)
 	}
-	const { judge, table } = relation
-	const generatedBy = new Map(relation.generated.map((g) => [g.name, g.expr] as const))
-	const checkedBy = new Map(relation.checks.map((c) => [c.name, c.predicate] as const))
-	const built: BuiltEvaluation = {
-		generated: lazyRecord([...generatedBy.keys()], (name) =>
-			memoized(admission.generated, name, () =>
-				valueOf(judge.evaluate(table, defined(generatedBy.get(name), "a generated field"), judged))
-			)
-		),
-		checks: lazyRecord([...checkedBy.keys()], (name) =>
-			memoized(admission.checks, name, () =>
-				Result.flatMap(defined(checkedBy.get(name), "a row check"), (predicate) =>
-					Result.map(truthOf(judge.evaluate(table, predicate, judged)), verdictOf)
-				)
-			)
-		),
+	const items = admission.items()
+	if (!isItemsOf<S, R>(items, relation)) {
+		throw defect("a row's items keyed by the names of the relation it was admitted to")
+	}
+	return {
+		generated: items.generated,
+		checks: items.checks,
 		get selected() {
 			return memoized(admission.selected, source, () =>
 				Result.flatMap(source.selection, (selection) =>
@@ -475,10 +495,6 @@ const evaluated = <S, R>(source: Prepared, row: AdmittedRow<R>): RowEvaluation<S
 			)
 		}
 	}
-	if (!isEvaluationOf<S, R>(built, relation)) {
-		throw defect("a row's evaluation keyed by its source's generated fields and checks")
-	}
-	return built
 }
 
 /**
