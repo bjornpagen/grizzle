@@ -1284,12 +1284,13 @@ export const identity = Object.freeze({
 			`check of ${domain.display}`,
 			readable("check")
 		),
-	foreignKey: (from: KeySide, to: KeySide, period: boolean): Identity<"foreignKey"> =>
+	/** A foreign key from `from` to `to`, of the reference's form: over scalar columns, or PERIOD over a span's last. */
+	foreignKey: (from: KeySide, to: KeySide, form: "period" | "scalar"): Identity<"foreignKey"> =>
 		mint(
 			"foreignKey",
-			[from.relation, from.fields, to.relation, to.fields, period ? "period" : "scalar"],
+			[from.relation, from.fields, to.relation, to.fields, form],
 			[...nameSegments(from.relation), "fk", ...from.fields.flatMap(columnSegments)],
-			`${period ? "PERIOD " : ""}foreign key ${sideDisplay(from)} to ${sideDisplay(to)}`,
+			`${form === "period" ? "PERIOD " : ""}foreign key ${sideDisplay(from)} to ${sideDisplay(to)}`,
 			hashed
 		),
 	/**

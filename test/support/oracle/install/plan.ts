@@ -942,7 +942,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		const name = door.foreignKey(
 			{ relation: left.relation, fields: Arr.map(pairs, (p) => p.from) },
 			{ relation: right.relation, fields: Arr.map(pairs, (p) => p.to) },
-			period
+			period ? "period" : "scalar"
 		).identifier
 		unwrap(source.constraints.claim(name, location))
 		source.foreignKeys.push({
@@ -992,7 +992,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			const name = door.foreignKey(
 				{ relation: source.relation, fields: key.fields },
 				{ relation: referenced.relation, fields: met },
-				false
+				"scalar"
 			).identifier
 			if (Arr.some(source.foreignKeys, (fk) => fk.name === name)) {
 				continue

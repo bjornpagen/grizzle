@@ -1778,8 +1778,8 @@ class Specializer {
 			on: NativeOf<"ForeignKey" | "PeriodForeignKey">,
 			from: KeySide,
 			to: KeySide,
-			period: boolean
-		): NamedNative => constraint(on, this.#named(identity.foreignKey(from, to, period)))
+			form: "period" | "scalar"
+		): NamedNative => constraint(on, this.#named(identity.foreignKey(from, to, form)))
 		switch (object.kind) {
 			case "PrimaryKey":
 				return constraint(object, object.named)
@@ -1813,7 +1813,7 @@ class Specializer {
 					object,
 					side(object.relation, this.#keyNames(object.relation, object.columns)),
 					side(object.target, this.#keyNames(object.target, object.targetColumns)),
-					false
+					"scalar"
 				)
 			case "PeriodForeignKey":
 				return foreignKey(
@@ -1823,7 +1823,7 @@ class Specializer {
 						object.target,
 						this.#keyNames(object.target, [...object.targetColumns, object.targetSpan])
 					),
-					true
+					"period"
 				)
 			case "LawColumn": {
 				const { named, plan } = this.#planned(object.relation, object.column)
