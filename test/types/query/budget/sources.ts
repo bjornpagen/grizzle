@@ -8,8 +8,8 @@ import { assertClean, type Measuring, measuredEach } from "#test/types/batch/mea
 /**
  * The matched-source programs, one per kind of source a rule matches (sources.test.ts), each written over a schema of
  * `relations` relations R0 … of three fields, an id, a package and a kind, keyed by the id, beside a roster C, with
- * `rules` queries each of one rule matching a source of the kind: a relation, the roster, a query over the schema, or a
- * derived relation over such a query, declared in an extension of the schema. The sources are the first `sources` of
+ * `rules` queries each of one rule matching a source of the kind: a relation, the roster, a closed relation over it, a
+ * query over the schema, or a derived relation over such a query, declared in an extension of the schema. The sources are the first `sources` of
  * their kind, every program's, each a query's or a derived relation's over its relation, and the rules match them in
  * turn, so every source is matched in every program and the rules a program adds over another match sources matched
  * already: each added rule costs its match alone, never what a source's first use reads once, its definition's
@@ -23,12 +23,13 @@ type SourceShape = {
 }
 
 /** A kind of source a rule matches, each a case of the gate. */
-export type SourceKind = "relation" | "roster" | "query" | "derived"
+export type SourceKind = "relation" | "roster" | "closed" | "query" | "derived"
 
 /** The cells of matchedSources, minted as a dictionary in its door (test/types/query/budget/sources.dictionary.ts). */
 export const sourceKindsItems: readonly [SourceKind, ...ReadonlyArray<SourceKind>] = [
 	"relation",
 	"roster",
+	"closed",
 	"query",
 	"derived"
 ]
@@ -44,6 +45,8 @@ const sourceOf = (kind: SourceKind, i: number): string => {
 			return `R${j}`
 		case "roster":
 			return "C"
+		case "closed":
+			return `K${j}`
 		case "query":
 			return `q${j}`
 		case "derived":
@@ -56,6 +59,8 @@ const sourceDefinitions = (kind: SourceKind): string => {
 	switch (kind) {
 		case "relation":
 		case "roster":
+			return ""
+		case "closed":
 			return ""
 		case "query":
 		case "derived":
@@ -72,6 +77,10 @@ ${kind === "derived" ? `export const D${j} = derived("D${j}", q${j})\n` : ""}`
 			)
 	}
 }
+
+/** The closed relations over C a program of closed sources declares in S: K0 … keyed by C's id, none for any other kind. */
+const closedRelations = (kind: SourceKind): ReadonlyArray<string> =>
+	kind === "closed" ? Arr.map(indices(sources), (j) => `K${j}`) : []
 
 /** The schema the rules are over: S, or for derived sources the extension E that declares them. */
 const ruleSchema = (kind: SourceKind): string => (kind === "derived" ? "E" : "S")
@@ -90,8 +99,15 @@ ${Arr.join(
 			`export const R${i} = relation("R${i}", { id: uuid, package: uuid, kind: Kind }, ["id"])\n`
 	),
 	""
-)}export const S = schema("S", [C, ${Arr.join(
-			Arr.map(indices(shape.relations), (i) => `R${i}`),
+)}${Arr.join(
+			Arr.map(
+				closedRelations(shape.kind),
+				(k) =>
+					`export const ${k} = closed.relation("${k}", { id: closedId(C), kind: Kind }, ["id"], [{ id: "a", kind: "a" }])\n`
+			),
+			""
+		)}export const S = schema("S", [C, ${Arr.join(
+			[...Arr.map(indices(shape.relations), (i) => `R${i}`), ...closedRelations(shape.kind)],
 			", "
 		)}], [])
 ${sourceDefinitions(shape.kind)}${

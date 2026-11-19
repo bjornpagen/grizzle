@@ -168,11 +168,12 @@ export const record = <const Ps extends ReadonlyArray<Part>>(
 	)
 
 /**
- * A record of fresh terms over the carriers `fields` (see the header). The origins are the caller's phantom statement of
- * where each term came from.
+ * A record of fresh terms over the carriers `fields` (see the header). F and the origins are the caller's phantom
+ * statement of the carriers' types and of where each term came from: v states a generic source's closed ids as the
+ * source's own (types/query/terms.ts ShownHeadingOf), whose carriers `fields` are.
  */
-export const mint = <Origins, const F extends Carriers>(
-	fields: F,
+export const mint = <Origins, F extends Carriers>(
+	fields: Carriers,
 	make: <A, S extends SqlTag>(carrier: Carrier<A, S>, key: string) => Term<A, unknown, unknown, S>
 ): Minted<F, Origins> =>
 	assembled<Minted<F, Origins>>(

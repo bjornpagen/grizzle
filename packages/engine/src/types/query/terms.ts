@@ -33,10 +33,11 @@ import type {
 } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { HoldingMatches, OriginsOf, ScopedKey } from "#compiler/types/evidence/evidence.ts"
-import type { LiteralOf } from "#compiler/types/fields/field.ts"
+import type { ClosedIdField, LiteralOf } from "#compiler/types/fields/field.ts"
 import type {
 	AnyClosed,
 	AnyRelation,
+	AnyRoster,
 	FactOfFields,
 	HeadingOf
 } from "#compiler/types/schema/relation.ts"
@@ -172,7 +173,7 @@ export type CarriersOf<R> = R extends Headed<infer C> ? C : never
 export interface SourceShows<out K, out N, out C, out PK, out BT> {
 	readonly kind?: K
 	readonly name?: N
-	readonly heading?: C | Refusal<"a generic source's relations share one heading">
+	readonly heading?: C | RosterFree<C> | Refusal<"a generic source's relations share one heading">
 	readonly primaryKey?: PK
 	readonly [built]?: BT
 }
@@ -185,10 +186,57 @@ export type OrdinaryKind<K, BT> = [K] extends ["relation"]
 	: K
 
 /** The heading of a source of kind K that shows C: an ordinary relation's facts of C, any other source's own. */
-export type ShownHeading<R, K, C> = [K] extends ["relation"] ? FactOfFields<C> : HeadingOf<R>
+export type ShownHeading<R, K, C> = [K] extends ["relation" | "closedRelation"]
+	? FactOfFields<C>
+	: HeadingOf<R>
 
 /** The carriers of a source of kind K that shows C: an ordinary relation's C, any other source's own. */
-export type ShownCarriers<R, K, C> = [K] extends ["relation"] ? C : CarriersOf<R>
+export type ShownCarriers<R, K, C> = [K] extends ["relation" | "closedRelation"] ? C : CarriersOf<R>
+
+/**
+ * The heading a generic source's relations share, each closed id at any roster: relations whose headings differ only in
+ * a closed id's roster share it, so a source generic over them is admitted (HeadedBy), and each such field is read off
+ * the source itself (ShownHeadingOf), typed per instantiation.
+ */
+export type RosterFree<C> = {
+	readonly [K in keyof C]: C[K] extends ClosedIdField<AnyRoster> ? ClosedIdField<AnyRoster> : C[K]
+}
+
+/** The keys of a heading C whose carriers are closed ids: none for a heading of no closed id, the source's C itself. */
+type ClosedIdKeys<C> = {
+	readonly [K in keyof C]-?: C[K] extends ClosedIdField<AnyRoster> ? K : never
+}[keyof C]
+
+/**
+ * The heading a source shows over the heading C it was admitted by (RosterFree), whose closed id fields, where `Each`
+ * says the source's relations hold them at different carriers, are the carrier at their key of H, the source's own
+ * heading, so a generic source's closed id is its instantiation's roster's; every other field is C's. H is read off
+ * the source by key where the source is written (HeadingIn).
+ */
+export type ShownHeadingOf<H, C, Each> = [ClosedIdKeys<C>] extends [never]
+	? C
+	: {
+			readonly [K in keyof C]: C[K] extends ClosedIdField<AnyRoster>
+				? K extends Each
+					? CarrierIn<H, K>
+					: C[K]
+				: C[K]
+		}
+type CarrierIn<H, K> = K extends keyof H ? H[K] : never
+
+/**
+ * The closed id fields v and a match read off a source of names N: every one where the source may be several
+ * relations, a union of names, whose carriers there only the instantiation knows; none where it is one relation.
+ */
+export type EachInstanceOf<N, C> = IsMany<N> extends true ? ClosedIdKeys<C> : never
+
+type IsMany<U, All = U> = U extends unknown ? ([All] extends [U] ? false : true) : never
+
+/** A source's own heading, read by key: a generic source's is its instantiation's. */
+export type HeadingIn<R> = R["heading" & keyof R]
+
+/** The variables v mints over a source of own heading H admitted by C, of names N and origins O (ShownHeadingOf). */
+export type ShownVars<H, C, N, O> = Minted<ShownHeadingOf<H, C, EachInstanceOf<N, C>>, O>
 
 /**
  * A source v mints variables over whose heading of carriers is F: a relation, or a generic relation whose relations share
@@ -196,7 +244,7 @@ export type ShownCarriers<R, K, C> = [K] extends ["relation"] ? C : CarriersOf<R
  * is refused.
  */
 export interface HeadedBy<out F> {
-	readonly heading: F | Refusal<"a generic source's relations share one heading">
+	readonly heading: F | RosterFree<F> | Refusal<"a generic source's relations share one heading">
 }
 
 /** A source's name, where it has one: a relation's, or the union of a generic relation's relations' names. */
@@ -255,13 +303,15 @@ type AdmissibleKeys<H, B> = [LiteralArms<H, B>] extends [never]
  */
 export type DeadConstants<B, H, C> = [H] extends [never]
 	? unknown
-	: [LiteralArms<H, WellTyped<B, C>>] extends [never]
-		? {
-				readonly [
-					K in CommonLiteralKeys<WellTyped<B, C>, H>
-				]: Refusal<"no arm of the source delivers the bound constants">
-			}
-		: unknown
+	: [CommonLiteralKeys<B, H>] extends [never]
+		? unknown
+		: [LiteralArms<H, WellTyped<B, C>>] extends [never]
+			? {
+					readonly [
+						K in CommonLiteralKeys<WellTyped<B, C>, H>
+					]: Refusal<"no arm of the source delivers the bound constants">
+				}
+			: unknown
 /** The bindings of B a binding of their field may be (BindingAt), the field's carrier in C. */
 type WellTyped<B, C> = {
 	readonly [

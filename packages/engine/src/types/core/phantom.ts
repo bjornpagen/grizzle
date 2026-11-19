@@ -560,22 +560,21 @@ type WidenedLanguageAt<X, K, L> = K extends keyof X
 /**
  * The record of terms schema/record.ts's mint makes over carriers F: each key's term of its carrier's domain and SQL
  * type (DomainOf, SqlOfCarrier), whose column delivers its carrier's values, whose values have its column's facts
- * (ColumnFacts) and whose language is its, its origin read from Origins, a phantom. A key carried by nothing, a head
- * entry find refused (query/terms.ts HeadTerms), mints never, which stands wherever a term does: the refusal is its one
- * diagnostic.
+ * (ColumnFacts) and whose language is its, its origin read from Origins, a phantom. A key's term is a Term whatever its
+ * carrier, so a carrier a generic source reads off itself (query/terms.ts ShownHeadingOf) mints a term of that carrier,
+ * resolved at each instantiation; a key carried by nothing, a head entry find refused (query/terms.ts HeadTerms), mints
+ * a term of never, of no type, which the refusal at the head names first.
  */
 export type Minted<F, Origins> = {
-	readonly [K in keyof F]: [F[K]] extends [never]
-		? never
-		: Term<
-				DomainOf<F[K]>,
-				unknown,
-				K extends keyof Origins ? Origins[K] : unknown,
-				SqlOfCarrier<F[K]>,
-				FieldHost<F[K]>,
-				ColumnFacts<F[K]>,
-				LanguageOf<F[K]>
-			>
+	readonly [K in keyof F]: Term<
+		DomainOf<F[K]>,
+		unknown,
+		K extends keyof Origins ? Origins[K] : unknown,
+		SqlOfCarrier<F[K]> & SqlTag,
+		FieldHost<F[K]>,
+		ColumnFacts<F[K]>,
+		LanguageOf<F[K]>
+	>
 }
 
 /** Any predicate: the members every runtime predicate has. */

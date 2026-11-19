@@ -86,7 +86,7 @@ import {
 	emptyHeading,
 	carrierUnion as unionCarriers
 } from "#compiler/schema/record.ts"
-import type { Carrier, Carriers, Headed, Term } from "#compiler/types/core/phantom.ts"
+import type { Carrier, Carriers, Term } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type {
@@ -99,13 +99,11 @@ import type {
 	ReadsCarriers,
 	ReadsChildren,
 	ReadsQuery,
-	ScopeName,
 	SelfSource,
 	UnionArms,
 	VConstructor
 } from "#compiler/types/query/query.ts"
 import type { Rule } from "#compiler/types/query/rule.ts"
-import type { HeadedBy, ShownOrigins, SourceNamed, VSource } from "#compiler/types/query/terms.ts"
 
 /**
  * The values are built under their public types (types/query): queryOf, orderedOf and builderOf
@@ -933,13 +931,9 @@ export const varsOver = (
  * v(source, name), the public builder: the variables minted over the source's heading of carriers in the scope `name`
  * (schema/record.ts mint), each a term of its carrier's host and SQL type with its origin (VarsOf).
  */
-export const v: VConstructor = <R extends VSource, const N extends string, F extends Carriers, RN>(
-	source: R & HeadedBy<F> & Headed<F> & SourceNamed<RN>,
-	name: ScopeName<N>,
-	...extra: ReadonlyArray<unknown>
-) => {
+export const v: VConstructor = (source, name, ...extra: ReadonlyArray<unknown>) => {
 	const { info, expr } = variablesOf(source, name, extra)
-	return mint<ShownOrigins<R, N, RN, F>, F>(
+	return mint(
 		source.heading,
 		<A, S extends SqlTag>(carrier: Carrier<A, S>, field: string): Term<A, unknown, unknown, S> =>
 			fieldTerm(expr(field), headingField(info.heading, field, `v(${info.label})`), carrier)

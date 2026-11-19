@@ -93,7 +93,10 @@ import type {
 	ResultOf,
 	OrdinaryKind,
 	ShownCarriers,
+	HeadingIn,
+	EachInstanceOf,
 	ShownHeading,
+	ShownHeadingOf,
 	SourceShows
 } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation, NameOf, Relation } from "#compiler/types/schema/relation.ts"
@@ -266,17 +269,21 @@ type RequireBound<R> =
  * type per relation of the schema for each match. A relation whose name the type does not know names none of them,
  * and is held against every relation of the schema.
  */
-type ShownMatch<S, R, K, N> = [K] extends ["relation"]
+type ShownMatch<S, R, K, N> = [K] extends ["relation" | "closedRelation"]
 	?
 			| (string extends N ? RelationOf<S> : UnderName<RelationsOf<S>, N>)
 			| Refusal<"the relation is not in this query's schema">
 	: MatchCheck<S, R>
 
 /** The parameters a source of kind K contributes: an ordinary relation none, any other source its own. */
-type ShownSourceParams<R, K> = [K] extends ["relation"] ? unknown : SourceParamsOf<R>
+type ShownSourceParams<R, K> = [K] extends ["relation" | "closedRelation"]
+	? unknown
+	: SourceParamsOf<R>
 
 /** The contexts a source of kind K reads: an ordinary relation none, any other source its own. */
-type ShownSourceContexts<R, K> = [K] extends ["relation"] ? never : SourceContexts<R>
+type ShownSourceContexts<R, K> = [K] extends ["relation" | "closedRelation"]
+	? never
+	: SourceContexts<R>
 
 /** The parameters a source contributes to the rule that matches it. */
 type SourceParamsOf<R> = R extends Phantom<{ readonly sourceParams: infer SP }> ? SP : unknown
@@ -480,25 +487,52 @@ type RuleMatch = <
 	PK,
 	BT,
 	const B extends Partial<
-		Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
+		Bindings<
+			ShownHeading<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>,
+			ShownCarriers<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
+		>
 	>
 >(
 	this: Rule<S, Params, Sole, Facts, Cx>,
 	source: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>, RN>,
 	bindings: B &
-		NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
+		NoExcess<
+			B,
+			ShownHeading<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
+		> &
 		DeadConstants<
 			B,
-			ShownHeading<R, OrdinaryKind<K, BT>, C>,
-			ShownCarriers<R, OrdinaryKind<K, BT>, C>
+			ShownHeading<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>,
+			ShownCarriers<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
 		>
 ) => Rule<
 	S,
 	Params & ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>,
 	[Sole] extends ["no match"]
-		? SoleMatch<ShownSource<R, OrdinaryKind<K, BT>, RN, C, PK>, B>
+		? SoleMatch<
+				ShownSource<
+					R,
+					OrdinaryKind<K, BT>,
+					RN,
+					ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>,
+					PK
+				>,
+				B
+			>
 		: "joined",
-	AfterMatch<Facts, SoleMatch<ShownSource<R, OrdinaryKind<K, BT>, RN, C, PK>, B>>,
+	AfterMatch<
+		Facts,
+		SoleMatch<
+			ShownSource<
+				R,
+				OrdinaryKind<K, BT>,
+				RN,
+				ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>,
+				PK
+			>,
+			B
+		>
+	>,
 	Cx | ShownSourceContexts<R, OrdinaryKind<K, BT>>
 >
 
@@ -572,17 +606,23 @@ type RuleNot = <
 	PK,
 	BT,
 	const B extends Partial<
-		Bindings<ShownHeading<R, OrdinaryKind<K, BT>, C>, ShownCarriers<R, OrdinaryKind<K, BT>, C>>
+		Bindings<
+			ShownHeading<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>,
+			ShownCarriers<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
+		>
 	>
 >(
 	this: Rule<S, Params, Sole, Facts, Cx>,
 	relation: R & SourceShows<K, RN, C, PK, BT> & ShownMatch<S, R, OrdinaryKind<K, BT>, RN>,
 	bindings: B &
-		NoExcess<B, ShownHeading<R, OrdinaryKind<K, BT>, C>> &
+		NoExcess<
+			B,
+			ShownHeading<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
+		> &
 		DeadConstants<
 			B,
-			ShownHeading<R, OrdinaryKind<K, BT>, C>,
-			ShownCarriers<R, OrdinaryKind<K, BT>, C>
+			ShownHeading<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>,
+			ShownCarriers<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
 		>
 ) => Predicate<ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>> &
 	Shaped<Negation> &

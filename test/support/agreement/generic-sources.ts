@@ -65,7 +65,10 @@ import { caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
  * a shared carrier). A helper over such a shape typechecks exactly when the engine compiles its statement over every
  * relation of the shape, and is refused with the refusal its fault names otherwise; a helper over a shape whose
  * relations share no heading is refused, `a generic source's relations share one heading`, whatever its statement
- * reads.
+ * reads. A query reads a generic source up to a closed id's roster: relations whose headings differ only there share
+ * one for it, and a source of several relations has each closed id read off the relation the helper is instantiated
+ * at (types/query/terms.ts EachInstanceOf), so a constant bound to one is refused, `no arm of the source delivers the
+ * bound constants`: no constant is a handle of the roster at every instantiation the types can see.
  */
 
 /** The relations a helper may be generic over. */
@@ -118,18 +121,36 @@ const shapes: {
 const fieldsOf = (source: SourceValue): ReadonlyArray<readonly [string, unknown]> =>
 	Rec.toEntries<string, unknown>(source.fields)
 
-/** Whether `base` holds each of its fields at the descriptor `other` holds it at. */
-const within = (base: SourceValue, other: SourceValue): boolean =>
+/** Whether a descriptor is a closed id's, of whatever roster: its SQL type is a code's. */
+const isClosedId = (d: unknown): boolean =>
+	typeof d === "object" && d !== null && "sql" in d && d.sql === "code"
+
+/**
+ * How a shape's relations may share a heading: exactly, each field at one descriptor, as a statement's source shows it;
+ * or up to a closed id's roster, as a query reads a generic source (types/query/terms.ts RosterFree), each closed id
+ * then read off the relation the helper is instantiated at.
+ */
+type Sharing = "exact" | "rosterFree"
+
+/** Whether two descriptors are one field's under `sharing`: the same descriptor, or under rosterFree two closed ids. */
+const sameField = (sharing: Sharing, d: unknown, o: unknown): boolean =>
+	o === d || (sharing === "rosterFree" && isClosedId(d) && isClosedId(o))
+
+/** Whether `base` holds each of its fields at the descriptor `other` holds it at, under `sharing`. */
+const within = (sharing: Sharing, base: SourceValue, other: SourceValue): boolean =>
 	Arr.every(fieldsOf(base), ([name, d]) =>
 		Option.exists(
 			Arr.findFirst(fieldsOf(other), ([n]) => n === name),
-			([, o]) => o === d
+			([, o]) => sameField(sharing, d, o)
 		)
 	)
 
-/** Whether a shape's relations share one heading: one of them lies within every one. */
-const sharesHeading = (shape: Arr.NonEmptyReadonlyArray<SourceName>): boolean =>
-	Arr.some(shape, (b) => Arr.every(shape, (o) => within(sources[b], sources[o])))
+/** Whether a shape's relations share one heading under `sharing`: one of them lies within every one. */
+const sharesHeading = (sharing: Sharing, shape: Arr.NonEmptyReadonlyArray<SourceName>): boolean =>
+	Arr.some(shape, (b) => Arr.every(shape, (o) => within(sharing, sources[b], sources[o])))
+
+/** How a form reads a generic source's heading: a query up to a closed id's roster, a statement exactly. */
+const sharingOf = (form: Form): Sharing => (form.kind === "query" ? "rosterFree" : "exact")
 
 /**
  * A construct or fault: the family it is generic over, its statement or query as the program writes it over the
@@ -146,7 +167,12 @@ type Form = {
 			readonly reads: ReadonlyArray<AnyRelation>
 			readonly build: (source: SourceValue) => ReadonlyArray<Statement>
 	  }
-	| { readonly kind: "query"; readonly build: (source: SourceValue) => unknown }
+	| {
+			readonly kind: "query"
+			readonly build: (source: SourceValue) => unknown
+			/** Whether the query binds a JavaScript constant at a closed id of the source. */
+			readonly closedIdConstant: boolean
+	  }
 )
 
 /** A row predicate over a member, as select and check take it: every member's row has A's fields. */
@@ -165,22 +191,26 @@ const over =
  */
 const memberQuery = (
 	body: (v: string) => string,
-	build: (r: RuleValue, source: SourceValue) => unknown
+	build: (r: RuleValue, source: SourceValue) => unknown,
+	closedIdConstant: boolean
 ): Form => ({
 	kind: "query",
 	family: "member",
 	text: (v) => `query(Members).rule((r) => { ${body(v)} })`,
-	build: (source) => queryOver(Members).rule((r: RuleValue) => build(r, source))
+	build: (source) => queryOver(Members).rule((r: RuleValue) => build(r, source)),
+	closedIdConstant
 })
 
 /** A member's rule body over its scope `x`, as the program writes it and as the runtime builders build it. */
 const overScope = (
 	body: (v: string) => string,
-	build: (r: RuleValue, source: SourceValue, x: Readonly<Record<string, unknown>>) => unknown
+	build: (r: RuleValue, source: SourceValue, x: Readonly<Record<string, unknown>>) => unknown,
+	closedIdConstant: boolean
 ): Form =>
 	memberQuery(
 		(v) => `const x = v(${v}, "x"); ${body(v)}`,
-		(r, source) => build(r, source, varsOver(source, "x"))
+		(r, source) => build(r, source, varsOver(source, "x")),
+		closedIdConstant
 	)
 
 const member = (reads: ReadonlyArray<AnyRelation>) => over("member", reads)
@@ -282,7 +312,8 @@ const constructs: Readonly<Record<string, Form>> = {
 	),
 	"a query's match": overScope(
 		(v) => `return r.match(${v}, { id: x.id, owner: x.owner }).find({ id: x.id })`,
-		(r, m, x) => r.match(m, { id: x["id"], owner: x["owner"] }).find({ id: x["id"] })
+		(r, m, x) => r.match(m, { id: x["id"], owner: x["owner"] }).find({ id: x["id"] }),
+		false
 	),
 	"a query's join": overScope(
 		(v) =>
@@ -291,23 +322,30 @@ const constructs: Readonly<Record<string, Form>> = {
 			r
 				.match(m, { id: x["id"], owner: x["owner"] })
 				.match(Target, { id: x["owner"] })
-				.find({ id: x["id"] })
+				.find({ id: x["id"] }),
+		false
 	),
 	"a query's filter": overScope(
 		(v) =>
 			`return r.match(${v}, { id: x.id, n: x.n }).where(r.gt(x.n, 0)).find({ id: x.id, n: x.n })`,
 		(r, m, x) =>
-			r.match(m, { id: x["id"], n: x["n"] }).where(r.gt(x["n"], 0)).find({ id: x["id"], n: x["n"] })
+			r
+				.match(m, { id: x["id"], n: x["n"] })
+				.where(r.gt(x["n"], 0))
+				.find({ id: x["id"], n: x["n"] }),
+		false
 	),
 	"a query's constant": overScope(
 		(v) => `return r.match(${v}, { id: x.id, kind: "a" }).find({ id: x.id })`,
-		(r, m, x) => r.match(m, { id: x["id"], kind: "a" }).find({ id: x["id"] })
+		(r, m, x) => r.match(m, { id: x["id"], kind: "a" }).find({ id: x["id"] }),
+		true
 	),
 	"a query's fold": overScope(
 		(v) =>
 			`return r.match(${v}, { id: x.id, owner: x.owner }).find({ owner: x.owner, total: r.count() })`,
 		(r, m, x) =>
-			r.match(m, { id: x["id"], owner: x["owner"] }).find({ owner: x["owner"], total: r.count() })
+			r.match(m, { id: x["id"], owner: x["owner"] }).find({ owner: x["owner"], total: r.count() }),
+		false
 	),
 	"a query's negation": memberQuery(
 		(v) =>
@@ -318,7 +356,8 @@ const constructs: Readonly<Record<string, Form>> = {
 				.match(Target, { id: t["id"] })
 				.where(r.not(m, { owner: t["id"] }))
 				.find({ id: t["id"] })
-		}
+		},
+		false
 	)
 }
 
@@ -369,7 +408,8 @@ const faults: Readonly<Record<string, { readonly refusal: Refused; readonly form
 			"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
 		form: overScope(
 			(v) => `return r.match(${v}, { owner: x.owner }).find({ owner: x.owner, total: r.count() })`,
-			(r, m, x) => r.match(m, { owner: x["owner"] }).find({ owner: x["owner"], total: r.count() })
+			(r, m, x) => r.match(m, { owner: x["owner"] }).find({ owner: x["owner"], total: r.count() }),
+			false
 		)
 	}
 }
@@ -431,8 +471,11 @@ const verdictOf = (
 	shape: Arr.NonEmptyReadonlyArray<SourceName>,
 	refusal: Option.Option<Refused>
 ): Verdict => {
-	if (!sharesHeading(shape)) {
+	if (!sharesHeading(sharingOf(form), shape)) {
 		return { kind: "refused", refusal: "a generic source's relations share one heading" }
+	}
+	if (form.kind === "query" && form.closedIdConstant && shape.length > 1) {
+		return { kind: "refused", refusal: "no arm of the source delivers the bound constants" }
 	}
 	if (Arr.every(shape, (s) => admits(form, sources[s]))) {
 		return { kind: "admitted" }
@@ -458,12 +501,15 @@ const genericCases: ReadonlyArray<GenericCase> = [
 		}))
 	),
 	...Arr.flatMap(Rec.toEntries(faults), ([name, { refusal, form }]) =>
-		Arr.map(Arr.filter(shapes[form.family], sharesHeading), (shape): GenericCase => ({
-			name,
-			form,
-			shape,
-			refusal: Option.some(refusal)
-		}))
+		Arr.map(
+			Arr.filter(shapes[form.family], (shape) => sharesHeading("exact", shape)),
+			(shape): GenericCase => ({
+				name,
+				form,
+				shape,
+				refusal: Option.some(refusal)
+			})
+		)
 	)
 ]
 

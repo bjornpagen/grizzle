@@ -2035,7 +2035,12 @@ A rule pairs its sides' terms in order. A side is `on(source, ...terms)`.
   `<T extends typeof A | typeof B>(t: T) => contained(on(t, "owner"), on(Owner, "id"))`, and typechecks exactly where
   the rule holds for each table T may be. Those tables share one heading, or one holds every field of another and
   more; a helper over tables that share none is refused. A query over such a T reads it the same way, through
-  `v(t, "x")` and `r.match(t, …)`.
+  `v(t, "x")` and `r.match(t, …)`, and there tables whose headings differ only in a closed id's roster share one: each
+  such field is read off the table T is, typed per instantiation at that table's own roster, ordered or unordered. One
+  helper `<L extends typeof BaseTypeLexical | typeof ResourceTypeLexical>(lexical: L)` over closed relations
+  `{ code: closedId(Roster), lexical }` reads `v(lexical, "lexical").code` as a closed id of L's own roster, and a
+  binding of it meets only L's `code`. A helper over several tables reads every closed id so, so a constant at one is
+  refused: no handle is the types' at each instantiation.
 
 A show's waitlist, over the box office:
 

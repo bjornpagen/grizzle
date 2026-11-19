@@ -18,7 +18,6 @@ import type {
 	IsRetyped,
 	LanguageOf,
 	Meets,
-	Minted,
 	OperandOrigin,
 	ParamNeeds,
 	ParamsContribution,
@@ -49,6 +48,8 @@ import type {
 	ParentVars,
 	Producer,
 	HeadedBy,
+	HeadingIn,
+	ShownVars,
 	SourceNamed,
 	ShownOrigins,
 	VSource
@@ -1118,9 +1119,9 @@ export interface Ordered<
  * which the builder refuses twice (no type tells two calls of one name apart).
  */
 export type VConstructor = <R extends VSource, const N extends string, F extends Carriers, RN>(
-	source: R & HeadedBy<F> & Headed<F> & SourceNamed<RN>,
+	source: R & HeadedBy<F> & SourceNamed<RN>,
 	name: ScopeName<N>
-) => Minted<F, ShownOrigins<R, N, RN, F>>
+) => ShownVars<HeadingIn<R>, F, RN, ShownOrigins<R, N, RN, F>>
 
 /** The records a query, ordered query or finished arm delivers: its rows decoder's. */
 export type HeadOf<Q> = Q extends { readonly rows: RowDecoder<infer H> } ? H : never
