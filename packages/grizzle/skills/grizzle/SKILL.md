@@ -688,7 +688,8 @@ The command line's own refusals, by stage:
   the compiler measures; a pattern held in an ordinary field or a parameter is refused. A `Compute.pattern`'s match is a
   guard: `Compute.when(Compute.matches(x, digits), (x) => …, otherwise)`. `Compute.concat` builds text in checks,
   generated fields and folds; in a query, compare a text with a concatenation (`Compute.eq(t, Compute.concat(a, b))`)
-  and it is decided without building it. Its first operand is a term: write a leading literal as
+  and it is decided without building it, a concatenation nested in it read through as its parts
+  (`Compute.concat(Compute.concat(a, b), c)` is a, b and c, each read at its offset). Its first operand is a term: write a leading literal as
   `Compute.literal(Prose, "item-")`. Normalize text with `Compute.translate(x, from, to)`, strings of one length with
   each character of `from` once (`Compute.translate(title, "\t\n\r", "   ")` for `xs:normalizedString`), and fold
   ASCII case with `Compute.lowerAscii(x)`, never a locale's `lower`. A translation is text of the image of `x`'s

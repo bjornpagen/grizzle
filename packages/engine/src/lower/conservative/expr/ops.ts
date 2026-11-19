@@ -176,6 +176,17 @@ const textSuffix = (args: ReadonlyArray<Expr>): Expr | undefined => {
 		: undefined
 }
 
+/**
+ * A text's infix test at a start, `substring(a, start, char_length(b)) = b` (scalar/compute/registry.ts textInfix): a
+ * concatenation's equation's test of a middle part at its offset.
+ */
+const textInfix = (args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [a, start, b] = args
+	return args.length === 3 && a !== undefined && start !== undefined && b !== undefined
+		? binary("=", call("substring", [a, start, call("char_length", [b])]), b)
+		: undefined
+}
+
 /** U+10000 to U+10FFFF, the supplementary planes, as an ARE's bracket expression: UTF-16's pairs. */
 const supplementaryClass = "[\\U00010000-\\U0010FFFF]"
 
@@ -316,6 +327,8 @@ const registryForm = (
 			return adjoinSet(args)
 		case "endsWith":
 			return textSuffix(args)
+		case "infixAt":
+			return textInfix(args)
 		case "collapse":
 			return collapseText(args)
 		case "lowerAscii":

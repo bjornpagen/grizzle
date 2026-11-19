@@ -106,7 +106,8 @@ type Owner = "catalog" | "vector"
  * How the node is spelled in SQL. A set's difference, subset and disjointness are constructs of bit's own operators:
  * `a & ~b`, `bit_count(a & ~b) = 0` and `bit_count(a & b) = 0`; a set with one more handle is set_bit at a closed id's
  * code read as an integer, `set_bit(a, c::integer, 1)`; a text's suffix test is one of right, char_length and text's =,
- * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with; a double's parse is a reading of its text's digits
+ * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with, and its infix test at a start one of substring,
+ * char_length and text's =, `substring(a, start, char_length(b)) = b`; a double's parse is a reading of its text's digits
  * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts); a decimal's parse is the
  * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Compute.cast's cast nodes; a
  * bytes value's digest is its SHA-256 written as lowercase hex, `encode(sha256(x), 'hex')`; a text's UTF-16 code units
@@ -135,6 +136,7 @@ type SqlForm =
 				| "disjoint"
 				| "adjoin"
 				| "endsWith"
+				| "infixAt"
 				| "parseDouble"
 				| "parseDecimal"
 				| "sha256"
@@ -181,8 +183,9 @@ type CatalogRef =
  * The Compute operation a native node serves (computeSpecs), the comparisons, the boolean constructs, the set algebra
  * over a roster, the text operations, a bytes value's digest and the casts; cond has no entry, it is the IR's cond node. The complement serves
  * only the difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it;
- * right serves only the suffix test, endsWith, replace and btrim only the whiteSpace collapse, and regexp_count only a
- * text's UTF-16 code units, utf16Length.
+ * right serves only the suffix test, endsWith, and substring only the infix test, infixAt, a concatenation's equation's
+ * test of each middle part at its offset (typing.ts concatEquation); replace and btrim serve only the whiteSpace
+ * collapse, and regexp_count only a text's UTF-16 code units, utf16Length.
  */
 export type NativeFn =
 	| "add"
@@ -217,6 +220,8 @@ export type NativeFn =
 	| "startsWith"
 	| "endsWith"
 	| "right"
+	| "substring"
+	| "infixAt"
 	| "matches"
 	| "translate"
 	| "lowerAscii"
@@ -724,6 +729,29 @@ const textSuffix: FixedOverload = frozen({
 })
 
 /**
+ * A text's infix test, whether a holds b at the character start, counted from 1: `substring(a, start, char_length(b)) =
+ * b`, defined everywhere, since b's length is never below zero, which is all substring refuses, and a start before 1 or
+ * past a's end reads fewer characters than b has, unless b is empty.
+ */
+const textInfix: FixedOverload = frozen({
+	fn: "infixAt",
+	operands: positional(["text", "int4", "text"]),
+	result: "bool",
+	sql: { kind: "infixAt" },
+	catalog: {
+		kind: "construct",
+		uses: Object.freeze([
+			opId("substring(text,integer,integer)"),
+			opId("char_length(text)"),
+			opId("texteq")
+		])
+	},
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/**
  * whiteSpace collapse: each run of white space one space, then the spaces at either end trimmed, by replace alone
  * (lower/conservative/expr/ops.ts collapseText): tab, LF and CR each a space; then each pair of spaces a space and a
  * tab, each tab before a space two tabs, and every tab deleted, which leaves one space of each run, since the first
@@ -970,7 +998,7 @@ const endpoint = (
  *   is prefixed with its extension, "vector:cosine_distance(vector,vector)", because its schema is the installation's;
  * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
- *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text" and its ASCII case fold's
+ *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text", "infixAt:text" and its ASCII case fold's
  *   "lowerAscii:text", a reference's resolution "resolveReference:text", and a bytes value's "sha256:bytea";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
@@ -1171,7 +1199,16 @@ const catalogOverloads = {
 		"value"
 	),
 	"right(text,integer)": fnCall("right", "right", ["text", "int4"], "text", total, "value"),
+	"substring(text,integer,integer)": fnCall(
+		"substring",
+		"substring",
+		["text", "int4", "int4"],
+		"text",
+		requires([{ kind: "nonnegative", operand: 2 }]),
+		"value"
+	),
 	"endsWith:text": textSuffix,
+	"infixAt:text": textInfix,
 	textregexeq: infix("matches", "~", "text", "bool", total, "value"),
 	"replace(text,text,text)": fnCall(
 		"replace",

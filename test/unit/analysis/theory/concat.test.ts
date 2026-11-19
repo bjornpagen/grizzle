@@ -85,8 +85,8 @@ export const aConcatFoldIsViolatedExactlyWhenItsAccumulatorsAreNotTheNaiveFolds 
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: '\t\t\t[test("startsWith", p), test("endsWith", q)],',
-				replacement: '\t\t\t[test("startsWith", p), test("startsWith", p)],',
+				original: '\t\t\t[test("startsWith", p), ...middle, test("endsWith", lastNonEmpty(rest))],',
+				replacement: '\t\t\t[test("startsWith", p), ...middle, test("startsWith", p)],',
 				why: "The equation's concatenation checked by its length and its head alone (scalar/compute/typing.ts concatEquation); the fold property fails."
 			},
 			{

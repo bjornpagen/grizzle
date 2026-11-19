@@ -353,6 +353,20 @@ const rightOf = (text: string, n: bigint): string => {
 	return characters.slice(Number(kept < 0n ? 0n : kept)).join("")
 }
 
+/**
+ * PostgreSQL's substring(text, start, count) by characters, at a count of none or more (its precondition): the characters
+ * at start, counted from 1, and after it, before start + count, any before the first character standing for none.
+ */
+const substringOf = (text: string, start: bigint, count: bigint): string => {
+	const from = start < 1n ? 1n : start
+	const end = start + count
+	return end <= from
+		? ""
+		: Array.from(text)
+				.slice(Number(from - 1n), Number(end - 1n))
+				.join("")
+}
+
 const gcdOf = (a: bigint, b: bigint): bigint => {
 	let x = a < 0n ? -a : a
 	let y = b < 0n ? -b : b
@@ -617,6 +631,28 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			const count = integerOf(baseOf(defined(argTypes[1], "right's count")).carrier)
 			return (args) => Result.ok(rightOf(hostOf("text", a(args)), count(b(args))))
 		}
+		case "substring": {
+			const start = integerOf(baseOf(defined(argTypes[1], "substring's start")).carrier)
+			const count = integerOf(baseOf(defined(argTypes[2], "substring's count")).carrier)
+			const third = operandOf(fn, 2)
+			return (args) => {
+				const n = count(third(args))
+				return n < 0n
+					? undefinedAt("nonnegative")
+					: Result.ok(substringOf(hostOf("text", a(args)), start(b(args)), n))
+			}
+		}
+		case "infixAt": {
+			const start = integerOf(baseOf(defined(argTypes[1], "an infix test's start")).carrier)
+			const third = operandOf(fn, 2)
+			return (args) => {
+				const part = hostOf("text", third(args))
+				return Result.ok(
+					substringOf(hostOf("text", a(args)), start(b(args)), BigInt(Array.from(part).length)) ===
+						part
+				)
+			}
+		}
 		case "matches":
 			return (args, patterns) =>
 				Result.ok(patterns.matches(hostOf("text", b(args)), hostOf("text", a(args))))
@@ -866,6 +902,8 @@ const operation = (
 		case "startsWith":
 		case "sub":
 		case "subset":
+		case "substring":
+		case "infixAt":
 		case "translate":
 		case "trunc":
 		case "union":

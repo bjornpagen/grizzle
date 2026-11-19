@@ -131,6 +131,8 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "startsWith":
 		case "endsWith":
 		case "right":
+		case "substring":
+		case "infixAt":
 		case "matches":
 		case "translate":
 		case "lowerAscii":
@@ -348,6 +350,22 @@ const codePrefix = (prefix: string, text: string): boolean => {
 }
 
 /** PostgreSQL's right(text, n): the last n characters, all of them past the text's length, all but -n for n < 0. */
+/**
+ * PostgreSQL's substring(text, start, count) as varlena.c text_substring reads it: positions from 1, the characters from
+ * position start through start + count - 1 that the text has, a start before 1 reading from 1 still, and a negative
+ * count an error.
+ */
+const substring = (text: string, start: bigint, count: bigint): CatalogResult => {
+	if (count < 0n) {
+		return undefinedAt("substring's count below zero")
+	}
+	const kept = Arr.filter(characters(text), (_, i) => {
+		const position = BigInt(i + 1)
+		return position >= start && position < start + count
+	})
+	return Result.succeed(Arr.join(kept, ""))
+}
+
 const lastCharacters = (text: string, n: bigint): string => {
 	const cs = characters(text)
 	const drop = n >= 0n ? Math.max(cs.length - Number(n), 0) : Number(-n)
@@ -758,6 +776,16 @@ const catalogApply = (
 				: mismatch(op)
 		case "right":
 			return isString(a) && isBigint(b) ? Result.succeed(lastCharacters(a, b)) : mismatch(op)
+		case "substring": {
+			const count = args[2]
+			return isString(a) && isBigint(b) && isBigint(count) ? substring(a, b, count) : mismatch(op)
+		}
+		case "infixAt": {
+			const part = args[2]
+			return isString(a) && isBigint(b) && isString(part)
+				? Result.map(substring(a, b, BigInt(characters(part).length)), (read) => read === part)
+				: mismatch(op)
+		}
 		case "matches":
 			return isString(a) && isString(b) ? patternMatch(a, b) : mismatch(op)
 		case "translate": {

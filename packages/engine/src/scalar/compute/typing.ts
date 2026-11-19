@@ -1,7 +1,9 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
+	concatNonEmpty,
 	isNonEmpty,
+	lastNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -83,6 +85,7 @@ import {
 	floorOfExact,
 	finiteEnds,
 	hullBounds,
+	insideRange,
 	magnitudeAtLeast,
 	minus,
 	mulBounds,
@@ -1079,6 +1082,40 @@ const argOf = <R extends Refs>(
 	at: SourceLoc
 ): ExprDesc<Located, R> =>
 	desc.args[i] ?? stop("MalformedDescription", at, `argument ${i + 1} for ${desc.fn}`)
+
+/** A part of a concatenation an equation decides (concatEquation), and where its description states it. */
+interface ConcatPart<R extends Refs> {
+	readonly desc: ExprDesc<Located, R>
+	/** Where the part stands, and where the concatenation it is an operand of stands. */
+	readonly at: SourceLoc
+	readonly concat: SourceLoc
+	/**
+	 * The part's place in its concatenation: its first operand, a term as every operation's first is, or its second, a
+	 * term or a bare literal, which adopts text of no pattern.
+	 */
+	readonly stands: "first" | "second"
+}
+
+/**
+ * The parts of `desc`, an operand of the concatenation at `concat` standing at `at` in its place `stands`, in order: a
+ * concatenation's are its operands' parts, read through every nested concatenation, so `(a || b) || c` and
+ * `a || (b || c)` are both a, b and c, as concatenation is associative; any other term is its one part.
+ */
+const concatParts = <R extends Refs>(
+	desc: ExprDesc<Located, R>,
+	at: SourceLoc,
+	concat: SourceLoc,
+	stands: ConcatPart<R>["stands"]
+): NonEmptyReadonlyArray<ConcatPart<R>> => {
+	if (desc.kind !== "compute" || desc.fn !== "concat") {
+		return [{ desc, at, concat, stands }]
+	}
+	const here = childLoc(at, "concat")
+	return concatNonEmpty(
+		concatParts(argOf(desc, 0, here), childLoc(here, 0), here, "first"),
+		concatParts(argOf(desc, 1, here), childLoc(here, 1), here, "second")
+	)
+}
 
 /** A guard that states facts of a numeric subject: every guard but a match, which states a language. */
 type FactGuard = Exclude<GuardDesc, { readonly kind: "matches" }>
@@ -2283,14 +2320,26 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * An equation of a text with a concatenation, `t = p || q` or its negation, decided without building the
-	 * concatenation: `CASE WHEN char_length(t) = char_length(p) + char_length(q) THEN starts_with(t, p) AND right(t,
-	 * char_length(q)) = q ELSE <the lengths' equation> END`, which holds exactly where t is p then q, since its first
-	 * characters are p's and the rest, of q's length, are q's. It is three-valued exactly as `t = p || q` is: the
-	 * lengths' equation reads all three operands, so it is NULL where any is, and the CASE takes it there, where a
-	 * conjunction would let a false prefix or suffix decide. No operand is longer than a value PostgreSQL already
-	 * holds, so nothing allocates past MaxAllocSize, at any site: a fold's combine over concat (ir/monoid.ts) is such an
-	 * equation, and so stands in a law's violation query and its CHECK. Undefined for any other comparison.
+	 * An equation of a text with a concatenation, `t = p1 || … || pn` or its negation, its parts read through every nested
+	 * concatenation (concatParts), so n is at least two, decided without building the concatenation: `CASE WHEN
+	 * char_length(t) = char_length(p1) + … + char_length(pn) THEN starts_with(t, p1) AND <each middle part at its offset>
+	 * AND right(t, char_length(pn)) = pn ELSE <the lengths' equation> END`, which holds exactly where t is the parts in
+	 * order, since its first characters are p1's, the characters of each middle part's length past the lengths before it
+	 * are that part's, and the rest, of pn's length, are pn's; two parts are p1 and pn alone. Lengths are characters, as
+	 * starts_with, substring and right read them, so a part of multibyte characters, or an empty one, lies where it does.
+	 *
+	 * A middle part pi is `substring(t, o + 1, char_length(pi)) = pi`, o the sum of the lengths before it (holdsAt), rather
+	 * than a recursion on the suffix, t's rest past p1 equated with p2 || … || pn: PostgreSQL's substring reads t only up to
+	 * the part's end, detoasting only that slice of a long t, and copies the part's characters alone, where the rest,
+	 * `right(t, -o)`, copies all of t past o at every part, and a recursion whose each step rests on the last holds part
+	 * k under k - 1 of them, which PostgreSQL evaluates anew each time, as it shares no subexpression. The lengths are
+	 * summed exactly (exact integers, bigint), since n of them, each up to MaxAllocSize characters, pass int4.
+	 *
+	 * It is three-valued exactly as `t = p1 || … || pn` is: the lengths' equation reads every operand, so it is NULL where
+	 * any is, and the CASE takes it there, where a conjunction would let a false prefix, middle or suffix decide. No
+	 * operand is longer than a value PostgreSQL already holds, so nothing allocates past MaxAllocSize, at any site: a
+	 * fold's combine over concat (ir/monoid.ts) is such an equation, and so stands in a law's violation query and its
+	 * CHECK, and a query decides an equation over any number of parts. Undefined for any other comparison.
 	 */
 	concatEquation(
 		desc: Extract<ExprDesc<Located, R>, { readonly kind: "compare" }>,
@@ -2310,7 +2359,10 @@ class Typing<R extends Refs> {
 		}
 		const { whole, cat } = sides
 		const here = childLoc(at, desc.op, "concat")
-		const [p, q] = this.texts("concat", argOf(cat, 0, here), argOf(cat, 1, here), here)
+		const [first, ...before] = concatParts(argOf(cat, 0, here), childLoc(here, 0), here, "first")
+		const after = concatParts(argOf(cat, 1, here), childLoc(here, 1), here, "second")
+		const p = this.firstPart(first)
+		const rest = mapNonEmpty(concatNonEmpty(before, after), (part) => this.concatPart(part, p))
 		const t =
 			whole.kind === "literal" && whole.type === undefined
 				? this.literal(whole.value, wildcardText, here)
@@ -2324,26 +2376,131 @@ class Typing<R extends Refs> {
 				here,
 				"char_length"
 			)
-		const [lp, lq] = this.exactPair(lengthOf(p), lengthOf(q), here)
-		const add = this.overload("add", [valueType(lp.nominal), valueType(lq.nominal)], here)
-		const bounds = arithmeticBounds("add", lp.bounds, lq.bounds)
-		const sum = this.native(add, [lp, lq], this.resultType(add, bounds), bounds, here, "length")
+		const plus = (a: Typed, b: Typed, operation: string): Typed => {
+			const [x, y] = this.exactPair(a, b, here)
+			const add = this.overload("add", [valueType(x.nominal), valueType(y.nominal)], here)
+			const bounds = arithmeticBounds("add", x.bounds, y.bounds)
+			return this.native(add, [x, y], this.resultType(add, bounds), bounds, here, operation)
+		}
+		const [lp, ...lengths] = mapNonEmpty([p, ...rest], lengthOf)
+		const ends = lengths.reduce<NonEmptyReadonlyArray<Typed>>(
+			(sums, l) => appendNonEmpty(sums, plus(lastNonEmpty(sums), l, "length")),
+			[lp]
+		)
 		const bool = plainType("bool")
 		const test = (fn: "startsWith" | "endsWith", b: Typed): Typed =>
 			this.native(this.overload(fn, [t.actual, b.actual], here), [t, b], bool, undefined, here, fn)
-		const lengths = this.comparison("eq", [lengthOf(t), sum], here)
+		const lengthsHold = this.comparison("eq", [lengthOf(t), lastNonEmpty(ends)], here)
+		const middle = rest
+			.slice(0, -1)
+			.map((part, i) =>
+				this.holdsAt(
+					t,
+					plus(
+						defined(ends[i], "the lengths before a middle part"),
+						this.literal(1, plainType("int4"), here),
+						"offset"
+					),
+					part,
+					here
+				)
+			)
 		const parts = this.native(
 			this.overload("and", [bool], here),
-			[test("startsWith", p), test("endsWith", q)],
+			[test("startsWith", p), ...middle, test("endsWith", lastNonEmpty(rest))],
 			bool,
 			undefined,
 			here,
 			"and"
 		)
-		const holds = this.conditional(lengths, parts, lengths, here)
+		const holds = this.conditional(lengthsHold, parts, lengthsHold, here)
 		return desc.op === "eq"
 			? holds
 			: this.native(this.overload("not", [bool], here), [holds], bool, undefined, here, "not")
+	}
+
+	/** A part standing first in its concatenation: a text term, as every operation's first operand is. */
+	firstPart(part: ConcatPart<R>): Typed {
+		const a = this.term(part.desc, part.at)
+		return baseOf(a.actual).carrier === "text"
+			? a
+			: stop(
+					"MalformedDescription",
+					part.concat,
+					`a text term for concat, not ${typeLabel(a.nominal)}`
+				)
+	}
+
+	/**
+	 * A part of a concatenation's equation after its first, `first`, typed by its place (ConcatPart): first in its own
+	 * concatenation a text term, second a text term or a bare literal, which adopts text of no pattern opposite `first`,
+	 * as every text meets every other.
+	 */
+	concatPart(part: ConcatPart<R>, first: Typed): Typed {
+		if (part.stands === "first") {
+			return this.firstPart(part)
+		}
+		const b = this.operand(part.desc, first, "operand", part.at)
+		return baseOf(b.actual).carrier === "text"
+			? b
+			: stop(
+					"MalformedDescription",
+					part.concat,
+					`a text operand for concat, not ${typeLabel(b.nominal)}`
+				)
+	}
+
+	/**
+	 * Whether `t` holds the text `part` at the character `start`, counted from 1, an exact integer: the infix test
+	 * `substring(t, start, char_length(part)) = part` (registry.ts textInfix), start narrowed into substring's int4.
+	 * The narrowing stands on start's own bounds where they prove it, as they do for a concatenation's second and third
+	 * parts, which start at most two MaxAllocSize lengths in, within int4; a later part, whose start's bounds pass int4,
+	 * stands under Compute.within's guard of int4's positive values, `CASE WHEN start BETWEEN 1 AND 2147483647 THEN …
+	 * ELSE false END`, the guard a partial operation stands under: inside the equation's branch, where its lengths hold,
+	 * every part starts within t, whose length is an int4, so the guard holds there and its false is never read.
+	 */
+	holdsAt(t: Typed, start: Typed, part: Typed, at: SourceLoc): Typed {
+		const int4 = plainType("int4")
+		const narrowing = defined(
+			castOf("exactInteger", "int4"),
+			"the narrowing of an exact integer into int4"
+		)
+		const test = (typing: Typing<R>, s: Typed): Typed => {
+			const narrowed = typing.castNode(s, int4, { kind: "computed", op: narrowing }, at)
+			return typing.native(
+				typing.overload("infixAt", [t.actual, int4, part.actual], at),
+				[t, narrowed, part],
+				plainType("bool"),
+				undefined,
+				at,
+				"infixAt"
+			)
+		}
+		const ends = start.bounds === undefined ? undefined : finiteEnds(start.bounds)
+		const [low, high] = integerRanges.int4
+		if (ends !== undefined && insideRange(ends[0], ends[1], exactOf(low, 0), exactOf(high, 0))) {
+			return test(this, start)
+		}
+		const guard: GuardDesc = { kind: "within", low: 1n, high }
+		const { predicate, within } = this.guardPredicate(guard, start, at)
+		const branch = new Typing(
+			this.env,
+			[
+				...this.#scope,
+				{
+					kind: "occurrences",
+					holds: {
+						kind: "facts",
+						subject: start.node,
+						refinement: guardRefinement(guard, within),
+						facts: guardFacts(guard, within)
+					}
+				}
+			],
+			this.#tape
+		)
+		const held = test(branch, branch.restate(start, start.nominal, start.actual, start.facts))
+		return this.conditional(predicate, held, this.literal(false, plainType("bool"), at), at)
 	}
 
 	/**
