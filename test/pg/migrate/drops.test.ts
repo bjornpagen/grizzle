@@ -52,28 +52,30 @@ export const drops = property.explore(aimed(caseGen, aims), {
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",
 			original:
-				"\t\t\t\t? dependencyOrder(columns, (read, reader) => generationReads(reader).includes(read.name))\n",
+				"\t\t\t\t? dependencyOrder(columns, (read, reader) =>\n\t\t\t\t\t\tgenerationColumns(reader.generated).includes(read.name)\n\t\t\t\t\t)\n",
 			replacement: "\t\t\t\t? columns\n",
 			why: "A kept table's fields are dropped in column order again, so a generated field declared after a field it reads is dropped after it, which PostgreSQL refuses (2BP01)."
 		},
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",
 			original:
-				"\t\t\t\t\t\t\t: [{ column: b.name, reads: generationReads(b), fate: droppedColumn }]\n",
+				"\t\t\t\t\t\t\t: [{ column: b.name, reads: generationColumns(b.generated), fate: droppedColumn }]\n",
 			replacement: "\t\t\t\t\t\t\t: [{ column: b.name, reads: [], fate: droppedColumn }]\n",
 			why: "A removed generated field over a field the migration replaces is dropped at the end, after Structure converts or drops the field under it (0A000, 2BP01)."
 		},
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",
-			original: '\t\t\t\t\tgenerationReads(was).some(changed("converted", "rewritten")) ||\n',
+			original:
+				'\t\t\t\t\tgenerationColumns(was.generated).some(changed("converted", "rewritten")) ||\n',
 			replacement: "",
 			why: "A generated field re-expressed off a field turned generated keeps its column, so structure.drop drops the field it still reads (2BP01)."
 		},
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",
 			original:
-				'\t\t\t\t\tgenerationReads(was).some(changed("converted", "rewritten")) ||\n\t\t\t\t\t(change.kind === "reexpressed" && convertsInPlace))\n',
-			replacement: '\t\t\t\t\tgenerationReads(was).some(changed("converted", "rewritten")))\n',
+				'\t\t\t\t\tgenerationColumns(was.generated).some(changed("converted", "rewritten")) ||\n\t\t\t\t\t(change.kind === "reexpressed" && convertsInPlace))\n',
+			replacement:
+				'\t\t\t\t\tgenerationColumns(was.generated).some(changed("converted", "rewritten")))\n',
 			why: "A generated field re-expressed on a table that converts another field in place sets its expression in the ALTER TABLE of the conversion, which PostgreSQL 19rc2 fails (XX000)."
 		},
 		{

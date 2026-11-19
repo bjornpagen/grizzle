@@ -73,7 +73,7 @@ import {
 	nameKey,
 	type NameKey
 } from "#compiler/sql/ast.ts"
-import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
+import { ownColumnHooks, Transform, transformExpr } from "#compiler/sql/transform.ts"
 
 /**
  * A draft's declarations (`--rename`, `--drop`) applied to the previous snapshot: the statements that carry out its
@@ -1374,41 +1374,17 @@ const withColumns = (
 		(column: string): string =>
 			into?.get(column) ?? column
 	const exprIn = (into: ReadonlyMap<string, string> | undefined, e: Expr): Expr =>
-		into === undefined
-			? e
-			: transformExpr(e, {
-					...identityHooks,
-					expr: (x) =>
-						x.kind === "column" && x.table === undefined
-							? { ...x, column: nameIn(into)(x.column) }
-							: x
-				})
+		into === undefined ? e : transformExpr(e, ownColumnHooks(nameIn(into)))
 	const keyIn =
 		(into: ReadonlyMap<string, string> | undefined) =>
 		(k: KeyColumn): KeyColumn => ({ ...k, column: nameIn(into)(k.column) })
 	const referenceIn =
 		(into: ReadonlyMap<string, string> | undefined) =>
 		(k: ForeignKeyColumn): ForeignKeyColumn => ({ ...k, column: nameIn(into)(k.column) })
-	const columnIn = (into: ReadonlyMap<string, string> | undefined, c: ColumnDef): ColumnDef => {
-		const generated = c.generated
-		return {
-			...c,
-			name: nameIn(into)(c.name),
-			generated:
-				generated === undefined ||
-				generated.kind === "identity" ||
-				generated.kind === "uuidv7" ||
-				generated.kind === "retirement"
-					? generated
-					: generated.kind === "stored"
-						? { kind: "stored", expr: exprIn(into, generated.expr) }
-						: {
-								kind: "partial",
-								when: exprIn(into, generated.when),
-								expr: exprIn(into, generated.expr)
-							}
-		}
-	}
+	const columnIn = (into: ReadonlyMap<string, string> | undefined, c: ColumnDef): ColumnDef =>
+		into === undefined
+			? c
+			: { ...new Transform(ownColumnHooks(nameIn(into))).columnDef(c), name: nameIn(into)(c.name) }
 	const inlineIn = (
 		into: ReadonlyMap<string, string> | undefined,
 		c: InlineConstraint

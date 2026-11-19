@@ -1466,6 +1466,51 @@ export class Transform {
 }
 
 export const transformExpr = (e: Expr, hooks: AstHooks): Expr => new Transform(hooks).expr(e)
+
+/**
+ * The hooks that name each column of an expression's own row as `rename` names it: a column its reference names
+ * without a relation, which is the row's, as every CHECK, index key and predicate, generated column and fill
+ * expression over one table's row names it. Nothing else is touched.
+ */
+export const ownColumnHooks = (rename: (column: string) => string): AstHooks => ({
+	...identityHooks,
+	expr: (x) => {
+		if (x.kind !== "column" || x.table !== undefined) {
+			return x
+		}
+		const column = rename(x.column)
+		return column === x.column ? x : { ...x, column }
+	}
+})
+
+/** The columns of its own row an expression reads (ownColumnHooks), each once, in the order it first reads them. */
+export const ownColumns = (e: Expr): ReadonlyArray<string> => {
+	const out = new Set<string>()
+	transformExpr(
+		e,
+		ownColumnHooks((column) => {
+			out.add(column)
+			return column
+		})
+	)
+	return [...out]
+}
+
+/** The columns of its own row a column's generation reads: a stored one's expression's, a partial one's selection's
+ * and expression's; none of a column its caller writes, its sequence or its default draws. */
+export const generationColumns = (g: ColumnGeneration | undefined): ReadonlyArray<string> => {
+	switch (g?.kind) {
+		case "stored":
+			return ownColumns(g.expr)
+		case "partial":
+			return [...new Set([...ownColumns(g.when), ...ownColumns(g.expr)])]
+		case "identity":
+		case "uuidv7":
+		case "retirement":
+		case undefined:
+			return []
+	}
+}
 export const transformSelect = (s: Select, hooks: AstHooks): Select =>
 	new Transform(hooks).setQuery(s)
 export const transformCreateIndex = (s: CreateIndex, hooks: AstHooks): CreateIndex =>

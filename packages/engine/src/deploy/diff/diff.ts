@@ -31,7 +31,6 @@ import {
 	mapInput,
 	thenBy
 } from "#compiler/core/order.ts"
-import { isList, isRecord } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { type Aside, asideStatements } from "#compiler/deploy/diff/aside.ts"
@@ -157,7 +156,15 @@ import {
 } from "#compiler/sql/build.ts"
 import { anchorFor, type TableGeneration } from "#compiler/sql/generation.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
+import {
+	type AstHooks,
+	generationColumns,
+	identityHooks,
+	ownColumnHooks,
+	transformExpr,
+	transformSelect,
+	transformStatement
+} from "#compiler/sql/transform.ts"
 
 interface DiffInput {
 	readonly previous: DeploySnapshot
@@ -585,54 +592,21 @@ const asideColumnsOf = (fill: TableFill): AsideColumns =>
 
 /** An expression with each column it reads that `aside` sets aside read as its set-aside column. */
 const throughAside = (e: Expr, aside: AsideColumns): Expr =>
-	transformExpr(e, {
-		...identityHooks,
-		expr: (x) => {
-			if (x.kind !== "column" || x.table !== undefined) {
-				return x
-			}
-			const column = aside.get(x.column)
-			return column === undefined ? x : { ...x, column }
-		}
-	})
-
-/** The columns of its own row an expression reads, by name. */
-const rowColumns = (e: Expr): ReadonlyArray<string> => {
-	const out: Array<string> = []
-	transformExpr(e, {
-		...identityHooks,
-		expr: (x) => {
-			if (x.kind === "column" && x.table === undefined) {
-				out.push(x.column)
-			}
-			return x
-		}
-	})
-	return out
-}
-
-/** The columns of its own row a column's generation reads: a stored one's expression's, a partial one's selection's
- * and expression's; none of a column its caller writes, its sequence or its default draws. */
-const generationReads = (c: ColumnDef): ReadonlyArray<string> => {
-	switch (c.generated?.kind) {
-		case "stored":
-			return rowColumns(c.generated.expr)
-		case "partial":
-			return [...rowColumns(c.generated.when), ...rowColumns(c.generated.expr)]
-		case "identity":
-		case "uuidv7":
-		case "retirement":
-		case undefined:
-			return []
-	}
-}
+	transformExpr(
+		e,
+		ownColumnHooks((column) => aside.get(column) ?? column)
+	)
 
 /** Whether the subcommand `a` adds a column whose generation reads the column `b` adds, so it goes after it
  * (dependencyOrder): an ALTER TABLE adds its columns one by one, each generation read as its column is added. */
 const readsAdded = (a: AlterTableAction, b: AlterTableAction): boolean => {
 	const reader = addedColumn(a)
 	const read = addedColumn(b)
-	return reader !== undefined && read !== undefined && generationReads(reader).includes(read.name)
+	return (
+		reader !== undefined &&
+		read !== undefined &&
+		generationColumns(reader.generated).includes(read.name)
+	)
 }
 
 /**
@@ -649,7 +623,7 @@ const asideSubcommand = (
 	if (
 		a.kind !== "addColumn" ||
 		a.column.generated === undefined ||
-		!generationReads(a.column).some((c) => aside.has(c))
+		!generationColumns(a.column.generated).some((c) => aside.has(c))
 	) {
 		return { alteration: a, checked: [] }
 	}
@@ -1180,7 +1154,7 @@ class Differ {
 					const removed = old.columns.flatMap((b) =>
 						changes.has(b.name)
 							? []
-							: [{ column: b.name, reads: generationReads(b), fate: droppedColumn }]
+							: [{ column: b.name, reads: generationColumns(b.generated), fate: droppedColumn }]
 					)
 					const lawColumns = recorded.map((c) =>
 						c.fate.kind === "kept" && drawnAgain(key, c.column) ? { ...c, fate: revaluedColumn } : c
@@ -1188,7 +1162,7 @@ class Differ {
 					const fieldFates = new Map(fields)
 					const generatedFields = old.columns.flatMap((b) => {
 						const fate = fieldFates.get(b.name)
-						const reads = generationReads(b)
+						const reads = generationColumns(b.generated)
 						return fate === undefined || !isNonEmpty(reads) ? [] : [{ column: b.name, reads, fate }]
 					})
 					return [
@@ -1462,10 +1436,13 @@ class Differ {
 	viewDropsOf(): ReadonlyArray<ViewDrop> {
 		const was = viewMeanings(this.input.previous)
 		const now = viewMeanings(this.input.target)
-		const held = qualifiedNames(
-			this.input.target.manifest.objects.map((o) => o.ddl),
-			this.levelSchemas
-		)
+		const held = qualifiedNames((hooks) => {
+			for (const o of this.input.target.manifest.objects) {
+				for (const ddl of o.ddl) {
+					transformStatement(ddl, hooks)
+				}
+			}
+		}, this.levelSchemas)
 		const seeds = new Set<string>()
 		for (const o of this.input.target.manifest.objects) {
 			const v = installed(o)
@@ -1510,8 +1487,12 @@ class Differ {
 	 * migration renames, which PostgreSQL refuses to drop under the view, and which a replay of the definition as
 	 * installed would not find. A declared rename of a field the view reads changes its meaning (viewDropsOf).
 	 */
-	readsGone(create: CreateMaterializedView, held: ReadonlySet<string>): boolean {
-		return [...qualifiedNames(create.query, this.levelSchemas)].some((name) => !held.has(name))
+	readsGone(create: CreateMaterializedView, held: ReadonlySet<NameKey>): boolean {
+		return [
+			...qualifiedNames((hooks) => {
+				transformSelect(create.query, hooks)
+			}, this.levelSchemas)
+		].some((name) => !held.has(name))
 	}
 
 	/** The materialized views this migration keeps, each as it was installed: every view of the target the previous
@@ -2150,7 +2131,9 @@ class Differ {
 		const dropped = (fate: "redefined" | "dropped"): ReadonlyArray<ColumnDef> => {
 			const columns = old.filter((c) => columnFate(kept, c.name).kind === fate)
 			return isNonEmpty(columns)
-				? dependencyOrder(columns, (read, reader) => generationReads(reader).includes(read.name))
+				? dependencyOrder(columns, (read, reader) =>
+						generationColumns(reader.generated).includes(read.name)
+					)
 				: columns
 		}
 		const before = partsAt(this.prevParts, t).sequence
@@ -2186,9 +2169,13 @@ class Differ {
 			}
 			const before = this.prev.get(o.ident)
 			const changed = before === undefined || !sameRecord(before, o)
-			const recast = [...qualifiedNames(o.ddl, this.levelSchemas)].some((k) =>
-				this.reconstrained.has(k)
-			)
+			const recast = [
+				...qualifiedNames((hooks) => {
+					for (const ddl of o.ddl) {
+						transformStatement(ddl, hooks)
+					}
+				}, this.levelSchemas)
+			].some((k) => this.reconstrained.has(k))
 			if (changed || recast) {
 				this.sql("publish", o.ddl)
 			}
@@ -3644,8 +3631,8 @@ const rewrittenOver = (
 			const change = changeOf(own, column.name)
 			const rewrite =
 				change.kind !== "rewritten" &&
-				(generationReads(column).some(changed("converted")) ||
-					generationReads(was).some(changed("converted", "rewritten")) ||
+				(generationColumns(column.generated).some(changed("converted")) ||
+					generationColumns(was.generated).some(changed("converted", "rewritten")) ||
 					(change.kind === "reexpressed" && convertsInPlace))
 			return [column.name, rewrite ? { kind: "rewritten" } : change]
 		})
@@ -3922,31 +3909,36 @@ const viewMeanings = (snapshot: DeploySnapshot | SnapshotContent): ReadonlyMap<s
 		)
 	)
 
-/** The keys of every name qualified by one of the installation's level schemas `schemas` that a value holds:
- * relations, types, sequences and functions. */
-const qualifiedNames = (value: unknown, schemas: ReadonlySet<string>): ReadonlySet<NameKey> => {
+/** The keys of every name qualified by one of the installation's level schemas `schemas` that a walk of the AST meets
+ * (sql/transform.ts AstHooks): the relations, sequences and indexes it names, the types it casts to and the functions
+ * it calls. */
+const qualifiedNames = (
+	walk: (hooks: AstHooks) => void,
+	schemas: ReadonlySet<string>
+): ReadonlySet<NameKey> => {
 	const out = new Set<NameKey>()
-	const walk = (v: unknown): void => {
-		if (isList(v)) {
-			for (const x of v) {
-				walk(x)
-			}
-			return
-		}
-		if (!isRecord(v)) {
-			return
-		}
-		const r: { readonly [key: string]: unknown } = v
-		const schema = r["schema"]
-		const name = r["name"]
-		if (typeof schema === "string" && schemas.has(schema) && typeof name === "string") {
-			out.add(nameKey({ schema, name }))
-		}
-		for (const child of Object.values(r)) {
-			walk(child)
+	const add = (name: ObjectName): void => {
+		if (schemas.has(name.schema)) {
+			out.add(nameKey(name))
 		}
 	}
-	walk(value)
+	walk({
+		...identityHooks,
+		objectName: (name) => {
+			add(name)
+			return name
+		},
+		typeRef: (type) => {
+			if (type.kind === "named") {
+				add(type)
+			}
+			return type
+		},
+		functionRef: (fn) => {
+			add(fn)
+			return fn
+		}
+	})
 	return out
 }
 
@@ -3986,7 +3978,9 @@ const installedReads = (
 		if (!out.has(view)) {
 			out.set(view, new Set())
 		}
-		for (const name of qualifiedNames(v.create.query, schemas)) {
+		for (const name of qualifiedNames((hooks) => {
+			transformSelect(v.create.query, hooks)
+		}, schemas)) {
 			add(view, name)
 		}
 	}

@@ -1,6 +1,5 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { malformedArtifact } from "#compiler/core/errors.ts"
-import { isList, isRecord } from "#compiler/core/record.ts"
 import {
 	type ConstantHeader,
 	constantHeader,
@@ -42,7 +41,13 @@ import {
 	type NameKey
 } from "#compiler/sql/ast.ts"
 
-import { type AstHooks, identityHooks, transformStatements } from "#compiler/sql/transform.ts"
+import {
+	type AstHooks,
+	generationColumns,
+	identityHooks,
+	ownColumns,
+	transformStatements
+} from "#compiler/sql/transform.ts"
 
 /** An object of an installation manifest as the compile installs it, every statement whole. */
 export type ManifestObject = PhysicalObject<SqlStatement>
@@ -511,41 +516,6 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 	}
 }
 
-/** Every unqualified or qualified column name an expression or statement names, and every column of a trigger's row
- * image, NEW or OLD, it reads. */
-const columnsOf = (value: unknown): ReadonlyArray<string> => {
-	const out = new Set<string>()
-	const walk = (v: unknown): void => {
-		if (isList(v)) {
-			for (const x of v) {
-				walk(x)
-			}
-			return
-		}
-		if (!isRecord(v)) {
-			return
-		}
-		const r: { readonly [key: string]: unknown } = v
-		if (r["kind"] === "column" && typeof r["column"] === "string") {
-			out.add(r["column"])
-		}
-		const record = r["record"]
-		if (
-			r["kind"] === "field" &&
-			isRecord(record) &&
-			record["kind"] === "plSpecial" &&
-			typeof r["field"] === "string"
-		) {
-			out.add(r["field"])
-		}
-		for (const child of Object.values(r)) {
-			walk(child)
-		}
-	}
-	walk(value)
-	return [...out]
-}
-
 /** Every column a constraint reads. */
 export const constraintColumns = (c: TableConstraint): ReadonlyArray<string> => {
 	switch (c.kind) {
@@ -557,13 +527,16 @@ export const constraintColumns = (c: TableConstraint): ReadonlyArray<string> => 
 		case "exclude":
 			return c.elements.map((e) => e.column)
 		case "check":
-			return columnsOf(c.predicate)
+			return ownColumns(c.predicate)
 	}
 }
 
 /** Every column an index reads: its keys, its INCLUDE columns and its predicate's. */
-const indexColumns = (s: CreateIndex): ReadonlyArray<string> =>
-	columnsOf(s.keys).concat(s.include, columnsOf(s.where ?? []))
+const indexColumns = (s: CreateIndex): ReadonlyArray<string> => [
+	...s.keys.flatMap((k) => (k.key.kind === "column" ? [k.key.column] : ownColumns(k.key.expr))),
+	...s.include,
+	...(s.where === undefined ? [] : ownColumns(s.where))
+]
 
 /** A key or CHECK object, read through its view. */
 export type KeyOrCheckView<O extends AnyObject = ManifestObject> = Installed<O> & {
@@ -635,7 +608,7 @@ export const builtOver = <O extends AnyObject>(
 		case "foreignKey":
 			return { part: v, table: v.table, columns: constraintColumns(v.constraint) }
 		case "lawColumn":
-			return { part: v, table: v.table, columns: columnsOf(v.definition.generated) }
+			return { part: v, table: v.table, columns: generationColumns(v.definition.generated) }
 		case "lawTrigger":
 			return {
 				part: v,

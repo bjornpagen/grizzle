@@ -64,7 +64,7 @@ import type {
 	TableConstraint
 } from "#compiler/sql/ast.ts"
 import { and, tableCol } from "#compiler/sql/build.ts"
-import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
+import { identityHooks, ownColumns, transformExpr } from "#compiler/sql/transform.ts"
 
 /** A stored relation's table before it is added: its columns, one per field of its theory relation in declared order,
  * its primary key, and the objects it is created after: the schema, each
@@ -746,17 +746,7 @@ const lawColumnsRead = (
 	predicate: Expr
 ): ReadonlyArray<string> => {
 	const lawColumns = b.lawColumnsOf(relation.name)
-	const read = new Set<string>()
-	transformExpr(predicate, {
-		...identityHooks,
-		expr: (e) => {
-			if (e.kind === "column" && e.table === undefined && lawColumns.has(e.column)) {
-				read.add(e.column)
-			}
-			return e
-		}
-	})
-	return [...read]
+	return ownColumns(predicate).filter((column) => lawColumns.has(column))
 }
 
 /** A row expression of `relation`'s own columns, a CHECK's predicate, a generated field's expression or a law column's
