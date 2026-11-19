@@ -26,7 +26,8 @@ import {
 	type NativeOf,
 	scalarKeySet,
 	spanKeySet,
-	type TableRelation
+	type TableRelation,
+	fieldColumn
 } from "#compiler/ir/law.ts"
 import { type ColumnType, fieldColumnType, lawColumnType } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
@@ -270,7 +271,6 @@ const setUniqueBound = (
 }
 
 /** A field as a native column. */
-const fieldColumn = (field: LawField): NativeColumn => ({ kind: "field", field })
 
 /** The law columns among native columns, by identifier: the columns a key or reference over them is created after. */
 const lawColumnsAmong = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string> =>

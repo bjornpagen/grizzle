@@ -270,9 +270,19 @@ export interface RowGuard {
 /**
  * A column a native object reads: a field of its relation, or a law column the law model adds to it (`LawColumn`).
  */
-export type NativeColumn =
-	| { readonly kind: "field"; readonly field: LawField }
-	| { readonly kind: "law"; readonly column: ColumnIdent }
+export type NativeColumn = FieldColumn | { readonly kind: "law"; readonly column: ColumnIdent }
+
+/** A native column that is a field of its relation, of a field of type `F` (a span key's span column its SpanField). */
+export interface FieldColumn<F extends LawField = LawField> {
+	readonly kind: "field"
+	readonly field: F
+}
+
+/** The native column a field is. */
+export const fieldColumn = <F extends LawField>(field: F): FieldColumn<F> => ({
+	kind: "field",
+	field
+})
 
 declare const columnKeyBrand: unique symbol
 
@@ -342,13 +352,13 @@ export const spanKeySet = (
 /** The KeyColumnSet of a key ownership declared on `relation`: a span key's over its other fields and its span. */
 const declaredKeySet = (relation: string, key: KeyName): KeyColumnSet => {
 	const span = key.span
-	const columns = mapNonEmpty(key.fields, (field): NativeColumn => ({ kind: "field", field }))
+	const columns = mapNonEmpty(key.fields, (field) => fieldColumn(field))
 	return span === undefined
 		? scalarKeySet(relation, columns)
 		: spanKeySet(
 				relation,
-				columns.filter((c) => c.kind === "field" && c.field !== span),
-				{ kind: "field", field: span }
+				columns.filter((c) => c.field !== span),
+				fieldColumn(span)
 			)
 }
 

@@ -74,7 +74,8 @@ import {
 	type LawField,
 	type LawRelation,
 	type NativeColumn,
-	type TableRelation
+	type TableRelation,
+	fieldColumn
 } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
@@ -113,8 +114,6 @@ export const withGenerationInputs = (
 }
 
 /** A native column's identity within its relation: a field by its name, a law column by its identifier. */
-
-const fieldColumn = (field: LawField): NativeColumn => ({ kind: "field", field })
 
 /** A family as a refusal names it. */
 const named = (f: Family): FamilyName => ({ owner: f.id.owner, count: f.id.count })

@@ -85,7 +85,8 @@ import {
 	scalarKeySet,
 	type SpanKeyScalars,
 	spanKeySet,
-	type TheoryRelation
+	type TheoryRelation,
+	fieldColumn
 } from "#compiler/ir/law.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
@@ -508,7 +509,7 @@ const nativeIdentity = (
 			return keyTuple(
 				scalarKeySet(
 					object.relation.name,
-					mapNonEmpty(object.columns, (field): NativeColumn => ({ kind: "field", field }))
+					mapNonEmpty(object.columns, (field) => fieldColumn(field))
 				)
 			)
 		case "Unique":

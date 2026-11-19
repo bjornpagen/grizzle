@@ -17,7 +17,8 @@ import {
 	type LawField,
 	type NativeColumn,
 	type RelationInfo,
-	sameNativeColumn
+	sameNativeColumn,
+	type FieldColumn
 } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
@@ -48,15 +49,12 @@ export interface Family {
  * whose start is 0, by its drawn `at` field, with the tree's own fields. Deferral, delete plans and folds read the index.
  */
 export type MemberShape =
-	| { readonly kind: "ordered"; readonly index: FieldIndex }
+	| { readonly kind: "ordered"; readonly index: FieldColumn }
 	| { readonly kind: "counted"; readonly index: LawIndex }
 	| TreeMembers
 
 /** A tree's members (MemberShape `tree`): its index, its `at`, and its own fields. */
-export type TreeMembers = { readonly kind: "tree"; readonly index: FieldIndex } & TreeShape
-
-/** An index that is a field: an ordered family's, or a tree's `at`. */
-export type FieldIndex = Extract<NativeColumn, { readonly kind: "field" }>
+export type TreeMembers = { readonly kind: "tree"; readonly index: FieldColumn } & TreeShape
 
 /** A counted family's index, its drawn law column ‹i›. */
 export type LawIndex = Extract<NativeColumn, { readonly kind: "law" }>

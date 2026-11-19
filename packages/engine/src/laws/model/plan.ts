@@ -61,7 +61,9 @@ import {
 	scalarKeySet,
 	type SpanField,
 	spanKeySet,
-	type TheoryRelation
+	type TheoryRelation,
+	fieldColumn,
+	type FieldColumn
 } from "#compiler/ir/law.ts"
 import { type CombineFn, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
@@ -156,12 +158,6 @@ export type PlannedColumn =
 type SideColumn =
 	| { readonly kind: "field"; readonly field: LawField }
 	| { readonly kind: "law"; readonly column: Extract<LawColumnPlan, { readonly kind: "term" }> }
-
-/** A field as a planned native reads it. */
-const fieldColumn = <F extends LawField>(field: F): FieldColumn<F> => ({ kind: "field", field })
-
-/** A field column, of a field of type `F`: a span key's span column is its span field's. */
-type FieldColumn<F extends LawField = LawField> = { readonly kind: "field"; readonly field: F }
 
 /** Whether two selections are one, conjunct for conjunct in order, as a term's law column is known by its selection's
  * conjuncts (laws/model/model.ts lawColumnIdentity). */
@@ -2427,11 +2423,10 @@ export class Recognizer {
 				`coverage grouped by at least one scalar field; ${from.relation} into ${to.relation} pairs only spans, an ungrouped span law`
 			)
 		}
-		const fieldNative = (field: LawField): NativeColumn => ({ kind: "field", field })
 		const toKey = spanKeySet(
 			toRel.name,
-			to.terms.flatMap((t) => (t.column === pairing.to ? [] : [fieldNative(t.column)])),
-			fieldNative(pairing.to)
+			to.terms.flatMap((t) => (t.column === pairing.to ? [] : [fieldColumn(t.column)])),
+			fieldColumn(pairing.to)
 		)
 		const declared =
 			to.selection.conjuncts.length === 0 &&
