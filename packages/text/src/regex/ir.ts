@@ -505,6 +505,7 @@ export class RegexBuilder {
 	readonly #zeroParts = new Map<RegexNode, RegexNode>()
 	readonly #consumings = new Map<RegexNode, RegexNode>()
 	readonly #sizes = new Map<RegexNode, number>()
+	readonly #firsts = new Map<RegexNode, CharSet>()
 
 	/**
 	 * The alternation of the arms, flattened, deduplicated and sorted by canonical text (compareCanonical): never arms
@@ -690,7 +691,9 @@ export class RegexBuilder {
 	 * match, and however many there were, the count of the remaining iterations can be anything up to max - 2 while the
 	 * whole stays within min..max. An assertion and the empty string consume nothing. This is how a word is held to
 	 * begin with a code point of a class without asserting it: the narrowed node matches exactly the words such an
-	 * assertion would let through. A node's last code point is its mirror image's first (folds.ts lastIn).
+	 * assertion would let through. A node every match of which consumes and begins within the set is itself, as it
+	 * stands (#firstsOf), so a narrowing rebuilds only what it narrows. A node's last code point is its mirror image's
+	 * first (folds.ts lastIn).
 	 */
 	firstIn(node: RegexNode, within: CharSet): RegexNode {
 		return this.#firstIn(node, within, new Map<RegexNode, RegexNode>())
@@ -698,6 +701,13 @@ export class RegexBuilder {
 
 	#firstIn(node: RegexNode, within: CharSet, table: Map<RegexNode, RegexNode>): RegexNode {
 		return folded(table, node, (n, of) => {
+			const firsts = this.#firstsOf(n)
+			if (
+				this.zeroPart(n).kind === "never" &&
+				size(intersection(firsts, within)) === size(firsts)
+			) {
+				return n
+			}
 			switch (n.kind) {
 				case "empty":
 				case "never":
@@ -728,6 +738,40 @@ export class RegexBuilder {
 					const later = seq([this.zeroPart(body), of(body), rest(0, lessOne(lessOne(max)))])
 					return this.alt([first, later])
 				}
+			}
+		})
+	}
+
+	/**
+	 * The code points a consuming match of a node may begin with, a bound that holds every first code point: a set's
+	 * own, a sequence's items' up to the first that matches nothing zero-width, an alternation's arms', a repetition's
+	 * body's, and none for an assertion or the empty string. A node every match of which consumes and begins within a
+	 * set is its own narrowing to it (firstIn), kept as it stands rather than rebuilt.
+	 */
+	#firstsOf(node: RegexNode): CharSet {
+		return folded(this.#firsts, node, (n, of) => {
+			switch (n.kind) {
+				case "set":
+					return n.set
+				case "seq": {
+					const reached: Array<CharSet> = []
+					for (const item of n.items) {
+						reached.push(of(item))
+						if (this.zeroPart(item).kind === "never") {
+							break
+						}
+					}
+					return union(reached)
+				}
+				case "alt":
+					return union(n.arms.map((arm) => of(arm)))
+				case "repeat":
+					return of(n.body)
+				case "empty":
+				case "never":
+				case "start":
+				case "end":
+					return union([])
 			}
 		})
 	}

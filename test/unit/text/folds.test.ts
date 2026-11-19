@@ -11,7 +11,10 @@
  * Oracle: ECMAScript's RegExp test (test/support/regex.ts jsMatcher) of the pattern as written and of each fold printed in
  * grizzle's grammar (print.ts printSource), against the definitions restated over the text's code points.
  *
- * Features: a text held and refused by each fold; a fold that keeps every text and one that keeps none.
+ * - firstIn of a node every match of which consumes, over the node's own alphabet, is the node itself, as it stands.
+ *
+ * Features: a text held and refused by each fold; a fold that keeps every text and one that keeps none; a node its own
+ * firstIn.
  */
 
 import { charSet, has, intersection } from "@bjornpagen/grizzle-text/regex/charset"
@@ -44,6 +47,7 @@ type FoldFeature =
 	| "mapSets held"
 	| "mapSets refused"
 	| "a fold of no text"
+	| "a node its own firstIn"
 
 interface FoldCase {
 	readonly pattern: string
@@ -88,7 +92,8 @@ export const theRegexIRsFoldsNarrowReverseAndMapAPatternExactlyAsTheirDefinition
 			"reversed held",
 			"mapSets held",
 			"mapSets refused",
-			"a fold of no text"
+			"a fold of no text",
+			"a node its own firstIn"
 		] satisfies ReadonlyArray<Reached<FoldFeature>>,
 		check: (_, c: Case<FoldFeature>) => (k) =>
 			Effect.sync(() => {
@@ -102,6 +107,14 @@ export const theRegexIRsFoldsNarrowReverseAndMapAPatternExactlyAsTheirDefinition
 				const mirror = reversed(node)
 				const narrowed = mapSets(node, (s) => set(intersection(s, within)))
 				const alphabet = alphabetOf(node)
+				if (builder.zeroPart(node).kind === "never") {
+					assert.equal(
+						builder.firstIn(node, alphabet),
+						node,
+						`/${k.pattern}/u: a node every match of which consumes is its own firstIn over its alphabet`
+					)
+					c.note("a node its own firstIn")
+				}
 				if (first.kind === "never" || last.kind === "never" || narrowed.kind === "never") {
 					c.note("a fold of no text")
 				}
@@ -141,6 +154,14 @@ export const theRegexIRsFoldsNarrowReverseAndMapAPatternExactlyAsTheirDefinition
 		budget: { runs: 400, steered: 0 },
 		kept: [],
 		kills: [
+			{
+				file: "packages/text/src/regex/ir.ts",
+				original:
+					'\t\t\t\tthis.zeroPart(n).kind === "never" &&\n\t\t\t\tsize(intersection(firsts, within)) === size(firsts)',
+				replacement:
+					"\t\t\t\tfalse &&\n\t\t\t\tsize(intersection(firsts, within)) === size(firsts)",
+				why: "firstIn rebuilds a node it narrows nothing of: the node is no longer itself, and every collapse and token fold over it grows."
+			},
 			{
 				file: "packages/text/src/regex/ir.ts",
 				original: "\t\t\t\t\tconst kept = intersection(n.set, within)",
