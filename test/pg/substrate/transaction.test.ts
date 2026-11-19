@@ -61,6 +61,13 @@ export const caseTransactionIsolation = property.exhaust(finite(word(plantingWor
 	kills: [
 		{
 			file: "test/support/substrate/substrate.ts",
+			original:
+				"\t\"SELECT pg_catalog.extract('epoch', pg_catalog.transaction_timestamp())::text\"",
+			replacement: '\t"SELECT pg_catalog.transaction_timestamp()::text"',
+			why: "The case's transaction is named by its start's timestamptz text, as 0ec64a2a8 named it, which a case's own SET DateStyle respells: the case reads as one that ended its transaction and fails, its clone dropped (follow-up 4's suite: scalar/lexical under a foreign DateStyle); this property fails."
+		},
+		{
+			file: "test/support/substrate/substrate.ts",
 			original: '\trolledBack: bare("ROLLBACK"),',
 			replacement: '\trolledBack: bare("COMMIT"),',
 			why: "A case's transaction is committed rather than rolled back, so its table, temporary table, database default and session setting reach the next case."
