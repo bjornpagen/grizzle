@@ -341,14 +341,14 @@ type Rule =
 	| { readonly kind: "own"; readonly to: number }
 	| { readonly kind: "index" }
 	| { readonly kind: "copy" }
-	| { readonly kind: "count"; readonly family: string }
+	| { readonly kind: "count"; readonly family: FillFamily }
 	| { readonly kind: "start" }
 	| { readonly kind: "end" }
 	| { readonly kind: "ownerCopy"; readonly to: number }
 	| { readonly kind: "predecessor"; readonly to: number; readonly base: unknown }
 	| {
 			readonly kind: "last"
-			readonly family: string
+			readonly family: FillFamily
 			readonly to: number
 			readonly base: unknown
 	  }
@@ -380,8 +380,9 @@ interface Column {
 
 /**
  * A relation's columns at one position, by key, by position and by the stage that fills each, the columns waiting on a
- * sequence by that sequence's key, and the families its rows own; and the relation as the evaluator reads it
- * (`EvaluatedRelation`), which a generated field or a fold's selection over its rows is evaluated over.
+ * sequence by that sequence (`FillFamily`, the walk's own), and the families its rows own; and the relation as the
+ * evaluator reads it (`EvaluatedRelation`), which a generated field or a fold's selection over its rows is evaluated
+ * over.
  */
 interface Layout {
 	readonly relation: FillRelation
@@ -389,20 +390,22 @@ interface Layout {
 	readonly columns: ReadonlyMap<ColumnKey, Column>
 	readonly byPosition: ReadonlyMap<number, Column>
 	readonly entering: ReadonlyArray<Column>
-	readonly after: ReadonlyMap<string, ReadonlyArray<Column>>
+	readonly after: ReadonlyMap<FillFamily, ReadonlyArray<Column>>
 	readonly settling: ReadonlyArray<Column>
-	/** The families its rows own, by key, its sequences first: the order the walk fills their members in. */
-	readonly owns: ReadonlyArray<string>
+	/** The families its rows own, its sequences first: the order the walk fills their members in. */
+	readonly owns: ReadonlyArray<FillFamily>
 }
 
 /**
  * The relations whose rows a layout's rules read (`hostRule`), by their columns: its own relation's, its row's owner's
- * where it stands in a family, and each family's members', by the family's id.
+ * where it stands in a family, and each family's members'; and each family of the write's fill by its id, as the walk
+ * holds it (`FillFamily`), which a rule and a layout name a family by.
  */
 interface RuleTargets {
 	readonly own: Columns
 	readonly owner: Columns | undefined
-	readonly members: (family: FamilyId) => Columns
+	readonly family: (id: FamilyId) => FillFamily
+	readonly members: (family: FillFamily) => Columns
 }
 
 /** A fill rule as the host fills it, under the installation's codes, each target at its position among its row's
@@ -425,20 +428,22 @@ const hostRule = (rule: FillRuleData, spec: CarrierSpec, targets: RuleTargets): 
 		case "own":
 			return { kind: "own", to: targets.own.at(rule.to) }
 		case "count":
-			return { kind: "count", family: familyKey(rule.family) }
+			return { kind: "count", family: targets.family(rule.family) }
 		case "predecessor":
 			return {
 				kind: "predecessor",
 				to: targets.own.at(rule.to),
 				base: hostOfLiteral(spec.carrier, rule.base)
 			}
-		case "last":
+		case "last": {
+			const family = targets.family(rule.family)
 			return {
 				kind: "last",
-				family: familyKey(rule.family),
-				to: targets.members(rule.family).at(rule.to),
+				family,
+				to: targets.members(family).at(rule.to),
 				base: hostOfLiteral(spec.carrier, rule.base)
 			}
+		}
 		case "after":
 			return {
 				kind: "after",
@@ -471,7 +476,7 @@ const hostLayout = (
 	const columns = new Map<ColumnKey, Column>()
 	const byPosition = new Map<number, Column>()
 	const entering: Array<Column> = []
-	const after = new Map<string, Array<Column>>()
+	const after = new Map<FillFamily, Array<Column>>()
 	const settling: Array<Column> = []
 	for (const c of layout.columns) {
 		const spec = carrierSpecOf(c.type, codes)
@@ -488,8 +493,8 @@ const hostLayout = (
 				entering.push(column)
 				break
 			case "after": {
-				const key = familyKey(c.stage.family)
-				after.set(key, [...(after.get(key) ?? []), column])
+				const family = targets.family(c.stage.family)
+				after.set(family, [...(after.get(family) ?? []), column])
 				break
 			}
 			case "settling":
@@ -505,7 +510,7 @@ const hostLayout = (
 		entering,
 		after,
 		settling,
-		owns: layout.owns.map(familyKey)
+		owns: layout.owns.map(targets.family)
 	}
 }
 
@@ -766,11 +771,11 @@ interface Interval {
  */
 type Place =
 	| { readonly kind: "top" }
-	| { readonly kind: "entered"; readonly family: string }
-	| { readonly kind: "root"; readonly family: string; readonly tree: Interval }
+	| { readonly kind: "entered"; readonly family: FillFamily }
+	| { readonly kind: "root"; readonly family: FillFamily; readonly tree: Interval }
 	| {
 			readonly kind: "member"
-			readonly family: string
+			readonly family: FillFamily
 			readonly owner: Row
 			readonly count: string
 			readonly at: number
@@ -785,10 +790,10 @@ interface Row {
 	readonly values: Array<unknown>
 	readonly texts: Texts
 	readonly place: Place
-	/** Each family it owns, by key, with the count of its members. */
-	readonly counts: ReadonlyMap<string, number>
-	/** Each family it owns, by key, with its last member once filled; none for an empty family. */
-	readonly last: Map<string, Row>
+	/** Each family it owns, with the count of its members. */
+	readonly counts: ReadonlyMap<FillFamily, number>
+	/** Each family it owns, with its last member once filled; none for an empty family. */
+	readonly last: Map<FillFamily, Row>
 }
 
 /** The value of a row's column at `at`, filling it and every column it reads first; a refusal when it has none. */
@@ -1062,14 +1067,17 @@ const fillStage = (
  * The size of each tree node's subtree in a nesting, itself included, by node: one pass over the nesting, members before
  * their owners, so any depth sizes. Only the nodes of the tree `tree` is the family of are sized.
  */
-const subtreeSizes = (root: HostNode, tree: FamilyId): ReadonlyMap<HostNode, number> => {
-	const id = familyKey(tree)
+const subtreeSizes = (
+	root: HostNode,
+	tree: FillFamily,
+	family: (id: FamilyId) => FillFamily
+): ReadonlyMap<HostNode, number> => {
 	const order: Array<HostNode> = []
 	const pending: Array<HostNode> = [root]
 	for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
 		order.push(node)
 		for (const g of node.families) {
-			if (familyKey(g.family) === id) {
+			if (family(g.family) === tree) {
 				for (const m of g.members) {
 					pending.push(m)
 				}
@@ -1080,7 +1088,7 @@ const subtreeSizes = (root: HostNode, tree: FamilyId): ReadonlyMap<HostNode, num
 	for (const node of order.toReversed()) {
 		let size = 1
 		for (const g of node.families) {
-			if (familyKey(g.family) !== id) {
+			if (family(g.family) !== tree) {
 				continue
 			}
 			for (const m of g.members) {
@@ -1110,6 +1118,21 @@ export const filler = (
 	columns: ColumnIndex
 ): Filler => {
 	const byKey = new Map(fill.families.map((f) => [familyKey(f.id), f] as const))
+	/** Each family id a node or a rule names, by the id itself, as the walk holds its family: found by its key where it is
+	 * first met, so no row's walk spells a family's key. */
+	const byId = new Map<FamilyId, FillFamily>()
+	const familyOf = (id: FamilyId): FillFamily => {
+		const known = byId.get(id)
+		if (known !== undefined) {
+			return known
+		}
+		const family = byKey.get(familyKey(id))
+		if (family === undefined) {
+			throw defect(`the family ${id.owner}.${id.count} of the write's fill`)
+		}
+		byId.set(id, family)
+		return family
+	}
 	const relations = new Map(
 		fill.relations.map(
 			(relation) =>
@@ -1135,36 +1158,41 @@ export const filler = (
 			{
 				own: columns(layout.relation),
 				owner: position.kind === "member" ? columns(position.family.id.owner) : undefined,
-				members: (family) =>
-					columns(
-						defined(
-							byKey.get(familyKey(family)),
-							`the family ${familyKey(family)} of the write's fill`
-						).member
-					)
+				family: familyOf,
+				members: (family) => columns(family.member)
 			}
 		)
 		layouts.set(key, built)
 		return built
 	}
+	/** Each family's members' layout, laid out where the walk first meets one of them (`laidOut`), so a member's row finds
+	 * its layout by its family, never by a key spelled for it. */
+	const memberLayouts = new Map<FillFamily, Layout>()
+	const memberLayout = (family: FillFamily): Layout => {
+		const known = memberLayouts.get(family)
+		if (known !== undefined) {
+			return known
+		}
+		const layout = laidOut(family.member, { kind: "member", family })
+		memberLayouts.set(family, layout)
+		return layout
+	}
 	/** A node's families resolved, sequences first, each in the order its relation owns them. */
 	const resolved = (node: HostNode, layout: Layout): ReadonlyArray<Owned> => {
-		const owned = node.families.map((g, place): Owned => {
-			const family = byKey.get(familyKey(g.family))
-			if (family === undefined) {
-				throw defect(`the family ${g.family.owner}.${g.family.count} of the write's fill`)
-			}
-			return { family, members: g.members, place }
-		})
-		const rank = (o: Owned): number => layout.owns.indexOf(familyKey(o.family.id))
+		const owned = node.families.map((g, place): Owned => ({
+			family: familyOf(g.family),
+			members: g.members,
+			place
+		}))
+		const rank = (o: Owned): number => layout.owns.indexOf(o.family)
 		return owned.toSorted((a, b) => rank(a) - rank(b))
 	}
-	const rowOf = (node: HostNode, position: FillAt, place: Place): Row => ({
-		layout: laidOut(node.relation, position),
+	const rowOf = (node: HostNode, layout: Layout, place: Place): Row => ({
+		layout,
 		values: node.values.slice(),
 		texts: node.texts.slice(),
 		place,
-		counts: new Map(node.families.map((g) => [familyKey(g.family), g.members.length] as const)),
+		counts: new Map(node.families.map((g) => [familyOf(g.family), g.members.length] as const)),
 		last: new Map()
 	})
 	const frameOf = (row: Row, node: HostNode, tree: Frame["tree"]): Frame => ({
@@ -1177,8 +1205,9 @@ export const filler = (
 		tree
 	})
 	return (root: HostNode, position: FillAt): Result.Result<FilledNode, FillRefusal> => {
-		const tree = position.kind === "root" ? position.family.id : undefined
-		const sizes = tree === undefined ? new Map<HostNode, number>() : subtreeSizes(root, tree)
+		const tree = position.kind === "root" ? familyOf(position.family.id) : undefined
+		const sizes =
+			tree === undefined ? new Map<HostNode, number>() : subtreeSizes(root, tree, familyOf)
 		const intervalOf = (node: HostNode, start: number): Interval => {
 			const size = sizes.get(node)
 			if (size === undefined) {
@@ -1191,12 +1220,12 @@ export const filler = (
 				case "top":
 					return { kind: "top" }
 				case "member":
-					return { kind: "entered", family: familyKey(position.family.id) }
+					return { kind: "entered", family: familyOf(position.family.id) }
 				case "root":
-					return { kind: "root", family: familyKey(position.family.id), tree: intervalOf(root, 0) }
+					return { kind: "root", family: familyOf(position.family.id), tree: intervalOf(root, 0) }
 			}
 		})()
-		const first = rowOf(root, position, entry)
+		const first = rowOf(root, laidOut(root.relation, position), entry)
 		const entered = fillStage(first, first.layout.entering, evaluate)
 		if (!entered.ok) {
 			return Result.err(entered.error)
@@ -1207,11 +1236,14 @@ export const filler = (
 			if (current !== undefined) {
 				const node = current.members[frame.member]
 				if (node === undefined) {
-					const id = familyKey(current.family.id)
 					if (frame.previous !== undefined) {
-						frame.row.last.set(id, frame.previous)
+						frame.row.last.set(current.family, frame.previous)
 					}
-					const waited = fillStage(frame.row, frame.row.layout.after.get(id) ?? [], evaluate)
+					const waited = fillStage(
+						frame.row,
+						frame.row.layout.after.get(current.family) ?? [],
+						evaluate
+					)
 					if (!waited.ok) {
 						return Result.err(waited.error)
 					}
@@ -1229,19 +1261,15 @@ export const filler = (
 				if (counter !== undefined) {
 					counter.next += 1
 				}
-				const row = rowOf(
-					node,
-					{ kind: "member", family: current.family },
-					{
-						kind: "member",
-						family: familyKey(current.family.id),
-						owner: frame.row,
-						count: current.family.count,
-						at,
-						predecessor: frame.previous,
-						tree: start === undefined ? undefined : intervalOf(node, start)
-					}
-				)
+				const row = rowOf(node, memberLayout(current.family), {
+					kind: "member",
+					family: current.family,
+					owner: frame.row,
+					count: current.family.count,
+					at,
+					predecessor: frame.previous,
+					tree: start === undefined ? undefined : intervalOf(node, start)
+				})
 				const filled = fillStage(row, row.layout.entering, evaluate)
 				if (!filled.ok) {
 					return Result.err(filled.error)

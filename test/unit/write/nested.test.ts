@@ -14,6 +14,12 @@
  *
  * Features: each box's shapes (owners, trees, the transport), a set's repeated facts and keys, each tree depth and
  * shape.
+ *
+ * A bind spells no family's or layout's key for a row it fills (runtime/write/fill.ts filler, nesting.ts hostNodes):
+ * a family is resolved by its id where the bind first meets it and a member's layout by its family, so a fresh write's
+ * calls of familyKey and layoutKey binding a chain or a star of three to five nodes, every node the owner of its
+ * children, are those binding two, a root and one member, whatever the nodes' number. Counted as work, never time
+ * (test/support/kernel/calls.ts callCounts).
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
@@ -30,6 +36,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn } from "#test/support/compile.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	caseGen,
@@ -325,3 +332,65 @@ export const aNestedTreeAtDepthAndWidthNumbersAChainsAndAStarsNodesInPreOrderAtS
 			]
 		}
 	)
+
+/** A bind spells no family's or layout's key for a row it fills: a tree of any number of nodes spells a tree of two's. */
+export const aBindSpellsNoFamilysOrLayoutsKeyForARowItFills = property.exhaust(
+	finite((source) => ({
+		shape: source.draw(element(["chain", "star"] as const)),
+		n: source.draw(element([3, 4, 5] as const))
+	})),
+	{
+		needs: {},
+		situations: ["a chain", "a star"] satisfies ReadonlyArray<Reached<ShapeFeature>>,
+		check: (_, c: Case<ShapeFeature>) => (box) =>
+			Effect.gen(function* () {
+				/** The key spellings of a fresh write's bind of one tree of `n` nodes of the box's shape. */
+				const spelled = (n: number) =>
+					Effect.gen(function* () {
+						const root = box.shape === "chain" ? chainOf(n, 1000) : starOf(n, 1000)
+						const value = ChangeSet.empty(Nested).insert(Node, [{ ...root, root: uuidOf(999) }])
+						const treeShaped = nestedCompiled(value)
+						const members = yield* collectInputs(treeShaped.binding.groups, parsedOf(value).inputs)
+						const flight = flightOf(treeShaped, treeShaped.frontend.codes)
+						const [bound, counts] = yield* callCounts(
+							Effect.sync(() =>
+								succeeded(bindWrite(flight, { members, params: {}, transport: inForce(bindFrame) }))
+							),
+							{
+								families: { file: "packages/engine/src/ir/law.ts", name: "familyKey" },
+								layouts: { file: "packages/engine/src/ir/fill.ts", name: "layoutKey" }
+							}
+						)
+						assertVariant(bound, "kind", "bound", "a tree binds")
+						return counts
+					})
+				const two = yield* spelled(2)
+				const many = yield* spelled(box.n)
+				assert.deepEqual(many, two, `a tree of ${box.n} nodes spells the keys a tree of two does`)
+				c.note(box.shape === "chain" ? "a chain" : "a star")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a bind's families and layouts are resolved once each, whatever its rows' number"
+		},
+		box: "a chain and a star of 3, 4 and 5 nodes, each against a tree of two, its root and one member",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/fill.ts",
+				original: "\t\t\t\tconst row = rowOf(node, memberLayout(current.family), {",
+				replacement:
+					'\t\t\t\tconst row = rowOf(node, laidOut(node.relation, { kind: "member", family: current.family }), {',
+				why: "Every member's row finds its layout by a key spelled for it, one layout key and one family key a row."
+			},
+			{
+				file: "packages/engine/src/runtime/write/fill.ts",
+				original:
+					"\tconst familyOf = (id: FamilyId): FillFamily => {\n\t\tconst known = byId.get(id)",
+				replacement:
+					"\tconst familyOf = (id: FamilyId): FillFamily => {\n\t\tconst known: FillFamily | undefined = undefined",
+				why: "Each family a node or a rule names is found by its key spelled again at every row that names it."
+			}
+		]
+	}
+)

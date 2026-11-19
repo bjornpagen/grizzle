@@ -21,7 +21,7 @@ import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
-import { type FamilyId, familyKey, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
+import { type FamilyId, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { MessageBound } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -286,9 +286,7 @@ export const nestedRows = (
 	const sequences = nesting.sequences
 	const normalizers: LevelNormalizers = {
 		own: normalizerOf(nesting.relation, nesting.own),
-		members: new Map(
-			sequences.map((f) => [familyKey(f.id), normalizerOf(f.member, f.heading)] as const)
-		)
+		members: new Map(sequences.map((f) => [f.id, normalizerOf(f.member, f.heading)] as const))
 	}
 	const shapes = new Map<StoredRelationName, RowShape>()
 	/** The shape of a reached relation's rows, each relation's made once for the write. */
@@ -448,10 +446,11 @@ interface Level {
 	readonly fields: ReadonlyArray<{ readonly name: string; readonly at: number }>
 }
 
-/** The levels of a nesting (`Level`): its facts' own, and each sequence's members', by the sequence's key. */
+/** The levels of a nesting (`Level`): its facts' own, and each sequence's members', by the sequence's id, the one its
+ * split additions name it by (addition.ts encodeAddition), so no node spells a family's key. */
 interface LevelNormalizers {
 	readonly own: Level
-	readonly members: ReadonlyMap<string, Level>
+	readonly members: ReadonlyMap<FamilyId, Level>
 }
 
 /**
@@ -477,7 +476,7 @@ const hostNodes = (
 		order.push(next)
 		for (const g of next.addition.families) {
 			const level = defined(
-				normalizers.members.get(familyKey(g.family)),
+				normalizers.members.get(g.family),
 				"a sequence the nesting splits along"
 			)
 			for (const m of g.members) {
