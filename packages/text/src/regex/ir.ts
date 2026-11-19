@@ -210,7 +210,7 @@ const repeated = (body: number, min: number, max: number | "unbounded"): number 
 export type LiveNode = Shape & { readonly profiles: number }
 
 export const empty: LiveNode = Object.freeze({ kind: "empty", profiles: just(passesNothing) })
-const never: RegexNode = Object.freeze({ kind: "never" })
+export const never: RegexNode = Object.freeze({ kind: "never" })
 export const start: LiveNode = Object.freeze({ kind: "start", profiles: just(passesStart) })
 export const end: LiveNode = Object.freeze({ kind: "end", profiles: just(passesEnd) })
 
