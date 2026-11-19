@@ -19,12 +19,6 @@ export const scaling = growthGate(schemaDimensions, {
 	box: "every dimension of the schema-scale program",
 	kills: [
 		{
-			file: "test/types/batch/measured.ts",
-			original: '\t\tStr.padStart(String(widest).length, "0")(String(i))',
-			replacement: "\t\tString(i)",
-			why: "Each index is written at its own width (indexAt), so the largest size's last items are named a digit longer than every other item, and each name's type reads each of its characters (types/core/phantom.ts DeclaredName): the second step adds those characters' reading beside its items', more than the first, and the law refuses it."
-		},
-		{
 			file: "packages/engine/src/types/schema/schema.ts",
 			original: "type HoldersOf<N extends string, T, I extends ByName> = N extends unknown",
 			replacement: "type HoldersOf<N extends string, T, I extends ByName> = N extends keyof I",

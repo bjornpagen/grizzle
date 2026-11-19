@@ -1,12 +1,7 @@
 import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import {
-	type EqualSteps,
-	equalSteps,
-	type GrowthDimension,
-	indexAt
-} from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps, type GrowthDimension } from "#test/types/batch/measured.ts"
 import {
 	type Over,
 	type RefusalProbe,
@@ -58,9 +53,6 @@ const largestFamilies = familySizes.sizes[2]
 /** Whether unit u is a tree unit: every fourth, from the fourth, so the first and last units of each kind exist. */
 const isTreeUnit = (u: number): boolean => u % 4 === 3
 
-/** Unit u's label in every name it declares: its index at the largest size's last unit's width (indexAt). */
-const unitLabel = indexAt(Math.floor(largestFamilies / 2) - 1)
-
 const nestedUnit = (
 	ns: string,
 	u: string
@@ -87,13 +79,13 @@ export const ${ns}itemCount${u} = fold(${ns}items${u}, Monoid.count, on(${ns}I${
 
 /** A unit's relations, in declaration order. */
 const relationsOf = (u: number): Arr.NonEmptyReadonlyArray<string> => {
-	const l = unitLabel(u)
+	const l = String(u)
 	return isTreeUnit(u) ? [`T${l}`, `P${l}`, `I${l}`] : [`O${l}`, `F${l}`, `G${l}`]
 }
 
 /** A unit's statements: its two families and its two folds. */
 const statementsOf = (u: number): ReadonlyArray<string> => {
-	const l = unitLabel(u)
+	const l = String(u)
 	return isTreeUnit(u)
 		? [`nodes${l}`, `nodeCount${l}`, `items${l}`, `itemCount${l}`]
 		: [`lines${l}`, `parts${l}`, `lineSum${l}`, `partSum${l}`]
@@ -101,9 +93,7 @@ const statementsOf = (u: number): ReadonlyArray<string> => {
 
 /** The schema of `units`, under the prefix `ns`, and the insertAll of every relation it inserts at its top level. */
 const unitsSource = (ns: string, units: ReadonlyArray<number>): string => `${Arr.join(
-	Arr.map(units, (u) =>
-		isTreeUnit(u) ? treeUnit(ns, unitLabel(u)) : nestedUnit(ns, unitLabel(u))
-	),
+	Arr.map(units, (u) => (isTreeUnit(u) ? treeUnit(ns, String(u)) : nestedUnit(ns, String(u)))),
 	""
 )}
 export const ${ns}S = schema("FamilyScale", [${Arr.join(
@@ -156,13 +146,13 @@ const refusalProbes = (lastNested: number, lastTree: number): ReadonlyArray<Refu
 		label: "member-alone",
 		why: "a sequence's member is written under its owner, never alone",
 		line: (ns) =>
-			`export const ${ns}memberAlone = ChangeSet.empty(${ns}S).insert(${ns}F${unitLabel(lastNested)}, [{ owner: id, x: 1n, m: [] }])`
+			`export const ${ns}memberAlone = ChangeSet.empty(${ns}S).insert(${ns}F${lastNested}, [{ owner: id, x: 1n, m: [] }])`
 	},
 	{
 		label: "counted-nested",
 		why: "a counted member is never nested under its owner",
 		line: (ns) =>
-			`export const ${ns}countedNested = ChangeSet.empty(${ns}S).insert(${ns}P${unitLabel(lastTree)}, [{ id, k: [{ w: 1 }] }])`
+			`export const ${ns}countedNested = ChangeSet.empty(${ns}S).insert(${ns}P${lastTree}, [{ id, k: [{ w: 1 }] }])`
 	}
 ]
 

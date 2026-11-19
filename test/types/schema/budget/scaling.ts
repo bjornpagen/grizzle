@@ -2,7 +2,7 @@ import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type EqualSteps, equalSteps, indexAt } from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
 
 /**
  * The schema-scale programs, one per schema dimension, each checked at three sizes an equal step apart (scaling.test.ts),
@@ -20,7 +20,8 @@ import { type EqualSteps, equalSteps, indexAt } from "#test/types/batch/measured
  * writableNamesOf(S), or a literal list of their names, which role reads for a repeat; each read as issue #9 reads
  * one, `ChangeSet.empty(role)` and `query(role)`; and over the base, for each of the last `readers` relations, a
  * ChangeSet and a query that read it by name: its addition, holding every written field, and a rule matching every
- * field. Every index a name holds is written at one width (at), so an item's names are alike at every size.
+ * field. A name holds its index at its own width: no type reads a relation's, a field's or a role's name a character
+ * at a time (types/schema/relation.ts RelationName), so a longer index costs nothing more.
  */
 type SchemaShape = {
 	readonly relations: number
@@ -174,32 +175,17 @@ const schemaRoster: Arr.NonEmptyReadonlyArray<SchemaDimension> = [
 	}
 ]
 
-/**
- * Index i as every name of a program writes it: at the width of the largest index any dimension's largest shape writes
- * (indexAt), one width for every program.
- */
-const at = indexAt(
-	Arr.reduce(
-		Arr.flatMap(schemaRoster, (d) => {
-			const s = d.shape(d.steps.sizes[2])
-			return [s.relations, s.closed, s.laws, s.fields, s.roles, s.readers, s.handles, s.members]
-		}),
-		0,
-		(most, count) => Math.max(most, count - 1)
-	)
-)
-
 const fieldNames = (fields: number): ReadonlyArray<string> =>
-	Arr.map(indices(fields), (j) => `f${at(j)}`)
+	Arr.map(indices(fields), (j) => `f${j}`)
 
 /** Relation i's laws: its parent in P's ids, then a key and a containment on its fields, in turn. */
 const lawsOf = (i: number, laws: number): ReadonlyArray<string> =>
 	Arr.map(indices(laws), (j) =>
 		j === 0
-			? `contained(on(R${at(i)}, "parent"), on(P, "id"))`
+			? `contained(on(R${i}, "parent"), on(P, "id"))`
 			: j % 2 === 1
-				? `key(on(R${at(i)}, "f${at(j - 1)}"))`
-				: `contained(on(R${at(i)}, "f${at(j - 1)}"), on(P, "id"))`
+				? `key(on(R${i}, "f${j - 1}"))`
+				: `contained(on(R${i}, "f${j - 1}"), on(P, "id"))`
 	)
 
 /**
@@ -208,8 +194,8 @@ const lawsOf = (i: number, laws: number): ReadonlyArray<string> =>
  */
 const seenEntry = (g: number, relations: number): string =>
 	`query(S).rule((r) => {
-	const { id } = v(R${at(g % relations)}, "seen")
-	return r.match(R${at(g % relations)}, { id }).find({ id })
+	const { id } = v(R${g % relations}, "seen")
+	return r.match(R${g % relations}, { id }).find({ id })
 })`
 
 /** Every relation a full role may write, as `writes` spells it: writableNamesOf(S), or a literal list of names. */
@@ -219,7 +205,7 @@ const writesSource = (shape: SchemaShape): string => {
 			return "writableNamesOf(S)"
 		case "listed":
 			return `["P", ${Arr.join(
-				Arr.map(indices(shape.relations), (i) => `"R${at(i)}"`),
+				Arr.map(indices(shape.relations), (i) => `"R${i}"`),
 				", "
 			)}]`
 	}
@@ -228,7 +214,7 @@ const writesSource = (shape: SchemaShape): string => {
 /** The first `count` handles of the roster K, each a literal in the program. */
 const handlesSource = (count: number): string =>
 	Arr.join(
-		Arr.map(indices(count), (h) => `"H${at(h)}"`),
+		Arr.map(indices(count), (h) => `"H${h}"`),
 		", "
 	)
 
@@ -256,21 +242,21 @@ ${Arr.join(
 	Arr.map(
 		indices(shape.closed),
 		(c) =>
-			`export const C${at(c)} = closed.relation("C${at(c)}", { k: closedId(K), weight: pg.integer }, ["k"], [{ k: "H${at(0)}", weight: 0 }])\n`
+			`export const C${c} = closed.relation("C${c}", { k: closedId(K), weight: pg.integer }, ["k"], [{ k: "H0", weight: 0 }])\n`
 	),
 	""
 )}${Arr.join(
 			Arr.map(
 				indices(shape.relations),
-				(i) => `export const R${at(i)} = relation("R${at(i)}", { ${heading} }, ["id"])\n`
+				(i) => `export const R${i} = relation("R${i}", { ${heading} }, ["id"])\n`
 			),
 			""
 		)}
 export const S = schema("Scale", [P, K, ${Arr.join(
-			Arr.map(indices(shape.closed), (c) => `C${at(c)}`),
+			Arr.map(indices(shape.closed), (c) => `C${c}`),
 			", "
 		)}, ${Arr.join(
-			Arr.map(indices(shape.relations), (i) => `R${at(i)}`),
+			Arr.map(indices(shape.relations), (i) => `R${i}`),
 			", "
 		)}], [
 ${Arr.join(
@@ -283,9 +269,9 @@ ${Arr.join(
 		indices(shape.roles),
 		(
 			g
-		) => `export const Full${at(g)} = role(S, "full${at(g)}", { ...wholeEntriesOf(S), Seen${at(g)}: ${seenEntry(g, shape.relations)} }, { write: ${writes} })
-export const empty${at(g)} = ChangeSet.empty(Full${at(g)})
-export const over${at(g)} = query(Full${at(g)})
+		) => `export const Full${g} = role(S, "full${g}", { ...wholeEntriesOf(S), Seen${g}: ${seenEntry(g, shape.relations)} }, { write: ${writes} })
+export const empty${g} = ChangeSet.empty(Full${g})
+export const over${g} = query(Full${g})
 `
 	),
 	""
@@ -294,12 +280,10 @@ declare const someId: Uuid
 ${Arr.join(
 	Arr.map(
 		indices(shape.readers),
-		(
-			k
-		) => `export const insert${at(k)} = ChangeSet.empty(S).insert(R${at(last - k)}, [{ ${written} }])
-export const read${at(k)} = query(S).rule((r) => {
-	const { ${bound} } = v(R${at(last - k)}, "read")
-	return r.match(R${at(last - k)}, { ${bound} }).find({ ${bound} })
+		(k) => `export const insert${k} = ChangeSet.empty(S).insert(R${last - k}, [{ ${written} }])
+export const read${k} = query(S).rule((r) => {
+	const { ${bound} } = v(R${last - k}, "read")
+	return r.match(R${last - k}, { ${bound} }).find({ ${bound} })
 })
 `
 	),
