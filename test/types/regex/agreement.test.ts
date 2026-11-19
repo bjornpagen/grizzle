@@ -35,6 +35,13 @@ export const regex = agreement(regexCases, {
 			original: "\t\t\t\t: OnePlaceholderPerRun<regex.infer<N, F>>",
 			replacement: "\t\t\t\t: OnePlaceholderPerRun<regex.infer<N, F>> | string",
 			why: "Every inferred host type widens to string (types/fields/regex.ts RegexInfer); the agreement's program fails."
+		},
+		{
+			file: "packages/engine/src/types/fields/source.ts",
+			original:
+				"\t\t? [StepRejected<C, R, [K] extends [ClassFlag] ? true : false>] extends [never]",
+			replacement: "\t\t? [never] extends [never]",
+			why: "The scan reads every construct outside PostgreSQL's fragment as ArkRegex does, so the types admit a lookaround, a backreference, a lazy quantifier or an escaped NUL the engine refuses (types/fields/source.ts StepRejected); the agreement's program fails."
 		}
 	]
 })

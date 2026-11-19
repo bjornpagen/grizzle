@@ -5,6 +5,7 @@ import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import type { RegexScan } from "#compiler/types/fields/source.ts"
 import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
@@ -19,12 +20,16 @@ import { families, type Flags, jsMatcher, patternOver } from "#test/unit/text/ge
  *
  * The engine is the oracle: a flags word other than u and su is MalformedDescription, and an admitted one's source is
  * analyzed as a field's (text/refinement.ts analyzeText), the admission a schema's compilation reaches. A literal call
- * the engine refuses is refused by the types, under a `refused` directive naming why; one it admits typechecks. The
- * declared classes are calls the types and the engine judge apart, each for the one reason it states, from what typed
- * authoring does not read: a construct outside PostgreSQL's regex fragment that ArkRegex parses (outsideFragment,
- * UnsupportedOperation), a source past the typed-authoring scan (beyondScan: MalformedDescription of a malformed one,
- * ResourceBound of one past the depth of PostgreSQL's regex compiler), and a call whose source or flags no literal types
- * (nonLiteral: the types refuse it, the engine admits the value a JavaScript caller holds there).
+ * the engine refuses is refused by the types, under a `refused` directive naming why; one it admits typechecks. A
+ * construct outside PostgreSQL's regex fragment that ArkRegex parses is refused by both, as UnsupportedOperation, or as
+ * MalformedDescription where Unicode mode refuses it inside a class (types/fields/source.ts StepRejected). The declared
+ * classes are calls the types and the engine judge apart, each for the one reason it states, from what typed authoring
+ * does not read: a source of the fragment's grammar whose language holds no admitted text (emptyLanguage,
+ * UnsupportedOperation: `0^`, an anchor inside the text, which the types decide no language's emptiness of), a source
+ * past the typed-authoring scan (beyondScan: MalformedDescription of a malformed one,
+ * UnsupportedOperation of one outside the fragment, ResourceBound of one past the depth of PostgreSQL's regex
+ * compiler), and a call whose source or flags no literal types (nonLiteral: the types refuse it, the engine admits the
+ * value a JavaScript caller holds there).
  *
  * Inference is asserted where it has an oracle: a finite language of literal words, each character spelled plainly or
  * by a hex escape, within the scan infers exactly the union of its members, each of which ECMAScript accepts; a source
@@ -53,8 +58,55 @@ const assertions = ["^", "$", "\\b", "\\B", "(?=a)", "(?!a)", "(?<=a)", "(?<!a)"
 /** The quantifiers, greedy and lazy, counted and not. */
 const quantifiers = ["*", "+", "?", "{2}", "{1,3}", "{2,}", "*?"] as const
 
-/** Constructs outside PostgreSQL's regex fragment that ArkRegex parses: lookbehind, backreference, property, boundary, lazy. */
-const outsideConstructs = ["(?<=a)b", "(a)\\1", "\\p{L}", "\\bab\\b", "a*?"] as const
+/**
+ * Constructs outside PostgreSQL's regex fragment that ArkRegex parses, each the compiler's grammar check refuses
+ * (scalar/regex/parse.ts): lookarounds, named groups and references, inline modifiers, backreferences, Unicode
+ * properties and the \s shorthands in a class or not, word boundaries, lazy quantifiers, NUL spelled or escaped, a lone
+ * surrogate escaped, and \k, \B and a digit escaped in a class; beside them, what is close to each and admitted: a
+ * surrogate pair, a braced code point, a non-capturing group, a quantified escape and `\b` in a class.
+ */
+const outsideConstructs = [
+	"(?=a)b",
+	"(?!a)b",
+	"(?<=a)b",
+	"(?<!a)b",
+	"(?<n>a)",
+	"(?<n>a)\\k<n>",
+	"(?i:a)",
+	"(?-m:a)",
+	"(a)\\1",
+	"\\p{L}",
+	"\\P{L}",
+	"[\\p{L}]",
+	"\\s",
+	"[a\\S]",
+	"\\bab\\b",
+	"a\\B",
+	"a*?",
+	"a+?",
+	"a??",
+	"a{2}?",
+	"a{1,}?",
+	"a\u0000",
+	"\\x00",
+	"[\\x00]",
+	"\\u0000",
+	"\\u{00}",
+	"\\uD800",
+	"\\uDC00",
+	"\\uD83Da",
+	"\\u{D800}",
+	"[\\k]",
+	"[\\B]",
+	"[\\1]",
+	"\\uD83D\\uDE00",
+	"\\u{1F600}",
+	"(?:a)?",
+	"\\*?",
+	"[\\b]",
+	"\\(?=",
+	"[(?=]"
+] as const
 
 /** Flags words other than u and su: none, single ECMAScript flags, repetitions and orders the engine refuses. */
 const refusedFlags = ["", "g", "i", "m", "y", "d", "v", "s", "us", "uu", "U", "ug", "su "] as const
@@ -129,7 +181,7 @@ const admissions = ["admitted", ...refusalTags] as const
 type Admission = (typeof admissions)[number]
 
 /** The declared classes: calls the types and the engine judge apart, each for the reason the header states. */
-const declaredClasses = ["outsideFragment", "beyondScan", "nonLiteral"] as const
+const declaredClasses = ["emptyLanguage", "beyondScan", "nonLiteral"] as const
 type DeclaredClass = (typeof declaredClasses)[number]
 
 /** What the program asserts of a call's host type: its exact union, string, or nothing. */
@@ -256,7 +308,14 @@ const judgedOf = (
 				? [{ kind: "refused", why: "\\0 is NUL, which no text holds" }, undefined]
 				: form === "boundAbove"
 					? [{ kind: "refused", why: "a repetition bound above PostgreSQL's" }, undefined]
-					: [{ kind: "typechecks" }, "outsideFragment"]
+					: isAdmittedFlags(flags) && parsePattern(source, flags).ok
+						? [{ kind: "typechecks" }, "emptyLanguage"]
+						: source.length > scanBudget
+							? [{ kind: "typechecks" }, "beyondScan"]
+							: [
+									{ kind: "refused", why: "a construct outside PostgreSQL's regex fragment" },
+									undefined
+								]
 		case "ResourceBound":
 			return [{ kind: "typechecks" }, "beyondScan"]
 	}

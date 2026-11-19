@@ -338,12 +338,122 @@ type Literal<C extends string, Classed extends boolean> = Classed extends true
 		? `\\${C}`
 		: C
 
-/** What follows `\u`: four hex digits, or a braced code point. A surrogate pair is two such escapes. */
+/**
+ * What follows `\u`: a braced code point, a surrogate pair's four hex digits, `\u` and four more, read as one escape as
+ * the compiler reads it (scalar/regex/parse.ts unicodeEscape), or four hex digits.
+ */
 type SkipUnicode<R extends string> = R extends `{${string}}${infer Rest}`
 	? Rest
-	: R extends `${string}${string}${string}${string}${infer Rest}`
-		? Rest
-		: R
+	: UnicodeEscapeText<R> extends "pair"
+		? R extends `${string}${string}${string}${string}\\u${string}${string}${string}${string}${infer Rest}`
+			? Rest
+			: R
+		: R extends `${string}${string}${string}${string}${infer Rest}`
+			? Rest
+			: R
+
+type HexDigit = Digit | "a" | "b" | "c" | "d" | "e" | "f" | "A" | "B" | "C" | "D" | "E" | "F"
+
+/**
+ * Which surrogate four hex digits H spell: a lead's, D800 to DBFF, a trail's, DC00 to DFFF, or none, read a digit at
+ * a time so no union of spellings is expanded.
+ */
+type SurrogateOf<H extends string> = H extends `${"d" | "D"}${infer N}${infer X}${infer Y}`
+	? X extends HexDigit
+		? Y extends HexDigit
+			? N extends "8" | "9" | "a" | "b" | "A" | "B"
+				? "lead"
+				: N extends "c" | "d" | "e" | "f" | "C" | "D" | "E" | "F"
+					? "trail"
+					: "none"
+			: "none"
+		: "none"
+	: "none"
+
+/**
+ * What a `\u` escape spells, R what follows its `u`, as the compiler reads it: NUL, a lone surrogate, a surrogate pair
+ * of two escapes, or any other code point ("text"), a malformed one among them, which ArkRegex judges.
+ */
+type UnicodeEscapeText<R extends string> = R extends `{${infer Body}}${string}`
+	? StripZeros<Body> extends "0"
+		? "nul"
+		: SurrogateOf<StripZeros<Body>> extends "none"
+			? "text"
+			: "lone"
+	: R extends `${infer A}${infer B}${infer C}${infer D}${infer Rest}`
+		? `${A}${B}${C}${D}` extends "0000"
+			? "nul"
+			: SurrogateOf<`${A}${B}${C}${D}`> extends infer S
+				? S extends "lead"
+					? Rest extends `\\u${infer E}${infer F}${infer G}${infer H}${string}`
+						? SurrogateOf<`${E}${F}${G}${H}`> extends "trail"
+							? "pair"
+							: "lone"
+						: "lone"
+					: S extends "trail"
+						? "lone"
+						: "text"
+				: never
+		: "text"
+
+/** NUL, which no admitted text holds, as the compiler refuses it spelled or escaped (scalar/regex/parse.ts literal). */
+type NulRejected = Rejected<"NUL is not admitted text, so a pattern may not spell it">
+
+/**
+ * The refusal of the escape `\` E, R what follows E, of a construct outside PostgreSQL's regex fragment that ArkRegex
+ * parses, as the compiler's grammar check states it (scalar/regex/parse.ts escape, classAtom); never for any other.
+ * Outside a class: a word boundary, a backreference by number or name, the \s and \S shorthands and a Unicode
+ * property; inside one: \s, \S and a property, and \k, \B or a digit, which Unicode mode refuses there; and in either,
+ * NUL or a lone surrogate escaped.
+ */
+type EscapeRejected<E extends string, R extends string, Classed extends boolean> = E extends
+	| "s"
+	| "S"
+	? Rejected<"the \\s and \\S shorthands are not admitted; spell an explicit class">
+	: E extends "p" | "P"
+		? Rejected<"Unicode property escapes are not admitted">
+		: E extends "x"
+			? R extends `00${string}`
+				? NulRejected
+				: never
+			: E extends "u"
+				? UnicodeEscapeText<R> extends infer T
+					? T extends "nul"
+						? NulRejected
+						: T extends "lone"
+							? Rejected<"a lone surrogate is not admitted text">
+							: never
+					: never
+				: Classed extends true
+					? E extends "k" | "B" | Exclude<Digit, "0">
+						? Rejected<"invalid class escape in Unicode mode">
+						: never
+					: E extends "b" | "B"
+						? Rejected<"word-boundary assertions are not admitted">
+						: E extends "k"
+							? Rejected<"named backreferences are not admitted">
+							: E extends Exclude<Digit, "0">
+								? Rejected<"backreferences are not admitted">
+								: never
+
+/**
+ * The refusal of a group opened by `(?`, G what follows its `?`, as the compiler's grammar check states it
+ * (scalar/regex/parse.ts group): a lookahead, a lookbehind, a named capture group or an inline modifiers group; never
+ * for `(?:`, or for anything else, which ArkRegex judges.
+ */
+type GroupRejected<G extends string> = G extends `${"=" | "!"}${string}`
+	? Rejected<"lookahead assertions are not admitted">
+	: G extends `<${"=" | "!"}${string}`
+		? Rejected<"lookbehind assertions are not admitted">
+		: G extends `<${string}`
+			? Rejected<"named capture groups are not admitted; use (?:...), captures are not outputs">
+			: G extends `${"i" | "m" | "s" | "-"}${string}`
+				? Rejected<"inline modifiers are not admitted; they are refused with the flags, which are only u and su">
+				: never
+
+/** A lazy quantifier, a quantifier followed by `?`, as the compiler refuses it (scalar/regex/parse.ts quantified). */
+type LazyRejected =
+	Rejected<"lazy quantifiers are not admitted; membership needs no match preference">
 
 /**
  * The rewritten literal escape `\` E, with R what follows E: the replacement, what remains, and whether to widen; or
@@ -573,14 +683,44 @@ type Scan<
 		? [Out, Widened<"lastEnd" extends F ? F : F | "openEdge">]
 		: "too long"
 	: S extends `${infer C}${infer R}`
-		? [K] extends [ClassFlag]
-			? InClass<C, R, Out, K, Depth, F, [...Spent, 0]>
-			: "atArm" extends F
-				? C extends "^"
-					? Outside<C, R, Out, Depth, F, [...Spent, 0]>
-					: Outside<C, R, Out, Depth, Exclude<F, "atArm"> | "openEdge", [...Spent, 0]>
-				: Outside<C, R, Out, Depth, F, [...Spent, 0]>
+		? [StepRejected<C, R, [K] extends [ClassFlag] ? true : false>] extends [never]
+			? [K] extends [ClassFlag]
+				? InClass<C, R, Out, K, Depth, F, [...Spent, 0]>
+				: "atArm" extends F
+					? C extends "^"
+						? Outside<C, R, Out, Depth, F, [...Spent, 0]>
+						: Outside<C, R, Out, Depth, Exclude<F, "atArm"> | "openEdge", [...Spent, 0]>
+					: Outside<C, R, Out, Depth, F, [...Spent, 0]>
+			: StepRejected<C, R, [K] extends [ClassFlag] ? true : false>
 		: [Out, Widened<"lastEnd" extends F ? F : F | "openEdge">]
+
+/**
+ * The refusal of the step at C, R what follows it, inside a class or not, of a construct outside PostgreSQL's regex
+ * fragment that ArkRegex parses, which the compiler's grammar check refuses as UnsupportedOperation (scalar/regex/parse.ts),
+ * read before the step: NUL spelled; an escape EscapeRejected refuses; outside a class, a group GroupRejected refuses
+ * and a lazy quantifier. Never for any other step, which the scan reads.
+ */
+type StepRejected<C extends string, R extends string, Classed extends boolean> = C extends "\u0000"
+	? NulRejected
+	: C extends "\\"
+		? R extends `${infer E}${infer R2}`
+			? EscapeRejected<E, R2, Classed>
+			: never
+		: Classed extends true
+			? never
+			: C extends "("
+				? R extends `?${infer G}`
+					? GroupRejected<G>
+					: never
+				: C extends "*" | "+" | "?"
+					? R extends `?${string}`
+						? LazyRejected
+						: never
+					: C extends "{"
+						? CountedBounds<R> extends Counted<string, `?${string}`>
+							? LazyRejected
+							: never
+						: never
 
 /** Whether the inference widens, from the facts at the end of the source. */
 type Widened<F extends Fact> = "widen" extends F
