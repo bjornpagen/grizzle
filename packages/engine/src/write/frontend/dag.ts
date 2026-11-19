@@ -1,3 +1,4 @@
+import { sameOrder } from "#compiler/core/array.ts"
 import { allocatedKinds, ExprId, NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -179,10 +180,6 @@ export class GlueBuilder {
 	}
 }
 
-/** Whether two lists hold the same items, position by position. */
-const sameItems = <A>(a: ReadonlyArray<A>, b: ReadonlyArray<A>): boolean =>
-	a.length === b.length && a.every((x, i) => b[i] === x)
-
 /**
  * `root` applied to a source: every InputSet that reads the relation parameter `param` read as the source `source`
  * builds for that InputSet's heading instead, as a writable entry's fill is applied to the sources that fill it. The
@@ -229,8 +226,8 @@ export const substitute = (
 			node.kind === "Recursive" &&
 			node.termination.premises.some((p) => p.kind === "node" && replaced.has(p.node))
 		return !names &&
-			sameItems(edgesOf(node), edgesOf(spec)) &&
-			sameItems(exprsOf(node), exprsOf(spec))
+			sameOrder(edgesOf(node), edgesOf(spec)) &&
+			sameOrder(exprsOf(node), exprsOf(spec))
 			? node
 			: relNode(node.id, spec)
 	})
