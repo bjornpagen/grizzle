@@ -1324,9 +1324,18 @@ const undoneAlone =
 			return ran
 		})
 
+/**
+ * When the connection's transaction began, as text: transaction_timestamp, the start of the transaction the statement
+ * runs in, which a case that ends its transaction moves, whatever begins after it. It names the case's transaction
+ * without giving it a transaction id: a case that never writes holds none, and a logical slot's making waits for every
+ * transaction holding one when it starts (PostgreSQL's snapbuild.c SnapBuildWaitSnapshot), so a held id would hold up
+ * every live source made on the cluster for the case's whole length.
+ */
+const transactionBegan = bare("SELECT pg_catalog.transaction_timestamp()::text")
+
 /** The statements that end a case's transaction and put the session back as it was opened. */
 const caseEnd = Object.freeze({
-	xid: bare("SELECT pg_catalog.pg_current_xact_id_if_assigned()::text"),
+	began: transactionBegan,
 	rolledBack: bare("ROLLBACK"),
 	discarded: bare("DISCARD ALL")
 })
@@ -1339,15 +1348,15 @@ const firstText = (answer: RawAnswer): Option.Option<string> =>
 	)
 
 /**
- * After a case on a held connection, in one exchange: whether the case ended its transaction (its transaction id is no
- * longer the connection's), the transaction rolled back, every sequence put back, the session discarded (DISCARD ALL:
+ * After a case on a held connection, in one exchange: whether the case ended its transaction (the connection's
+ * transaction began after `began`, the case's, transactionBegan), the transaction rolled back, every sequence put back, the session discarded (DISCARD ALL:
  * settings, prepared statements, advisory locks, temporary tables, listens), and `clean`'s report of the clone. A case
  * that ended its transaction, or after which the clone is not clean or could not be reset, fails, and its clone is
  * replaced.
  */
 const endedTransaction = (
 	held: HeldTransactions,
-	xid: string,
+	began: string,
 	holding: Ref.Ref<Option.Option<HeldTransactions>>,
 	clean: Option.Option<Check>
 ): Effect.Effect<void> =>
@@ -1355,7 +1364,7 @@ const endedTransaction = (
 		const settled = yield* Effect.result(
 			Effect.gen(function* () {
 				const answers = yield* held.connection.exchange([
-					caseEnd.xid,
+					caseEnd.began,
 					caseEnd.rolledBack,
 					...Option.toArray(Option.map(held.sequences, bare)),
 					caseEnd.discarded,
@@ -1367,7 +1376,9 @@ const endedTransaction = (
 					onNone: () => [],
 					onSome: (check) => check.read(Arr.lastNonEmpty(answered).rows)
 				})
-				return still === xid ? left : [`the case ended its transaction ${xid}`, ...left]
+				return still === began
+					? left
+					: [`the case ended its transaction, begun at ${began}`, ...left]
 			})
 		)
 		if (Result.isSuccess(settled) && settled.success.length === 0) {
@@ -1390,11 +1401,11 @@ const endedTransaction = (
 
 /**
  * The statements that begin a case's transaction, SERIALIZABLE as every grizzle write requires whatever its clone's
- * database defaults hold (a derived template's clone has none of the base's), and read the transaction id it is given.
+ * database defaults hold (a derived template's clone has none of the base's), and read when it began (transactionBegan).
  */
 const caseStart: Arr.NonEmptyReadonlyArray<PgStatement> = [
 	bare(beginSerializable),
-	bare("SELECT pg_catalog.pg_current_xact_id()::text")
+	transactionBegan
 ]
 
 /**
@@ -1431,8 +1442,8 @@ const rolledBackCases = <T>(
 					),
 					failed
 				)
-				const xid = Option.getOrElse(firstText(Arr.lastNonEmpty(begun)), () => "")
-				yield* Effect.addFinalizer(() => endedTransaction(held, xid, holding, clean))
+				const began = Option.getOrElse(firstText(Arr.lastNonEmpty(begun)), () => "")
+				yield* Effect.addFinalizer(() => endedTransaction(held, began, holding, clean))
 				const allocations = yield* Ref.make(0)
 				const binding = { cluster: held.cluster, database: held.database }
 				const connection = exchanging(held.connection.processId, undoneAlone(held.connection))

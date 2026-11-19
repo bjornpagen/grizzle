@@ -75,7 +75,11 @@ export const seated = property.explore(int(1, 4), {
 	]
 })
 
-/** One owner transaction a case on the worker's own clone, rolled back after it, so the next finds no row of it. */
+/**
+ * One owner transaction a case on the worker's own clone, rolled back after it, so the next finds no row of it, and
+ * holding no transaction id until the case writes: a logical slot's making waits for every transaction holding one
+ * (substrate.ts transactionBegan), so a case's transaction holds one only once its own write assigns it.
+ */
 export const rolledBack = property.explore(int(1, 4), {
 	needs: { work: Substrate.rolledBack(workTemplate) },
 	situations: [],
@@ -84,11 +88,29 @@ export const rolledBack = property.explore(int(1, 4), {
 		(rows) =>
 			Effect.gen(function* () {
 				const { connection, value } = yield* work
+				const assigned = yield* connection.queryValues(
+					"SELECT pg_catalog.pg_current_xact_id_if_assigned()::text",
+					[]
+				)
+				assert.deepEqual(
+					assigned,
+					[[null]],
+					"a case's transaction holds no transaction id before the case writes"
+				)
 				yield* writtenAccounts(connection, value, rows)
 			}),
-	oracle: { kind: "specification", name: "a rolled-back case leaves its clone as its template" },
+	oracle: {
+		kind: "specification",
+		name: "a rolled-back case leaves its clone as its template, and holds no transaction id it did not write for"
+	},
 	kept: [],
 	kills: [
+		{
+			file: "test/support/substrate/substrate.ts",
+			original: 'const transactionBegan = bare("SELECT pg_catalog.transaction_timestamp()::text")',
+			replacement: 'const transactionBegan = bare("SELECT pg_catalog.pg_current_xact_id()::text")',
+			why: "A case's transaction is named by its transaction id, read as it begins, as before: every rolled-back case holds one for its whole length, and a logical slot's making waits for it (EVALCOMPILE2's decoder-derivation: the slot's making held up behind rolled-back cases); this property fails."
+		},
 		{
 			file: "packages/engine/src/physical/install/compile.ts",
 			original: "\t\tconst level = owned.levels[login.base.levels.length - 1]",

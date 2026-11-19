@@ -73,8 +73,8 @@ export const caseTransactionIsolation = property.exhaust(finite(word(plantingWor
 		},
 		{
 			file: "test/support/substrate/substrate.ts",
-			original: `\t\t\t\treturn still === xid ? left : [\`the case ended its transaction \${xid}\`, ...left]`,
-			replacement: "\t\t\t\treturn left",
+			original: "\t\t\t\treturn still === began\n\t\t\t\t\t? left\n",
+			replacement: "\t\t\t\treturn true\n\t\t\t\t\t? left\n",
 			why: "A case that ends its transaction (a COMMIT sent as text) is not caught, so what it committed outlives it."
 		}
 	]
