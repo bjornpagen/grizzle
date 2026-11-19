@@ -757,6 +757,11 @@ export interface Tap {
 	 * connection is no session.
 	 */
 	readonly sessions: () => ReadonlyArray<WireWindow>
+	/**
+	 * Resolves once `holds` holds of every session's traffic (`sessions`): judged at once, and again after each message
+	 * any session sends or receives, so a wait for traffic waits on the traffic itself, never on a timer.
+	 */
+	readonly until: (holds: (sessions: ReadonlyArray<WireWindow>) => boolean) => Effect.Effect<void>
 	/** Every notification (a NotificationResponse) any session received, in the order they arrived. */
 	readonly notifications: () => ReadonlyArray<NotificationResponse>
 	/** What each session's startup packet asked, in the order of `sessions`: none for one whose packet has not come. */
@@ -798,6 +803,25 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 	let cancelPath: "through" | "partitioned" = "through"
 	/** The flight waiting for its first message, none when every flight made has named its session or been released. */
 	let waiting: PendingFlight | undefined = undefined
+	/** The waits of `until` whose traffic has not come yet, each judged again after every message recorded. */
+	const awaited: Array<{
+		readonly holds: (sessions: ReadonlyArray<WireWindow>) => boolean
+		readonly done: Deferred.Deferred<void>
+	}> = []
+	/** Ends every wait of `until` whose traffic has come. */
+	const judge = (): void => {
+		if (awaited.length === 0) {
+			return
+		}
+		const sessions = Arr.map(logs, (log) => windowOf(log))
+		for (const wait of awaited.splice(0)) {
+			if (wait.holds(sessions)) {
+				Deferred.doneUnsafe(wait.done, Exit.void)
+			} else {
+				awaited.push(wait)
+			}
+		}
+	}
 	let recording = false
 	let cancels = 0
 	let ended = 0
@@ -869,6 +893,7 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 					side: "backend",
 					message: { type, status: type === "Z" ? cString(body, 0) : "" }
 				})
+				judge()
 				if (type === "A") {
 					const channel = cString(body, 4)
 					notifications.push({ channel, payload: cString(body, body.indexOf(0, 4) + 1) })
@@ -900,6 +925,7 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 					written = []
 					frontend(chunk)
 					log.push({ side: "frontend", messages: written })
+					judge()
 					const startup = at === undefined ? undefined : startups[at]
 					const flight = waiting
 					if (
@@ -932,6 +958,13 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 		mark: () => events.length,
 		since: (mark) => windowOf(events.slice(mark)),
 		sessions: () => Arr.map(logs, (log) => windowOf(log)),
+		until: (holds) =>
+			Effect.suspend(() => {
+				const done = Deferred.makeUnsafe<void>()
+				awaited.push({ holds, done })
+				judge()
+				return Deferred.await(done)
+			}),
 		notifications: () => [...notifications],
 		startups: () => [...startups],
 		cancels: () => cancels,
@@ -983,7 +1016,7 @@ export interface TapOptions {
 }
 
 /** A tapped session: the one session its tap carries, gated by the tap's gates. */
-export interface Tapped extends Omit<Tap, "transport" | "flight"> {
+export interface Tapped extends Omit<Tap, "transport" | "flight" | "until"> {
 	readonly session: Session
 }
 

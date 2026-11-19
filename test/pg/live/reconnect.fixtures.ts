@@ -18,7 +18,6 @@ export type Feature =
 	| "a drop before its first answer"
 	| "a drop after COMMIT's answer"
 	| "a drop part way through its first flight"
-	| "a call refused before the slot stood"
 
 export const bounds: LiveBounds = {
 	groups: 3,

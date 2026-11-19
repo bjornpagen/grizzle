@@ -204,16 +204,6 @@ export const watched = (file: ServedLogin<AnyLogin>, token: string, name: string
 		)
 	})
 
-/**
- * A watch's answer once the installation's live source stands: its leader makes the replication slot at the layer's
- * first watch, and until the slot stands a watch is `unavailable`, retried `safe`, which a caller sends again as it is
- * meant to, so `watch` is sent again while `unavailable` says its answer is that.
- */
-export const sourced = <A, E, R>(
-	watch: Effect.Effect<A, E, R>,
-	unavailable: (answer: A) => boolean
-): Effect.Effect<A, E, R> => Effect.repeat(watch, { while: unavailable })
-
 /** The error a call's raw answer ends with, its events being exactly that error and its end. */
 export const rawError = (events: ReadonlyArray<RawEvent>) => {
 	assert.deepEqual(

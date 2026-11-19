@@ -79,18 +79,21 @@ export type RouteKey =
  * What the fan-out channel carries: a route key; that the installation's change source is lost, `before` the WAL
  * position the leader read where it found no slot standing, so every source opened on a slot that stood at a position
  * at or before it reads no later change of any table and every live program's stream on it ends, while one opened on a
- * slot made since stands past it and is no source this invalidation names; or that the installation was migrated, a
- * row of a migrations ledger written, so every served file of it is stale and every live program's stream ends
- * `stale`.
+ * slot made since stands past it and is no source this invalidation names; that the installation's slot stands, which
+ * each leader sends once it holds the slot, made or found, so a source waiting for the slot checks it again; or that
+ * the installation was migrated, a row of a migrations ledger written, so every served file of it is stale and every
+ * live program's stream ends `stale`.
  */
 export type Notification =
 	| RouteKey
 	| { readonly kind: "invalidated"; readonly before: WalPosition }
+	| { readonly kind: "stands" }
 	| { readonly kind: "migrated" }
 
 /**
  * The text of a notification: `<table>:<column>=<value>` for a keyed key, `<table>:` for a table's,
- * `:invalidated=<position>` for the lost source, its WAL position in decimal, and `:migrated` for a migration, led by
+ * `:invalidated=<position>` for the lost source, its WAL position in decimal, `:stands` for the slot standing, and
+ * `:migrated` for a migration, led by
  * `:` where every key's text is led by its table's identifier. An installed
  * identifier holds neither `:` nor `=`, so the first of each ends the name before it, the value is the rest, and no two
  * notifications share a text. No text holds NUL: no identifier does, and no PostgreSQL text value can.
@@ -99,6 +102,8 @@ export const notificationText = (notification: Notification): string => {
 	switch (notification.kind) {
 		case "invalidated":
 			return `${invalidatedLead}${notification.before}`
+		case "stands":
+			return ":stands"
 		case "migrated":
 			return ":migrated"
 		case "table":
@@ -176,7 +181,7 @@ const isInstalledIdentifier = (text: string): boolean => {
 
 /**
  * The notification a text spells (`notificationText`), or what it parts from the grammar at: `:invalidated=` and a WAL
- * position, `:migrated` whole, or a table's
+ * position, `:stands` or `:migrated` whole, or a table's
  * identifier and `:`, then nothing for the table's key, or a column's identifier, `=` and the value.
  */
 export const parseNotification = (text: string): Result.Result<Notification, LiveTextRefused> => {
@@ -186,6 +191,9 @@ export const parseNotification = (text: string): Result.Result<Notification, Liv
 			before
 		}))
 	}
+	if (text === ":stands") {
+		return Result.ok({ kind: "stands" })
+	}
 	if (text === ":migrated") {
 		return Result.ok({ kind: "migrated" })
 	}
@@ -194,7 +202,7 @@ export const parseNotification = (text: string): Result.Result<Notification, Liv
 	if (colon < 0 || !isInstalledIdentifier(table)) {
 		return refused(
 			text,
-			"':invalidated=' and a WAL position, ':migrated', or an installed table's identifier, then ':'"
+			"':invalidated=' and a WAL position, ':stands', ':migrated', or an installed table's identifier, then ':'"
 		)
 	}
 	const route = text.slice(colon + 1)

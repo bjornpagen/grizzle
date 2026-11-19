@@ -1,10 +1,5 @@
-import { Cause, Effect, Exit, Option, Result, type Scope } from "effect"
-import {
-	ListenerLost,
-	SlotAbsent,
-	SourceInvalidated,
-	SourceMigrated
-} from "#adapter/errors/failures.ts"
+import { Cause, Deferred, Effect, Exit, Option, Result, type Scope } from "effect"
+import { ListenerLost, SourceInvalidated, SourceMigrated } from "#adapter/errors/failures.ts"
 import {
 	type Candidacy,
 	candidacy,
@@ -15,7 +10,7 @@ import {
 	secretOf,
 	slotCheckOf
 } from "#adapter/live/leader.ts"
-import type { ChangeSink, ChangeSource } from "#adapter/live/source.ts"
+import type { ChangeSink, ChangeSource, SourceRefusal } from "#adapter/live/source.ts"
 import { preparedStatement } from "#adapter/wire/batch.ts"
 import { connectListener, type LoginConnection } from "#adapter/wire/session.ts"
 import {
@@ -33,10 +28,14 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  * (live/leader.ts), which a source's open starts where none runs, in the live source's scope, and whose end, of any
  * kind, loses the source it last opened (leading).
  *
- * An open reads the installation's secret, sends the LISTEN, then checks the slot: a slot that does not stand refuses
- * the open, since a read begun before the slot stands could miss a change no slot decodes; one that stands means every
- * change committed from then on is decoded, and its keys fanned out once visible (live/leader.ts), which is the
- * source's contract. Each payload of the channel is opened under the secret: one that does not open is no sender's of
+ * An open reads the installation's secret, sends the LISTEN, then checks the slot: one that stands means every change
+ * committed from then on is decoded, and its keys fanned out once visible (live/leader.ts), which is the source's
+ * contract. A slot that does not stand yet holds the open, since a read begun before the slot stands could miss a change
+ * no slot decodes: it waits for the next `stands` a leader fans out once it holds the slot, the process's own candidacy
+ * among them, which the open starts where none runs, and checks again. The LISTEN comes before each check, so a slot
+ * made after a check is one whose `stands` the open hears, and the open waits on nothing but that: it checks the slot
+ * once, and once more for each `stands` it hears, however long the slot takes to make. A copy of `stands` is a check
+ * more, never an open on a slot that does not stand, since the check, not the notification, decides. Each payload of the channel is opened under the secret: one that does not open is no sender's of
  * the installation, and is dropped, so no forged payload names a key; each notification of one that opens is routed,
  * `invalidated` losing the source with SourceInvalidated and `migrated` with SourceMigrated, which ends every live read
  * of the layer, a constant read's as a routed one's. The session's end loses it with ListenerLost. The source
@@ -207,6 +206,8 @@ export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never,
 							| { readonly kind: "listening"; readonly secret: LiveSecret; readonly seen: SlotSeen }
 							| { readonly kind: "over" }
 					} = { current: { kind: "opening" } }
+					/** Completed by the next `stands` heard: the open's wait for a slot that did not stand at its check. */
+					const stands = { next: Deferred.makeUnsafe<void>() }
 					const lose = (reason: ListenerLost | SourceInvalidated | SourceMigrated): void => {
 						if (state.current.kind !== "over") {
 							state.current = { kind: "over" }
@@ -240,6 +241,9 @@ export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never,
 											state.current = { ...listening, seen: turn.seen }
 											break
 										}
+										case "stands":
+											Deferred.doneUnsafe(stands.next, Effect.void)
+											break
 										case "migrated":
 											lose(new SourceMigrated())
 											return
@@ -266,14 +270,21 @@ export const fanoutSource = (fanout: Fanout): Effect.Effect<ChangeSource, never,
 						}
 					}
 					yield* alone(session, preparedStatement(fanout.source.listen, []))
-					const checked = yield* alone(session, preparedStatement(fanout.source.check, [slot]))
-					const check = slotCheckOf(checked)
-					if (check.kind === "absent") {
-						return yield* new SlotAbsent()
-					}
+					const standing: Effect.Effect<WalPosition, SourceRefusal> = Effect.gen(function* () {
+						const heard = stands.next
+						const checked = yield* alone(session, preparedStatement(fanout.source.check, [slot]))
+						const check = slotCheckOf(checked)
+						if (check.kind === "stands") {
+							return check.at
+						}
+						yield* Deferred.await(heard)
+						stands.next = Deferred.makeUnsafe<void>()
+						return yield* standing
+					})
+					const at = yield* standing
 					const listening = state.current
 					if (listening.kind === "listening" && listening.seen.kind === "unchecked") {
-						const turn = checkedSlot(listening.seen, check.at)
+						const turn = checkedSlot(listening.seen, at)
 						if (turn.lost) {
 							lose(new SourceInvalidated())
 						} else {

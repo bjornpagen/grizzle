@@ -3,7 +3,6 @@ import type {
 	ConnectRefusal,
 	ListenerLost,
 	ServerError,
-	SlotAbsent,
 	SourceInvalidated,
 	SourceMigrated
 } from "#adapter/errors/failures.ts"
@@ -13,15 +12,14 @@ import type { RouteKey } from "#compiler/plan/runtime.ts"
 
 /**
  * Why a change source did not open: its session's connection refused, its server's refusal of a statement, a session
- * that failed under one, an answer it cannot read, a secret that is no key, or a slot that does not stand yet
- * (SlotAbsent) or no longer does (SourceInvalidated).
+ * that failed under one, an answer it cannot read, a secret that is no key, or a slot that no longer stands
+ * (SourceInvalidated). A slot that does not stand yet is none: the open waits for it.
  */
 export type SourceRefusal =
 	| ConnectRefusal
 	| ServerError
 	| ApartFailure
 	| SecretUnreadable
-	| SlotAbsent
 	| SourceInvalidated
 
 /**

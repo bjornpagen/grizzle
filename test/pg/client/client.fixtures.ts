@@ -75,7 +75,6 @@ export type Feature =
 	| "a write accepted"
 	| "a write unchanged"
 	| "a live change reaching the client"
-	| "a watch called again once the slot stood"
 
 const ids = Object.freeze(Arr.range(1, 10))
 

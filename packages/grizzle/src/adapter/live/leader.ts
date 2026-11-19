@@ -69,7 +69,9 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  * read (live/notify.ts WalPosition), since a slot made now holds no change from before it, so a live read registered
  * over an earlier slot must end, and none registered over the slot it then makes: that slot stands past the position
  * (live/listen.ts heardInvalidation). Then it makes the slot, which fails
- * where an invalidated one still stands; then streams the slot from the position it last confirmed. Each transaction arrives whole at its commit (live/pgoutput.ts, live/changes.ts), and a round takes every
+ * where an invalidated one still stands. Holding the slot, made or found, it fans out `stands`, which releases every
+ * source waiting for the slot (live/listen.ts), a candidacy that made the slot and ended before it said so among them,
+ * since the next one says so; then streams the slot from the position it last confirmed. Each transaction arrives whole at its commit (live/pgoutput.ts, live/changes.ts), and a round takes every
  * transaction that arrived while the round before it ran, so rounds are paced by the stream and the fan-out alone:
  *
  * 1. visible: a snapshot taken now (engine live/replication.ts Snapshot), each of the round's transactions placed in it
@@ -545,8 +547,8 @@ const streamed = (
 
 /**
  * One candidacy (see the header): its two sessions, the lock waited for on the replication connection and its
- * deadline read there, the slot made where none stands and `invalidated` fanned out for it, the secret read, then the
- * stream and its rounds under the deadline, until either fails or the deadline passes.
+ * deadline read there, the slot made where none stands and `invalidated` fanned out for it, the secret read, `stands`
+ * fanned out, then the stream and its rounds under the deadline, until either fails or the deadline passes.
  */
 export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason> =>
 	Effect.scoped(
@@ -571,6 +573,7 @@ export const candidacy = (running: Candidacy): Effect.Effect<never, LeaderReason
 				yield* fanout(leading, [{ kind: "invalidated", before: check.now }])
 				yield* replication.run(running.createSlot)
 			}
+			yield* fanout(leading, [{ kind: "stands" }])
 			const delivered: Delivered = {
 				transactions: [],
 				keepalive: undefined,

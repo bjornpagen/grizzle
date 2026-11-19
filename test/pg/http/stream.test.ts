@@ -72,9 +72,7 @@ export const aCallOverHTTPAnswersTheInProcessCallsEventsAndLeavesNothingBehindWh
 							const body = bodyOf(call)
 							if (calls.shape === "set" || calls.shape === "list") {
 								const live = calls
-								if ((yield* standing(() => live.watch(body))) > 0) {
-									notes.note("a read called again once the slot stood")
-								}
+								yield* standing(live.watch(body))
 							}
 							const handled = answers(
 								new Request(`${origin}/${login.name}/${role.role}/${call.member}`, {

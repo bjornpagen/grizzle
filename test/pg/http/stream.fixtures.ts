@@ -82,7 +82,6 @@ export type Feature =
 	| "a write unchanged"
 	| "a live change reaching both answers"
 	| "a disconnect while live"
-	| "a read called again once the slot stood"
 
 const ids = Object.freeze(Arr.range(1, 12))
 

@@ -3,8 +3,8 @@
  * however many of its changes reached it, and no other.
  *
  * Each case draws a live world (test/support/live/world.ts) and installs it as generate drafts it, its live source
- * among its objects (test/support/live/harness.ts), its live source made to stand first by the probe's watch, called
- * again while it is refused for a slot the leader has not made yet (test/support/live/standing.ts standingOn). Every
+ * among its objects (test/support/live/harness.ts), its live source made to stand first by the probe's watch, which
+ * answers once the leader has made the slot (test/support/live/standing.ts standingOn). Every
  * subscription is registered in process on watch's own path
  * (adapter/db/handles.ts liveRead) and read to its first `ready`, and then re-runs only when the suite turns it (the
  * registration's turn: a clean subscription runs nothing, a marked one re-runs exactly once), so what a commit's

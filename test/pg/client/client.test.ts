@@ -165,9 +165,7 @@ export const theClientOverHTTPAnswersWhatTheInProcessCallsAnswerValuesExactlyAsT
 												call.member === "atLeast"
 													? { params: { floor: call.floor }, facts: {} }
 													: { params: { id: call.id }, facts: {} }
-											if ((yield* standing(() => here.watch(input))) > 0) {
-												notes.note("a watch called again once the slot stood")
-											}
+											yield* standing(here.watch(input))
 											const remoteOnce =
 												call.member === "atLeast"
 													? yield* overHttp(
@@ -224,9 +222,7 @@ export const theClientOverHTTPAnswersWhatTheInProcessCallsAnswerValuesExactlyAsT
 												facts: {},
 												window: { anchor: { kind: call.from }, size: call.size }
 											}
-											if ((yield* standing(() => here.watch(input))) > 0) {
-												notes.note("a watch called again once the slot stood")
-											}
+											yield* standing(here.watch(input))
 											const remoteOnce = yield* overHttp(client.app.ranked.once(input))
 											const localOnce = yield* here.once(input)
 											const remoteRows: ReadonlyArray<object> = [...remoteOnce]

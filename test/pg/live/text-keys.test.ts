@@ -8,7 +8,7 @@
  * Each case installs, as generate drafts it, a schema of `Note { id, tag }`, `tag` an unbounded text, served by a login
  * whose role reads `tagged` (the notes of the text `tag`, routed by `tag`), `all` (every note's id and tag), and
  * `probeAt` (the fence's Probe row of `id`), and writes `add`; its live source made to stand first by a watch of `all`,
- * called again while it is refused for a slot the leader has not made yet (test/support/live/standing.ts standingOn).
+ * which answers once the leader has made the slot (test/support/live/standing.ts standingOn).
  * Each drawn text's subscription to `tagged` is registered in process and read to its first ready, empty; then one
  * grizzle call of `add` stores a note of each text, and a fence (routing.test.ts): a Probe row committed after it, its
  * own probe registered before and awaited until the row's change marks it, by when every notification of the call's

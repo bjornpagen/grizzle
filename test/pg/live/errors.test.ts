@@ -52,14 +52,13 @@ import {
 	outcomeKind,
 	provokedGen,
 	rawError,
-	sourced,
 	watched
 } from "#test/pg/live/errors.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
-import { errorOf, liveSurfaces, wireOf } from "#test/support/live/calls.ts"
+import { liveSurfaces, wireOf } from "#test/support/live/calls.ts"
 import { commitDirectly, insertRow, updateRow } from "#test/support/live/direct.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -208,34 +207,20 @@ export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCal
 										const input = { params: { tag: p.tag }, facts: {} }
 										if (p.overHttp) {
 											return Effect.map(
-												sourced(
-													surfaces.raw({
-														method: "POST",
-														path: "/app/writer/tagged",
-														headers: {
-															authorization: `Bearer ${token}`,
-															"grizzle-wire": wireOf(file, "writer", "tagged")
-														},
-														body: jsonText(input)
-													}),
-													(events) =>
-														Arr.some(
-															events,
-															(e) => e.type === "error" && errorOf(e).kind === "unavailable"
-														)
-												),
+												surfaces.raw({
+													method: "POST",
+													path: "/app/writer/tagged",
+													headers: {
+														authorization: `Bearer ${token}`,
+														"grizzle-wire": wireOf(file, "writer", "tagged")
+													},
+													body: jsonText(input)
+												}),
 												(events) => rawError(events).kind
 											)
 										}
 										return Effect.map(
-											sourced(
-												Effect.provideContext(watched(file, token, "tagged", input), dbContext),
-												(events) =>
-													Arr.some(
-														events,
-														(e) => e.kind === "error" && e.error.kind === "unavailable"
-													)
-											),
+											Effect.provideContext(watched(file, token, "tagged", input), dbContext),
 											(events) => {
 												const [only, ...more] = events
 												assert.ok(

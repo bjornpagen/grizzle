@@ -64,7 +64,6 @@ export type CredentialReason = (typeof credentialReasons)[number]
  *   listening session ended, the transport lost its connection, a fan-out's COMMIT went
  *   unanswered, or its leader's replication stream sent nothing past its deadline (a session the server ended with
  *   its report reads by that report's SQLSTATE instead, 57P01 as `serverDown`);
- * - `slotAbsent`: the installation's replication slot does not stand yet: its live leader makes it;
  * - `slotInvalidated`: the installation's replication slot was invalidated: its live leader makes it again;
  * - `leaderFailed`: the process's candidacy for the installation's live leader failed with no connection's refusal,
  *   no server's report and no lost session as its cause: an answer, a message or a secret it cannot read, a statement
@@ -80,7 +79,6 @@ export const unavailableCauses = [
 	"tooManyConnections",
 	"layerReleased",
 	"sessionLost",
-	"slotAbsent",
 	"slotInvalidated",
 	"leaderFailed"
 ] as const
