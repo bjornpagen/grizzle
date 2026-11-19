@@ -243,7 +243,10 @@ breaking change may briefly break older application instances that are still run
   own `ADD CONSTRAINT`. A family new to a table that may hold rows is backfilled here: its columns are added under
   placeholder defaults, `SET CONSTRAINTS ALL IMMEDIATE`, SQL over the stored rows draws each index, count, fold value
   and interval (window functions, and one recursive step for a tree), each default is dropped, and only then are the
-  constraints that read them added, `NOT VALID`, for Validate to prove the values. A field whose filler changed (its
+  constraints that read them added, `NOT VALID`, for Validate to prove the values. A place added to stored rows is
+  backfilled the same way, numbered within its group by its `by`, and so is a column a containment carries into stored
+  rows where the previous installation's containment over the same tables named each row's parent: it takes that row's
+  value, then its NOT NULL (re-keying a child by its parent's place needs no data step). A field whose filler changed (its
   fold steps over another field, its copy reads another field, its family's group or order changed) is dropped and
   backfilled the same way: `snapshot.json` records what fills each drawn or accumulated field. An ordered family's
   or a tree's index is the exception: a stored index is the caller's order, so when only the family's group changes

@@ -53,6 +53,11 @@ import {
  * - **Places:** a place a migration adds to stored rows (ir/instant.ts PlaceHead) numbers each group's rows from 0 in its
  *   `by`'s order, ‹n› = row_number() OVER (PARTITION BY its group ORDER BY `by`) − 1, total by the key the classifier
  *   demands within the group and `by`, and the inserts after it stamp on from the group's greatest.
+ * - **Carried:** a column a migration adds to stored rows that a containment of the target carries from another table
+ *   (Carry, deploy/diff/diff.ts carryOf) takes, on each row, the value of the row the previous installation's
+ *   containment named, read off one sorted stream of both tables at that containment's columns, as a copy is; then its
+ *   NOT NULL is set. A re-key that moves a child's reference from one key of its parent to another keeps every row
+ *   at the parent row it named.
  *
  * Each of these is a derivation (Derivation): rows computed apart from the table it draws on, each meeting a row of the
  * table at a key the table stores. A derivation reads every column another draws as that one draws it, and is placed
@@ -179,14 +184,33 @@ export interface BackfilledTable {
 /** Each table's columns the backfill draws, by table key (nameKey). */
 export type Backfilled = ReadonlyMap<NameKey, BackfilledTable>
 
+/**
+ * A column a migration adds to stored rows that a containment of the target carries into another table's column
+ * (deploy/diff/diff.ts carryOf): `column` of `table`, of base type `base`, added with no NOT NULL and no default, which
+ * each stored row takes from `value` of the row of `source` the previous installation's containment named, the row
+ * met where `targetKey` on `table` equals `sourceKey` on `source`, pair for pair, a key of `source`'s stored rows; then
+ * its NOT NULL is set. Every stored row is met, since the previous containment held of every row it read from.
+ */
+export interface Carry {
+	readonly table: ObjectName
+	readonly column: string
+	readonly base: TypeRef
+	readonly source: ObjectName
+	readonly value: string
+	readonly targetKey: NonEmptyReadonlyArray<string>
+	readonly sourceKey: NonEmptyReadonlyArray<string>
+}
+
 /** What the backfill of a migration reads besides its target: the previous snapshot's theory, which names the key the
- * stored rows of a relation are distinct by; whether a table of the target holds rows before the migration; and the
- * columns it draws, added under their placeholder defaults or drawn again in place (BackfilledTable). */
+ * stored rows of a relation are distinct by; whether a table of the target holds rows before the migration; the
+ * columns it draws, added under their placeholder defaults or drawn again in place (BackfilledTable); and the columns a
+ * containment carries into stored rows (Carry). */
 export interface BackfillInput {
 	readonly installation: Installation
 	readonly previous: SnapshotTheory
 	readonly mayHoldRows: (table: ObjectName) => boolean
 	readonly drawn: Backfilled
+	readonly carried: ReadonlyArray<Carry>
 }
 
 /**
@@ -200,11 +224,12 @@ export interface KeyCheck {
 
 /** The SQL of a migration's backfill: the checks of the keys its derivations rely on (KeyCheck), the UPDATEs that draw
  * its families' values over the stored rows, in order, then the DROP DEFAULT of every column the migration added under
- * a placeholder. */
+ * a placeholder and the SET NOT NULL of every column a containment carries (Carry). */
 export interface Backfill {
 	readonly checks: ReadonlyArray<KeyCheck>
 	readonly updates: ReadonlyArray<SqlStatement>
 	readonly dropDefaults: ReadonlyArray<SqlStatement>
+	readonly notNulls: ReadonlyArray<SqlStatement>
 }
 
 const backfillLoc = SourceLoc("backfill", [])
@@ -1881,6 +1906,33 @@ const placeDerivation = (place: PlaceHead, table: ObjectName): Derivation => {
 	}
 }
 
+/**
+ * A carried column's derivation (Carry): each stored row of its table takes the value of the row of its source the
+ * previous containment named, read off one sorted stream of both tables met at the previous containment's columns
+ * (streamed), as a copy along an axis is.
+ */
+const carriedDerivation = (carry: Carry): Derivation => {
+	const carried = carriedOf([{ column: carry.column, value: col("s", carry.value) }])
+	return {
+		table: carry.table,
+		with: undefined,
+		core: streamed({
+			table: carry.table,
+			targetKey: mapNonEmpty(carry.targetKey, (c) => col("t", c)),
+			targetWhere: undefined,
+			source: carry.source,
+			sourceKey: mapNonEmpty(carry.sourceKey, (c) => col("s", c)),
+			sourceWhere: undefined,
+			values: carried.values
+		}),
+		set: carried.drawn,
+		reads: [
+			...cellsOf(carry.table, [...carry.targetKey, carry.column]),
+			...cellsOf(carry.source, [...carry.sourceKey, carry.value])
+		]
+	}
+}
+
 /** A column of a table the backfill draws or reads. */
 interface Cell {
 	readonly table: ObjectName
@@ -1904,10 +1956,12 @@ const drawsOf = (d: Derivation): ReadonlyArray<Cell> =>
 		d.set.map((x) => x.column)
 	)
 
-/** What a derivation draws the columns of, which a refusal names: a family, or a place (ir/instant.ts PlaceHead). */
+/** What a derivation draws the columns of, which a refusal names: a family, a place (ir/instant.ts PlaceHead), or a
+ * column a containment carries (Carry). */
 type Drawer =
 	| { readonly kind: "family"; readonly family: Family }
 	| { readonly kind: "place"; readonly place: PlaceHead }
+	| { readonly kind: "carried"; readonly carry: Carry }
 
 /** A derivation with what it draws the columns of (Drawer). */
 interface Planned {
@@ -1925,6 +1979,13 @@ const refuseDrawer = (drawer: Drawer, what: string): never => {
 				unsupported(
 					backfillLoc,
 					`backfilling the place ${drawer.place.relation}.${drawer.place.field.name} added to a relation that may hold rows: ${what}`
+				)
+			)
+		case "carried":
+			throw new Refusal(
+				unsupported(
+					backfillLoc,
+					`backfilling ${drawer.carry.table.name}.${drawer.carry.column}, which a containment carries from ${drawer.carry.source.name}.${drawer.carry.value}, added to a table that may hold rows: ${what}`
 				)
 			)
 	}
@@ -2203,8 +2264,16 @@ const passes = (
 	derivations: ReadonlyArray<Derivation>,
 	generationOf: (table: ObjectName) => TableGeneration,
 	columns: DrawnColumns,
+	carried: ReadonlyArray<Carry>,
 	redrawn: ReadonlySet<StoredColumnKey>
 ): ReadonlyArray<Update> => {
+	/** The base type of each column the backfill writes: a family's or a place's drawn column's, or a carried one's. */
+	const bases = new Map<StoredColumnKey, TypeRef>([
+		...[...columns].flatMap(([table, of]) =>
+			[...of].map(([column, d]) => [storedColumnKey(table, column), d.base] as const)
+		),
+		...carried.map((c) => [cellKey({ table: c.table, column: c.column }), c.base] as const)
+	])
 	const named = derivations.map((derivation, i): Named => ({
 		name: drawingName(i + 1),
 		derivation
@@ -2275,7 +2344,11 @@ const passes = (
 				derived(
 					staged(table, written, (column) => presented({ table, column }), {
 						kind: "changed",
-						base: (column) => columnAtCell({ table, column }).base
+						base: (column) =>
+							defined(
+								bases.get(cellKey({ table, column })),
+								`the backfill writes ${table.name}.${column}, a column it draws`
+							)
 					}),
 					"b",
 					[],
@@ -2491,6 +2564,9 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			planned.push({ drawer: { kind: "place", place }, derivation: placeDerivation(place, table) })
 		}
 	}
+	for (const carry of input.carried) {
+		planned.push({ drawer: { kind: "carried", carry }, derivation: carriedDerivation(carry) })
+	}
 	const checks = keyChecks(input, planned)
 	const dropDefaults = [...input.drawn.values()].flatMap(
 		({ table, added }): ReadonlyArray<SqlStatement> => {
@@ -2512,9 +2588,33 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			cellsOf(table, columns).map(cellKey)
 		)
 	)
+	const notNulls = [...Map.groupBy(input.carried, (c) => nameKey(c.table)).values()].flatMap(
+		(carries): ReadonlyArray<SqlStatement> => {
+			const [first, ...rest] = carries
+			return first === undefined
+				? []
+				: [
+						{
+							kind: "alterTable",
+							table: first.table,
+							actions: mapNonEmpty([first, ...rest], (c) => ({
+								kind: "setNotNull",
+								column: c.column
+							}))
+						}
+					]
+		}
+	)
 	return {
 		checks,
-		updates: passes(ordered(planned), generationOf, drawnColumns(installation), redrawn),
-		dropDefaults
+		updates: passes(
+			ordered(planned),
+			generationOf,
+			drawnColumns(installation),
+			input.carried,
+			redrawn
+		),
+		dropDefaults,
+		notNulls
 	}
 }

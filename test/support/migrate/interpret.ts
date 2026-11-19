@@ -2252,7 +2252,10 @@ class Model {
 	/** A stored cell as the evaluator reads it in a column of `type`: a set's bit string, a code, a text; undefined for
 	 * NULL; Unevaluable for a generated cell or a value of another kind. */
 	#cellValue(cell: Cell | undefined, type: TypeRef): SqlValue {
-		if (cell === undefined || cell.kind === "generated") {
+		if (cell === undefined) {
+			return undefined
+		}
+		if (cell.kind === "generated") {
 			return unevaluable("a cell the model does not hold")
 		}
 		const v = cell.value

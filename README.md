@@ -3312,7 +3312,12 @@ group's places are gapless from 0 with no law to state it and no count for a wri
   with a place (`written`).
 - **A migration that adds one** numbers each group's stored rows from 0 in `by`'s order, `row_number() OVER (PARTITION
   BY <group> ORDER BY <by>) - 1`, total by the key above, in its backfill ([Migrations](#migrations)), with no
-  placeholder; the inserts after it stamp on from each group's greatest.
+  placeholder; the inserts after it stamp on from each group's greatest. A child keyed by the parent's old key and
+  re-keyed by its place, `Attempt` from `(child, stage, package, item, at)` to `(child, package, item, n, at)` beside a
+  containment into `ItemSession`'s `(child, package, item, n)`, takes each row's `n` from the session its old
+  containment named: a column a migration adds to stored rows that a containment carries is drawn from the row the
+  previous installation's containment over the same table named, every other pair of the two containments alike, and
+  is the reviewer's placeholder only where there is none.
 
 ## Derived tables
 

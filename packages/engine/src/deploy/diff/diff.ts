@@ -37,6 +37,7 @@ import { type Aside, asideStatements } from "#compiler/deploy/diff/aside.ts"
 import {
 	type BackfilledTable,
 	backfillOf,
+	type Carry,
 	changedOver,
 	type DrawnColumns,
 	drawnColumns,
@@ -846,6 +847,9 @@ class Differ {
 		NameKey,
 		{ readonly table: ObjectName; readonly added: ReadonlyArray<string> }
 	>()
+	/** The columns this migration adds to tables that may hold rows that a containment carries from another table's
+	 * stored rows (carryOf), which the backfill draws and then sets NOT NULL. */
+	readonly carried: Array<Carry> = []
 	/** The privileges Structure grants again right after the world object it creates again (regrantWorld), by key
 	 * (privileges.ts HeldPrivilege), which Publish's grants leave out. */
 	readonly regranted = new Set<string>()
@@ -2298,17 +2302,105 @@ class Differ {
 		this.alter("structure", t, [this.addedField(t, c)])
 	}
 
-	/** The addition of a field to a table that may hold rows: a column its family draws under its placeholder default,
-	 * which the backfill overwrites (drawnColumn); a generated field by its expression, which computes every row; any
-	 * other by the reviewer's value for every row, at its placeholder. */
+	/** The addition of a field to a table that may hold rows: a column its family draws or a place, under its
+	 * placeholder default, which the backfill overwrites (drawnColumn); a column a containment carries from rows its
+	 * previous containment named, with no NOT NULL until the backfill draws it (carryOf); a generated field by its
+	 * expression, which computes every row; any other by the reviewer's value for every row, at its placeholder. */
 	addedField(t: ObjectName, c: ColumnDef): AlterTableAction {
 		const drawn = this.drawnColumn(t, c)
 		if (drawn !== undefined) {
 			return drawn
 		}
+		const carry = this.carryOf(t, c)
+		if (carry !== undefined) {
+			this.carried.push(carry)
+			return { kind: "addColumnUnchecked", column: c }
+		}
 		return c.generated === undefined
 			? { kind: "addColumnPlaceholder", column: c }
 			: { kind: "addColumn", column: c }
+	}
+
+	/**
+	 * The carry of `c`, a column this migration adds to `t`, a table that may hold rows (Carry): a foreign key of the
+	 * target from `t` holds `c` paired with a column of a table `s` that may hold rows, and a foreign key of the previous
+	 * installation from `t` into `s` holds every other pair of the target's and not `c`, over columns its tables keep
+	 * standing through the backfill, none generated. Every stored row of `t` then names one row of `s` by the previous
+	 * key, the one it was contained in, and takes that row's value, so the target's containment holds of it at the row it
+	 * named before; none where no such pair of keys is, and `c` is the reviewer's.
+	 */
+	carryOf(t: ObjectName, c: ColumnDef): Carry | undefined {
+		const kept = this.keptPlans.get(tableIdent(t))
+		if (c.generated !== undefined || kept === undefined || !this.mayHoldRows(t)) {
+			return undefined
+		}
+		const key = nameKey(t)
+		const pairsOf = (fk: ForeignKey): ReadonlyArray<readonly [string, string]> =>
+			fk.columns.map(
+				(k, i) => [k.column, defined(fk.referencedColumns[i], "a paired column").column] as const
+			)
+		/** Whether `columns` of `table` stand through the backfill, each a field of its stored rows, none generated. */
+		const standing = (table: ObjectName, columns: ReadonlyArray<string>): boolean => {
+			const plan = this.keptPlans.get(tableIdent(table))
+			return (
+				plan !== undefined &&
+				columns.every(
+					(name) =>
+						plan.table.old.columns.some((o) => o.name === name && o.generated === undefined) &&
+						!plan.drops.first.some((d) => d.name === name)
+				)
+			)
+		}
+		for (const o of this.next.values()) {
+			const v = installed(o)
+			if (v.kind !== "foreignKey" || nameKey(v.table) !== key) {
+				continue
+			}
+			const target = pairsOf(v.constraint)
+			const at = target.find(([from]) => from === c.name)
+			const source = v.constraint.references
+			if (at === undefined || !this.mayHoldRows(source)) {
+				continue
+			}
+			const others = target.filter(([from]) => from !== c.name)
+			for (const p of this.prev.values()) {
+				const w = installed(p)
+				if (
+					w.kind !== "foreignKey" ||
+					nameKey(w.table) !== key ||
+					nameKey(w.constraint.references) !== nameKey(source)
+				) {
+					continue
+				}
+				const before = pairsOf(w.constraint)
+				const met =
+					!before.some(([from]) => from === c.name) &&
+					others.every(([from, to]) => before.some(([f, r]) => f === from && r === to)) &&
+					standing(
+						t,
+						before.map(([from]) => from)
+					) &&
+					standing(
+						source,
+						before.map(([, to]) => to)
+					)
+				const [first, ...rest] = before
+				if (!met || first === undefined) {
+					continue
+				}
+				const keyed: NonEmptyReadonlyArray<readonly [string, string]> = [first, ...rest]
+				return {
+					table: t,
+					column: c.name,
+					base: baseOf(c.type, this.nextDomains),
+					source,
+					value: at[1],
+					targetKey: mapNonEmpty(keyed, ([from]) => from),
+					sourceKey: mapNonEmpty(keyed, ([, to]) => to)
+				}
+			}
+		}
+		return undefined
 	}
 
 	/** The ADD COLUMN of a column of `t` its family draws, when `t` may hold rows: under the placeholder default the value
@@ -2348,16 +2440,17 @@ class Differ {
 				drawn.set(key, { table, added: drawn.get(key)?.added ?? [], redrawn })
 			}
 		}
-		const { checks, updates, dropDefaults } = backfillOf({
+		const { checks, updates, dropDefaults, notNulls } = backfillOf({
 			installation: this.input.installation,
 			previous: this.input.previous.theory,
 			mayHoldRows: (t) => this.mayHoldRows(t),
-			drawn
+			drawn,
+			carried: this.carried
 		})
 		for (const c of checks) {
 			this.push("structure.backfill", { kind: "violation", law: c.law, query: c.query })
 		}
-		this.sql("structure.backfill", [...updates, ...dropDefaults])
+		this.sql("structure.backfill", [...updates, ...dropDefaults, ...notNulls])
 		return updates.length > 0
 	}
 
@@ -3450,6 +3543,12 @@ const domainOf = (
 	domains: ReadonlyMap<NameKey, DomainReading>
 ): DomainReading | undefined =>
 	type.kind === "named" ? domains.get(nameKey(objectName(type.schema, type.name))) : undefined
+
+/** The type a column of `type` stores its values as, read through each domain of `domains` to the type it is over. */
+const baseOf = (type: TypeRef, domains: ReadonlyMap<NameKey, DomainReading>): TypeRef => {
+	const domain = domainOf(type, domains)
+	return domain === undefined ? type : baseOf(domain.create.base, domains)
+}
 
 /**
  * The schema of the operators that compare two values of a column of `type`, read through each domain of `domains` to
