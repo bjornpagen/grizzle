@@ -13,15 +13,17 @@
  * - Flags: the builder refuses exactly the flags other than u and su, and a non-string source, as malformed. Oracle:
  *   the specification as a checker.
  * - Nesting: a pattern nested 1, 1,000 or 100,000 levels deep parses, its groups leaving no node, and its chains of
- *   repetitions and of optional groups as deep as written. Oracle: the specification, the nesting's own depth.
+ *   repetitions and of optional groups as deep as written; so does an XML Schema pattern of groups or class
+ *   subtractions nested as deep, read by XML Schema's reader. Oracle: the specification, the nesting's own depth.
  *
  * Features: every planted construct; malformed, admitted and unsupported sources, and one malformed by a `)` that closes
  * no group; a NUL and a lone surrogate; admitted and other flags, a non-string source, no flags and every wild kind;
  * each nesting.
  */
 
-import { expandedSize } from "@bjornpagen/grizzle-text/regex/ir"
+import { expandedSize, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, array, element, finite, map, option } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
@@ -246,23 +248,31 @@ export const nestingParsesAPatternNestedToAnyDepth100000LevelsIncluded = propert
 			({ nesting, depth }) =>
 				Effect.sync(() => {
 					n.note(nesting)
-					const ir = succeeded(parse(nested(nesting, depth), "u"), `${nesting}, ${depth} deep`)
+					const label = `${nesting}, ${depth} deep`
+					const read = (): RegexNode => succeeded(parse(nested(nesting, depth), "u"), label)
+					const readXsd = (): RegexNode => succeeded(xsdPattern(nested(nesting, depth)), label)
 					switch (nesting) {
 						case "capturing groups":
 						case "non-capturing groups":
-							assert.deepEqual(ir, succeeded(parse("a", "u")), `${nesting}, ${depth} deep`)
+							assert.deepEqual(read(), succeeded(parse("a", "u")), label)
 							return
 						case "a chain of + groups":
-							assert.equal(repetitionDepth(ir), depth, `${nesting}, ${depth} deep`)
+							assert.equal(repetitionDepth(read()), depth, label)
 							return
 						case "a chain of optional groups":
-							assert.equal(expandedSize(ir), depth, `${nesting}, ${depth} deep`)
+							assert.equal(expandedSize(read()), depth, label)
+							return
+						case "XML Schema groups":
+							assert.deepEqual(readXsd(), succeeded(xsdPattern("a")), label)
+							return
+						case "XML Schema class subtractions":
+							assert.deepEqual(readXsd(), succeeded(xsdPattern("[b]")), label)
 							return
 					}
 				}),
 		oracle: {
 			kind: "specification",
-			name: "groups leave no node, and a chain of repetitions or of optional groups is as deep as written"
+			name: "groups leave no node, a chain of repetitions or of optional groups is as deep as written, and b less a class of a or of nothing is b"
 		},
 		box: "every nesting, 1, 1,000 and 100,000 levels deep",
 		kept: [],
@@ -273,6 +283,20 @@ export const nestingParsesAPatternNestedToAnyDepth100000LevelsIncluded = propert
 					'\t\t\t\t\treturn n.arms.reduce((total, arm) => (arm.kind === "empty" ? total : total + of(arm)), 0)',
 				replacement: "\t\t\t\t\treturn n.arms.reduce((total, arm) => total + of(arm), 0)",
 				why: "An optional's empty arm counts as a written-out position; the nesting property fails."
+			},
+			{
+				file: "packages/text/src/regex/xsd.ts",
+				original: "\t\t\t\tstack.push({ at: this.#pos, arms: [], terms: [] })\n",
+				replacement:
+					'\t\t\t\tif (stack.length > 100) {\n\t\t\t\t\tthrow this.#malformed(this.#pos, "(", "nested too deep")\n\t\t\t\t}\n\t\t\t\tstack.push({ at: this.#pos, arms: [], terms: [] })\n',
+				why: "XML Schema's reader refuses a group nested past 100 levels, as plate's deleted reader did, where it reads any depth on the heap; the nesting property fails at 1,000 levels."
+			},
+			{
+				file: "packages/text/src/regex/xsd.ts",
+				original: "\t\t\t\tgroup = this.#openGroup(group)\n",
+				replacement:
+					'\t\t\t\tlet depth = 0\n\t\t\t\tfor (let of = group.of; of !== undefined; of = of.of) {\n\t\t\t\t\tdepth += 1\n\t\t\t\t}\n\t\t\t\tif (depth >= 100) {\n\t\t\t\t\tthrow this.#malformed(at, "-[", "nested too deep")\n\t\t\t\t}\n\t\t\t\tgroup = this.#openGroup(group)\n',
+				why: "XML Schema's reader refuses a class subtraction nested past 100 levels, as plate's deleted reader did; the nesting property fails at 1,000 levels."
 			}
 		]
 	}

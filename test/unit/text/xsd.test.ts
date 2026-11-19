@@ -35,12 +35,13 @@ import {
 	codePointGen,
 	committedCategory,
 	type EscapeFeature,
-	escapeOverGen,
+	escapeGen,
 	generatedRuns,
 	initialName,
 	type NameFeature,
 	nameCharacter,
 	patternGen,
+	pool,
 	type RefusalFeature,
 	refusedGen,
 	wordsGen,
@@ -242,27 +243,32 @@ export const xsdPatternRefusesEachConstructOutsideTheGrammarAtItsOffsetByItsReas
 		]
 	})
 
-/** Every class escape holds exactly the characters Appendix F's definition does, over drawn escapes and characters. */
+/**
+ * Every class escape, a multi-character, category or block escape, positive or negative, holds exactly the characters
+ * Appendix F's definition does, over drawn escapes and every character of the pool.
+ */
 export const everyClassEscapeHoldsExactlyTheCharactersAppendixFsDefinitionDoes = property.explore(
-	escapeOverGen,
+	escapeGen,
 	{
 		needs: {},
 		situations: [
 			"a character the escape holds",
 			"a character the escape does not hold"
 		] satisfies ReadonlyArray<Reached<EscapeFeature>>,
-		check:
-			(_, c: Case<EscapeFeature>) =>
-			({ escape, character }) =>
-				Effect.sync(() => {
-					const expected = compiledPattern(`^${escape.oracle}$`, "v").test(character)
+		check: (_, c: Case<EscapeFeature>) => (escape) =>
+			Effect.sync(() => {
+				const oracle = compiledPattern(`^${escape.oracle}$`, "v")
+				const matcher = Matcher.of(buildNfa(succeeded(xsdPattern(escape.xsd), escape.xsd)))
+				for (const character of pool) {
+					const expected = oracle.test(character)
 					c.note(expected ? "a character the escape holds" : "a character the escape does not hold")
 					assert.equal(
-						Matcher.of(buildNfa(succeeded(xsdPattern(escape.xsd), escape.xsd))).matches(character),
+						matcher.matches(character),
 						expected,
 						`${escape.xsd} over ${Formatter.format(character)}`
 					)
-				}),
+				}
+			}),
 		oracle: {
 			kind: "second-implementation",
 			name: "each escape's meaning by Appendix F's definition, an ECMAScript `v`-flag class over XML's Char"
@@ -275,6 +281,12 @@ export const everyClassEscapeHoldsExactlyTheCharactersAppendixFsDefinitionDoes =
 					'const nonWord = (): CharSet => union([category("P"), category("Z"), category("C")])',
 				replacement: 'const nonWord = (): CharSet => union([category("P"), category("Z")])',
 				why: "`\\w` keeps the others (category C), a soft hyphen among them; a word of one is admitted."
+			},
+			{
+				file: "packages/text/src/regex/xml.ts",
+				original: "\t\t\t[0xfeff, 0xfeff],\n\t\t\t[0xfff0, 0xfffd]\n",
+				replacement: "\t\t\t[0xfeff, 0xfeff]\n",
+				why: "Specials, which XML Schema's block table lists twice, keeps only its first range: `\\p{IsSpecials}` loses U+FFF0 to U+FFFD."
 			}
 		]
 	}

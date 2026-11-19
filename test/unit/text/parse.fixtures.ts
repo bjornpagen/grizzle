@@ -130,22 +130,28 @@ export type FlagsFeature =
 /**
  * How a nesting wraps its one literal: groups of either spelling, which leave no node behind, so the parse is the
  * literal's; a chain of `+` groups, a repetition of a repetition at each level; and a chain of optional groups, each
- * level a literal and an optional group around the rest. The scan keeps its open groups on the heap
- * (scalar/regex/parse.ts Disjunction) and every walk of the IR keeps its frames there too (scalar/regex/ir.ts folded),
- * so no depth is a bound of the grammar's: a pattern nested 100,000 deep parses in the small-stack project, whose stack
- * a recursion of about a thousand frames exhausts.
+ * level a literal and an optional group around the rest; and XML Schema's groups and class subtractions, read by its
+ * own reader, a group leaving no node and `[b-[a-[a…]]]` the class of `b` alone, whatever its depth. Each scan keeps
+ * its open groups on the heap (scalar/regex/parse.ts Disjunction, regex/xsd.ts XsdReader.read's stack and
+ * #classExpression's chain of groups) and every walk of the IR keeps its frames there too (scalar/regex/ir.ts folded),
+ * so no depth is a bound of either grammar's: a pattern nested 100,000 deep parses in the small-stack project, whose
+ * stack a recursion of about a thousand frames exhausts.
  */
 export type Nesting =
 	| "capturing groups"
 	| "non-capturing groups"
 	| "a chain of + groups"
 	| "a chain of optional groups"
+	| "XML Schema groups"
+	| "XML Schema class subtractions"
 
 export const nestings: Arr.NonEmptyReadonlyArray<Nesting> = [
 	"capturing groups",
 	"non-capturing groups",
 	"a chain of + groups",
-	"a chain of optional groups"
+	"a chain of optional groups",
+	"XML Schema groups",
+	"XML Schema class subtractions"
 ]
 
 /** The pattern `depth` levels of `nesting` spell. */
@@ -159,6 +165,10 @@ export const nested = (nesting: Nesting, depth: number): string => {
 			return `${Str.repeat(depth)("(?:")}a${Str.repeat(depth)(")+")}`
 		case "a chain of optional groups":
 			return `${Str.repeat(depth)("(?:a")}${Str.repeat(depth)(")?")}`
+		case "XML Schema groups":
+			return `${Str.repeat(depth)("(")}a${Str.repeat(depth)(")")}`
+		case "XML Schema class subtractions":
+			return `[b${Str.repeat(depth)("-[a")}${Str.repeat(depth + 1)("]")}`
 	}
 }
 

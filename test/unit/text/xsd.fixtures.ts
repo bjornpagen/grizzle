@@ -48,9 +48,10 @@ const outside = (cls: string): string => `[${xmlChars}--${cls}]`
 const escaped = (point: number): string => `\\u{${Str.toUpperCase(point.toString(16))}}`
 
 /** The characters a normal character and a word are drawn from: ASCII, the metacharacters XML Schema reads as text,
- * characters outside XML's Char, a supplementary one, a decimal digit of another script and name characters of the
- * two editions. */
-const pool = [
+ * characters outside XML's Char, a supplementary one, a decimal digit of another script, name characters of the
+ * two editions, and the two ranges of the block XML Schema's table lists twice (Specials: U+FEFF, and U+FFF0 to U+FFFD)
+ * with U+FF01 between them. */
+export const pool = [
 	"a",
 	"b",
 	"z",
@@ -72,7 +73,11 @@ const pool = [
 	"٣",
 	"­",
 	"　",
-	"😀"
+	"😀",
+	"\uFEFF",
+	"\uFF01",
+	"\uFFF0",
+	"\uFFFD"
 ] as const
 
 /** A normal character: any of the pool but a metacharacter, `{` and `}` among them. */
@@ -138,8 +143,11 @@ const classEscapes = [
 
 const multiEscapes: Gen<Drawn> = element(classEscapes)
 
-/** Category escapes and block escapes, positive and negative, three blocks by the Recommendation's table. */
-const propertyEscapes: Gen<Drawn> = element([
+/**
+ * Category escapes and block escapes, positive and negative, four blocks by the Recommendation's table, Specials, the
+ * name it lists twice, among them.
+ */
+const propertyEscapeList = [
 	{ xsd: "\\p{L}", oracle: within("\\p{L}") },
 	{ xsd: "\\p{Lu}", oracle: within("\\p{Lu}") },
 	{ xsd: "\\P{Lu}", oracle: outside("\\p{Lu}") },
@@ -149,8 +157,12 @@ const propertyEscapes: Gen<Drawn> = element([
 	{ xsd: "\\p{IsBasicLatin}", oracle: within("[\\u{0}-\\u{7F}]") },
 	{ xsd: "\\P{IsBasicLatin}", oracle: outside("[\\u{0}-\\u{7F}]") },
 	{ xsd: "\\p{IsGreek}", oracle: within("[\\u{370}-\\u{3FF}]") },
-	{ xsd: "\\p{IsLatin-1Supplement}", oracle: within("[\\u{80}-\\u{FF}]") }
-] as const)
+	{ xsd: "\\p{IsLatin-1Supplement}", oracle: within("[\\u{80}-\\u{FF}]") },
+	{ xsd: "\\p{IsSpecials}", oracle: within("[\\u{FEFF}\\u{FFF0}-\\u{FFFD}]") },
+	{ xsd: "\\P{IsSpecials}", oracle: outside("[\\u{FEFF}\\u{FFF0}-\\u{FFFD}]") }
+] as const satisfies Arr.NonEmptyReadonlyArray<Drawn>
+
+const propertyEscapes: Gen<Drawn> = element(propertyEscapeList)
 
 /** A range of a class, its two ends in order. */
 const range: Gen<Drawn> = element([
@@ -355,13 +367,8 @@ export type NameFeature = "a name start" | "a name character alone" | "no name c
 export const initialName = Matcher.of(buildNfa(succeeded(xsdPattern("\\i"), "\\i")))
 export const nameCharacter = Matcher.of(buildNfa(succeeded(xsdPattern("\\c"), "\\c")))
 
-/** A class escape and a character of the pool, which the escape may hold. */
-export const escapeOverGen: Gen<{ readonly escape: Drawn; readonly character: string }> = (
-	source
-) => ({
-	escape: source.draw(element(classEscapes)),
-	character: source.draw(element(pool))
-})
+/** A class escape: a multi-character escape, or a category or block escape, positive or negative. */
+export const escapeGen: Gen<Drawn> = element([...classEscapes, ...propertyEscapeList])
 
 export type EscapeFeature = "a character the escape holds" | "a character the escape does not hold"
 

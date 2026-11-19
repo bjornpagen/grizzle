@@ -34,12 +34,13 @@ type NamesFeature =
 
 /**
  * The characters a case's texts are drawn from: letters and digits, the name punctuation, a colon, XML whitespace, a
- * letter the Second Edition leaves out (U+0132), one Unicode assigned after it (U+3400), a digit and an extender that
- * may not start a name (U+0660, U+02D0), and a supplementary character.
+ * letter the Second Edition leaves out (U+0132), one Unicode assigned after it (U+3400), digits, extenders and a
+ * combining character that may not start a name (U+0660, U+02D0, U+00B7, U+3005, U+0300), an ideograph (U+4E00), and
+ * a supplementary character.
  */
 const characters: Arr.NonEmptyReadonlyArray<number> = [
-	0x61, 0x5a, 0x30, 0x5f, 0x2d, 0x2e, 0x3a, 0x20, 0x09, 0x0a, 0x0132, 0x3400, 0x0660, 0x02d0,
-	0x10000, 0xe9
+	0x61, 0x5a, 0x30, 0x5f, 0x2d, 0x2e, 0x3a, 0x20, 0x09, 0x0a, 0x0132, 0x3400, 0x0660, 0x02d0, 0xb7,
+	0x3005, 0x0300, 0x4e00, 0x10000, 0xe9
 ]
 
 const textsGen: Gen<ReadonlyArray<string>> = array(stringsOver(element(characters), 6), {
