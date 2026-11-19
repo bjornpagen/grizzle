@@ -5,6 +5,27 @@ import {
 	mapExprChildren
 } from "#compiler/ir/desc.ts"
 
+/** A reference to the variable `id`. */
+export const varRef = (id: string): InferredExpr => ({ kind: "var", var: id })
+
+/** A literal of no type of its own, which takes the type of the term it meets. */
+export type BareLiteral = Extract<InferredExpr, { readonly kind: "literal" }> & {
+	readonly type?: undefined
+}
+
+/** Whether `e` is a bare literal, which takes the type of the term it meets and so never stands first. */
+export const isBare = (e: InferredExpr): e is BareLiteral =>
+	e.kind === "literal" && e.type === undefined
+
+/**
+ * `left` = `right` in the order the checker reads it: as written, but a bare literal second. A binding of a definition
+ * may be a JavaScript literal, so every equality a rule's queries or its navigation hold a binding by is built here.
+ */
+export const equal = (left: InferredExpr, right: InferredExpr): InferredExpr =>
+	isBare(left)
+		? { kind: "compare", op: "eq", left: right, right: left }
+		: { kind: "compare", op: "eq", left, right }
+
 /** The leaves an arm's expressions are rewritten by: a variable or a field, each to its replacement. */
 export interface LeafRewrite {
 	readonly var: (id: string) => InferredExpr | undefined

@@ -1,5 +1,13 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
-import { boundIn, mapBindings, mapLeaves, varsOf } from "#compiler/analysis/theory/leaves.ts"
+import {
+	boundIn,
+	equal,
+	isBare,
+	mapBindings,
+	mapLeaves,
+	varRef,
+	varsOf
+} from "#compiler/analysis/theory/leaves.ts"
 import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -48,22 +56,6 @@ import {
  */
 
 const channel: Channel = { kind: "channel" }
-
-const varRef = (id: string): InferredExpr => ({ kind: "var", var: id })
-
-const eq = (left: InferredExpr, right: InferredExpr): InferredExpr => ({
-	kind: "compare",
-	op: "eq",
-	left,
-	right
-})
-
-/** Whether `e` is a bare literal, which takes the type of the term it meets and so never stands first. */
-const isBare = (e: InferredExpr): boolean => e.kind === "literal" && e.type === undefined
-
-/** `left` = `right`, a bare literal second, as the checker reads an equality. */
-const equal = (left: InferredExpr, right: InferredExpr): InferredExpr =>
-	isBare(left) ? eq(right, left) : eq(left, right)
 
 /** The variables `e` reads. */
 const readsOf = (e: InferredExpr): ReadonlySet<string> => varsOf(e, new Set())

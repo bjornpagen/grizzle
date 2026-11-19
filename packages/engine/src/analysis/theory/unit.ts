@@ -35,7 +35,12 @@
  * own text, which the checker and the lowering read as they read any query.
  */
 import { refuse } from "#compiler/analysis/theory/build.ts"
-import { type LeafRewrite, mapBindings, mapLeaves } from "#compiler/analysis/theory/leaves.ts"
+import {
+	type LeafRewrite,
+	mapBindings,
+	mapLeaves,
+	varRef
+} from "#compiler/analysis/theory/leaves.ts"
 import {
 	type LawSide,
 	queryOf,
@@ -43,7 +48,6 @@ import {
 	type ReplacedRead,
 	ruleDesc,
 	type RuleLaw,
-	varRef,
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
 import { compareText, sameText } from "#compiler/core/canonical.ts"

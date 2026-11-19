@@ -1,8 +1,12 @@
 import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import {
+	type BareLiteral,
+	equal,
+	isBare,
 	type LeafRewrite,
 	mapBindings,
 	mapLeaves,
+	varRef,
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -238,32 +242,8 @@ const foreignLeaf = (e: InferredExpr): string | undefined =>
 	foreignReads[e.kind] ??
 	exprChildren(e).reduce<string | undefined>((found, c) => found ?? foreignLeaf(c.term), undefined)
 
-const eq = (left: InferredExpr, right: InferredExpr): InferredExpr => ({
-	kind: "compare",
-	op: "eq",
-	left,
-	right
-})
-
-/** A literal of no type of its own, which takes the type of the term it meets. */
-type BareLiteral = Extract<InferredExpr, { readonly kind: "literal" }> & {
-	readonly type?: undefined
-}
-
-/** Whether `e` is a bare literal, which takes the type of the term it meets and so never stands first. */
-const isBare = (e: InferredExpr): e is BareLiteral => e.kind === "literal" && e.type === undefined
-
 /** A bare literal under `type`, the type of the column it meets. */
 const typedAs = (e: BareLiteral, type: InferredFieldDesc): InferredExpr => ({ ...e, type })
-
-/**
- * `left` = `right` in the order the checker reads it: as written, but a bare literal second. A binding of a definition
- * may be a JavaScript literal, so every equality a rule's queries hold a binding by is built here.
- */
-const equal = (left: InferredExpr, right: InferredExpr): InferredExpr =>
-	isBare(left) ? eq(right, left) : eq(left, right)
-
-export const varRef = (id: string): InferredExpr => ({ kind: "var", var: id })
 
 /** Whether a filter holds a negation as a filter of its rule: it is one, or a conjunction one of whose conjuncts does. */
 const holdsNegation = (e: InferredExpr): boolean =>
