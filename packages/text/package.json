@@ -13,6 +13,7 @@
 	},
 	"exports": {
 		"./text": "./src/text.ts",
+		"./uri": "./src/uri.ts",
 		"./utf8": "./src/utf8.ts",
 		"./package.json": "./package.json"
 	},
