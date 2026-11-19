@@ -211,7 +211,7 @@ const asLeft = <S extends Unnamed>(state: S): S => state
  * roster's new names constant among them); Structure, a changed roster domain's CHECK re-pointed NOT VALID, the world objects of the roles the installation holds that change or go and
  * every new world function, new tables and columns, and constraints NOT VALID; the indexes of new relations; the
  * concurrent indexes of relations that may hold rows; Validate, the constraints validated and the concurrent indexes
- * attached; Publish, the roles, logins, memberships and grants, the new roles' world objects, what the target no longer
+ * attached; Publish, the roles, logins, memberships and the grants that change, the new roles' world objects, what the target no longer
  * has (an index a new key serves instead, a roster's old constant, dropped RESTRICT, among it), a re-pointed roster
  * domain's CHECK validated once that is gone, and last the COMMENT of every object the folder creates under a hashed
  * name.
@@ -332,8 +332,13 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 		Arr.some(added, (law) => law.kind !== "check") ||
 		gainsSerial(was, now) ||
 		Arr.some(lawDomainsOf(now), (d) => d.kind === "text" && !fromDomains.has(domainLawKey(d)))
+	/**
+	 * Publish holds what is left to grant or create once Structure has run: a world object of a role the installation
+	 * holds that Structure creates, again or anew, is granted right after it there (packages/engine/src/deploy/diff/diff.ts
+	 * regrantWorld), and Publish grants only the privileges that change (deploy/diff/privileges.ts), so a world change
+	 * of the held roles alone, a recreated view over a relation that gains a check among them, publishes nothing.
+	 */
 	const publish =
-		worlds ||
 		removes ||
 		hashed ||
 		rosterChanged ||
