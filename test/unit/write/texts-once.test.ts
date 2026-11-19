@@ -1,14 +1,16 @@
 /**
  * A write works out each value's canonical text once (runtime/write/cells.ts Texts): a nested level's value at its
  * admission (codec/recordset.ts RelationNormalizer admitOne), whose texts its walk carries by position to the rows it
- * fills, each nested row reading its key, cells and identity off them (runtime/write/nesting.ts nestedRowOf), and a
- * fresh owner's refill and its cells reading its walked row's texts again (runtime/write/bind.ts freshOwners), never
- * working one out again from the value.
+ * fills, each nested row reading its key, cells and identity off them (runtime/write/nesting.ts nestedRowOf), the
+ * same-key checks reading a nested row's key texts off them at its columns' positions (runtime/write/normalize.ts
+ * rowReading), and a fresh owner's refill and its cells reading its walked row's texts again (runtime/write/bind.ts
+ * freshOwners), never working one out again from the value.
  *
  * The schema: Doc(id) with an ordered family of Node(doc, at, kind), each Node the owner of a counted family of
- * Attr(doc, at, name, kind), its count `attrs`, `kind` a closed id of an ordered roster. A case draws one to three docs,
- * each nesting one to four nodes, and each node zero to three attributes, inserted beside the docs in one ChangeSet,
- * every node and attribute of some kind, so every node is a nested owner whose group is fresh. The write binds under
+ * Attr(doc, at, name, kind), its count `attrs`, `kind` a closed id of an ordered roster and Node's (doc, kind) a key
+ * beside its primary key. A case draws one to three docs, each nesting one to three nodes, each of its own kind, and
+ * each node zero to three attributes, inserted beside the docs in one ChangeSet, every attribute of some kind, so every
+ * node is a nested owner whose group is fresh and every nested row is judged at a key over its kind. The write binds under
  * the installation's codes with each roster's ranks counted: a closed id's canonical text is its code, read off its
  * roster's ranks (ir/codes.ts codeOf), and no bind compares a kind, so each read of a rank is one text worked out of a
  * kind. The oracle is the rule: the reads are one per node, at its level's admission, and one per attribute, at its
@@ -25,7 +27,16 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { closedId, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { closed, counted, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import {
+	closed,
+	counted,
+	fin,
+	key,
+	on,
+	ordered,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -57,7 +68,8 @@ const Labels = schema(
 	[Kind, Doc, Node, Attr],
 	[
 		ordered(on(Node, "doc", "at"), fin(Doc, "n")),
-		counted(on(Attr, "doc", "at"), fin(Node, "attrs"))
+		counted(on(Attr, "doc", "at"), fin(Node, "attrs")),
+		key(on(Node, "doc", "kind"))
 	]
 )
 const reality = realityWrite(succeeded(testArtifacts(Labels, testCompile)))
@@ -67,9 +79,9 @@ type Situation =
 	| "every node holding some"
 	| "no node holding any"
 
-/** A case: each doc's nodes, each node's count of attributes. */
+/** A case: each doc's nodes, at most one of each kind, each node's count of attributes. */
 const docsGen: Gen<ReadonlyArray<ReadonlyArray<number>>> = array(
-	array(int(0, 3), { min: 1, max: 4 }),
+	array(int(0, 3), { min: 1, max: kinds.length }),
 	{ min: 1, max: 3 }
 )
 
@@ -118,7 +130,7 @@ export const aWriteWorksOutEachNestedAndFreshValuesCanonicalTextOnceAtItsAdmissi
 						Doc,
 						Arr.map(docs, (nodes, d) => ({
 							id: uuidOf(d + 1),
-							n: Arr.map(nodes, (_, at) => ({ kind: kindOf(d + at) }))
+							n: Arr.map(nodes, (_, at) => ({ kind: kindOf(at) }))
 						}))
 					)
 					.insert(
@@ -175,6 +187,12 @@ export const aWriteWorksOutEachNestedAndFreshValuesCanonicalTextOnceAtItsAdmissi
 				original: "\t\tconst text = textAt(values, texts, c.at, c.spec)\n",
 				replacement: "\t\tconst text = textAt(values, [], c.at, c.spec)\n",
 				why: "A nested row works each of its cells' texts out again from its value, beside the text its walk carried."
+			},
+			{
+				file: "packages/engine/src/runtime/write/normalize.ts",
+				original: "\t\treturn (row) => at.map((c) => textAt(row.values, row.texts, c.at, c.spec))",
+				replacement: "\t\treturn (row) => at.map((c) => textAt(row.values, [], c.at, c.spec))",
+				why: "The same-key checks work a nested row's key texts out again from its values, beside the texts its write holds."
 			},
 			{
 				file: "packages/engine/src/runtime/write/fill.ts",

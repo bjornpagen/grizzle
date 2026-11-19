@@ -7,12 +7,14 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { noClock } from "#compiler/ir/clock.ts"
+import { columnKeyOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
+import type { Cells } from "#compiler/runtime/write/cells.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
@@ -20,6 +22,7 @@ import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, deepEquals, defined, succeeded } from "#test/support/assert.ts"
+import { cellAt } from "#test/support/cells.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
 	admittedFillSpecGen,
@@ -707,8 +710,11 @@ export const property = (
 		}
 		for (const byRelation of normalized.nested.values()) {
 			for (const [name, nested] of byRelation) {
+				/** A nested row's value of a field, at its column's position among its relation's. */
+				const fieldOf = (row: { readonly values: Cells }, field: string): unknown =>
+					cellAt(write.prepared.columns, { relation: name, values: row.values }, columnKeyOf(field))
 				for (const row of nested.values()) {
-					const id = row.fact["id"]
+					const id = fieldOf(row, "id")
 					const instanceRow = typeof id === "string" ? byUuid.get(id) : undefined
 					const want = defined(
 						instanceRow === undefined ? undefined : expected.get(instanceRow.id),
@@ -719,7 +725,7 @@ export const property = (
 							continue
 						}
 						assert.equal(
-							row.fact[field],
+							fieldOf(row, field),
 							wanted,
 							`${name}.${field} of ${String(id)}, as the reference writer fills it`
 						)

@@ -188,8 +188,9 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 			},
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
-				original: "\t\t\t\t\t\tvalues: drawn,\n",
-				replacement: "\t\t\t\t\t\tvalues: drawn.slice(),\n",
+				original: "rows.push({ ...row, values: drawn, texts, cells: ownerCells(drawn, texts) })",
+				replacement:
+					"rows.push({ ...row, values: drawn.slice(), texts, cells: ownerCells(drawn, texts) })",
 				why: "A refilled nested owner copies its refill's cells, one copy of every owner a member names, where the row is the refill's own."
 			},
 			{

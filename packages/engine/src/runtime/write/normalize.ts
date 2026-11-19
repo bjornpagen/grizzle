@@ -20,7 +20,7 @@ import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dayNumber } from "#compiler/ir/date.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import type { GeneratedLaw, SpanType } from "#compiler/ir/law.ts"
+import { columnKeyOf, type GeneratedLaw, type SpanType } from "#compiler/ir/law.ts"
 import type {
 	KeyedFacts,
 	KeyNormalized,
@@ -31,6 +31,7 @@ import type {
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type ScalarType, type SpanCarrier, spanOf } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import { type Columns, textAt } from "#compiler/runtime/write/cells.ts"
 import type { MemberKey } from "#compiler/runtime/write/draw.ts"
 import {
 	nestedConflict,
@@ -278,20 +279,48 @@ export const memberSlots = (groups: ReadonlyArray<GroupData>): ReadonlyArray<str
 	...new Set(groups.flatMap((g) => g.inputs.flatMap((i) => i.members)))
 ]
 
-/** A fact or a nested row as the same-key checks judge it: its identity, and its host values by field name. */
-interface Entry<I> {
-	readonly identity: I
+/** An admitted fact as the same-key checks judge it: its identity, the codec's (codec/recordset.ts), each field's
+ * canonical text in field-name order, and its host values by field name. */
+interface FactEntry {
+	readonly identity: FactIdentity
 	readonly fact: Fact
 }
 
-/** An admitted fact, its identity the codec's (codec/recordset.ts): each field's canonical text in field-name order. */
-type FactEntry = Entry<FactIdentity>
+/**
+ * How the same-key checks read one kind of entry: their canonical order, the order they are judged in; the texts of an
+ * entry's fields, in the fields' order, which a key compares; and an entry's value of a field, which a span's overlap
+ * and a refusal's witness read; each reader built once for its fields and read per entry. An admitted fact is read by
+ * its fields' names (`factReading`), a nested row at its cells' positions, its texts the ones its write holds
+ * (`rowReading`), so no nested row is read through a record of its fields.
+ */
+interface EntryReading<E> {
+	readonly order: (a: E, b: E) => number
+	readonly texts: (fields: ReadonlyArray<KeySpec>) => (entry: E) => ReadonlyArray<string>
+	readonly value: (field: string) => (entry: E) => unknown
+}
 
-/** A nested row, its identity its filled columns' texts (write/family/nesting.ts NestedRow). */
-type RowEntry = Entry<ReadonlyArray<string>>
+/** An admitted fact's reading (`EntryReading`): in its identities' canonical order, each field read by its name, its
+ * text worked out from its value, which the fact's carriers already admitted. */
+const factReading: EntryReading<FactEntry> = {
+	order: (a, b) => compareFactIdentities(a.identity, b.identity),
+	texts: (fields) => (entry) =>
+		fields.map(({ field, spec }) => admittedText(spec, entry.fact[field])),
+	value: (field) => (entry) => entry.fact[field]
+}
 
-/** The canonical order of one kind of entries' identities, the order their same-key checks judge them in. */
-type IdentityOrder<I> = (a: I, b: I) => number
+/** A nested row's reading (`EntryReading`), a relation's of `columns`: in its identities' order, each field read at its
+ * column's position among the relation's, its text the one its write holds (cells.ts textAt). */
+const rowReading = (columns: Columns): EntryReading<NestedRow> => ({
+	order: (a, b) => compareTextTuples(a.identity, b.identity),
+	texts: (fields) => {
+		const at = fields.map(({ field, spec }) => ({ at: columns.at(columnKeyOf(field)), spec }))
+		return (row) => at.map((c) => textAt(row.values, row.texts, c.at, c.spec))
+	},
+	value: (field) => {
+		const at = columns.at(columnKeyOf(field))
+		return (row) => row.values[at]
+	}
+})
 
 /** A non-null object, whose fields a string key reads as unknown values. */
 const isObject = (value: unknown): value is Fact => typeof value === "object" && value !== null
@@ -580,17 +609,9 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 	})
 }
 
-/** The key of a fact at `fields`: each field's canonical text, in the fields' order, so two facts share it exactly when
- * they share every field's value. The fact was admitted against the same carriers, so its values are already their
- * carriers' host values and are not admitted again. */
-const keyTextsOf =
-	(fields: ReadonlyArray<KeySpec>) =>
-	(fact: Fact): ReadonlyArray<string> =>
-		fields.map(({ field, spec }) => admittedText(spec, fact[field]))
-
-/** Entries in their identities' canonical order. */
-const sorted = <I>(order: IdentityOrder<I>, entries: Iterable<Entry<I>>): ReadonlyArray<Entry<I>> =>
-	sortInPlace([...entries], (a, b) => order(a.identity, b.identity))
+/** Entries in their canonical order. */
+const sorted = <E>(reading: EntryReading<E>, entries: Iterable<E>): ReadonlyArray<E> =>
+	sortInPlace([...entries], reading.order)
 
 /** An admitted span: a nonempty half-open interval of integers, bigints or dates. */
 type HostSpan = Span<number> | Span<bigint> | Span<CalendarDate>
@@ -619,19 +640,25 @@ const keyHost = (value: CarrierHost[Carrier]): KeyHost => {
 	return value
 }
 
-/** A refused fact's values at a key's fields, each narrowed by its field's carrier (`admitted`). */
-const keyValues = (fact: Fact, fields: ReadonlyArray<KeySpec>): Readonly<Record<string, KeyHost>> =>
+/** A refused entry's values at a key's fields, read by `value` (`EntryReading`), each narrowed by its field's carrier
+ * (`admitted`). */
+const keyValues = <E>(
+	value: EntryReading<E>["value"],
+	entry: E,
+	fields: ReadonlyArray<KeySpec>
+): Readonly<Record<string, KeyHost>> =>
 	Object.freeze(
 		Object.fromEntries(
-			fields.map(({ field, spec }) => [field, keyHost(admitted(spec, fact[field]))])
+			fields.map(({ field, spec }) => [field, keyHost(admitted(spec, value(field)(entry)))])
 		)
 	)
 
-/** The refusal of two additions or two deletions of `facts`'s relation at one key, `fact` the later: the key's
- * constraint on the stored relation's table, its witness `fact`'s key in the words the facts are stated in. */
-const conflictOf = (
+/** The refusal of two additions or two deletions of `facts`'s relation at one key, `entry` the later, read by `value`:
+ * the key's constraint on the stored relation's table, its witness `entry`'s key in the words the facts are stated in. */
+const conflictOf = <E>(
 	facts: CheckedFacts,
-	fact: Fact,
+	value: EntryReading<E>["value"],
+	entry: E,
 	fields: ReadonlyArray<KeySpec>,
 	law: { readonly law: LawId; readonly described: OwnLaw }
 ): KeyRefusal => ({
@@ -639,17 +666,27 @@ const conflictOf = (
 	relation: facts.relation,
 	law: law.law,
 	described: law.described,
-	witness: keyWitness(facts.stated, keyValues(fact, fields))
+	witness: keyWitness(facts.stated, keyValues(value, entry, fields))
 })
 
+/** A nested fact's field, by its name. */
+const byName =
+	(field: string) =>
+	(fact: NestedFact): unknown =>
+		fact[field]
+
 /** The refusal of two nested facts or rows of `facts`'s relation at its primary key, the key a nested set holds them
- * by, `fact` the later. */
-const primaryConflict = (facts: CheckedFacts, fact: NestedFact): KeyRefusal => {
+ * by, `entry` the later, read by `value`. */
+const primaryConflict = <E>(
+	facts: CheckedFacts,
+	value: EntryReading<E>["value"],
+	entry: E
+): KeyRefusal => {
 	const [primary] = facts.host.keys
 	if (primary === undefined) {
 		throw defect(`the primary key of ${facts.relation}, which a nested write keys its rows by`)
 	}
-	return conflictOf(facts, fact, primary.fields, primary)
+	return conflictOf(facts, value, entry, primary.fields, primary)
 }
 
 /**
@@ -657,25 +694,21 @@ const primaryConflict = (facts: CheckedFacts, fact: NestedFact): KeyRefusal => {
  * identity under `order`, the keys tried primary key first, each over the facts `onKey` takes part on it, and two
  * entries there one fact where `oneFact` holds of them at that key.
  */
-const keyConflictIn = <I>(
+const keyConflictIn = <E>(
 	facts: CheckedFacts,
-	order: IdentityOrder<I>,
-	onKey: (key: CheckedKey) => ReadonlyArray<Entry<I>>,
-	oneFact: (key: CheckedKey, a: Entry<I>, b: Entry<I>) => boolean
+	reading: EntryReading<E>,
+	onKey: (key: CheckedKey) => ReadonlyArray<E>,
+	oneFact: (key: CheckedKey, a: E, b: E) => boolean
 ): KeyRefusal | undefined => {
 	for (const key of facts.host.keys) {
 		const { fields } = key
-		const keyTexts = keyTextsOf(fields)
-		const seen = new TupleMap<ReadonlyArray<string>, Entry<I>>()
+		const keyTexts = reading.texts(fields)
+		const seen = new TupleMap<ReadonlyArray<string>, E>()
 		for (const e of onKey(key)) {
-			const k = keyTexts(e.fact)
+			const k = keyTexts(e)
 			const prior = seen.get(k)
-			if (
-				prior !== undefined &&
-				order(prior.identity, e.identity) !== 0 &&
-				!oneFact(key, prior, e)
-			) {
-				return conflictOf(facts, e.fact, fields, key)
+			if (prior !== undefined && reading.order(prior, e) !== 0 && !oneFact(key, prior, e)) {
+				return conflictOf(facts, reading.value, e, fields, key)
 			}
 			seen.set(k, e)
 		}
@@ -698,27 +731,27 @@ const holdsSpan = (key: CheckedKey): boolean =>
  * (insert/unique.ts generatedArbiter), a generated addition and a complete one that agrees with it at every field it
  * states, `stated`, are one fact: its statement, after the complete one's, meets that row there and is no change.
  */
-const sameKey = <I>(
+const sameKey = <E>(
 	facts: CheckedFacts,
-	order: IdentityOrder<I>,
+	reading: EntryReading<E>,
 	serial: ReadonlyArray<string>,
 	stated: ReadonlyArray<KeySpec>,
-	complete: Iterable<Entry<I>>,
-	generated: Iterable<Entry<I>>
+	complete: Iterable<E>,
+	generated: Iterable<E>
 ): KeyRefusal | undefined => {
 	const additions = [...complete]
 	const drawnAdditions = [...generated]
 	return drawnAdditions.length === 0 &&
 		facts.host.spans.length === 0 &&
-		!keyShared(facts, order, additions)
+		!keyShared(facts, reading, additions)
 		? undefined
 		: firstConflict(
 				facts,
-				order,
+				reading,
 				serial,
 				stated,
-				sorted(order, additions),
-				sorted(order, drawnAdditions)
+				sorted(reading, additions),
+				sorted(reading, drawnAdditions)
 			)
 }
 
@@ -729,20 +762,20 @@ const sameKey = <I>(
  * set alone, and is found in the order the entries came in, with no sort: only a write it refuses is sorted, to name
  * the refusal canonical order finds first.
  */
-const keyShared = <I>(
+const keyShared = <E>(
 	facts: CheckedFacts,
-	order: IdentityOrder<I>,
-	entries: ReadonlyArray<Entry<I>>
+	reading: EntryReading<E>,
+	entries: ReadonlyArray<E>
 ): boolean => {
 	for (const { fields } of facts.host.keys) {
-		const keyTexts = keyTextsOf(fields)
-		const seen = new TupleMap<ReadonlyArray<string>, Entry<I>>()
+		const keyTexts = reading.texts(fields)
+		const seen = new TupleMap<ReadonlyArray<string>, E>()
 		for (const e of entries) {
-			const k = keyTexts(e.fact)
+			const k = keyTexts(e)
 			const prior = seen.get(k)
 			if (prior === undefined) {
 				seen.set(k, e)
-			} else if (order(prior.identity, e.identity) !== 0) {
+			} else if (reading.order(prior, e) !== 0) {
 				return true
 			}
 		}
@@ -751,27 +784,27 @@ const keyShared = <I>(
 }
 
 /** `sameKey`'s refusal over additions in canonical order, `complete` and `generated` each sorted. */
-const firstConflict = <I>(
+const firstConflict = <E>(
 	facts: CheckedFacts,
-	order: IdentityOrder<I>,
+	reading: EntryReading<E>,
 	serial: ReadonlyArray<string>,
 	stated: ReadonlyArray<KeySpec>,
-	complete: ReadonlyArray<Entry<I>>,
-	generated: ReadonlyArray<Entry<I>>
+	complete: ReadonlyArray<E>,
+	generated: ReadonlyArray<E>
 ): KeyRefusal | undefined => {
-	const drawn: ReadonlySet<Entry<I>> = new Set(generated)
-	const statedTexts = keyTextsOf(stated)
-	const oneFact = (key: CheckedKey, a: Entry<I>, b: Entry<I>): boolean => {
-		const bTexts = statedTexts(b.fact)
+	const drawn: ReadonlySet<E> = new Set(generated)
+	const statedTexts = reading.texts(stated)
+	const oneFact = (key: CheckedKey, a: E, b: E): boolean => {
+		const bTexts = statedTexts(b)
 		return (
 			drawn.has(a) !== drawn.has(b) &&
 			!holdsSpan(key) &&
-			statedTexts(a.fact).every((text, i) => text === bTexts[i])
+			statedTexts(a).every((text, i) => text === bTexts[i])
 		)
 	}
 	const keyed = keyConflictIn(
 		facts,
-		order,
+		reading,
 		({ fields }) =>
 			fields.some((f) => serial.includes(f.field)) ? complete : [...complete, ...generated],
 		oneFact
@@ -781,17 +814,18 @@ const firstConflict = <I>(
 	}
 	for (const check of facts.host.spans) {
 		const { span, witness } = check
-		const keyTexts = keyTextsOf(check.equal)
+		const keyTexts = reading.texts(check.equal)
+		const spanValue = reading.value(span.field)
 		const onKey = witness.some((f) => serial.includes(f.field))
 			? complete
 			: [...complete, ...generated]
 		const groups = new TupleMap<
 			ReadonlyArray<string>,
-			Array<{ readonly entry: Entry<I>; readonly span: HostSpan }>
+			Array<{ readonly entry: E; readonly span: HostSpan }>
 		>()
 		for (const e of onKey) {
-			const value = admitted(span.spec, e.fact[span.field])
-			const k = keyTexts(e.fact)
+			const value = admitted(span.spec, spanValue(e))
+			const k = keyTexts(e)
 			const group = groups.get(k) ?? []
 			group.push({ entry: e, span: value })
 			groups.set(k, group)
@@ -801,12 +835,12 @@ const firstConflict = <I>(
 			 * end so far. */
 			const ordered = group.toSorted((x, y) => {
 				const byStart = spanStartOrder(x.span.start, y.span.start)
-				return byStart !== 0 ? byStart : order(x.entry.identity, y.entry.identity)
+				return byStart !== 0 ? byStart : reading.order(x.entry, y.entry)
 			})
 			let reach: bigint | undefined
 			for (const { entry, span: value } of ordered) {
 				if (reach !== undefined && position(value.start) < reach) {
-					return conflictOf(facts, entry.fact, witness, check)
+					return conflictOf(facts, reading.value, entry, witness, check)
 				}
 				if (reach === undefined || position(value.end) > reach) {
 					reach = position(value.end)
@@ -1068,7 +1102,7 @@ export const normalizeChangeSet = (
 		}
 		const refused = sameKey(
 			facts,
-			compareFactIdentities,
+			factReading,
 			serial,
 			stated,
 			[...sets.put.values(), ...sets.insert.values()],
@@ -1098,16 +1132,21 @@ export const normalizeChangeSet = (
 			)
 		const conflict = nestedConflict(set)
 		if (conflict !== undefined) {
-			return Result.ok(primaryConflict(factsOf(conflict.relation), conflict.fact))
+			const facts = factsOf(conflict.relation)
+			return Result.ok(
+				conflict.kind === "fact"
+					? primaryConflict(facts, byName, conflict.fact)
+					: primaryConflict(facts, rowReading(walk.columns(conflict.relation)).value, conflict.row)
+			)
 		}
 		const held = nestedRowsOf(set)
 		for (const [name, byKey] of held) {
 			const refused = sameKey(
 				factsOf(name),
-				compareTextTuples,
+				rowReading(walk.columns(name)),
 				[],
 				[],
-				[...byKey.values()].map((r): RowEntry => ({ identity: r.identity, fact: r.fact })),
+				byKey.values(),
 				[]
 			)
 			if (refused !== undefined) {

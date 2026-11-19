@@ -1176,20 +1176,7 @@ const freshOwners = (
 						return refused(filled.error.stop)
 					}
 					const { values: drawn, texts } = filled.value
-					rows.push({
-						...row,
-						values: drawn,
-						texts,
-						cells: ownerCells(drawn, texts),
-						fact: Object.freeze(
-							Object.fromEntries(
-								Object.entries(row.fact).map(([name, v]) => {
-									const at = drawnAt.get(name)
-									return [name, at === undefined ? v : drawn[at]] as const
-								})
-							)
-						)
-					})
+					rows.push({ ...row, values: drawn, texts, cells: ownerCells(drawn, texts) })
 				}
 				const byRelation =
 					nestedOut.get(s) ?? new Map<StoredRelationName, ReadonlyArray<NestedRow>>()

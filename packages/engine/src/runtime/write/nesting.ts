@@ -118,10 +118,10 @@ export type NestedFact = { readonly [field: string]: unknown }
 /**
  * A row one nested write fills, of a relation its family statements write: its walk's cells (cells.ts Cells), which hold
  * every column of its row layout but those its counted families fill afterwards (`NestedLayout` pending), the row as
- * the walk filled it, never copied, and the texts the write holds of them (cells.ts Texts), every such column's; its
- * fields' host values by name, which the host's same-key checks read; and its identity, the canonical texts of every
- * column the walk filled (scalar/values/identity.ts canonicalText), its key's first, so two rows are one exactly when
- * each such column is. The identity is those texts themselves, never one text joined from them: its size is its row's
+ * the walk filled it, never copied, and the texts the write holds of them (cells.ts Texts), every such column's, which
+ * the host's same-key checks read at their columns' positions as they read its values (normalize.ts rowReading); and
+ * its identity, the canonical texts of every column the walk filled (scalar/values/identity.ts canonicalText), its
+ * key's first, so two rows are one exactly when each such column is. The identity is those texts themselves, never one text joined from them: its size is its row's
  * arity, whatever its texts' lengths. Its cells are the same texts but a bytes column's, which travels as its value:
  * each value's text is the one its admission worked out, or, a value the walk drew, worked out once where the row is
  * made (`nestedRowOf`).
@@ -134,7 +134,6 @@ export interface NestedRow {
 	readonly texts: Texts
 	/** Its cells, key first, as its family statements send it (draw.ts MemberCell), each column's in its layout's order. */
 	readonly cells: ReadonlyArray<MemberCell>
-	readonly fact: NestedFact
 }
 
 /**
@@ -400,22 +399,25 @@ const firstConflicting = <V>(
 /**
  * The first key conflict of a stratum's nested set: an insert's relation's key at which two facts nest different rows,
  * then a member relation's key holding two rows; relations in code point order and keys in their texts' order, so the
- * conflict named is the set's, whatever order its facts came in. `fact` is the host values of one of them, which agree
- * at the key.
+ * conflict named is the set's, whatever order its facts came in. It names one of the two, its fact or its row, which
+ * agree at the key.
  */
 export const nestedConflict = (
 	set: NestedSet
-): { readonly relation: StoredRelationName; readonly fact: NestedFact } | undefined => {
+):
+	| { readonly kind: "fact"; readonly relation: StoredRelationName; readonly fact: NestedFact }
+	| { readonly kind: "row"; readonly relation: StoredRelationName; readonly row: NestedRow }
+	| undefined => {
 	for (const [relation, byKey] of byCodePoint(set.tops)) {
 		const fact = firstConflicting(byKey)
 		if (fact !== undefined) {
-			return { relation, fact }
+			return { kind: "fact", relation, fact }
 		}
 	}
 	for (const [relation, byKey] of byCodePoint(set.rows)) {
 		const row = firstConflicting(byKey)
 		if (row !== undefined) {
-			return { relation, fact: row.fact }
+			return { kind: "row", relation, row }
 		}
 	}
 	return undefined
@@ -561,13 +563,11 @@ interface ShapedColumn {
 
 /**
  * What a relation's nested rows are read by, worked out once per write rather than once per row: the columns of its
- * row layout the walk fills (`sentLayout`), its key's then the others', each with its spec, and the fields among them by
- * name.
+ * row layout the walk fills (`sentLayout`), its key's then the others', each with its spec.
  */
 interface RowShape {
 	readonly key: NonEmptyReadonlyArray<ShapedColumn>
 	readonly rest: ReadonlyArray<ShapedColumn>
-	readonly fields: ReadonlyArray<ShapedColumn & { readonly name: string }>
 }
 
 const rowShape = (codes: Codebook, columns: Columns, at: NestedLayoutData): RowShape => {
@@ -577,17 +577,11 @@ const rowShape = (codes: Codebook, columns: Columns, at: NestedLayoutData): RowS
 		spec: carrierSpecOf(c.type, codes)
 	})
 	const sent = sentLayout(at)
-	return {
-		key: mapNonEmpty(sent.key, shaped),
-		rest: sent.columns.map(shaped),
-		fields: [...sent.key, ...sent.columns].flatMap((c) =>
-			c.column.kind === "field" ? [{ ...shaped(c), name: c.column.field.name }] : []
-		)
-	}
+	return { key: mapNonEmpty(sent.key, shaped), rest: sent.columns.map(shaped) }
 }
 
 /** A filled row as its relation's set holds it (`NestedRow`): its walk's cells and their texts, every sent column's held
- * once it is made, its fields' host values, its cells as sent, and its identity, its sent columns' texts. */
+ * once it is made, its cells as sent, and its identity, its sent columns' texts. */
 const nestedRowOf = (shape: RowShape, row: FilledNode): NestedRow => {
 	const { values, texts } = row
 	const key = mapNonEmpty(shape.key, (c) =>
@@ -600,17 +594,7 @@ const nestedRowOf = (shape: RowShape, row: FilledNode): NestedRow => {
 		cells.push(cellOfText(c.spec, values[c.at], text))
 		identity.push(text)
 	}
-	const fact = Object.freeze(
-		Object.fromEntries(shape.fields.map((c) => [c.name, values[c.at]] as const))
-	)
-	return {
-		identity: Object.freeze(identity),
-		key,
-		values,
-		texts,
-		cells: Object.freeze(cells),
-		fact
-	}
+	return { identity: Object.freeze(identity), key, values, texts, cells: Object.freeze(cells) }
 }
 
 /**
