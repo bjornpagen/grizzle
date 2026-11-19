@@ -5,21 +5,21 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { decode, everyProperty, type Json, noRevivers } from "#compiler/core/canonical.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
-import { formatKey, type RecordedFormat } from "#compiler/core/format.ts"
+import { artifactFormat, formatKey, type RecordedFormat } from "#compiler/core/format.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { joinedSnapshot, snapshotSeal } from "#compiler/deploy/snapshot/build.ts"
 import { succeeded } from "#test/support/assert.ts"
 
 /**
  * What a case commits beside the first draft's other file: a snapshot.json that records no format, as every grizzle
- * before formats wrote, or that records format 0 or format 2 against this grizzle's 1; a manifest.json sealed under the
+ * before formats wrote, or that records the format before this grizzle's or the one after it; a manifest.json sealed under the
  * domain those grizzles sealed in (`manifest`); a record sealed again over an edit no draft reads, so it reads but is
  * not the record the schemas compile to; or that edit under the draft's seal, a hand edit.
  */
 const commits = [
 	"format none",
-	"format 0",
-	"format 2",
+	"the format before",
+	"the format after",
 	"an earlier format's seal",
 	"a record not the compile's",
 	"a hand edit"
@@ -29,8 +29,8 @@ export type Commit = (typeof commits)[number]
 /** The commits of a snapshot.json of another format than this grizzle's, each with the format it records. */
 export const formatCommits = {
 	"format none": { kind: "none" },
-	"format 0": { kind: "recorded", text: "0" },
-	"format 2": { kind: "recorded", text: "2" }
+	"the format before": { kind: "recorded", text: String(artifactFormat - 1) },
+	"the format after": { kind: "recorded", text: String(artifactFormat + 1) }
 } as const satisfies { readonly [C in Commit]?: RecordedFormat }
 
 /** Every case: each commit once. */

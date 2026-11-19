@@ -2,7 +2,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A committed snapshot's two files as `grizzle check`, `grizzle generate` and `grizzle names` read them: a snapshot.json
  * of another format than this grizzle's (core/format.ts artifactFormat), one that records none, as every grizzle before
- * formats wrote, or format 0 or 2 against this grizzle's 1, is check's snapshotFormat finding alone, carrying the format
+ * formats wrote, or the format before this grizzle's or the one after it, is check's snapshotFormat finding alone, carrying the format
  * it records and this grizzle's, its fix the release's converter, and generate and names refuse it at the stage format,
  * writing nothing (cli/committed.ts SnapshotFormat, the one refusal every command reads); a manifest.json sealed under
  * the earlier formats' domain, and one edited by hand under its seal, read as no snapshot, check's unreadableSnapshot
@@ -11,7 +11,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * leaving snapshot.json as it was.
  *
  * A case takes the committed directory of one schema's first draft (derived.fixtures.ts baseNeed) and commits one file
- * beside the other: snapshot.json of no format, of format 0 or of format 2; manifest.json sealed under the earlier
+ * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; manifest.json sealed under the earlier
  * domain `manifest`; the record with an edge left out, an edit no draft reads, sealed again; or that edit under the
  * draft's seal.
  *
@@ -41,12 +41,12 @@ import {
 /** A snapshot.json of another format is check's format finding, carrying the formats, which generate and names refuse at the stage format writing nothing; an earlier seal and a hand edit read as no snapshot; and a record not the compile's is check's finding, which generate writes back drafting no folder. */
 export const aSnapshotOfAnotherFormatIsItsOwnFindingAnEarlierSealOrAHandEditReadsAsNoSnapshotAndARecordNotTheCompilesIsWrittenBack =
 	property.exhaust(commitSpace, {
-		box: "snapshot.json of no format, of format 0 and of format 2, manifest.json under the earlier seal's domain, a record sealed again over an edit, and that edit under the draft's seal",
+		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, manifest.json under the earlier seal's domain, a record sealed again over an edit, and that edit under the draft's seal",
 		needs: { baseNeed },
 		situations: [
 			"format none",
-			"format 0",
-			"format 2",
+			"the format before",
+			"the format after",
 			"an earlier format's seal",
 			"a record not the compile's",
 			"a hand edit"
@@ -66,8 +66,8 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingAnEarlierSealOrAHandEditRead
 					const pair = ((): { readonly snapshot: string; readonly manifest: string } => {
 						switch (commit) {
 							case "format none":
-							case "format 0":
-							case "format 2":
+							case "the format before":
+							case "the format after":
 								return { snapshot: formatted(snapshot, formatCommits[commit]), manifest }
 							case "an earlier format's seal":
 								return { snapshot, manifest: earlierSealed(snapshot, manifest) }
@@ -83,7 +83,11 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingAnEarlierSealOrAHandEditRead
 					const [checked] = yield* check(resolved, ws)
 					const findings = defined(checked, "the schema's check").findings
 					const kinds = Arr.map(findings, (f) => f.kind)
-					if (commit === "format none" || commit === "format 0" || commit === "format 2") {
+					if (
+						commit === "format none" ||
+						commit === "the format before" ||
+						commit === "the format after"
+					) {
 						const recorded = formatCommits[commit]
 						assert.deepEqual(
 							Arr.map(findings, (f) =>
