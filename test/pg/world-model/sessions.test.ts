@@ -51,7 +51,7 @@ import type { ModelState } from "#test/support/worlds/model/types.ts"
  */
 export const theWorldsModelADirectWritersCaseEveryDirectWriterACaseBeginsEndsWithThatCase =
 	property.explore(caseGen, {
-		needs: { docs: Substrate.seat(docsWorld) },
+		needs: { docs: Substrate.freshOf(docsWorld) },
 		situations: situations satisfies ReadonlyArray<Reached<Ending>>,
 		check:
 			({ docs }, c: Case<Ending>) =>

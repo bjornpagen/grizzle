@@ -73,8 +73,9 @@ export const cases = 24
 
 /**
  * The docs world installed once per member (worlds/execute/template.ts worldTemplate), each case realizing its layers
- * and sessions over the worker's own clone of it, a database no other worker's case connects to, as the search's was
- * its file's own.
+ * and sessions over a fresh clone of it (Substrate.freshOf), a database of the case's own, as the search's was its
+ * file's own: every case's reset refreshes the world's derived relations (execute/index.ts RealWorld reset), and
+ * OrgDocs' rows are no table a seat's reset empties.
  */
 export const docsWorld = worldTemplate({
 	declaredIn: import.meta,
