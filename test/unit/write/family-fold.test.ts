@@ -20,11 +20,11 @@
  * accumulators, a counted family.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
+import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { folded, identityOf } from "#test/support/families/fold.ts"
 import {
@@ -75,11 +75,11 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 				const plain = defined(fold, "the family's one fold")
 				const befores = Arr.map(plain.planes, (p) => columnKey(p.before))
 				const afters = Arr.map(plain.planes, (p) => columnKey(p.after))
-				const ends = Arr.map(plain.planes, (p) => fieldKey(p.end.name))
+				const ends = Arr.map(plain.planes, (p) => columnKeyOf(p.end.name))
 				const members = defined(filled.families[0], "the owner's family").members
 				assert.equal(members.length, c.members.length, "every member is filled")
 				assert.equal(
-					filled.values.get(fieldKey("n")),
+					filled.values.get(columnKeyOf("n")),
 					BigInt(c.members.length),
 					"the count is drawn"
 				)
@@ -101,7 +101,7 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 						"the index is the slot"
 					)
 					assert.equal(
-						row.values.get(`law:${fills.family.copy}`),
+						row.values.get(columnKeyOf(fills.family.copy)),
 						BigInt(c.members.length),
 						"every member copies its owner's count"
 					)

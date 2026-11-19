@@ -19,7 +19,7 @@ import * as Result from "#compiler/core/result.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
-import { familyKey, type GeneratedLaw } from "#compiler/ir/law.ts"
+import { familyKey, type GeneratedLaw, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import {
 	type FilledRows,
 	filledRowsKey,
@@ -38,8 +38,6 @@ import type {
 } from "#compiler/runtime/write/binding.ts"
 import type { MemberCell, MemberKey, Owner } from "#compiler/runtime/write/draw.ts"
 import {
-	type ColumnKey,
-	fieldKey,
 	type FilledNode,
 	type Filler,
 	fillRefusal,
@@ -477,7 +475,7 @@ export const bindWrite = (
 		const stated = Object.freeze(
 			Object.fromEntries(
 				judged.stated.flatMap((name) => {
-					const value = columns.get(fieldKey(name))
+					const value = columns.get(columnKeyOf(name))
 					return value === undefined ? [] : [[name, value] as const]
 				})
 			)
@@ -556,13 +554,15 @@ export const bindWrite = (
 			`the proposal of member slot ${slot.slot}`
 		)
 		return facts.map((fact) => {
-			const columns = new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))
+			const columns = new Map(
+				Object.entries(fact).map(([name, v]) => [columnKeyOf(name), v] as const)
+			)
 			return judgedRow(
 				fill,
 				relation,
 				columns,
 				op,
-				primary.every((name) => columns.has(fieldKey(name))),
+				primary.every((name) => columns.has(columnKeyOf(name))),
 				source,
 				proposal
 			)
@@ -994,7 +994,7 @@ const freshOwners = (
 			const families = counted.filter((f) => f.owner === owner)
 			/** The counts and ends the fill draws, which the owner's facts and rows carry at their starts. */
 			const drawnNames = new Set(families.flatMap((f) => [f.count, ...f.ends]))
-			const drawnKeys = new Set([...drawnNames].map(fieldKey))
+			const drawnKeys = new Set([...drawnNames].map(columnKeyOf))
 			/** Each family's group readers and appended groups, worked out once per owner relation. */
 			const grouped = families.map((f) => ({
 				family: f,
@@ -1053,7 +1053,7 @@ const freshOwners = (
 							Object.fromEntries(
 								Object.entries(fact).map(([name, v]) => [
 									name,
-									drawnNames.has(name) ? filled.value.values.get(fieldKey(name)) : v
+									drawnNames.has(name) ? filled.value.values.get(columnKeyOf(name)) : v
 								])
 							)
 						)
@@ -1093,7 +1093,7 @@ const freshOwners = (
 							Object.fromEntries(
 								Object.entries(row.fact).map(([name, v]) => [
 									name,
-									drawnNames.has(name) ? drawn.get(fieldKey(name)) : v
+									drawnNames.has(name) ? drawn.get(columnKeyOf(name)) : v
 								])
 							)
 						)

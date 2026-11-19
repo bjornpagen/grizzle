@@ -8,11 +8,10 @@ import { Array as Arr, Option, String as Str } from "effect"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { type Family, isSequence } from "#compiler/ir/family.ts"
 import { type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
-import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
+import { familyKey, type RelationInfo, columnKeyOf } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { Binding } from "#compiler/runtime/write/binding.ts"
-import { fieldKey } from "#compiler/runtime/write/fill.ts"
 import { endColumns, rowLayout } from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput, SlotGroup, WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
@@ -99,12 +98,12 @@ const judgedAgrees = (frontend: WriteFrontend, binding: Binding): void => {
 		)
 		assert.deepEqual(
 			sorted(judged.owned.keys()),
-			sorted(new Set(Arr.map(drawn, ({ field }) => fieldKey(field.name)))),
+			sorted(new Set(Arr.map(drawn, ({ field }) => columnKeyOf(field.name)))),
 			`${name}'s owned columns`
 		)
 		for (const [key, owned] of judged.owned) {
 			const law = defined(
-				Option.getOrUndefined(Arr.findFirst(drawn, ({ field }) => fieldKey(field.name) === key)),
+				Option.getOrUndefined(Arr.findFirst(drawn, ({ field }) => columnKeyOf(field.name) === key)),
 				`the family that draws ${name}'s ${key}`
 			)
 			assert.equal(

@@ -35,7 +35,13 @@ import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
-import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import {
+	type LawRelation,
+	type NativeColumn,
+	type ColumnKey,
+	columnKey,
+	columnKeyOf
+} from "#compiler/ir/law.ts"
 import {
 	type Accumulation,
 	accumulations,
@@ -51,7 +57,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { columnReads } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type {
 	Cte,
 	Expr,
@@ -223,7 +228,7 @@ const selection = (
 	value: (key: ColumnKey) => Expr
 ): Expr | undefined => {
 	const [first, ...rest] = fold.where.map((c) =>
-		lowering.expression(c, (name) => value(fieldKey(name)))
+		lowering.expression(c, (name) => value(columnKeyOf(name)))
 	)
 	return first === undefined ? undefined : and([first, ...rest])
 }
@@ -241,9 +246,9 @@ const ownValue =
 			if (held !== undefined) {
 				return held
 			}
-			const field = relation.fields.find((f) => fieldKey(f.name) === k)
+			const field = relation.fields.find((f) => columnKeyOf(f.name) === k)
 			if (field?.writing.kind === "generated") {
-				return lowering.expression(field.writing.expr, (name) => value(fieldKey(name)))
+				return lowering.expression(field.writing.expr, (name) => value(columnKeyOf(name)))
 			}
 			throw defect(`the column ${k} of ${relation.name}, which a write reads`)
 		}

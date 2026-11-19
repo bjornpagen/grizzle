@@ -19,12 +19,17 @@ import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Family } from "#compiler/ir/family.ts"
-import type { LawField, LawRelation, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
+import {
+	type LawField,
+	type LawRelation,
+	type RelationInfo,
+	type TableRelation,
+	type ColumnKey,
+	columnKeyOf
+} from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	closedLeaf,
-	type ColumnKey,
-	fieldKey,
 	type FilledNode,
 	filler,
 	hostEvaluator,
@@ -230,7 +235,7 @@ export const familyRows = (
 			relation: relation.name,
 			values: new Map(
 				Arr.flatMap(writtenFields(relation), (f) =>
-					supplied.has(f.name) ? [] : [[fieldKey(f.name), fact.values.get(f.name)] as const]
+					supplied.has(f.name) ? [] : [[columnKeyOf(f.name), fact.values.get(f.name)] as const]
 				)
 			),
 			families: Arr.map(owned(relation.name), (g) => ({

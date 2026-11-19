@@ -11,12 +11,13 @@
  * Features: an empty family, a member stepped over, a supplementary character joined.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
-import { columnKey, fieldKey, type HostNode } from "#compiler/runtime/write/fill.ts"
+import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
+import type { HostNode } from "#compiler/runtime/write/fill.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import { caseGen, type FillFeature, fills } from "#test/unit/write/concat-fill.fixtures.ts"
@@ -36,16 +37,16 @@ export const theHostFillOfAConcatFoldDrawsTheNaiveLeftFoldOfItsSlotsTexts = prop
 				const { family, fill } = defined(fills[c.selected ? 1 : 0])
 				const nesting: HostNode = {
 					relation: StoredRelationName("Owner"),
-					values: new Map([[fieldKey("id"), uuidOf(0)]]),
+					values: new Map([[columnKeyOf("id"), uuidOf(0)]]),
 					families: [
 						{
 							family: { owner: "Owner", count: "n" },
 							members: Arr.map(c.members, (m, i) => ({
 								relation: StoredRelationName("Member"),
-								values: new Map<ReturnType<typeof fieldKey>, unknown>([
-									[fieldKey("id"), uuidOf(i + 1)],
-									[fieldKey("piece"), m.piece],
-									[fieldKey("flag"), m.flag]
+								values: new Map<ReturnType<typeof columnKeyOf>, unknown>([
+									[columnKeyOf("id"), uuidOf(i + 1)],
+									[columnKeyOf("piece"), m.piece],
+									[columnKeyOf("flag"), m.flag]
 								]),
 								families: []
 							}))
@@ -73,7 +74,7 @@ export const theHostFillOfAConcatFoldDrawsTheNaiveLeftFoldOfItsSlotsTexts = prop
 				if (c.members.length === 0) {
 					k.note("an empty family")
 				}
-				assert.equal(filled.values.get(fieldKey("joined")), running, "the owner's end")
+				assert.equal(filled.values.get(columnKeyOf("joined")), running, "the owner's end")
 			}),
 		oracle: { kind: "second-implementation", name: "a naive left fold of the slots' texts" },
 		box: "families of up to three members, pieces '', 'a' and U+1F600, each selected or not, under a selecting fold and one that does not select",

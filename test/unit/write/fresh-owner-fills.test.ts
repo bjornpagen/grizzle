@@ -15,17 +15,18 @@
  * Features: a node holding no attribute beside one holding some, every node holding some, none holding any.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
+import { columnKeyOf } from "#compiler/ir/law.ts"
 import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { counted, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
-import { fieldKey, type Filler } from "#compiler/runtime/write/fill.ts"
+import type { Filler } from "#compiler/runtime/write/fill.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -134,7 +135,7 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 				)
 				assert.deepEqual(
 					Arr.sort(
-						Arr.map(stored, (row) => String(row.values.get(fieldKey("attrs")))),
+						Arr.map(stored, (row) => String(row.values.get(columnKeyOf("attrs")))),
 						Order.String
 					),
 					Arr.sort(

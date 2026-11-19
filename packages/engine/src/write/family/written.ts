@@ -9,7 +9,13 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { Family } from "#compiler/ir/family.ts"
-import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
+import {
+	type LawField,
+	type NativeColumn,
+	type RelationInfo,
+	type ColumnKey,
+	columnKeyOf
+} from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { completeClass } from "#compiler/ir/write.ts"
 import {
@@ -19,7 +25,6 @@ import {
 	type WriteParams
 } from "#compiler/lower/conservative/context.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { type ColumnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type {
 	Cte,
 	EmittedSql,
@@ -320,7 +325,7 @@ const slotFacts = (
 	const facts = shapedCte(
 		supply,
 		"slot fact",
-		heading.map((c) => fieldKey(c.name))
+		heading.map((c) => columnKeyOf(c.name))
 	)
 	ctes.push(
 		cte(
@@ -332,7 +337,7 @@ const slotFacts = (
 					heading.map((c) =>
 						targetAs(
 							written(w, col(raw, defined(arrayColumn.get(c.name), "a slot's array")), c.type),
-							columnAt(facts, fieldKey(c.name))
+							columnAt(facts, columnKeyOf(c.name))
 						)
 					),
 					[arrays(arraysSource(slots), raw)],

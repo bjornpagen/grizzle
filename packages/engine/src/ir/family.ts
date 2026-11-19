@@ -12,7 +12,13 @@ import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
-import type { FamilyId, LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
+import {
+	type FamilyId,
+	type LawField,
+	type NativeColumn,
+	type RelationInfo,
+	sameNativeColumn
+} from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /** One family: each owner's members indexed by exactly 0 … n − 1. */
@@ -101,19 +107,13 @@ export const isTreeOf = (f: Family, relation: string): boolean =>
 const accumulatorOf = (family: Family, column: NativeColumn): FoldPlane | undefined => {
 	for (const fold of family.folds) {
 		for (const plane of fold.planes) {
-			if (sameColumn(plane.before, column) || sameColumn(plane.after, column)) {
+			if (sameNativeColumn(plane.before, column) || sameNativeColumn(plane.after, column)) {
 				return plane
 			}
 		}
 	}
 	return undefined
 }
-
-/** Whether two native columns are one: a field by its name, a law column by its identifier. */
-const sameColumn = (a: NativeColumn, b: NativeColumn): boolean =>
-	a.kind === "field"
-		? b.kind === "field" && a.field.name === b.field.name
-		: b.kind === "law" && a.column === b.column
 
 /**
  * The type of a column of a family's member or owner the family fills: a field's own; ‹n› and ‹i› the count's
@@ -151,5 +151,5 @@ export const baseLiteral = (family: Family, column: NativeColumn): TypedLiteral 
 		return column.field.writing.kind === "accumulated" ? column.field.writing.start : undefined
 	}
 	const plane = accumulatorOf(family, column)
-	return plane !== undefined && sameColumn(plane.before, column) ? plane.identity : undefined
+	return plane !== undefined && sameNativeColumn(plane.before, column) ? plane.identity : undefined
 }

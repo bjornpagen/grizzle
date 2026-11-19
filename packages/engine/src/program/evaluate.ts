@@ -41,7 +41,6 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { lawModel } from "#compiler/program/laws.ts"
-import { type ColumnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import {
 	type Evaluated,
 	type FilledColumn,
@@ -84,14 +83,13 @@ type Lowered = Result.Result<ExprTable, Unevaluated>
 
 /**
  * A relation of the schema as its sources read its rows, read once a relation (readRelations): its name, its fields as
- * the judge reads them, the fields of its rows a domain holds, its generated fields by name, its row checks by name, and
- * the fields a row of it fills by column key. Every source of the relation reads the one reading, so a row admitted to
- * it is read once over it (witness.ts RowReading), however many sources evaluate the row.
+ * the judge reads them, the fields of its rows a domain holds, its generated fields by name and its row checks by name.
+ * Every source of the relation reads the one reading, so a row admitted to it is read once over it (witness.ts
+ * RowReading), however many sources evaluate the row.
  */
 interface RelationReading {
 	readonly name: string
 	readonly table: JudgedTable
-	readonly filled: FilledFields
 	readonly refined: ReadonlyArray<JudgedField>
 	readonly generated: ReadonlyArray<string>
 	readonly checks: ReadonlyArray<RowCheck>
@@ -102,13 +100,6 @@ interface Prepared {
 	readonly relation: RelationReading
 	readonly selection: Lowered
 }
-
-/**
- * The fields of a relation a row of it fills, by the column key the judge reads each at (runtime/write/fill.ts
- * fieldKey): its fields' names, read once a source, so a row's fill is read off the row itself, never a map built per
- * row.
- */
-type FilledFields = ReadonlyMap<ColumnKey, string>
 
 /**
  * A row check of a relation, by name, its predicate p lowered over the row: a row breaks it where p is false or NULL,
@@ -181,7 +172,6 @@ const relationReading = (
 ): RelationReading => ({
 	name,
 	table: { fields, lawColumns: new Map() },
-	filled: new Map(fields.map((f) => [fieldKey(f.name), f.name] as const)),
 	refined: fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type)),
 	generated: fields.flatMap((f) => (f.writing.kind === "generated" ? [f.name] : [])),
 	checks
@@ -289,18 +279,14 @@ const unfilled: FilledColumn = Object.freeze({ kind: "unfilled" })
 
 /**
  * A row as the judge reads it (witness.ts JudgedRow): every field it holds stated, and each of its relation's fields
- * it holds filled at its value, read off the row itself by the relation's filled fields (FilledFields), a drawn or
- * accumulated field among them; no law column.
+ * it holds filled at its value, read off the row itself at the field's column key, its name (ir/law.ts ColumnKey), a
+ * drawn or accumulated field among them; no law column, whose key no row's field has.
  */
-const judgedRow = (row: Readonly<Record<string, unknown>>, fields: FilledFields): JudgedRow => ({
+const judgedRow = (row: Readonly<Record<string, unknown>>): JudgedRow => ({
 	kind: "known",
 	stated: row,
-	filled: (column) => {
-		const name = fields.get(column)
-		return name !== undefined && Object.hasOwn(row, name)
-			? { kind: "filled", value: row[name] }
-			: unfilled
-	}
+	filled: (column) =>
+		Object.hasOwn(row, column) ? { kind: "filled", value: row[column] } : unfilled
 })
 
 /**
@@ -499,7 +485,7 @@ const admitted = <R>(
 		return Result.err({ _tag: "DomainRefused", field: field.name })
 	}
 	const value = Object.freeze({ row })
-	const reading = judge.reading(relation.table, judgedRow(fields, relation.filled))
+	const reading = judge.reading(relation.table, judgedRow(fields))
 	admissions.set(value, {
 		relation,
 		reading,

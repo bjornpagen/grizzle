@@ -7,12 +7,7 @@ import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc, SideDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import {
-	type NativeColumn,
-	nativeColumnText,
-	type NativeObject,
-	type NativeOf
-} from "#compiler/ir/law.ts"
+import { type NativeColumn, columnKey, type NativeObject, type NativeOf } from "#compiler/ir/law.ts"
 import { sameIndexOpclass } from "#compiler/ir/products.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import type { PartRef } from "#compiler/laws/model/plan.ts"
@@ -454,7 +449,7 @@ const keyNativeSet = (o: NativeObject): ReadonlyArray<readonly [string, string]>
 		case "PrimaryKey":
 			return [[o.relation.name, setText(Arr.map(o.columns, (c) => c.name))]]
 		case "Unique":
-			return [[o.relation.name, setText(Arr.map(o.columns, nativeColumnText))]]
+			return [[o.relation.name, setText(Arr.map(o.columns, columnKey))]]
 		case "WithoutOverlaps":
 		case "Domain":
 		case "TableCheck":
@@ -472,12 +467,7 @@ const keyNativeSet = (o: NativeObject): ReadonlyArray<readonly [string, string]>
 const referencedSets = (installation: Installation): ReadonlyArray<readonly [string, string]> =>
 	Arr.flatMap(installation.laws.natives, (n) =>
 		n.object.kind === "ForeignKey"
-			? [
-					[
-						n.object.target.name,
-						setText(Arr.map(n.object.targetColumns, nativeColumnText))
-					] as const
-				]
+			? [[n.object.target.name, setText(Arr.map(n.object.targetColumns, columnKey))] as const]
 			: []
 	)
 
@@ -667,7 +657,7 @@ export const checkReports = (
 			row,
 			key: Arr.map(u.columns, (c) => valueAt(lawColumns, row, c))
 		}))
-		const index = setText(Arr.map(u.columns, nativeColumnText))
+		const index = setText(Arr.map(u.columns, columnKey))
 		for (const [i, x] of keyed.entries()) {
 			for (const y of keyed.slice(i + 1)) {
 				if (!refusesTogether(x.key, y.key)) {

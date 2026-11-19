@@ -7,10 +7,9 @@ import { StoredRelationName } from "#compiler/core/ids.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { FieldDesc, LiteralDesc, MonoidName } from "#compiler/ir/desc.ts"
 import type { Family } from "#compiler/ir/family.ts"
+import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import {
 	closedLeaf,
-	columnKey,
-	fieldKey,
 	type FilledNode,
 	type Filler,
 	filler,
@@ -352,21 +351,24 @@ const unitY = succeeded(Vector.from(Float32Array.from([0, 1, 0]), 3), "a unit ve
  */
 export const nestingOf = (c: FoldCase): HostNode => ({
 	relation: StoredRelationName("Owner"),
-	values: new Map([[fieldKey("id"), uuidOf(0)]]),
+	values: new Map([[columnKeyOf("id"), uuidOf(0)]]),
 	families: [
 		{
 			family: { owner: "Owner", count: "n" },
 			members: Arr.map(c.members, (m, i) => ({
 				relation: StoredRelationName("Member"),
-				values: new Map<ReturnType<typeof fieldKey>, unknown>([
-					[fieldKey("id"), uuidOf(i + 1)],
-					[fieldKey("flag"), m.flag],
+				values: new Map<ReturnType<typeof columnKeyOf>, unknown>([
+					[columnKeyOf("id"), uuidOf(i + 1)],
+					[columnKeyOf("flag"), m.flag],
 					...(c.shape.selection === "vectors"
-						? [[fieldKey("v"), unitX] as const, [fieldKey("w"), m.flag ? unitY : unitX] as const]
+						? [
+								[columnKeyOf("v"), unitX] as const,
+								[columnKeyOf("w"), m.flag ? unitY : unitX] as const
+							]
 						: []),
 					...(c.shape.monoid === "count"
 						? []
-						: [[fieldKey("x"), hostOf(c.shape.carrier, m.x)] as const])
+						: [[columnKeyOf("x"), hostOf(c.shape.carrier, m.x)] as const])
 				]),
 				families: []
 			}))

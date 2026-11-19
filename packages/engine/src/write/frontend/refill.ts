@@ -4,7 +4,6 @@ import {
 	type Changed,
 	closureOf,
 	replacedBy,
-	columnName,
 	derivedReader,
 	type Hop,
 	originOf,
@@ -27,7 +26,7 @@ import type { Family } from "#compiler/ir/family.ts"
  * relation, read from its facts by its refilled members' removals statement, or an edit of a family's member relation,
  * whose own removals or additions statement the refilled members ride (write/family/removals.ts, additions.ts).
  */
-import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
+import { columnKey, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 
 /** One of a stratum's writes as its refills start from it: its change, where it is, and where a put's rows come from. */
 export interface StratumWrite {
@@ -191,12 +190,12 @@ export const stratumRefill = (
 			member: write.change.relation.name,
 			changed: {
 				relation: path.changed.relation.name,
-				column: columnName(path.changed.column),
+				column: columnKey(path.changed.column),
 				by: path.changed.by
 			},
 			copies: path.copies.map((hop) => ({
 				relation: hop.family.member.name,
-				column: columnName(hop.pair.from)
+				column: columnKey(hop.pair.from)
 			})),
 			reader: derivedReader(reader),
 			cause
@@ -320,9 +319,9 @@ export const stratumRefill = (
 				op: appending.change.op,
 				member: member.name,
 				family: { owner: queriedWay.hop.family.id.owner, count: queriedWay.hop.family.id.count },
-				copy: columnName(copy.from),
+				copy: columnKey(copy.from),
 				owner: queriedWay.hop.family.owner.name,
-				through: columnName(copy.to),
+				through: columnKey(copy.to),
 				changed: queriedWay.changed.relation.name
 			})
 		)

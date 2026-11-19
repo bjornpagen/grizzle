@@ -2,7 +2,7 @@ import type { ParamId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import { type KeyProof, keyIn } from "#compiler/ir/keys.ts"
-import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -15,7 +15,6 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import { type ColumnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type {
 	Cte,
 	Expr,
@@ -180,7 +179,7 @@ export const relationInput = (
 		heading.filter((c) => c.name === f.name).map((c) => ({ field: f, column: c }))
 	)
 	const states = (f: LawField): boolean =>
-		relation.primaryFields.includes(f) || isCarried(f) || walked.has(fieldKey(f.name))
+		relation.primaryFields.includes(f) || isCarried(f) || walked.has(columnKeyOf(f.name))
 	return Object.freeze({
 		kind: "relation",
 		slot,

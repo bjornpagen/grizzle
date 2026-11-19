@@ -29,12 +29,13 @@ import {
 	orderOf,
 	type TreeShape
 } from "#compiler/ir/family.ts"
-import type {
-	FamilyId,
-	LawField,
-	NativeColumn,
-	RelationInfo,
-	TheoryRelation
+import {
+	columnKey,
+	type FamilyId,
+	type LawField,
+	type NativeColumn,
+	type RelationInfo,
+	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
 
@@ -627,10 +628,6 @@ export const axisBase = (f: FamilyShape, axis: AxisKind): AxisBase | undefined =
 			return f.members.kind === "tree" ? { relation: f.member, at: f.members.start } : undefined
 	}
 }
-
-/** A native column's identity within its relation: a field by its name, a law column by its identifier. */
-const columnKey = (c: NativeColumn): string =>
-	c.kind === "field" ? `field\u0000${c.field.name}` : `law\u0000${c.column}`
 
 /** One plane of a fold before lowering: its accumulators and end, and its identity (ir/family.ts FoldPlane). */
 interface PlaneEntry {

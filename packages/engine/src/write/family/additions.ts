@@ -54,7 +54,15 @@ import {
 import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
-import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
+import {
+	familyKey,
+	type LawField,
+	type NativeColumn,
+	type RelationInfo,
+	type ColumnKey,
+	columnKey,
+	columnKeyOf
+} from "#compiler/ir/law.ts"
 import { type FilledRows, walkedRows } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
@@ -65,7 +73,6 @@ import {
 	WriteParams
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { LaidLayout } from "#compiler/runtime/write/nesting.ts"
 import type {
 	Assignment,
@@ -207,7 +214,7 @@ export type RowSource =
  * family draws, which its stored group holds. */
 const statesColumn = (source: RowSource, key: ColumnKey): boolean =>
 	source.kind === "slots"
-		? source.slots.some(({ slot }) => slot.input.stated.some((c) => fieldKey(c.name) === key))
+		? source.slots.some(({ slot }) => slot.input.stated.some((c) => columnKeyOf(c.name) === key))
 		: source.walked.has(key)
 
 /** A source of the rows of an owner relation the stratum inserts that an additions statement reads an owner copy from
@@ -273,7 +280,7 @@ interface OwnedColumn {
 const ownedColumns = (member: AppendedMember): ReadonlyMap<ColumnKey, OwnedColumn> => {
 	const owned = new Map<ColumnKey, OwnedColumn>()
 	const claim = (field: LawField, family: Family, held: NativeColumn): void => {
-		const key = fieldKey(field.name)
+		const key = columnKeyOf(field.name)
 		if (!owned.has(key)) {
 			owned.set(key, { field, family, held })
 		}
@@ -546,8 +553,8 @@ const withDrawn = (
 								mapNonEmpty(member.relation.primaryFields, (f) =>
 									typedEq(
 										f.type,
-										col(s, columnAt(scan, fieldKey(f.name))),
-										col(a, columnAt(rows, fieldKey(f.name))),
+										col(s, columnAt(scan, columnKeyOf(f.name))),
+										col(a, columnAt(rows, columnKeyOf(f.name))),
 										w.names
 									)
 								)
@@ -599,7 +606,7 @@ const appendedOf = (
 		value: (a: string, key: ColumnKey) => Expr
 	): SetArm => {
 		const a = supply.relation(internal("appended fact"))
-		const pkKeys = new Set(member.relation.primaryFields.map((f) => fieldKey(f.name)))
+		const pkKeys = new Set(member.relation.primaryFields.map((f) => columnKeyOf(f.name)))
 		/** The stored row at the fact's primary key, which reaches one row, equal to the fact at every other compared column,
 		 * checked over that row (probe.ts Equal). */
 		const repeated = (): Expr =>
@@ -608,7 +615,7 @@ const appendedOf = (
 				supply,
 				name,
 				atFields(w, name, member.relation.primaryFields, (f) =>
-					col(a, columnAt(facts, fieldKey(f.name)))
+					col(a, columnAt(facts, columnKeyOf(f.name)))
 				),
 				compared
 					.filter((c) => !pkKeys.has(c.key))
@@ -631,7 +638,7 @@ const appendedOf = (
 			`the field ${field.name} of ${name}`
 		)
 		return {
-			key: fieldKey(field.name),
+			key: columnKeyOf(field.name),
 			column: { kind: "field" as const, field: law },
 			type: field.type
 		}
@@ -640,7 +647,10 @@ const appendedOf = (
 		case "slots": {
 			const owned = ownedColumns(member)
 			const keys = [
-				...new Set([...source.slots[0].slot.heading.map((c) => fieldKey(c.name)), ...owned.keys()])
+				...new Set([
+					...source.slots[0].slot.heading.map((c) => columnKeyOf(c.name)),
+					...owned.keys()
+				])
 			]
 			const appended = shapedCte(supply, "appended member", keys)
 			const arms = mapNonEmpty(source.slots, ({ as, slot }) => {
@@ -655,8 +665,8 @@ const appendedOf = (
 				const facts = slots(name, slot)
 				/** A count or end of the row's own counted family as an insert's row holds it: its slot's, or its start. */
 				const fresh = (a: string, c: OwnedColumn): Expr =>
-					facts.columns.has(fieldKey(c.field.name))
-						? col(a, columnAt(facts, fieldKey(c.field.name)))
+					facts.columns.has(columnKeyOf(c.field.name))
+						? col(a, columnAt(facts, columnKeyOf(c.field.name)))
 						: defined(startOf(w.names, c.field), `the start of ${name}'s ${c.field.name}`)
 				/** A count or end of the row's own counted family as its group's members hold it, read by the probe of the
 				 * group's last member at the row's key; none where the group holds no member. */
@@ -669,7 +679,7 @@ const appendedOf = (
 						of,
 						"last",
 						mapNonEmpty(c.family.group, (g) =>
-							bound(w, of, g.member, col(a, columnAt(facts, fieldKey(g.owner.name))))
+							bound(w, of, g.member, col(a, columnAt(facts, columnKeyOf(g.owner.name))))
 						),
 						[installed(w, of, c.family.index)],
 						{ read: [column], filter: () => [] }
@@ -861,7 +871,7 @@ const appendScan = (
 	const bigint = types.bigint
 	const name = member.relation.name
 	const owner = family.owner
-	const groupKeys = family.group.map((g) => fieldKey(g.member.name))
+	const groupKeys = family.group.map((g) => columnKeyOf(g.member.name))
 	const memberGroup = (alias: string, shape: Shaped): ReadonlyArray<Expr> =>
 		groupKeys.map((k) => col(alias, columnAt(shape, k)))
 	const index = installed(w, name, family.index)
@@ -899,7 +909,9 @@ const appendScan = (
 					)
 				}
 				const n = supply.relation(internal("inserted owner"))
-				const ownerKey = family.group.map((g) => col(n, columnAt(owners, fieldKey(g.owner.name))))
+				const ownerKey = family.group.map((g) =>
+					col(n, columnAt(owners, columnKeyOf(g.owner.name)))
+				)
 				ctes.push(
 					cte(
 						copies.name,
@@ -1340,7 +1352,7 @@ const appendScan = (
 	const g2 = supply.relation(internal("row group"))
 	const aGroup = memberGroup(a, appended)
 	const aKey = member.relation.primaryFields.map((f) =>
-		col(a, columnAt(appended, fieldKey(f.name)))
+		col(a, columnAt(appended, columnKeyOf(f.name)))
 	)
 	const kept = col(g2, groups.kept)
 	ctes.push(
@@ -1483,7 +1495,7 @@ const hostDrawnOf = (
 			[
 				...mapNonEmpty(family.group, (g, i) =>
 					targetAs(
-						col(alias, columnAt(shape, fieldKey(g.member.name))),
+						col(alias, columnAt(shape, columnKeyOf(g.member.name))),
 						defined(sides.group[i], "a side key")
 					)
 				),
@@ -1578,7 +1590,7 @@ const withHostDrawn = (
 	/** A column the family draws as the host drew it, cast to its type's base as the scan casts it. */
 	const drawnAt = (key: ColumnKey): Expr =>
 		cast(hostAt(key), w.cx.baseTypeRef(defined(drawnType.get(key), "a drawn column's type")))
-	const hostGroup = family.group.map((g) => hostAt(fieldKey(g.member.name)))
+	const hostGroup = family.group.map((g) => hostAt(columnKeyOf(g.member.name)))
 	const columns = [...union.group, union.slot, union.first, union.count, ...union.columns.values()]
 	const fromScan = provedCore(
 		"keyed",
@@ -1629,7 +1641,7 @@ const candidatesOf = (
 	const a = supply.relation(internal("inserted fact"))
 	const scans = d.scans.map((s) => ({ ...s, alias: supply.relation(internal("inserted scan")) }))
 	const appendedKey = relation.primaryFields.map((f) =>
-		col(a, columnAt(d.appended, fieldKey(f.name)))
+		col(a, columnAt(d.appended, columnKeyOf(f.name)))
 	)
 	const steps = scans.map((s): JoinStep => ({
 		kind: "on",
@@ -1638,7 +1650,7 @@ const candidatesOf = (
 			mapNonEmpty(relation.primaryFields, (f, i) =>
 				typedEq(
 					f.type,
-					col(s.alias, columnAt(s.scan, fieldKey(f.name))),
+					col(s.alias, columnAt(s.scan, columnKeyOf(f.name))),
 					defined(appendedKey[i], "a key column"),
 					w.names
 				)
@@ -1670,7 +1682,7 @@ const candidatesOf = (
 					typedEq(
 						g.owner.type,
 						col(s, defined(scan.group[i], "a scan group column")),
-						col(a, columnAt(d.appended, fieldKey(g.owner.name))),
+						col(a, columnAt(d.appended, columnKeyOf(g.owner.name))),
 						w.names
 					)
 				),
@@ -1688,8 +1700,8 @@ const candidatesOf = (
 			])
 		}
 		recounted.set(
-			fieldKey(family.count.name),
-			fromLast(fieldKey(family.count.name), (s) => col(s, scan.count))
+			columnKeyOf(family.count.name),
+			fromLast(columnKeyOf(family.count.name), (s) => col(s, scan.count))
 		)
 		for (const p of family.axes.last) {
 			if (p.from.kind === "field" && p.from.field.writing.kind === "accumulated") {
@@ -1947,7 +1959,7 @@ const metRefusal = (
 	const name = relation.name
 	const pk = relation.primaryFields
 	const proposedColumn = (f: LawField): string =>
-		defined(made.columnOf(fieldKey(f.name)), `the proposed column of ${name}.${f.name}`)
+		defined(made.columnOf(columnKeyOf(f.name)), `the proposed column of ${name}.${f.name}`)
 	/** The INSERT's RETURNING of a field, which returns every field of the relation (`insertOf`). */
 	const returnedOf = (f: LawField): string =>
 		defined(
@@ -1955,7 +1967,8 @@ const metRefusal = (
 			`the returned column of ${name}.${f.name}`
 		).alias
 	const stated = relation.fields.filter(
-		(f) => d.appended.columns.has(fieldKey(f.name)) && statesColumn(d.source, fieldKey(f.name))
+		(f) =>
+			d.appended.columns.has(columnKeyOf(f.name)) && statesColumn(d.source, columnKeyOf(f.name))
 	)
 	const met = metRowsOf(w, supply, {
 		insert: made.insert,
@@ -2123,7 +2136,7 @@ const recountOf = (
 		})
 		for (const facts of puts) {
 			const p = supply.relation(internal("put owner"))
-			const putKey = family.group.map((g) => col(p, columnAt(facts, fieldKey(g.owner.name))))
+			const putKey = family.group.map((g) => col(p, columnAt(facts, columnKeyOf(g.owner.name))))
 			const appended = scans.map((scan) => {
 				const sc = supply.relation(internal("appended to"))
 				return notExists(
@@ -2243,7 +2256,7 @@ const recountOf = (
 				{ column: x.last.count, base: lit.int(0, bigint) },
 				...[...x.last.columns].map(([key, column]) => {
 					const field = defined(
-						endColumns(x.family).find((f) => fieldKey(f.name) === key),
+						endColumns(x.family).find((f) => columnKeyOf(f.name) === key),
 						`the end ${key} of ${name}`
 					)
 					return {
@@ -2386,7 +2399,7 @@ const recountOf = (
 		for (const [key, column] of last.columns) {
 			assign(
 				defined(
-					endColumns(family).find((f) => fieldKey(f.name) === key),
+					endColumns(family).find((f) => columnKeyOf(f.name) === key),
 					`the end ${key} of ${name}`
 				),
 				column

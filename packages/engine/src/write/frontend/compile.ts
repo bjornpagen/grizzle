@@ -33,7 +33,15 @@ import {
 } from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf, type TreeShape } from "#compiler/ir/family.ts"
 import { familyDrawn, layoutKey } from "#compiler/ir/fill.ts"
-import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
+import {
+	familyKey,
+	type LawField,
+	type NativeColumn,
+	type RelationInfo,
+	type ColumnKey,
+	columnKey,
+	columnKeyOf
+} from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { DeltaSide, Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
@@ -62,9 +70,6 @@ import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import {
 	closedLeaf,
 	type ClosedRows,
-	type ColumnKey,
-	columnKey,
-	fieldKey,
 	type HostEvaluator,
 	hostEvaluator
 } from "#compiler/runtime/write/fill.ts"
@@ -799,7 +804,7 @@ const heldBy = (relation: RelationInfo, column: NativeColumn): ReadonlyArray<Col
 	column.kind === "law"
 		? [columnKey(column)]
 		: withGenerationInputs(relation, [column.field]).flatMap((f) =>
-				f.writing.kind === "generated" ? [] : [fieldKey(f.name)]
+				f.writing.kind === "generated" ? [] : [columnKeyOf(f.name)]
 			)
 
 /**
@@ -2448,7 +2453,7 @@ const compile = (
 				...slots.flatMap((g) =>
 					g.stratum === stratum && g.relation.name === owner
 						? g.inputs.flatMap((input) =>
-								writingSlots(input).map((slot) => slot.input.stated.map((c) => fieldKey(c.name)))
+								writingSlots(input).map((slot) => slot.input.stated.map((c) => columnKeyOf(c.name)))
 							)
 						: []
 				),
@@ -2479,7 +2484,7 @@ const compile = (
 			if (!isNonEmpty(rows.carried) && !rows.described) {
 				return "stored"
 			}
-			const need = [...f.group.map((g) => fieldKey(g.owner.name)), ...heldBy(f.owner, to)]
+			const need = [...f.group.map((g) => columnKeyOf(g.owner.name)), ...heldBy(f.owner, to)]
 			return !rows.described && rows.carried.every((keys) => need.every((k) => keys.includes(k)))
 				? "held"
 				: "drawn"

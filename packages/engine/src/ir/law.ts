@@ -1,3 +1,4 @@
+import { nominal } from "#compiler/core/brand.ts"
 import type { DeclaredName, Identity, IndexMethod } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -273,10 +274,24 @@ export type NativeColumn =
 	| { readonly kind: "field"; readonly field: LawField }
 	| { readonly kind: "law"; readonly column: ColumnIdent }
 
-/** A native column's text: a field's name, or a law column's identifier, which starts with `__` as no declared name
- * does, so the texts of a relation's columns are distinct. */
-export const nativeColumnText = (c: NativeColumn): string =>
-	c.kind === "field" ? c.field.name : c.column
+declare const columnKeyBrand: unique symbol
+
+/**
+ * A native column's key among its relation's columns: its text, a field's name or a law column's identifier, which
+ * starts with `__` as no declared name does, so no two columns of a relation share one, and a field's key is its name.
+ */
+export type ColumnKey = string & { readonly [columnKeyBrand]: true }
+
+/** The key of the column of its relation whose text is `text`: a field's name, or a law column's identifier. */
+export const columnKeyOf = nominal<string, ColumnKey>()
+
+/** A native column's key, its text (ColumnKey). */
+export const columnKey = (c: NativeColumn): ColumnKey =>
+	columnKeyOf(c.kind === "field" ? c.field.name : c.column)
+
+/** Whether two native columns of one relation are one column: their keys are one. */
+export const sameNativeColumn = (a: NativeColumn, b: NativeColumn): boolean =>
+	columnKey(a) === columnKey(b)
 
 /**
  * A key's columns in index order: the order its B-tree or GiST index lists them, which a probe's leading columns read
@@ -285,7 +300,7 @@ export const nativeColumnText = (c: NativeColumn): string =>
 export type KeyOrder = NonEmptyReadonlyArray<NativeColumn>
 
 /**
- * What a key holds apart: its relation and its columns as a set, each by its text (`nativeColumnText`). A scalar key
+ * What a key holds apart: its relation and its columns as a set, each by its text (`columnKey`). A scalar key
  * holds apart two rows equal at every column of it; a span key two rows equal at its scalars whose spans overlap, its
  * span apart from them. Uniqueness reads no order, and PostgreSQL matches a foreign key's referenced columns to a
  * unique index in any order, a PERIOD one's span last (tablecmds.c transformFkeyCheckAttrs), so two keys of one
@@ -309,7 +324,7 @@ export type KeyColumnSet =
 export const scalarKeySet = (relation: string, order: KeyOrder): KeyColumnSet => ({
 	kind: "scalar",
 	relation,
-	columns: nonEmptyNameSet(mapNonEmpty(order, nativeColumnText))
+	columns: nonEmptyNameSet(mapNonEmpty(order, columnKey))
 })
 
 /** The KeyColumnSet of a span key of `relation` over its scalar columns and its span. */
@@ -320,8 +335,8 @@ export const spanKeySet = (
 ): KeyColumnSet => ({
 	kind: "span",
 	relation,
-	span: nativeColumnText(span),
-	scalars: nameSet(scalars.map(nativeColumnText))
+	span: columnKey(span),
+	scalars: nameSet(scalars.map(columnKey))
 })
 
 /** The KeyColumnSet of a key ownership declared on `relation`: a span key's over its other fields and its span. */

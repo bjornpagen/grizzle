@@ -25,6 +25,7 @@ import {
 import type { CompileError } from "#compiler/core/errors.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { FoldPlane } from "#compiler/ir/family.ts"
+import { type ColumnKey, columnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import {
 	accumulated,
@@ -52,9 +53,6 @@ import {
 import type { AnySchema } from "#compiler/public/schema.ts"
 import {
 	closedLeaf,
-	type ColumnKey,
-	columnKey,
-	fieldKey,
 	type FilledNode,
 	filler,
 	hostEvaluator,
@@ -1051,10 +1049,10 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 	const node: HostNode = {
 		relation: StoredRelationName("Owner"),
 		values: new Map<ColumnKey, unknown>([
-			[fieldKey("id"), family.owner],
+			[columnKeyOf("id"), family.owner],
 			...Option.match(spec.check, {
 				onNone: (): ReadonlyArray<readonly [ColumnKey, unknown]> => [],
-				onSome: () => [[fieldKey("k"), spec.carrier.toHost(f.k)] as const]
+				onSome: () => [[columnKeyOf("k"), spec.carrier.toHost(f.k)] as const]
 			})
 		]),
 		families: [
@@ -1063,14 +1061,14 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 				members: Arr.map(family.members, (m) => ({
 					relation: StoredRelationName("Member"),
 					values: new Map<ColumnKey, unknown>([
-						[fieldKey("member"), m.member],
+						[columnKeyOf("member"), m.member],
 						...Option.match(spec.x, {
 							onNone: (): ReadonlyArray<readonly [ColumnKey, unknown]> => [],
-							onSome: (x) => [[fieldKey(x), spec.carrier.toHost(m.x)] as const]
+							onSome: (x) => [[columnKeyOf(x), spec.carrier.toHost(m.x)] as const]
 						}),
 						...Option.match(spec.selected, {
 							onNone: (): ReadonlyArray<readonly [ColumnKey, unknown]> => [],
-							onSome: () => [[fieldKey("on"), m.selected] as const]
+							onSome: () => [[columnKeyOf("on"), m.selected] as const]
 						})
 					]),
 					families: []
@@ -1102,7 +1100,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 	const n = family.members.length
 	return Result.succeed({
 		owners: [
-			{ owner: family.owner, count: n, end: planes(filled.value, (p) => fieldKey(p.end.name)) }
+			{ owner: family.owner, count: n, end: planes(filled.value, (p) => columnKeyOf(p.end.name)) }
 		],
 		rows: Arr.map(owned.members, (row, at): FoldRow => {
 			const m = Arr.getUnsafe(family.members, at)

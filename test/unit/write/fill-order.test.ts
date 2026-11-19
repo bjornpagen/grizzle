@@ -106,9 +106,9 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchema
 			{
 				file: "packages/engine/src/write/frontend/compile.ts",
 				original:
-					"\t\t\tconst need = [...f.group.map((g) => fieldKey(g.owner.name)), ...heldBy(f.owner, to)]",
+					"\t\t\tconst need = [...f.group.map((g) => columnKeyOf(g.owner.name)), ...heldBy(f.owner, to)]",
 				replacement:
-					"\t\t\tconst need = [...f.group.map((g) => fieldKey(g.owner.name)), columnKey(to)]",
+					"\t\t\tconst need = [...f.group.map((g) => columnKeyOf(g.owner.name)), columnKey(to)]",
 				why: "An owner copy of a generated column of owners the stratum inserts is read from the table after their statement, never from the fields its generation reads, so the kept case of TEST_SEED=2002821052 is refused as UnorderableStratum."
 			},
 			{

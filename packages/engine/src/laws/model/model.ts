@@ -75,7 +75,7 @@ import {
 	isSpanField,
 	type LawRelation,
 	type NativeColumn,
-	nativeColumnText,
+	columnKey,
 	type NativeObject,
 	type NativeOf,
 	type RelationInfo,
@@ -591,7 +591,7 @@ const partsKey = (
 
 /** The names of a native's columns: a field's name, a law column's identifier. */
 const columnNames = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string> =>
-	columns.map(nativeColumnText)
+	columns.map(columnKey)
 
 /** A contract's domain CHECK (`DomainCheck`): its base's refined text pattern, when the base is no contract, and
  * its predicate. */

@@ -11,7 +11,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { MemberDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
-import type { FamilyId } from "#compiler/ir/law.ts"
+import type { ColumnKey, FamilyId } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
@@ -19,7 +19,6 @@ import {
 	closedLeaf,
 	closedNamed,
 	type ClosedTable,
-	type ColumnKey,
 	type Evaluation,
 	type Filler,
 	filler,

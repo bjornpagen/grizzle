@@ -5,9 +5,10 @@
 import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import { type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { Owner } from "#compiler/runtime/write/draw.ts"
-import { type ColumnKey, fieldKey, type HostEvaluator } from "#compiler/runtime/write/fill.ts"
+import type { HostEvaluator } from "#compiler/runtime/write/fill.ts"
 
 /** A row's host values by column key: the values a codec admits (scalar/values/identity.ts CarrierHost). */
 export type Values = ReadonlyMap<ColumnKey, unknown>
@@ -23,7 +24,7 @@ export interface FillContext {
 
 /** A fact's values by column key. */
 export const valuesOfFact = (fact: Fact): Map<ColumnKey, unknown> =>
-	new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))
+	new Map(Object.entries(fact).map(([name, v]) => [columnKeyOf(name), v] as const))
 
 /** A family by its group alone: each member field with the owner key field it pairs with, in key order, by name and
  * type. A Family is one. */
@@ -49,7 +50,7 @@ export const groupReader = (
 ): ((values: Values) => Owner) => {
 	const fields = mapNonEmpty(family.group, (g) => {
 		const field = g[side]
-		return { key: fieldKey(field.name), spec: carrierSpecOf(field.type, ctx.codes) }
+		return { key: columnKeyOf(field.name), spec: carrierSpecOf(field.type, ctx.codes) }
 	})
 	return (values) => mapNonEmpty(fields, (f) => admittedParam(f.spec, values.get(f.key)))
 }

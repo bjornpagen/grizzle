@@ -69,6 +69,7 @@ import {
 	layoutKey
 } from "#compiler/ir/fill.ts"
 import {
+	columnKey,
 	familyKey,
 	type LawField,
 	type LawRelation,
@@ -112,11 +113,6 @@ export const withGenerationInputs = (
 }
 
 /** A native column's identity within its relation: a field by its name, a law column by its identifier. */
-const keyOf = (c: NativeColumn): string =>
-	c.kind === "field" ? `field\u0000${c.field.name}` : `law\u0000${c.column}`
-
-/** A native column's name as a refusal names it: a field's name, a law column's identifier. */
-const nameOf = (c: NativeColumn): string => (c.kind === "field" ? c.field.name : c.column)
 
 const fieldColumn = (field: LawField): NativeColumn => ({ kind: "field", field })
 
@@ -189,7 +185,7 @@ const writerOf = (f: Family): FillWriter =>
 /** The first law of the pair of `family`'s `axis` whose source is `from` and target `to`. */
 const pairLaw = (family: Family, axis: AxisKind, from: NativeColumn, to: NativeColumn): LawId => {
 	const pair = family.axes[axis].find(
-		(p) => keyOf(p.from) === keyOf(from) && keyOf(p.to) === keyOf(to)
+		(p) => columnKey(p.from) === columnKey(from) && columnKey(p.to) === columnKey(to)
 	)
 	if (pair === undefined) {
 		throw defect(`the ${axis} axis of ${familyKey(family.id)} carries the pair it is read from`)
@@ -254,7 +250,7 @@ const entriesAt = (
 				: isSequence(rule.family)
 					? { after: new Map([[familyKey(rule.family.id), rule.family]]), settling: false }
 					: { after: new Map(), settling: true }
-		entries.set(keyOf(column), { column, name: nameOf(column), type, rule, writer, own })
+		entries.set(columnKey(column), { column, name: columnKey(column), type, rule, writer, own })
 	}
 	const walk: FillWriter = { kind: "walk" }
 	for (const field of relation.fields) {
@@ -315,7 +311,7 @@ const entriesAt = (
 	const typeOf = (column: NativeColumn): ScalarType => {
 		const type = familyColumnType(f, column)
 		if (type === undefined) {
-			throw defect(`the type of ${nameOf(column)}, a column ${familyKey(f.id)} fills`)
+			throw defect(`the type of ${columnKey(column)}, a column ${familyKey(f.id)} fills`)
 		}
 		return type
 	}
@@ -337,7 +333,7 @@ const entriesAt = (
 		}
 		const base = baseLiteral(f, pair.from)
 		if (base === undefined) {
-			throw defect(`the start of ${nameOf(pair.from)}, a copy along a predecessor axis`)
+			throw defect(`the start of ${columnKey(pair.from)}, a copy along a predecessor axis`)
 		}
 		set(
 			pair.from,
@@ -373,7 +369,7 @@ const entriesAt = (
 				}
 				const type = familyColumnType(g, pair.from)
 				if (type === undefined) {
-					throw defect(`the type of ${nameOf(pair.from)}, a column ${familyKey(g.id)} fills`)
+					throw defect(`the type of ${columnKey(pair.from)}, a column ${familyKey(g.id)} fills`)
 				}
 				set(pair.from, type, { kind: "ownerCopy", family: g, to: pair.to, law: pair.laws[0] }, walk)
 			}
@@ -399,20 +395,23 @@ const generatedAt = (
 	for (const field of relation.fields) {
 		const column = fieldColumn(field)
 		if (field.writing.kind === "caller" || field.writing.kind === "serial") {
-			laid.set(keyOf(column), defined(entries.get(keyOf(column)), `the column of ${field.name}`))
+			laid.set(
+				columnKey(column),
+				defined(entries.get(columnKey(column)), `the column of ${field.name}`)
+			)
 		}
 		if (field.writing.kind !== "generated") {
 			continue
 		}
 		const rule: FillRule = { kind: "generated", expr: field.writing.expr }
-		const read = readsOfRule(relation, rule).map((c) => entries.get(keyOf(c)))
+		const read = readsOfRule(relation, rule).map((c) => entries.get(columnKey(c)))
 		const counted = new Map(
 			read.flatMap((e) =>
 				e?.writer.kind === "counted" ? [[familyKey(e.writer.family.id), e.writer] as const] : []
 			)
 		)
 		if (!read.includes(undefined) && counted.size <= 1) {
-			laid.set(keyOf(column), {
+			laid.set(columnKey(column), {
 				column,
 				name: field.name,
 				type: field.type,
@@ -510,7 +509,7 @@ const draftAt = (
 		field: entry.name,
 		...lawAndFamily(entry.rule, position),
 		axis: "row",
-		source: { relation: relation.name, column: nameOf(read) },
+		source: { relation: relation.name, column: columnKey(read) },
 		later: why
 	})
 	/**
@@ -530,7 +529,7 @@ const draftAt = (
 		visiting.add(key)
 		let waits = entry.own
 		for (const read of readsOfRule(relation, entry.rule)) {
-			const readKey = keyOf(read)
+			const readKey = columnKey(read)
 			const target = entries.get(readKey)
 			if (target === undefined) {
 				return Result.err(refusal(entry, read, { kind: "unreached" }))
@@ -677,13 +676,13 @@ const ownerLater = (
  */
 const readsBack = (draft: Draft, from: NativeColumn, to: NativeColumn): boolean => {
 	const seen = new Set<string>()
-	const pending = [keyOf(from)]
+	const pending = [columnKey(from)]
 	for (let key = pending.pop(); key !== undefined; key = pending.pop()) {
 		const column = defined(draft.columns.get(key), `a column ${key} a draft's row reads`)
 		const rule = column.entry.rule
 		for (const read of rule.kind === "predecessor" ? [rule.to] : column.reads) {
-			const next = keyOf(read)
-			if (next === keyOf(to)) {
+			const next = columnKey(read)
+			if (next === columnKey(to)) {
 				return true
 			}
 			if (!seen.has(next)) {
@@ -863,7 +862,7 @@ export const fillOrder = (
 		return draft
 	}
 	const columnAt = (relation: string, position: FillPosition, to: NativeColumn) =>
-		draftOf(relation, position).columns.get(keyOf(to))
+		draftOf(relation, position).columns.get(columnKey(to))
 	/** Each layout's sequences the walk fills before each of its sequences, by layout key and then family key: what the
 	 * copies its members take of it wait on. */
 	const before = new Map<string, Map<string, Set<string>>>()
@@ -900,7 +899,7 @@ export const fillOrder = (
 				law,
 				axis,
 				family,
-				source: { relation: source.relation, column: nameOf(source.to) },
+				source: { relation: source.relation, column: columnKey(source.to) },
 				later
 			})
 			if (rule.kind === "ownerCopy") {

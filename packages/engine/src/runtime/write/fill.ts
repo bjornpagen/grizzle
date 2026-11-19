@@ -47,7 +47,8 @@ import {
 	familyKey,
 	generatedLaw,
 	type GeneratedLaw,
-	type NativeColumn
+	type ColumnKey,
+	columnKeyOf
 } from "#compiler/ir/law.ts"
 import { type CombineBuild, type CombineStep, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
@@ -75,19 +76,6 @@ import {
 } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
-
-/**
- * A column's key in a row's values: a field by its name, a law column by its identifier, each under its arm, so no field
- * name meets a law column's.
- */
-export type ColumnKey = `field:${string}` | `law:${string}`
-
-/** The key of a native column (`ColumnKey`). */
-export const columnKey = (column: NativeColumn): ColumnKey =>
-	column.kind === "field" ? `field:${column.field.name}` : `law:${column.column}`
-
-/** The key of a field, by its name. */
-export const fieldKey = (field: string): ColumnKey => `field:${field}`
 
 /**
  * A row of a nesting as its caller wrote it: its relation, its caller fields' values by field key (`ColumnKey`), each the
@@ -803,8 +791,8 @@ const keyOf = (row: Row): Readonly<Record<string, KeyHost>> | undefined => {
 		const values: Record<string, KeyHost> = {}
 		let whole = true
 		for (const name of key) {
-			const column = row.layout.columns.get(fieldKey(name))
-			const raw = row.values.get(fieldKey(name))
+			const column = row.layout.columns.get(columnKeyOf(name))
+			const raw = row.values.get(columnKeyOf(name))
 			const value =
 				column === undefined || raw === undefined
 					? undefined
@@ -952,7 +940,7 @@ const fieldOf = (
 	field: string,
 	evaluate: HostEvaluator
 ): Result.Result<unknown, FillRefusal> => {
-	const key = fieldKey(field)
+	const key = columnKeyOf(field)
 	return row.layout.columns.has(key) ? valueOf(row, key, evaluate) : Result.ok(undefined)
 }
 

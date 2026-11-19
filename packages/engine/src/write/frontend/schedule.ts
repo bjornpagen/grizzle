@@ -159,7 +159,7 @@ const writesAt = (
 	(writesMember(node) && relation === node.member) ||
 	ridersOf(node).some((r) => r.relation === relation && touches(r, columns))
 
-/** A column PostgreSQL generates from its row, by key (runtime/write/fill.ts ColumnKey), with the keys of the columns it
+/** A column PostgreSQL generates from its row, by key (ir/law.ts ColumnKey), with the keys of the columns it
  * reads. */
 export interface GeneratedColumn {
 	readonly key: string
@@ -231,7 +231,7 @@ interface Scheduled {
 
 /**
  * An immediate reference: facts of `from` name facts of `to` at every statement, by the columns `fromColumns` and
- * `toColumns`, each by key (runtime/write/fill.ts ColumnKey); `cascade` where an update of the referenced facts carries
+ * `toColumns`, each by key (ir/law.ts ColumnKey); `cascade` where an update of the referenced facts carries
  * itself into the referencing ones (ON UPDATE CASCADE), so only a deletion removes what they reference.
  */
 export interface ImmediateReference {

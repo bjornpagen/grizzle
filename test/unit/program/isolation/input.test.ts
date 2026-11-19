@@ -37,7 +37,7 @@
  * several variants, a relation some trigger law reads, a member's reference to its owner.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { caseGen, type Feature, run } from "#test/unit/program/isolation/input.fixtures.ts"
 
@@ -71,15 +71,16 @@ export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuild
 			},
 			{
 				file: "packages/engine/src/program/isolation/input.ts",
-				original: "\t\t\t\t? [[object.relation.name, object.columns.map(nativeColumnText)]]",
+				original:
+					'\t\t\treturn object.kind === "Unique" ? [[object.relation.name, object.columns.map(columnKey)]] : []',
 				replacement:
-					'\t\t\t\t? object.columns.every((c) => c.kind === "field")\n\t\t\t\t\t? [[object.relation.name, object.columns.map(nativeColumnText)]]\n\t\t\t\t\t: []',
+					'\t\t\treturn object.kind === "Unique" && object.columns.every((c) => c.kind === "field")\n\t\t\t\t? [[object.relation.name, object.columns.map(columnKey)]]\n\t\t\t\t: []',
 				why: "A UNIQUE over a law column left out of the keys, as before, so a check by an alternatives arm's or a family slot's law columns binds no whole key (edullm's decideStage)."
 			},
 			{
 				file: "packages/engine/src/program/isolation/input.ts",
 				original:
-					"\t\t\t\t\tcolumns: object.targetColumns.map(nativeColumnText),\n\t\t\t\t\tonUpdate: object.onUpdate",
+					"\t\t\t\t\tcolumns: object.targetColumns.map(columnKey),\n\t\t\t\t\tonUpdate: object.onUpdate",
 				replacement:
 					'\t\t\t\t\tcolumns: object.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field.name] : [])),\n\t\t\t\t\tonUpdate: object.onUpdate',
 				why: "A foreign key's law columns left out of its referenced columns, so its check by an alternatives arm's or a family slot's key binds no whole key."

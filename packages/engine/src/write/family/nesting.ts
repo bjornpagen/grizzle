@@ -30,9 +30,16 @@ import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { type FillAt, type FillOrder, type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
-import { type FamilyId, familyKey, type LawRelation, type RelationInfo } from "#compiler/ir/law.ts"
+import {
+	type FamilyId,
+	familyKey,
+	type LawRelation,
+	type RelationInfo,
+	type ColumnKey,
+	columnKey,
+	columnKeyOf
+} from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { NestingData } from "#compiler/runtime/write/nesting.ts"
 import { walkStart } from "#compiler/write/family/fold.ts"
 import { laidLayout, type RowLayout, rowLayout } from "#compiler/write/family/statements.ts"
@@ -178,7 +185,7 @@ const walkedAt = (
 		throw defect(`the layout of ${relation.name} where a nesting writes its rows`)
 	}
 	return new Set([
-		...relation.primaryFields.map((f) => fieldKey(f.name)),
+		...relation.primaryFields.map((f) => columnKeyOf(f.name)),
 		...layout.columns.flatMap((c) => (c.writer.kind === "walk" ? [columnKey(c.column)] : []))
 	])
 }

@@ -29,14 +29,13 @@ import { type AxisPair, type Family, isSequence, isTreeOf } from "#compiler/ir/f
  * The refills a write needs close over the changes the refills make in turn. A refill whose own changes reach it again
  * is a cycle no order of the refills draws.
  */
-import { familyKey, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
-
-/** A native column's identity within its relation: a field by its name, a law column by its identifier. */
-const columnId = (c: NativeColumn): string =>
-	c.kind === "field" ? `field:${c.field.name}` : `law:${c.column}`
-
-/** Whether two native columns are one column of one relation. */
-const sameColumn = (a: NativeColumn, b: NativeColumn): boolean => columnId(a) === columnId(b)
+import {
+	columnKey,
+	familyKey,
+	type NativeColumn,
+	type RelationInfo,
+	sameNativeColumn
+} from "#compiler/ir/law.ts"
 
 /** A ChangeSet member's write of `relation` by `op`, which edits the families of `edited` it is a member of. */
 export interface WriteChange {
@@ -98,10 +97,6 @@ export interface RefillPath {
 	readonly hops: ReadonlyArray<Family>
 }
 
-/** A native column's name as a refusal names it: a field's name, a law column's identifier. */
-export const columnName = (c: NativeColumn): string =>
-	c.kind === "field" ? c.field.name : c.column
-
 /** The relation a reader's column is on: a fold's end and a last copy on its family's owner, any other on its member. */
 const readerRelation = (reader: Reader): RelationInfo =>
 	reader.kind === "fold" || reader.kind === "last" ? reader.family.owner : reader.family.member
@@ -111,7 +106,7 @@ export const derivedReader = (reader: Reader): DerivedReader => ({
 	kind: reader.kind,
 	family: { owner: reader.family.id.owner, count: reader.family.id.count },
 	relation: readerRelation(reader).name,
-	column: columnName(reader.column)
+	column: columnKey(reader.column)
 })
 
 /** The values of `l`, whose member holds `column`, that read it and are drawn only when their row is written. */
@@ -126,14 +121,14 @@ const readersIn = (l: Family, column: NativeColumn): ReadonlyArray<Reader> => {
 				: []
 		),
 		...l.axes.predecessor.flatMap((p): ReadonlyArray<Reader> =>
-			sameColumn(p.to, column) ? [{ kind: "predecessor", family: l, column: p.from }] : []
+			sameNativeColumn(p.to, column) ? [{ kind: "predecessor", family: l, column: p.from }] : []
 		),
 		...l.axes.last.flatMap((p): ReadonlyArray<Reader> =>
-			sameColumn(p.to, column) ? [{ kind: "last", family: l, column: p.from }] : []
+			sameNativeColumn(p.to, column) ? [{ kind: "last", family: l, column: p.from }] : []
 		),
 		...(isTreeOf(l, l.member.name)
 			? l.axes.owner.flatMap((p): ReadonlyArray<Reader> =>
-					sameColumn(p.to, column) ? [{ kind: "tree", family: l, column: p.from }] : []
+					sameNativeColumn(p.to, column) ? [{ kind: "tree", family: l, column: p.from }] : []
 				)
 			: [])
 	]
@@ -249,7 +244,7 @@ const reachedBy = (
 			own: (l: Family) => boolean,
 			copies: ReadonlyArray<Hop>
 		): void => {
-			const visit = `${at.name}\u0000${columnId(column)}\u0000${copies.length === 0 ? "own" : "carried"}`
+			const visit = `${at.name}\u0000${columnKey(column)}\u0000${copies.length === 0 ? "own" : "carried"}`
 			if (seen.has(visit)) {
 				return
 			}
@@ -280,7 +275,7 @@ const reachedBy = (
 					})
 				}
 				for (const pair of j.axes.owner) {
-					if (!sameColumn(pair.to, column)) {
+					if (!sameNativeColumn(pair.to, column)) {
 						continue
 					}
 					const hop = { family: j, pair }

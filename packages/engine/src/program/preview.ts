@@ -27,12 +27,11 @@ import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { familyKey, type FieldWriting } from "#compiler/ir/law.ts"
+import { familyKey, type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
 import { builtLawModel, parseBuiltSchema, schemaArtifacts } from "#compiler/program/schema.ts"
 import { compileParsed } from "#compiler/program/workload/change.ts"
 import { bindWrite, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import type { CountedFamily, MemberAt } from "#compiler/runtime/write/binding.ts"
-import { fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -115,7 +114,7 @@ const storedValue = (
 		case "drawn":
 		case "serial":
 		case "accumulated": {
-			const key = fieldKey(field.name)
+			const key = columnKeyOf(field.name)
 			if (!row.values.has(key)) {
 				throw defect(
 					`the field ${relation}.${field.name} the write's binding fills on a row it inserts`

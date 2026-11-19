@@ -71,12 +71,11 @@ import { defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { rowEq, typedEq } from "#compiler/ir/compare.ts"
 import { type Family, isSequence, type TreeShape } from "#compiler/ir/family.ts"
-import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
-import { type ColumnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { Cte, Expr, Select } from "#compiler/sql/ast.ts"
 import {
 	asc,
@@ -246,7 +245,7 @@ export const unitSql = (
 			if (rows.kind === "slot") {
 				const shape = slots(relation.name, rows.slot)
 				const columns = rows.slot.heading.map((c) => ({
-					key: fieldKey(c.name),
+					key: columnKeyOf(c.name),
 					column: w.names.column(relation.name, c.name),
 					type: c.type
 				}))
@@ -268,7 +267,7 @@ export const unitSql = (
 		kind: "key",
 		relation,
 		alias: m,
-		at: (f) => col(n, columnAt(read.shape, fieldKey(f.name)))
+		at: (f) => col(n, columnAt(read.shape, columnKeyOf(f.name)))
 	})
 	/** Whether the stored row under alias `m` equals the added row of `read` under alias `n` at every column the read states
 	 * beside the key, which the hop to it binds. */
@@ -278,7 +277,7 @@ export const unitSql = (
 		n: string,
 		m: string
 	): ReadonlyArray<Expr> => {
-		const key = new Set(relation.primaryFields.map((f) => fieldKey(f.name)))
+		const key = new Set(relation.primaryFields.map((f) => columnKeyOf(f.name)))
 		return read.columns
 			.filter((c) => !key.has(c.key))
 			.map((c) => typedEq(c.type, col(m, c.column), col(n, columnAt(read.shape, c.key)), w.names))
@@ -380,7 +379,7 @@ export const unitSql = (
 					where: notExists(
 						reachedRows(w, atAdded(relation, read, n, m), sameAsAdded(relation, read, n, m))
 					),
-					key: ownerKeyOf(family, (f) => col(n, columnAt(read.shape, fieldKey(f.name))))
+					key: ownerKeyOf(family, (f) => col(n, columnAt(read.shape, columnKeyOf(f.name))))
 				}
 			})
 		])

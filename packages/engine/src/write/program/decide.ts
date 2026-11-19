@@ -18,7 +18,10 @@ import {
 	type FamilyId,
 	familyKey,
 	type RelationInfo,
-	type TableRelation
+	type TableRelation,
+	type ColumnKey,
+	columnKey,
+	columnKeyOf
 } from "#compiler/ir/law.ts"
 import {
 	baseOf,
@@ -42,18 +45,15 @@ import type {
 	NestedOwner,
 	OwnedColumn
 } from "#compiler/runtime/write/binding.ts"
-import {
-	type ClosedTable,
-	type ColumnKey,
-	columnKey,
-	type Evaluation,
-	fieldKey,
-	type FillColumnData,
-	type FillFamily,
-	type FillLayoutData,
-	type FillRelation,
-	type FillRuleData,
-	type HostFill
+import type {
+	ClosedTable,
+	Evaluation,
+	FillColumnData,
+	FillFamily,
+	FillLayoutData,
+	FillRelation,
+	FillRuleData,
+	HostFill
 } from "#compiler/runtime/write/fill.ts"
 import type { LaidColumn, LaidLayout, NestedLayoutData } from "#compiler/runtime/write/nesting.ts"
 import type { GroupData, InputData, SlotData } from "#compiler/runtime/write/normalize.ts"
@@ -205,10 +205,10 @@ const ownedColumns = (
 			continue
 		}
 		const counted = countedFamily(family)
-		claim(fieldKey(family.count.name), { kind: "count", family: counted })
+		claim(columnKeyOf(family.count.name), { kind: "count", family: counted })
 		for (const end of endColumns(family)) {
 			if (end.writing.kind === "accumulated") {
-				claim(fieldKey(end.name), {
+				claim(columnKeyOf(end.name), {
 					kind: "end",
 					family: counted,
 					name: end.name,
@@ -275,7 +275,7 @@ export const freshLayoutOf = (frontend: WriteFrontend, family: Family): LaidLayo
 	const member = family.member
 	const keyNames = new Set(member.primaryFields.map((f) => f.name))
 	const fieldColumn = (name: string, type: LaidColumn["type"]): LaidColumn => ({
-		key: fieldKey(name),
+		key: columnKeyOf(name),
 		type,
 		column: { kind: "field", field: { name } }
 	})

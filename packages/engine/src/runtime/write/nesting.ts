@@ -20,7 +20,7 @@ import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
-import { type FamilyId, familyKey } from "#compiler/ir/law.ts"
+import { type FamilyId, familyKey, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { MessageBound } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -31,8 +31,6 @@ import {
 } from "#compiler/runtime/write/addition.ts"
 import type { MemberCell, MemberKey } from "#compiler/runtime/write/draw.ts"
 import {
-	type ColumnKey,
-	fieldKey,
 	type FilledNode,
 	type Filler,
 	type FillRefusal,
@@ -288,16 +286,6 @@ export const nestedRows = (
 		shapes.set(reached, made)
 		return made
 	}
-	const fieldKeys = new Map<string, ColumnKey>()
-	const keyOf = (field: string): ColumnKey => {
-		const known = fieldKeys.get(field)
-		if (known !== undefined) {
-			return known
-		}
-		const made = fieldKey(field)
-		fieldKeys.set(field, made)
-		return made
-	}
 	const tops: Array<NestedFact> = []
 	const relation = nesting.relation
 	const byKey =
@@ -307,7 +295,7 @@ export const nestedRows = (
 	/** A field of the insert's own row as its facts are read: its name, its column key and its carrier's spec. */
 	const shapedField = (c: HeadingColumn) => ({
 		name: c.name,
-		key: fieldKey(c.name),
+		key: columnKeyOf(c.name),
 		spec: carrierSpecOf(c.type, walk.codes)
 	})
 	const keyColumns = nesting.primary.map(shapedField)
@@ -318,7 +306,7 @@ export const nestedRows = (
 		if (!split.ok) {
 			return Result.err(encodeFailure(split.error.fault, slotPlace(member)))
 		}
-		const host = hostNodes(normalizers, split.value, { member, book, transport, keyOf })
+		const host = hostNodes(normalizers, split.value, { member, book, transport })
 		if (!host.ok) {
 			return host
 		}
@@ -443,8 +431,6 @@ const hostNodes = (
 		readonly member: string
 		readonly book: DigestBook
 		readonly transport: Transport
-		/** A field's column key, each field's made once for the write. */
-		readonly keyOf: (field: string) => ColumnKey
 	}
 ): Result.Result<HostNode, EncodingFailure | MessageBound> => {
 	/** Every addition in pre-order, with the normalizer of the level it stands at. */
@@ -486,7 +472,7 @@ const hostNodes = (
 		}
 		const values = new Map<ColumnKey, unknown>()
 		for (const field of Object.keys(admitted.value)) {
-			values.set(write.keyOf(field), admitted.value[field])
+			values.set(columnKeyOf(field), admitted.value[field])
 		}
 		built.set(
 			addition,

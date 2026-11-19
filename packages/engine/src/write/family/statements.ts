@@ -7,9 +7,15 @@ import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Family } from "#compiler/ir/family.ts"
-import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
+import {
+	type LawField,
+	type NativeColumn,
+	type RelationInfo,
+	type ColumnKey,
+	columnKey,
+	columnKeyOf
+} from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { type ColumnKey, columnKey } from "#compiler/runtime/write/fill.ts"
 import type { LaidColumn, LaidLayout } from "#compiler/runtime/write/nesting.ts"
 import type { Cte, Expr } from "#compiler/sql/ast.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
@@ -80,8 +86,8 @@ export const memberFamilies = (
  */
 export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family>): RowLayout => {
 	const mine = memberFamilies(relation.name, families)
-	const groups = new Set<string>(mine.flatMap((f) => f.group.map((g) => `field:${g.member.name}`)))
-	const copies = new Set<string>(mine.map((f) => `law:${f.copy}`))
+	const groups = new Set(mine.flatMap((f) => f.group.map((g) => columnKeyOf(g.member.name))))
+	const copies = new Set(mine.map((f) => columnKeyOf(f.copy)))
 	const of = (column: NativeColumn, type: ScalarType): RowColumn => {
 		const key = columnKey(column)
 		const copy = copies.has(key)

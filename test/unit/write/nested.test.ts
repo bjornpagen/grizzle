@@ -16,14 +16,14 @@
  * shape.
  */
 
-import { type Reached } from "@bjornpagen/testing/features"
+import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str, Stream } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { columnKeyOf } from "#compiler/ir/law.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
-import { fieldKey } from "#compiler/runtime/write/fill.ts"
 import { inputSlotsOf } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -117,12 +117,12 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 						"each owner's own row"
 					)
 					assert.deepEqual(
-						top.filled(fieldKey("lines")),
+						top.filled(columnKeyOf("lines")),
 						{ kind: "filled", value: BigInt(doc.lines.length) },
 						"the owner's count, as the write fills it, is its family's length"
 					)
 					assert.deepEqual(
-						top.filled(fieldKey("total")),
+						top.filled(columnKeyOf("total")),
 						{ kind: "filled", value: Arr.reduce(doc.lines, 0n, (s, l) => s + l.qty) },
 						"the owner's end, as the write fills it, is its members' sum"
 					)
@@ -160,8 +160,8 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 		kills: [
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
-				original: "\t\t\t\tprimary.every((name) => columns.has(fieldKey(name))),",
-				replacement: "\t\t\t\t!primary.every((name) => columns.has(fieldKey(name))),",
+				original: "\t\t\t\tprimary.every((name) => columns.has(columnKeyOf(name))),",
+				replacement: "\t\t\t\t!primary.every((name) => columns.has(columnKeyOf(name))),",
 				why: "Operator mutant (negation) at packages/engine/src/runtime/write/bind.ts in ownRows, the arm-swap of its keyed check before LEGACYFLIGHTS: a row that states its whole key is judged unkeyed and one that states part of it keyed; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

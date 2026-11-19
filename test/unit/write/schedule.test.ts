@@ -86,8 +86,8 @@ export const aStratumsScheduleKeepsAnImmediateForeignKeyIntoARelationItReference
 							from: nameOf(shape, "C"),
 							to: nameOf(shape, "P"),
 							cascade: false,
-							fromColumns: ["field:p"],
-							toColumns: ["field:id"]
+							fromColumns: ["p"],
+							toColumns: ["id"]
 						}
 					],
 					[]

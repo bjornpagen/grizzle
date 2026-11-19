@@ -44,10 +44,17 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import { typedEq } from "#compiler/ir/compare.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
-import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
+import {
+	familyKey,
+	type LawField,
+	type NativeColumn,
+	type RelationInfo,
+	type ColumnKey,
+	columnKey,
+	columnKeyOf
+} from "#compiler/ir/law.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
 import type { Assignment, Cte, Expr, SetArm } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -221,7 +228,7 @@ const shapedKey = (
 	shaped: Shaped,
 	r: string
 ): NonEmptyReadonlyArray<Expr> =>
-	mapNonEmpty(relation.primaryFields, (f) => col(r, columnAt(shaped, fieldKey(f.name))))
+	mapNonEmpty(relation.primaryFields, (f) => col(r, columnAt(shaped, columnKeyOf(f.name))))
 
 /** The arm of the rows of `shaped`, a CTE keyed by `relation`'s primary key, at that key: it reads no stored table. */
 const shapedArm = (supply: NameSupply, relation: RelationInfo, shaped: Shaped): KeyArm => {
@@ -454,21 +461,21 @@ const leftByPut = (
 	facts: Shaped
 ): Shaped => {
 	const generated = relation.fields.filter(
-		(f) => f.writing.kind === "generated" && !facts.columns.has(fieldKey(f.name))
+		(f) => f.writing.kind === "generated" && !facts.columns.has(columnKeyOf(f.name))
 	)
 	if (!isNonEmpty(generated)) {
 		return facts
 	}
 	const out = shapedCte(supply, "put root", [
 		...facts.columns.keys(),
-		...generated.map((f) => fieldKey(f.name))
+		...generated.map((f) => columnKeyOf(f.name))
 	])
 	const r = supply.relation(internal("put fact"))
 	/** The fields the generated fields read that the put keeps, by key: each one grizzle draws or accumulates. */
 	const kept = new Map(
 		withGenerationInputs(relation, generated).flatMap((f) =>
 			f.writing.kind === "drawn" || f.writing.kind === "accumulated"
-				? [[fieldKey(f.name), f] as const]
+				? [[columnKeyOf(f.name), f] as const]
 				: []
 		)
 	)
@@ -485,7 +492,7 @@ const leftByPut = (
 		const s = supply.relation(internal("put stored root"))
 		return {
 			hops: [
-				{ kind: "key", relation, alias: s, at: (f) => col(r, columnAt(facts, fieldKey(f.name))) }
+				{ kind: "key", relation, alias: s, at: (f) => col(r, columnAt(facts, columnKeyOf(f.name))) }
 			],
 			read: (key) => {
 				const field = kept.get(key)
@@ -505,7 +512,7 @@ const leftByPut = (
 						...generated.map((field) =>
 							targetAs(
 								scannedValue(w, relation, left.read, { kind: "field", field }),
-								columnAt(out, fieldKey(field.name))
+								columnAt(out, columnKeyOf(field.name))
 							)
 						)
 					],
@@ -609,7 +616,7 @@ const cascaded = (
 					g.member.type,
 					col(at, w.names.column(hop.member.name, g.member.name)),
 					level === 0
-						? col(o, columnAt(factsOf(way), fieldKey(g.owner.name)))
+						? col(o, columnAt(factsOf(way), columnKeyOf(g.owner.name)))
 						: col(o, w.names.column(hop.owner.name, g.owner.name)),
 					w.names
 				)
@@ -635,7 +642,7 @@ const cascaded = (
 				alias: atLevel(level),
 				at: (g) =>
 					level === 0
-						? col(root, columnAt(factsOf(way), fieldKey(g.owner.name)))
+						? col(root, columnAt(factsOf(way), columnKeyOf(g.owner.name)))
 						: col(atLevel(level - 1), w.names.column(family.owner.name, g.owner.name))
 			})),
 			where: undefined,
@@ -730,7 +737,7 @@ const merged = (
 			`the column ${key} of ${name}`
 		).column
 	const stated = new Set(
-		member.puts === undefined ? [] : member.puts.input.stated.map((c) => fieldKey(c.name))
+		member.puts === undefined ? [] : member.puts.input.stated.map((c) => columnKeyOf(c.name))
 	)
 	const out = shapedCte(supply, "edited and refilled member", keys)
 	const s = supply.relation(internal("edited and refilled stored row"))
@@ -740,7 +747,7 @@ const merged = (
 			mapNonEmpty(member.relation.primaryFields, (f) =>
 				typedEq(
 					f.type,
-					col(r, columnAt(shaped, fieldKey(f.name))),
+					col(r, columnAt(shaped, columnKeyOf(f.name))),
 					col(s, w.names.column(name, f.name)),
 					w.names
 				)
@@ -837,7 +844,7 @@ const readEdit = (
 			? undefined
 			: {
 					facts: slots(name, member.puts),
-					stated: new Set(member.puts.input.stated.map((c) => fieldKey(c.name)))
+					stated: new Set(member.puts.input.stated.map((c) => columnKeyOf(c.name)))
 				}
 	const deletes = member.deletes === undefined ? undefined : slots(name, member.deletes)
 	const keyFields = relation.primaryFields
@@ -847,7 +854,7 @@ const readEdit = (
 				typedEq(
 					f.type,
 					col(s, w.names.column(name, f.name)),
-					col(alias, columnAt(facts, fieldKey(f.name))),
+					col(alias, columnAt(facts, columnKeyOf(f.name))),
 					w.names
 				)
 			)
@@ -865,7 +872,7 @@ const readEdit = (
 		const groups = sameGroups(
 			w,
 			member,
-			(field) => col(p, columnAt(puts, fieldKey(field))),
+			(field) => col(p, columnAt(puts, columnKeyOf(field))),
 			(field) => col(ps, w.names.column(name, field))
 		)
 		return [
@@ -876,7 +883,7 @@ const readEdit = (
 						kind: "key",
 						relation,
 						alias: ps,
-						at: (f) => col(p, columnAt(puts, fieldKey(f.name)))
+						at: (f) => col(p, columnAt(puts, columnKeyOf(f.name)))
 					}
 				],
 				where: groups === undefined ? undefined : not(groups),
@@ -934,7 +941,7 @@ const readEdit = (
 		const groups = sameGroups(
 			w,
 			member,
-			(field) => col(p2, columnAt(puts, fieldKey(field))),
+			(field) => col(p2, columnAt(puts, columnKeyOf(field))),
 			(field) => col(s2, w.names.column(name, field))
 		)
 		ctes.push(
@@ -1003,7 +1010,7 @@ const deferralOf = (
 			if (d.relation !== family.owner.name) {
 				return []
 			}
-			const keys = family.group.map((g) => col(x, columnAt(d.facts, fieldKey(g.owner.name))))
+			const keys = family.group.map((g) => col(x, columnAt(d.facts, columnKeyOf(g.owner.name))))
 			return [exists(simpleSelect([target(one)], [cteRefAs(d.facts.name, x)], names(keys)))]
 		}
 		if (d.relation !== memberName) {
@@ -1015,7 +1022,7 @@ const deferralOf = (
 				typedEq(
 					f.type,
 					col(y, w.names.column(memberName, f.name)),
-					col(x, columnAt(d.facts, fieldKey(f.name))),
+					col(x, columnAt(d.facts, columnKeyOf(f.name))),
 					w.names
 				)
 			)
@@ -1031,14 +1038,14 @@ const deferralOf = (
 						typedEq(
 							field.type,
 							col(y, w.names.column(memberName, field.name)),
-							col(x, columnAt(d.facts, fieldKey(field.name))),
+							col(x, columnAt(d.facts, columnKeyOf(field.name))),
 							w.names
 						)
 					)
 				])
 			)
 		)
-		const keys = family.group.map((g) => col(x, columnAt(d.facts, fieldKey(g.member.name))))
+		const keys = family.group.map((g) => col(x, columnAt(d.facts, columnKeyOf(g.member.name))))
 		return [
 			exists(simpleSelect([target(one)], [cteRefAs(d.facts.name, x)], and([names(keys), stored])))
 		]
@@ -1069,7 +1076,7 @@ const redraw = (
 	const owner = family.owner
 	const keys = layoutKeys(member.layout)
 	const groupOf = (alias: string, shape: Shaped): ReadonlyArray<Expr> =>
-		family.group.map((g) => col(alias, columnAt(shape, fieldKey(g.member.name))))
+		family.group.map((g) => col(alias, columnAt(shape, columnKeyOf(g.member.name))))
 
 	const indexKey = columnKey(family.index)
 	const slotOf = (alias: string, shape: Shaped): Expr => col(alias, columnAt(shape, indexKey))
@@ -1084,14 +1091,16 @@ const redraw = (
 	const u0 = supply.relation(internal("updated row"))
 	const s0 = supply.relation(internal("updated stored"))
 	const changes = inputs.flatMap((f) => {
-		const key = fieldKey(f.name)
+		const key = columnKeyOf(f.name)
 		const column = read.updated.columns.get(key)
 		return column === undefined
 			? []
 			: [not(typedEq(f.type, col(u0, column), col(s0, w.names.column(name, f.name)), w.names))]
 	})
 	const memberKeyOf = (alias: string, shape: Shaped): NonEmptyReadonlyArray<Expr> =>
-		mapNonEmpty(member.relation.primaryFields, (f) => col(alias, columnAt(shape, fieldKey(f.name))))
+		mapNonEmpty(member.relation.primaryFields, (f) =>
+			col(alias, columnAt(shape, columnKeyOf(f.name)))
+		)
 	const storedAtKey = (stored: string, keyExprs: NonEmptyReadonlyArray<Expr>): Expr =>
 		and(
 			mapNonEmpty(member.relation.primaryFields, (f, i) =>
@@ -1276,7 +1285,7 @@ const redraw = (
 				mapNonEmpty(member.relation.primaryFields, (f) =>
 					typedEq(
 						f.type,
-						col(u, columnAt(read.updated, fieldKey(f.name))),
+						col(u, columnAt(read.updated, columnKeyOf(f.name))),
 						col(m, w.names.column(name, f.name)),
 						w.names
 					)
@@ -1334,7 +1343,7 @@ const redraw = (
 				query: simpleSelect(
 					[target(col(p, put))],
 					[cteRefAs(facts.name, p)],
-					atGroup(p, (field) => columnAt(facts, fieldKey(field)))
+					atGroup(p, (field) => columnAt(facts, columnKeyOf(field)))
 				)
 			},
 			stored
@@ -1350,7 +1359,7 @@ const redraw = (
 					mapNonEmpty(member.relation.primaryFields, (f) =>
 						typedEq(
 							f.type,
-							col(x, columnAt(read.removed, fieldKey(f.name))),
+							col(x, columnAt(read.removed, columnKeyOf(f.name))),
 							col(m, w.names.column(name, f.name)),
 							w.names
 						)
@@ -1776,8 +1785,8 @@ const writesOf = (
 			mapNonEmpty(relation.primaryFields, (f) =>
 				typedEq(
 					f.type,
-					col(x, columnAt(xs, fieldKey(f.name))),
-					col(y, columnAt(ys, fieldKey(f.name))),
+					col(x, columnAt(xs, columnKeyOf(f.name))),
+					col(y, columnAt(ys, columnKeyOf(f.name))),
 					w.names
 				)
 			)
@@ -1863,7 +1872,7 @@ const writesOf = (
 							typedEq(
 								pair.member.type,
 								col(g, defined(counted.groups.group[i], "a group column")),
-								col(a, columnAt(written_, fieldKey(pair.member.name))),
+								col(a, columnAt(written_, columnKeyOf(pair.member.name))),
 								w.names
 							)
 						)
@@ -1986,7 +1995,7 @@ const writesOf = (
 						typedEq(
 							f.type,
 							col(t, w.names.column(name, f.name)),
-							col(a, columnAt(written_, fieldKey(f.name))),
+							col(a, columnAt(written_, columnKeyOf(f.name))),
 							w.names
 						)
 					),
@@ -2222,7 +2231,7 @@ const recountOf = (
 		for (const [key, column] of last.columns) {
 			assign(
 				defined(
-					endColumns(family).find((f) => fieldKey(f.name) === key),
+					endColumns(family).find((f) => columnKeyOf(f.name) === key),
 					`the end ${key} of ${name}`
 				),
 				column

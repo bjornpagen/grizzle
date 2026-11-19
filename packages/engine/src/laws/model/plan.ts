@@ -46,6 +46,7 @@ import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
 	type ClosedTheoryRelation,
+	columnKey,
 	declaredKeyOf,
 	type Drawn,
 	type FamilyId,
@@ -1700,8 +1701,6 @@ const isGenerated = (c: PlannedColumn): boolean => {
 }
 
 /** The key a law column's plan is known by within a family: a drawn column's identifier. */
-const columnKey = (c: NativeColumn): string =>
-	c.kind === "field" ? `f ${c.field.name}` : `l ${c.column}`
 
 /**
  * One axis of a family as planned: its foreign key and the UNIQUE over its target's columns it references, the law

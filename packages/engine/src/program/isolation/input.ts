@@ -8,7 +8,7 @@ import type {
 	TriggerLaw
 } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import { nativeColumnText } from "#compiler/ir/law.ts"
+import { columnKey } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { OwnedRelation } from "#compiler/schema/own.ts"
 
@@ -84,7 +84,7 @@ const byRelation = <V>(
 }
 
 /**
- * The declared keys of each relation by its declared name, each by its columns' texts (ir/law.ts nativeColumnText): its
+ * The declared keys of each relation by its declared name, each by its columns' texts (ir/law.ts columnKey): its
  * primary key's native and each UNIQUE native, a law column by its identifier, so a key a law adds over law columns (an
  * alternatives arm's, a selected side's, a family's slot) is the key PostgreSQL enforces, which a check by those columns
  * finds one row of at most and no read of fields alone binds whole. A span key (WITHOUT OVERLAPS) is no key a read by its
@@ -96,9 +96,7 @@ const nativeKeys = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Readonly
 			if (object.kind === "PrimaryKey") {
 				return [[object.relation.name, object.columns.map((field) => field.name)]]
 			}
-			return object.kind === "Unique"
-				? [[object.relation.name, object.columns.map(nativeColumnText)]]
-				: []
+			return object.kind === "Unique" ? [[object.relation.name, object.columns.map(columnKey)]] : []
 		})
 	)
 
@@ -127,7 +125,7 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 			if (object.kind === "ForeignKey") {
 				const reference: Reference = {
 					relation: object.target.name,
-					columns: object.targetColumns.map(nativeColumnText),
+					columns: object.targetColumns.map(columnKey),
 					onUpdate: object.onUpdate
 				}
 				return [[object.relation.name, reference]]
@@ -135,7 +133,7 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 			if (object.kind === "PeriodForeignKey") {
 				const reference: Reference = {
 					relation: object.target.name,
-					columns: object.targetColumns.map(nativeColumnText),
+					columns: object.targetColumns.map(columnKey),
 					onUpdate: "noAction"
 				}
 				return [[object.relation.name, reference]]

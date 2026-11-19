@@ -21,6 +21,7 @@ import {
 import type { Split } from "#compiler/ir/cells.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
+import { type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
@@ -29,9 +30,7 @@ import {
 	closedLeaf,
 	closedNamed,
 	type ClosedTable,
-	type ColumnKey,
-	type Evaluation,
-	fieldKey
+	type Evaluation
 } from "#compiler/runtime/write/fill.ts"
 import {
 	type GroupData,
@@ -222,7 +221,7 @@ const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">
 			return row.stated[field.name]
 		case "drawn":
 		case "accumulated": {
-			const column = row.filled(fieldKey(field.name))
+			const column = row.filled(columnKeyOf(field.name))
 			return column.kind === "filled" ? column.value : undefined
 		}
 		case "retirement":
@@ -799,7 +798,7 @@ export const judgeOf = (table: ClosedTable, patterns: PatternReads): Judge => {
 		const columnValue = (name: string): SqlValue | undefined => {
 			const declared = fields.get(name)
 			if (declared === undefined) {
-				const key: ColumnKey = `law:${name}`
+				const key = columnKeyOf(name)
 				const type = relation.lawColumns.get(key)
 				const column = row.filled(key)
 				return type === undefined || column.kind === "unfilled"
