@@ -11,7 +11,7 @@ import { hostRead } from "#compiler/core/host.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isCapturedStack, parseSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type CanonicalFloat, canonicalZero } from "#compiler/ir/carriers.ts"
+import { type CanonicalFloat, floatLiteral } from "#compiler/ir/carriers.ts"
 
 export type { Path }
 
@@ -516,15 +516,17 @@ export const finiteNumber: Shape<number> = leaf("a finite number", (value, path)
 )
 
 /**
- * A finite number with the one zero (ir/carriers.ts CanonicalFloat): -0 is refused, so a decoded float literal is in
- * its one form, as the canonical serializer, which writes -0 as 0, and every constructor leave it.
+ * A float literal's number (ir/carriers.ts CanonicalFloat): a finite number other than -0, which is the literal's
+ * `floatSpecial` arm, as every constructor (floatLiteral) leaves it.
  */
 export const canonicalFloat: Shape<CanonicalFloat> = leaf(
 	"a finite number other than -0",
-	(value, path) =>
-		typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)
-			? canonicalZero(value)
+	(value, path) => {
+		const literal = typeof value === "number" ? floatLiteral(value) : undefined
+		return literal?.kind === "float"
+			? literal.value
 			: refuse(path, `a finite number other than -0, not ${describe(value, path)}`)
+	}
 )
 
 const safeInteger = (value: unknown, path: DecodePath): number =>

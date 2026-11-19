@@ -1,6 +1,7 @@
 import { Array as Arr, Effect } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
+import { floatSpecials } from "#compiler/core/canonical.ts"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { exactParts } from "#compiler/core/decimal.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
@@ -116,14 +117,7 @@ const valueExpr = (
 		case "float":
 			return lit.float(literal.value, type)
 		case "floatSpecial":
-			return lit.float(
-				literal.value === "NaN"
-					? Number.NaN
-					: literal.value === "Infinity"
-						? Number.POSITIVE_INFINITY
-						: Number.NEGATIVE_INFINITY,
-				type
-			)
+			return lit.float(floatSpecials[literal.value], type)
 		case "money":
 			return cast(lit.decimal(exactParts(moneyMinorUnits(literal.value), 2), types.numeric), type)
 		case "bool":

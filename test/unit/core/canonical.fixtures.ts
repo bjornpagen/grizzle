@@ -213,7 +213,7 @@ const vectorPayload = (v: Float32Array): string =>
 
 /**
  * The JSON form the module header specifies: a Canonicalizable value as "~<tag>:<payload>", a vector as "~v:<payload>",
- * a number that is not finite as "~f:" and its text, -0 as 0, and an undefined object member left out (undefined is
+ * a number that is not finite as "~f:" and its text, -0 as "~f:-0", and an undefined object member left out (undefined is
  * refused only in an array or at the root).
  */
 export const jsonForm = (v: unknown): Json => {
@@ -230,7 +230,7 @@ export const jsonForm = (v: unknown): Json => {
 		return Str.startsWith("~")(v) ? `~${v}` : v
 	}
 	if (typeof v === "number") {
-		return !Number.isFinite(v) ? `~f:${String(v)}` : Object.is(v, -0) ? 0 : v
+		return Object.is(v, -0) ? "~f:-0" : !Number.isFinite(v) ? `~f:${String(v)}` : v
 	}
 	if (typeof v === "boolean") {
 		return v
@@ -741,14 +741,11 @@ export const firstDifference = (
 }
 
 /**
- * The value `v`'s canonical text decodes to under `revivers`: -0 as 0, NaN and the infinities as themselves, and a
+ * The value `v`'s canonical text decodes to under `revivers`: -0, NaN and the infinities as themselves, and a
  * vector as the Exact value its tag and payload revive to, since a vector's text and a protocol value's of its tag are
  * one.
  */
 export function decodedForm(v: unknown): unknown {
-	if (Object.is(v, -0)) {
-		return 0
-	}
 	if (v instanceof Float32Array) {
 		return new Exact(vectorTag, vectorPayload(v))
 	}

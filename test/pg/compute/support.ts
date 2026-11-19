@@ -5,7 +5,7 @@ import { describeOp } from "#compiler/ir/expr.ts"
 import { baseOf, type Carrier, type ScalarType } from "#compiler/ir/scalar.ts"
 import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero } from "#compiler/scalar/values/float.ts"
+
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert } from "#test/support/assert.ts"
 import { strictIntegers, strictRead } from "#test/support/kernel/strict.ts"
@@ -139,7 +139,7 @@ const sameValue = (value: ModelValue, text: string, type: ScalarType): boolean =
 		case "float4":
 		case "float8": {
 			/** A real prints as the shortest text that reads back as the binary32 value, so it is read back as one. */
-			const pgValue = canonicalZero(c === "float4" ? Math.fround(Number(text)) : Number(text))
+			const pgValue = c === "float4" ? Math.fround(Number(text)) : Number(text)
 			return (
 				typeof value === "number" &&
 				(Object.is(pgValue, value) || (Number.isNaN(pgValue) && Number.isNaN(value)))

@@ -68,7 +68,10 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 			if (value === Number.NEGATIVE_INFINITY) {
 				return Result.ok({ float: "-Infinity" })
 			}
-			return Result.ok(value === 0 ? 0 : value)
+			if (Object.is(value, -0)) {
+				return Result.ok({ float: "-0" })
+			}
+			return Result.ok(value)
 		case "money":
 			return value instanceof Money ? Result.ok(value) : Result.err("moneyType")
 		case "bool":

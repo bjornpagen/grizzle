@@ -2,7 +2,7 @@
 
 import { array, boolean, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -131,7 +131,7 @@ const numericLit = (text: string): Typed => ({
 /** A float8 literal of the dictionary, ranked with -0 as 0. */
 const floatLit = (value: number): Typed => ({
 	type: "float8",
-	literal: { kind: "float", value: canonicalZero(value) },
+	literal: floatLiteral(value),
 	rank: [value === 0 ? 0 : value]
 })
 

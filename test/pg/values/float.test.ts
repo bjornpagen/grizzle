@@ -21,7 +21,7 @@ import { weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { canonicalZero, toReal } from "#compiler/scalar/values/float.ts"
+import { toReal } from "#compiler/scalar/values/float.ts"
 import {
 	batchOf,
 	castAlone,
@@ -57,9 +57,9 @@ export const floatAgreementWithPostgreSQLRoundsEveryBinary64ValueToTheRealPostgr
 					)
 					assert.equal(rows.length, admitted.length)
 					const mismatches = Arr.flatMap(admitted, (x, i) => {
-						const pg = canonicalZero(fromPg(rows[i]?.[1]))
+						const pg = fromPg(rows[i]?.[1])
 						const host = succeeded(toReal(x))
-						const rounded = canonicalZero(Math.fround(x))
+						const rounded = Math.fround(x)
 						return Object.is(pg, host) && Object.is(pg, rounded) ? [] : [{ x, pg, host, rounded }]
 					})
 					assert.deepEqual(mismatches.slice(0, 5), [])
@@ -69,10 +69,9 @@ export const floatAgreementWithPostgreSQLRoundsEveryBinary64ValueToTheRealPostgr
 		kills: [
 			{
 				file: "packages/engine/src/scalar/values/float.ts",
-				original:
-					"export const fround = (x: number): CanonicalFloat => canonicalZero(Math.fround(x))",
+				original: "export const fround = (x: number): number => Math.fround(x)",
 				replacement:
-					"export const fround = (x: number): CanonicalFloat => canonicalZero(Math.fround(Number(x.toPrecision(7))))",
+					"export const fround = (x: number): number => Math.fround(Number(x.toPrecision(7)))",
 				why: "fround rounds through seven significant digits first."
 			}
 		]
@@ -106,7 +105,7 @@ export const floatAgreementWithPostgreSQLRefusesExactlyTheOverflowsAndUnderflows
 							if (host.ok) {
 								c.note("admitted")
 								assert.ok(
-									typeof pg === "number" && Object.is(canonicalZero(pg), host.value),
+									typeof pg === "number" && Object.is(pg, host.value),
 									`${float8Text(x)}: PostgreSQL ${pg}, the host ${host.value}`
 								)
 							} else {

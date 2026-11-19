@@ -1,3 +1,4 @@
+import type { FloatSpecialName } from "#compiler/core/canonical.ts"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
@@ -177,11 +178,6 @@ export type TypeRef =
  */
 export const closedSearchPath = ["pg_catalog", "pg_temp"] as const
 
-/**
- * The spellings of a double no persisted number holds: JSON has no NaN or infinity, and canonical JSON writes -0 as 0.
- */
-const floatSpecials = ["NaN", "Infinity", "-Infinity", "-0"] as const
-type FloatSpecial = (typeof floatSpecials)[number]
 /** A finite double other than -0. Only lit.float (build.ts) makes one. */
 export type FiniteFloat = number & { readonly [finiteFloatBrand]: true }
 declare const finiteFloatBrand: unique symbol
@@ -204,7 +200,7 @@ export type LiteralValue =
 	| { readonly kind: "int"; readonly value: bigint }
 	| { readonly kind: "decimal"; readonly value: string }
 	| { readonly kind: "float"; readonly value: FiniteFloat }
-	| { readonly kind: "floatSpecial"; readonly value: FloatSpecial }
+	| { readonly kind: "floatSpecial"; readonly value: FloatSpecialName }
 	| { readonly kind: "text"; readonly value: string }
 	| { readonly kind: "bits"; readonly hex: string }
 

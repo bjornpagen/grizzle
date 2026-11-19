@@ -15,7 +15,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { double, float } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Result } from "effect"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
-import { canonicalZero, compareFloat, floatText, toReal } from "#compiler/scalar/values/float.ts"
+import { compareFloat, floatText, toReal } from "#compiler/scalar/values/float.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
@@ -171,7 +171,9 @@ export const ordersAs = (type: "float8" | "real") => {
 					assert.deepEqual(pgAscOrder, asc)
 					const pgDescOrder: ReadonlyArray<number> = Arr.map(pgDesc, (r) => Number(r[0]))
 					assert.deepEqual(pgDescOrder, desc)
-					const identities = new Set(Arr.map(values, floatText))
+					/** DISTINCT keeps one value of each equality class, -0 = +0 among them, as float8eq holds. */
+					const equalityText = (x: number): string => floatText(x === 0 ? 0 : x)
+					const identities = new Set(Arr.map(values, equalityText))
 					const [[count]] = yield* Effect.map(
 						db.values(`SELECT count(DISTINCT ${cast})::text FROM ${source}`, [payload]),
 						oneCellOf
@@ -180,10 +182,7 @@ export const ordersAs = (type: "float8" | "real") => {
 					const kept = yield* db.values(`SELECT DISTINCT (${cast})::float8::text FROM ${source}`, [
 						payload
 					])
-					assert.deepEqual(
-						new Set(Arr.map(kept, (r) => floatText(canonicalZero(fromPg(r[0]))))),
-						identities
-					)
+					assert.deepEqual(new Set(Arr.map(kept, (r) => equalityText(fromPg(r[0])))), identities)
 				}),
 		oracle: { kind: "postgresql", name: `${type}'s ORDER BY and DISTINCT` },
 		kept: [],

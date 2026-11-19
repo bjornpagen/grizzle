@@ -4,7 +4,7 @@ import type { AggregateFn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero, decimalToBinary32 } from "#compiler/scalar/values/float.ts"
+import { decimalToBinary32 } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import {
@@ -69,10 +69,17 @@ export const exactDouble = (x: number): Decimal => {
 }
 
 /**
+ * The sign IEEE 754 addition gives a zero total of `values`: -0 exactly when every one is -0, as float8pl and float4pl
+ * add each to the last, -0 + -0 being -0 and any other sum of zero +0 (round to nearest); a nonzero total as it is.
+ */
+const signedTotal = (total: number, values: Arr.NonEmptyReadonlyArray<Value>): number =>
+	total === 0 && Arr.every(values, (v) => Object.is(asNumber(v), -0)) ? -0 : total
+
+/**
  * The IEEE 754 rounding of an exact total into a double: the double nearest it, ties to even, as Number reads a
  * decimal text, and an infinity where it lies past the double range. NaN and the infinities are their own.
  */
-const roundedDouble = (total: Decimal): number => canonicalZero(Number(total.text))
+const roundedDouble = (total: Decimal): number => Number(total.text)
 
 /**
  * The IEEE 754 rounding of an exact total into a real: the real nearest it, ties to even (values/float.ts
@@ -89,7 +96,7 @@ const roundedReal = (total: Decimal): number => {
 			return Number.NEGATIVE_INFINITY
 		case "finite": {
 			const magnitude = decimalToBinary32(p.coefficient, -p.minScale)
-			return canonicalZero(p.negative ? -magnitude : magnitude)
+			return p.negative ? -magnitude : magnitude
 		}
 	}
 }
@@ -160,9 +167,9 @@ const sum = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 		case "numeric":
 			return exactSum(decimals(values, carrier))
 		case "float4":
-			return roundedReal(exactSum(exactDoubles(values)))
+			return signedTotal(roundedReal(exactSum(exactDoubles(values))), values)
 		case "float8":
-			return roundedDouble(exactSum(exactDoubles(values)))
+			return signedTotal(roundedDouble(exactSum(exactDoubles(values))), values)
 		case "money":
 		case "exactMoney":
 			return Money.exact(

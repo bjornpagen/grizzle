@@ -1,7 +1,7 @@
 import { exactParts } from "#compiler/core/decimal.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { firstCalendarDate } from "#compiler/ir/date.ts"
 import { closedRows, type Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -33,7 +33,7 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 			return lit.decimal(exactParts(0n, 0), cx.baseTypeRef(base))
 		case "float4":
 		case "float8":
-			return lowerLiteral(cx.names, { kind: "float", value: canonicalZero(0) }, base)
+			return lowerLiteral(cx.names, floatLiteral(0), base)
 		case "bool":
 			return lit.bool(false)
 		case "uuid":

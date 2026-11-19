@@ -1,12 +1,13 @@
 import { Array as Arr, Data, Formatter, Result } from "effect"
 import { indices } from "#compiler/core/array.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { VectorText } from "#compiler/ir/carriers.ts"
 import { convertDate } from "#compiler/ir/date.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero } from "#compiler/scalar/values/float.ts"
+
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	Identities,
@@ -446,7 +447,7 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 			if (x === Number.NEGATIVE_INFINITY) {
 				return { kind: "floatSpecial", value: "-Infinity" }
 			}
-			return { kind: "float", value: canonicalZero(x) }
+			return floatLiteral(x)
 		}
 		case "money":
 		case "exactMoney":

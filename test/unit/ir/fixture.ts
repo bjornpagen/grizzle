@@ -2,8 +2,7 @@ import { Array as Arr, Record as Rec } from "effect"
 import { type IdSupply, ParamId } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { floatLiteral, MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
@@ -632,8 +631,8 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		op: OpId("percentile_disc_multi"),
 		order: { keys: [{ column: "amount", dir: "asc" }] },
 		fractions: [
-			x.lit({ kind: "float", value: canonicalZero(0.5) }, scalarTypes.float8),
-			x.lit({ kind: "float", value: canonicalZero(0.75) }, scalarTypes.float8)
+			x.lit(floatLiteral(0.5), scalarTypes.float8),
+			x.lit(floatLiteral(0.75), scalarTypes.float8)
 		],
 		outs: ["median", "p75"],
 		rule: "R29" satisfies CertificateRule,

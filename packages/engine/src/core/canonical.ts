@@ -64,20 +64,25 @@ export const vectorTag = "v"
 const bigintTag = "n"
 
 /**
- * The tag of the canonical text of a number that is not finite, "~f:<name>" (floatSpecialNames), which the kernel reads
- * itself: a float4 or float8 value PostgreSQL holds and JSON has no number for.
+ * The tag of the canonical text of a number named by a word, "~f:<name>" (floatSpecialNames), which the kernel reads
+ * itself: a float4 or float8 value PostgreSQL holds and JSON has no number for, -0 among them, which JSON writes as 0.
  */
 const floatTag = "f"
 
-/** The floats named by a word, NaN and the infinities, in one order: a literal's names and their canonical texts'. */
-export const floatSpecialNames = ["NaN", "Infinity", "-Infinity"] as const
+/**
+ * The floats named by a word, NaN, the infinities and -0, in one order: a literal's names and their canonical texts'.
+ * -0 is a value of its own, distinct from 0 as xs:double and IEEE 754 hold it, though equal to it: JSON has no
+ * number that keeps its sign.
+ */
+export const floatSpecialNames = ["NaN", "Infinity", "-Infinity", "-0"] as const
 export type FloatSpecialName = (typeof floatSpecialNames)[number]
 
 /** Each float named by a word, as the number it is. */
 export const floatSpecials: Readonly<Record<FloatSpecialName, number>> = {
 	NaN: Number.NaN,
 	Infinity: Number.POSITIVE_INFINITY,
-	"-Infinity": Number.NEGATIVE_INFINITY
+	"-Infinity": Number.NEGATIVE_INFINITY,
+	"-0": -0
 }
 
 /** Whether a value is the word naming a float (floatSpecialNames). */
@@ -88,7 +93,8 @@ export const isFloatSpecialName = (value: unknown): value is FloatSpecialName =>
 export const floatSpecialOf = (text: string): number | undefined =>
 	isFloatSpecialName(text) ? floatSpecials[text] : undefined
 
-/** The word naming a number that is not finite; undefined for a finite number, which JSON writes as a number. */
+/** The word naming a number JSON has none for, one not finite or -0; undefined for any other, which JSON writes as a
+ * number. */
 export const floatSpecialNameOf = (x: number): FloatSpecialName | undefined =>
 	Number.isNaN(x)
 		? "NaN"
@@ -96,7 +102,9 @@ export const floatSpecialNameOf = (x: number): FloatSpecialName | undefined =>
 			? "Infinity"
 			: x === Number.NEGATIVE_INFINITY
 				? "-Infinity"
-				: undefined
+				: Object.is(x, -0)
+					? "-0"
+					: undefined
 
 export interface TaggedValue {
 	/**
@@ -428,7 +436,8 @@ const objectOf = (value: Readonly<Record<string, unknown>>): CanonicalValue | Ou
 	return isList(value) ? { kind: "array", items: value } : recordOf(value)
 }
 
-/** A number read by the canonical model: a finite one as itself, and NaN or an infinity by the word naming it. */
+/** A number read by the canonical model: a finite one but -0 as itself, and NaN, an infinity or -0 by the word naming
+ * it. */
 const numberOf = (x: number): number | CanonicalObject => {
 	const name = floatSpecialNameOf(x)
 	return name === undefined
@@ -791,7 +800,7 @@ class Walk {
 				this.#sink.scalar(escapeString(read))
 				return false
 			case "number":
-				this.#sink.scalar(read === 0 ? 0 : read)
+				this.#sink.scalar(read)
 				return false
 			case "boolean":
 				this.#sink.scalar(read)
@@ -1476,7 +1485,7 @@ class Revive {
 		if (tag === floatTag) {
 			return (
 				floatSpecialOf(payload) ??
-				refuseText(this.#path, "a float named by a word: NaN, Infinity or -Infinity")
+				refuseText(this.#path, "a float named by a word: NaN, Infinity, -Infinity or -0")
 			)
 		}
 		/** Own properties only: an inherited one ("constructor", "toString", ...) is no reviver. */

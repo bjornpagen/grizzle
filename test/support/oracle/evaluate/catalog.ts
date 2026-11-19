@@ -1,6 +1,7 @@
 import { codePoints, compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Option, Result, String as Str } from "effect"
+import { floatSpecials } from "#compiler/core/canonical.ts"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
@@ -39,7 +40,7 @@ import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import type { BytesDigest } from "#compiler/scalar/values/bytes.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero, compareFloat } from "#compiler/scalar/values/float.ts"
+import { compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"
 import { referenceDouble } from "#test/support/oracle/evaluate/double-text.ts"
@@ -208,11 +209,7 @@ export const modelLiteral = (literal: TypedLiteral): ModelValue => {
 		case "float":
 			return literal.value
 		case "floatSpecial":
-			return literal.value === "NaN"
-				? Number.NaN
-				: literal.value === "Infinity"
-					? Number.POSITIVE_INFINITY
-					: Number.NEGATIVE_INFINITY
+			return floatSpecials[literal.value]
 		case "money":
 			return Money.fromValue(literal.value)
 		case "bool":
@@ -924,8 +921,8 @@ const castTo = (v: ModelValue, from: ScalarType, to: ScalarType): CatalogResult 
  * the host's may not agree, answer "declined" rather than an approximation, and their consumers leave them to
  * PostgreSQL.
  *
- * Values are the reference's own exact carriers (ModelValue), each in its one form: a Decimal has no display scale and
- * every operation and cast result's float zero is 0 (oneZero), as grizzle delivers them. They are compared by the
+ * Values are the reference's own exact carriers (ModelValue), each in its one form: a Decimal has no display scale, and
+ * a float holds its zero's sign as IEEE 754 computes it, as grizzle delivers it. They are compared by the
  * reference's own reading of PostgreSQL's total orders (compareCarried), never by src's. A regex refinement's
  * membership is the text package's NFA, which the caller supplies.
  *
@@ -934,12 +931,6 @@ const castTo = (v: ModelValue, from: ScalarType, to: ScalarType): CatalogResult 
  */
 export const evaluate = (root: ScalarExpr, env: EvalEnv): CatalogResult =>
 	evaluateOver(root, env, unsupported("a VALUE"))
-
-/**
- * A value with the one zero: a float operation's -0 (a negation, a product, a root) as 0, the value grizzle delivers
- * and every float the oracle holds; any other value as it is.
- */
-const oneZero = (v: ModelValue): ModelValue => (typeof v === "number" ? canonicalZero(v) : v)
 
 /** `root` under `env`, the VALUE (a contract predicate's only read) evaluating to `value`. */
 const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): CatalogResult => {
@@ -1003,7 +994,7 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 				if (Result.isFailure(v)) {
 					return v
 				}
-				return Result.map(castTo(v.success, operand.type, expr.type), oneZero)
+				return castTo(v.success, operand.type, expr.type)
 			}
 			case "domainCast": {
 				const [operand] = expr.args
@@ -1033,11 +1024,8 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 				if (op.fn === "and" || op.fn === "or") {
 					return connective(op.fn === "or", expr.args)
 				}
-				return Result.map(
-					Result.flatMap(operands(expr.args), ({ values, types }) =>
-						catalogApply(op, values, types)
-					),
-					oneZero
+				return Result.flatMap(operands(expr.args), ({ values, types }) =>
+					catalogApply(op, values, types)
 				)
 			}
 		}

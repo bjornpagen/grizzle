@@ -4,7 +4,7 @@ import { Array as Arr, Formatter } from "effect"
 import { ExprId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { builtExpr, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -72,7 +72,7 @@ const float = (value: number): TypedLiteral =>
 			? { kind: "floatSpecial", value: "Infinity" }
 			: value === Number.NEGATIVE_INFINITY
 				? { kind: "floatSpecial", value: "-Infinity" }
-				: { kind: "float", value: canonicalZero(value) }
+				: floatLiteral(value)
 
 /** The dictionary, each value a literal of the widest type of its family. */
 export const dictionary: ReadonlyArray<{

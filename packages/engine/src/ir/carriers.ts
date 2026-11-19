@@ -1,5 +1,5 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { int4Max } from "#compiler/core/canonical.ts"
+import { type FloatSpecialName, floatSpecialNameOf, int4Max } from "#compiler/core/canonical.ts"
 import {
 	type Canonicalizable,
 	canonicalTag,
@@ -138,15 +138,25 @@ export const vectorMaxDimensions = 16000
 declare const canonicalFloat: unique symbol
 
 /**
- * A float with the one zero: any number but -0. canonicalZero is its one mint; the IR's float literal holds one
- * (ir/expr.ts TypedLiteral), and scalar/values/float.ts re-exports both.
+ * The number of a float literal's `float` arm (ir/expr.ts TypedLiteral): finite and not -0, the numbers JSON writes as
+ * themselves. NaN, the infinities and -0 are its `floatSpecial` arm, by the word naming each (core/canonical.ts
+ * floatSpecialNames). Minted by floatLiteral alone, which reads the word first.
  */
 export type CanonicalFloat = number & { readonly [canonicalFloat]: true }
 
 const mintCanonical = nominal<number, CanonicalFloat>()
 
-/** One spelling of zero: -0 as +0, every other number as it is. */
-export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 0 ? 0 : x)
+/** A float's typed literal: a number no word names as itself, and NaN, an infinity or -0 by the word naming it. */
+export const floatLiteral = (
+	x: number
+):
+	| { readonly kind: "float"; readonly value: CanonicalFloat }
+	| { readonly kind: "floatSpecial"; readonly value: FloatSpecialName } => {
+	const name = floatSpecialNameOf(x)
+	return name === undefined
+		? { kind: "float", value: mintCanonical(x) }
+		: { kind: "floatSpecial", value: name }
+}
 
 /**
  * Money and Vector values at the Description boundary and in the IR.

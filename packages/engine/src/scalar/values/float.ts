@@ -1,6 +1,5 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type CanonicalFloat, canonicalZero } from "#compiler/ir/carriers.ts"
 
 /**
  * IEEE 754-2019's binary32 format, the real, a vector component and pgvector's accumulators: its precision p, the bits
@@ -85,24 +84,22 @@ export const binary32LeastExponent = binary32MinExponent - binary32Precision + 1
  */
 export const binary32Digits = String(greatestFinite(binary32Precision, binary32MaxExponent)).length
 
-export { type CanonicalFloat, canonicalZero }
+/**
+ * Binary32 rounding: Math.fround, each zero its own sign, NaN and the infinities kept. This is the float8-to-float4
+ * cast on every value the cast admits; where the cast raises 22003, fround yields the IEEE result instead (a signed
+ * infinity on overflow, a signed zero on underflow), and `toReal` turns that into the refusal.
+ */
+export const fround = (x: number): number => Math.fround(x)
+
+/** A double precision value: any JavaScript number, -0 a value of its own. */
+export const toDouble = (x: unknown): Result.Result<number, ValueFault> =>
+	typeof x === "number" ? Result.ok(x) : Result.err("floatType")
 
 /**
- * Binary32 rounding with the one zero: Math.fround, then -0 as +0. NaN and the infinities are kept. This is the
- * float8-to-float4 cast on every value the cast admits; where the cast raises 22003, fround yields the IEEE result
- * instead (a signed infinity on overflow, +0 on underflow), and `toReal` turns that into the refusal.
+ * A caller's real parsed exactly: a number that is a binary32 value as it is, NaN, the infinities and either zero
+ * included; any other is realInexact, never rounded as PostgreSQL's float8-to-float4 cast would round it (toReal).
  */
-export const fround = (x: number): CanonicalFloat => canonicalZero(Math.fround(x))
-
-/** A double precision value: any JavaScript number, -0 as +0. */
-export const toDouble = (x: unknown): Result.Result<CanonicalFloat, ValueFault> =>
-	typeof x === "number" ? Result.ok(canonicalZero(x)) : Result.err("floatType")
-
-/**
- * A caller's real parsed exactly: a number that is a binary32 value as it is, NaN and the infinities included, -0 as
- * +0; any other is realInexact, never rounded as PostgreSQL's float8-to-float4 cast would round it (toReal).
- */
-export const parseReal = (x: unknown): Result.Result<CanonicalFloat, ValueFault> => {
+export const parseReal = (x: unknown): Result.Result<number, ValueFault> => {
 	if (typeof x !== "number") {
 		return Result.err("floatType")
 	}
@@ -114,7 +111,7 @@ export const parseReal = (x: unknown): Result.Result<CanonicalFloat, ValueFault>
  * A real value: the binary32 number PostgreSQL's float8-to-float4 cast stores for `x`, or its refusal. This is the
  * coercion of a value PostgreSQL computes or a literal it casts; a caller's value is parsed exactly instead (parseReal).
  */
-export const toReal = (x: unknown): Result.Result<CanonicalFloat, ValueFault> => {
+export const toReal = (x: unknown): Result.Result<number, ValueFault> => {
 	if (typeof x !== "number") {
 		return Result.err("floatType")
 	}
@@ -134,8 +131,12 @@ export const toReal = (x: unknown): Result.Result<CanonicalFloat, ValueFault> =>
  * grizzle follows PostgreSQL, not IEEE 754 and not JavaScript:
  *
  * - NaN = NaN, and NaN sorts above every other value, +Infinity included (float4_cmp_internal, float8_cmp_internal).
- * - -0 = +0, and they are one value for keys, DISTINCT and grouping. The carrier canonicalizes -0 to +0, so the host
- *   never holds the second spelling of the one value (-0 is canonicalized on encode).
+ * - -0 = +0 for every comparison, the evaluator's `=` and order, a law's, a match's, PostgreSQL's float8eq and
+ *   float8_cmp_internal; yet -0 is a value of its own, distinct from +0 as IEEE 754 and xs:double (XSD 1.1, which sets
+ *   equality apart from identity) hold it: the host keeps its sign end to end, admitted, sent ("-0"), read back and
+ *   computed, so 1/x, min and max read the value stored. A fact's identity is its values', so a fact of -0 and one of
+ *   +0 are two facts. A stored response value is never NaN, so NaN's identity, one of many bit patterns, is none
+ *   grizzle states.
  *
  * A real is binary32. A host binary64 number is not the final real value: `toReal` rounds it to nearest
  * even as PostgreSQL's float8-to-float4 cast does (dtof), and refuses what that cast refuses: a finite value that
@@ -155,16 +156,16 @@ export const compareFloat = (a: number, b: number): -1 | 0 | 1 => {
 }
 
 /**
- * The text form of pg.real, pg["double precision"] and vector components, and the value's one text: "NaN",
- * "Infinity", "-Infinity", or the shortest round-trip decimal, -0 written as 0. Equal floats have equal texts, and
- * distinct binary64 values distinct texts, so it is the float's fact identity.
+ * The text form of pg.real and pg["double precision"], and the value's one text: "NaN", "Infinity", "-Infinity", "-0",
+ * or the shortest round-trip decimal. Distinct binary64 values have distinct texts, -0 and +0 among them, NaN one text,
+ * so it is the float's fact identity, and float4in and float8in read it as exactly the value, its zero's sign kept.
  *
  * A double precision value travels as its shortest round-trip decimal (JavaScript's number text), which PostgreSQL's
  * float8in (strtod) reads back as exactly the same binary64 value. A real value is binary32-exact on the host
  * (toReal), so the shortest round-trip text of that value read as a double names it exactly; float4in and pgvector's
  * vector_in (strtof) read the text as exactly the binary32 value, never double-rounding a float32 midpoint.
  */
-export const floatText = (x: number): string => String(canonicalZero(x))
+export const floatText = (x: number): string => (Object.is(x, -0) ? "-0" : String(x))
 
 /** 2^p and 2^(p - 1): a normal binary32 significand q lies in [2^(p - 1), 2^p). */
 const significandEnd = 1n << BigInt(binary32Precision)
@@ -279,13 +280,13 @@ const finiteBinary32 = (text: string, from: number, to: number): number => {
 		exponent += expNegative ? -magnitude : magnitude
 	}
 	const magnitude = decimalToBinary32(BigInt(digits), exponent)
-	return canonicalZero(negative ? -magnitude : magnitude)
+	return negative ? -magnitude : magnitude
 }
 
-/** float8out text: its binary64 value, -0 as +0. Number reads NaN, Infinity and -Infinity as those values. */
-export const convertDouble = (text: string): number => canonicalZero(Number(text))
+/** float8out text: its binary64 value, -0 its own. Number reads NaN, Infinity and -Infinity as those values. */
+export const convertDouble = (text: string): number => Number(text)
 
-/** float4out text: its binary32 value exactly, -0 as +0; NaN, Infinity and -Infinity by their first letter. */
+/** float4out text: its binary32 value exactly, -0 its own; NaN, Infinity and -Infinity by their first letter. */
 export const convertReal = (text: string): number => {
 	const negative = text.charCodeAt(0) === 0x2d
 	const lead = text.charCodeAt(negative ? 1 : 0)

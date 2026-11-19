@@ -2,11 +2,12 @@
  * The float carriers' values (scalar/values/float.ts): a real is the binary32 value PostgreSQL's float8-to-float4 cast
  * stores, and both float types order as PostgreSQL's float comparison does, one text per value.
  *
- * - Admission: toReal stores a double as the binary32 value nearest it, ties to the even significand, -0 as 0, and
+ * - Admission: toReal stores a double as the binary32 value nearest it, ties to the even significand, -0 as -0, and
  *   NaN and the infinities as they are; it refuses a finite double the cast rounds to an infinity as realOverflow and a
  *   nonzero one it rounds to zero as realUnderflow.
  * - Order: compareFloat is PostgreSQL's float order, NaN equal to NaN and above every other value, -0 equal to 0, and
- *   otherwise the values' own order; two values compare equal exactly when their identity texts (floatText) are one.
+ *   otherwise the values' own order; two values compare equal exactly when their identity texts (floatText) are one,
+ *   but -0 and 0, which compare equal with an identity text each, as a key holds them apart.
  *
  * Oracles: IEEE 754 binary32 stated apart from the code. A double rounds to an infinity exactly when its magnitude is at
  * least binary32Max plus half its last place, 2^(emax - p + 1) / 2, and to zero exactly when it is nonzero and at most
@@ -14,7 +15,7 @@
  * binary32 neighbours, stepped by its bit pattern, lies nearer the double. The order's model ranks a double by its
  * IEEE bit pattern read as a sign and a magnitude, -0 as 0, with NaN above it all.
  *
- * Features: a double rounded, one stored exactly, a binary32 subnormal stored, each refusal, -0 stored as 0, a special
+ * Features: a double rounded, one stored exactly, a binary32 subnormal stored, each refusal, -0 stored as -0, a special
  * kept; a NaN against another value, two NaNs, -0 against 0, an infinity, and two distinct finite values.
  */
 
@@ -33,8 +34,8 @@ import {
 	realVerdict
 } from "#test/unit/values/float.fixtures.ts"
 
-/** Real admission stores a double as its nearest binary32 value, ties to even and -0 as 0, and refuses exactly what the cast refuses. Its budget is its suite's before it was a property (test/unit/values/float.test.ts at 4ca3036a): 5000 runs and 400 steered cases. */
-export const realAdmissionStoresADoubleAsItsNearestBinary32ValueTiesToEvenAnd0As0AndRefusesExactlyWhatTheCastRefuses =
+/** Real admission stores a double as its nearest binary32 value, ties to even and -0 as -0, and refuses exactly what the cast refuses. Its budget is its suite's before it was a property (test/unit/values/float.test.ts at 4ca3036a): 5000 runs and 400 steered cases. */
+export const realAdmissionStoresADoubleAsItsNearestBinary32ValueTiesToEvenEachZeroWithItsSignAndRefusesExactlyWhatTheCastRefuses =
 	property.explore(doubleGen, {
 		needs: {},
 		budget: { runs: 5000, steered: 400 },
@@ -44,7 +45,7 @@ export const realAdmissionStoresADoubleAsItsNearestBinary32ValueTiesToEvenAnd0As
 			"a binary32 subnormal stored",
 			"realOverflow",
 			"realUnderflow",
-			"-0 stored as 0",
+			"-0 stored as -0",
 			"a special kept"
 		] satisfies ReadonlyArray<Reached<RealFeature>>,
 		check: (_, c: Case<RealFeature>) => (x) =>
@@ -66,8 +67,8 @@ export const realAdmissionStoresADoubleAsItsNearestBinary32ValueTiesToEvenAnd0As
 		]
 	})
 
-/** PostgreSQL's float order is the model's total order, and its equality is the identity text's. Its budget is its suite's before it was a property (test/unit/values/float.test.ts at 4ca3036a): 5000 runs and 400 steered cases. */
-export const postgreSQLsFloatOrderIsTheModelsTotalOrderAndItsEqualityIsTheIdentityTexts =
+/** PostgreSQL's float order is the model's total order, and its equality is the identity text's but for the two zeros. Its budget is its suite's before it was a property (test/unit/values/float.test.ts at 4ca3036a): 5000 runs and 400 steered cases. */
+export const postgreSQLsFloatOrderIsTheModelsTotalOrderAndItsEqualityIsTheIdentityTextsButForTheTwoZeros =
 	property.explore((source) => [source.draw(orderedGen), source.draw(orderedGen)] as const, {
 		needs: {},
 		budget: { runs: 5000, steered: 400 },
@@ -85,7 +86,16 @@ export const postgreSQLsFloatOrderIsTheModelsTotalOrderAndItsEqualityIsTheIdenti
 					c.noteAll(orderFeatures(a, b))
 					const order = compareFloat(a, b)
 					assert.equal(order, modelOrder(a, b), `${a} against ${b}`)
-					assert.equal(order === 0, floatText(a) === floatText(b), `${a} and ${b}'s texts`)
+					assert.equal(
+						order === 0,
+						floatText(a) === floatText(b) || (a === 0 && b === 0),
+						`${a} and ${b}'s texts`
+					)
+					assert.equal(
+						floatText(a) === floatText(b),
+						Object.is(a, b) || (Number.isNaN(a) && Number.isNaN(b)),
+						`${a} and ${b}'s identity texts`
+					)
 				}),
 		oracle: {
 			kind: "second-implementation",

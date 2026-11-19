@@ -41,7 +41,6 @@ import {
 import { decimalOfText, doubleOfText } from "#compiler/scalar/lexical.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import {
 	compareValues,
 	equalByIdentity,
@@ -341,7 +340,7 @@ const ieee = (
 	carrier: Carrier
 ): number => {
 	const r = fn === "add" ? a + b : fn === "sub" ? a - b : fn === "mul" ? a * b : a / b
-	return canonicalZero(carrier === "float4" ? Math.fround(r) : r)
+	return carrier === "float4" ? Math.fround(r) : r
 }
 
 /**
@@ -417,7 +416,7 @@ const arithmetic = (
 						const y = hostOf(c, b)
 						return y.minorUnits === 0n
 							? undefinedAt("nonzero")
-							: Result.ok(canonicalZero(Number(x.minorUnits) / Number(y.minorUnits)))
+							: Result.ok(Number(x.minorUnits) / Number(y.minorUnits))
 					}
 				case "mul":
 				case "mod":
@@ -477,7 +476,7 @@ const signed = (fn: "neg" | "abs" | "sign", c: Carrier, type: ScalarType): Unary
 		case "float4":
 		case "float8": {
 			const f = totalFloat[fn]
-			return (a) => Result.ok(canonicalZero(f(hostOf(c, a))))
+			return (a) => Result.ok(f(hostOf(c, a)))
 		}
 		case "int2":
 		case "int4":

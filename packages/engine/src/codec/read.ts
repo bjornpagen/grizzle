@@ -62,9 +62,10 @@ export interface ScalarReader {
 	readonly convert: (cell: Cell) => CarrierHost[Carrier]
 	/**
 	 * The one text of the value a cell holds, read off the cell: two cells of this type have equal cell texts exactly
-	 * when their values are equal, but bytes. The cell itself for the carriers whose output is already one text per
-	 * value; numeric with trailing fractional zeros dropped, which is the value's canonical text; a float's "-0" as "0",
-	 * and otherwise float4out's or float8out's own shortest spelling; a vector's "-0" components as "0"; a boolean's
+	 * when they hold one value, but bytes, as the value's fact identity (scalar/values/identity.ts canonicalText) is.
+	 * The cell itself for the carriers whose output is already one text per value, a float's among them, float4out's or
+	 * float8out's own shortest spelling, its "-0" a value of its own; numeric with trailing fractional zeros dropped,
+	 * which is the value's canonical text; a vector's "-0" components as "0"; a boolean's
 	 * "t"/"f" as "true"/"false"; a set's 0s and 1s as X and their hex digits; a bytes value's SHA-256 digest
 	 * (core/sha256.ts sha256Hex), which two values share only if their bytes are equal or they are a SHA-256 collision,
 	 * so a reader that takes two cells of one text as one compares their bytes too. Chosen once per column; no
@@ -90,9 +91,6 @@ const numericCellText = (cell: string): string => {
 	}
 	return end === cell.length ? cell : cell.slice(0, end)
 }
-
-/** float4out or float8out text: "-0" as "0", every other text as it is (extra_float_digits = 1 writes the shortest). */
-const floatCellText = (cell: string): string => (cell === "-0" ? "0" : cell)
 
 /** Whether a vector_out component text, text[from, to), is "-0". */
 const isNegativeZero = (text: string, from: number, to: number): boolean =>
@@ -128,8 +126,8 @@ const cellTextByCarrier: { readonly [C in TextCarrier]: (cell: string) => string
 	int4: itself,
 	int8: itself,
 	numeric: numericCellText,
-	float4: floatCellText,
-	float8: floatCellText,
+	float4: itself,
+	float8: itself,
 	money: itself,
 	bool: boolCellText,
 	uuid: itself,

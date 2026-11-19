@@ -3,7 +3,7 @@ import { Array as Arr, Order } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -82,7 +82,7 @@ export const lab: GenSchema = {
 export const labOptions: CatalogOptions = { catalog: genCatalog(lab), parents: "auto" }
 
 const i = (value: number): TypedLiteral => ({ kind: "int", value: BigInt(value) })
-const d = (value: number): TypedLiteral => ({ kind: "float", value: canonicalZero(value) })
+const d = (value: number): TypedLiteral => floatLiteral(value)
 
 /**
  * Sittings: student 1 has ties on the day broken by id; student 2 one sitting; student 3 ties on the score; student 4

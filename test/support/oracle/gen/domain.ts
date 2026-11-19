@@ -1,6 +1,6 @@
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { canonicalZero, VectorText } from "#compiler/ir/carriers.ts"
+import { VectorText, floatLiteral } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { literalProblem, nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
@@ -466,7 +466,7 @@ export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): Liter
 
 const int = (value: bigint): TypedLiteral => ({ kind: "int", value })
 const num = (text: string): TypedLiteral => ({ kind: "numeric", value: Decimal.of(text) })
-const flt = (value: number): TypedLiteral => ({ kind: "float", value: canonicalZero(value) })
+const flt = (value: number): TypedLiteral => floatLiteral(value)
 const special = (value: "NaN" | "Infinity" | "-Infinity"): TypedLiteral => ({
 	kind: "floatSpecial",
 	value

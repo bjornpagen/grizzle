@@ -1,20 +1,15 @@
-import {
-	floatSpecialNameOf,
-	floatSpecials,
-	isFloatSpecialName,
-	taggedValueOf
-} from "#compiler/core/canonical.ts"
+import { floatSpecials, isFloatSpecialName, taggedValueOf } from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { VectorText, vectorTag } from "#compiler/ir/carriers.ts"
+import { floatLiteral, VectorText, vectorTag } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, dateOfDayNumber, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { baseOf, type Carrier, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero, toReal } from "#compiler/scalar/values/float.ts"
+import { toReal } from "#compiler/scalar/values/float.ts"
 import { type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -199,13 +194,13 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 				return Result.err(`a number for ${base.carrier}`)
 			}
 			if (base.carrier === "float8") {
-				return Result.ok({ kind: "float", value: canonicalZero(value) })
+				return Result.ok(floatLiteral(value))
 			}
 			const real = toReal(value)
 			if (!real.ok) {
 				return Result.err("a number within real's binary32 range")
 			}
-			return Result.ok({ kind: "float", value: real.value })
+			return Result.ok(floatLiteral(real.value))
 		}
 		case "money": {
 			if (value instanceof Money) {
@@ -339,14 +334,6 @@ export const hostOfLiteral = (carrier: Carrier, literal: TypedLiteral): HostValu
 		case "vector":
 			return Vector.fromValue(literal.value)
 	}
-}
-
-/** A float's typed literal: a finite one with its one zero, and NaN or an infinity by the word naming it. */
-const floatLiteral = (x: number): TypedLiteral => {
-	const name = floatSpecialNameOf(x)
-	return name === undefined
-		? { kind: "float", value: canonicalZero(x) }
-		: { kind: "floatSpecial", value: name }
 }
 
 /** A span's endpoints as its literal's positions: an integer itself, a date its day number. */

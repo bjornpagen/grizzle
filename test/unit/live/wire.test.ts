@@ -2,8 +2,8 @@
  * The wire's one table (live/wire.ts carrierWire): each carrier's JSON Schema, encode, exact parse and trusting decode
  * agree, over drawn specs of every carrier and drawn values of each spec's type.
  *
- * - Codec output: every value of a spec's type encodes to JSON its schema admits, as its one form does (a float's and a
- *   vector component's one zero, -0 as 0, ir/carriers.ts canonicalZero), which the parse reads back as that one form and
+ * - Codec output: every value of a spec's type encodes to JSON its schema admits, as its one form does (a float as it
+ *   is, -0 spelled by its word; a vector component's one zero, -0 as 0), which the parse reads back as that one form and
  *   the decode converts back to it. Oracle: the schema, judged by the validator the CLI generator pins
  *   (test/support/openapi/validator.ts), and the value's one form, compared by live/key.ts sameValue (Object.is).
  * - Exactness: over JSON near a value's spelling (one edit of its encoding, or a JSON value of another kind), the parse

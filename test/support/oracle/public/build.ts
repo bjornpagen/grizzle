@@ -1,4 +1,5 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
+import { floatSpecials } from "#compiler/core/canonical.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -309,11 +310,7 @@ export const hostValue = (literal: TypedLiteral, type: ScalarType): unknown => {
 		case "float":
 			return literal.value
 		case "floatSpecial":
-			return literal.value === "NaN"
-				? Number.NaN
-				: literal.value === "Infinity"
-					? Number.POSITIVE_INFINITY
-					: Number.NEGATIVE_INFINITY
+			return floatSpecials[literal.value]
 		case "bool":
 		case "text":
 		case "uuid":

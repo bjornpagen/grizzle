@@ -10,7 +10,7 @@
  *   and overflow and nonzero underflow are refused. Oracle: the decimal as an exact rational.
  * - The grammar: exactly the texts it admits are read, and the specials for double and real, never for a vector
  *   component; the strtod spellings beside it are named, refused cases.
- * - Every double round-trips through its shortest text, -0 as +0, NaN as NaN. Oracle: the round trip.
+ * - Every double round-trips through its text, each zero its own sign, NaN as NaN. Oracle: the round trip.
  *
  * Features: a value's binade (normal, subnormal) and sign; above, below and either tie of a midpoint; every range of a
  * random decimal; the grammar's admissions, refusals, specials and strtod spellings; a finite double, zero and a
@@ -179,8 +179,8 @@ export const exactBinary32ReadingAgreesWithAnIndependentRationalReadingOnRandomD
 						faulted(strictReal(text), "floatRange", text)
 						return
 					case "zero":
-						assert.ok(Object.is(succeeded(strictReal(text)), 0), text)
-						assert.ok(Object.is(convertReal(text), 0), text)
+						assert.ok(Object.is(succeeded(strictReal(text)), Number(text)), text)
+						assert.ok(Object.is(convertReal(text), Number(text)), text)
 						return
 					case "normal":
 					case "subnormal":
@@ -201,6 +201,12 @@ export const exactBinary32ReadingAgreesWithAnIndependentRationalReadingOnRandomD
 				original: "\t\tconst value = Number(q) * 2 ** e",
 				replacement: "\t\tconst value = Number(q) * 3 ** e",
 				why: "Operator mutant (bound) at packages/engine/src/scalar/values/float.ts:158 in decimalToBinary32: `2` becomes `3`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/scalar/values/float.ts",
+				original: "\treturn negative ? -magnitude : magnitude\n}",
+				replacement: "\treturn negative && magnitude !== 0 ? -magnitude : magnitude\n}",
+				why: "A real's text of a negative zero is read as +0, its sign dropped."
 			}
 		]
 	})
@@ -248,10 +254,7 @@ export const theFloatTextGrammarScannedWithoutRegExpAdmitsExactlyTheTextsTheGram
 					assert.equal(syntax(strictReal(text)), expected)
 					assert.equal(syntax(strictComponent(text)), expected)
 					if (expected && Number.isFinite(Number(text))) {
-						assert.equal(
-							Object.is(succeeded(strictDouble(text)), Number(text) === 0 ? 0 : Number(text)),
-							true
-						)
+						assert.equal(Object.is(succeeded(strictDouble(text)), Number(text)), true)
 					}
 				}),
 		oracle: {
@@ -266,25 +269,18 @@ export const theFloatTextGrammarScannedWithoutRegExpAdmitsExactlyTheTextsTheGram
 				original: "\t\treturn negative ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY",
 				replacement: "\t\treturn Number.POSITIVE_INFINITY",
 				why: "A real's text -Infinity is read as Infinity."
-			},
-			{
-				file: "packages/engine/src/ir/carriers.ts",
-				original:
-					"export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 0 ? 0 : x)",
-				replacement:
-					"export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x !== 0 ? 0 : x)",
-				why: "Operator mutant (comparison) at packages/engine/src/ir/carriers.ts:36 in canonicalZero: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
 
 /**
- * Double precision text round-trips every binary64 value through its shortest text, -0 as +0.
+ * Double precision text round-trips every binary64 value through its shortest text, each zero its own sign: -0 is
+ * written "-0" (floatText), which float8in reads as -0, as the library's conversion does.
  *
  * Budget: its suite's count before the conversion (unit/codec/float-6578796: 10000 independent cases and 0 steered,
  * Vitest at grizzle 4ca3036a).
  */
-export const doublePrecisionTextRoundTripsEveryBinary64ValueThroughItsShortestText0As0 =
+export const doublePrecisionTextRoundTripsEveryBinary64ValueThroughItsShortestTextEachZeroWithItsSign =
 	property.explore(doubles, {
 		needs: {},
 		situations: ["a finite double", "zero", "a special"] satisfies ReadonlyArray<
@@ -297,7 +293,7 @@ export const doublePrecisionTextRoundTripsEveryBinary64ValueThroughItsShortestTe
 					if (Number.isNaN(x)) {
 						assert.equal(Number.isNaN(back), true)
 					} else {
-						assert.equal(Object.is(back, x === 0 ? 0 : x), true)
+						assert.equal(Object.is(back, x), true)
 					}
 				}
 				const text = floatText(x)
@@ -307,25 +303,25 @@ export const doublePrecisionTextRoundTripsEveryBinary64ValueThroughItsShortestTe
 			}),
 		oracle: {
 			kind: "universal",
-			name: "a double's shortest text reads back as the double, -0 as +0"
+			name: "a double's shortest text reads back as the double, each zero with its sign"
 		},
 		budget: { runs: 10000, steered: 0 },
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/scalar/values/float.ts",
-				original: "export const floatText = (x: number): string => String(canonicalZero(x))",
+				original:
+					'export const floatText = (x: number): string => (Object.is(x, -0) ? "-0" : String(x))',
 				replacement:
-					"export const floatText = (x: number): string => String(canonicalZero(Number(x.toPrecision(16))))",
+					'export const floatText = (x: number): string => (Object.is(x, -0) ? "-0" : String(Number(x.toPrecision(16))))',
 				why: "A double is written to sixteen significant digits, not its shortest round-trip text."
 			},
 			{
-				file: "packages/engine/src/ir/carriers.ts",
+				file: "packages/engine/src/scalar/values/float.ts",
 				original:
-					"export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 0 ? 0 : x)",
-				replacement:
-					"export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 0 ? x : 0)",
-				why: "Operator mutant (arm-swap) at packages/engine/src/ir/carriers.ts:36 in canonicalZero: `x === 0 ? 0 : x` becomes `x === 0 ? x : 0`; the property fails (lane CATCH, grizzle 0baff5d6)."
+					'export const floatText = (x: number): string => (Object.is(x, -0) ? "-0" : String(x))',
+				replacement: "export const floatText = (x: number): string => String(x)",
+				why: "The encoder writes String(x), which spells -0 as 0, so a stored -0 reads back as +0 (edullm-56)."
 			}
 		]
 	})

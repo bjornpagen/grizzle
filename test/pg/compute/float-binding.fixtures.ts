@@ -17,11 +17,11 @@ import {
 	planNodes
 } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { optimizedLowering } from "#test/pg/recursion/lowering/support.ts"
 import { defined } from "#test/support/assert.ts"
@@ -166,10 +166,7 @@ const edgeOf = (width: Width): Gen<TypedLiteral> =>
 	element(nonEmptyList(valueClasses(width === "float8" ? float8 : float4, true), "float classes"))
 
 /** A moderate value: a dyadic fraction in [1/8, 1000], exact in either width. */
-const moderateOf: Gen<TypedLiteral> = (source) => ({
-	kind: "float",
-	value: canonicalZero(source.draw(int(1, 8000)) / 8)
-})
+const moderateOf: Gen<TypedLiteral> = (source) => floatLiteral(source.draw(int(1, 8000)) / 8)
 
 const rowGen =
 	(value: (width: Width) => Gen<TypedLiteral>): Gen<Row> =>

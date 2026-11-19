@@ -1,6 +1,6 @@
 import { firstIndex } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { floatLiteral as literalOfFloat } from "#compiler/ir/carriers.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
 import { OpId } from "#compiler/ir/expr.ts"
 import {
@@ -514,9 +514,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 			fn: "percentileDisc",
 			op: OpId("percentile_disc(double precision,anyelement)"),
 			order: { keys: [{ column: valueColumn, dir: valueDir }] },
-			fractions: sel.map((s) =>
-				litExpr(cx.ed, { kind: "float", value: canonicalZero(s.p) }, plain.float8)
-			),
+			fractions: sel.map((s) => litExpr(cx.ed, literalOfFloat(s.p), plain.float8)),
 			outs,
 			rule: "R29",
 			heading: [...keysHeading, ...outs.map((o) => ({ name: o, type: valueType }))],
@@ -611,7 +609,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 		fn: "percentileCont",
 		op: OpId("percentile_cont(double precision,double precision)"),
 		order: { keys: [{ column: valueColumn, dir: valueDir }] },
-		fractions: [litExpr(cx.ed, { kind: "float", value: canonicalZero(p) }, plain.float8)],
+		fractions: [litExpr(cx.ed, literalOfFloat(p), plain.float8)],
 		outs: [freshColumn(keys, "__p")],
 		rule: "R30",
 		heading: [...keysHeading, { name: freshColumn(keys, "__p"), type: plain.float8 }],

@@ -22,7 +22,7 @@ import { regex } from "arkregex"
 import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
-import { vectorMaxDimensions, MoneyText, VectorText, canonicalZero } from "#compiler/ir/carriers.ts"
+import { vectorMaxDimensions, MoneyText, VectorText, floatLiteral } from "#compiler/ir/carriers.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import {
 	type ExprTable,
@@ -272,7 +272,7 @@ const literalArms: { readonly [K in DrawnKind]: Gen<TypedLiteral> } = {
 	),
 	float: map(
 		oneOf([element([0.5, 0.1, 1e300]), double(-Number.MAX_VALUE, Number.MAX_VALUE)]),
-		(value): TypedLiteral => ({ kind: "float", value: canonicalZero(value) })
+		(value): TypedLiteral => floatLiteral(value)
 	),
 	floatSpecial: map(element(["NaN", "Infinity", "-Infinity"] as const), (value): TypedLiteral => ({
 		kind: "floatSpecial",

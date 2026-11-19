@@ -114,10 +114,7 @@ export const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 	{
 		spec: { carrier: "float8" },
 		live: anyDouble,
-		judge: (value) =>
-			typeof value !== "number"
-				? { fault: "floatType" }
-				: { stored: Object.is(value, -0) ? 0 : value }
+		judge: (value) => (typeof value !== "number" ? { fault: "floatType" } : { stored: value })
 	},
 	{
 		spec: { carrier: "float4" },
@@ -126,7 +123,7 @@ export const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 			typeof value !== "number"
 				? { fault: "floatType" }
 				: Number.isNaN(value) || Math.fround(value) === value
-					? { stored: Object.is(value, -0) ? 0 : value }
+					? { stored: value }
 					: { fault: "realInexact" }
 	},
 	{

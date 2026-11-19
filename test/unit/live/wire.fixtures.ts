@@ -22,14 +22,7 @@ import { int4Max } from "#compiler/core/canonical.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import {
-	int2Max,
-	int2Min,
-	int4Min,
-	int8Max,
-	int8Min,
-	canonicalZero
-} from "#compiler/ir/carriers.ts"
+import { int2Max, int2Min, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { codecOf, firstCodebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dateOfDayNumber, dayNumber } from "#compiler/ir/date.ts"
 import { type Carrier, carriers, Roster } from "#compiler/ir/scalar.ts"
@@ -327,15 +320,14 @@ const holdsNegativeZero = (value: unknown): boolean =>
 	Object.is(value, -0) || (value instanceof Float32Array && value.some((x) => Object.is(x, -0)))
 
 /**
- * A value in its one form: a float's and each vector component's one zero, -0 as 0 (ir/carriers.ts canonicalZero), the
- * value grizzle stores and delivers for either zero, which the wire spells as the one number 0.
+ * A value in its one form: a float as it is, either zero its own value, which the wire spells -0 by its word
+ * (core/canonical.ts floatSpecialNames); a vector with each component's one zero, -0 as 0, the value pgvector's
+ * components hold and the wire spells as the one number 0.
  */
 export const oneForm = (value: unknown): unknown =>
-	typeof value === "number"
-		? canonicalZero(value)
-		: value instanceof Float32Array
-			? Vector.branded(Float32Array.from(value, canonicalZero))
-			: value
+	value instanceof Float32Array
+		? Vector.branded(Float32Array.from(value, (x) => (x === 0 ? 0 : x)))
+		: value
 
 /** Whether a value is a gap schemaGaps enumerates. */
 const isSchemaGap = (value: unknown): value is SchemaGap =>

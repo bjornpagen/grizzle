@@ -432,11 +432,13 @@ const canonicalTexts: CanonicalTexts = {
  *
  * - `parseValue` is the boundary: the exact parse of a host value as its carrier's, which refuses a value its column
  *   would store as another (a numeric past its scale, a double no binary32 value holds) and alters none: two spellings
- *   of one value are one admitted value (-0 as +0, uuid case), so fact identity is the stored value's. `storedValue` is
+ *   of one value are one admitted value (uuid case), so fact identity is the stored value's; a float's -0 is a value of
+ *   its own, distinct from +0 (values/float.ts), as PostgreSQL stores it. `storedValue` is
  *   PostgreSQL's own coercion of a value grizzle computes on the host, which rounds as PostgreSQL rounds.
- * - `canonicalText` gives every admitted value its one text, equal exactly when PostgreSQL's equality for the type
- *   holds, because every host value is in its one form (a Decimal has no display scale, a float and a vector component
- *   one zero): numeric 1.0 = 1.00 are one Decimal written 1, NaN = NaN, -0 = +0, text by exact scalar sequence. It is
+ * - `canonicalText` gives every admitted value its one text, equal exactly when the values are one value, because every
+ *   host value is in its one form (a Decimal has no display scale, a vector component one zero): numeric 1.0 = 1.00
+ *   are one Decimal written 1, NaN one text, text by exact scalar sequence; a float's -0 and +0 are two values, equal
+ *   under PostgreSQL's equality and `compareValues` but each its own fact identity, as a key holds them. It is
  *   the parameter text, the array element and the fact identity's part alike (codec/scalar.ts text); a bytes value's is
  *   its SHA-256 digest (values/bytes.ts BytesDigest), the fact identity's part and no parameter text: every bytes value
  *   travels in binary (codec/bytea.ts). Two bytes values of one digest are one only when their bytes are equal, which

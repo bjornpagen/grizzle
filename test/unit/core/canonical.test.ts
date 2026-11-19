@@ -6,7 +6,8 @@
  * from a dictionary of the spellings where JavaScript's own key order, a code-point order, a naive tagging scheme or
  * the prototype accessor goes wrong. The oracle is the format's specification, written here apart from the serializer
  * (the module header): the JSON form holds a bigint as "~n:<integer>", a number that is not finite as "~f:" and the
- * text String writes of it, a Float32Array as "~v:[c1,...,cn]", each component as JSON.stringify writes it (-0 as 0),
+ * text String writes of it, -0 as "~f:-0", a Float32Array as "~v:[c1,...,cn]", each component as JSON.stringify writes
+ * it (-0 as 0),
  * and a plain string beginning with "~" with that "~" doubled, and the text is RFC 8785 over it, keys
  * ordered by UTF-16 code units and every number and string written as JSON.stringify writes it (ECMAScript's shortest
  * round trip, -0 as 0; well-formed escaping).
@@ -17,7 +18,7 @@
  *
  * - Text: encode, toJson, writeCanonicalJson, arrayText and encodeOver are RFC 8785 over the specified JSON form,
  *   whatever the key insertion order.
- * - Round trip: the JSON form and the text read back (fromJson, decode) as the value, -0 as 0 and a vector as the
+ * - Round trip: the JSON form and the text read back (fromJson, decode) as the value, -0 as -0 and a vector as the
  *   protocol value of its text.
  * - Outside the model: each named kind of value outside it, planted at a drawn path, is refused at that path in the
  *   direction it arises, MalformedDescription for the caller's value and MalformedArtifact for text read back.

@@ -7,7 +7,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { relNode, rooted, topoOrder, unchangedEdges } from "#compiler/ir/dag.ts"
 import { builtExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -305,7 +305,7 @@ export const literalScore = (q: LogicalQuery): LogicalQuery => {
 	const literal = builtExpr(
 		{
 			kind: "literal",
-			value: { kind: "float", value: canonicalZero(0.5) },
+			value: floatLiteral(0.5),
 			args: [],
 			type: distance.expr.type,
 			nonNull: "literal"

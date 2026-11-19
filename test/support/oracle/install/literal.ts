@@ -1,4 +1,5 @@
 import { Array as Arr, Option, pipe, Predicate, Record as Rec, Result, String as Str } from "effect"
+import { floatSpecials, isFloatSpecialName } from "#compiler/core/canonical.ts"
 import { taggedValueOf } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -125,19 +126,13 @@ const spanText = (
 	}
 }
 
-const floatSpecials = {
-	NaN: Number.NaN,
-	Infinity: Number.POSITIVE_INFINITY,
-	"-Infinity": Number.NEGATIVE_INFINITY
-} as const
-
 const floatOf = (value: unknown): number | undefined => {
 	if (typeof value === "number") {
 		return value
 	}
 	if (isReadable(value) && Rec.has(value, "float")) {
 		const special = value["float"]
-		if (special === "NaN" || special === "Infinity" || special === "-Infinity") {
+		if (isFloatSpecialName(special)) {
 			return floatSpecials[special]
 		}
 	}

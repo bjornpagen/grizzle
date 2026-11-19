@@ -2,7 +2,8 @@
  * Exact scalar codecs against PostgreSQL 19 in raw-text mode (codec/scalar.ts): the outermost SELECT casts every column
  * to text, which the conversions read.
  *
- * - Round trip: for every carrier, numeric with NaN, Infinity and display scale, real at binary32, -0, money minor
+ * - Round trip: for every carrier, numeric with NaN, Infinity and display scale, real at binary32, -0 read back as -0
+ *   (a float is the value sent itself, Object.is), money minor
  *   units, bigint, uuid case, text of every plane, closed ids and sets of every width over rosters with holes, spans,
  *   vectors and a contract, a batch of host values is encoded, sent through jsonb_to_recordset, and one value of the
  *   case through a cast parameter, and PostgreSQL's own text of each is admitted by the kernel's strict reader
@@ -84,6 +85,13 @@ export const exactScalarCodecsAgainstPostgreSQLRoundTripsEveryCarrierExactlyThro
 				original: "\t\t(firstBit >> (position % hexDigitBits))",
 				replacement: "\t\t(1 << (position % hexDigitBits))",
 				why: "setBit puts a set's position 0 at its digit's least significant bit; a set's round trip fails."
+			},
+			{
+				file: "packages/engine/src/scalar/values/float.ts",
+				original:
+					'export const floatText = (x: number): string => (Object.is(x, -0) ? "-0" : String(x))',
+				replacement: "export const floatText = (x: number): string => String(x)",
+				why: "The encoder writes String(x), which spells -0 as 0, so a -0 sent reads back from PostgreSQL as +0 (edullm-56)."
 			}
 		]
 	})

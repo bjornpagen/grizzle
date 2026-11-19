@@ -911,11 +911,16 @@ const literalNumber = (
 		case "float":
 			return exactOfDouble(literal.value)
 		case "floatSpecial":
-			return literal.value === "NaN"
-				? "nan"
-				: literal.value === "Infinity"
-					? "infinity"
-					: "-infinity"
+			switch (literal.value) {
+				case "NaN":
+					return "nan"
+				case "Infinity":
+					return "infinity"
+				case "-Infinity":
+					return "-infinity"
+				case "-0":
+					return exactOfDouble(0)
+			}
 		case "numeric": {
 			const value = Decimal.fromValue(literal.value)
 			const p = value.parts

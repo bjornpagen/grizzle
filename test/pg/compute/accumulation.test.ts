@@ -1,3 +1,11 @@
+import { explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 /**
  * The aggregate order arm: every sum and mean is a function of its arguments' multiset (scalar/aggregate.ts), whatever
  * the order the rows are stored and scanned in, the plan, a parallel worker's partial aggregate, a window frame or a
@@ -19,20 +27,13 @@
  *
  * Features: the order situations below, each computed from the drawn values, and forced parallel plans.
  */
-import { explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero } from "#compiler/scalar/values/float.ts"
+
 import { Money } from "#compiler/scalar/values/money.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import {
@@ -306,7 +307,7 @@ const sequential = (xs: ReadonlyArray<number>, round: (x: number) => number): Se
 	return { total, overflowed }
 }
 
-const differ = (a: number, b: number): boolean => !Object.is(canonicalZero(a), canonicalZero(b))
+const differ = (a: number, b: number): boolean => !Object.is(a, b)
 
 /** A double precision step: IEEE binary64 addition rounds every step already. */
 const inDouble = (y: number): number => y
@@ -426,7 +427,7 @@ const aimedCaseGen: Steered<AccumulationCase, OrderSituation> = (steering) => (s
 	})
 }
 
-const double = (x: number): TypedLiteral => ({ kind: "float", value: canonicalZero(x) })
+const double = (x: number): TypedLiteral => floatLiteral(x)
 
 const plainEntry = (grp: number, x: number, cents: bigint): Entry => ({
 	grp,

@@ -353,14 +353,20 @@ const sameHost = (a: unknown, b: unknown): boolean => {
 
 /**
  * The exact comparison of a sent value with its conversion: the conversion is the value the sent one admits to,
- * compared by its structure (sameHost). The sent value is encodable by construction; the conversion is compared as it
- * is, never admitted.
+ * compared by its structure (sameHost), and a float, which admission takes as it is, either zero with its sign, is the
+ * value sent itself. The sent value is encodable by construction; the conversion is compared as it is, never admitted.
  */
 export const sameValue = (
 	codec: ScalarCodec,
 	sent: unknown,
 	decoded: CarrierHost[Carrier]
-): boolean => sameHost(succeeded(parseValue(codec.spec, sent)), decoded)
+): boolean =>
+	sameHost(
+		codec.spec.carrier === "float4" || codec.spec.carrier === "float8"
+			? sent
+			: succeeded(parseValue(codec.spec, sent)),
+		decoded
+	)
 
 /**
  * PostgreSQL's output text of a value: admitted by the kernel's strict reader, and converted by the library to the value

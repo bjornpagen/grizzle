@@ -17,7 +17,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { moneyFractionDigits, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero, decimalToBinary32 } from "#compiler/scalar/values/float.ts"
+import { decimalToBinary32 } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
@@ -314,7 +314,7 @@ export const strictDouble = (text: string): Result.Result<number, StrictFault> =
 		return Result.fail("floatSyntax")
 	}
 	const x = Number(text)
-	return Number.isFinite(x) ? Result.succeed(canonicalZero(x)) : Result.fail("floatRange")
+	return Number.isFinite(x) ? Result.succeed(x) : Result.fail("floatRange")
 }
 
 /** A finite binary32 text, exactly rounded; a text that overflows or underflows a nonzero value is refused. */
@@ -330,7 +330,7 @@ const finiteBinary32 = (text: string): Result.Result<number, StrictFault> => {
 	if (magnitude === 0 && parts.coefficient !== 0n) {
 		return Result.fail("floatRange")
 	}
-	return Result.succeed(canonicalZero(parts.sign === "-" ? -magnitude : magnitude))
+	return Result.succeed(parts.sign === "-" ? -magnitude : magnitude)
 }
 
 /** A real output text: its binary32 value exactly, -0 as +0. */

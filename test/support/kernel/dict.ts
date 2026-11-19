@@ -9,7 +9,7 @@ import {
 	parseSchemaName
 } from "#compiler/core/identity.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { isName } from "#compiler/schema/protocol.ts"
@@ -334,7 +334,7 @@ const edgeLiterals: ReadonlyArray<TypedLiteral> = [
 	),
 	...Arr.map(
 		[0, 1.5, -1e-308, 5e-324, 3.4028234663852886e38, 1.7976931348623157e308, 0.1],
-		(value): TypedLiteral => ({ kind: "float", value: canonicalZero(value) })
+		(value): TypedLiteral => floatLiteral(value)
 	),
 	...Arr.map(["NaN", "Infinity", "-Infinity"] as const, (value): TypedLiteral => ({
 		kind: "floatSpecial",

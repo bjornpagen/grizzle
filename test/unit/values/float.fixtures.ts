@@ -72,7 +72,7 @@ export type RealFeature =
 	| "a binary32 subnormal stored"
 	| "realOverflow"
 	| "realUnderflow"
-	| "-0 stored as 0"
+	| "-0 stored as -0"
 	| "a special kept"
 
 /** Checks toReal on one double against binary32's rounding, and names the situation it was in. */
@@ -92,7 +92,10 @@ export const realVerdict = (x: number): RealFeature => {
 	}
 	const stored = succeeded(real, `${x}`)
 	assert.ok(Object.is(Math.fround(stored), stored), `${x} is stored as ${stored}, a binary32 value`)
-	assert.ok(!Object.is(stored, -0), `${x} is stored as -0`)
+	assert.ok(
+		Object.is(stored, -0) === Object.is(x, -0),
+		`${x} is stored as ${stored}, its zero's sign kept`
+	)
 	const distance = Math.abs(stored - x)
 	for (const neighbour of binary32.neighbours(stored)) {
 		const nearer = Math.abs(neighbour - x)
@@ -102,7 +105,7 @@ export const realVerdict = (x: number): RealFeature => {
 		}
 	}
 	return Object.is(x, -0)
-		? "-0 stored as 0"
+		? "-0 stored as -0"
 		: stored !== 0 && Math.abs(stored) <= greatestSubnormal
 			? "a binary32 subnormal stored"
 			: stored === x

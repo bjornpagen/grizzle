@@ -14,7 +14,13 @@ import { int4Max } from "#compiler/core/canonical.ts"
  *
  * The module is runtime-free and browser-safe: it imports the value core and core leaves alone.
  */
-import { type FloatSpecialName, floatSpecialNameOf, type Json } from "#compiler/core/canonical.ts"
+import {
+	floatSpecialNameOf,
+	floatSpecialNames,
+	floatSpecials,
+	isFloatSpecialName,
+	type Json
+} from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
@@ -206,20 +212,6 @@ export const withGaps = (schema: WireSchema, gaps: ReadonlyArray<SchemaGap>): Wi
 /** A string of the spellings `body` matches whole. */
 const spelled = (body: string): WireSchema => ({ type: "string", pattern: anchored(body) })
 
-/** The words naming the floats JSON numbers cannot hold (core/canonical.ts floatSpecialNames). */
-const floatWords: ReadonlyArray<FloatSpecialName> = ["NaN", "Infinity", "-Infinity"]
-
-/** The float a word names. */
-const floatOfWord = (word: FloatSpecialName): number =>
-	word === "NaN"
-		? Number.NaN
-		: word === "Infinity"
-			? Number.POSITIVE_INFINITY
-			: Number.NEGATIVE_INFINITY
-
-const isFloatWord = (json: unknown): json is FloatSpecialName =>
-	json === "NaN" || json === "Infinity" || json === "-Infinity"
-
 /** The greatest magnitude of a binary32 number: a float4's, and a vector component's, JSON number. */
 const binary32Greatest = binary32Max
 
@@ -229,24 +221,24 @@ const floatSchema = (most: number, gaps: ReadonlyArray<SchemaGap>): WireSchema =
 		{
 			anyOf: [
 				{ type: "number", minimum: -most, maximum: most },
-				{ type: "string", enum: [...floatWords] }
+				{ type: "string", enum: [...floatSpecialNames] }
 			]
 		},
 		gaps
 	)
 
-/** A float's JSON: a finite number as itself, NaN and the infinities by their words. */
-const floatJson = (x: number): WireJson => floatSpecialNameOf(x) ?? (x === 0 ? 0 : x)
+/** A float's JSON: a number JSON holds as itself, NaN, the infinities and -0 by their words (core/canonical.ts). */
+const floatJson = (x: number): WireJson => floatSpecialNameOf(x) ?? x
 
 /**
  * A float a caller's JSON spells: a number, which a JSON literal past binary64 parsed to an infinity is not (no float
- * value is that literal's), or a word naming NaN or an infinity.
+ * value is that literal's), its zero's sign its own, or a word naming NaN, an infinity or -0.
  */
 const floatOf = (json: unknown): Result.Result<number, WireFaultKind> => {
 	if (typeof json === "number") {
-		return Number.isFinite(json) ? Result.ok(json === 0 ? 0 : json) : Result.err("range")
+		return Number.isFinite(json) ? Result.ok(json) : Result.err("range")
 	}
-	return isFloatWord(json) ? Result.ok(floatOfWord(json)) : Result.err("json")
+	return isFloatSpecialName(json) ? Result.ok(floatSpecials[json]) : Result.err("json")
 }
 
 /** A real a caller's JSON spells: a float (floatOf) that is a binary32 number exactly, its own Math.fround. */
@@ -281,7 +273,7 @@ export const trustedArray = (json: WireJson): ReadonlyArray<WireJson> => {
 
 /** A float the server's own JSON spells: a number, or a word naming a float. */
 const trustedFloat = (json: WireJson): number =>
-	isFloatWord(json) ? floatOfWord(json) : trustedNumber(json)
+	isFloatSpecialName(json) ? floatSpecials[json] : trustedNumber(json)
 
 /** An integer a caller's JSON spells as a number from `min` to `max`, -0 as 0. */
 const smallIntegerOf = (

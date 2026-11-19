@@ -31,7 +31,7 @@ import { indices } from "#compiler/core/array.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -686,7 +686,7 @@ layer(OracleSeat.layer)("the compile-target catalog against its compositions", (
 							}
 							const literal = ed.expr({
 								...spec,
-								value: { kind: "float", value: canonicalZero(p) }
+								value: floatLiteral(p)
 							})
 							ed.redefine(cell, { ...osa, fractions: [literal] })
 							const built = ed.build()

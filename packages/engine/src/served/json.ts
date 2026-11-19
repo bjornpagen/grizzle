@@ -212,8 +212,8 @@ const servedObject = (read: CanonicalObject | Outside): ServedObject => {
 
 /**
  * The one reading of a value by the served file (ServedValue), over its reading by the canonical model (canonicalOf):
- * well-formed text as it is, or escaped where it begins with `~`; a finite number, -0 as 0; a boolean; a bigint, NaN,
- * an infinity, a vector and a canonical value of a served class under their tags; a range overload, an
+ * well-formed text as it is, or escaped where it begins with `~`; a finite number but -0; a boolean; a bigint, NaN,
+ * an infinity, -0, a vector and a canonical value of a served class under their tags; a range overload, an
  * array and a plain record; a Map and a Set; and nothing else. No reading is undefined, a function or a symbol, so
  * those cases hold none (never).
  */
@@ -223,7 +223,7 @@ const servedOf = (value: unknown): ServedValue => {
 		case "string":
 			return read.startsWith("~") ? { kind: "escaped", text: `~${read}` } : read
 		case "number":
-			return read === 0 ? 0 : read
+			return read
 		case "boolean":
 			return read
 		case "bigint":
