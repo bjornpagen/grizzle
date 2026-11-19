@@ -23,6 +23,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/generated/proxy-routing.test.ts",
 	"test/generated/redirect-chains.test.ts",
 	"test/generated/retry-policy.test.ts",
+	"test/generated/run-scoped.test.ts",
 	"test/grizzle/once.test.ts",
 	"test/load/document-set.test.ts",
 	"test/load/read.test.ts",
