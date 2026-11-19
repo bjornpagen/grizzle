@@ -24,7 +24,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
-import { type Carrier, contractOf, routable, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type Carrier, routable, type ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -491,7 +491,7 @@ export const readingOver = (names: SqlNames) => {
 			if (c.type.carrier === "money") {
 				return `(${column})::money`
 			}
-			if (contractOf(c.type) !== undefined) {
+			if (c.type.contract !== undefined) {
 				return `(${column})::${c.sql}`
 			}
 			return column

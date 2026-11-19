@@ -13,7 +13,7 @@ import type {
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type { CallerParamDecl, ClockParamDecl, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { CompiledWrite } from "#compiler/plan/change.ts"
@@ -51,7 +51,8 @@ import type {
  */
 
 /** The roster a type's values are codes of: a closed id's or a set's, none for any other carrier. */
-export const typeRosters = (type: ScalarType): ReadonlyArray<DeclaredName> => {
+export const typeRosters = (descriptor: ScalarType): ReadonlyArray<DeclaredName> => {
+	const type = baseOf(descriptor)
 	switch (type.carrier) {
 		case "code":
 		case "bits":
@@ -275,15 +276,14 @@ export const castBy = (role: ServedRoleForm, compiled: LayerRole): ReadonlyArray
 
 /** The contracts of a type's chain, outermost first: its own, then its base's, down to a type of no contract. */
 const contractsOf = (type: ScalarType): ReadonlyArray<DeclaredName> => {
-	const contract = contractOf(type)
+	const { contract } = type
 	return contract === undefined ? [] : [contract.name, ...contractsOf(contract.base)]
 }
 
 /** The domains a value cast to `type` meets (see the header): its contract chain's, and its pattern's. */
 const castDomains = (names: SchemaArtifacts["names"], type: ScalarType): ReadonlyArray<string> => {
 	const text = textOf(type)
-	const pattern =
-		text === undefined || text.regex === "wildcard" ? undefined : names.textDomain(text.regex)
+	const pattern = text === undefined || text === "wildcard" ? undefined : names.textDomain(text)
 	return [
 		...Arr.map(contractsOf(type), (contract) => names.contractDomain(contract).name),
 		...(pattern === undefined ? [] : [pattern.name])

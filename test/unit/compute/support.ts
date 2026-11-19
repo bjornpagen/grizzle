@@ -17,14 +17,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
-import {
-	baseOf,
-	type Carrier,
-	contractOf,
-	Roster,
-	rosterOf,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { spellExpr } from "#compiler/query/build/walk.ts"
@@ -515,7 +508,7 @@ export interface RenderOptions {
 export const plainRender: RenderOptions = { domain: undefined, vectorSchema: "vector_ext" }
 
 const typeRef = (t: ScalarType, options: RenderOptions): TypeRef => {
-	const contract = contractOf(t)
+	const { contract } = t
 	if (contract !== undefined) {
 		if (options.domain === undefined) {
 			throw new Error(`no domain for contract ${contract.name}`)

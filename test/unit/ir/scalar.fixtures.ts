@@ -30,7 +30,14 @@ import {
 	type TableExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import { baseOf, type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	type Carrier,
+	capsOf,
+	numericTypmodOf,
+	rosterOf,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { cosineNormMax, cosineNormMin, numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -65,7 +72,7 @@ export type ScalarRule =
 	| "only numeric and vector carry a typmod"
 	| "a contract's carrier is its base's"
 	| "a set is no contract's base"
-	| "a contract carries its base's typmod and roster"
+	| "a contract's descriptor holds its carrier and the contract alone"
 	| "the carrier is one grizzle stores"
 
 /**
@@ -103,30 +110,30 @@ export const scalarCorruptions: Arr.NonEmptyReadonlyArray<
 	breaks(
 		"text carries its regex metadata",
 		"wild",
-		(t) => t.carrier === "text" && contractOf(t) === undefined,
+		(t) => t.carrier === "text" && t.contract === undefined,
 		(t) => [without(t, "text")]
 	),
 	breaks(
 		"a code and a set carry their roster",
 		"wild",
-		(t) => (t.carrier === "code" || t.carrier === "bits") && contractOf(t) === undefined,
+		(t) => (t.carrier === "code" || t.carrier === "bits") && t.contract === undefined,
 		(t) => [without(t, "roster")]
 	),
 	breaks(
 		"a span's endpoint is of its carrier",
 		"stale",
-		(t) => t.carrier === "range4" || t.carrier === "range8",
+		(t) => (t.carrier === "range4" || t.carrier === "range8") && t.contract === undefined,
 		(t) => [
 			{
 				...t,
-				span: { endpoint: { carrier: t.carrier === "range4" ? "int8" : "int4", caps: t.caps } }
+				span: { endpoint: { carrier: t.carrier === "range4" ? "int8" : "int4", caps: capsOf(t) } }
 			}
 		]
 	),
 	breaks(
 		"a numeric typmod has a precision 1-1000 and its scale",
 		"wild",
-		(t) => t.carrier === "numeric" && contractOf(t) === undefined,
+		(t) => t.carrier === "numeric" && t.contract === undefined,
 		(t) => [
 			{ ...t, typmod: { scale: 2 } },
 			{ ...t, typmod: { precision: 5 } },
@@ -137,66 +144,52 @@ export const scalarCorruptions: Arr.NonEmptyReadonlyArray<
 	breaks(
 		"a vector states its dimensions",
 		"wild",
-		(t) => t.carrier === "vector",
+		(t) => t.carrier === "vector" && t.contract === undefined,
 		(t) => [without(t, "typmod")]
 	),
 	breaks(
 		"a vector has at most 16000 dimensions",
 		"wild",
-		(t) => t.carrier === "vector",
+		(t) => t.carrier === "vector" && t.contract === undefined,
 		(t) => [{ ...t, typmod: { dims: vectorMaxDimensions + 1 } }]
 	),
 	breaks(
 		"only numeric and vector carry a typmod",
 		"wild",
 		(t) =>
-			t.carrier === "int2" || t.carrier === "int4" || t.carrier === "int8" || t.carrier === "bool",
+			(t.carrier === "int2" ||
+				t.carrier === "int4" ||
+				t.carrier === "int8" ||
+				t.carrier === "bool") &&
+			t.contract === undefined,
 		(t) => [{ ...t, typmod: { precision: 3 } }]
 	),
 	breaks(
 		"a contract's carrier is its base's",
 		"stale",
-		(t) => contractOf(t) !== undefined && t.carrier === "int8",
+		(t) => t.contract !== undefined && t.carrier === "int8",
 		(t) => [{ ...t, carrier: "int4" }]
 	),
 	breaks(
 		"a set is no contract's base",
 		"stale",
 		(t) => t.carrier === "bits",
-		(t) => [{ ...t, contract: { name: "Picks", base: t, facts: [] } }]
+		(t) => [{ carrier: t.carrier, contract: { name: "Picks", base: t, facts: [] } }]
 	),
 	breaks(
-		"a contract carries its base's typmod and roster",
+		"a contract's descriptor holds its carrier and the contract alone",
 		"stale",
-		(t) => contractOf(t) !== undefined && (t.carrier === "numeric" || t.carrier === "code"),
-		(t) =>
-			t.carrier === "numeric"
-				? [
-						without(t, "typmod"),
-						{
-							...t,
-							typmod: {
-								precision: ((t.typmod?.precision ?? 0) % numericMaxPrecision) + 1,
-								scale: t.typmod?.scale ?? 0
-							}
-						}
-					]
-				: t.carrier === "code"
-					? [
-							{
-								...t,
-								roster: {
-									closed: t.roster.closed,
-									handles: [...t.roster.handles, `${Arr.join(t.roster.handles, "")}x`]
-								}
-							}
-						]
-					: []
+		(t) => t.contract !== undefined,
+		(t) => [
+			{ ...t, caps: capsOf(t) },
+			...(t.carrier === "numeric" ? [{ ...t, typmod: numericTypmodOf(t) }] : []),
+			...(t.carrier === "code" ? [{ ...t, roster: rosterOf(t) }] : [])
+		]
 	),
 	breaks(
 		"the carrier is one grizzle stores",
 		"wild",
-		(t) => t.carrier === "int8" && contractOf(t) === undefined,
+		(t) => t.carrier === "int8" && t.contract === undefined,
 		(t) => Arr.map(["timestamptz", "json", "int8[]", "enum"], (carrier) => ({ ...t, carrier }))
 	)
 ]
@@ -546,7 +539,6 @@ export const nonNegative: ExprTable = allocated(["e#0", "e#1", "e#2"])
 /** A contract over int8, Cents, whose predicate is the table. */
 export const contractOver = (predicate: ExprTable): unknown => ({
 	carrier: "int8",
-	caps: scalarTypes.int8.caps,
 	contract: { name: "Cents", base: scalarTypes.int8, predicate, facts: [] }
 })
 

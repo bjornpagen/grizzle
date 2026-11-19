@@ -13,7 +13,7 @@ import {
 	withArgs
 } from "#compiler/ir/expr.ts"
 import type { DomainCheckTerm, LawField, NativeColumn, NativeObject } from "#compiler/ir/law.ts"
-import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { type Atom, type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
@@ -622,7 +622,7 @@ const domainHolds = (
 /** The contracts a field's type is, outermost first: the domain it is typed by, then each domain that one is over. */
 const contractsOf = (type: ScalarType): ReadonlyArray<string> => {
 	const names: Array<string> = []
-	for (let at = contractOf(type); at !== undefined; at = contractOf(at.base)) {
+	for (let at = type.contract; at !== undefined; at = at.base.contract) {
 		names.push(at.name)
 	}
 	return names

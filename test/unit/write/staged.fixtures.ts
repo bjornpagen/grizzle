@@ -87,7 +87,7 @@ const typeOf = (kind: Kind): ScalarType => {
 		case "text":
 			return wildcardText
 		case "bytes":
-			return { carrier: "bytes", caps: capabilitySet([]) }
+			return { carrier: "bytes", caps: capabilitySet([]), contract: undefined }
 		case "literal":
 			return plainType("int4")
 	}

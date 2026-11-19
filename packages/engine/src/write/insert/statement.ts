@@ -8,7 +8,7 @@ import type { Needs } from "#compiler/ir/needs.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
 import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
-import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import { columnReads } from "#compiler/laws/model/uniques.ts"
 import {
@@ -620,4 +620,4 @@ export const writeKeeps = (w: WriteContext, from: ScalarType, to: ScalarType): b
 	sameTypeRef(w.cx.baseTypeRef(from), w.cx.baseTypeRef(to))
 
 const isDomain = (t: ScalarType): boolean =>
-	contractOf(t) !== undefined || (t.carrier === "text" && t.text.regex !== "wildcard")
+	t.contract !== undefined || (t.carrier === "text" && t.text !== "wildcard")

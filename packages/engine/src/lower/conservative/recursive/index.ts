@@ -1,6 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
 import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
-import { typeLabel } from "#compiler/ir/scalar.ts"
+import { capsOf, typeLabel } from "#compiler/ir/scalar.ts"
 import {
 	columnIn,
 	headingTargets,
@@ -124,7 +124,7 @@ export const requireAdmittedFeedback = (rec: NodeOf<"Recursive">): void => {
 		)
 	}
 	for (const c of rec.heading) {
-		if (!c.type.caps.includes("hashing")) {
+		if (!capsOf(c.type).includes("hashing")) {
 			refuse(
 				"UnsupportedOperation",
 				at,

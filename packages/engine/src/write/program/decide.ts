@@ -23,13 +23,7 @@ import {
 	columnKey,
 	columnKeyOf
 } from "#compiler/ir/law.ts"
-import {
-	baseOf,
-	contractOf,
-	type PatternSource,
-	type ScalarType,
-	spanOf
-} from "#compiler/ir/scalar.ts"
+import { baseOf, type PatternSource, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
@@ -595,7 +589,7 @@ const membersAt = (frontend: WriteFrontend): ReadonlyArray<MemberAt> =>
 
 /** The levels of a type, outermost first: the type, then each contract's base. */
 const levels = (t: ScalarType): ReadonlyArray<ScalarType> => {
-	const base = contractOf(t)?.base
+	const base = t.contract?.base
 	return base === undefined ? [t] : [t, ...levels(base)]
 }
 
@@ -680,7 +674,7 @@ export const lawChecksOf = (
 			return []
 		}
 		return levels(span.endpoint).flatMap((level): ReadonlyArray<LawCheckData> => {
-			const contract = contractOf(level)
+			const { contract } = level
 			const law =
 				contract === undefined
 					? undefined

@@ -19,7 +19,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { exprChildren, headTerms, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { RelNode, TerminationCert } from "#compiler/ir/rel.ts"
-import { baseOf, contractOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { inferredType } from "#compiler/scalar/registry.ts"
 
 /** The range of the integer carrier a counter may live in; undefined for every other carrier. */
@@ -531,41 +531,17 @@ const greatest = (first: bigint, rest: ReadonlyArray<bigint>): bigint =>
 /** The values a boolean column holds, which no NULL joins (ir/scalar.ts: no type is nullable). */
 const booleanValues = [false, true] as const
 
-/** A state type's base, through its contracts: no contract is over a set (ContractBase), so no base is one either. */
-const stateBase = (type: StateType): StateType => {
-	const contract = contractOf(type)
-	return contract === undefined ? type : stateBase(contract.base)
-}
-
 /**
  * The values a state column of `type` can hold when its domain is finite: a boolean's two and a closed id's live
- * handles; undefined for an unbounded domain. No state column is a set (StateType).
+ * handles, through its contracts; undefined for an unbounded domain. No state column is a set (StateType).
  */
 const domainSize = (type: StateType): bigint | undefined => {
-	const base = stateBase(type)
-	switch (base.carrier) {
-		case "bool":
-			return BigInt(booleanValues.length)
-		case "code":
-			return BigInt(base.roster.handles.length)
-		case "int2":
-		case "int4":
-		case "int8":
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "money":
-		case "uuid":
-		case "date":
-		case "text":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-		case "exactInteger":
-		case "exactMoney":
-			return undefined
-	}
+	const base = baseOf(type)
+	return base.carrier === "bool"
+		? BigInt(booleanValues.length)
+		: base.carrier === "code"
+			? BigInt(base.roster.handles.length)
+			: undefined
 }
 
 /** A column's value count, capped at its domain's size for a boolean or closed-id column. */

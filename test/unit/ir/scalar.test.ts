@@ -39,7 +39,7 @@ import { isMoneyPayload, isVectorPayload, MoneyText, VectorText } from "#compile
 import { DecimalText, isDecimalLike, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { predicateProblems } from "#compiler/ir/expr.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import { contractOf, isRefined } from "#compiler/ir/scalar.ts"
+import { isRefined } from "#compiler/ir/scalar.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -158,7 +158,7 @@ export const literalsAdmitsExactlyTheLiteralsEachTypeHoldsAContractsByItsBase = 
 				Effect.sync(() => {
 					const want = admits(literal, type)
 					c.note(`${literal.kind} ${want ? "admitted" : "refused"}`)
-					if (contractOf(type) !== undefined) {
+					if (type.contract !== undefined) {
 						c.note("under a contract")
 					}
 					assert.equal(
@@ -327,7 +327,7 @@ export const contractPredicatesNormalizesAnyAllocationToTheOneTableNumberedFromT
 						)
 						assert.deepEqual(predicateProblems(normal, scalarTypes.int8), [])
 						const decoded = succeeded(decodeScalarType(contractOver(normal)))
-						assert.equal(contractOf(decoded)?.predicate?.root, ExprId("e#0"))
+						assert.equal(decoded.contract?.predicate?.root, ExprId("e#0"))
 						assert.equal(isRefined(decoded), true)
 						return
 					}

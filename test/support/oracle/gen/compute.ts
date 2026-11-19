@@ -20,7 +20,6 @@ import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
 	type Carrier,
-	contractOf,
 	exactDigitsOf,
 	rosterOf,
 	type ScalarType
@@ -458,7 +457,7 @@ const meets = (a: ScalarType, b: ScalarType): boolean => {
 	if (a.carrier !== "code") {
 		return true
 	}
-	return b.carrier === "code" && a.roster.closed === b.roster.closed
+	return b.carrier === "code" && rosterOf(a)?.closed === rosterOf(b)?.closed
 }
 
 /**
@@ -496,7 +495,7 @@ const resolveLeaf = (
 	 * A contract column meets no plain operand without Compute.base, which the generator does not draw, so computed
 	 * terms read plain columns only; contracts take part in comparisons with literals and parameters instead.
 	 */
-	const plainColumns = Arr.filter(scope.heading, (c) => contractOf(c.type) === undefined)
+	const plainColumns = Arr.filter(scope.heading, (c) => c.type.contract === undefined)
 	const columns =
 		want === undefined ? plainColumns : Arr.filter(plainColumns, (c) => meets(c.type, want))
 	if (want !== undefined && (s.literal || columns.length === 0)) {

@@ -437,7 +437,7 @@ const guardOf = (
 				familyOf(numberName)
 			)
 		case 5: {
-			const own = textOf(fieldOf(textName).scalar)?.regex
+			const own = textOf(fieldOf(textName).scalar)
 			return guarded(
 				{
 					kind: "matches",
@@ -514,7 +514,7 @@ const resolveAt = (s: Sketch, family: Family, leaves: Leaves): ExprDesc => {
 				}
 			}
 			if (fn === "matches") {
-				const own = textOf(fieldOf(pickOf(columnsOf("text"), s.fn)).scalar)?.regex
+				const own = textOf(fieldOf(pickOf(columnsOf("text"), s.fn)).scalar)
 				return {
 					kind: "compute",
 					fn,

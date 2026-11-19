@@ -22,6 +22,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { textOf } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
@@ -48,7 +49,7 @@ export const aClosedSourcesRefinedPayloadIsDeliveredUncastWhereThePatternAdmitsE
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, seen: CaseOf<Feature>) => (c) =>
 			Effect.sync(() => {
-				const regex = T.code.carrier === "text" ? T.code.text.regex : undefined
+				const regex = textOf(T.code)
 				assert.ok(regex !== undefined && regex !== "wildcard", "the payload carries a pattern")
 				const outside = Arr.some(c.payload, (v) => !patternMember(regex, v))
 				assert.equal(outside, Arr.contains(c.payload, "Abc"), "the oracle's membership")
@@ -88,9 +89,8 @@ export const aClosedSourcesRefinedPayloadIsDeliveredUncastWhereThePatternAdmitsE
 		kills: [
 			{
 				file: "packages/engine/src/lower/conservative/refined.ts",
-				original:
-					'\t\tt.text.regex !== "wildcard" &&\n\t\tpatterns.member(t.text.regex, e.value.value)',
-				replacement: '\t\tt.text.regex !== "wildcard"',
+				original: '\t\tt.text !== "wildcard" &&\n\t\tpatterns.member(t.text, e.value.value)',
+				replacement: '\t\tt.text !== "wildcard"',
 				why: "The tracer admits every text literal of a patterned claim, in the pattern or not; the delivery search fails."
 			}
 		]

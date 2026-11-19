@@ -91,7 +91,7 @@ export const aConjunctionOfPatternsECMAScriptHostProductDFAAndPostgreSQLsCHECKAg
 					if (r.check.kind === "finite") {
 						k.note("an IN list of the intersection")
 					}
-					const { regex } = textInfo(r)
+					const regex = textInfo(r)
 					const host = new CompilePatterns()
 					const named = identity.textDomain(domainDigest({ label }, everyProperty))
 					const domainType =

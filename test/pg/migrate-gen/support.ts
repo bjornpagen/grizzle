@@ -37,7 +37,6 @@ import {
 } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
-	contractOf,
 	type IntegerCarrier,
 	rosterOf,
 	type ScalarType,
@@ -702,7 +701,7 @@ const integerBounds = {
 /** The bounds a check on a field of `type` compares with: its integer carrier's; a contract or any other carrier draws
  * no check. */
 const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undefined => {
-	if (contractOf(type) !== undefined) {
+	if (type.contract !== undefined) {
 		return undefined
 	}
 	switch (type.carrier) {

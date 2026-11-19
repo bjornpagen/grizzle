@@ -117,13 +117,7 @@ import {
 import { accumulations, type CombineFn, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { conservativeMeta, type HeadingColumn } from "#compiler/ir/rel.ts"
-import {
-	baseOf,
-	type ContractInfo,
-	contractOf,
-	type ScalarType,
-	spanOf
-} from "#compiler/ir/scalar.ts"
+import { baseOf, type ContractInfo, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { type LowerEnv, lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
@@ -607,7 +601,7 @@ type KeyStatement = Extract<OwnedStatement, { readonly kind: "key" }>
 /** Each contract a type is, from the outside in (a contract may be declared over another, scalar/compute/types.ts). */
 const contractChain = (t: ScalarType): ReadonlyArray<ContractInfo> => {
 	const chain: Array<ContractInfo> = []
-	for (let contract = contractOf(t); contract !== undefined; contract = contractOf(contract.base)) {
+	for (let contract = t.contract; contract !== undefined; contract = contract.base.contract) {
 		chain.push(contract)
 	}
 	return chain

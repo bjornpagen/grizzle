@@ -16,7 +16,7 @@ import { integerRanges, MoneyText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 
 /** The associative operations a plane accumulates by, each total over the carriers its monoid admits: an exact sum, a
  * set's union, the greater of two values, and text's concatenation. */
@@ -160,7 +160,7 @@ export const combine = <E>(
 
 /** Whether a type is natural: the builtin contract over bigint whose values are never below zero. */
 const isNatural = (t: ScalarType): boolean => {
-	const contract = contractOf(t)
+	const { contract } = t
 	return contract?.name === "natural" && baseOf(t).carrier === "int8"
 }
 

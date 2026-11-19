@@ -13,7 +13,7 @@ import {
 	type RelKind,
 	type RelNode
 } from "#compiler/ir/rel.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import { cosineDistance, nativeOp } from "#compiler/scalar/compute/registry.ts"
 
@@ -512,8 +512,7 @@ export const traceApproximate = (
 }
 
 /** The dimensions of a vector type; none for any other carrier. */
-const vectorDimensions = (t: ScalarType): number | undefined =>
-	t.carrier === "vector" ? t.typmod.dims : undefined
+const vectorDimensions = (t: ScalarType): number | undefined => vectorTypmodOf(t)?.dims
 
 /** The nodes a node's rows are computed from: itself and every node its data inputs reach, breadth-first. */
 export const subtree = (root: RelNode): ReadonlySet<RelNode> => {

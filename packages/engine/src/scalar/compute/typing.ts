@@ -41,14 +41,10 @@ import {
 } from "#compiler/ir/expr.ts"
 import type { Exact, Fact, NativeProof, OperationProof, Precondition } from "#compiler/ir/proof.ts"
 import {
+	baseOf,
+	capsOf,
 	type Carrier,
 	type ContractInfo,
-	type PatternSource,
-	type Patterns,
-	type ScalarType,
-	type TextInfo,
-	baseOf,
-	contractOf,
 	enteredType,
 	exactDigitsOf,
 	isRefined,
@@ -56,9 +52,15 @@ import {
 	languageWithin,
 	numericBoundOf,
 	numericTypmodOf,
+	type Patterns,
+	type PatternSource,
+	type PlainType,
 	rosterOf,
+	type ScalarType,
 	spanOf,
-	textBounds,
+	textBoundsOf,
+	type TextInfo,
+	textInfoBounds,
 	textOf,
 	textPatterns,
 	typeLabel,
@@ -740,7 +742,7 @@ export type Role = "compare" | "arithmetic" | "operand"
  * is typed at the base and judged a value of the term's contract beside it (Typing.operand).
  */
 export const adoptedType = (t: ScalarType, role: Role): ScalarType => {
-	if (role === "compare" && contractOf(t) !== undefined) {
+	if (role === "compare" && t.contract !== undefined) {
 		return t
 	}
 	const v = valueType(t)
@@ -764,7 +766,7 @@ export const moneyLow: Exact = exactOf(int8Min, moneyFractionDigits)
 export const moneyHigh: Exact = exactOf(int8Max, moneyFractionDigits)
 
 /** Every value of a carrier, before any contract: what a value of its base type can be. */
-const carrierBounds = (t: ScalarType): Bounds | undefined => {
+const carrierBounds = (t: PlainType): Bounds | undefined => {
 	switch (t.carrier) {
 		case "int2":
 		case "int4":
@@ -820,7 +822,7 @@ const carrierBounds = (t: ScalarType): Bounds | undefined => {
 /** The levels of a contract, outermost first, down to its base. */
 export const contractLevels = (t: ScalarType): ReadonlyArray<ContractInfo> => {
 	const levels: Array<ContractInfo> = []
-	for (let c = contractOf(t); c !== undefined; c = contractOf(c.base)) {
+	for (let c = t.contract; c !== undefined; c = c.base.contract) {
 		levels.push(c)
 	}
 	return levels
@@ -1176,7 +1178,7 @@ const signBoundsOver = (
  */
 export const textBytes = (x: Typed): number | undefined => {
 	const literal = nodeLiteral(x.node)
-	return literal?.kind === "text" ? utf8Length(literal.value) : textOf(x.nominal)?.byteBound
+	return literal?.kind === "text" ? utf8Length(literal.value) : textBoundsOf(x.nominal)?.bytes
 }
 
 /**
@@ -1995,7 +1997,7 @@ class Typing<R extends Refs> {
 	operand(desc: ExprDesc<Located, R>, against: Typed, role: Role, at: SourceLoc): Typed {
 		if (desc.kind === "literal" && desc.type === undefined) {
 			const literal = this.literal(desc.value, this.adopt(against.nominal, role), at)
-			if (role === "arithmetic" && contractOf(against.nominal) !== undefined) {
+			if (role === "arithmetic" && against.nominal.contract !== undefined) {
 				this.#tape.push({ kind: "admits", value: desc.value, type: against.nominal, at })
 			}
 			return literal
@@ -2435,16 +2437,12 @@ class Typing<R extends Refs> {
 	 * takes no character to a wider one, an ASCII case fold or whiteSpace replace among them.
 	 */
 	translatedType(text: TextInfo, map: CharMap, analysis: Analyzed, at: SourceLoc): ScalarType {
+		const bounds = textInfoBounds(text)
 		return this.textWithin(
-			this.image(text.regex, map, analysis),
-			text.byteBound === undefined
+			this.image(text, map, analysis),
+			bounds === undefined
 				? undefined
-				: imageBytes(
-						textPatterns(text.regex),
-						map,
-						textBounds(text.lengthBound, text.byteBound),
-						analysis.patterns
-					),
+				: imageBytes(textPatterns(text), map, bounds, analysis.patterns),
 			analysis.lookup,
 			at
 		)
@@ -2456,7 +2454,7 @@ class Typing<R extends Refs> {
 	 * or, where the exact source passes a measure of PostgreSQL's regex compile space that the pattern itself fits, the
 	 * image of that pattern alone, which holds every value of the image.
 	 */
-	image(regex: TextInfo["regex"], map: CharMap, analysis: Analyzed): Patterns {
+	image(regex: TextInfo, map: CharMap, analysis: Analyzed): Patterns {
 		return mapNonEmpty(textPatterns(regex), (pattern): PatternSource => {
 			const sources = imageOf(pattern, map, analysis.patterns)
 			const exact = { source: sources.exact, flags: imageFlags }
@@ -2496,15 +2494,16 @@ class Typing<R extends Refs> {
 	 * patterns states anything is any text.
 	 */
 	collapseType(text: TextInfo, analysis: Analyzed, at: SourceLoc): ScalarType {
-		const images = textPatterns(text.regex).flatMap((pattern): ReadonlyArray<PatternSource> => {
-			const admitted = collapseSources(pattern, text.lengthBound, analysis.patterns).find(
+		const bounds = textInfoBounds(text)
+		const images = textPatterns(text).flatMap((pattern): ReadonlyArray<PatternSource> => {
+			const admitted = collapseSources(pattern, bounds?.length, analysis.patterns).find(
 				(c) => analysis.lookup([{ source: c.source, flags: c.flags }]).ok
 			)
 			return admitted === undefined ? [] : [{ source: admitted.source, flags: admitted.flags }]
 		})
 		return this.textWithin(
 			isNonEmpty(images) ? images : [wildcardPattern],
-			text.byteBound,
+			bounds?.bytes,
 			analysis.lookup,
 			at
 		)
@@ -2578,7 +2577,7 @@ class Typing<R extends Refs> {
 	parseDecimal(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		const x = this.term(subjectDesc, childLoc(at, 0))
 		const op = this.overload("parseDecimal", [x.actual], at)
-		const bytes = textOf(x.nominal)?.byteBound
+		const bytes = textBoundsOf(x.nominal)?.bytes
 		const bounds = bytes === undefined ? undefined : decimalBounds(bytes)
 		return this.native(
 			op,
@@ -2654,6 +2653,7 @@ class Typing<R extends Refs> {
 		const type: ScalarType = Object.freeze({
 			carrier: "bits",
 			caps: capabilitiesOf("bits"),
+			contract: undefined,
 			roster: base.roster
 		})
 		const empty = this.literal({ handles: [] }, type, childLoc(at, "empty"))
@@ -2829,6 +2829,7 @@ class Typing<R extends Refs> {
 		const type: ScalarType = Object.freeze({
 			carrier: "bits",
 			caps: capabilitiesOf("bits"),
+			contract: undefined,
 			roster
 		})
 		return this.emitAt(
@@ -2903,7 +2904,7 @@ class Typing<R extends Refs> {
 			return stop("MalformedDescription", at, `an operand for ${fn}`)
 		}
 		const capability = fn === "eq" || fn === "ne" || fn === "in" ? "equality" : "ordering"
-		if (!first.actual.caps.includes(capability)) {
+		if (!capsOf(first.actual).includes(capability)) {
 			return stop(
 				"UnsupportedOperation",
 				at,
@@ -2979,7 +2980,7 @@ class Typing<R extends Refs> {
 		if (sameShape(b.actual, type)) {
 			return b
 		}
-		if (contractOf(type) !== undefined && !sameRefinement(b.actual, type)) {
+		if (type.contract !== undefined && !sameRefinement(b.actual, type)) {
 			const base = this.convert(b, baseOf(type), at)
 			return this.domainCast(base, type, checkedKind(b.node), at)
 		}
@@ -3097,11 +3098,11 @@ class Typing<R extends Refs> {
 		}
 		const own = textOf(subject.nominal)
 		const type = this.textWithin(
-			appendNonEmpty(own === undefined || own.regex === "wildcard" ? [] : own.regex.patterns, {
+			appendNonEmpty(own === undefined || own === "wildcard" ? [] : own.patterns, {
 				source: guard.pattern,
 				flags: matchFlags
 			}),
-			own?.byteBound,
+			own === undefined ? undefined : textInfoBounds(own)?.bytes,
 			analysis.lookup,
 			childLoc(at, "pattern")
 		)
@@ -3117,13 +3118,14 @@ class Typing<R extends Refs> {
 		const info = textOf(text.nominal)
 		const ceiling = floorOfExact(high)
 		const octets = ceiling < 0n ? 0 : Number(ceiling)
-		if (info === undefined || (info.byteBound !== undefined && info.byteBound <= octets)) {
+		const bytes = info === undefined ? undefined : textInfoBounds(info)?.bytes
+		if (info === undefined || (bytes !== undefined && bytes <= octets)) {
 			return undefined
 		}
 		return {
 			kind: "language",
 			subject: text.node,
-			type: this.textWithin(textPatterns(info.regex), octets, analyze, at)
+			type: this.textWithin(textPatterns(info), octets, analyze, at)
 		}
 	}
 
@@ -3261,7 +3263,7 @@ class Typing<R extends Refs> {
 		if (isRefined(to) && !sameRefinement(arg.actual, to)) {
 			return this.domainCast(value, to, checkedKind(arg.node), at)
 		}
-		const plain = contractOf(value.actual) === undefined && contractOf(to) === undefined
+		const plain = value.actual.contract === undefined && to.contract === undefined
 		const shaped =
 			plain && !sameShape(value.actual, to)
 				? this.castNode(value, to, { kind: "coercion" }, at)
@@ -3522,7 +3524,7 @@ class Typing<R extends Refs> {
 				})
 				const all = [a, ...others]
 				const type = all.reduce((t, x) => commonType(t, x.nominal), a.nominal)
-				if (!type.caps.includes("ordering")) {
+				if (!capsOf(type).includes("ordering")) {
 					return stop(
 						"UnsupportedOperation",
 						here,
@@ -4319,17 +4321,17 @@ const sameShape = (a: ScalarType, b: ScalarType): boolean => {
 	if (familyDigits(a) !== familyDigits(b)) {
 		return false
 	}
-	if (contractOf(a)?.name !== contractOf(b)?.name) {
+	if (a.contract?.name !== b.contract?.name) {
 		return false
 	}
-	return sameRegex(textOf(a)?.regex, textOf(b)?.regex)
+	return sameRegex(textOf(a), textOf(b))
 }
 
 /** Whether a value already carries the refinement a cast target names: the same contract, or the same regex. */
 export const sameRefinement = (a: ScalarType, to: ScalarType): boolean => {
-	const contract = contractOf(to)
+	const { contract } = to
 	if (contract !== undefined) {
-		return contractOf(a)?.name === contract.name && meets(a, to)
+		return a.contract?.name === contract.name && meets(a, to)
 	}
 	return sameShape(a, to)
 }
@@ -4411,7 +4413,7 @@ export const typeReturned = <R extends Refs>(
 ): Result.Result<TermTyping<R>, CompileError> =>
 	typed(env, (t) => {
 		const x = t.whole(desc, env.loc)
-		return contractOf(x.actual)?.name === contractOf(x.nominal)?.name
+		return x.actual.contract?.name === x.nominal.contract?.name
 			? x
 			: t.convert(x, x.nominal, env.loc)
 	})

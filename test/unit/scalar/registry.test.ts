@@ -32,7 +32,6 @@ import {
 	type CapabilitySet,
 	type Carrier,
 	carriers,
-	contractOf,
 	Roster,
 	sameScalarType,
 	spanOf
@@ -196,6 +195,14 @@ export const scalarTypeOfAFieldDescToItsScalarTypeBuiltEveryTypeATestFixtureExpo
 				replacement:
 					'\ta === "wildcard" || b === "wildcard"\n\t\t? a !== b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
 				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:851 in sameRegexRef: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					"\t\t\treturn a.typmod.precision === b.typmod.precision && a.typmod.scale === b.typmod.scale",
+				replacement:
+					"\t\t\treturn a.typmod.precision === b.typmod.precision && a.typmod.scale !== b.typmod.scale",
+				why: "Two numerics of one typmod are two types (samePlain compares the scales by `!==`), so a numeric(p, s) fixture is not the registry's build of its FieldDesc."
 			}
 		]
 	})
@@ -286,7 +293,7 @@ export const scalarTypeOfAFieldDescToItsScalarTypeTakesTheCheckersPredicateTable
 						describeField(pgDescriptors.bigint, SourceLoc("bigint", []))
 					).scalar
 					const identity = defined(
-						contractOf(succeeded(scalarTypeOf(desc, bareEnv, SourceLoc("field", []))))
+						succeeded(scalarTypeOf(desc, bareEnv, SourceLoc("field", []))).contract
 					)
 					assert.equal<string>(identity.name, name)
 					assert.equal(sameScalarType(identity.base, base), true)
@@ -303,7 +310,7 @@ export const scalarTypeOfAFieldDescToItsScalarTypeTakesTheCheckersPredicateTable
 							SourceLoc("field", [])
 						)
 					)
-					assert.deepEqual(contractOf(typed)?.predicate, table)
+					assert.deepEqual(typed.contract?.predicate, table)
 					assert.deepEqual(succeeded(decodeScalarType(structuredClone(typed))), typed)
 				}),
 		oracle: {
@@ -315,10 +322,8 @@ export const scalarTypeOfAFieldDescToItsScalarTypeTakesTheCheckersPredicateTable
 		kills: [
 			{
 				file: "packages/engine/src/ir/scalar.ts",
-				original:
-					"\ta === undefined || b === undefined ? a === b : a.name === b.name && sameScalarType(a.base, b.base)",
-				replacement:
-					"\ta === undefined || b === undefined ? a !== b : a.name === b.name && sameScalarType(a.base, b.base)",
+				original: "\t\t? a.contract === undefined && b.contract === undefined && samePlain(a, b)",
+				replacement: "\t\t? a.contract !== b.contract",
 				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:835 in sameContract: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

@@ -19,7 +19,7 @@ import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
-import { contractOf, patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import { patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ConstraintLaw,
 	type ConstraintLawOf,
@@ -310,7 +310,7 @@ const textDomainConstraintLaws = (
 /** The contracts a value of `t` is checked under, outermost first: its contract and every contract its base chain
  * names. */
 export const contractChain = (t: ScalarType): ReadonlyArray<DeclaredName> => {
-	const contract = contractOf(t)
+	const { contract } = t
 	return contract === undefined ? [] : [contract.name, ...contractChain(contract.base)]
 }
 

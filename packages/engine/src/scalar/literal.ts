@@ -5,7 +5,7 @@ import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
-import { baseOf, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type PlainType, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { unreadableOf } from "#compiler/scalar/values/identity.ts"
@@ -42,7 +42,7 @@ export const literalDescFor = (
  *
  * A JavaScript integer: a fraction or an unsafe integer is the wrong host kind, as in Compute.
  */
-const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDesc, ValueFault> => {
+const hostLiteral = (base: PlainType, value: unknown): Result.Result<LiteralDesc, ValueFault> => {
 	switch (base.carrier) {
 		case "int2":
 		case "int4":

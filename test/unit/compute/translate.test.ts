@@ -40,7 +40,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { textOf, textPatterns } from "#compiler/ir/scalar.ts"
+import { textInfoBounds, textOf, textPatterns } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -220,16 +220,16 @@ export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheIm
 				).root
 				const image = defined(textOf(term.nominal), "the image is text")
 				const operandText = defined(textOf(operand.scalar))
-				if (operandText.lengthBound !== undefined) {
+				if (textInfoBounds(operandText) !== undefined) {
 					k.note("a bounded operand")
-					assert.ok(image.lengthBound !== undefined, "a bounded operand's image is bounded")
+					assert.ok(textInfoBounds(image) !== undefined, "a bounded operand's image is bounded")
 				}
 				/**
 				 * The exact image types the term wherever it fits PostgreSQL's regex compile space, the measures every
 				 * refinement is admitted under; past them the pattern's own image does, which holds every value of the
 				 * image and may hold more.
 				 */
-				const [operandPattern] = textPatterns(operandText.regex)
+				const [operandPattern] = textPatterns(operandText)
 				const exact = analyzeText(
 					[
 						{
@@ -246,7 +246,7 @@ export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheIm
 				if (!exact) {
 					k.note("an exact image past the measures")
 				}
-				const ofImage = Arr.map(textPatterns(image.regex), (p) => jsMatcher(p.source, p.flags))
+				const ofImage = Arr.map(textPatterns(image), (p) => jsMatcher(p.source, p.flags))
 				const accepts = (value: string): boolean => Arr.every(ofImage, (m) => m(value))
 				const ofOperand = jsMatcher(c.source, c.flags)
 				for (const t of c.texts) {
@@ -702,22 +702,28 @@ export const computesTranslateAndLowerAsciiTypesACollapseAsTextHoldingItsImageWi
 				).root
 				const image = defined(textOf(term.nominal), "the image is text")
 				const operandText = defined(textOf(operand.scalar))
-				const [operandPattern] = textPatterns(operandText.regex)
+				const [operandPattern] = textPatterns(operandText)
 				const chosen = defined(
 					Arr.findFirst(
-						collapseSources(operandPattern, operandText.lengthBound, new CompilePatterns()),
+						collapseSources(
+							operandPattern,
+							textInfoBounds(operandText)?.length,
+							new CompilePatterns()
+						),
 						(s) => analyzeText([{ source: s.source, flags: s.flags }], SourceLoc("image", [])).ok
 					).pipe(Option.getOrUndefined),
 					"an admitted image"
 				)
-				if (operandText.lengthBound !== undefined && operandText.lengthBound <= 257) {
+				const operandLength = textInfoBounds(operandText)?.length
+				if (operandLength !== undefined && operandLength <= 257) {
 					k.note("a bounded image")
+					const imageLength = textInfoBounds(image)?.length
 					assert.ok(
-						image.lengthBound !== undefined && image.lengthBound <= operandText.lengthBound,
+						imageLength !== undefined && imageLength <= operandLength,
 						"collapse never lengthens, so the operand's bound holds"
 					)
 				}
-				const ofImage = Arr.map(textPatterns(image.regex), (p) => jsMatcher(p.source, p.flags))
+				const ofImage = Arr.map(textPatterns(image), (p) => jsMatcher(p.source, p.flags))
 				const accepts = (value: string): boolean => Arr.every(ofImage, (m) => m(value))
 				const ofOperand = jsMatcher(c.source, c.flags)
 				const members = Arr.filter(c.texts, ofOperand)

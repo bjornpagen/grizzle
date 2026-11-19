@@ -4,11 +4,11 @@ import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
-	contractOf,
 	numericBoundOf,
 	numericTypmodOf,
+	sameScalarType,
 	type ScalarType,
-	sameScalarType
+	textOf
 } from "#compiler/ir/scalar.ts"
 
 import {
@@ -52,7 +52,7 @@ export const guarantees = (a: ScalarType, b: ScalarType): boolean => {
 		}
 	}
 	if (ba.carrier === "text" && bb.carrier === "text") {
-		return bb.text.regex === "wildcard" || sameRegex(ba.text.regex, bb.text.regex)
+		return bb.text === "wildcard" || sameRegex(ba.text, bb.text)
 	}
 	return true
 }
@@ -70,11 +70,11 @@ const combine = (x: ScalarType, y: ScalarType): ScalarType => {
 	if (sameScalarType(x, y)) {
 		return x
 	}
-	if (contractOf(x) !== undefined) {
+	if (x.contract !== undefined) {
 		return x
 	}
 	if (x.carrier === "text" && y.carrier === "text") {
-		return sameRegex(x.text.regex, y.text.regex) ? x : wildcardText
+		return sameRegex(x.text, textOf(y)) ? x : wildcardText
 	}
 	const nx = exactNumericBound(x)
 	const ny = exactNumericBound(y)
@@ -125,11 +125,11 @@ export const refinement: RefinementPlugin = {
  * has no constraint to evaluate.
  */
 export const hasConstraint = (t: ScalarType): boolean => {
-	const contract = contractOf(t)
+	const { contract } = t
 	if (contract !== undefined) {
 		return contract.predicate !== undefined || hasConstraint(contract.base)
 	}
-	return t.carrier === "text" && t.text.regex !== "wildcard"
+	return t.carrier === "text" && t.text !== "wildcard"
 }
 
 /**

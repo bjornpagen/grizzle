@@ -15,7 +15,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { textOf } from "#compiler/ir/scalar.ts"
+import { textInfoBounds, textOf } from "#compiler/ir/scalar.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
@@ -52,7 +52,11 @@ export const strBytesMeetsATextAByteBoundRefinesMeetsEveryTextItsPatternMeetsAnd
 						textOf(succeeded(describeField(field, SourceLoc("field", []))).scalar),
 						"a text side's refinement"
 					)
-					assert.equal(text.byteBound, expectedBytes(side), "a side's bytes, the lesser bound")
+					assert.equal(
+						textInfoBounds(text)?.bytes,
+						expectedBytes(side),
+						"a side's bytes, the lesser bound"
+					)
 				}
 				const A = relation("A", { id: uuid, t: source }, ["id"], [])
 				const B = relation("B", { u: target }, ["u"], [])

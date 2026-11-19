@@ -14,13 +14,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import { fieldColumnType, domainBase } from "#compiler/ir/physical.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
-import {
-	baseOf,
-	type ContractInfo,
-	contractOf,
-	type ScalarType,
-	spanOf
-} from "#compiler/ir/scalar.ts"
+import { baseOf, type ContractInfo, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import {
 	compileInstallation,
@@ -259,7 +253,7 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 	 */
 	const typeOf = (t: ScalarType, domain: boolean): ColumnType => {
 		const c = domain ? domainBase(names, t) : fieldColumnType(names, t)
-		const contract = contractOf(t)
+		const { contract } = t
 		return {
 			sql: c.type,
 			value: valueKind(t, options.codes),
@@ -484,7 +478,7 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 
 /** The contract named `contract` along a type's contract chain, outermost first. */
 const contractAlong = (type: ScalarType, contract: string): Option.Option<ContractInfo> => {
-	for (let c = contractOf(type); c !== undefined; c = contractOf(c.base)) {
+	for (let c = type.contract; c !== undefined; c = c.base.contract) {
 		if (c.name === contract) {
 			return Option.some(c)
 		}

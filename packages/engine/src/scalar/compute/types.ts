@@ -7,12 +7,12 @@ import {
 	type Carrier,
 	type ExactValueCarrier,
 	type NumericBound,
+	type PlainType,
 	type ScalarType,
 	type SpanInfo,
 	type TextInfo,
 	baseOf,
 	capabilitySet,
-	contractOf,
 	exactDigitsOf,
 	numericBoundOf,
 	numericTypmodOf,
@@ -56,11 +56,16 @@ export type ResultCarrier = PlainCarrier | "numeric" | ExactValueCarrier
 
 /** The exact type of `carrier` whose values lie below 10^digits (ir/scalar.ts ExactType), frozen. */
 export const exactType = (carrier: ExactValueCarrier, digits: number): ScalarType =>
-	Object.freeze({ carrier, caps: capabilitySet(carrierCapabilities[carrier]), digits })
+	Object.freeze({
+		carrier,
+		caps: capabilitySet(carrierCapabilities[carrier]),
+		contract: undefined,
+		digits
+	})
 
 /** Whether a type is a computed numeric (ir/scalar.ts NumericBound): numeric of no typmod. */
 export const isComputedNumeric = (t: ScalarType): boolean =>
-	t.carrier === "numeric" && t.typmod === undefined
+	t.carrier === "numeric" && t.contract === undefined && t.typmod === undefined
 
 /**
  * The computed numeric a numeric literal is: its own value's integer digits and least scale; NaN's and an infinity's
@@ -168,18 +173,18 @@ export const wildcardText: ScalarType = Object.freeze({
 	carrier: "text",
 	caps: capabilitySet(carrierCapabilities.text),
 	contract: undefined,
-	text: Object.freeze({ regex: "wildcard", lengthBound: undefined, byteBound: undefined })
+	text: "wildcard"
 })
 
 /** The base of a type: what an expression over a field computes with. */
-export const valueType = (t: ScalarType): ScalarType => baseOf(t)
+export const valueType = (t: ScalarType): PlainType => baseOf(t)
 
 /**
  * A span type with its fixed width dropped: what a value compared with a fixed-width span adopts. A width refines the
  * stored value, which the codec checks (scalar/values/span.ts admitSpan); a window compared with the span, or a value
  * equated with it, is any span over the same endpoint.
  */
-export const withoutSpanWidth = (t: ScalarType): ScalarType => {
+export const withoutSpanWidth = (t: PlainType): PlainType => {
 	if (
 		(t.carrier !== "range4" && t.carrier !== "range8" && t.carrier !== "rangeDate") ||
 		t.span.width === undefined
@@ -189,7 +194,7 @@ export const withoutSpanWidth = (t: ScalarType): ScalarType => {
 	return Object.freeze({
 		carrier: t.carrier,
 		caps: t.caps,
-		contract: t.contract,
+		contract: undefined,
 		span: Object.freeze({ endpoint: t.span.endpoint, width: undefined })
 	})
 }
@@ -209,8 +214,8 @@ export const withoutSpanWidth = (t: ScalarType): ScalarType => {
  * it does not enter either.
  */
 export const compatible = (a: ScalarType, b: ScalarType): boolean => {
-	const ca = contractOf(a)
-	const cb = contractOf(b)
+	const ca = a.contract
+	const cb = b.contract
 	return ca === undefined || cb === undefined
 		? ca === cb && sameCore(a, b)
 		: ca.name === cb.name && compatible(ca.base, cb.base)
@@ -239,7 +244,7 @@ export const commonType = (a: ScalarType, b: ScalarType): ScalarType => {
 	if (sameMeaning(x, y)) {
 		return x
 	}
-	if (contractOf(x) !== undefined) {
+	if (x.contract !== undefined) {
 		return x
 	}
 	const family = exactFamily(x)
@@ -282,17 +287,14 @@ const sameMeaning = (a: ScalarType, b: ScalarType): boolean => {
 	if (spanOf(a)?.width !== spanOf(b)?.width || exactDigitsOf(a) !== exactDigitsOf(b)) {
 		return false
 	}
-	return sameRegex(textOf(a)?.regex, textOf(b)?.regex)
+	return sameRegex(textOf(a), textOf(b))
 }
 
 /**
  * Whether two types' text refinements are one: both absent, both the canonical wildcard, or two patterns of one
  * language's key.
  */
-export const sameRegex = (
-	a: TextInfo["regex"] | undefined,
-	b: TextInfo["regex"] | undefined
-): boolean =>
+export const sameRegex = (a: TextInfo | undefined, b: TextInfo | undefined): boolean =>
 	a === undefined || b === undefined || a === "wildcard" || b === "wildcard"
 		? a === b
 		: a.key === b.key
@@ -308,7 +310,7 @@ export const isInteger = (t: ScalarType): boolean => {
  * Compute.base.
  */
 export const exactFamily = (t: ScalarType): "exactInteger" | "exactMoney" | undefined => {
-	if (contractOf(t) !== undefined) {
+	if (t.contract !== undefined) {
 		return undefined
 	}
 	switch (t.carrier) {

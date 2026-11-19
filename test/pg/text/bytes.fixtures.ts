@@ -5,7 +5,7 @@ import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { textOf } from "#compiler/ir/scalar.ts"
+import { textInfoBounds, textOf } from "#compiler/ir/scalar.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -179,12 +179,12 @@ export const checkBatch = (
 			)
 			const bounds = patternBounds(c.pattern)
 			assert.equal(
-				text.byteBound,
+				textInfoBounds(text)?.bytes,
 				Math.min(bounds === undefined ? c.bytes : bounds.bytes, c.bytes),
 				`${where}: its bytes bounded at the lesser of the pattern's and N`
 			)
 			assert.equal(
-				text.lengthBound,
+				textInfoBounds(text)?.length,
 				Math.min(bounds === undefined ? c.bytes : bounds.length, c.bytes),
 				`${where}: its code points bounded at the lesser of the pattern's and N`
 			)
@@ -199,7 +199,7 @@ export const checkBatch = (
 				const lawful = member(value)
 				const bytes = utf8Bytes(value)
 				const at = `${where}, a value of ${bytes} bytes`
-				const regex = text.regex
+				const regex = text
 				assert.equal(
 					regex === "wildcard" || ProgramPatterns.of(regex.patterns).member(regex, value),
 					lawful,

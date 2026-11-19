@@ -132,7 +132,12 @@ export const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 		)
 		const roster = Roster.of(kind, "ordered", nonEmpty(Arr.map([...codesOf(live)], handleOf)))
 		const book: Codebook = { rosters: new Map([[kind, rosterCodec(kind, codes)]]) }
-		const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
+		const set: ScalarType = {
+			carrier: "bits",
+			caps: capabilitiesOf("bits"),
+			contract: undefined,
+			roster
+		}
 		const literal = (mask: number, label: string): ScalarExpr =>
 			builtExpr(
 				{

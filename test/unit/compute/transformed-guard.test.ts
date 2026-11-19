@@ -282,7 +282,7 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 			},
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: "\t\t\ttext.byteBound,",
+				original: "\t\t\tbounds?.bytes,",
 				replacement: "\t\t\tundefined,",
 				why: "A collapse carries no byte bound, so a cast of it is refused where the bound fits; the byte cast property fails."
 			},

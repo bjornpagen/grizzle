@@ -5,7 +5,7 @@ import { oneShotStatement } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import { lit, provedSelect, qualifiedCall, target, types } from "#compiler/sql/build.ts"
@@ -144,9 +144,9 @@ const relabelingOf = (type: ScalarType): Relabeling | undefined => {
 		case "int2":
 		case "int4":
 		case "int8":
-			return !("serial" in type) && contractOf(type) === undefined ? "int" : undefined
+			return !("serial" in type) && type.contract === undefined ? "int" : undefined
 		case "uuid":
-			return contractOf(type) === undefined ? "uuid" : undefined
+			return type.contract === undefined ? "uuid" : undefined
 		case "date":
 			return undefined
 		case "numeric":

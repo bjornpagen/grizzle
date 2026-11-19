@@ -95,7 +95,12 @@ const installed = (live: number) => {
 		contract: undefined,
 		roster
 	}
-	const bits: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
+	const bits: ScalarType = {
+		carrier: "bits",
+		caps: capabilitiesOf("bits"),
+		contract: undefined,
+		roster
+	}
 	return { roster, book, code, bits }
 }
 

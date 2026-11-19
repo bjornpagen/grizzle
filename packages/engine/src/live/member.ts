@@ -28,7 +28,7 @@ import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { CallerParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { InstantShape, ReadShape } from "#compiler/live/events.ts"
 import {
 	type MemberShape,
@@ -72,8 +72,9 @@ export interface ServedLeaf {
 	readonly types: NonEmptyReadonlyArray<ScalarType>
 }
 
-/** The wire spec of a scalar type: its carrier's, a contract's its base's, which it mirrors (ir/scalar.ts). */
-export const wireScalarOf = (type: ScalarType): WireScalar => {
+/** The wire spec of a scalar type: its carrier's, a contract's its base's (ir/scalar.ts baseOf). */
+export const wireScalarOf = (descriptor: ScalarType): WireScalar => {
+	const type = baseOf(descriptor)
 	switch (type.carrier) {
 		case "int2":
 		case "int4":

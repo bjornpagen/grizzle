@@ -24,6 +24,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { always } from "#compiler/ir/needs.ts"
+import { rosterOf } from "#compiler/ir/scalar.ts"
 import { strataAt } from "#compiler/ir/stratum.ts"
 import type { ConstraintLaw, ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
 import {
@@ -142,7 +143,7 @@ export const keyValueGen = (
 			}
 		case "code": {
 			const codec = defined(
-				artifacts.names.codes.rosters.get(type.roster.closed),
+				artifacts.names.codes.rosters.get(defined(rosterOf(type), "a closed id's roster").closed),
 				"the roster's codes"
 			)
 			const live = nonEmpty(

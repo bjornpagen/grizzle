@@ -92,7 +92,6 @@ import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import {
 	type ContractInfo,
-	contractOf,
 	type PatternSource,
 	type ScalarType,
 	textOf
@@ -598,7 +597,7 @@ const columnNames = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string
 /** A contract's domain CHECK (`DomainCheck`): its base's refined text pattern, when the base is no contract, and
  * its predicate. */
 export const domainCheck = (info: ContractInfo): DomainCheck => {
-	const regex = contractOf(info.base) === undefined ? textOf(info.base)?.regex : undefined
+	const regex = info.base.contract === undefined ? textOf(info.base) : undefined
 	const pattern: ReadonlyArray<DomainCheckTerm> =
 		regex === undefined || regex === "wildcard" ? [] : [{ kind: "pattern", regex }]
 	const predicate: ReadonlyArray<DomainCheckTerm> =
@@ -1891,7 +1890,7 @@ const baseLeaves = (
 	const walk = (d: ExprDesc): ExprDesc => {
 		if (d.kind === "field") {
 			const type = typeOf(d.field)
-			return type !== undefined && contractOf(type) !== undefined ? { kind: "base", arg: d } : d
+			return type?.contract !== undefined ? { kind: "base", arg: d } : d
 		}
 		return d.kind === "base" ? d : mapExprChildren(d, walk)
 	}

@@ -5,6 +5,7 @@ import { Array as Arr } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { conservativeMeta, type Heading } from "#compiler/ir/rel.ts"
+import { textOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import type { Select } from "#compiler/sql/ast.ts"
@@ -43,9 +44,9 @@ const withDomain: PhysicalNames = { ...plain, textDomain: patterned }
 
 /** The installed name of the pattern's domain, which a cast to it spells. */
 export const domainName = defined(
-	T.code.carrier === "text" && T.code.text.regex !== "wildcard"
-		? patterned(T.code.text.regex)
-		: undefined,
+	((text) => (text === undefined || text === "wildcard" ? undefined : patterned(text)))(
+		textOf(T.code)
+	),
 	"the installation names a domain for the payload's pattern"
 ).name
 

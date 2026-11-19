@@ -12,7 +12,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
  */
 import { int8Max } from "#compiler/ir/carriers.ts"
 import { type Codebook, declaredOrder, firstCodebook } from "#compiler/ir/codes.ts"
-import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import { type Carrier, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { TextedField } from "#compiler/program/text.ts"
 import {
 	accumulated,
@@ -296,7 +296,7 @@ export const textBatchGen: Gen<TextBatch> = (source) => {
  * orderCodes), so a closed id's stored code is no function of its handle alone.
  */
 export const installationsOf = (type: ScalarType): readonly [Codebook, Codebook] => [
-	firstCodebook(type.carrier === "code" || type.carrier === "bits" ? [type.roster] : []),
+	firstCodebook(((roster) => (roster === undefined ? [] : [roster]))(rosterOf(type))),
 	orderCodes
 ]
 
@@ -383,7 +383,7 @@ export const postgresSpelled = (
 	values: ReadonlyArray<unknown>
 ) => {
 	const codec = codecOf(type, names.codes)
-	const rank = declaredOrder(type.roster).rank
+	const rank = declaredOrder(defined(rosterOf(type), "a closed id's or a set's roster")).rank
 	return Effect.map(
 		db.values(
 			`SELECT ${textOut(type, "r.v")} FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, v ${wireSql(type, names)}) ORDER BY r.ord`,

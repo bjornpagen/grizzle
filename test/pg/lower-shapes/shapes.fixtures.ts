@@ -8,7 +8,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
-import { baseOf } from "#compiler/ir/scalar.ts"
+import { baseOf, rosterOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	type ConservativeParamSlot,
@@ -55,7 +55,7 @@ const sqlType = (schema: string, c: HeadingColumn): string => {
 		case "text":
 			return "text COLLATE pg_catalog.pg_c_utf8"
 		case "code":
-			return rosterDomainSql(schema, c.type.roster.closed)
+			return rosterDomainSql(schema, defined(rosterOf(c.type), "a closed id's roster").closed)
 		case "bytes":
 		case "float4":
 		case "int2":
@@ -75,7 +75,7 @@ const quote = (value: string): string => `'${Str.replaceAll("'", "''")(value)}'`
 /** A fixture fact's value as a typed literal: a closed id's handle as its code under the fixture's codebook. */
 export const literalOf = (schema: string, c: HeadingColumn, value: string): string =>
 	c.type.carrier === "code"
-		? `${codeOf(codecOf(namesOf(schema).codes, c.type.roster), value)}::smallint::${sqlType(schema, c)}`
+		? `${codeOf(codecOf(namesOf(schema).codes, defined(rosterOf(c.type), "a closed id's roster")), value)}::smallint::${sqlType(schema, c)}`
 		: `${quote(value)}::${pipe(sqlType(schema, c), Str.replace(" COLLATE pg_catalog.pg_c_utf8", ""))}`
 
 type Relation = (typeof relations)[number]

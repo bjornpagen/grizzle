@@ -20,7 +20,7 @@ import type { CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
-import { type Carrier, contractOf, numericTypmodOf } from "#compiler/ir/scalar.ts"
+import { type Carrier, numericTypmodOf } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
@@ -363,7 +363,7 @@ export const contractProperty = (f: Fixture) =>
 					Effect.gen(function* () {
 						const { db, s } = yield* evaluatorSchema
 						const type = f.field.scalar
-						const predicate = contractOf(type)?.predicate
+						const predicate = type.contract?.predicate
 						if (predicate === undefined) {
 							return yield* Effect.die(new Error(`${f.name}: no predicate table`))
 						}

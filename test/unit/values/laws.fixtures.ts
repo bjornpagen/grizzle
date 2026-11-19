@@ -16,7 +16,7 @@ import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Option, String as Str } from "effect"
 import * as Result from "#compiler/core/result.ts"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
-import { type DeclaredType, languageOfText, languageWithin } from "#compiler/ir/scalar.ts"
+import { type DeclaredType, languageOfText, languageWithin, textOf } from "#compiler/ir/scalar.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
@@ -272,10 +272,11 @@ export type Constructor =
 
 /** What scalarTypeOf made, as its value shows it: a text type by the check its language carries. */
 const typedBy = (type: DeclaredType): Constructor => {
-	if (type.carrier !== "text") {
+	const text = textOf(type)
+	if (text === undefined) {
 		return "scalarTypeOf"
 	}
-	const language = languageOfText(type.text)
+	const language = languageOfText(text)
 	if (language.kind === "every") {
 		return "scalarTypeOf, every text"
 	}

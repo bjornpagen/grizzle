@@ -12,7 +12,7 @@ import {
 	codecOf as rosterCodecOf
 } from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
-import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitHandle,
@@ -83,11 +83,12 @@ export interface ScalarCodec {
 }
 
 /**
- * The carrier admission spec of a descriptor. A contract shares its base's carrier, typmod, roster and span
- * (ir/scalar.ts), so the outer descriptor already carries everything the spec needs but a roster's codes, which the
+ * The carrier admission spec of a descriptor, read off its base (ir/scalar.ts baseOf), which holds its typmod, roster
+ * and span, a contract's carrier being its base's: everything the spec needs but a roster's codes, which the
  * installation's codebook holds.
  */
-export const carrierSpecOf = (type: ScalarType, codes: Codebook): CarrierSpec => {
+export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierSpec => {
+	const type = baseOf(descriptor)
 	switch (type.carrier) {
 		case "vector":
 			return { carrier: "vector", dimensions: type.typmod.dims }
@@ -204,10 +205,11 @@ export const scalarCodec = (type: ScalarType, codes: Codebook): ScalarCodec =>
 export const hostText = (
 	type: ScalarType
 ): ((value: unknown) => Result.Result<string, CodecFault>) => {
-	if (type.carrier !== "code" && type.carrier !== "bits") {
+	const base = baseOf(type)
+	if (base.carrier !== "code" && base.carrier !== "bits") {
 		return scalarCodec(type, emptyCodebook).encode
 	}
-	const live = { roster: type.roster.closed, rank: declaredOrder(type.roster).rank }
+	const live = { roster: base.roster.closed, rank: declaredOrder(base.roster).rank }
 	if (type.carrier === "code") {
 		return (value) => admitHandle(value, live)
 	}

@@ -17,7 +17,7 @@ import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import type { CompareOp, ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { contractOf, sameScalarType, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { sameScalarType, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { commonType, widening } from "#compiler/scalar/compute/types.ts"
@@ -176,7 +176,7 @@ export const checkCasts = (exprs: ReadonlyArray<ScalarExpr>, c: Case<CastFeature
 		if (e.kind !== "cast" && e.kind !== "domainCast") {
 			continue
 		}
-		const info = contractOf(e.type)
+		const info = e.type.contract
 		if (info === undefined) {
 			continue
 		}

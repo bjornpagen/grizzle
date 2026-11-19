@@ -10,7 +10,7 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type ScalarType } from "#compiler/ir/scalar.ts"
 import { paramDomainIdentity, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { levelChain } from "#compiler/plan/common.ts"
 import { ownBuilt } from "#compiler/schema/own.ts"
@@ -114,7 +114,7 @@ const drops = ({ shape, kept }: DrawnRole): boolean =>
 
 /** The contracts a value of `type` is checked under, outermost first. */
 const contractsOf = (type: ScalarType): ReadonlyArray<string> => {
-	const contract = contractOf(type)
+	const { contract } = type
 	return contract === undefined ? [] : [contract.name, ...contractsOf(contract.base)]
 }
 

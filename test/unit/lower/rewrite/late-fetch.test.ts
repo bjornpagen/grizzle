@@ -95,10 +95,8 @@ export const latePayloadFetchSelectsTheNarrowKeyUnderTheBoundThenJoinsThePayload
 		kills: [
 			{
 				file: "packages/engine/src/ir/scalar.ts",
-				original:
-					"\ta === undefined || b === undefined\n\t\t? a === b\n\t\t: a.width === b.width && sameScalarType(a.endpoint, b.endpoint)",
-				replacement:
-					"\ta === undefined || b === undefined\n\t\t? a !== b\n\t\t: a.width === b.width && sameScalarType(a.endpoint, b.endpoint)",
+				original: '\t\tcase "bytes":\n\t\t\treturn true',
+				replacement: '\t\tcase "bytes":\n\t\t\treturn false',
 				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:867 in sameSpan: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

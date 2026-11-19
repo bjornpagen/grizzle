@@ -20,10 +20,10 @@ const int8: ScalarType = { carrier: "int8", caps: capabilitiesOf("int8"), contra
 
 /** natural: the builtin contract over int8. */
 const natural: ScalarType = {
-	...int8,
+	carrier: "int8",
 	contract: {
 		name: succeeded(parseDeclaredName("natural")),
-		base: { carrier: "int8", caps: capabilitiesOf("int8"), contract: undefined },
+		base: int8,
 		predicate: undefined,
 		facts: []
 	}
@@ -37,7 +37,12 @@ const roster = Roster.of(
 )
 
 /** A set over the roster. */
-const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
+const set: ScalarType = {
+	carrier: "bits",
+	caps: capabilitiesOf("bits"),
+	contract: undefined,
+	roster
+}
 
 /** A closed id of the roster. */
 const code: ScalarType = {
@@ -253,7 +258,7 @@ const text: ScalarType = {
 	carrier: "text",
 	caps: capabilitiesOf("text"),
 	contract: undefined,
-	text: { regex: "wildcard", lengthBound: undefined, byteBound: undefined }
+	text: "wildcard"
 }
 
 /** What a monoid's construction gives at a carrier: its identity, or the defect it raises where it has none. */

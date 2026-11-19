@@ -9,7 +9,7 @@ import type {
 	Precondition,
 	PreconditionProof
 } from "#compiler/ir/proof.ts"
-import { type ScalarType, baseOf, contractOf, octetsOf, textOf } from "#compiler/ir/scalar.ts"
+import { type ScalarType, baseOf, octetsOf, textOf } from "#compiler/ir/scalar.ts"
 import {
 	insideRange,
 	type IntervalPremise,
@@ -100,9 +100,9 @@ const proofHolds = (
 				)
 			}
 			case "language": {
-				const refinement = textOf(node.type)?.regex
+				const refinement = textOf(node.type)
 				if (
-					contractOf(node.type) !== undefined ||
+					node.type.contract !== undefined ||
 					refinement === undefined ||
 					refinement === "wildcard"
 				) {

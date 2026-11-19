@@ -20,7 +20,6 @@ import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
-import { contractOf } from "#compiler/ir/scalar.ts"
 import {
 	aimedCaseGen,
 	baseSql,
@@ -90,7 +89,7 @@ export const aFactGuardOverAContractOnPostgreSQL19IsAdmittedWhereverTheTypesAdmi
 							k.note("a guard whose constant the domain keeps out")
 						}
 						const domain = `"${s}"."guarded"`
-						const predicate = contractOf(field.scalar)?.predicate
+						const predicate = field.scalar.contract?.predicate
 						yield* db.query(
 							predicate === undefined
 								? `CREATE DOMAIN ${domain} AS ${baseSql(c.base)}`

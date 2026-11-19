@@ -22,7 +22,7 @@ import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Base32 } from "#compiler/core/sha256.ts"
 import { type Parts, type SharingFormat, shareRepeated } from "#compiler/core/share.ts"
-import { contractOf, octetsOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { octetsOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { referenceKey, wireExtension, wireReference } from "#compiler/live/document.ts"
 import {
 	type EventDescriptor,
@@ -77,11 +77,11 @@ const retrySafe: Retry = "safe"
  */
 const typeSchema = (type: ScalarType): WireSchema => {
 	const carrier = scalarSchema(wireScalarOf(type))
-	const gaps: Array<SchemaGap> = contractOf(type) === undefined ? [] : ["contract"]
+	const gaps: Array<SchemaGap> = type.contract === undefined ? [] : ["contract"]
 	const refinements: Array<WireSchema> = []
 	const text = textOf(type)
-	if (text !== undefined && text.regex !== "wildcard") {
-		for (const pattern of text.regex.patterns) {
+	if (text !== undefined && text !== "wildcard") {
+		for (const pattern of text.patterns) {
 			const node = parsePattern(pattern.source, pattern.flags)
 			if (node.ok && node.value.kind !== "never") {
 				refinements.push({ pattern: toEcma(node.value) })
@@ -89,7 +89,7 @@ const typeSchema = (type: ScalarType): WireSchema => {
 				gaps.push("pattern")
 			}
 		}
-		const octets = octetsOf(text.regex.check)
+		const octets = octetsOf(text.check)
 		if (octets !== undefined) {
 			refinements.push({ maxLength: octets })
 			gaps.push("octets")

@@ -7,8 +7,9 @@ import { literalProblem, nativeEqualityKey, type TypedLiteral } from "#compiler/
 import {
 	baseOf,
 	type Capability,
+	capsOf,
 	type Carrier,
-	contractOf,
+	type ExactValueCarrier,
 	languageOctets,
 	languageOfText,
 	type NumericBound,
@@ -17,7 +18,6 @@ import {
 	Roster,
 	rosterOf,
 	type ScalarType,
-	type ExactValueCarrier,
 	textOf,
 	textPatterns,
 	vectorTypmodOf
@@ -365,14 +365,14 @@ export const genCarrierOf = (type: ScalarType): GenCarrier => {
 const codeRoster = (type: ScalarType): Roster =>
 	defined(rosterOf(type), "a closed id type's roster")
 
-export const hasCap = (type: ScalarType, cap: Capability): boolean => type.caps.includes(cap)
+export const hasCap = (type: ScalarType, cap: Capability): boolean => capsOf(type).includes(cap)
 
 /**
  * The field descriptor a column of this type is declared with: aliases normalized, the generated text
  * as str.regex(genTextSource, genTextFlags), a closed id as the closedId of its roster, a numeric as its typmod.
  */
 export const fieldDescOf = (type: ScalarType): FieldDesc => {
-	const contract = contractOf(type)
+	const { contract } = type
 	if (contract !== undefined) {
 		return {
 			kind: "contract",
@@ -407,7 +407,7 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 			const language = languageOfText(text)
 			return {
 				kind: "text",
-				patterns: textPatterns(text.regex),
+				patterns: textPatterns(text),
 				bytes: languageOctets(language),
 				language
 			}
@@ -688,7 +688,7 @@ const longTextClasses: Classes = [
 
 /** Which text a text type holds: the generated bounded text, the Code refinement, or unbounded text. */
 export const textFlavor = (type: ScalarType): "generated" | "code" | "long" => {
-	const regex = textOf(baseOf(type))?.regex
+	const regex = textOf(baseOf(type))
 	if (regex === undefined || regex === "wildcard") {
 		return "generated"
 	}

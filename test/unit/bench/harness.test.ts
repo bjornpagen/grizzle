@@ -131,9 +131,9 @@ export const theGateCatalogGivesEveryCatalogGateExactlyOneBenchFileInItsOwnersDi
 			{
 				file: "packages/engine/src/scalar/registry.ts",
 				original:
-					'export const storedOnly = (t: ScalarType): boolean => t.caps.every((c) => c === "storage")',
+					'export const storedOnly = (t: ScalarType): boolean => capsOf(t).every((c) => c === "storage")',
 				replacement:
-					'export const storedOnly = (t: ScalarType): boolean => t.caps.every((c) => c !== "storage")',
+					'export const storedOnly = (t: ScalarType): boolean => capsOf(t).every((c) => c !== "storage")',
 				why: "Operator mutant (comparison) at packages/engine/src/scalar/registry.ts:53 in storedOnly: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

@@ -17,7 +17,6 @@ import { family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
-import { contractOf } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	contractProperty,
@@ -54,7 +53,7 @@ export const contractPredicatesRoundALiteralToTheContractsScaleBeforeItsPredicat
 				Effect.provideServiceEffect(
 					Effect.gen(function* () {
 						const { db, s } = yield* evaluatorSchema
-						const predicate = contractOf(Rate.scalar)?.predicate
+						const predicate = Rate.scalar.contract?.predicate
 						if (predicate === undefined) {
 							return yield* Effect.die(new Error("Rate has no predicate table"))
 						}

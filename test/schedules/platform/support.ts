@@ -28,6 +28,7 @@ import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
+import { rosterOf } from "#compiler/ir/scalar.ts"
 import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
@@ -621,7 +622,15 @@ const fieldText = (names: Names, relation: RelationName, field: string, v: unkno
 		(f) => f.type
 	)
 	return Option.isSome(type) && type.value.carrier === "code" && typeof v === "string"
-		? String(codeOf(codecOf(names.installation.names.codes, type.value.roster), v))
+		? String(
+				codeOf(
+					codecOf(
+						names.installation.names.codes,
+						defined(rosterOf(type.value), "a closed id's roster")
+					),
+					v
+				)
+			)
 		: valueText(v)
 }
 
@@ -1750,4 +1759,4 @@ export const textOf = (row: PlatformRow, field: string): string => {
 	return v
 }
 
-export const spanOf = (row: PlatformRow, field: string): SpanV => spanValue(row[field])
+export const spanField = (row: PlatformRow, field: string): SpanV => spanValue(row[field])

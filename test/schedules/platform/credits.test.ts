@@ -34,7 +34,7 @@ import {
 	raceSuite,
 	raceTxns,
 	ranOf,
-	spanOf,
+	spanField,
 	textOf,
 	type WriterChoice,
 	writersGen
@@ -124,7 +124,7 @@ const grantsIn = (s: State): ReadonlyArray<GrantM> =>
 		id: succeeded(Uuid.parse(textOf(g, "id")), "a stored grant's id"),
 		org: succeeded(Uuid.parse(textOf(g, "org")), "a stored grant's organization"),
 		amount: amountOf(g, "amount"),
-		valid: spanOf(g, "valid")
+		valid: spanField(g, "valid")
 	}))
 
 const debitedFrom = (s: State, grant: string): bigint =>

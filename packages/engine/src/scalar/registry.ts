@@ -15,6 +15,7 @@ import {
 	type Capability,
 	type CapabilitySet,
 	capabilitySet,
+	capsOf,
 	type Carrier,
 	type ContractBase,
 	type ContractInfo,
@@ -40,7 +41,7 @@ export const capabilitiesOf = (carrier: Carrier): CapabilitySet =>
 	capabilitySet(nativeCapabilities[carrier])
 
 export const hasCapability = (t: ScalarType, capability: Capability): boolean =>
-	t.caps.includes(capability)
+	capsOf(t).includes(capability)
 
 /**
  * Whether a type has a total order that an order grizzle completes may break ties by (logical/order.ts completeOrder):
@@ -57,7 +58,7 @@ export const breaksTies = (t: ScalarType): boolean =>
  * of one; bytes is such a carrier (nativeCapabilities). Each of those refusals reads it here, off the capability set,
  * never off the carrier's name.
  */
-export const storedOnly = (t: ScalarType): boolean => t.caps.every((c) => c === "storage")
+export const storedOnly = (t: ScalarType): boolean => capsOf(t).every((c) => c === "storage")
 
 /**
  * A capability diagnostic: UnsupportedOperation, its capability naming the
@@ -517,7 +518,9 @@ const scalarAt = (
 		case "uuid":
 			return Result.ok(plainType("uuid"))
 		case "bytes":
-			return Result.ok(Object.freeze({ carrier: "bytes", caps: capabilitiesOf("bytes") }))
+			return Result.ok(
+				Object.freeze({ carrier: "bytes", caps: capabilitiesOf("bytes"), contract: undefined })
+			)
 		case "text":
 			return Result.ok(
 				Object.freeze({
@@ -538,7 +541,12 @@ const scalarAt = (
 			)
 		case "bits":
 			return Result.map(rosterAt(desc.roster, env, loc), (roster) =>
-				Object.freeze({ carrier: "bits", caps: capabilitiesOf("bits"), roster })
+				Object.freeze({
+					carrier: "bits",
+					caps: capabilitiesOf("bits"),
+					contract: undefined,
+					roster
+				})
 			)
 		case "vector": {
 			const dims = desc.dimensions
@@ -556,7 +564,7 @@ const scalarAt = (
 				spanType(endpoint, desc.width, loc)
 			)
 		case "contract":
-			return Result.map(contractInfoOf(desc, env, loc), (info) => withContract(info.base, info))
+			return Result.map(contractInfoOf(desc, env, loc), withContract)
 	}
 }
 
@@ -692,11 +700,11 @@ export const spanType = (
 }
 
 /**
- * The descriptor of a contract over `base`: the base's carrier, typmod, refinements and capabilities, each field the
- * base's variant states, beside the contract.
+ * The descriptor of a contract over its base: the base's carrier, by which every switch on carriers reads it, and the
+ * contract, whose base holds the rest (ir/scalar.ts ContractType).
  */
-const withContract = (base: ContractBase, contract: ContractInfo): ContractBase =>
-	Object.freeze({ ...base, contract })
+const withContract = (contract: ContractInfo): ContractBase =>
+	Object.freeze({ carrier: contract.base.carrier, contract })
 
 /**
  * A nominal contract over `base`: the base's carrier, typmod, refinements and capabilities, the contract's
@@ -710,9 +718,7 @@ export const contractType = (
 	predicate: ExprTable | undefined,
 	facts: ReadonlyArray<Fact>
 ): Result.Result<ContractBase, CompileError> =>
-	Result.map(contractOver(name, base, loc, predicate, facts), (info) =>
-		withContract(info.base, info)
-	)
+	Result.map(contractOver(name, base, loc, predicate, facts), withContract)
 
 /**
  * The contract `name` over `base` with `predicate`'s table, frozen with a frozen copy of its facts, so it holds no

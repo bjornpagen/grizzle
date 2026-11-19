@@ -9,7 +9,7 @@ import { type DeclaredName, identifierOf, identity } from "#compiler/core/identi
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { type Codebook, rosterCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import type { Refuser } from "#compiler/runtime/write/witness.ts"
@@ -93,8 +93,9 @@ const keyTextGen = (codes: Codebook, type: ScalarType): Gen<string> =>
 		? map(
 				element(
 					nonEmpty(
-						Arr.flatMap(codecNamed(codes, type.roster.closed).names, (name, code) =>
-							name === "" ? [] : [code]
+						Arr.flatMap(
+							codecNamed(codes, defined(rosterOf(type), "a closed id's roster").closed).names,
+							(name, code) => (name === "" ? [] : [code])
 						),
 						"a roster's live codes"
 					)
@@ -354,7 +355,7 @@ const claimsOf = (
 	}
 	const table = artifacts.names.relation(held.relation).name
 	const column = artifacts.names.column(held.relation, held.field)
-	const contract = contractOf(type)
+	const { contract } = type
 	return Arr.flatMap(artifacts.constraintLaws, (c): ReadonlyArray<Refusal> =>
 		c.kind === "domainConstraint" &&
 		Arr.some(c.uses, (u) => u.table === table && u.column === column) &&

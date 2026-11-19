@@ -24,13 +24,7 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { guarantees, refinedConstants, refinement } from "#compiler/check/refinement/index.ts"
-import {
-	contractOf,
-	numericBoundOf,
-	numericTypmodOf,
-	sameScalarType,
-	textOf
-} from "#compiler/ir/scalar.ts"
+import { numericBoundOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { sameRegex } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
@@ -88,10 +82,9 @@ export const languagesAndGuaranteesGuaranteeExactlyOneCarriersOneIdentityAContra
 			kills: [
 				{
 					file: "packages/engine/src/check/refinement/index.ts",
-					original:
-						'\t\treturn bb.text.regex === "wildcard" || sameRegex(ba.text.regex, bb.text.regex)',
+					original: '\t\treturn bb.text === "wildcard" || sameRegex(ba.text, bb.text)',
 					replacement:
-						'\t\treturn (\n\t\t\tba.text.regex === "wildcard" ||\n\t\t\tbb.text.regex === "wildcard" ||\n\t\t\tsameRegex(ba.text.regex, bb.text.regex)\n\t\t)',
+						'\t\treturn (\n\t\t\tba.text === "wildcard" ||\n\t\t\tbb.text === "wildcard" ||\n\t\t\tsameRegex(ba.text, bb.text)\n\t\t)',
 					why: "The wildcard guarantees every language (check/refinement guarantees); the guarantees property fails."
 				}
 			]
@@ -142,8 +135,7 @@ export const unionPropagationTypesAUnionsColumnAsTheCommonGuaranteesOfItsArmsWhi
 						switch (met.kind) {
 							case "language":
 								assert.ok(
-									delivered.carrier === "text" &&
-										sameRegex(delivered.text.regex, textOf(a.type)?.regex),
+									delivered.carrier === "text" && sameRegex(textOf(delivered), textOf(a.type)),
 									`${why}: the one language`
 								)
 								break
@@ -170,8 +162,8 @@ export const unionPropagationTypesAUnionsColumnAsTheCommonGuaranteesOfItsArmsWhi
 							}
 							case "contract":
 								assert.equal(
-									contractOf(delivered)?.name,
-									contractOf(a.type)?.name,
+									delivered.contract?.name,
+									a.type.contract?.name,
 									`${why}: the contract ${met.name}`
 								)
 								break

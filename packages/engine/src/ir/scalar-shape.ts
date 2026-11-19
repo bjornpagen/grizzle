@@ -1,4 +1,4 @@
-import { canonicalEquals, floatSpecialNames } from "#compiler/core/canonical.ts"
+import { floatSpecialNames } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -47,8 +47,6 @@ import {
 	type Capability,
 	type CapabilitySet,
 	type Carrier,
-	type ContractInfo,
-	type IntegerCarrier,
 	type NumericBound,
 	type NumericTypmod,
 	type PatternCheck,
@@ -70,12 +68,7 @@ import {
 	isExactValue,
 	isNumericValue,
 	isSpanCarrier,
-	numericTypmodOf,
-	rosterOf,
-	spanCarriers,
-	spanOf,
-	textOf,
-	vectorTypmodOf
+	spanCarriers
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 import {
@@ -119,7 +112,7 @@ interface WireSpan {
 
 interface WireScalarType {
 	readonly carrier: Carrier
-	readonly caps: CapabilitySet
+	readonly caps: CapabilitySet | undefined
 	readonly typmod: WireTypmod | undefined
 	readonly contract: WireContract | undefined
 	readonly text: TextInfo | undefined
@@ -205,19 +198,8 @@ export const textLanguageShape: S.Shape<TextLanguage> = S.tagged("kind", {
 	refined: S.struct({ key: regexKeyShape, check: regexCheckShape })
 })
 
-const regexShape = S.unionShape(S.literalsShape(["wildcard"]), regexRefShape)
-
-/** Bounds both stated, or both left out: a field whose every value is refused is one an input can only leave out. */
-const unstated: S.Shape<never> = S.literalsShape([])
-
-const textInfoShape: S.Shape<TextInfo> = S.unionShape(
-	S.struct({
-		regex: regexRefShape,
-		lengthBound: S.nonNegativeInteger,
-		byteBound: S.nonNegativeInteger
-	}),
-	S.structStated({ regex: regexShape }, { lengthBound: unstated, byteBound: unstated }, {})
-)
+/** A text type's refinement (ir/scalar.ts TextInfo): the wildcard, or its regex reference. */
+const textInfoShape: S.Shape<TextInfo> = S.unionShape(S.literalsShape(["wildcard"]), regexRefShape)
 
 /**
  * A declared name, parsed where it is decoded: what a roster names its closed relation by and what names a contract. A
@@ -277,8 +259,9 @@ const spanShape: S.Shape<WireSpan> = S.structStated(
 
 /** The decoder wireShape refers to (S.ref). */
 const wireBody: S.Shape<WireScalarType> = S.structStated(
-	{ carrier: S.literalsShape(carriers), caps: capabilitySetShape },
+	{ carrier: S.literalsShape(carriers) },
 	{
+		caps: capabilitySetShape,
 		typmod: typmodShape,
 		contract: contractShape,
 		text: textInfoShape,
@@ -290,50 +273,27 @@ const wireBody: S.Shape<WireScalarType> = S.structStated(
 	{}
 )
 
-/** A wire typmod as the base's typmod states it: numeric(p, s)'s precision and scale, or vector(n)'s dimensions. */
-const sameTypmod = (wire: WireTypmod, base: ScalarType): boolean => {
-	const numeric = numericTypmodOf(base)
-	if (numeric !== undefined) {
-		return (
-			wire.precision === numeric.precision &&
-			wire.scale === numeric.scale &&
-			wire.dims === undefined
-		)
-	}
-	const vector = vectorTypmodOf(base)
-	return (
-		vector !== undefined &&
-		wire.precision === undefined &&
-		wire.scale === undefined &&
-		wire.dims === vector.dims
-	)
-}
-
-const baseHasTypmod = (base: ScalarType): boolean =>
-	numericTypmodOf(base) !== undefined || vectorTypmodOf(base) !== undefined
-
 /**
- * The contract of a wire descriptor, or the first broken rule: its base has the descriptor's carrier and is a value
- * domain a field declares (ir/scalar.ts ContractBase), no computed numeric or exact value, the
- * descriptor repeats the base's meaning-changing fields unchanged, and the predicate's expression rules hold against
- * the base (expr.ts predicateProblems).
+ * A contract's wire descriptor as its variant (ir/scalar.ts ContractType), or the first broken rule: it holds its carrier
+ * and the contract alone, its base holding every other field; its base has its carrier and is a value domain a field
+ * declares (ir/scalar.ts ContractBase), no computed numeric or exact value, set or bytes; and the predicate's
+ * expression rules hold against the base (expr.ts predicateProblems).
  */
-const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo | string => {
+const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType | string => {
+	if (
+		t.caps !== undefined ||
+		t.typmod !== undefined ||
+		t.text !== undefined ||
+		t.roster !== undefined ||
+		t.span !== undefined ||
+		t.digits !== undefined ||
+		t.bound !== undefined
+	) {
+		return "a contract's descriptor holds its carrier and the contract alone; its base holds the rest"
+	}
 	const { base } = contract
 	if (base.carrier !== t.carrier) {
 		return "a contract has its base's carrier"
-	}
-	if (t.typmod === undefined ? baseHasTypmod(base) : !sameTypmod(t.typmod, base)) {
-		return "a contract carries its base's typmod, unchanged"
-	}
-	if (!canonicalEquals(t.text, textOf(base))) {
-		return "a contract carries its base's text, unchanged"
-	}
-	if (!canonicalEquals(t.roster, rosterOf(base))) {
-		return "a contract carries its base's roster, unchanged"
-	}
-	if (!canonicalEquals(t.span, spanOf(base))) {
-		return "a contract carries its base's span, unchanged"
 	}
 	if (isNumericValue(base)) {
 		return "a contract is over numeric(p, s), never a computed numeric"
@@ -354,7 +314,10 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo
 			return `contract ${name}: ${problem}`
 		}
 	}
-	return Object.freeze({ name, base, predicate, facts: contract.facts })
+	return Object.freeze({
+		carrier: base.carrier,
+		contract: Object.freeze({ name, base, predicate, facts: contract.facts })
+	})
 }
 
 const narrowSpan = (carrier: SpanCarrier, span: WireSpan): SpanInfo | string => {
@@ -407,19 +370,20 @@ const narrowVectorTypmod = (typmod: WireTypmod | undefined): VectorTypmod | stri
 	return Object.freeze({ dims: typmod.dims })
 }
 
-/** An integer descriptor, its contract optional. */
-const integerType = (
-	carrier: IntegerCarrier,
-	caps: CapabilitySet,
-	contract: ContractInfo | undefined
-): ScalarType => Object.freeze({ carrier, caps, contract })
-
 /**
- * A wire descriptor as its carrier's variant, or the first broken rule. Each variant is rebuilt with the keys in the
- * wire order (carrier, caps, typmod, contract, text, roster, span, digits, bound), so decoding is idempotent.
+ * A wire descriptor as its carrier's variant, or the first broken rule: a contract's (narrowContract), or a plain one.
+ * Each variant is rebuilt with the keys in the wire order (carrier, caps, typmod, contract, text, roster, span, digits,
+ * bound), so decoding is idempotent.
  */
-const narrow = (t: WireScalarType): ScalarType | string => {
+const narrow = (t: WireScalarType): ScalarType | string =>
+	t.contract === undefined ? narrowPlain(t) : narrowContract(t, t.contract)
+
+/** A plain wire descriptor as its carrier's variant, or the first broken rule. */
+const narrowPlain = (t: WireScalarType): ScalarType | string => {
 	const { carrier, caps } = t
+	if (caps === undefined) {
+		return "a plain type carries its capabilities"
+	}
 	if (carrier !== "text" && t.text !== undefined) {
 		return "only a text type carries regex metadata"
 	}
@@ -438,22 +402,16 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 	if (t.bound !== undefined && carrier !== "numeric") {
 		return "only a computed numeric carries a numeric bound"
 	}
-	const contract = t.contract === undefined ? undefined : narrowContract(t, t.contract)
-	if (typeof contract === "string") {
-		return contract
-	}
+	const contract = undefined
 	switch (carrier) {
 		case "int2":
 		case "int4":
 		case "int8":
-			return integerType(carrier, caps, contract)
+			return Object.freeze({ carrier, caps, contract })
 		case "numeric": {
 			if (t.typmod === undefined) {
 				if (t.bound === undefined) {
 					return "a numeric type declares its typmod, or a computed one carries its bound"
-				}
-				if (contract !== undefined) {
-					return "a contract is over numeric(p, s), never a computed numeric"
 				}
 				return Object.freeze({
 					carrier,
@@ -492,12 +450,9 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 			if (t.roster === undefined) {
 				return "a set names its roster"
 			}
-			if (contract !== undefined) {
-				return "no contract is over a set over a roster"
-			}
-			return Object.freeze({ carrier, caps, roster: t.roster })
+			return Object.freeze({ carrier, caps, contract, roster: t.roster })
 		case "bytes":
-			return contract === undefined ? Object.freeze({ carrier, caps }) : "no contract is over bytes"
+			return Object.freeze({ carrier, caps, contract })
 		case "range4":
 		case "range8":
 		case "rangeDate": {
@@ -517,7 +472,7 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 		case "exactMoney":
 			return t.digits === undefined
 				? `${carrier} carries its digit bound`
-				: Object.freeze({ carrier, caps, digits: t.digits })
+				: Object.freeze({ carrier, caps, contract, digits: t.digits })
 	}
 }
 

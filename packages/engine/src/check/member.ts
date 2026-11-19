@@ -5,7 +5,6 @@ import type { WriteOp } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import {
-	contractOf,
 	isExactValue,
 	isNumericValue,
 	type ScalarType,
@@ -83,7 +82,7 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
 	if (isExactValue(value) || isNumericValue(value)) {
 		return "an exact value or a computed numeric is written into a field only by Compute.cast under a guard that proves it fits"
 	}
-	if (contractOf(value) !== undefined || contractOf(field) !== undefined) {
+	if (value.contract !== undefined || field.contract !== undefined) {
 		return "a value re-enters a contract only by Compute.cast"
 	}
 	return "a value is written into a field of another type only by Compute.cast"

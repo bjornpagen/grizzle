@@ -1839,7 +1839,7 @@ const internal: ReadonlyArray<DagCorruption> = [
  */
 const refinedOver = (t: ScalarType): unknown => {
 	const base = baseOf(t)
-	return { ...base, contract: { name: "Ghost", base, facts: [] } }
+	return { carrier: base.carrier, contract: { name: "Ghost", base, facts: [] } }
 }
 
 /** The parents of each expression, with the argument position. */

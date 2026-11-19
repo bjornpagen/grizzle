@@ -7,13 +7,7 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
-import {
-	baseOf,
-	contractOf,
-	patternsText,
-	type RegexRef,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+import { baseOf, patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type {
 	Collation,
 	QualifiedFunctionRef,
@@ -208,14 +202,14 @@ export interface ColumnType {
 
 /** The type a column or a cast of this scalar names: the contract's domain, the text refinement's domain, or the base. */
 export const fieldColumnType = (names: PhysicalNames, t: ScalarType): ColumnType => {
-	const contract = contractOf(t)
+	const { contract } = t
 	if (contract !== undefined) {
 		return { type: qualifiedType(names.contractDomain(contract.name)), collation: undefined }
 	}
-	if (t.carrier === "text" && t.text.regex !== "wildcard") {
-		const domain = names.textDomain(t.text.regex)
+	if (t.carrier === "text" && t.text !== "wildcard") {
+		const domain = names.textDomain(t.text)
 		if (domain === undefined) {
-			missing(`physical: no structural text domain for ${patternsText(t.text.regex.patterns)}`)
+			missing(`physical: no structural text domain for ${patternsText(t.text.patterns)}`)
 		}
 		return { type: qualifiedType(domain), collation: undefined }
 	}
@@ -259,7 +253,7 @@ export const lawColumnType = (names: PhysicalNames, t: ScalarType): ColumnType =
 /** A contract domain's base: an inner contract's domain, a closed id's roster domain, or the unrefined base type,
  * `text` collated for a refined text base, whose pattern the outer domain's own CHECK carries. */
 export const domainBase = (names: PhysicalNames, base: ScalarType): ColumnType => {
-	const contract = contractOf(base)
+	const { contract } = base
 	if (contract !== undefined) {
 		return { type: qualifiedType(names.contractDomain(contract.name)), collation: undefined }
 	}

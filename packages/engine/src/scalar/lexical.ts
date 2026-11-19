@@ -1,7 +1,7 @@
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParseForm } from "#compiler/ir/proof.ts"
-import { type NumericTypmod, type ScalarType, contractOf } from "#compiler/ir/scalar.ts"
+import type { NumericTypmod, ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { greatestFinite } from "#compiler/scalar/values/float.ts"
@@ -199,7 +199,7 @@ export const parseTargetOf = (form: ParseForm, type: ScalarType): LexicalTarget 
  * contract over it is entered by a domain cast after; undefined for a type no lexical form names.
  */
 export const lexicalTargetOf = (type: ScalarType): LexicalTarget | undefined => {
-	if (contractOf(type) !== undefined) {
+	if (type.contract !== undefined) {
 		return undefined
 	}
 	switch (type.carrier) {

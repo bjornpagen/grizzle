@@ -32,8 +32,8 @@ import { hasProperties } from "#compiler/core/record.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, PgScalarName } from "#compiler/ir/desc.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
+	capsOf,
 	type Carrier,
-	contractOf,
 	isNumericValue,
 	numericBoundOf,
 	type NumericValueType,
@@ -80,7 +80,7 @@ import { numericText, plantedStringGen } from "#test/unit/values/support.ts"
 
 /** A descriptor's capabilities, as describeField reads them. */
 export const caps = (field: unknown) =>
-	succeeded(describeField(field, SourceLoc("test", []))).scalar.caps
+	capsOf(succeeded(describeField(field, SourceLoc("test", []))).scalar)
 
 /** The roster lookup of the closed ids a sketch names: each one's order and handles under its name. */
 export const rostersOfSketch = (sketch: DescriptorSketch): ReadonlyMap<string, RosterHandles> => {
@@ -122,7 +122,7 @@ export const predicateTable = (
  * endpoint.
  */
 const fieldDescFor = (t: Exclude<ScalarType, NumericValueType>): FieldDesc => {
-	const contract = contractOf(t)
+	const { contract } = t
 	if (contract !== undefined) {
 		return {
 			kind: "contract",
@@ -133,7 +133,7 @@ const fieldDescFor = (t: Exclude<ScalarType, NumericValueType>): FieldDesc => {
 		}
 	}
 	const s = spanOf(t)
-	if (s !== undefined && contractOf(s.endpoint) !== undefined) {
+	if (s?.endpoint.contract !== undefined) {
 		return { kind: "span", endpoint: fieldDescFor(s.endpoint), width: s.width }
 	}
 	return succeeded(declaredDescOf(t, {}))
@@ -320,20 +320,11 @@ const languageGen: Gen<TextLanguage> = weighted<TextLanguage>([
 ])
 
 /**
- * The text metadata a Description of `patterns` carrying `language` states, written out: the wildcard for every value,
- * else the patterns as declared with the language's key and enforcement, and its bounds where the enforcement proves
- * them.
+ * The text refinement a Description of `patterns` carrying `language` states, written out: the wildcard for every
+ * value, else the patterns as declared with the language's key and enforcement.
  */
-const carriedText = (patterns: Patterns, language: TextLanguage): TextInfo => {
-	if (language.kind === "every") {
-		return { regex: "wildcard", lengthBound: undefined, byteBound: undefined }
-	}
-	const regex = { patterns, key: language.key, check: language.check }
-	const bounds = language.check.bounds
-	return bounds === undefined
-		? { regex, lengthBound: undefined, byteBound: undefined }
-		: { regex, lengthBound: bounds.length, byteBound: bounds.bytes }
-}
+const carriedText = (patterns: Patterns, language: TextLanguage): TextInfo =>
+	language.kind === "every" ? "wildcard" : { patterns, key: language.key, check: language.check }
 
 /** The carrier of each pg type. */
 const pgCarrier = {
@@ -350,10 +341,10 @@ const pgCarrier = {
 /** Asserts that `t` is a plain value type of `carrier`: its capabilities, and no typmod, refinement or contract. */
 const plain = (t: ScalarType, carrier: Carrier, at: string): void => {
 	assert.equal(t.carrier, carrier, at)
-	assert.deepEqual(t.caps, capabilitiesOf(carrier), at)
+	assert.deepEqual(capsOf(t), capabilitiesOf(carrier), at)
 	const fields: Readonly<Record<string, unknown>> = { ...t }
 	assert.deepEqual(Arr.sort(Rec.keys(fields), Order.String), ["caps", "carrier", "contract"], at)
-	assert.equal(contractOf(t), undefined, at)
+	assert.equal(t.contract, undefined, at)
 }
 
 /** Asserts that `t` is what `desc` states under `env`, field by field, read through the type's accessors. */
@@ -373,7 +364,7 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 			return
 		case "bytes":
 			assert.equal(t.carrier, "bytes", at)
-			assert.deepEqual(t.caps, capabilitiesOf("bytes"), at)
+			assert.deepEqual(capsOf(t), capabilitiesOf("bytes"), at)
 			return
 		case "uuid":
 			plain(t, "uuid", at)
@@ -399,7 +390,7 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 			return
 		}
 		case "contract": {
-			const c = defined(contractOf(t), at)
+			const c = defined(t.contract, at)
 			assert.equal<string>(c.name, desc.name, at)
 			assert.equal(
 				c.predicate === undefined,

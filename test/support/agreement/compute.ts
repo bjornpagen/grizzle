@@ -9,7 +9,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { contractOf, type RosterOrder, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type RosterOrder, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bytes, Decimal, Money, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -2694,7 +2694,7 @@ const contractTyped: ReadonlySet<FieldName> = new Set(Rec.values(contractFields)
  * values a column delivers, a contract's host value and bare handles.
  */
 const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delivered"): string => {
-	const named = contractOf(t)
+	const named = t.contract
 	if (named !== undefined) {
 		const field = contractFields[named.name]
 		if (field === undefined) {
@@ -2977,10 +2977,11 @@ const paramTypeText = (t: ScalarType, uses: Set<Imported>): string => {
 
 /** Whether a type's values carry facts its contract declares, a span's through its endpoint's, which its host drops. */
 const declaresFacts = (t: ScalarType): boolean => {
-	if (t.carrier === "range4" || t.carrier === "range8" || t.carrier === "rangeDate") {
-		return declaresFacts(t.span.endpoint)
+	const span = spanOf(t)
+	if (span !== undefined) {
+		return declaresFacts(span.endpoint)
 	}
-	const declares = contractOf(t)
+	const declares = t.contract
 	return declares !== undefined && Arr.isReadonlyArrayNonEmpty(declares.facts)
 }
 

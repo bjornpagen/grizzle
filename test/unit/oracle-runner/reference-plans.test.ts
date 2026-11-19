@@ -57,7 +57,7 @@ export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsOnTheOraclePopula
 			{
 				file: "packages/engine/src/ir/scalar.ts",
 				original:
-					"\ta === b ||\n\t(a.carrier === b.carrier &&\n\t\tsameOrder(a.caps, b.caps) &&\n\t\tsameContract(contractOf(a), contractOf(b)) &&\n\t\tsameNumericTypmod(numericTypmodOf(a), numericTypmodOf(b)) &&\n\t\tsameNumericBound(numericBoundOf(a), numericBoundOf(b)) &&\n\t\tvectorTypmodOf(a)?.dims === vectorTypmodOf(b)?.dims &&\n\t\texactDigitsOf(a) === exactDigitsOf(b) &&\n\t\tsameText(textOf(a), textOf(b)) &&\n\t\tsameRoster(rosterOf(a), rosterOf(b)) &&\n\t\tsameSpan(spanOf(a), spanOf(b)))",
+					"\ta === b ||\n\t(a.contract === undefined || b.contract === undefined\n\t\t? a.contract === undefined && b.contract === undefined && samePlain(a, b)\n\t\t: a.carrier === b.carrier &&\n\t\t\ta.contract.name === b.contract.name &&\n\t\t\tsameScalarType(a.contract.base, b.contract.base))",
 				replacement: "\ta === b",
 				why: "Operator mutant (disjunct) at packages/engine/src/ir/scalar.ts:876 in sameScalarType: `a === b ||\n\t(a.carrier === b.carrier &&\n\t\tsameOrder(a.caps, b.caps) &&\n\t\tsameCon` becomes `a === b`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
@@ -95,8 +95,9 @@ export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsWhereJoinsAndMerg
 				kills: [
 					{
 						file: "packages/engine/src/ir/scalar.ts",
-						original: "\ta?.digits === b?.digits && a?.scale === b?.scale",
-						replacement: "\tfalse",
+						original:
+							"\t\t\t\t\ta.bound.digits === b.bound.digits &&\n\t\t\t\t\ta.bound.scale === b.bound.scale",
+						replacement: "\t\t\t\t\tfalse",
 						why: "Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:830 in sameNumericBound: `a?.digits === b?.digits && a?.scale === b?.scale` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
 					}
 				]
@@ -132,9 +133,9 @@ export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsOnRecursions = fa
 			{
 				file: "packages/engine/src/ir/scalar.ts",
 				original:
-					"\ta === undefined || b === undefined ? a === b : a.name === b.name && sameScalarType(a.base, b.base)",
-				replacement: "\tfalse",
-				why: "Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:835 in sameContract: `a === undefined || b === undefined ? a === b : a.name === b.name && sameScalarTy` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+					"\ta === b ||\n\t(a.contract === undefined || b.contract === undefined\n\t\t? a.contract === undefined && b.contract === undefined && samePlain(a, b)\n\t\t: a.carrier === b.carrier &&\n\t\t\ta.contract.name === b.contract.name &&\n\t\t\tsameScalarType(a.contract.base, b.contract.base))",
+				replacement: "\ta === b",
+				why: "Two descriptors are one type only where they are one object, as when sameContract answered false for every pair, plain ones included; the fixed-length recursion's plans and nested loops disagree."
 			}
 		]
 	})

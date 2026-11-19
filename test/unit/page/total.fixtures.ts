@@ -7,7 +7,7 @@ import { NodeId } from "#compiler/core/ids.ts"
 import { relNode, rooted } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { CompletedOrder, OrderKey } from "#compiler/ir/rel.ts"
-import { contractOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { PageArtifact } from "#compiler/lower/shapes/page/compile.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
@@ -236,7 +236,7 @@ export const registryTypes = (artifacts: ReadonlyArray<PageArtifact>): void => {
 					const t = column.type
 					if (
 						isPlainCarrier(t.carrier) &&
-						contractOf(t) === undefined &&
+						t.contract === undefined &&
 						!("serial" in t) &&
 						numericTypmodOf(t) === undefined
 					) {
@@ -245,7 +245,7 @@ export const registryTypes = (artifacts: ReadonlyArray<PageArtifact>): void => {
 							`${column.name}: the registry's ${t.carrier}`
 						)
 					}
-					if (textOf(t)?.regex === "wildcard" && contractOf(t) === undefined) {
+					if (textOf(t) === "wildcard" && t.contract === undefined) {
 						assert.ok(
 							sameScalarType(t, wildcardText),
 							`${column.name}: the registry's wildcard text`

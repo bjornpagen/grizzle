@@ -203,9 +203,7 @@ export const relationNamed = (schema: GenSchema, name: string): GenRelation => {
  */
 const payloadPatterns = (c: GenClosed): ReadonlyArray<RelationDesc> => {
 	const patterned = Arr.flatMap(c.payload, (col, i) =>
-		col.type.carrier === "text" &&
-		col.type.contract === undefined &&
-		col.type.text.regex !== "wildcard"
+		col.type.carrier === "text" && col.type.contract === undefined && col.type.text !== "wildcard"
 			? [{ col, at: i + 1 }]
 			: []
 	)

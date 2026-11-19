@@ -231,7 +231,7 @@ const admittedChecks: ReadonlyArray<ReadonlyArray<boolean>> = Arr.flatMap(
 			if (!result.ok) {
 				return []
 			}
-			const { regex } = texts.textInfo(result.value)
+			const regex = texts.textInfo(result.value)
 			const check = result.value.check
 			if (check.kind !== "tautology") {
 				refinement.membership(check, refinement.domainValue)

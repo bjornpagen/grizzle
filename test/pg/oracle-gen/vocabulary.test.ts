@@ -29,7 +29,7 @@ import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { codecOf, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { nativeNames, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, nativeNames, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { assert } from "#test/support/assert.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import {
@@ -68,7 +68,8 @@ const vectorSchema = quoteIdent("vector_ext")
  * The SQL type of a generated column: a closed id the schema's domain over smallint named after its roster, which
  * admits exactly the roster's codes, and a vector the extension's type at its dimensions.
  */
-const sqlType = (type: ScalarType, schema: string): string => {
+const sqlType = (descriptor: ScalarType, schema: string): string => {
+	const type = baseOf(descriptor)
 	if (type.carrier === "code") {
 		return `${quoteIdent(schema)}.${quoteIdent(Str.toLowerCase(type.roster.closed))}`
 	}

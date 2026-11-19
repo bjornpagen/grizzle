@@ -154,7 +154,6 @@ export const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Writt
 			label: "contract over int8",
 			type: {
 				carrier: "int8",
-				caps,
 				contract: { name: "Cents", base: { carrier: "int8", caps }, facts: [] }
 			},
 			live: int64
@@ -184,7 +183,7 @@ export const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Writt
 	text: [
 		{
 			label: "text",
-			type: { carrier: "text", text: { regex: "wildcard" }, caps },
+			type: { carrier: "text", text: "wildcard", caps },
 			live: string(
 				weighted([
 					[1, codePoint(0x20, 0x7e)],

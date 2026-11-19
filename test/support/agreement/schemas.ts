@@ -30,12 +30,7 @@ import {
 	writtenNames
 } from "#compiler/ir/desc.ts"
 import type { Heading as Columns } from "#compiler/ir/rel.ts"
-import {
-	contractOf,
-	type RosterOrder,
-	sameScalarType,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+import { type RosterOrder, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { parseSchemaInput, type SchemaArtifacts } from "#compiler/program/schema.ts"
 import { bits, closedId, Decimal, Money, Vector } from "#compiler/public/fields.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -2705,7 +2700,7 @@ const keysOf = (artifacts: SchemaArtifacts, name: string): ReadonlyArray<Readonl
 }
 /** The host type of a scalar type as the engine compiles it (ir/scalar.ts ScalarType), as TypeScript. */
 const hostOfScalar = (t: ScalarType, ids: Ids): string => {
-	const contract = contractOf(t)
+	const { contract } = t
 	if (contract !== undefined) {
 		return builtinScalar(t)
 			? hostOfScalar(contract.base, ids)
@@ -2732,11 +2727,11 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 		case "date":
 			return "Fi.CalendarDate"
 		case "text":
-			return t.text.regex === "wildcard"
+			return t.text === "wildcard"
 				? "string"
 				: Arr.join(
 						Arr.map(
-							t.text.regex.patterns,
+							t.text.patterns,
 							(p) => `Tx.RegexInfer<${jsonText(p.source)}, ${jsonText(p.flags)}>`
 						),
 						" & "
@@ -2776,7 +2771,7 @@ const literalTypeOf = (value: unknown): string => {
 
 /** A closed id's handles under the brand of each contract its type is, innermost first, as hostOfScalar brands. */
 const brandedHandles = (type: ScalarType, handles: string): string => {
-	const contract = contractOf(type)
+	const { contract } = type
 	return contract === undefined
 		? handles
 		: `(${brandedHandles(contract.base, handles)}) & Brand.Brand<${jsonText(contract.name)}>`

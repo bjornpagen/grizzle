@@ -54,7 +54,6 @@ import { builtExpr, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { type Cell, conservativeMeta, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import { contractOf } from "#compiler/ir/scalar.ts"
 import {
 	assert,
 	defined,
@@ -607,7 +606,7 @@ export const normalizeDagGivesOneDigestToDAGsWhoseContractPredicatesWereAllocate
 									fail(
 										decodeScalarType({
 											...scalarTypes.cents,
-											contract: { ...defined(contractOf(scalarTypes.cents)), predicate: spelled }
+											contract: { ...defined(scalarTypes.cents.contract), predicate: spelled }
 										})
 									).reason._tag,
 									"MalformedDescription"

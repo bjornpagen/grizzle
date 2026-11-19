@@ -3,13 +3,7 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
-import {
-	baseOf,
-	contractOf,
-	numericTypmodOf,
-	type ScalarType,
-	sameScalarType
-} from "#compiler/ir/scalar.ts"
+import { baseOf, numericTypmodOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import type { StatementRole, StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
@@ -262,7 +256,7 @@ const sameColumns = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolea
 const typeText = (t: ScalarType): string => {
 	const base = baseOf(t)
 	const typmod = numericTypmodOf(base)
-	const contract = contractOf(t)
+	const { contract } = t
 	return `${contract === undefined ? "" : `${contract.name} over `}${base.carrier}${typmod === undefined ? "" : `(${typmod.precision}, ${typmod.scale})`}`
 }
 

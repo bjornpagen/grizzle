@@ -33,7 +33,7 @@ import {
 	raceSuite,
 	raceTxns,
 	ranOf,
-	spanOf,
+	spanField,
 	type WriterChoice,
 	writersGen
 } from "#test/schedules/platform/support.ts"
@@ -101,7 +101,7 @@ const cardsIn = (s: State) =>
 	Arr.sort(
 		Arr.map(
 			Arr.filter(rowsIn(s, "RateCard"), (c) => c["model"] === W.ids.model && c["kind"] === "input"),
-			(c) => spanOf(c, "during")
+			(c) => spanField(c, "during")
 		),
 		Order.mapInput(Order.BigInt, (span: SpanV) => span.start)
 	)

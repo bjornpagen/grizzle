@@ -1,13 +1,7 @@
 import { boolean, element, type Gen, int, subarray, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
-import {
-	contractOf,
-	numericTypmodOf,
-	rosterOf,
-	type ScalarType,
-	textOf
-} from "#compiler/ir/scalar.ts"
+import { numericTypmodOf, rosterOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import {
 	closed,
 	f,
@@ -273,13 +267,9 @@ export const valueOf = (kind: ColumnKind): LiteralDesc => {
 export const kindOfType = (t: ScalarType): ColumnKind | "hull" | undefined => {
 	switch (t.carrier) {
 		case "int4":
-			return contractOf(t)?.name === "Qty"
-				? "qty"
-				: contractOf(t) === undefined
-					? "int4"
-					: undefined
+			return t.contract?.name === "Qty" ? "qty" : t.contract === undefined ? "int4" : undefined
 		case "int8":
-			return contractOf(t) === undefined ? "int8" : undefined
+			return t.contract === undefined ? "int8" : undefined
 		case "uuid":
 			return "uuid"
 		case "numeric": {
@@ -293,7 +283,7 @@ export const kindOfType = (t: ScalarType): ColumnKind | "hull" | undefined => {
 						: undefined
 		}
 		case "text": {
-			const regex = textOf(t)?.regex
+			const regex = textOf(t)
 			const source =
 				regex === undefined || regex === "wildcard" ? undefined : regex.patterns[0].source
 			return regex === "wildcard"

@@ -284,7 +284,7 @@ export const meet = (a: Token, b: Token): Token | undefined => {
 	}
 }
 
-export const isWildcard = (t: ScalarType): boolean => textOf(t)?.regex === "wildcard"
+export const isWildcard = (t: ScalarType): boolean => textOf(t) === "wildcard"
 
 /** A type the lattice is judged over: a deliverer's, the canonical wildcard, or a plain bigint, with its token. */
 interface Judged {

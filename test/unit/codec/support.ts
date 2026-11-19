@@ -4,11 +4,12 @@ import type { RelationNormalizer } from "#compiler/codec/recordset.ts"
 import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
-import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import { type Carrier, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
+import { defined } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { type StrictFault, strictReader } from "#test/support/kernel/strict.ts"
@@ -69,7 +70,7 @@ export const types = {
 } as const satisfies Readonly<Record<string, ScalarType>>
 
 /** The codes a fresh installation gives the codec tests' one roster, Kind: Manual 0, Automatic 1, Ünïcode 2. */
-export const kindCodes: Codebook = firstCodebook([types.kind.roster])
+export const kindCodes: Codebook = firstCodebook([defined(rosterOf(types.kind), "Kind's roster")])
 
 /**
  * A type's codec beside its reader and the kernel's strict reader of its output texts (test/support/kernel/strict.ts):

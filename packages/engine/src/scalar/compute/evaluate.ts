@@ -18,7 +18,6 @@ import {
 import {
 	baseOf,
 	type Carrier,
-	contractOf,
 	isRefined,
 	numericTypmodOf,
 	type RegexRef,
@@ -1296,7 +1295,7 @@ export const refined = (
 	if (!member.value) {
 		return Result.err({
 			reason: "ContractLiteral",
-			capability: `a literal of ${typeLabel(type)}: the literal violates its ${contractOf(type) === undefined ? "regex refinement" : "contract"}`
+			capability: `a literal of ${typeLabel(type)}: the literal violates its ${type.contract === undefined ? "regex refinement" : "contract"}`
 		})
 	}
 	return Result.ok(literal)
@@ -1332,12 +1331,12 @@ const membership = (
 	patterns: PatternReads
 ): Result.Result<boolean, EvalStop> => {
 	const levels: Array<ScalarType> = []
-	for (let at: ScalarType | undefined = t; at !== undefined; at = contractOf(at)?.base) {
+	for (let at: ScalarType | undefined = t; at !== undefined; at = at.contract?.base) {
 		levels.push(at)
 	}
 	for (const level of levels.toReversed()) {
-		const contract = contractOf(level)
-		const pattern = contract === undefined ? textOf(level)?.regex : undefined
+		const { contract } = level
+		const pattern = contract === undefined ? textOf(level) : undefined
 		if (pattern !== undefined && pattern !== "wildcard" && !regexHolds(patterns, pattern, v)) {
 			return Result.ok(false)
 		}

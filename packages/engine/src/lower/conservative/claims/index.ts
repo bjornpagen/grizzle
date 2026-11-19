@@ -1,6 +1,6 @@
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { baseTypeRef, qualifiedType } from "#compiler/ir/physical.ts"
-import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type LowerContext,
 	type Lowerers,
@@ -18,7 +18,7 @@ import { col, columnDefinition, provedCore, select, target } from "#compiler/sql
  */
 const judgedType = (cx: LowerContext, t: ScalarType, at: string): TypeRef => {
 	const base = baseOf(t)
-	return contractOf(t) === undefined && base.carrier === "code"
+	return t.contract === undefined && base.carrier === "code"
 		? qualifiedType(cx.names.rosterDomain(base.roster.closed))
 		: cx.typeRef(t, at)
 }

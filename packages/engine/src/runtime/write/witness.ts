@@ -23,7 +23,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
 import { type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
 import {
@@ -884,7 +884,7 @@ const checked = (e: Evaluated): Verdict => {
  * is a value of every level below `at` and not of `at`. A value outside a lower level is that level's refusal.
  */
 const breaksLevel = (judge: Judge, value: HostValue, at: ScalarType): Verdict => {
-	const below = contractOf(at)?.base
+	const below = at.contract?.base
 	const inner = below === undefined ? true : judge.member(value, below)
 	const whole = judge.member(value, at)
 	if (inner === undefined || whole === undefined || !inner) {
@@ -895,7 +895,7 @@ const breaksLevel = (judge: Judge, value: HostValue, at: ScalarType): Verdict =>
 
 /** The levels of a type, outermost first: the type, then each contract's base. */
 const levels = (t: ScalarType): ReadonlyArray<ScalarType> => {
-	const base = contractOf(t)?.base
+	const base = t.contract?.base
 	return base === undefined ? [t] : [t, ...levels(base)]
 }
 
@@ -1116,9 +1116,9 @@ const brokenLaws = (
 const levelStates = (level: ScalarType, law: OwnLaw): boolean => {
 	switch (law.kind) {
 		case "contract":
-			return contractOf(level)?.name === law.contract
+			return level.contract?.name === law.contract
 		case "pattern":
-			return contractOf(level) === undefined
+			return level.contract === undefined
 		case "primaryKey":
 		case "key":
 		case "check":

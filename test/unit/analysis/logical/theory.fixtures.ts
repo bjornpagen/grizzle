@@ -17,7 +17,7 @@ import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { type Theory } from "#compiler/analysis/theory/theory.ts"
 import { type LawId } from "#compiler/core/ids.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import type { Roster } from "#compiler/ir/scalar.ts"
+import { type Roster, rosterOf } from "#compiler/ir/scalar.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { defined } from "#test/support/assert.ts"
 import * as G from "#test/support/fixtures/golden/work.ts"
@@ -387,8 +387,9 @@ const firstClosedId = (
 ): Readonly<{ relation: string; field: string; roster: Roster }> | undefined => {
 	for (const r of schema.relations) {
 		for (const column of r.columns) {
-			if (column.type.carrier === "code") {
-				return { relation: r.name, field: column.name, roster: column.type.roster }
+			const roster = column.type.carrier === "code" ? rosterOf(column.type) : undefined
+			if (roster !== undefined) {
+				return { relation: r.name, field: column.name, roster }
 			}
 		}
 	}

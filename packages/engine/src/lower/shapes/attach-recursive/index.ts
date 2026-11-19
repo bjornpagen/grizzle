@@ -1,7 +1,7 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Heading, HeadingColumn, NodeOf, RelNode } from "#compiler/ir/rel.ts"
-import { sameScalarType } from "#compiler/ir/scalar.ts"
+import { capsOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
@@ -96,7 +96,7 @@ const seedDecision = (
 		}
 	}
 	for (const c of child.heading) {
-		if (!c.type.caps.includes("hashing")) {
+		if (!capsOf(c.type).includes("hashing")) {
 			return no(`the state column ${c.name} has no hash operator class`)
 		}
 	}

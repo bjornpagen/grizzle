@@ -30,7 +30,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import { contractOf, Roster, rosterOf, sameScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import { capsOf, Roster, rosterOf, sameScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { carrierSql, describeField } from "#compiler/scalar/registry.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
@@ -118,9 +118,9 @@ export const twoSpellingsAreTwoDescriptorsOfOneTypeExactlyWhenOneIsASerialOfTheO
 		kills: [
 			{
 				file: "packages/engine/src/ir/scalar.ts",
-				original: "\ta?.precision === b?.precision && a?.scale === b?.scale",
-				replacement: "\ta?.precision === b?.precision && a?.scale !== b?.scale",
-				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:838 in sameNumericTypmod: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				original: '\t\tcase "date":\n\t\tcase "bytes":\n\t\t\treturn true',
+				replacement: '\t\tcase "date":\n\t\tcase "bytes":\n\t\t\treturn false',
+				why: "Two plain types of a carrier with no fields of its own are two types (samePlain answers false for them), so a serial and its integer are two types; the spelling property fails."
 			}
 		]
 	})
@@ -426,9 +426,9 @@ export const spanEndpointEligibilityAdmitsIntegerBigintAndContractsOverThemAsInt
 					endpoint: descOf(endpoint),
 					width: undefined
 				})
-				assert.ok(scalarOf(endpoint).caps.includes("spanEndpoint"), "an endpoint")
-				const contracted = contractOf(defined(spanOf(scalarOf(s)), "the span").endpoint)
-				assert.equal(contracted?.name, contractOf(scalarOf(endpoint))?.name)
+				assert.ok(capsOf(scalarOf(endpoint)).includes("spanEndpoint"), "an endpoint")
+				const contracted = defined(spanOf(scalarOf(s)), "the span").endpoint.contract
+				assert.equal(contracted?.name, scalarOf(endpoint).contract?.name)
 			}),
 		oracle: {
 			kind: "specification",
@@ -503,7 +503,7 @@ export const closedIdNamesTheRosterKeepsTheClosedRelationAndKeepsDeclaredHandleO
 			{
 				file: "packages/engine/src/ir/scalar.ts",
 				original:
-					"\ta === b ||\n\t(a.carrier === b.carrier &&\n\t\tsameOrder(a.caps, b.caps) &&\n\t\tsameContract(contractOf(a), contractOf(b)) &&\n\t\tsameNumericTypmod(numericTypmodOf(a), numericTypmodOf(b)) &&\n\t\tsameNumericBound(numericBoundOf(a), numericBoundOf(b)) &&\n\t\tvectorTypmodOf(a)?.dims === vectorTypmodOf(b)?.dims &&\n\t\texactDigitsOf(a) === exactDigitsOf(b) &&\n\t\tsameText(textOf(a), textOf(b)) &&\n\t\tsameRoster(rosterOf(a), rosterOf(b)) &&\n\t\tsameSpan(spanOf(a), spanOf(b)))",
+					"\ta === b ||\n\t(a.contract === undefined || b.contract === undefined\n\t\t? a.contract === undefined && b.contract === undefined && samePlain(a, b)\n\t\t: a.carrier === b.carrier &&\n\t\t\ta.contract.name === b.contract.name &&\n\t\t\tsameScalarType(a.contract.base, b.contract.base))",
 				replacement: "\ttrue",
 				why: "Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:876 in sameScalarType: `a === b ||\n\t(a.carrier === b.carrier &&\n\t\tsameOrder(a.caps, b.caps) &&\n\t\tsameCon` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}

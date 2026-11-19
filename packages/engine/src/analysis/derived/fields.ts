@@ -5,7 +5,6 @@ import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
-	contractOf,
 	isNumericValue,
 	languageOctets,
 	languageOfText,
@@ -41,7 +40,7 @@ export const declaredDescOf = (
 	type: Exclude<ScalarType, NumericValueType>,
 	contracts: Readonly<Record<string, OwnedContract>>
 ): Result.Result<FieldDesc, Undescribed> => {
-	const contract = contractOf(type)
+	const { contract } = type
 	if (contract !== undefined) {
 		const declared = contracts[contract.name]
 		if (declared === undefined) {
@@ -80,7 +79,7 @@ export const declaredDescOf = (
 			const language = languageOfText(type.text)
 			return Result.ok({
 				kind: "text",
-				patterns: textPatterns(type.text.regex),
+				patterns: textPatterns(type.text),
 				bytes: languageOctets(language),
 				language
 			})

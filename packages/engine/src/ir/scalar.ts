@@ -318,29 +318,28 @@ export type TextLanguage =
 const frozenPatterns = (patterns: Patterns): Patterns =>
 	Object.freeze(mapNonEmpty(patterns, (p) => Object.freeze({ source: p.source, flags: p.flags })))
 
-/** The text metadata a ScalarType carries for patterns of `language`: its regex reference and its proved bounds. */
-export const textInfoOf = (patterns: Patterns, language: TextLanguage): TextInfo => {
-	if (language.kind === "every") {
-		return Object.freeze({ regex: "wildcard", lengthBound: undefined, byteBound: undefined })
-	}
-	const regex = Object.freeze({
-		patterns: frozenPatterns(patterns),
-		key: language.key,
-		check: language.check
-	})
-	const bounds = language.check.bounds
-	return Object.freeze(
-		bounds === undefined
-			? { regex, lengthBound: undefined, byteBound: undefined }
-			: { regex, lengthBound: bounds.length, byteBound: bounds.bytes }
-	)
-}
+/** The refinement a text type carries for patterns of `language`: the wildcard, or its regex reference. */
+export const textInfoOf = (patterns: Patterns, language: TextLanguage): TextInfo =>
+	language.kind === "every"
+		? "wildcard"
+		: Object.freeze({
+				patterns: frozenPatterns(patterns),
+				key: language.key,
+				check: language.check
+			})
 
-/** The language a ScalarType's text metadata states: what a descriptor of that type carries. */
+/** The language a text type's refinement states: what a descriptor of that type carries. */
 export const languageOfText = (text: TextInfo): TextLanguage =>
-	text.regex === "wildcard"
+	text === "wildcard"
 		? Object.freeze({ kind: "every" })
-		: Object.freeze({ kind: "refined", key: text.regex.key, check: text.regex.check })
+		: Object.freeze({ kind: "refined", key: text.key, check: text.check })
+
+/**
+ * The bounds a text refinement proves on every value, in code points and UTF-8 bytes: its enforcement's
+ * (RegexCheck), none for the wildcard or a pattern that proves none.
+ */
+export const textInfoBounds = (text: TextInfo): TextBounds | undefined =>
+	text === "wildcard" ? undefined : text.check.bounds
 
 /** The byte bound a text descriptor's language enforces beside its pattern's (octetsOf): none for an unrefined text. */
 export const languageOctets = (language: TextLanguage): number | undefined =>
@@ -410,17 +409,10 @@ export const languageWithin = (pattern: PatternLanguage, octets: number): TextLa
 }
 
 /**
- * Every text descriptor carries regex metadata: a specific pattern or the canonical wildcard, and the bounds a specific
- * pattern proves on the value's length in code points and in UTF-8 bytes, which are proved together or not at all. The
- * wildcard admits every value, so it proves none.
+ * A text descriptor's refinement: a specific pattern's regex reference, whose enforcement holds the bounds it proves
+ * (textInfoBounds), or the canonical wildcard, which admits every value and proves none.
  */
-export type TextInfo =
-	| { readonly regex: RegexRef; readonly lengthBound: number; readonly byteBound: number }
-	| {
-			readonly regex: RegexRef | "wildcard"
-			readonly lengthBound: undefined
-			readonly byteBound: undefined
-	  }
+export type TextInfo = RegexRef | "wildcard"
 
 /**
  * Whether a roster's order means something, which its declaration states: `ordered` (closed.ordered), its handles'
@@ -520,35 +512,17 @@ export type SpanCarrier = (typeof spanCarriers)[number]
 /** The carriers whose descriptor holds nothing beside its carrier, its capabilities and its contract. */
 type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid" | "date"
 
-/** A date: a calendar day, as a span's endpoint, a closed id's payload or a field. */
-export type DateType = BareType & { readonly carrier: "date" }
-
-/** Whether a type is a date's, a date itself or a contract over one. */
-export const isDateType = (t: ScalarType): t is DateType => t.carrier === "date"
-
 /**
- * A bounded, half-open span over an endpoint of its carrier (range4 over int4, range8 over int8, rangeDate over date),
- * with an optional fixed positive width, of the endpoint's units: a count of days over date. Every value of a span type is nonempty and bounded, so lower() and upper()
- * never return NULL: a stored column carries the span shape CHECK (physical/span/storage.ts), a literal has
- * start < end (expr.ts literalProblem), a parameter or fact is admitted only as one (scalar/values/span.ts makeSpan),
- * a producer never delivers an empty piece, and no operation of the catalogue returns a span. The Allen reading of
- * endpoint predicates (check/allen.ts) rests on it.
- */
-export interface SpanInfo {
-	readonly endpoint: IntegerType<"int4"> | IntegerType<"int8"> | DateType
-	readonly width: bigint | undefined
-}
-
-/**
- * The descriptor is a union tagged by carrier: each variant holds exactly the fields its carrier has, so a field is read
- * off a variant the carrier narrowed to, or through its total accessor (contractOf, textOf, rosterOf, spanOf,
- * numericTypmodOf, vectorTypmodOf). A contract mirrors its base's typmod, text refinement, roster and span (the decoder
- * checks the copies agree).
+ * The descriptor is a union tagged by carrier: each plain variant holds exactly the fields its carrier has, and a
+ * contract's holds its carrier, its capabilities and the contract alone, its base holding every other field
+ * (ContractType). A field is read off a plain variant the carrier narrowed to, or through its total accessor
+ * (textOf, rosterOf, spanOf, numericTypmodOf, vectorTypmodOf), which reads a contract's through its base, or by its
+ * `contract`, which every descriptor states, undefined for a plain one.
  */
 interface IntegerType<C extends IntegerCarrier = IntegerCarrier> {
 	readonly carrier: C
 	readonly caps: CapabilitySet
-	readonly contract: ContractInfo | undefined
+	readonly contract: undefined
 }
 
 /** numeric(p, s): what a field, a cast, a parameter and a typed literal declare, a contract's base among them. */
@@ -556,7 +530,7 @@ interface NumericTypmodType {
 	readonly carrier: "numeric"
 	readonly caps: CapabilitySet
 	readonly typmod: NumericTypmod
-	readonly contract: ContractInfo | undefined
+	readonly contract: undefined
 }
 
 /**
@@ -574,38 +548,16 @@ export interface NumericValueType {
 
 type NumericType = NumericTypmodType | NumericValueType
 
-/**
- * The value domains a contract is over: every value type a field declares, never a computed numeric or an exact value,
- * which only an operation makes, nor a set over a roster, whose holes and padding no predicate over it could keep apart,
- * nor bytes, which no predicate reads.
- */
-export type ContractBase = Exclude<ScalarType, NumericValueType | ExactType | BitsType | BytesType>
-
-/**
- * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, a set over
- * a roster, or bytes. A computed numeric and an exact value are a value's making, which no declaration states. How a
- * field is written, by its sequence among the ways, is the field's writing, never its type.
- */
-export type DeclaredType = ContractBase | BitsType | BytesType
-
-/** Whether a type is a computed numeric, which no declaration states. */
-export const isNumericValue = (t: ScalarType): t is NumericValueType =>
-	t.carrier === "numeric" && t.typmod === undefined
-
-/** Whether a type is an exact arithmetic result, which no declaration states. */
-export const isExactValue = (t: ScalarType): t is ExactType =>
-	t.carrier === "exactInteger" || t.carrier === "exactMoney"
-
 interface BareType {
 	readonly carrier: BareCarrier
 	readonly caps: CapabilitySet
-	readonly contract: ContractInfo | undefined
+	readonly contract: undefined
 }
 
 export interface TextType {
 	readonly carrier: "text"
 	readonly caps: CapabilitySet
-	readonly contract: ContractInfo | undefined
+	readonly contract: undefined
 	readonly text: TextInfo
 }
 
@@ -617,7 +569,7 @@ export interface TextType {
 interface CodeType {
 	readonly carrier: "code"
 	readonly caps: CapabilitySet
-	readonly contract: ContractInfo | undefined
+	readonly contract: undefined
 	readonly roster: Roster
 }
 
@@ -628,6 +580,7 @@ interface CodeType {
 interface BitsType {
 	readonly carrier: "bits"
 	readonly caps: CapabilitySet
+	readonly contract: undefined
 	readonly roster: Roster
 }
 
@@ -638,12 +591,13 @@ interface BitsType {
 interface BytesType {
 	readonly carrier: "bytes"
 	readonly caps: CapabilitySet
+	readonly contract: undefined
 }
 
 interface SpanType {
 	readonly carrier: SpanCarrier
 	readonly caps: CapabilitySet
-	readonly contract: ContractInfo | undefined
+	readonly contract: undefined
 	readonly span: SpanInfo
 }
 
@@ -651,7 +605,7 @@ interface VectorType {
 	readonly carrier: "vector"
 	readonly caps: CapabilitySet
 	readonly typmod: VectorTypmod
-	readonly contract: ContractInfo | undefined
+	readonly contract: undefined
 }
 
 /**
@@ -666,20 +620,12 @@ interface VectorType {
 interface ExactType {
 	readonly carrier: ExactValueCarrier
 	readonly caps: CapabilitySet
+	readonly contract: undefined
 	readonly digits: number
 }
 
-/**
- * The scalar type IR.
- *
- * A ScalarType is the canonical native carrier identity of a value plus everything that changes its meaning:
- * numeric typmod or a computed numeric's bound, contract identity, text refinement, closed roster, span endpoint, vector
- * dimensions, an exact value's digit bound, and the operation capability set. Two descriptors are the
- * same type exactly when they agree in each of these, a contract by its identity (sameScalarType).
- *
- * There is no nullable type: every ScalarType denotes a non-null domain, and absence is zero rows.
- */
-export type ScalarType =
+/** A type with no contract: what a contract is over at its last level (baseOf), and every operation's result. */
+export type PlainType =
 	| IntegerType<"int2">
 	| IntegerType<"int4">
 	| IntegerType<"int8">
@@ -693,88 +639,107 @@ export type ScalarType =
 	| VectorType
 	| ExactType
 
-/** The contract a descriptor carries. */
-export const contractOf = (t: ScalarType): ContractInfo | undefined => {
-	switch (t.carrier) {
-		case "int2":
-		case "int4":
-		case "int8":
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "money":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "code":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-			return t.contract
-		case "bytes":
-		case "bits":
-		case "exactInteger":
-		case "exactMoney":
-			return undefined
-	}
+/** The plain value domains a contract is over at its last level: every value type a field declares but a set and bytes. */
+type ContractedType = Exclude<PlainType, NumericValueType | ExactType | BitsType | BytesType>
+
+/** The carriers a contract is over. */
+export type ContractCarrier = ContractedType["carrier"]
+
+/**
+ * A contract's descriptor, of carrier C, its base's, which a switch on carriers reads it by: the contract, whose base
+ * holds its capabilities, its typmod, its text refinement, its roster and its span (capsOf, textOf, …), which this
+ * descriptor never repeats, so nothing holds two copies of one field to keep alike.
+ */
+export interface ContractType<C extends ContractCarrier = ContractCarrier> {
+	readonly carrier: C
+	readonly contract: ContractInfo
 }
 
-/** The text refinement of a text descriptor. */
+/** A contract's descriptor of each carrier a contract is over. */
+type ContractTypes = { readonly [C in ContractCarrier]: ContractType<C> }[ContractCarrier]
+
+/**
+ * The value domains a contract is over: every value type a field declares, never a computed numeric or an exact value,
+ * which only an operation makes, nor a set over a roster, whose holes and padding no predicate over it could keep apart,
+ * nor bytes, which no predicate reads; a contract's among them, so a contract is over another.
+ */
+export type ContractBase = ContractedType | ContractTypes
+
+/**
+ * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, a set over
+ * a roster, or bytes. A computed numeric and an exact value are a value's making, which no declaration states. How a
+ * field is written, by its sequence among the ways, is the field's writing, never its type.
+ */
+export type DeclaredType = ContractBase | BitsType | BytesType
+
+/** A date: a calendar day, or a contract over one, as a span's endpoint, a closed id's payload or a field. */
+export type DateType = (BareType & { readonly carrier: "date" }) | ContractType<"date">
+
+/** Whether a type is a date's, a date itself or a contract over one. */
+export const isDateType = (t: ScalarType): t is DateType => t.carrier === "date"
+
+/**
+ * A bounded, half-open span over an endpoint of its carrier (range4 over int4, range8 over int8, rangeDate over date),
+ * a contract over one among them, with an optional fixed positive width, of the endpoint's units: a count of days over
+ * date. Every value of a span type is nonempty and bounded, so lower() and upper() never return NULL: a stored column
+ * carries the span shape CHECK (physical/span/storage.ts), a literal has start < end (expr.ts literalProblem), a
+ * parameter or fact is admitted only as one (scalar/values/span.ts makeSpan), a producer never delivers an empty piece,
+ * and no operation of the catalogue returns a span. The Allen reading of endpoint predicates (check/allen.ts) rests on
+ * it.
+ */
+export interface SpanInfo {
+	readonly endpoint:
+		| IntegerType<"int4">
+		| IntegerType<"int8">
+		| ContractType<"int4">
+		| ContractType<"int8">
+		| DateType
+	readonly width: bigint | undefined
+}
+
+/** Whether a type is a computed numeric, which no declaration states. */
+export const isNumericValue = (t: ScalarType): t is NumericValueType =>
+	t.carrier === "numeric" && t.contract === undefined && t.typmod === undefined
+
+/** Whether a type is an exact arithmetic result, which no declaration states. */
+export const isExactValue = (t: ScalarType): t is ExactType =>
+	t.carrier === "exactInteger" || t.carrier === "exactMoney"
+
+/**
+ * The scalar type IR.
+ *
+ * A ScalarType is the canonical native carrier identity of a value plus everything that changes its meaning:
+ * numeric typmod or a computed numeric's bound, contract identity, text refinement, closed roster, span endpoint, vector
+ * dimensions, an exact value's digit bound, and the operation capability set. Two descriptors are the
+ * same type exactly when they agree in each of these, a contract by its identity (sameScalarType).
+ *
+ * There is no nullable type: every ScalarType denotes a non-null domain, and absence is zero rows.
+ */
+export type ScalarType = PlainType | ContractTypes
+
+/** A contract contributes its base: the plain type a contract is over at its last level, every other type itself. */
+export const baseOf = (t: ScalarType): PlainType =>
+	t.contract === undefined ? t : baseOf(t.contract.base)
+
+/** The capabilities of a descriptor, a contract's its base's. */
+export const capsOf = (t: ScalarType): CapabilitySet => baseOf(t).caps
+
+/** The text refinement of a text descriptor, a contract's its base's. */
 export const textOf = (t: ScalarType): TextInfo | undefined => {
-	switch (t.carrier) {
-		case "text":
-			return t.text
-		case "int2":
-		case "int4":
-		case "int8":
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "money":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-		case "exactInteger":
-		case "exactMoney":
-			return undefined
-	}
+	const b = baseOf(t)
+	return b.carrier === "text" ? b.text : undefined
 }
 
-/** The roster of a closed id or of a set over a roster. */
+/** The bounds a text descriptor's refinement proves on every value (textInfoBounds); none for any other type. */
+export const textBoundsOf = (t: ScalarType): TextBounds | undefined => {
+	const text = textOf(t)
+	return text === undefined ? undefined : textInfoBounds(text)
+}
+
+/** The roster of a closed id or of a set over a roster, a contract's its base's. */
 export const rosterOf = (t: ScalarType): Roster | undefined => {
-	switch (t.carrier) {
-		case "code":
-		case "bits":
-			return t.roster
-		case "int2":
-		case "int4":
-		case "int8":
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "money":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-		case "exactInteger":
-		case "exactMoney":
-			return undefined
-	}
+	const b = baseOf(t)
+	return b.carrier === "code" || b.carrier === "bits" ? b.roster : undefined
 }
 
 /** The range carrier of a span descriptor. */
@@ -787,88 +752,27 @@ export const spanCarrierOf = (t: ScalarType): SpanCarrier | undefined =>
 export const isSpanCarrier = (carrier: Carrier): carrier is SpanCarrier =>
 	carrier === "range4" || carrier === "range8" || carrier === "rangeDate"
 
-/** The span of a range descriptor. */
+/** The span of a range descriptor, a contract's its base's. */
 export const spanOf = (t: ScalarType): SpanInfo | undefined => {
-	switch (t.carrier) {
-		case "range4":
-		case "range8":
-		case "rangeDate":
-			return t.span
-		case "int2":
-		case "int4":
-		case "int8":
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "money":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "vector":
-		case "exactInteger":
-		case "exactMoney":
-			return undefined
-	}
+	const b = baseOf(t)
+	return b.carrier === "range4" || b.carrier === "range8" || b.carrier === "rangeDate"
+		? b.span
+		: undefined
 }
 
-/** The typmod of a numeric descriptor, numeric(p, s); undefined for a computed numeric and every other carrier. */
+/**
+ * The typmod of a numeric descriptor, numeric(p, s), a contract's its base's; undefined for a computed numeric and every
+ * other carrier.
+ */
 export const numericTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
-	switch (t.carrier) {
-		case "numeric":
-			return t.typmod
-		case "int2":
-		case "int4":
-		case "int8":
-		case "float4":
-		case "float8":
-		case "money":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-		case "exactInteger":
-		case "exactMoney":
-			return undefined
-	}
+	const b = baseOf(t)
+	return b.carrier === "numeric" ? b.typmod : undefined
 }
 
-/** The typmod of a vector descriptor, vector(n). */
+/** The typmod of a vector descriptor, vector(n), a contract's its base's. */
 export const vectorTypmodOf = (t: ScalarType): VectorTypmod | undefined => {
-	switch (t.carrier) {
-		case "vector":
-			return t.typmod
-		case "int2":
-		case "int4":
-		case "int8":
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "money":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "code":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "exactInteger":
-		case "exactMoney":
-			return undefined
-	}
+	const b = baseOf(t)
+	return b.carrier === "vector" ? b.typmod : undefined
 }
 
 /** The digit bound of an exact descriptor; undefined for every other carrier. */
@@ -877,18 +781,9 @@ export const exactDigitsOf = (t: ScalarType): number | undefined =>
 
 /** The proved bound of a computed numeric; undefined for numeric(p, s) and every other carrier. */
 export const numericBoundOf = (t: ScalarType): NumericBound | undefined =>
-	t.carrier === "numeric" && t.typmod === undefined ? t.bound : undefined
-
-const sameNumericBound = (a: NumericBound | undefined, b: NumericBound | undefined): boolean =>
-	a?.digits === b?.digits && a?.scale === b?.scale
-
-/** Two contracts are one by identity, their names and bases: two descriptors of one contract are one type whatever
- * predicate either carries. */
-const sameContract = (a: ContractInfo | undefined, b: ContractInfo | undefined): boolean =>
-	a === undefined || b === undefined ? a === b : a.name === b.name && sameScalarType(a.base, b.base)
-
-const sameNumericTypmod = (a: NumericTypmod | undefined, b: NumericTypmod | undefined): boolean =>
-	a?.precision === b?.precision && a?.scale === b?.scale
+	t.carrier === "numeric" && t.contract === undefined && t.typmod === undefined
+		? t.bound
+		: undefined
 
 /** One list of patterns: each member's source and flags, in order. */
 export const samePatterns = (a: Patterns, b: Patterns): boolean =>
@@ -899,59 +794,83 @@ export const samePatterns = (a: Patterns, b: Patterns): boolean =>
 			return q !== undefined && p.source === q.source && p.flags === q.flags
 		}))
 
-const sameRegexRef = (a: RegexRef | "wildcard", b: RegexRef | "wildcard"): boolean =>
+/** One text refinement: the wildcard, or one list of patterns of one language's key. */
+const sameText = (a: TextInfo, b: TextInfo): boolean =>
 	a === "wildcard" || b === "wildcard"
 		? a === b
 		: samePatterns(a.patterns, b.patterns) && a.key === b.key
 
-const sameText = (a: TextInfo | undefined, b: TextInfo | undefined): boolean =>
-	a === undefined || b === undefined
-		? a === b
-		: sameRegexRef(a.regex, b.regex) &&
-			a.lengthBound === b.lengthBound &&
-			a.byteBound === b.byteBound
-
 /** One roster: its name, its order and its handles in order, by their digest, as its canonical form states them. */
-const sameRoster = (a: Roster | undefined, b: Roster | undefined): boolean =>
-	a === undefined || b === undefined
-		? a === b
-		: a.closed === b.closed && a.order === b.order && a.digest === b.digest
-
-const sameSpan = (a: SpanInfo | undefined, b: SpanInfo | undefined): boolean =>
-	a === undefined || b === undefined
-		? a === b
-		: a.width === b.width && sameScalarType(a.endpoint, b.endpoint)
+const sameRoster = (a: Roster, b: Roster): boolean =>
+	a.closed === b.closed && a.order === b.order && a.digest === b.digest
 
 /**
- * Type identity, field by field: one carrier and capability set, one contract by its identity (never
- * its predicate), and one numeric typmod or computed numeric bound, vector dimension count, text refinement (patterns,
- * language key and bounds), roster and span. Source locations never appear inside a descriptor.
+ * Two plain types of one carrier and capability set are one where their carrier's fields are: its numeric typmod or
+ * computed bound, its vector dimensions, its exact digit bound, its text refinement (patterns and language key), its
+ * roster or its span.
+ */
+const samePlain = (a: PlainType, b: PlainType): boolean => {
+	if (a.carrier !== b.carrier || !sameOrder(a.caps, b.caps)) {
+		return false
+	}
+	switch (a.carrier) {
+		case "numeric":
+			if (b.carrier !== "numeric") {
+				return false
+			}
+			if (a.typmod === undefined || b.typmod === undefined) {
+				return (
+					a.typmod === undefined &&
+					b.typmod === undefined &&
+					a.bound.digits === b.bound.digits &&
+					a.bound.scale === b.bound.scale
+				)
+			}
+			return a.typmod.precision === b.typmod.precision && a.typmod.scale === b.typmod.scale
+		case "vector":
+			return b.carrier === "vector" && a.typmod.dims === b.typmod.dims
+		case "exactInteger":
+		case "exactMoney":
+			return (b.carrier === "exactInteger" || b.carrier === "exactMoney") && a.digits === b.digits
+		case "text":
+			return b.carrier === "text" && sameText(a.text, b.text)
+		case "code":
+		case "bits":
+			return (b.carrier === "code" || b.carrier === "bits") && sameRoster(a.roster, b.roster)
+		case "range4":
+		case "range8":
+		case "rangeDate":
+			return (
+				(b.carrier === "range4" || b.carrier === "range8" || b.carrier === "rangeDate") &&
+				a.span.width === b.span.width &&
+				sameScalarType(a.span.endpoint, b.span.endpoint)
+			)
+		case "int2":
+		case "int4":
+		case "int8":
+		case "float4":
+		case "float8":
+		case "money":
+		case "bool":
+		case "uuid":
+		case "date":
+		case "bytes":
+			return true
+	}
+}
+
+/**
+ * Type identity: two plain types field by field (samePlain), and two contracts by their identity, their names and
+ * bases, whatever predicate either carries, a contract and a plain type never one. Source locations never appear
+ * inside a descriptor.
  */
 export const sameScalarType = (a: ScalarType, b: ScalarType): boolean =>
 	a === b ||
-	(a.carrier === b.carrier &&
-		sameOrder(a.caps, b.caps) &&
-		sameContract(contractOf(a), contractOf(b)) &&
-		sameNumericTypmod(numericTypmodOf(a), numericTypmodOf(b)) &&
-		sameNumericBound(numericBoundOf(a), numericBoundOf(b)) &&
-		vectorTypmodOf(a)?.dims === vectorTypmodOf(b)?.dims &&
-		exactDigitsOf(a) === exactDigitsOf(b) &&
-		sameText(textOf(a), textOf(b)) &&
-		sameRoster(rosterOf(a), rosterOf(b)) &&
-		sameSpan(spanOf(a), spanOf(b)))
-
-/** A contract contributes its base. */
-export const baseOf = (t: ScalarType): ScalarType => {
-	const contract = contractOf(t)
-	return contract === undefined ? t : baseOf(contract.base)
-}
-
-/** The text of every value: the canonical wildcard, which proves no bound. */
-const everyText: TextInfo = Object.freeze({
-	regex: "wildcard",
-	lengthBound: undefined,
-	byteBound: undefined
-})
+	(a.contract === undefined || b.contract === undefined
+		? a.contract === undefined && b.contract === undefined && samePlain(a, b)
+		: a.carrier === b.carrier &&
+			a.contract.name === b.contract.name &&
+			sameScalarType(a.contract.base, b.contract.base))
 
 /**
  * A type without the refinement its column's domain alone enforces, which the TypeScript type of its values leaves
@@ -963,8 +882,8 @@ const everyText: TextInfo = Object.freeze({
  * or grizzle's fill, and the column's domain refuses one outside `t`, an outcome on that pattern's rule.
  */
 export const enteredType = (t: ScalarType): ScalarType =>
-	t.carrier === "text" && t.contract === undefined && t.text.regex !== "wildcard"
-		? Object.freeze({ ...t, text: everyText })
+	t.carrier === "text" && t.contract === undefined && t.text !== "wildcard"
+		? Object.freeze({ ...t, text: "wildcard" })
 		: t
 
 /**
@@ -980,7 +899,7 @@ export const sameEnteredType = (a: ScalarType, b: ScalarType): boolean =>
  */
 export const isRefined = (t: ScalarType): boolean => {
 	const text = textOf(t)
-	return contractOf(t) !== undefined || (text !== undefined && text.regex !== "wildcard")
+	return t.contract !== undefined || (text !== undefined && text !== "wildcard")
 }
 
 /** Each carrier's PostgreSQL type name, which typeLabel prints for a carrier of no parameters. */
@@ -1021,9 +940,8 @@ export const refinementText = (regex: RegexRef): string => {
  * "numeric(10,2)", "contract Cents over bigint", "code Kind", "bits Kind", "text ~ /^[a-z]+$/u".
  */
 export const typeLabel = (t: ScalarType): string => {
-	const contract = contractOf(t)
-	if (contract !== undefined) {
-		return `contract ${contract.name} over ${typeLabel(contract.base)}`
+	if (t.contract !== undefined) {
+		return `contract ${t.contract.name} over ${typeLabel(t.contract.base)}`
 	}
 	switch (t.carrier) {
 		case "int2":
@@ -1043,8 +961,7 @@ export const typeLabel = (t: ScalarType): string => {
 		case "bits":
 			return `bits ${t.roster.closed}`
 		case "text": {
-			const { regex } = t.text
-			return regex === "wildcard" ? "text" : refinementText(regex)
+			return t.text === "wildcard" ? "text" : refinementText(t.text)
 		}
 		case "float4":
 		case "float8":

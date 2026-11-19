@@ -26,7 +26,7 @@ import { regex } from "arkregex"
 import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import { contractOf, numericTypmodOf, sameScalarType } from "#compiler/ir/scalar.ts"
+import { capsOf, numericTypmodOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
@@ -146,8 +146,8 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 						const { scalar } = succeeded(describeField(declared, SourceLoc(name, [])))
 						assert.equal(scalar.carrier, described.scalar.carrier)
 						assert.deepEqual(numericTypmodOf(scalar), numericTypmodOf(described.scalar))
-						assert.deepEqual(scalar.caps, described.scalar.caps)
-						const info = defined(contractOf(scalar), "the contract")
+						assert.deepEqual(capsOf(scalar), capsOf(described.scalar))
+						const info = defined(scalar.contract, "the contract")
 						assert.equal<string>(info.name, name)
 						assert.ok(sameScalarType(info.base, described.scalar))
 						assert.equal(declared(value), value)
@@ -190,8 +190,8 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 			kills: [
 				{
 					file: "packages/engine/src/ir/scalar.ts",
-					original: "\t\t: a.width === b.width && sameScalarType(a.endpoint, b.endpoint)",
-					replacement: "\t\t: a.width !== b.width && sameScalarType(a.endpoint, b.endpoint)",
+					original: "\t\t\t\ta.span.width === b.span.width &&",
+					replacement: "\t\t\t\ta.span.width !== b.span.width &&",
 					why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:868 in sameSpan: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 				}
 			]

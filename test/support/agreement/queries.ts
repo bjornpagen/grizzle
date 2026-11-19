@@ -13,7 +13,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { type KeyClasses, type KeyProof, keyFactors } from "#compiler/ir/keys.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Card } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { compilePage, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
@@ -3555,7 +3555,7 @@ const keyValueText = (type: ScalarType): string => {
 		case "int4":
 			return "1"
 		case "code":
-			return jsonText(Arr.getUnsafe(type.roster.handles, 0))
+			return jsonText(Arr.getUnsafe(defined(rosterOf(type), "a closed id's roster").handles, 0))
 		case "range4":
 			return "{ start: 0, end: 1 }"
 		case "int2":

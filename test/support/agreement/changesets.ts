@@ -10,8 +10,7 @@ import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { isSequence } from "#compiler/ir/family.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { contractOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { Bits, Money, pg } from "#compiler/public/fields.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -2391,7 +2390,7 @@ type Verdict =
  * source, as its field's host type is (text/field.ts str.regex).
  */
 const hostText = (t: ScalarType): string => {
-	const named = contractOf(t)
+	const named = t.contract
 	if (named !== undefined) {
 		return named.name === "Cents" ? "Infer<typeof Cents>" : `unknown /* ${named.name} */`
 	}
@@ -2416,11 +2415,11 @@ const hostText = (t: ScalarType): string => {
 		case "date":
 			return "CalendarDate"
 		case "text":
-			return t.text.regex === "wildcard"
+			return t.text === "wildcard"
 				? "string"
 				: Arr.join(
 						Arr.map(
-							t.text.regex.patterns,
+							t.text.patterns,
 							(p) => `RegexInfer<${jsonText(p.source)}, ${jsonText(p.flags)}>`
 						),
 						" & "
@@ -2446,16 +2445,18 @@ const hostText = (t: ScalarType): string => {
  * The ParamType a parameter of the engine's type has, as the program spells it: a closed id's domain is its handles,
  * each branded by its roster, and its language the handles alone; any other's language is its domain.
  */
-const paramText = (t: ScalarType): string =>
-	t.carrier === "code"
+const paramText = (t: ScalarType): string => {
+	const b = baseOf(t)
+	return b.carrier === "code"
 		? `ParamType<${Arr.join(
 				Arr.map(
-					t.roster.handles,
-					(h) => `(${jsonText(h)} & Rostered<${jsonText(t.roster.closed)}>)`
+					b.roster.handles,
+					(h) => `(${jsonText(h)} & Rostered<${jsonText(b.roster.closed)}>)`
 				),
 				" | "
 			)}, "code", ${hostText(t)}>`
 		: `ParamType<${hostText(t)}, ${jsonText(carrierSql[t.carrier])}>`
+}
 
 const refusedAt = (at: Site, thrown: unknown, spec: CaseSpec): Verdict => ({
 	kind: "refused",

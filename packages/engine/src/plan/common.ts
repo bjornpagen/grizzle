@@ -144,13 +144,7 @@ export type {
 	RelationParamDecl,
 	StatementSpec
 } from "#compiler/ir/products.ts"
-export {
-	type Carrier,
-	contractOf,
-	patternsText,
-	type Roster,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+export { type Carrier, patternsText, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 export type { DomainUse } from "#compiler/laws/model/model.ts"
 export {
 	type NamedLogin,

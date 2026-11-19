@@ -10,10 +10,10 @@ import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 import {
-	contractOf,
+	capsOf,
 	numericTypmodOf,
-	type ScalarType,
 	sameScalarType,
+	type ScalarType,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import { exactOf, finiteEnds, insideRange } from "#compiler/scalar/compute/bounds.ts"
@@ -78,7 +78,7 @@ export const requireHashing = (
 	type: ScalarType,
 	loc: SourceLoc
 ): StateType => {
-	if (type.carrier === "bits" || type.carrier === "bytes" || !type.caps.includes("hashing")) {
+	if (type.carrier === "bits" || type.carrier === "bytes" || !capsOf(type).includes("hashing")) {
 		failRecursion(loc, {
 			kind: "unhashableState",
 			recursion,
@@ -108,7 +108,7 @@ const conversion = (a: ScalarType, d: ScalarType): Conversion => {
 	if (sameScalarType(a, d)) {
 		return { kind: "same" }
 	}
-	if (a.carrier === "exactInteger" && contractOf(d) === undefined && isInteger(d)) {
+	if (a.carrier === "exactInteger" && d.contract === undefined && isInteger(d)) {
 		return { kind: "narrow" }
 	}
 	if (!compatible(a, d)) {

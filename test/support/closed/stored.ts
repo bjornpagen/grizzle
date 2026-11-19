@@ -7,8 +7,9 @@ import { Array as Arr, Formatter, Option, Result } from "effect"
  */
 import { quoteString } from "#compiler/core/text.ts"
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { defined } from "#test/support/assert.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
 
 /** A stored relation's field that holds a closed id, spelled and read by its roster's codes under the installation's. */
@@ -27,7 +28,7 @@ const closedFieldOf = (
 	at: string,
 	type: Extract<ScalarType, { readonly carrier: "code" }>
 ): ClosedField => {
-	const codec = codecOf(installation.names.codes, type.roster)
+	const codec = codecOf(installation.names.codes, defined(rosterOf(type), "a closed id's roster"))
 	const read = strictReader(type, installation.names.codes)
 	return {
 		literal: (handle) => quoteString(String(codeOf(codec, handle))),

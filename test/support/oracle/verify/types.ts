@@ -2,7 +2,7 @@ import { Array as Arr, Data, Effect, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { quoteString } from "#compiler/core/text.ts"
 import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type ScalarType } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
 import { statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
@@ -33,10 +33,10 @@ const withNullPlaceholders = (text: string): string => {
  * refinement outside any contract whose domain the installation does not name, its base, text.
  */
 const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
-	contractOf(t) === undefined &&
+	t.contract === undefined &&
 	t.carrier === "text" &&
-	t.text.regex !== "wildcard" &&
-	names.textDomain(t.text.regex) === undefined
+	t.text !== "wildcard" &&
+	names.textDomain(t.text) === undefined
 		? types.text
 		: fieldColumnType(names, t).type
 

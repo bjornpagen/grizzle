@@ -27,7 +27,7 @@ import {
 	type TakeBound,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
-import { contractOf, type RegexRef, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type RegexRef, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type {
 	ArrayPart,
@@ -926,9 +926,7 @@ export class LowerContext {
 
 /** The pattern a declared parameter's own pattern domain checks of a value of `t`: refined text outside any contract. */
 const paramPattern = (t: ScalarType): RegexRef | undefined =>
-	contractOf(t) === undefined && t.carrier === "text" && t.text.regex !== "wildcard"
-		? t.text.regex
-		: undefined
+	t.contract === undefined && t.carrier === "text" && t.text !== "wildcard" ? t.text : undefined
 
 /**
  * The PostgreSQL type of a value of `t`: a contract's domain, a regex refinement's __text_ domain, an extension's
@@ -942,7 +940,7 @@ type PhysicalType =
 	| { readonly kind: "unnamedText"; readonly regex: RegexRef }
 
 const physicalTypeOf = (names: PhysicalNames, t: ScalarType): PhysicalType => {
-	const contract = contractOf(t)
+	const { contract } = t
 	if (contract !== undefined) {
 		const domain = names.contractDomain(contract.name)
 		return {
@@ -950,10 +948,10 @@ const physicalTypeOf = (names: PhysicalNames, t: ScalarType): PhysicalType => {
 			ref: { kind: "named", schema: domain.schema, name: domain.name, typmod: [], array: false }
 		}
 	}
-	if (t.carrier === "text" && t.text.regex !== "wildcard") {
-		const domain = names.textDomain(t.text.regex)
+	if (t.carrier === "text" && t.text !== "wildcard") {
+		const domain = names.textDomain(t.text)
 		return domain === undefined
-			? { kind: "unnamedText", regex: t.text.regex }
+			? { kind: "unnamedText", regex: t.text }
 			: {
 					kind: "type",
 					ref: { kind: "named", schema: domain.schema, name: domain.name, typmod: [], array: false }

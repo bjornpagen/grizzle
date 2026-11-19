@@ -629,7 +629,7 @@ const keyFieldDesc = (key: KeyVar): JsonRecord => {
 			const analyzed = languageOfText(text)
 			const language = languageJson(analyzed)
 			const bytes = languageOctets(analyzed)
-			const patterns = Arr.map(textPatterns(text.regex), (p) => ({
+			const patterns = Arr.map(textPatterns(text), (p) => ({
 				source: p.source,
 				flags: p.flags
 			}))

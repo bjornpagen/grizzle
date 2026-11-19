@@ -1,7 +1,7 @@
 /** What the properties of registry-types.test.ts read: its spaces, models and helpers. */
 
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { contractOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { assert } from "#test/support/assert.ts"
@@ -20,7 +20,7 @@ export const registryTyped = (column: HeadingColumn): void => {
 	const type = column.type
 	if (
 		isPlainCarrier(type.carrier) &&
-		contractOf(type) === undefined &&
+		type.contract === undefined &&
 		!("serial" in type) &&
 		numericTypmodOf(type) === undefined
 	) {
@@ -29,7 +29,7 @@ export const registryTyped = (column: HeadingColumn): void => {
 			`${column.name}: the registry's ${type.carrier}`
 		)
 	}
-	if (textOf(type)?.regex === "wildcard" && contractOf(type) === undefined) {
+	if (textOf(type) === "wildcard" && type.contract === undefined) {
 		assert.ok(sameScalarType(type, wildcardText), `${column.name}: the registry's wildcard text`)
 	}
 }

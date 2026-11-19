@@ -1,12 +1,6 @@
 import { defect } from "#compiler/core/invariant.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
-import {
-	contractOf,
-	type PatternSource,
-	type RegexRef,
-	type ScalarType,
-	textOf
-} from "#compiler/ir/scalar.ts"
+import { type PatternSource, type RegexRef, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"
 import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
 import { Matcher } from "#compiler/scalar/regex/match.ts"
@@ -204,9 +198,9 @@ class SetTable {
  * patterns its predicate reads, every level down to the base.
  */
 export const typePatterns = (t: ScalarType): ReadonlyArray<PatternSource> => {
-	const regex = textOf(t)?.regex
+	const regex = textOf(t)
 	const own = regex === undefined || regex === "wildcard" ? [] : regex.patterns
-	const contract = contractOf(t)
+	const { contract } = t
 	return contract === undefined
 		? own
 		: [

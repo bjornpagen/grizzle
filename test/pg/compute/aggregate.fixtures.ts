@@ -4,7 +4,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { int8Digits, integerDigits } from "#compiler/ir/carriers.ts"
-import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type AggregateOverload, aggregateOverload } from "#compiler/scalar/aggregate.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"
@@ -281,4 +281,4 @@ export type AggregateFeature = `checked ${Aggregate}/${string}` | "checked count
  * contract; a sum or a mean is no argument, so it keeps none.
  */
 export const keptContract = (name: Aggregate, arg: ScalarType): string | undefined =>
-	name === "min" || name === "max" ? contractOf(arg)?.name : undefined
+	name === "min" || name === "max" ? arg.contract?.name : undefined

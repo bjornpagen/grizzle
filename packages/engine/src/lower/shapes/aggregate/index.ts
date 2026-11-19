@@ -4,7 +4,7 @@ import { appendNonEmpty } from "#compiler/core/nonempty.ts"
 import { localCertificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import { integerLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { AggregateSpec, NodeOf } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar.ts"
+import { type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar.ts"
 
 import {
 	type ColumnEqualities,
@@ -55,8 +55,8 @@ const nativeCall: AggregateShape = { kind: "native" }
  */
 const sameCarrier = (a: ScalarType, b: ScalarType): boolean =>
 	a.carrier === b.carrier &&
-	contractOf(a) === undefined &&
-	contractOf(b) === undefined &&
+	a.contract === undefined &&
+	b.contract === undefined &&
 	vectorTypmodOf(a) === undefined &&
 	vectorTypmodOf(b) === undefined
 

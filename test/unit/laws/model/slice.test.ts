@@ -8,7 +8,7 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import type { RelationIdent } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { contractOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { selectionKeysOf } from "#compiler/physical/ddl/names.ts"
 import { installBasis, unserved, planBasis } from "#compiler/physical/install/plan.ts"
 import { baseArtifacts, parseSchemaInput, raisableOf } from "#compiler/program/schema.ts"
@@ -340,7 +340,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 					)
 					const names = wholeArtifacts.names
 					const chainOf = (t: ScalarType): ReadonlyArray<string> => {
-						const contract = contractOf(t)
+						const { contract } = t
 						return contract === undefined
 							? []
 							: [names.contractDomain(contract.name).name, ...chainOf(contract.base)]
@@ -349,9 +349,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 						Arr.flatMap(cast, (t) => {
 							const text = textOf(t)
 							const pattern =
-								text === undefined || text.regex === "wildcard"
-									? undefined
-									: names.textDomain(text.regex)
+								text === undefined || text === "wildcard" ? undefined : names.textDomain(text)
 							return [...chainOf(t), ...(pattern === undefined ? [] : [pattern.name])]
 						})
 					)

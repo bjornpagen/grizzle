@@ -70,14 +70,7 @@ import {
 } from "#compiler/ir/law.ts"
 import type { CheckedTheory } from "#compiler/ir/products.ts"
 import type { HeadingColumn, KeySet, RelNode, ValidDag } from "#compiler/ir/rel.ts"
-import {
-	baseOf,
-	type ContractInfo,
-	contractOf,
-	Roster,
-	type ScalarType,
-	spanOf
-} from "#compiler/ir/scalar.ts"
+import { baseOf, type ContractInfo, Roster, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import type { ClosedRelations } from "#compiler/scalar/compute/typing.ts"
@@ -407,7 +400,7 @@ const contractUses = (
 /** Each contract a type is, from the outside in. */
 const contractNames = (t: ScalarType): ReadonlyArray<string> => {
 	const names: Array<string> = []
-	for (let contract = contractOf(t); contract !== undefined; contract = contractOf(contract.base)) {
+	for (let contract = t.contract; contract !== undefined; contract = contract.base.contract) {
 		names.push(contract.name)
 	}
 	return names

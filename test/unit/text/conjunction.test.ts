@@ -118,7 +118,7 @@ export const aConjunctionsLanguageIsEveryMembersAtOnceByTheHostAndByTheIntersect
 							return
 						}
 						const r: TextRefinement = analyzed.value
-						const { regex } = textInfo(r)
+						const regex = textInfo(r)
 						const host = new CompilePatterns()
 						const bounds = refinementBounds(r)
 						if (
@@ -346,7 +346,7 @@ export const aMatchGuardOverARefinedSubjectTypesItsBranchByTheSubjectsPatternsAn
 				{
 					file: "packages/engine/src/scalar/compute/typing.ts",
 					original:
-						'\t\t\tappendNonEmpty(own === undefined || own.regex === "wildcard" ? [] : own.regex.patterns, {',
+						'\t\t\tappendNonEmpty(own === undefined || own === "wildcard" ? [] : own.patterns, {',
 					replacement: "\t\t\tappendNonEmpty([], {",
 					why: "A match guard's branch is typed by the guard's pattern alone, the subject's own patterns dropped; the match guard property fails."
 				}

@@ -43,7 +43,12 @@ const roster = Roster.of(
 	nonEmpty(Arr.makeBy(size, handleOf))
 )
 
-const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
+const set: ScalarType = {
+	carrier: "bits",
+	caps: capabilitiesOf("bits"),
+	contract: undefined,
+	roster
+}
 
 const code: ScalarType = {
 	carrier: "code",

@@ -38,8 +38,8 @@ import {
 	handlesInOrder,
 	Roster as IrRoster,
 	type RosterHandles,
-	type RosterOrder,
 	rosterOf,
+	type RosterOrder,
 	rosterOrders
 } from "#compiler/ir/scalar.ts"
 import { firstRepeatAt } from "#compiler/ir/shape.ts"
@@ -753,7 +753,10 @@ const closedRows = (
 	const typed = Object.entries(described).map(([field, { desc, scalar }]) => ({
 		field,
 		desc,
-		handles: scalar.carrier === "code" ? new Set<LiteralDesc>(scalar.roster.handles) : undefined
+		handles: ((roster) =>
+			roster === undefined ? undefined : new Set<LiteralDesc>(roster.handles))(
+			scalar.carrier === "code" ? rosterOf(scalar) : undefined
+		)
 	}))
 	const facts = new TupleMap<ReadonlyArray<string>, ClosedRow>()
 	const written = new Map<ClosedRow, number>()
@@ -870,7 +873,7 @@ const closedReadTyping = (
 	const roster = lastDesc.roster
 	const env: ScalarEnv = {
 		kind: "builder",
-		roster: (n) => (n === roster ? lastType.roster : undefined)
+		roster: (n) => (n === roster ? rosterOf(lastType) : undefined)
 	}
 	const set = orThrow(scalarTypeOf({ kind: "bits", roster }, env, SourceLoc(label, [])))
 	return {
@@ -1201,8 +1204,8 @@ export const describeDeclared = (value: unknown, loc: SourceLoc): Described =>
 /**
  * The handles of the roster a field value's closedId or bits descriptor references, through a slot, drawn, accumulated or
  * generated field's declared type and any depth of contracts: the roster its descriptor's type holds, whose handles
- * closedId(roster) and bits(roster) admitted when they built it, and a contract's type mirrors its base's; undefined for
- * any other value.
+ * closedId(roster) and bits(roster) admitted when they built it, a contract's read through its base (ir/scalar.ts rosterOf);
+ * undefined for any other value.
  */
 export const rosterHandlesOf = (value: unknown): ReadonlyArray<string> | undefined =>
 	rosterOfField(value)?.handles

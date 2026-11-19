@@ -30,7 +30,6 @@ import { type ParamDecl, type PhysicalReason, paramColumns } from "#compiler/ir/
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	type ContractInfo,
-	contractOf,
 	type Patterns,
 	patternsText,
 	type RegexRef,
@@ -70,9 +69,7 @@ const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
 
 /** The regex of a column that a structural text domain types: refined text outside any contract. */
 export const structuralRegex = (t: ScalarType): RegexRef | undefined =>
-	t.carrier === "text" && t.contract === undefined && t.text.regex !== "wildcard"
-		? t.text.regex
-		: undefined
+	t.carrier === "text" && t.contract === undefined && t.text !== "wildcard" ? t.text : undefined
 
 /** A domain columns are typed by: its name, the identity it was minted from, and its object, when the installation
  * creates one. */
@@ -93,7 +90,7 @@ export const emptyUse = (): TypeUse => ({ domains: new Map(), vector: false })
 /** The domains a column of type `t` names, down a contract's base chain and a span's endpoint: a contract's, a text
  * refinement's, a closed id's roster domain and a set's bits domain. */
 const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
-	const contract = contractOf(t)
+	const { contract } = t
 	if (contract !== undefined) {
 		const name = b.names.contractDomain(contract.name)
 		use.domains.set(nameKey(name), {
@@ -343,7 +340,7 @@ export interface ParamContract {
 
 /** The contracts a value of `t` is checked under, innermost first: each contract its base chain names, then its own. */
 const innerFirstContracts = (t: ScalarType): ReadonlyArray<ContractInfo> => {
-	const contract = contractOf(t)
+	const { contract } = t
 	return contract === undefined ? [] : [...innerFirstContracts(contract.base), contract]
 }
 
@@ -739,7 +736,7 @@ export const addContractDomains = (b: InstallBuilder): ReadonlyArray<ObjectName>
 		if (known !== undefined) {
 			return known
 		}
-		const baseContract = contractOf(object.base)
+		const baseContract = object.base.contract
 		const inner = baseContract === undefined ? undefined : byName.get(baseContract.name)
 		if (inner !== undefined) {
 			add(inner)
@@ -823,7 +820,7 @@ export const outsideContracts = (
 			loc: SourceLoc,
 			what: string
 		): void => {
-			const baseContract = contractOf(info.base)
+			const baseContract = info.base.contract
 			if (desc.base.kind === "contract" && baseContract !== undefined) {
 				plan(desc.base, baseContract, loc, what)
 			}
@@ -850,7 +847,7 @@ export const outsideContracts = (
 			})
 		}
 		for (const f of fields) {
-			const info = contractOf(f.type)
+			const info = f.type.contract
 			if (f.desc.kind === "contract" && info !== undefined) {
 				plan(f.desc, info, f.loc, `context field ${f.context}.${f.field}`)
 			}

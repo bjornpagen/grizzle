@@ -20,7 +20,7 @@ import type * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
 import { missing, type PhysicalNames, type SelectionKey } from "#compiler/ir/physical.ts"
-import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
+import { type RegexRef, type ScalarType, textInfoBounds } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import type { Owned, OwnedEntry, OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
 import { imagedText } from "#compiler/schema/representability.ts"
@@ -369,8 +369,8 @@ const imagedViews = (
 			e.kind === "world"
 				? e.analysis.heading.flatMap((c) =>
 						c.type.carrier === "text" &&
-						c.type.text.byteBound === undefined &&
-						c.type.contract === undefined
+						c.type.contract === undefined &&
+						textInfoBounds(c.type.text) === undefined
 							? [{ table: world.view(e.name), column: identifierOf(viewColumn(c.name)) }]
 							: []
 					)

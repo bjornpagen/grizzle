@@ -92,10 +92,10 @@ import {
 } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
-	contractOf,
+	type PlainType,
+	sameScalarType,
 	type ScalarType,
 	type SpanCarrier,
-	sameScalarType,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import {
@@ -511,7 +511,7 @@ const compareType = (t: ScalarType): ScalarType => {
  * (scalar/compute/typing.ts adoptedType).
  */
 const adoptCompare = (t: ScalarType): ScalarType => {
-	if (contractOf(t) !== undefined) {
+	if (t.contract !== undefined) {
 		return t
 	}
 	const v = valueType(t)
@@ -560,7 +560,7 @@ const deliveredValue: ClosedRelations = noClosedRelations(
  * The span type a type is over through its contracts, or undefined for a type that is no span. A contract's carrier is
  * its base's, so a term's nominal and actual types, which differ at most by a contract, are over one span carrier.
  */
-type SpanBase = Extract<ScalarType, { readonly carrier: SpanCarrier }>
+type SpanBase = Extract<PlainType, { readonly carrier: SpanCarrier }>
 const spanBase = (t: ScalarType): SpanBase | undefined => {
 	const base = baseOf(t)
 	return base.carrier === "range4" || base.carrier === "range8" || base.carrier === "rangeDate"

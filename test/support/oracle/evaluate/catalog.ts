@@ -17,7 +17,6 @@ import {
 import {
 	baseOf,
 	type Carrier,
-	contractOf,
 	numericTypmodOf,
 	type RegexRef,
 	type ScalarType,
@@ -1044,12 +1043,12 @@ const membership = (
 	env: EvalEnv
 ): Result.Result<boolean, CatalogStop> => {
 	const levels: Array<ScalarType> = []
-	for (let at: ScalarType | undefined = t; at !== undefined; at = contractOf(at)?.base) {
+	for (let at: ScalarType | undefined = t; at !== undefined; at = at.contract?.base) {
 		levels.push(at)
 	}
 	for (const level of Arr.reverse(levels)) {
-		const contract = contractOf(level)
-		const pattern = contract === undefined ? textOf(level)?.regex : undefined
+		const { contract } = level
+		const pattern = contract === undefined ? textOf(level) : undefined
 		const member =
 			pattern !== undefined && pattern !== "wildcard"
 				? regexHolds(env, pattern, v)

@@ -5,11 +5,18 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { contractOf, patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	patternsText,
+	type RegexRef,
+	rosterOf,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { longest, membersWithin } from "#compiler/scalar/regex/dfa.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import type { Carriers } from "#compiler/types/core/phantom.ts"
+import { defined } from "#test/support/assert.ts"
 
 /**
  * The engine's decoded heading, written as the TypeScript type its records have, so a generated program asserts the
@@ -50,7 +57,8 @@ const handles = (values: Arr.NonEmptyReadonlyArray<unknown>): string =>
 	union(Arr.map(values, literalType))
 
 /** The host values of a carrier, before a contract brands them. */
-const carrierHost = (type: ScalarType): string => {
+const carrierHost = (descriptor: ScalarType): string => {
+	const type = baseOf(descriptor)
 	switch (type.carrier) {
 		case "int2":
 		case "int4":
@@ -70,7 +78,7 @@ const carrierHost = (type: ScalarType): string => {
 		case "uuid":
 			return "Uuid"
 		case "text":
-			return type.text.regex === "wildcard" ? "string" : textHost(type.text.regex)
+			return type.text === "wildcard" ? "string" : textHost(type.text)
 		case "code":
 			return handles(type.roster.handles)
 		case "range4":
@@ -118,7 +126,7 @@ const memberWeight = 4096
 
 /** A host type under its contract's brand, where the type is a contract's. */
 const branded = (type: ScalarType, host: string): string => {
-	const contract = contractOf(type)
+	const { contract } = type
 	return contract === undefined ? host : `${host} & Brand.Brand<${jsonText(contract.name)}>`
 }
 
@@ -173,7 +181,7 @@ export const groupFields = (
  */
 const declaredFacts = (type: ScalarType): ReadonlyArray<Fact> => {
 	const facts = new Set<Fact>()
-	for (let c = contractOf(type); c !== undefined; c = contractOf(c.base)) {
+	for (let c = type.contract; c !== undefined; c = c.base.contract) {
 		for (const f of c.facts) {
 			facts.add(f)
 		}
@@ -217,7 +225,7 @@ const paramEntry = (p: ParamDecl): string => {
 	const host = branded(p.type, carrierHost(p.type))
 	const domain = paramDomain(p.type)
 	return p.type.carrier === "code"
-		? `ParamType<${host} & Rostered<${jsonText(p.type.roster.closed)}>, ${sql}, ${host}>`
+		? `ParamType<${host} & Rostered<${jsonText(defined(rosterOf(p.type), "a closed id's roster").closed)}>, ${sql}, ${host}>`
 		: domain === host
 			? `ParamType<${host}, ${sql}>`
 			: `ParamType<${domain}, ${sql}, ${host}>`
@@ -227,7 +235,8 @@ const paramEntry = (p: ParamDecl): string => {
  * A parameter's domain: its type's (domainOf), but a span's, which is the span of its endpoint's domain, the endpoint
  * contract's declared facts with it.
  */
-const paramDomain = (type: ScalarType): string => {
+const paramDomain = (descriptor: ScalarType): string => {
+	const type = baseOf(descriptor)
 	switch (type.carrier) {
 		case "range4":
 		case "range8":

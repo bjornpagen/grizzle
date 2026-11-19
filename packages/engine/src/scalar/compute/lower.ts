@@ -39,9 +39,9 @@ import {
 	type RegexRef,
 	type ScalarType,
 	baseOf,
-	contractOf,
 	octetsOf,
 	patternsText,
+	textInfoBounds,
 	textOf,
 	textPatterns,
 	typeLabel
@@ -294,7 +294,7 @@ const languagePremise = (
 	patterns: PatternAutomata,
 	at: SourceLoc
 ): LanguagePremise | undefined => {
-	const regex = textOf(a.nominal)?.regex
+	const regex = textOf(a.nominal)
 	if (regex === undefined || regex === "wildcard") {
 		return undefined
 	}
@@ -358,8 +358,8 @@ const lexicalPremise = (
  * for any other type, whose contract's predicate the operand's bounds decide.
  */
 const refinementOf = (target: ScalarType): RegexRef | undefined => {
-	const regex = textOf(target)?.regex
-	return contractOf(target) !== undefined || regex === undefined || regex === "wildcard"
+	const regex = textOf(target)
+	return target.contract !== undefined || regex === undefined || regex === "wildcard"
 		? undefined
 		: regex
 }
@@ -388,7 +388,7 @@ const lexicalRemedy = (
 	const matches: GuardTest = { kind: "matches", pattern: parseRemedy[form] }
 	const lexical = parseTargetOf(form, target)
 	const octets = lexical === undefined ? undefined : formOctets(lexical)
-	const regex = textOf(operand.nominal)?.regex
+	const regex = textOf(operand.nominal)
 	if (
 		lexical === undefined ||
 		octets === undefined ||
@@ -464,11 +464,11 @@ const languageRemedy = (
 	if (refinement === undefined || octets === undefined || text === undefined) {
 		return { kind: "matches", pattern: "target" }
 	}
-	if (text.byteBound !== undefined && text.byteBound <= octets) {
+	const bytes = textInfoBounds(text)?.bytes
+	if (bytes !== undefined && bytes <= octets) {
 		return { kind: "matches", pattern: "target" }
 	}
-	return patternIncludes(textPatterns(text.regex), refinement.patterns, patterns).kind ===
-		"included"
+	return patternIncludes(textPatterns(text), refinement.patterns, patterns).kind === "included"
 		? { kind: "octets", bytes: octets }
 		: { kind: "matches", pattern: "target" }
 }
@@ -782,7 +782,7 @@ class Lowering<R extends Refs> {
 			return stop(
 				"ContractLiteral",
 				at,
-				`a literal of ${typeLabel(to)}: the literal violates its ${contractOf(to) === undefined ? "regex refinement" : "contract"}`
+				`a literal of ${typeLabel(to)}: the literal violates its ${to.contract === undefined ? "regex refinement" : "contract"}`
 			)
 		}
 		return member === true

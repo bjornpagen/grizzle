@@ -29,7 +29,7 @@ import type {
 	NormalFacts
 } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import type { ScalarType, SpanCarrier } from "#compiler/ir/scalar.ts"
+import { type ScalarType, type SpanCarrier, spanOf } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { MemberKey } from "#compiler/runtime/write/draw.ts"
 import {
@@ -479,7 +479,10 @@ const checkedFacts = (
 				const equal = check.equal.map(specOf)
 				const span = {
 					field: check.span.field,
-					spec: { carrier: check.span.type.carrier, width: check.span.type.span.width }
+					spec: {
+						carrier: check.span.type.carrier,
+						width: defined(spanOf(check.span.type), "a span field's span").width
+					}
 				}
 				return {
 					law: check.law,

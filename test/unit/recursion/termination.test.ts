@@ -264,9 +264,9 @@ export const theSeenStateEstimateRefusesASetStateColumnWhichNoHashOperatorClassD
 			{
 				file: "packages/engine/src/check/recursion/state.ts",
 				original:
-					'\tif (type.carrier === "bits" || type.carrier === "bytes" || !type.caps.includes("hashing")) {',
+					'\tif (type.carrier === "bits" || type.carrier === "bytes" || !capsOf(type).includes("hashing")) {',
 				replacement:
-					'\tif (type.carrier === "bytes" || (type.carrier !== "bits" && !type.caps.includes("hashing"))) {',
+					'\tif (type.carrier === "bytes" || (type.carrier !== "bits" && !capsOf(type).includes("hashing"))) {',
 				why: "A set state column counted as hashable; the estimate-sets search fails."
 			}
 		]

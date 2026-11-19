@@ -4,7 +4,7 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { firstCalendarDate } from "#compiler/ir/date.ts"
 import { closedRows, type Heading } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	distinctSelect,
 	headingTargets,
@@ -19,8 +19,7 @@ import { lit } from "#compiler/sql/build.ts"
 
 /** A value of every admitted type, for the one row an empty VALUES source stands on; WHERE false discards it. */
 const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
-	const contract = contractOf(type)
-	const base = contract === undefined ? type : contract.base
+	const base = baseOf(type)
 	switch (base.carrier) {
 		case "int2":
 		case "int4":

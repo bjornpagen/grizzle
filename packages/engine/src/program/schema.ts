@@ -575,8 +575,7 @@ const raisableConstraint = (
 /** The domains a value cast to `t` meets under `names`: each contract's of its chain, outermost first, and its pattern's. */
 const castDomains = (names: InstallNames, t: ScalarType): ReadonlyArray<string> => {
 	const text = textOf(t)
-	const pattern =
-		text === undefined || text.regex === "wildcard" ? undefined : names.textDomain(text.regex)
+	const pattern = text === undefined || text === "wildcard" ? undefined : names.textDomain(text)
 	return [
 		...contractChain(t).map((contract) => names.contractDomain(contract).name),
 		...(pattern === undefined ? [] : [pattern.name])

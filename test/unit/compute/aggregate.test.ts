@@ -21,7 +21,7 @@ import { element, finite, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { contractOf, numericBoundOf } from "#compiler/ir/scalar.ts"
+import { numericBoundOf } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -183,7 +183,7 @@ export const minMaxLEASTAndGREATESTDeliverTheContractOfTheInputTheyReturn = prop
 						),
 						"the head's column"
 					)
-					const delivered = contractOf(out.type)
+					const delivered = out.type.contract
 					assert.equal(
 						delivered === undefined ? undefined : String(delivered.name),
 						reading === "base" ? undefined : k.name,

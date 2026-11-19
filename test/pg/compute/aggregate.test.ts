@@ -3,7 +3,6 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { contractOf } from "#compiler/ir/scalar.ts"
 import { aggregateOverload } from "#compiler/scalar/aggregate.ts"
 import {
 	type AggregateFeature,
@@ -63,7 +62,7 @@ export const aggregateTypingAgainstPostgreSQL19TypesCountAndEveryAggregateAsPgAg
 						const overload = aggregateOverload({ name, arg: sample.type }, SourceLoc("test", []))
 						if (overload.ok) {
 							assert.equal<string | undefined>(
-								contractOf(overload.value.result)?.name,
+								overload.value.result.contract?.name,
 								keptContract(name, sample.type),
 								`${name}/${sample.label}'s contract`
 							)

@@ -14,7 +14,7 @@ import type {
 	OccurrenceOver,
 	VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, sameScalarType, textInfoBounds } from "#compiler/ir/scalar.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
 import {
@@ -34,7 +34,7 @@ const lateFetchRule = "R06.lateFetch"
 /** A payload column worth fetching late: a vector, or text without a proved byte bound. */
 const widePayload = (t: ScalarType): boolean => {
 	const b = baseOf(t)
-	return b.carrier === "vector" || (b.carrier === "text" && b.text.byteBound === undefined)
+	return b.carrier === "vector" || (b.carrier === "text" && textInfoBounds(b.text) === undefined)
 }
 
 type Take = KindOver<"Take", EditRefs>

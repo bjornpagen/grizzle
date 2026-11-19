@@ -3,7 +3,7 @@ import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { type Codebook, codecOf } from "#compiler/ir/codes.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 
 /**
@@ -57,7 +57,8 @@ export interface SqlNames {
  * codes, holes included, rounded up to whole hex digits (ir/codes.ts RosterCodec width), and an exact value as the
  * lowering types it (bigint for an exact integer of at most 18 digits, numeric otherwise).
  */
-export const wireSql = (type: ScalarType, names: SqlNames): string => {
+export const wireSql = (descriptor: ScalarType, names: SqlNames): string => {
+	const type = baseOf(descriptor)
 	switch (type.carrier) {
 		case "numeric":
 			return type.typmod === undefined

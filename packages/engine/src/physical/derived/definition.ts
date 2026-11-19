@@ -7,13 +7,7 @@ import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
-import {
-	baseOf,
-	contractOf,
-	numericTypmodOf,
-	type ScalarType,
-	vectorTypmodOf
-} from "#compiler/ir/scalar.ts"
+import { baseOf, numericTypmodOf, type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
 import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
@@ -74,7 +68,7 @@ const closingOf = (
 ): Closing => {
 	const column = fieldColumnType(names, type)
 	const retyped =
-		contractOf(type) !== undefined || baseOf(type).carrier === "code"
+		type.contract !== undefined || baseOf(type).carrier === "code"
 			? delivered === undefined || !sameTypeRef(delivered, column.type)
 			: numericTypmodOf(type) !== undefined ||
 				vectorTypmodOf(type) !== undefined ||

@@ -25,7 +25,6 @@ import type { LawField, TheoryRelation } from "#compiler/ir/law.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import {
 	baseOf,
-	contractOf,
 	type ScalarType,
 	type SpanCarrier,
 	spanCarrierOf,
@@ -123,9 +122,9 @@ interface PredicatedContract {
 const endpointContracts = (endpoint: ScalarType): ReadonlyArray<PredicatedContract> => {
 	const out: Array<PredicatedContract> = []
 	for (
-		let contract = contractOf(endpoint);
+		let contract = endpoint.contract;
 		contract !== undefined;
-		contract = contractOf(contract.base)
+		contract = contract.base.contract
 	) {
 		if (contract.predicate !== undefined) {
 			out.push({ name: contract.name, predicate: contract.predicate })
