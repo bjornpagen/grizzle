@@ -19,17 +19,16 @@
  * - The variables are DBNAME and a role's names: a statement naming the variable `:"<name>"` under the drawn role space
  *   is filled exactly when the name is DBNAME, a stem (two conversions joined by `__`: lowercase ASCII words, a letter
  *   first, joined by single underscores), the name a migration sets a role aside under while it renames logins
- *   (`__aside_`, then any segments of lowercase ASCII letters and digits each followed by `_`, then ten characters of
- *   lowercase base32) or the installation's live source's, its decoder login's (`__live_`, the same), within 63 bytes:
- *   a committed folder an earlier grizzle drafted spells segments there (`__live_<segments>_<digest>` before e1c1fc23),
- *   and migrate reads every committed folder. A role's name is filled as `"<p>__<name>"` under a prefix p, and refused
- *   as roleTooLong past 63 bytes; any other name is refused as unknownVariable. A drawn role's aside name is the naming
- *   door's own for a drawn stem (identity.roleAside), a drawn object's its own for a drawn name (identity.aside), a
- *   drawn live source's name its own for a drawn root (identity.liveSource), and an earlier one the naming door's own
- *   with drawn segments spelled before its digest.
+ *   (`__aside_`, then ten characters of lowercase base32) or the installation's live source's, its decoder login's
+ *   (`__live_`, the same), within 63 bytes: the forms every committed folder spells, which migrate reads every one of. A
+ *   role's name is filled as `"<p>__<name>"` under a prefix p, and refused as roleTooLong past 63 bytes; any other name
+ *   is refused as unknownVariable, an object's aside name, which spells its object's name before its digest, among
+ *   them. A drawn role's aside name is the naming door's own for a drawn stem (identity.roleAside), a drawn object's its
+ *   own for a drawn name (identity.aside), and a drawn live source's name its own for a drawn root
+ *   (identity.liveSource).
  *
  * Features: a prefix and none, a capitalized schema spelling, an unknown variable, a stem variable, an aside variable,
- * a live source variable, a variable in an earlier form.
+ * a live source variable.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -52,8 +51,7 @@ export const theVariablesOfADraftedMigrationFillEveryDraftedStatementUnderEachDr
 			"an unknown variable",
 			"a stem variable",
 			"an aside variable",
-			"a live source variable",
-			"a variable in an earlier form"
+			"a live source variable"
 		] satisfies ReadonlyArray<Reached<DraftFeature>>,
 		check: (_, c: Case<DraftFeature>) => (value) => draftCase(value, c),
 		oracle: {

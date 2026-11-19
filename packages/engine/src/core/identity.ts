@@ -469,23 +469,14 @@ const isConversion = (text: string): boolean => parsedName(text).ok && conversio
  * role name's stem is its lead word alone (rolePrefixBytes), so its form is read by its lead and its digest, with no
  * segment of any name to read back.
  *
- * Every form a committed folder holds is read, not only the ones generate mints now: a folder is history, its files'
- * digests in the installation's ledger, and migrate reads all of them (adapter/migrate/input.ts). Before e1c1fc23 a
- * hashed role name spelled segments of the root's or the role's name between its lead and its digest,
- * `__live_<segments>_<digest>` and `__aside_<segments>_<digest>`, each segment lowercase ASCII letters and digits, and
- * within maxIdentifierBytes, so a hashed role name is read with any segments, which are never read back. A decoder
- * login a folder created under such a name is renamed to the one the naming door mints now by the next migration
- * (deploy/diff/declared.ts decoderRenamed).
+ * These are the forms every committed folder holds: a folder is history, its files' digests in the installation's
+ * ledger, and migrate reads all of them (adapter/migrate/input.ts), and no folder names a role in any other.
  */
 export type RoleNameForm = "stem" | "aside" | "liveSource"
 
 /** Whether `text` is a hashed name's digest: digestChars characters of lowercase base32. */
 const isDigest = (text: string): boolean =>
 	text.length === digestChars && Array.from(text).every((ch) => base32.includes(ch))
-
-/** Whether `text` is one segment an earlier hashed role name spelled: lowercase ASCII letters and digits. */
-const isSegment = (text: string): boolean =>
-	text !== "" && Array.from(text).every((ch) => isLower(ch) || isDigit(ch))
 
 /** The form `name` names a role of the installation in, or undefined for any other text. */
 export const roleNameForm = (name: string): RoleNameForm | undefined => {
@@ -494,15 +485,12 @@ export const roleNameForm = (name: string): RoleNameForm | undefined => {
 		return "stem"
 	}
 	const digestAt = name.length - digestChars
-	const [lead, ...segments] = name
-		.slice(hashedLead.length, digestAt - digestSeparator.length)
-		.split(digestSeparator)
+	const lead = name.slice(hashedLead.length, digestAt - digestSeparator.length)
 	if (
 		!name.startsWith(hashedLead) ||
 		utf8Length(name) > maxIdentifierBytes ||
 		name.slice(digestAt - digestSeparator.length, digestAt) !== digestSeparator ||
-		!isDigest(name.slice(digestAt)) ||
-		!segments.every(isSegment)
+		!isDigest(name.slice(digestAt))
 	) {
 		return undefined
 	}

@@ -26,13 +26,7 @@
  *   none; the second installation's roles are all there and its reader still reads; and a bystander role under the
  *   first's prefix over another schema, outside its namespace, stays.
  *
- * - Whatever derived its names: where the first installation's decoder login, its publication and its slot carry the
- *   names an earlier derivation gave them (e1c1fc23 renamed `__live_<segments>_<digest>` to `__live_<digest>`), as an
- *   installation an earlier grizzle migrated holds them, uninstall drops them all as the cluster names them, and no
- *   role is left under the first's prefix but the bystander, no slot in its database and no publication.
- *
- * Features: the second installation under another prefix, and under none; an uninstall refused, then done; a decoder
- * named by an earlier derivation.
+ * Features: the second installation under another prefix, and under none; an uninstall refused, then done.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -46,8 +40,7 @@ export const rolePrefix = property.explore(spacesGen, {
 	situations: [
 		"the second under another prefix",
 		"the second under no prefix",
-		"an uninstall refused, then done",
-		"a decoder named by an earlier derivation"
+		"an uninstall refused, then done"
 	] satisfies ReadonlyArray<Reached<SpaceFeature>>,
 	/** Its pre-conversion budget: runs 4, coverage cases 8 (role-prefix.test.ts at bf4f43bb). */
 	budget: { runs: 4, steered: 8 },

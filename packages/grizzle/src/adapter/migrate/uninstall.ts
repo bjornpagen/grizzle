@@ -25,8 +25,8 @@ import { namespaceStem } from "#compiler/plan/migration.ts"
  * and the cluster.
  *
  * An installation is its database and its role space (MigrationConnection: `database`, `rolePrefix`). What it holds is
- * read from what its migrations recorded in the catalogs, never from names the naming door derives now, so a change of
- * a derivation since a migration ran (a decoder login's name, e1c1fc23) leaves nothing of the installation behind:
+ * read from what its migrations recorded in the catalogs, never from names the naming door derives now, so a name a
+ * migration gave otherwise than the naming door would now leaves nothing of the installation behind:
  *
  * - in its database, each of its levels' PostgreSQL schemas, every configured schema's snapshot's, and its roles'
  *   schemas, each its role's stem's name, those the database holds;

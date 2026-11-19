@@ -40,35 +40,24 @@ import { testVerify } from "#test/support/worlds.ts"
 /** The second installation's role space: a prefix of its own, or none. */
 type Second = "prefixed" | "stems"
 
-/**
- * How the first installation's decoder login, its publication and its slot are named when it is uninstalled: as the
- * naming door names them now, or as an earlier derivation did, `__live_<segments>_<digest>`, which a migration of an
- * earlier grizzle made and today's door names otherwise.
- */
-type Derivation = "now" | "earlier"
-
 interface Spaces {
 	readonly second: Second
 	readonly heldElsewhere: boolean
-	readonly derivation: Derivation
 }
 
 export type SpaceFeature =
 	| "the second under another prefix"
 	| "the second under no prefix"
 	| "an uninstall refused, then done"
-	| "a decoder named by an earlier derivation"
 
 export const spacesGen: Gen<Spaces> = (source) => ({
 	second: source.draw(element<Second>(["prefixed", "stems"])),
-	heldElsewhere: source.draw(boolean),
-	derivation: source.draw(element<Derivation>(["now", "earlier"]))
+	heldElsewhere: source.draw(boolean)
 })
 
 const notesOf = (s: Spaces): ReadonlyArray<SpaceFeature> => [
 	s.second === "prefixed" ? "the second under another prefix" : "the second under no prefix",
-	...(s.heldElsewhere ? (["an uninstall refused, then done"] as const) : []),
-	...(s.derivation === "earlier" ? (["a decoder named by an earlier derivation"] as const) : [])
+	...(s.heldElsewhere ? (["an uninstall refused, then done"] as const) : [])
 ]
 
 const at = DateTime.makeUnsafe({
@@ -247,29 +236,7 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				assert.equal(drift.code, 0, `the installation stands whole: ${drift.stderr}`)
 				yield* substrate.admin.query(`REVOKE USAGE ON SCHEMA "${held}" FROM "${readerRole}"`, [])
 			}
-			const decoderNow = roleNameOf(served.decoder, named(first))
-			const earlierStem = `__live_rs_${Str.slice(-10)(served.decoder.stem)}`
-			const decoderAt = s.derivation === "earlier" ? `${firstPrefix}__${earlierStem}` : decoderNow
-			if (s.derivation === "earlier") {
-				const owner = yield* connect(substrate.cluster, {
-					database: first.database,
-					credentials: ownerCredentials(substrate.cluster),
-					label: "earlier derivation"
-				})
-				yield* owner.query(`ALTER ROLE "${decoderNow}" RENAME TO "${decoderAt}"`, [])
-				yield* owner.query(
-					`ALTER PUBLICATION "${served.decoder.stem}" RENAME TO "${earlierStem}"`,
-					[]
-				)
-				yield* owner.query(
-					"SELECT pg_catalog.pg_create_logical_replication_slot($1::name, 'pgoutput')",
-					[decoderAt]
-				)
-			}
-			const installedFirst = Arr.sort(
-				Arr.map(expected(first), (role) => (role === decoderNow ? decoderAt : role)),
-				Order.String
-			)
+			const installedFirst = Arr.sort(expected(first), Order.String)
 			const uninstalled = yield* run(first, "uninstall")
 			assert.equal(uninstalled.code, 0, `grizzle uninstall: ${uninstalled.stderr}`)
 			assert.deepEqual(
@@ -293,7 +260,7 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 			assert.deepEqual(
 				Arr.map(leftUnder, ([role]) => String(role)),
 				[bystander],
-				"no role of the installation is left under its prefix, whatever derivation named it"
+				"no role of the installation is left under its prefix"
 			)
 			const ownerAfter = yield* connect(substrate.cluster, {
 				database: first.database,
