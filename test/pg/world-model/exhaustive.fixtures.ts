@@ -90,11 +90,16 @@ export interface Transition {
 	readonly action: Action
 }
 
-/** Whether a transition changes the catalog (a migration or a tamper), which no reset of a shared world undoes. */
-const changesCatalog = (t: Transition): boolean =>
+/**
+ * Whether a transition runs the migration runner (a migration, a tamper, or a drift check, which runs the applied
+ * folders again), which leaves its database unlike the slot's template where no reset of a seat puts it back: a drift
+ * check on a seat left its clone unlike its template (REDFIX's replay of slot 0, `-:18`, a drift alone), so such a
+ * transition takes a database of its own.
+ */
+const runsTheMigrator = (t: Transition): boolean =>
 	Arr.some(
 		[...Arr.map(t.prefix, (p) => p.action), t.action],
-		(a) => a.kind === "migrate" || a.kind === "tamper"
+		(a) => a.kind === "migrate" || a.kind === "tamper" || a.kind === "drift"
 	)
 
 const slots: ReadonlyArray<Slot> = Arr.map(
@@ -155,7 +160,7 @@ const slotBoxes = Arr.flatMap(slots, (slot) => {
 /**
  * A case's seat of its installation's world as a template (execute/template.ts worldTemplate), under the cluster's own
  * ambient, where the search held one world per installation across the cases of its slot; or, for a transition that
- * changes the catalog, a substrate of its own that it installs into, as the search realized such a transition afresh.
+ * runs the migrator (runsTheMigrator), a substrate of its own that it installs into, as the search realized such a transition afresh.
  */
 const slotNeeds = (slot: Slot) =>
 	({
@@ -184,13 +189,13 @@ export const slotSpaces = Arr.map(slotBoxes, ({ slot, held }) => ({
 
 /**
  * The world a transition runs in: its slot's seated world over the cluster pool, reset by the case to its reality,
- * or its own installation where it changes the catalog.
+ * or its own installation where it runs the migrator.
  */
 export const transitionWorld = (
 	resources: Resources<SlotNeeds>,
 	transition: Transition
 ): Effect.Effect<RealWorld, RealizeRefused | SqlError | NeedFailed, Scope.Scope> =>
-	changesCatalog(transition)
+	runsTheMigrator(transition)
 		? Effect.flatMap(resources.own, (substrate) =>
 				Effect.provideService(
 					realize(transition.slot.install, ordinarySession),
