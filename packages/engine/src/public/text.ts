@@ -30,6 +30,7 @@ export { codecText } from "#compiler/program/text.ts"
 export { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 export { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
 export { maxStringLength } from "#compiler/core/canonical.ts"
+export { regexTextMaxBytes } from "#compiler/core/errors.ts"
 export { decimalTextMaxBytes, regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 export { type JoinedHost, type RegexText, str } from "#compiler/text/field.ts"
 

@@ -1796,7 +1796,9 @@ PostgreSQL's other spellings are the same fields.
   order, then each datum at its widest padding from the first text, numeric, set, range or vector on.
 - **Exported bounds.** `messageMaxBytes`, PostgreSQL's longest message (1,073,741,822 bytes), `maxStringLength`, V8's
   longest string (536,870,888 UTF-16 code units), `bytesMaxLength` (1,073,741,819 bytes) and `flightMaxBytes`, the most
-  one write over TLS carries (1,908,342,784 bytes), refuse a call before it is sent. Each is a `Limit`: `.value` is the
+  one write over TLS carries (1,908,342,784 bytes), refuse a call before it is sent; `regexTextMaxBytes`, the longest
+  text PostgreSQL's regex engine reads (268,435,454 UTF-8 bytes), is the byte bound a text a query matches by a pattern
+  must keep. Each is a `Limit`: `.value` is the
   number, with its owner, unit, scope and evidence, the source that states it or the limits it derives from. Code that
   splits an input across calls (`InputTooLarge`, [Errors and outcomes](#errors-and-outcomes)) reads the bound instead of
   restating it.
@@ -4478,7 +4480,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ### Sizes
 
-`messageMaxBytes`, `maxStringLength`, `bytesMaxLength`, `flightMaxBytes` and `regexMaxRepeat` are exported as `Limit` values, whose `.value` is the number.
+`messageMaxBytes`, `maxStringLength`, `bytesMaxLength`, `flightMaxBytes`, `regexMaxRepeat` and `regexTextMaxBytes` are exported as `Limit` values, whose `.value` is the number.
 
 - **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone: one copy of each value, made as the call is sent, after its member is measured from its values' lengths. A nested write's rows of one relation are no statement's bound: where their arrays would make the statement that writes them longer than one Bind message, the call creates a temporary table in the same flight, fills it with consecutive chunks of the rows, each as long as one Bind message carries, and runs the statement once over it, so what it writes and what its laws judge are one statement's. The temporary table drops at the transaction's end.
 - **A statement's parameters are at most 1,073,741,822 bytes** (`messageMaxBytes`, PostgreSQL's `PQ_LARGE_MESSAGE_LIMIT`), **and an input column's array literal at most 536,870,888 UTF-16 code units** (`maxStringLength`, V8's longest string, 2^29 − 24). A relation input is one array per column, sent again to each statement that reads it. A call past either bound is `InputTooLarge` before anything is sent.
