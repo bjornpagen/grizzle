@@ -487,9 +487,9 @@ export const showGrowth = (growth: Growth): string =>
  */
 /** The end anchor's translation to ARE (scalar/regex/are.ts), which a family whose patterns end at an anchor catches. */
 const endAnchorKill: Kill = {
-	file: "packages/engine/src/scalar/regex/are.ts",
-	original: '\t\t\t\treturn atom.anchor === "start" ? "\\\\A" : "\\\\Z"',
-	replacement: '\t\t\t\treturn atom.anchor === "start" ? "\\\\A" : "(?=\\\\n?\\\\Z)"',
+	file: "packages/engine/src/scalar/regex/print.ts",
+	original: '\tanchors: { start: "\\\\A", end: "\\\\Z" }',
+	replacement: '\tanchors: { start: "\\\\A", end: "(?=\\\\n?\\\\Z)" }',
 	why: "The end anchor translated as matching before a final newline."
 }
 
@@ -511,7 +511,7 @@ const negationDroppedKill: Kill = {
 
 /** Printable ASCII punctuation from ! to / taken for alphanumerics and printed bare in the ARE, where it is an operator. */
 const punctuationBareKill: Kill = {
-	file: "packages/engine/src/scalar/regex/are.ts",
+	file: "packages/engine/src/scalar/regex/print.ts",
 	original: "\t(c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)",
 	replacement: "\t(c >= 0x21 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)",
 	why: "A literal . * + ( ) prints without its backslash, so PostgreSQL reads an operator; an escaped literal's membership disagrees."

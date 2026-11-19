@@ -774,7 +774,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - upstream/v8-unicode-end-anchor-astral-class: V8 14.6 (Node 26.13) answers a unicode-mode pattern ending in `$`
   over an astral class wrongly from an unanchored start; V8 fixed it on main (7d259d7c2090, issue 571871980). The
   folder holds a Node backport patch and issue.txt asking nodejs/node to backport it to v26.x. Once a Node release
-  carries it (`node repro.js` exits 0), the live branch's toEcma (scalar/regex/ecma.ts) prints a pattern's body as it
+  carries it (`node repro.js` exits 0), the live branch's toEcma (scalar/regex/print.ts toEcma) prints a pattern's body as it
   is and startsAtStart is deleted, and the folder goes.
 - upstream/ssi-summarized-conflict-out: not carried in grizzle's build (the owner, 2026-11-11: local behaviour must
   match stock PostgreSQL on RDS); the owner files it with pgsql-hackers after the archive and commitfest searches its

@@ -11,7 +11,8 @@ import {
 import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { alphabetOf, sourceFlags, sourceSet } from "#compiler/scalar/regex/source.ts"
+import { sourceSet } from "#compiler/scalar/regex/print.ts"
+import { alphabetOf, sourceFlags } from "#compiler/scalar/regex/source.ts"
 
 /**
  * XML Schema's whiteSpace facet over the four characters XML calls white space, `S ::= (#x20 | #x9 | #xD | #xA)+`

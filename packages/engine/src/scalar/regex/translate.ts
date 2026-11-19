@@ -21,13 +21,8 @@ import {
 import { end, type LiveNode, type RegexNode, seq, start } from "#compiler/scalar/regex/ir.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import {
-	alphabetOf,
-	anchoredAt,
-	anyText,
-	printSource,
-	sourceFlags
-} from "#compiler/scalar/regex/source.ts"
+import { printSource } from "#compiler/scalar/regex/print.ts"
+import { alphabetOf, anchoredAt, anyText, sourceFlags } from "#compiler/scalar/regex/source.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
 
 /**

@@ -35,7 +35,7 @@ const isAsciiAlnum = (c: number): boolean =>
 	(c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)
 
 /**
- * The admitted source spelling (scalar/regex/parse.ts) of an ARE the printer (are.ts toAre) wrote, or undefined for any other
+ * The admitted source spelling (scalar/regex/parse.ts) of an ARE the printer (print.ts toAre) wrote, or undefined for any other
  * string: the printer's inverse up to spelling, written here from the printer's documented output, so the language an
  * ARE recognizes can be analyzed again. Every construct the printer emits is respelled into the admitted grammar, which
  * reads it as the same set of code points: `\A` and `\Z` are `^` and `$` (absolute without the `m` flag), and every

@@ -8,7 +8,6 @@ import {
 import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import { toAre } from "#compiler/scalar/regex/are.ts"
 import { loopsThroughAnchor, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
@@ -17,6 +16,7 @@ import {
 	type RegexDiagnostic,
 	type RegexFlags
 } from "#compiler/scalar/regex/parse.ts"
+import { toAre } from "#compiler/scalar/regex/print.ts"
 import { pastCompileSpace } from "#compiler/scalar/regex/space.ts"
 
 /** A pattern its admission passed: its normalized IR, the flags folded in, and the NFA the measures read. */
@@ -165,7 +165,7 @@ export const matchPattern = (source: string, loc: SourceLoc): Result.Result<stri
 
 /**
  * The ARE `~` reads in place of a Compute.matches pattern its node's admission admitted (admitMatch): its IR under
- * matchFlags translated (are.ts toAre). It runs where SQL prints the pattern, the one reader of its ARE.
+ * matchFlags translated (print.ts toAre). It runs where SQL prints the pattern, the one reader of its ARE.
  */
 export const matchAre = (source: string): string => {
 	const parsed = parsePattern(source, matchFlags)

@@ -1,5 +1,5 @@
 /**
- * A refined text's patterns reach its JSON Schema as ECMA-262 patterns printed from their IR (scalar/regex/ecma.ts
+ * A refined text's patterns reach its JSON Schema as ECMA-262 patterns printed from their IR (scalar/regex/print.ts toEcma
  * toEcma), and a schema's `pattern` is read under the `u` flag, unanchored, as JSON Schema 2020-12 reads one: every
  * pattern grizzle admits prints as a pattern ECMA-262 compiles, by construction, and the printed pattern holds of
  * exactly the texts the pattern's own automaton accepts.
@@ -13,16 +13,16 @@
  * Features: a pattern under u, a pattern under su, a text matched, a text refused, a pattern of an astral code point,
  * an end anchor beside a line feed (which `$` under `u` never matches before), and an end anchor matched after an
  * astral code point: the live test phase's counterexample at 729f76a6, `/.$/su` and the text U+10FFFF, which V8's
- * search judged unmatched while the pattern was printed unanchored at its start (scalar/regex/ecma.ts toEcma).
+ * search judged unmatched while the pattern was printed unanchored at its start (scalar/regex/print.ts toEcma).
  */
 import { type Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { toEcma } from "#compiler/scalar/regex/ecma.ts"
 import { Matcher } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import { toEcma } from "#compiler/scalar/regex/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { schemaAdmits } from "#test/support/openapi/validator.ts"
 import { bmpLast, endsAstral, type Feature, patternSpace } from "#test/unit/live/ecma.fixtures.ts"
@@ -86,13 +86,13 @@ export const aRefinedTextsECMA262PatternCompilesUnderUAndHoldsOfExactlyTheTextsT
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/ecma.ts",
-				original: '\t\t\t\treturn atom.anchor === "start" ? "^" : "$"',
-				replacement: '\t\t\t\treturn atom.anchor === "start" ? "^" : "(?=\\\\n|$)"',
+				file: "packages/engine/src/scalar/regex/print.ts",
+				original: '\tanchors: { start: "^", end: "$" }',
+				replacement: '\tanchors: { start: "^", end: "(?=\\\\n|$)" }',
 				why: "`$` is printed as `(?=\\n|$)`."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/ecma.ts",
+				file: "packages/engine/src/scalar/regex/print.ts",
 				original: `\treturn startsAtStart(node) ? body : \`^[^]*?(?:\${body})\``,
 				replacement: "\treturn body",
 				why: "A pattern whose matches may start anywhere is printed with no start anchor."

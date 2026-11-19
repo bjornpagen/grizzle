@@ -18,7 +18,6 @@ import {
 	textBounds
 } from "#compiler/ir/scalar.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
-import { toAre } from "#compiler/scalar/regex/are.ts"
 import { utf8Width } from "#compiler/scalar/regex/charset.ts"
 import {
 	type CanonicalDfa,
@@ -34,6 +33,7 @@ import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclu
 import { canonicalText, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+import { toAre } from "#compiler/scalar/regex/print.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { Collation, Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { and, binary, call, cUtf8Collation, le, lit, types } from "#compiler/sql/build.ts"

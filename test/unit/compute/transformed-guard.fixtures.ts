@@ -27,7 +27,7 @@ import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import { charSet, complement } from "#compiler/scalar/regex/charset.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { sourceSet } from "#compiler/scalar/regex/source.ts"
+import { sourceSet } from "#compiler/scalar/regex/print.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField, type RegexText } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
@@ -605,7 +605,7 @@ const withPoint = (p: Points, c: number): Points =>
 const widest = (p: Points): number =>
 	p.kind === "listed" ? Arr.reduce(p.points, 0, (w, c) => Math.max(w, widthOf(c))) : 4
 
-/** A set as a class of grizzle's pattern grammar, as the lowering spells one (source.ts sourceSet). */
+/** A set as a class of grizzle's pattern grammar, as the lowering spells one (print.ts sourceSet). */
 const classOf = (p: Points): string =>
 	sourceSet(
 		p.kind === "listed"

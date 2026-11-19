@@ -55,8 +55,8 @@ import {
 	type WireSchema,
 	withGaps
 } from "#compiler/live/wire.ts"
-import { toEcma } from "#compiler/scalar/regex/ecma.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import { toEcma } from "#compiler/scalar/regex/print.ts"
 import type { ServedFile, ServedMember, ServedRoleForm } from "#compiler/served/forms.ts"
 
 /** The OpenAPI version the document states, 3.2.0, whose `itemSchema` describes each event of a stream. */
@@ -76,7 +76,7 @@ const retrySafe: Retry = "safe"
 
 /**
  * The schema of a scalar type: its carrier's spelling (live/wire.ts), with each pattern of a refined text as an
- * ECMA-262 `pattern` printed from the pattern's IR (scalar/regex/ecma.ts), and the laws no keyword states listed as its
+ * ECMA-262 `pattern` printed from the pattern's IR (scalar/regex/print.ts toEcma), and the laws no keyword states listed as its
  * gaps: a contract's predicate, a byte bound (beside `maxLength`, which every value within it meets, a code point
  * taking at least a byte), and a pattern no IR prints.
  */

@@ -25,9 +25,9 @@ import { family, property, ReplayToken } from "@bjornpagen/testing/property"
 import type { Case } from "@bjornpagen/testing/property"
 import { Effect, Exit, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { toAre } from "#compiler/scalar/regex/are.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { Matcher } from "#compiler/scalar/regex/match.ts"
+import { toAre } from "#compiler/scalar/regex/print.ts"
 import {
 	agreements,
 	compileWithin,

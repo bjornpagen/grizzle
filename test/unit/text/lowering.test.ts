@@ -20,8 +20,8 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, constant, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
-import { toAre } from "#compiler/scalar/regex/are.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import { toAre } from "#compiler/scalar/regex/print.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
@@ -193,7 +193,7 @@ export const readingAPrintedAREBackAdmitsAPatternExactlyWhenItAdmitsTheAREItPrin
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/are.ts",
+				file: "packages/engine/src/scalar/regex/print.ts",
 				original: `\treturn min === 0 && max === 1 ? "?" : \`{\${min},\${max}}\``,
 				replacement: `\treturn min === 0 && max === 1 ? "?" : \`{\${min},\${max - 1}}\``,
 				why: "A counted quantifier's maximum printed one short in the ARE; the read back and budgets properties fail."
