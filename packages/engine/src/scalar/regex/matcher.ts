@@ -1,5 +1,5 @@
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { defect } from "#compiler/core/invariant.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { octetsOf, type PatternSource, type RegexRef } from "#compiler/ir/scalar.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"
 import { Matcher } from "#compiler/scalar/regex/match.ts"

@@ -22,6 +22,7 @@
  * the SQL's batches; each bound of the text's type and each side of the guard, a refusal, and an admission at the limit.
  */
 
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import type { Reached } from "@bjornpagen/testing/features"
 import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
@@ -29,7 +30,6 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { textCell } from "#test/pg/compute/support.ts"

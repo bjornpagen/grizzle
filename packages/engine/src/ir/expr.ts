@@ -1,3 +1,4 @@
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
@@ -13,7 +14,6 @@ import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Comparator, combine, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
 import {
 	type CanonicalFloat,
 	integerRanges,
@@ -225,7 +225,7 @@ const mintPatternTable = nominal<NonEmptyReadonlyArray<string>, PatternTable>()
 
 /**
  * The one table of the patterns `sources` holds, in whatever order and with whatever repeats they arrive: each source
- * once, in code point order (core/text.ts compareCodePoints).
+ * once, in code point order (grizzle-text text.ts compareCodePoints).
  */
 export const patternTableOf = (sources: NonEmptyReadonlyArray<string>): PatternTable => {
 	const [head, ...tail] = sources

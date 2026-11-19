@@ -11,6 +11,7 @@
  * and its branch reads the guard's parameter, and, under a byte guard, the text it counts.
  */
 
+import { replaceMap } from "@bjornpagen/grizzle-text/text"
 import { boolean, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
@@ -29,7 +30,6 @@ import { textOf } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { computeSpecs } from "#compiler/scalar/compute/registry.ts"
 import type { TapeEntry, TermTyping, TypedNode } from "#compiler/scalar/compute/typing.ts"
-import { replaceMap } from "#compiler/scalar/regex/whitespace.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"

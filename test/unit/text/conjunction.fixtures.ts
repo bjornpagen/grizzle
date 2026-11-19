@@ -1,11 +1,11 @@
 /** What the properties of conjunction.test.ts read: its spaces, models and helpers. */
 
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { array, constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
-import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import { type Patterns, type PatternSource, regexCheck } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { generated, pg, uuid } from "#compiler/public/fields.ts"

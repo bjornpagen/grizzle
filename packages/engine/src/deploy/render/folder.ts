@@ -1,3 +1,4 @@
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import {
@@ -11,7 +12,6 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
 	isDigit,

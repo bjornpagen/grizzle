@@ -1,3 +1,4 @@
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Effect,
@@ -28,7 +29,6 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { utf8Text } from "#compiler/core/utf8.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { noLive } from "#compiler/live/notify.ts"

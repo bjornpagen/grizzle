@@ -1,5 +1,6 @@
 /** What the properties of role-name.test.ts read: its spaces, models and helpers. */
 
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { type Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -24,7 +25,6 @@ import {
 	type RoleInstallation,
 	roleSpaceOf
 } from "#compiler/core/identity.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

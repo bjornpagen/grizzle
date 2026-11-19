@@ -2,6 +2,7 @@
  * A relation input's encoding, a hot path: every execution that binds a relation input normalizes it and writes each
  * of its facts here, so the per-fact work is native loops with no closure or Option per element.
  */
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import {
 	byteaElementBytes,
 	byteaHeaderBytes,
@@ -16,7 +17,6 @@ import { defect, defined } from "#compiler/core/invariant.ts"
 import { sortInPlace } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -509,7 +509,7 @@ const appended = (
 /**
  * The literal of `text` alone, as `columnLiteral` writes it, measured without writing it: its UTF-16 code units, its
  * braces, quotes and escaping backslashes among them (`elementOverhead`), and its UTF-8 bytes, the text's own
- * (core/sha256.ts utf8Length) and one for each character the literal adds, all of them ASCII.
+ * (grizzle-text utf8.ts utf8Length) and one for each character the literal adds, all of them ASCII.
  */
 export const literalAlone = (
 	text: ParamText

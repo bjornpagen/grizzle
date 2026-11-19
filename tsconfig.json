@@ -316,6 +316,9 @@
 		},
 		{
 			"path": "packages/grizzle"
+		},
+		{
+			"path": "packages/text"
 		}
 	],
 	"include": [

@@ -1,5 +1,6 @@
 /** What the properties of emptiness.test.ts read: its spaces, models and helpers. */
 
+import { codePointsText } from "@bjornpagen/grizzle-text/text"
 import {
 	array,
 	constant,
@@ -15,7 +16,6 @@ import { Array as Arr, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type * as Engine from "#compiler/core/result.ts"
-import { codePointsText } from "#compiler/core/text.ts"
 import type { CharSet } from "#compiler/scalar/regex/charset.ts"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"

@@ -17,16 +17,16 @@
  *    generated fields hold the host's values. No key holds a generated field (README, "How a field is written": no
  *    fact carries its value, so such a schema is refused when it compiles), so neither relation keys one.
  *
- * Oracle: the reference evaluator character by character, and XML Schema's collapse (core/text.ts collapsed).
+ * Oracle: the reference evaluator character by character, and XML Schema's collapse (grizzle-text text.ts collapsed).
  *
  * Features: each map and white space situation the searches name.
  */
 
+import { codePoints, codePointsText, collapsed, translated } from "@bjornpagen/grizzle-text/text"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { codePoints, codePointsText, collapsed, translated } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"

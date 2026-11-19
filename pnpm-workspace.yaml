@@ -4,6 +4,7 @@ packages:
   - packages/engine
   - packages/grizzle
   - packages/pg
+  - packages/text
   - "packages/experiments/*"
   # The toolchain, the submodule pinned at its commit: its dev tools and testing library join the workspace and run from
   # source, with their own gate, none of grizzle's.

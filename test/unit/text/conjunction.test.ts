@@ -27,12 +27,12 @@
  * a regex check of several patterns and an IN list.
  */
 
+import { codePoints } from "@bjornpagen/grizzle-text/text"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, array, element } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { utf8Length } from "#compiler/core/sha256.ts"
-import { codePoints } from "#compiler/core/text.ts"
 import { type Patterns, type PatternSource, wildcardPattern } from "#compiler/ir/scalar.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"

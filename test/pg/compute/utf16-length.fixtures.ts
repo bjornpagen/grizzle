@@ -1,5 +1,7 @@
 /** What the properties of utf16-length.test.ts read: its spaces, models and helpers. */
 
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import {
 	array,
 	element,
@@ -11,8 +13,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
-import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"

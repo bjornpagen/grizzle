@@ -1,11 +1,11 @@
 /** What the properties of role-prefix.test.ts read: its spaces, models and helpers. */
 
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { type Case } from "@bjornpagen/testing/explore"
 import { array, boolean, codePoint, element, type Gen, int, string } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { maxIdentifierBytes, parseRolePrefix, roleInSpace } from "#compiler/core/identity.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { assert } from "#test/support/assert.ts"
 
 /** A lowercase PostgreSQL identifier segment: the characters a prefix is written in. */

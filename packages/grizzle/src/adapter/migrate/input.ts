@@ -1,3 +1,4 @@
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { Array as Arr, Brand, Result } from "effect"
 import { readMeta } from "#adapter/boundary/meta.ts"
 import {
@@ -7,7 +8,7 @@ import {
 	stopped
 } from "#adapter/migrate/errors.ts"
 import type { MigrationText } from "#adapter/wire/batch.ts"
-import { compareCodePoints, sha256Hex } from "#compiler/plan/common.ts"
+import { sha256Hex } from "#compiler/plan/common.ts"
 import {
 	type InstallationNames,
 	isFolderName,

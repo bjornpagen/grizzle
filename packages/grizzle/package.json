@@ -35,6 +35,7 @@
 	},
 	"dependencies": {
 		"@bjornpagen/grizzle-engine": "workspace:*",
+		"@bjornpagen/grizzle-text": "workspace:*",
 		"@effect/platform-node": "catalog:"
 	},
 	"devDependencies": {

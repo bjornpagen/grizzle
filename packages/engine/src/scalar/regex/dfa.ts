@@ -1,6 +1,6 @@
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import { indices } from "#compiler/core/array.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { type TextBounds, textBounds } from "#compiler/ir/scalar.ts"
 import {

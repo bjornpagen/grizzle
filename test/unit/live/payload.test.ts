@@ -1,6 +1,6 @@
 /**
  * A sealed batch of the fan-out opens to exactly the notifications the leader sealed (live/notify.ts openPayload): its
- * plaintext is read as the UTF-8 it is (core/utf8.ts), every value byte for byte, a leading U+FEFF among them. Only a
+ * plaintext is read as the UTF-8 it is (grizzle-text utf8.ts), every value byte for byte, a leading U+FEFF among them. Only a
  * holder of the live secret seals a batch, and the leader seals a batch's text, so an authenticated plaintext that is
  * no UTF-8 is a defect, never text patched with U+FFFD that routes a key no row holds.
  *
@@ -14,11 +14,11 @@
  * of several notifications.
  */
 
+import { utf8 } from "@bjornpagen/grizzle-text/utf8"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, Formatter } from "effect"
 import { seal } from "#compiler/core/seal.ts"
-import { utf8 } from "#compiler/core/sha256.ts"
 import { batchesOf, type Notification, openPayload, sealBatch } from "#compiler/live/notify.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import {

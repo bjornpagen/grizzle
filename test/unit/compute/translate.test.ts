@@ -31,13 +31,13 @@
  * Features: as each search names them, every route of every property.
  */
 
+import { codePoints, codePointsText, collapsed } from "@bjornpagen/grizzle-text/text"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { codePoints, codePointsText, collapsed } from "#compiler/core/text.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { textOf, textPatterns } from "#compiler/ir/scalar.ts"
@@ -664,7 +664,7 @@ export const computesTranslateAndLowerAsciiCollapseAndReplaceWhitespaceAgreeWith
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/text.ts",
+				file: "packages/text/src/text.ts",
 				original: "\t\t\tspaced = out.length > 0",
 				replacement: "\t\t\tspaced = true",
 				why: "The host's collapse keeps a space for leading white space; the collapse property fails."

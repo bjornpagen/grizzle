@@ -10,12 +10,12 @@
  * character was not written among them, as textrecv refuses one.
  */
 
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { textArray } from "#compiler/codec/bytea.ts"
-import { utf8Text } from "#compiler/core/utf8.ts"
 import { readArrayBinary } from "#test/support/arrays.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {

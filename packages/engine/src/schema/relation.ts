@@ -1,3 +1,4 @@
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { sameContent } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
@@ -9,7 +10,6 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	builtNode,

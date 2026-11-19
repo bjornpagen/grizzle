@@ -1,5 +1,6 @@
 /** What the properties of transformed-guard.test.ts read: its spaces, models and helpers. */
 
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import {
 	type Aimed,
 	aimed,
@@ -14,7 +15,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"

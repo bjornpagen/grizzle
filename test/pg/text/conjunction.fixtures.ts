@@ -1,8 +1,8 @@
 /** What the properties of conjunction.test.ts read: its spaces, models and helpers. */
 
+import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
-import { codePoints } from "#compiler/core/text.ts"
 import type { Patterns, PatternSource } from "#compiler/ir/scalar.ts"
 import { has } from "#compiler/scalar/regex/charset.ts"
 import type { CanonicalDfa } from "#compiler/scalar/regex/dfa.ts"

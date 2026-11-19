@@ -1,9 +1,9 @@
+import { codePoints } from "@bjornpagen/grizzle-text/text"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
-import { codePoints } from "#compiler/core/text.ts"
 import {
 	finiteCheck,
 	languageKey,

@@ -1,7 +1,7 @@
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { scalarReader } from "#compiler/codec/read.ts"
 import type { RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"

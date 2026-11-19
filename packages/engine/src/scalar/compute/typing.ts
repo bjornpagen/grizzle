@@ -1,3 +1,5 @@
+import { asciiFold } from "@bjornpagen/grizzle-text/text"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { int4Max } from "#compiler/core/canonical.ts"
 import { canonicalTextOf, catchRefusal, Refusal, sameContent } from "#compiler/core/canonical.ts"
 import { maxAllocSize } from "#compiler/core/errors.ts"
@@ -11,8 +13,6 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
-import { asciiFold } from "#compiler/core/text.ts"
 import { int4Digits, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"

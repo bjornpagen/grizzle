@@ -1,8 +1,8 @@
 /** What bounded.test.ts reads: its case space, the guarded match it lowers, and what each row reaches. */
 
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { assert, defined } from "#test/support/assert.ts"

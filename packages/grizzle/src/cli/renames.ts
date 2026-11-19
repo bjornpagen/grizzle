@@ -21,6 +21,7 @@
  * whether the renames agree, is the draft's to decide (deploy/diff/plan.ts Declarations). A swap (`A=B` and `B=A`) and
  * a chain (`A=B` and `B=C`) are renames like any other, which the draft orders.
  */
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Data, Formatter, Option, Result, String as Str } from "effect"
 import {
 	conversionOf,
@@ -30,8 +31,7 @@ import {
 	type HandleRenames,
 	parseDeclaredName,
 	type Roster,
-	type RosterRenames,
-	utf8Length
+	type RosterRenames
 } from "#compiler/plan/common.ts"
 import type { Declarations, Named, Rename } from "#compiler/plan/migration.ts"
 

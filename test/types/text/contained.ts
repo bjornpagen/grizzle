@@ -1,7 +1,7 @@
+import { codePointsText } from "@bjornpagen/grizzle-text/text"
 import { array, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { codePointsText } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"

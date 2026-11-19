@@ -1,3 +1,4 @@
+import { replaceMap } from "@bjornpagen/grizzle-text/text"
 import { nominal } from "#compiler/core/brand.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
@@ -76,7 +77,6 @@ import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, matchRefusalAt } from "#compiler/scalar/regex/admit.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
-import { replaceMap } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	carrierSql,
 	describeField,
@@ -850,7 +850,7 @@ const translate = (
 
 /**
  * Compute.replaceWhitespace(x): XML Schema's whiteSpace replace, translate of tab, LF and CR each to a space
- * (scalar/regex/whitespace.ts replaceMap).
+ * (@bjornpagen/grizzle-text text.ts replaceMap).
  */
 const replaceWhitespace = (x: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
 	const call = new Call("Compute.replaceWhitespace")

@@ -122,6 +122,6 @@ export default toolchain({
 		{ rule: "ts-only-extensions", files: ["upstream/v8-unicode-end-anchor-astral-class/repro.js"] },
 		experiments
 	],
-	effectFree: ["packages/engine"],
+	effectFree: ["packages/engine", "packages/text"],
 	packs: [grizzle()]
 })

@@ -1,10 +1,10 @@
 /** What the properties of translate.test.ts read: its spaces, models and helpers. */
 
+import { codePoints, codePointsText, collapsed } from "@bjornpagen/grizzle-text/text"
 import type { Steered } from "@bjornpagen/testing/explore"
 import { array, boolean, element, type Gen, int, proportional } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import { codePoints, codePointsText, collapsed } from "#compiler/core/text.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import {
 	compileInstallation,

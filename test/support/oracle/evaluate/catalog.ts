@@ -1,9 +1,9 @@
+import { codePoints, compareCodePoints } from "@bjornpagen/grizzle-text/text"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
-import { codePoints, compareCodePoints } from "#compiler/core/text.ts"
 import type { VectorText } from "#compiler/ir/carriers.ts"
 import {
 	type ColumnRef,

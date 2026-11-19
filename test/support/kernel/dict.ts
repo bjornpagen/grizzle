@@ -1,3 +1,4 @@
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { element, type Gen, proportional } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
@@ -7,7 +8,6 @@ import {
 	parseDeclaredName,
 	parseSchemaName
 } from "#compiler/core/identity.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"

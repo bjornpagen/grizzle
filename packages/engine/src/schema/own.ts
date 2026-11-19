@@ -1,3 +1,4 @@
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { arrayText, catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import type { RoleRule } from "#compiler/core/causes.ts"
 import {
@@ -40,7 +41,6 @@ import {
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type NonEmptyCanonicalSet, nonEmptyNameSet } from "#compiler/core/set.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	type AdmittedClosedRelation,

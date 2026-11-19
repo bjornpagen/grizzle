@@ -1,9 +1,9 @@
 /** What the properties of bytes-guard.test.ts read: its spaces, models and helpers. */
 
+import { codePoints } from "@bjornpagen/grizzle-text/text"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
-import { utf8Length } from "#compiler/core/sha256.ts"
-import { codePoints } from "#compiler/core/text.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"

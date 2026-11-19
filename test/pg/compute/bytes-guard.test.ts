@@ -14,12 +14,12 @@
  * Features: each bound of the text's type and each side of the guard's interval a case reaches.
  */
 
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import {
 	admitted,

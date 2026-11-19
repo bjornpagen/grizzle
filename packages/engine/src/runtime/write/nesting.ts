@@ -3,6 +3,7 @@
  * fields admitted, the whole nesting filled in one walk by the write's filler (runtime/write/fill.ts), and its rows cut
  * into each relation its family statements write, every relation's rows one set across the stratum's nested writes.
  */
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
 	positionalColumns,
@@ -15,7 +16,7 @@ import type { ColumnIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { compareCodePoints, compareTextTuples } from "#compiler/core/text.ts"
+import { compareTextTuples } from "#compiler/core/text.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"

@@ -1,5 +1,5 @@
+import { utf8Chunks } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Data, Effect, Option, type Scope, String as Str } from "effect"
-import { utf8Chunks } from "#compiler/core/utf8.ts"
 
 /**
  * An event stream as a client reads it, by WHATWG HTML's interpretation of text/event-stream (section 9.2.6): the one

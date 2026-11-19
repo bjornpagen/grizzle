@@ -119,10 +119,10 @@ const NO_ENVIRONMENT = "The engine reads no environment: what it needs is an arg
 const TEXT_DECODER = {
 	name: "TextDecoder",
 	message:
-		"Bytes become text through #compiler/core/utf8.ts alone (utf8Text, utf8Chunks): it refuses bytes that are no UTF-8 and keeps a byte order mark, where a TextDecoder of its own strips a leading U+FEFF and may patch bytes with U+FFFD."
+		"Bytes become text through @bjornpagen/grizzle-text/utf8 alone (utf8Text, utf8Chunks): it refuses bytes that are no UTF-8 and keeps a byte order mark, where a TextDecoder of its own strips a leading U+FEFF and may patch bytes with U+FFFD."
 } as const
 
-/** The globals the engine never reads, but the one decoder of bytes into text, which core/utf8.ts alone builds. */
+/** The globals the engine never reads, but the one decoder of bytes into text, which grizzle-text's utf8.ts alone builds. */
 const ENGINE_GLOBALS = [
 	{ name: "Date", message: NO_CLOCK },
 	{ name: "performance", message: NO_CLOCK },
@@ -496,11 +496,20 @@ export default defineConfig(
 				})
 			},
 			{
+				/** grizzle-text, dependency-free and browser-safe: the engine's bans, no Effect, no Node module, no I/O. */
+				files: ["packages/text/**"],
+				rules: active({
+					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS, TEXT_DECODER],
+					"eslint/no-restricted-imports": engineImports("no Node module", []),
+					"typescript/no-import-type-side-effects": "error"
+				})
+			},
+			{
 				/**
 				 * The one decoder of bytes into text: it builds the TextDecoder every other module is refused, and reads a
 				 * fatal decoder's refusal of malformed bytes, a thrown TypeError, the platform's one signal of it.
 				 */
-				files: ["packages/engine/src/core/utf8.ts"],
+				files: ["packages/text/src/utf8.ts"],
 				rules: active({
 					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS],
 					"devtools/no-try": "off"

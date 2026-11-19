@@ -19,13 +19,13 @@
  * Features: "equal facts spelled apart" and "deduplicated".
  */
 
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"

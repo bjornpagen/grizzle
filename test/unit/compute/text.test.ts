@@ -25,12 +25,12 @@
  * dictionary's CASE.
  */
 
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import { type ExprDesc, type GuardDesc, guardedExpr } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"

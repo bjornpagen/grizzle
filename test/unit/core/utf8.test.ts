@@ -1,5 +1,5 @@
 /**
- * The one reader of UTF-8 bytes as text (packages/engine/src/core/utf8.ts), whole (utf8Text) and in chunks
+ * The one reader of UTF-8 bytes as text (packages/text/src/utf8.ts), whole (utf8Text) and in chunks
  * (utf8Chunks): the text the bytes spell, exactly as they arrived, and nothing for bytes that are no UTF-8.
  *
  * - Property: over drawn texts of a palette of scalars (U+FEFF among them, at the start or after it, an astral scalar,
@@ -14,10 +14,10 @@
  * a sequence cut between chunks, an astral scalar.
  */
 
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { utf8Text } from "#compiler/core/utf8.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	BYTE_ORDER_MARK,
@@ -88,14 +88,14 @@ export const theOneReaderOfUTF8BytesAsTextReadsWellFormedBytesAsExactlyTheirText
 		],
 		kills: [
 			{
-				file: "packages/engine/src/core/utf8.ts",
+				file: "packages/text/src/utf8.ts",
 				original:
 					'const strict = (): TextDecoder => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })',
 				replacement: 'const strict = (): TextDecoder => new TextDecoder("utf-8", { fatal: true })',
 				why: "The decoder strips a leading byte order mark, as a TextDecoder does by default, so a text that begins with U+FEFF reads without it."
 			},
 			{
-				file: "packages/engine/src/core/utf8.ts",
+				file: "packages/text/src/utf8.ts",
 				original:
 					'const strict = (): TextDecoder => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })',
 				replacement:

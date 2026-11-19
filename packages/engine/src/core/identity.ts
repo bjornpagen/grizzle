@@ -1,3 +1,4 @@
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -7,7 +8,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings, type Direction } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
 
 /**
  * The size of PostgreSQL's name type, NAMEDATALEN, its terminating zero byte included: what an identifier and a

@@ -6,6 +6,7 @@
  * notifications by their plaintext keys. A session without the secret, which any role of the database can LISTEN as,
  * reads nothing of a payload but its arrival, and makes none that opens.
  */
+import { utf8, utf8Length, utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
@@ -15,8 +16,6 @@ import { defined } from "#compiler/core/invariant.ts"
 import { blockSize } from "#compiler/core/page.ts"
 import * as Result from "#compiler/core/result.ts"
 import { open, seal, sealKeyBytes, sealNonceBytes, sealTagBytes } from "#compiler/core/seal.ts"
-import { utf8, utf8Length } from "#compiler/core/sha256.ts"
-import { utf8Text } from "#compiler/core/utf8.ts"
 
 /**
  * The margin NOTIFY_PAYLOAD_MAX_LENGTH leaves of a page beside a channel's name, which keeps one notification on one
@@ -382,7 +381,7 @@ export const batchNotifications = (
 /**
  * The notifications a payload of the channel holds, or what it parts from a sealed batch at: base64, of a nonce, a
  * ciphertext and a tag that authenticates it under the secret, whose text is notifications joined by NUL. A payload
- * that fails is no sender's of the installation. An opened batch is read as the UTF-8 it is (core/utf8.ts), never
+ * that fails is no sender's of the installation. An opened batch is read as the UTF-8 it is (grizzle-text utf8.ts), never
  * patched with U+FFFD: only a holder of the secret seals one, and the leader seals a batch's text (sealBatch), so one
  * that is no UTF-8 is a defect.
  */

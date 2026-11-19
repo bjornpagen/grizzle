@@ -78,12 +78,12 @@ export const theTestLayersVerifyVerifiesExactlyTheTokenTextsThatHoldJSONAsWritte
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/core/utf8.ts",
+					file: "packages/text/src/utf8.ts",
 					original:
 						'const strict = (): TextDecoder => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })',
 					replacement:
 						'const strict = (): TextDecoder => new TextDecoder("utf-8", { fatal: true })',
-					why: "The one decoder the verify reads a token's bytes through (core/utf8.ts) strips a leading byte order mark, as a TextDecoder does by default, so {} after U+FEFF verifies as {}."
+					why: "The one decoder the verify reads a token's bytes through (grizzle-text utf8.ts) strips a leading byte order mark, as a TextDecoder does by default, so {} after U+FEFF verifies as {}."
 				}
 			]
 		}

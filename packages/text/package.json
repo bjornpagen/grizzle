@@ -1,0 +1,25 @@
+{
+	"name": "@bjornpagen/grizzle-text",
+	"private": true,
+	"description": "grizzle's text primitives, dependency-free and browser-safe: code point order, UTF-8 and XML's whiteSpace collapse and replace",
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
+	"type": "module",
+	"engines": {
+		"node": ">=26"
+	},
+	"imports": {
+		"#text/*": "./src/*"
+	},
+	"exports": {
+		"./text": "./src/text.ts",
+		"./utf8": "./src/utf8.ts",
+		"./package.json": "./package.json"
+	},
+	"sideEffects": false,
+	"scripts": {
+		"typecheck": "toolchain-typecheck -b",
+		"typecheck:full": "rm -rf types && toolchain-typecheck -p tsconfig.json",
+		"oxlint": "toolchain-oxlint"
+	}
+}

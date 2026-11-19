@@ -35,6 +35,7 @@
 		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {
+		"@bjornpagen/grizzle-text": "workspace:*",
 		"arkregex": "catalog:"
 	},
 	"devDependencies": {

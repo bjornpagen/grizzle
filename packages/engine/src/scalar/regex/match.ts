@@ -1,4 +1,4 @@
-import { codePointAt, codePointUnits } from "#compiler/core/text.ts"
+import { codePointAt, codePointUnits } from "@bjornpagen/grizzle-text/text"
 import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { SearchSubsets, type Subset, subsetKey } from "#compiler/scalar/regex/subset.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"

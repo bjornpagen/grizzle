@@ -1,5 +1,5 @@
 /**
- * Text order against PostgreSQL 19: the host's order of text values (core/text.ts compareCodePoints) is PostgreSQL's
+ * Text order against PostgreSQL 19: the host's order of text values (grizzle-text text.ts compareCodePoints) is PostgreSQL's
  * `ORDER BY ... COLLATE pg_catalog.pg_c_utf8`, and the host's equality of texts is that collation's DISTINCT.
  *
  * Each case is a batch of texts drawn from every plane but NUL and the surrogates, combining marks after letters, and
@@ -16,11 +16,11 @@
  * comparison by UTF-16 code unit orders wrong.
  */
 
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { compareCodePoints } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { source, text } from "#test/pg/values/text.fixtures.ts"
 import { assert } from "#test/support/assert.ts"
@@ -70,7 +70,7 @@ export const textAgreementWithPostgreSQLOrdersByCodePointExactlyAsORDERBYCOLLATE
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/text.ts",
+				file: "packages/text/src/text.ts",
 				original: "\t\t\treturn codePointRank(x) < codePointRank(y) ? -1 : 1",
 				replacement: "\t\t\treturn x < y ? -1 : 1",
 				why: "compareCodePoints compares UTF-16 code units, so an astral scalar sorts below U+E000-U+FFFF."

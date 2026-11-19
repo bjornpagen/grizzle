@@ -1,8 +1,9 @@
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, Option, Result, String as Str } from "effect"
 import { parseToken, type Token } from "#adapter/db/token.ts"
 import { doorRefusal } from "#adapter/live/call-error.ts"
 import type { CallErrorOf, FailureOf } from "#compiler/live/index.ts"
-import { trustedJson, utf8Text, wireHeader } from "#compiler/plan/runtime.ts"
+import { trustedJson, wireHeader } from "#compiler/plan/runtime.ts"
 
 /**
  * What the handler reads of a request, each read once at the boundary into what its call takes: the request line it
@@ -76,7 +77,7 @@ const noJson = () => doorRefusal("BodyNoJson", "the body is no JSON text in UTF-
 
 /**
  * A request's body, read whole and parsed as JSON once: a body that cannot be read, is not UTF-8 or is not JSON text
- * as written is a refused input. Its bytes are read as the UTF-8 they are (core/utf8.ts), so a body that begins with a
+ * as written is a refused input. Its bytes are read as the UTF-8 they are (grizzle-text utf8.ts), so a body that begins with a
  * byte order mark is no JSON text and is refused, never read as the JSON after the mark: a body is the JSON it spells,
  * and grizzle's clients send none. Its value is admitted against the member's input by its wire, never here.
  */

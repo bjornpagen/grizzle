@@ -1,7 +1,7 @@
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
 import { type ReadonlyTupleSet, TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	admittedText,

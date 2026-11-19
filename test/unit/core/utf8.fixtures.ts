@@ -1,8 +1,8 @@
 /** What the properties of utf8.test.ts read: its spaces, models and helpers. */
 
+import { utf8Chunks } from "@bjornpagen/grizzle-text/utf8"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import { utf8Chunks } from "#compiler/core/utf8.ts"
 
 export const BYTE_ORDER_MARK = "\uFEFF"
 

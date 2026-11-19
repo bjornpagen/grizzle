@@ -58,7 +58,7 @@ export const theAuditsChecksOfValuesGeneratedAnIdentifierIsNonemptyWithoutNULWel
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/sha256.ts",
+				file: "packages/text/src/utf8.ts",
 				original: "\t\t\tbytes += 2",
 				replacement: "\t\t\tbytes += 3",
 				why: "Operator mutant (bound) at packages/engine/src/core/sha256.ts:54 in utf8Length: `2` becomes `3`; the property fails (lane CATCH, grizzle 0baff5d6)."

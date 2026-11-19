@@ -28,6 +28,11 @@
 	"boundaries": {
 		"zones": [
 			{
+				// @bjornpagen/grizzle-text: text primitives, dependency-free and browser-safe, which every zone may import.
+				"name": "grizzle-text",
+				"patterns": ["packages/text/**"]
+			},
+			{
 				// Experiments on main, each run by hand until its verdict deletes it (owner, 2026-11-15): no package imports one.
 				"name": "experiments",
 				"patterns": ["packages/experiments/**"]
@@ -374,28 +379,41 @@
 		],
 		"rules": [
 			{
+				// Dependency-free: grizzle-text imports no zone, so it is browser-safe and runs wherever JavaScript does.
+				"from": "grizzle-text",
+				"allow": []
+			},
+			{
 				// Browser-safe by construction: no zone here imports one that reaches a Node module.
 				"from": "browser-core",
-				"allow": [],
+				"allow": ["grizzle-text"],
 				"allowTypeOnly": ["core"]
 			},
 			{
 				"from": "values",
-				"allow": ["browser-core"],
+				"allow": ["browser-core", "grizzle-text"],
 				"allowTypeOnly": ["core", "ir", "scalar", "types"]
 			},
 			{
 				"from": "live-model",
-				"allow": ["browser-core"],
+				"allow": ["browser-core", "grizzle-text"],
 				"allowTypeOnly": ["core", "live", "live-wire", "types"]
 			},
 			{
 				"from": "plan-client",
-				"allow": ["browser-core", "live-model", "live-wire", "values"]
+				"allow": ["browser-core", "grizzle-text", "live-model", "live-wire", "values"]
 			},
 			{
 				"from": "client",
-				"allow": ["browser-core", "client", "live-model", "live-wire", "plan-client", "values"],
+				"allow": [
+					"browser-core",
+					"client",
+					"grizzle-text",
+					"live-model",
+					"live-wire",
+					"plan-client",
+					"values"
+				],
 				"allowTypeOnly": [
 					"browser-core",
 					"core",
@@ -409,7 +427,7 @@
 			},
 			{
 				"from": "reader",
-				"allow": ["browser-core", "codec", "core", "ir", "scalar", "values"]
+				"allow": ["browser-core", "codec", "core", "grizzle-text", "ir", "scalar", "values"]
 			},
 			{
 				"from": "decode",
@@ -419,6 +437,7 @@
 					"check",
 					"codec",
 					"core",
+					"grizzle-text",
 					"ir",
 					"laws",
 					"logical",
@@ -444,6 +463,7 @@
 					"core",
 					"decode",
 					"deploy",
+					"grizzle-text",
 					"ir",
 					"laws",
 					"live",
@@ -478,6 +498,7 @@
 					"core",
 					"decode",
 					"deploy",
+					"grizzle-text",
 					"install",
 					"ir",
 					"live-served",
@@ -500,44 +521,53 @@
 			{
 				// The runtime names the compiled forms it runs by type alone; its witness decode site is the decode zone's.
 				"from": "runtime",
-				"allow": ["browser-core", "codec", "core", "decode", "ir", "scalar", "values"],
+				"allow": [
+					"browser-core",
+					"codec",
+					"core",
+					"decode",
+					"grizzle-text",
+					"ir",
+					"scalar",
+					"values"
+				],
 				"allowTypeOnly": ["laws", "lower", "sql", "types", "write"]
 			},
 			{
 				"from": "core",
-				"allow": ["browser-core"]
+				"allow": ["browser-core", "grizzle-text"]
 			},
 			{
 				"from": "sql",
-				"allow": ["browser-core", "core"]
+				"allow": ["browser-core", "core", "grizzle-text"]
 			},
 			{
 				"from": "allen",
-				"allow": ["browser-core", "core", "sql"]
+				"allow": ["browser-core", "core", "grizzle-text", "sql"]
 			},
 			{
 				"from": "ir",
-				"allow": ["browser-core", "core", "sql", "values"]
+				"allow": ["browser-core", "core", "grizzle-text", "sql", "values"]
 			},
 			{
 				"from": "scalar",
-				"allow": ["browser-core", "core", "ir", "values"]
+				"allow": ["browser-core", "core", "grizzle-text", "ir", "values"]
 			},
 			{
 				"from": "logical",
-				"allow": ["browser-core", "core", "ir", "scalar", "values"]
+				"allow": ["browser-core", "core", "grizzle-text", "ir", "scalar", "values"]
 			},
 			{
 				"from": "types",
-				"allow": ["allen", "browser-core", "core", "ir", "scalar", "values"]
+				"allow": ["allen", "browser-core", "core", "grizzle-text", "ir", "scalar", "values"]
 			},
 			{
 				"from": "text",
-				"allow": ["browser-core", "core", "ir", "scalar", "sql", "types", "values"]
+				"allow": ["browser-core", "core", "grizzle-text", "ir", "scalar", "sql", "types", "values"]
 			},
 			{
 				"from": "codec",
-				"allow": ["browser-core", "core", "ir", "scalar", "types", "values"]
+				"allow": ["browser-core", "core", "grizzle-text", "ir", "scalar", "types", "values"]
 			},
 			{
 				"from": "schema",
@@ -545,6 +575,7 @@
 					"browser-core",
 					"codec",
 					"core",
+					"grizzle-text",
 					"ir",
 					"runtime",
 					"scalar",
@@ -560,6 +591,7 @@
 					"allen",
 					"browser-core",
 					"core",
+					"grizzle-text",
 					"ir",
 					"logical",
 					"scalar",
@@ -574,6 +606,7 @@
 					"browser-core",
 					"check",
 					"core",
+					"grizzle-text",
 					"ir",
 					"logical",
 					"runtime",
@@ -588,12 +621,32 @@
 				// The law model attaches the described public Law to each constraint it plans: Law is plain data, so naming
 				// its type couples nothing at run time.
 				"from": "laws",
-				"allow": ["analysis", "browser-core", "core", "ir", "scalar", "schema", "sql", "values"],
+				"allow": [
+					"analysis",
+					"browser-core",
+					"core",
+					"grizzle-text",
+					"ir",
+					"scalar",
+					"schema",
+					"sql",
+					"values"
+				],
 				"allowTypeOnly": ["types"]
 			},
 			{
 				"from": "query",
-				"allow": ["browser-core", "core", "ir", "scalar", "schema", "text", "types", "values"]
+				"allow": [
+					"browser-core",
+					"core",
+					"grizzle-text",
+					"ir",
+					"scalar",
+					"schema",
+					"text",
+					"types",
+					"values"
+				]
 			},
 			{
 				"from": "lower",
@@ -603,6 +656,7 @@
 					"check",
 					"codec",
 					"core",
+					"grizzle-text",
 					"ir",
 					"logical",
 					"runtime",
@@ -620,6 +674,7 @@
 					"codec",
 					"core",
 					"decode",
+					"grizzle-text",
 					"ir",
 					"laws",
 					"logical",
@@ -641,6 +696,7 @@
 					"browser-core",
 					"check",
 					"core",
+					"grizzle-text",
 					"ir",
 					"laws",
 					"live",
@@ -667,6 +723,7 @@
 					"codec",
 					"core",
 					"decode",
+					"grizzle-text",
 					"ir",
 					"laws",
 					"live",
@@ -690,6 +747,7 @@
 				"allow": [
 					"browser-core",
 					"core",
+					"grizzle-text",
 					"ir",
 					"laws",
 					"live",
@@ -709,6 +767,7 @@
 					"allen",
 					"browser-core",
 					"core",
+					"grizzle-text",
 					"ir",
 					"program",
 					"query",
@@ -723,7 +782,7 @@
 			{
 				// The served forms name the compiled structures they hold by type alone: the file is data, rebuilt at load.
 				"from": "served",
-				"allow": ["browser-core", "check", "core", "ir", "scalar", "values"],
+				"allow": ["browser-core", "check", "core", "grizzle-text", "ir", "scalar", "values"],
 				"allowTypeOnly": [
 					"codec",
 					"laws",
@@ -746,6 +805,7 @@
 					"core",
 					"decode",
 					"deploy",
+					"grizzle-text",
 					"ir",
 					"live",
 					"live-model",
@@ -775,6 +835,7 @@
 					"codec",
 					"core",
 					"decode",
+					"grizzle-text",
 					"ir",
 					"live",
 					"live-model",
@@ -823,6 +884,7 @@
 					"codec",
 					"core",
 					"decode",
+					"grizzle-text",
 					"ir",
 					"plan-runtime",
 					"reader",
@@ -863,11 +925,11 @@
 			},
 			{
 				"from": "live",
-				"allow": ["browser-core", "core", "live-model", "types"]
+				"allow": ["browser-core", "core", "grizzle-text", "live-model", "types"]
 			},
 			{
 				"from": "live-wire",
-				"allow": ["browser-core", "live-model", "values"],
+				"allow": ["browser-core", "grizzle-text", "live-model", "values"],
 				"allowTypeOnly": ["core", "ir", "live", "scalar", "types"]
 			},
 			{
@@ -875,6 +937,7 @@
 				"allow": [
 					"browser-core",
 					"core",
+					"grizzle-text",
 					"ir",
 					"live",
 					"live-model",
@@ -892,6 +955,7 @@
 					"codec",
 					"core",
 					"decode",
+					"grizzle-text",
 					"ir",
 					"live",
 					"live-model",
@@ -906,11 +970,11 @@
 			},
 			{
 				"from": "runtime-entry",
-				"allow": ["adapter-runtime"]
+				"allow": ["adapter-runtime", "grizzle-text"]
 			},
 			{
 				"from": "dynamic-entry",
-				"allow": ["public"]
+				"allow": ["grizzle-text", "public"]
 			},
 			{
 				"from": "http",
@@ -918,6 +982,7 @@
 					"adapter-runtime",
 					"browser-core",
 					"core",
+					"grizzle-text",
 					"http",
 					"live",
 					"live-model",
@@ -938,6 +1003,7 @@
 					"core",
 					"decode",
 					"deploy",
+					"grizzle-text",
 					"ir",
 					"live",
 					"live-model",
@@ -966,6 +1032,7 @@
 					"browser-core",
 					"core",
 					"deploy",
+					"grizzle-text",
 					"install",
 					"ir",
 					"live-served",
@@ -982,11 +1049,11 @@
 			},
 			{
 				"from": "engine-index",
-				"allow": ["public"]
+				"allow": ["grizzle-text", "public"]
 			},
 			{
 				"from": "index",
-				"allow": ["adapter", "adapter-runtime", "engine-index"]
+				"allow": ["adapter", "adapter-runtime", "engine-index", "grizzle-text"]
 			}
 		],
 		"coverage": {

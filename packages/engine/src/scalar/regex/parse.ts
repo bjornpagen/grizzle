@@ -1,6 +1,6 @@
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import { catchSignal } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
-import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import {
 	type CharSet,

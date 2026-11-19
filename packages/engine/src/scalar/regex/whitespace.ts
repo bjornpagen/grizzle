@@ -1,4 +1,4 @@
-import { xmlWhitespace } from "#compiler/core/text.ts"
+import { xmlWhitespace } from "@bjornpagen/grizzle-text/text"
 import type { PatternSource } from "#compiler/ir/scalar.ts"
 import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import {
@@ -22,9 +22,6 @@ import { alphabetOf, sourceFlags } from "#compiler/scalar/regex/source.ts"
  * The four white space characters, tab, LF, CR and space.
  */
 const whitespace: CharSet = charSet(Array.from(xmlWhitespace, (c) => [c, c] as const))
-
-/** whiteSpace replace's map, as Compute.translate states it: tab, LF and CR, each a space. */
-export const replaceMap = Object.freeze({ from: "\t\n\r", to: "   " })
 
 /** Whether a node is one class repeated freely and anchored at both ends, `^[A]*$`: every text over A. */
 const isFreeOver = (node: LiveNode): boolean => {

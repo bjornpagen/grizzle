@@ -1,8 +1,8 @@
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import { TokenError } from "#adapter/errors/failures.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
-import { utf8Text } from "#compiler/core/utf8.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import {
@@ -130,7 +130,7 @@ const utf8 = new TextEncoder()
 /**
  * Every test layer's verify: the payload the JSON text a token spells holds (tokenText), or a TokenError for a token
  * that spells no UTF-8 text or a text that holds no JSON as written. Its bytes are read as the UTF-8 they are
- * (core/utf8.ts), so a byte order mark before the JSON, which JSON.parse refuses, is no JSON.
+ * (grizzle-text utf8.ts), so a byte order mark before the JSON, which JSON.parse refuses, is no JSON.
  */
 export const testVerify = (token: string): Effect.Effect<unknown, TokenError> => {
 	const bytes = base64urlBytes(token)

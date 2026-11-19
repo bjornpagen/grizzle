@@ -1,6 +1,6 @@
 /**
  * An HTTP call's body is read as the JSON it spells (http/request.ts bodyJson): its bytes are the UTF-8 they are
- * (core/utf8.ts), so a body that is JSON as written is its value, and any other is refused as an `input`, before any
+ * (grizzle-text utf8.ts), so a body that is JSON as written is its value, and any other is refused as an `input`, before any
  * SQL: a body after a byte order mark is no JSON text (RFC 8259 section 8.1: a sender must not add one), and grizzle's
  * clients send none, so it is refused, never read as the JSON after the mark; a body that is no UTF-8 is refused too.
  *
@@ -102,7 +102,7 @@ export const anHTTPCallsBodyIsReadExactlyWhenItsBytesAreUTF8SpellingJSONAsWritte
 					why: "The body is read through a TextDecoder of its own, fatal but stripping a leading byte order mark, as it was, so {} after U+FEFF is read as {}."
 				},
 				{
-					file: "packages/engine/src/core/utf8.ts",
+					file: "packages/text/src/utf8.ts",
 					original:
 						'const strict = (): TextDecoder => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })',
 					replacement:

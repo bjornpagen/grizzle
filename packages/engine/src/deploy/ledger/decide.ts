@@ -1,5 +1,5 @@
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
 import {
 	completedFiles,
 	type LedgerState,

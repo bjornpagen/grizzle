@@ -1,5 +1,5 @@
 /**
- * The bytes a fingerprint hashes for a text (core/sha256.ts utf8, utf8Length) and the digest of a text (sha256Hex).
+ * The bytes a fingerprint hashes for a text (grizzle-text utf8.ts utf8, utf8Length) and the digest of a text (sha256Hex).
  *
  * - Any UTF-16 string: utf8 writes generalized UTF-8 (WTF-8), each code point as the platform iterates the string, a
  *   lone surrogate as its own three bytes 0xE0 | cp >> 12, 0x80 | (cp >> 6) & 0x3F, 0x80 | cp & 0x3F, never U+FFFD, and
@@ -14,10 +14,11 @@
  * Features: each code point's UTF-8 width (one to four bytes), a lone surrogate, and an empty text.
  */
 
+import { utf8, utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { sha256Hex, utf8, utf8Length } from "#compiler/core/sha256.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Feature, generalized, noteText, utf16 } from "#test/unit/core/sha256.fixtures.ts"
 
@@ -49,13 +50,13 @@ export const utf8WritesAnyUTF16StringAsGeneralizedUTF8ALoneSurrogateAsItsOwnThre
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/sha256.ts",
+				file: "packages/text/src/utf8.ts",
 				original: "\ttext.isWellFormed() ? encoder.encode(text) : wtf8(text)",
 				replacement: "\tencoder.encode(text)",
 				why: "utf8 writes a lone surrogate as the platform writes it, U+FFFD; the generalized UTF-8 property fails."
 			},
 			{
-				file: "packages/engine/src/core/sha256.ts",
+				file: "packages/text/src/utf8.ts",
 				original:
 					"\t\t} else if (unit >= 0xd800 && unit <= 0xdbff && isLowSurrogate(text.charCodeAt(at + 1))) {",
 				replacement:

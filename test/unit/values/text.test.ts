@@ -13,12 +13,12 @@
  * first text, of two lengths, and at an escaped unit.
  */
 
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { compareStrings } from "#compiler/core/order.ts"
 import {
-	compareCodePoints,
 	compareQuotedTuples,
 	compareTextTuples,
 	isValidText,
@@ -117,7 +117,7 @@ export const codePointOrderMatchesUTF8ByteOrder = property.explore(
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/text.ts",
+				file: "packages/text/src/text.ts",
 				original: "\t\t\treturn codePointRank(x) < codePointRank(y) ? -1 : 1",
 				replacement: "\t\t\treturn x < y ? -1 : 1",
 				why: "compareCodePoints orders texts by code unit; the code point order property fails."

@@ -1,5 +1,6 @@
 /** What the properties of translate.test.ts read: its spaces, models and helpers. */
 
+import { codePoints, codePointsText, collapsed } from "@bjornpagen/grizzle-text/text"
 import {
 	array,
 	boolean,
@@ -14,7 +15,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter } from "effect"
 import * as Engine from "#compiler/core/result.ts"
-import { codePoints, codePointsText, collapsed } from "#compiler/core/text.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"

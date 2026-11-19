@@ -10,5 +10,10 @@
 		"outDir": "types",
 		"tsBuildInfoFile": "types/tsconfig.tsbuildinfo"
 	},
+	"references": [
+		{
+			"path": "../text"
+		}
+	],
 	"include": ["src"]
 }

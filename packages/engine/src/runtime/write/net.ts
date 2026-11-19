@@ -1,7 +1,7 @@
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import * as Order from "#compiler/core/order.ts"
-import { compareCodePoints } from "#compiler/core/text.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { addInto, type Side, type Weighted, weightOf, type ZSet } from "#compiler/core/zset.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"

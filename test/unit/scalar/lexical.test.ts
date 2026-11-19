@@ -31,13 +31,13 @@
  * refused, a decimal's refused by its language and by its bytes; each kind of field lexicalForm reads.
  */
 
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { decimalText, lexical, lexicalForm } from "#compiler/public/text.ts"

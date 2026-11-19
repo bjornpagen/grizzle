@@ -3,6 +3,7 @@
  * Bind message, its staged form's, its carriers created and filled chunk by chunk, their ANALYZE where the staged
  * statement needs one, and the staged statement (write/program/staged.ts, which compiles the staged form and says why).
  */
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
 import { literalAlone } from "#compiler/codec/recordset.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
@@ -11,7 +12,6 @@ import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

@@ -3,6 +3,7 @@
  * the SQL Compute.lowerAscii lowers to in a query and in a check, and the repro of a query that folds a text whose type
  * bounds no bytes (Attr's `lexical`), installed with a rule over it.
  */
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -17,7 +18,6 @@ import {
 import type { Case, Resources } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"

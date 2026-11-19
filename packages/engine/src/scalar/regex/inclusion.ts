@@ -1,5 +1,5 @@
+import { codePointsText } from "@bjornpagen/grizzle-text/text"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { codePointsText } from "#compiler/core/text.ts"
 import type { Patterns } from "#compiler/ir/scalar.ts"
 import { formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { type CharSet, complement, isEmpty, union } from "#compiler/scalar/regex/charset.ts"

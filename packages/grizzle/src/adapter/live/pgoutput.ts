@@ -1,5 +1,5 @@
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { Data, Result } from "effect"
-import { utf8Text } from "#compiler/plan/runtime.ts"
 
 /**
  * A logical replication stream as the installation's leader reads it (live/leader.ts): each CopyData of the stream
@@ -129,7 +129,7 @@ const messageTag = {
 const columnKind = { null: 0x6e, unchanged: 0x75, text: 0x74 } as const
 
 /**
- * A text's bytes as the UTF-8 they are (core/utf8.ts): a stored text is delivered byte for byte, a leading U+FEFF
+ * A text's bytes as the UTF-8 they are (grizzle-text utf8.ts): a stored text is delivered byte for byte, a leading U+FEFF
  * among its characters, and bytes that are no UTF-8 are unreadable at `what`.
  */
 const textOf = (bytes: Uint8Array, what: string): string => {

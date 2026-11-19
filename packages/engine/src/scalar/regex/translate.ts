@@ -1,8 +1,8 @@
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import { maxOf } from "#compiler/core/array.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import type { PatternSource, Patterns, TextBounds } from "#compiler/ir/scalar.ts"
 import {
 	type CharSet,
