@@ -1,6 +1,6 @@
 import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
+import { boolean, constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -22,6 +22,7 @@ import {
 	admittedFillSpecGen,
 	besides,
 	buildFill,
+	familyAt,
 	type FillSpec,
 	type FollowUp,
 	followUpGen,
@@ -104,6 +105,7 @@ type ClusterSituation =
 	| "a generated field reading a field grizzle draws or accumulates"
 	| "a copy of a generated field reading a field grizzle draws or accumulates"
 	| "a fold stepping a generated field that reads a column its family draws"
+	| "an owner's put refilling a value over a copy of its generated field that reads a field grizzle accumulates"
 	| "a follow-up written over the stored instance"
 	| "an owner put in place beside an append to its family"
 	| "a follow-up that refills a value it leaves stale"
@@ -772,10 +774,41 @@ const ownerPutBesideReplacedCountedMember: ClusterCase = {
 }
 
 /**
- * The case a witness runs, drawn under its steering: while situations `aims` reaches are pending, a case of one of their
- * aims, drawn among them, so no aim that seldom reaches its situation holds back the others; otherwise a drawn one. The
- * generator draws it, so it is the case the search runs, prints and keeps.
+ * The case the generation suite keeps for a put root's generated field: R0's `g` is the greater of its `v` and its
+ * ordered family's sum `s0`, and R0's counted family's owner axis copies `g` into R2's c0, which its sum fold steps. A
+ * follow-up puts R0 with a `v` under `s0`, so the refill of the counted family reads R0's `g` as the put leaves the row
+ * (write/family/removals.ts leftByPut): the put's `v` and the stored `s0`, which the put states nowhere and keeps.
  */
+const ownerPutGeneratedOverFold: ClusterCase = {
+	spec: {
+		relations: [
+			{ generated: { kind: "row", source: { kind: "fold", family: 0 } }, mutable: true },
+			{ generated: noGeneration, mutable: true },
+			{ generated: noGeneration, mutable: true }
+		],
+		families: [
+			{ kind: "ordered", owner: 0, member: 1, fold: "sum" },
+			{ kind: "counted", owner: 0, member: 2, fold: "sum" }
+		],
+		copies: [{ family: 1, axis: "owner", source: { kind: "generated" } }],
+		steps: [{ kind: "copy", family: 1, copy: 0 }]
+	},
+	rows: [
+		{ relation: 0, id: 1, v: 0n, memberOf: [] },
+		{ relation: 1, id: 2, v: 3n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+		{ relation: 2, id: 3, v: 0n, memberOf: [{ family: 1, owner: 1, slot: 0 }] }
+	],
+	followUp: Option.some({
+		owner: 0,
+		row: 1,
+		put: Option.some(1n),
+		inserted: [],
+		removed: Option.none(),
+		appended: Option.none(),
+		moved: Option.none()
+	})
+}
+
 /**
  * A case whose specification's generated fields read fields grizzle draws or accumulates on their own row, admitted by
  * the reference by construction (fill.ts `generationDrawn`), with an instance and a written follow-up or none.
@@ -789,20 +822,73 @@ const generationCaseGen: Gen<ClusterCase> = caseOver(
 	followUpGen
 )
 
+/**
+ * A case aimed at an owner's put that refills a value over a copy of the owner's generated field reading a field
+ * grizzle accumulates: R0's `g` the greater of its `v` and its ordered family's count or sum, R0's counted family's
+ * owner axis copying `g` into R2's c0, which its sum fold steps, and a put of R0's first row (`ownerPutGen`), whose
+ * refill reads `g` as the put leaves R0's row; R1 drawn as any relation.
+ */
+const ownerPutGeneratedGen: Gen<ClusterCase> = caseOver(
+	(source) => ({
+		relations: [
+			{
+				generated: {
+					kind: "row",
+					source: source.draw(boolean) ? { kind: "fold", family: 0 } : { kind: "count", family: 0 }
+				},
+				mutable: true
+			},
+			{
+				generated: source.draw(boolean) ? generationOfV : noGeneration,
+				mutable: source.draw(boolean)
+			},
+			{ generated: noGeneration, mutable: true }
+		],
+		families: [
+			{ kind: "ordered", owner: 0, member: 1, fold: "sum" },
+			{ kind: "counted", owner: 0, member: 2, fold: "sum" }
+		],
+		copies: [{ family: 1, axis: "owner", source: { kind: "generated" } }],
+		steps: [{ kind: "copy", family: 1, copy: 0 }]
+	}),
+	instanceGen,
+	(_, rows) => ownerPutGen(rows, 0)
+)
+
 /** What the generation suite must reach. */
 const generationSituations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a generated field reading a field grizzle draws or accumulates",
 	"a copy of a generated field reading a field grizzle draws or accumulates",
 	"a fold stepping a generated field that reads a column its family draws",
-	"a follow-up written over the stored instance"
+	"a follow-up written over the stored instance",
+	"an owner's put refilling a value over a copy of its generated field that reads a field grizzle accumulates"
 ]
 
-const clusterCases: Steered<ClusterCase, ClusterSituation> = (steering) => {
-	const open = Arr.filter(aims, ([situation]) =>
-		Option.exists(steering, (pending) => pending.has(situation))
-	)
-	return Arr.isReadonlyArrayNonEmpty(open) ? oneOf(Arr.map(open, ([, aim]) => aim)) : caseGen
-}
+/** The situations the generation suite reaches only now and then, each with the cases a witness draws while it is
+ * pending. */
+const generationAims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> = [
+	[
+		"an owner's put refilling a value over a copy of its generated field that reads a field grizzle accumulates",
+		ownerPutGeneratedGen
+	]
+]
+
+/**
+ * The case a witness runs, drawn under its steering: while situations `aimed` reaches are pending, a case of one of
+ * their aims, drawn among them, so no aim that seldom reaches its situation holds back the others; otherwise one of
+ * `drawn`. The generator draws it, so it is the case the search runs, prints and keeps.
+ */
+const steeredBy =
+	(
+		aimed: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]>,
+		drawn: Gen<ClusterCase>
+	): Steered<ClusterCase, ClusterSituation> =>
+	(steering) => {
+		const open = Arr.filter(aimed, ([situation]) =>
+			Option.exists(steering, (pending) => pending.has(situation))
+		)
+		return Arr.isReadonlyArrayNonEmpty(open) ? oneOf(Arr.map(open, ([, aim]) => aim)) : drawn
+	}
 
 /**
  * One case of the suite (see the module's header): the schema installed, the instance's first insert and then its
@@ -1046,6 +1132,30 @@ const checkCase = (
 			) {
 				c.note("an owner put in place beside an append to its family")
 			}
+			if (
+				Option.isSome(f.put) &&
+				relationAt(spec, f.owner).generated.kind === "row" &&
+				Arr.some(
+					verdict.stale,
+					(s) =>
+						s.changed.by === "put" &&
+						Arr.some(
+							spec.copies,
+							(copy) =>
+								copy.axis === "owner" &&
+								copy.source.kind === "generated" &&
+								familyAt(spec, copy.family).owner === f.owner &&
+								Arr.some(
+									s.passed,
+									(passed) => passed === relationName(familyAt(spec, copy.family).member)
+								)
+						)
+				)
+			) {
+				c.note(
+					"an owner's put refilling a value over a copy of its generated field that reads a field grizzle accumulates"
+				)
+			}
 		}).pipe(Effect.scoped)
 	}).pipe(Effect.scoped)
 
@@ -1058,16 +1168,25 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 				explore(
 					{
 						suite: "pg/write/fill-order/generation",
-						draw: steered(
-							() => generationCaseGen,
-							(k) => k
-						),
+						draw: steered(steeredBy(generationAims, generationCaseGen), (k) => k),
 						literal: Formatter.format,
 						coverage: required<ClusterSituation>(generationSituations, {
 							cases: 60,
 							sense: notesOnly
 						}),
-						kept: [],
+						kept: [
+							{
+								note: "an owner's put refilling its counted members' fold of their copy of its g, the greater of its v and its ordered family's sum, which the put keeps",
+								sketch: ownerPutGeneratedOverFold,
+								draws: "",
+								reaches: [
+									"a generated field reading a field grizzle draws or accumulates",
+									"a copy of a generated field reading a field grizzle draws or accumulates",
+									"a follow-up written over the stored instance",
+									"an owner's put refilling a value over a copy of its generated field that reads a field grizzle accumulates"
+								]
+							}
+						],
 						runs: 16,
 						shrink: boundedShrink(40),
 						steerEvery: 8,
@@ -1090,7 +1209,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 				explore(
 					{
 						suite: "pg/write/fill-order",
-						draw: steered(clusterCases, (k) => k),
+						draw: steered(steeredBy(aims, caseGen), (k) => k),
 						literal: Formatter.format,
 						coverage: required<ClusterSituation>(situations, { cases: 60, sense: notesOnly }),
 						kept: [

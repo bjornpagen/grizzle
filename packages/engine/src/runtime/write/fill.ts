@@ -822,12 +822,25 @@ const keyOf = (row: Row): Readonly<Record<string, KeyHost>> | undefined => {
 	return undefined
 }
 
-/** A column of a row the walk filled before the row it fills now reads it, which the fill order guarantees. */
-const filledBefore = (from: Row, key: ColumnKey, reader: Row): unknown => {
-	if (!from.values.has(key)) {
-		throw defect(`${key} of a row the walk filled before ${reader.layout.relation.name}'s`)
+/**
+ * A column of a row the walk filled before the row it fills now reads it, which the fill order guarantees: its value, a
+ * generated field's evaluated where it is first read, over the columns of its row it reads, each filled before it
+ * too. No write carries a generated field, so a row whose walk entered it with the columns an earlier walk wrote holds
+ * none, as a fresh owner's counted fill holds its owner, whose sequences that walk filled (write/bind.ts freshOwners).
+ */
+const filledBefore = (
+	from: Row,
+	key: ColumnKey,
+	reader: Row,
+	evaluate: HostEvaluator
+): Result.Result<unknown, FillRefusal> => {
+	if (from.values.has(key)) {
+		return Result.ok(from.values.get(key))
 	}
-	return from.values.get(key)
+	if (from.layout.columns.get(key)?.rule.kind === "generated") {
+		return valueOf(from, key, evaluate)
+	}
+	throw defect(`${key} of a row the walk filled before ${reader.layout.relation.name}'s`)
 }
 
 const treeOf = (row: Row): NonNullable<Row["tree"]> => {
@@ -860,7 +873,7 @@ const ruleValue = (
 			if (row.owner === undefined) {
 				throw defect(`an owner of ${row.layout.relation.name}'s member`)
 			}
-			return Result.ok(filledBefore(row.owner, rule.to, row))
+			return filledBefore(row.owner, rule.to, row, evaluate)
 		case "own":
 			return valueOf(row, rule.to, evaluate)
 		case "index":
@@ -879,14 +892,14 @@ const ruleValue = (
 			if (row.owner === undefined) {
 				throw defect(`an owner of ${row.layout.relation.name}'s member`)
 			}
-			return Result.ok(filledBefore(row.owner, rule.to, row))
+			return filledBefore(row.owner, rule.to, row, evaluate)
 		case "predecessor":
-			return Result.ok(
-				row.predecessor === undefined ? rule.base : filledBefore(row.predecessor, rule.to, row)
-			)
+			return row.predecessor === undefined
+				? Result.ok(rule.base)
+				: filledBefore(row.predecessor, rule.to, row, evaluate)
 		case "last": {
 			const last = row.last.get(rule.family)
-			return Result.ok(last === undefined ? rule.base : filledBefore(last, rule.to, row))
+			return last === undefined ? Result.ok(rule.base) : filledBefore(last, rule.to, row, evaluate)
 		}
 		case "after": {
 			const befores: Array<unknown> = []

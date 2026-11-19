@@ -913,7 +913,10 @@ const appendScan = (
 									),
 									...heldReads.map(([k, read]) =>
 										targetAs(
-											cast(scannedValue(w, owner, n, owners, read.to), w.cx.baseTypeRef(read.type)),
+											cast(
+												scannedValue(w, owner, readAt(n, owners), read.to),
+												w.cx.baseTypeRef(read.type)
+											),
 											columnAt(copies, k)
 										)
 									)
@@ -1693,7 +1696,7 @@ const candidatesOf = (
 				const key = columnKey(p.from)
 				recounted.set(
 					key,
-					fromLast(key, (s) => scannedValue(w, family.member, s, scan, p.to))
+					fromLast(key, (s) => scannedValue(w, family.member, readAt(s, scan), p.to))
 				)
 			}
 		}
@@ -2109,7 +2112,7 @@ const recountOf = (
 					targetAs(col(sc, scan.count), last.count),
 					...ends.map((p) =>
 						targetAs(
-							scannedValue(w, family.member, sc, scan, p.to),
+							scannedValue(w, family.member, readAt(sc, scan), p.to),
 							columnAt(last, columnKey(p.from))
 						)
 					)

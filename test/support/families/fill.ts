@@ -2804,15 +2804,32 @@ const partsOf = (f: FollowUp): ReadonlyArray<FollowUpPart> => [
 	...(Option.isSome(f.moved) ? (["moved"] as const) : [])
 ]
 
-/** `f` with only the parts `kept`. */
-const keptParts = (f: FollowUp, kept: ReadonlyArray<FollowUpPart>): FollowUp => ({
-	...f,
-	put: kept.includes("put") ? f.put : Option.none(),
-	inserted: kept.includes("inserted") ? f.inserted : [],
-	removed: kept.includes("removed") ? f.removed : Option.none(),
-	appended: kept.includes("appended") ? f.appended : Option.none(),
-	moved: kept.includes("moved") ? f.moved : Option.none()
-})
+/**
+ * `f` with only the parts `kept`. Its appended member stands after the members its row keeps of its ordered family
+ * (`followUpGen`), so where `kept` leaves out a removal from that group, the member stands a slot further on.
+ */
+const keptParts = (f: FollowUp, kept: ReadonlyArray<FollowUpPart>): FollowUp => {
+	const removed = kept.includes("removed") ? f.removed : Option.none()
+	/** The slots the removals `kept` leaves out freed before a membership of the appended member: one or none. */
+	const restored = (m: InstanceRow["memberOf"][number]): number =>
+		Option.isNone(removed) &&
+		Option.exists(f.removed, (r) => r.family === m.family && m.owner === f.row)
+			? 1
+			: 0
+	return {
+		...f,
+		put: kept.includes("put") ? f.put : Option.none(),
+		inserted: kept.includes("inserted") ? f.inserted : [],
+		removed,
+		appended: kept.includes("appended")
+			? Option.map(f.appended, (row) => ({
+					...row,
+					memberOf: Arr.map(row.memberOf, (m) => ({ ...m, slot: m.slot + restored(m) }))
+				}))
+			: Option.none(),
+		moved: kept.includes("moved") ? f.moved : Option.none()
+	}
+}
 
 /** Every nonempty subset of `items`, the smaller first. */
 const nonEmptySubsets = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> => {

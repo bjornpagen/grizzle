@@ -85,11 +85,13 @@ import {
 	type KeyArm,
 	keyedAt,
 	keysetOf,
+	reachFrom,
 	storedAtKeys,
 	storedKey
 } from "#compiler/write/family/keyset.ts"
 import {
 	type PerGroup,
+	readAt,
 	type Scanned,
 	type ScanRows,
 	scannedValue,
@@ -435,10 +437,14 @@ export const removalsSql = (
 
 /**
  * A put root's rows as the stratum leaves them: its facts, every caller field it states, and every field of `relation`
- * PostgreSQL generates from them as the put writes the row (scan.ts scannedValue), which an owner axis cascades into the
- * members' copies as it cascades a stated field. A refill reads a copy's new value from these rows (`cascaded`, a
- * redraw's owner value), so a copy of a generated field takes the value the put's cascade will write, and the folds and
- * checks over it are drawn from that value, not the stored one.
+ * PostgreSQL generates as the put writes the row (scan.ts scannedValue), which an owner axis cascades into the members'
+ * copies as it cascades a stated field. A refill reads a copy's new value from these rows (`cascaded`, a redraw's owner
+ * value), so a copy of a generated field takes the value the put's cascade will write, and the folds and checks over it
+ * are drawn from that value, not the stored one. A generated field reads the put's caller fields and the row's every
+ * other column as the put keeps it, each field grizzle draws or accumulates, the stored row's: a slot carries an
+ * owner's counts and ends at their starts, which a put leaves as stored on a row it updates in place, and a refill
+ * reaches only stored rows. So where one reads such a field, the facts are joined to the stored rows at their keys,
+ * and a fact of a new row, which no stored member names, is left out.
  */
 const leftByPut = (
 	w: WriteContext,
@@ -458,6 +464,35 @@ const leftByPut = (
 		...generated.map((f) => fieldKey(f.name))
 	])
 	const r = supply.relation(internal("put fact"))
+	/** The fields the generated fields read that the put keeps, by key: each one grizzle draws or accumulates. */
+	const kept = new Map(
+		withGenerationInputs(relation, generated).flatMap((f) =>
+			f.writing.kind === "drawn" || f.writing.kind === "accumulated"
+				? [[fieldKey(f.name), f] as const]
+				: []
+		)
+	)
+	const fact = readAt(r, facts)
+	/** The row as the put leaves it, read from the facts alone, or, where a generated field reads a field the put keeps,
+	 * from the facts joined to the stored rows at their keys, each kept field the stored row's. */
+	const left = ((): {
+		readonly hops: ReadonlyArray<Hop>
+		readonly read: (key: ColumnKey) => Expr | undefined
+	} => {
+		if (kept.size === 0) {
+			return { hops: [], read: fact }
+		}
+		const s = supply.relation(internal("put stored root"))
+		return {
+			hops: [
+				{ kind: "key", relation, alias: s, at: (f) => col(r, columnAt(facts, fieldKey(f.name))) }
+			],
+			read: (key) => {
+				const field = kept.get(key)
+				return field === undefined ? fact(key) : col(s, w.names.column(relation.name, field.name))
+			}
+		}
+	})()
 	ctes.push(
 		cte(
 			out.name,
@@ -469,12 +504,12 @@ const leftByPut = (
 						...[...facts.columns].map(([key, name]) => targetAs(col(r, name), columnAt(out, key))),
 						...generated.map((field) =>
 							targetAs(
-								scannedValue(w, relation, r, facts, { kind: "field", field }),
+								scannedValue(w, relation, left.read, { kind: "field", field }),
 								columnAt(out, fieldKey(field.name))
 							)
 						)
 					],
-					[cteRefAs(facts.name, r)],
+					[reachFrom(w, { held: { cte: facts.name, alias: r }, hops: left.hops })],
 					undefined
 				)
 			)
@@ -2035,7 +2070,7 @@ const recountOf = (
 					targetAs(col(g1, r.groups.kept), last.count),
 					...ends.map((p) =>
 						targetAs(
-							scannedValue(w, family.member, s, r.scan, p.to),
+							scannedValue(w, family.member, readAt(s, r.scan), p.to),
 							columnAt(last, columnKey(p.from))
 						)
 					)

@@ -251,19 +251,19 @@ const ownValue =
 	}
 
 /**
- * A scanned row's value at `column`, as `ownValue` reads a row: the scan's column where it carries one, else a generated
- * field's generation over its other columns, in the field's base type.
+ * A row's value at `column`, as `ownValue` reads a row through `read`, a scan's row at its alias (`readAt`) or a row
+ * read from several: its column where `read` carries one, else a generated field's generation over its other columns,
+ * in the field's base type.
  */
 export const scannedValue = (
 	w: WriteContext,
 	relation: LawRelation,
-	alias: string,
-	scanned: Shaped,
+	read: Read,
 	column: NativeColumn
 ): Expr => {
 	const key = columnKey(column)
-	const value = ownValue(relation, readAt(alias, scanned), writeLowering(w))(key)
-	return scanned.columns.has(key) || column.kind !== "field"
+	const value = ownValue(relation, read, writeLowering(w))(key)
+	return read(key) !== undefined || column.kind !== "field"
 		? value
 		: cast(value, w.cx.baseTypeRef(column.field.type))
 }
