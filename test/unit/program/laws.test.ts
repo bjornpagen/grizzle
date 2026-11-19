@@ -47,8 +47,8 @@
  * constraintNamesOf(schema) gives each check law lawsOf lists the name the installation reports it under on its
  * relation's table, through the same constraint-to-law map.
  *
- * lawIdsOf(schema) lists lawsOf's laws in its order, each with an id of its own, and every law the installation's map
- * reports, under every id it reports it by, is one of them with that id: a refusal's RefusedLaw.id finds its law there.
+ * lawsOf(schema) gives each law an id of its own, and every law the installation's map reports, under every id it
+ * reports it by, is one of them with that id: a refusal's RefusedLaw.id finds its law there.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -58,12 +58,11 @@ import { sameLaw } from "#compiler/public/changeset.ts"
 import {
 	type AnyRelation,
 	constraintNamesOf,
-	lawIdsOf,
 	lawsByStatement,
 	lawsOf
 } from "#compiler/public/schema.ts"
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
-import type { Law, OwnLaw } from "#compiler/types/changeset/changeset.ts"
+import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import { assert, throwsRefused } from "#test/support/assert.ts"
 import { relationName, rootTextFieldsOf, rootTextPattern } from "#test/support/families/fill.ts"
 import { identityText, installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
@@ -131,7 +130,8 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					k.note("a key restating the primary key refused")
 				}
 				const subject = subjectOf(c, (items) => items)
-				const laws = lawsOf(subject)
+				const ids = lawsOf(subject)
+				const laws = Arr.map(ids, (l) => l.law)
 				const installation = installationOf(subject, { kind: "declared" })
 				const names = installationNamesOf(installation)
 				const identified = reportable(installation)
@@ -169,18 +169,15 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 						`lawsOf lists the ${law.kind} law the installation can report: ${Formatter.format(law)}`
 					)
 				}
-				const ids = lawIdsOf(subject)
-				const listed: ReadonlyArray<Law> = Arr.map(ids, (l) => l.law)
-				assert.deepEqual(listed, laws, "lawIdsOf lists lawsOf's laws, in its order")
 				assert.equal(
 					new Set(Arr.map(ids, (l) => l.id)).size,
 					ids.length,
-					"lawIdsOf gives every law an id of its own"
+					"lawsOf gives every law an id of its own"
 				)
 				for (const r of identified) {
 					assert.ok(
 						Arr.some(ids, (l) => l.id === r.id && sameLaw(l.law, r.law)),
-						`lawIdsOf gives the ${r.law.kind} law the installation reports under ${r.id} that id: ${Formatter.format(r.law)}`
+						`lawsOf gives the ${r.law.kind} law the installation reports under ${r.id} that id: ${Formatter.format(r.law)}`
 					)
 				}
 
@@ -278,8 +275,8 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 				const twin = subjectOf(c, (items) => reordered(items, c.reorder))
 				assert.deepEqual(
 					lawsOf(twin),
-					laws,
-					"the schema declared in another order lists the same laws in the same order"
+					ids,
+					"the schema declared in another order lists the same laws in the same order, with the same ids"
 				)
 				if (
 					Arr.join(Rec.keys(twin.relations), " ") !== Arr.join(Rec.keys(subject.relations), " ")
@@ -468,18 +465,15 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 		kills: [
 			{
 				file: "packages/engine/src/program/laws.ts",
-				original:
-					'\tObject.freeze(schemaLaws(lawModelOf(schema, "lawsOf")).laws.map((l) => l.law))',
+				original: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws',
 				replacement:
-					'\tObject.freeze(schemaLaws(lawModelOf(schema, "lawsOf")).laws.flatMap((l, i) => (i === 0 ? [l.law, l.law] : [l.law])))',
+					'\tschemaLaws(lawModelOf(schema, "lawsOf")).laws.flatMap((l, i) => (i === 0 ? [l, l] : [l]))',
 				why: "lawsOf lists its first law twice."
 			},
 			{
 				file: "packages/engine/src/program/laws.ts",
-				original:
-					'\tObject.freeze(schemaLaws(lawModelOf(schema, "lawsOf")).laws.map((l) => l.law))',
-				replacement:
-					'\tObject.freeze(schemaLaws(lawModelOf(schema, "lawsOf")).laws.slice(1).map((l) => l.law))',
+				original: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws',
+				replacement: '\tschemaLaws(lawModelOf(schema, "lawsOf")).laws.slice(1)',
 				why: "lawsOf drops its first law."
 			}
 		]

@@ -411,9 +411,10 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							Effect.provideContext(upperContext)
 						)
 						const containment = defined(
-							Arr.findFirst(lawsOf(at.upper), (l) => l.kind === "contained").pipe(
-								Option.getOrUndefined
-							),
+							Arr.findFirst(
+								Arr.map(lawsOf(at.upper), (l) => l.law),
+								(l) => l.kind === "contained"
+							).pipe(Option.getOrUndefined),
 							"the upper level states its containment"
 						)
 						const above: Law = {

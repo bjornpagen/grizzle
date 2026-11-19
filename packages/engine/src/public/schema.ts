@@ -35,7 +35,7 @@ export {
 	select,
 	tree
 } from "#compiler/schema/api.ts"
-export { constraintNamesOf, lawIdsOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
+export { constraintNamesOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
 export { rowEvaluator } from "#compiler/program/evaluate.ts"
 export type {
 	AdmittedRow,

@@ -551,7 +551,10 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 				const laws: { readonly [K in KeyName]: Law } = {
 					sitting: defined(
 						Option.getOrUndefined(
-							Arr.findFirst(lawsOf(S), (l) => l.kind === "primaryKey" && l.relation === "Sitting")
+							Arr.findFirst(
+								Arr.map(lawsOf(S), (l) => l.law),
+								(l) => l.kind === "primaryKey" && l.relation === "Sitting"
+							)
 						),
 						"the sitting key's law, Sitting's primary key's"
 					),

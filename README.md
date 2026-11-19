@@ -2525,7 +2525,7 @@ Three declarations, all in the [example](#example):
   inserts: it holds INSERT and SELECT on what it writes and no UPDATE or DELETE, so a ChangeSet of it that deletes,
   puts, or adds a member to a mutable owner's family, which updates the owner's count, is `OutsideRole` (`insert`)
   when it compiles, naming the table and the operation. A role states one of the two. A role is no schema: `role`, `login`, `schema.extend`,
-  `wholeEntriesOf`, `writableNamesOf`, `lawsOf`, `lawIdsOf` and `lawsByStatement` take a schema, and a role passed to
+  `wholeEntriesOf`, `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role passed to
   one is a type error.
 - **`login(schema, name, roles, { workload? })`**: one PostgreSQL user and one pool for some roles of one schema,
   owning their workloads, each over the schema, a schema it extends, or one of the login's roles. Every role is in
@@ -3611,8 +3611,10 @@ that reads every row has none.
 
 </details>
 
-`lawsOf(schema)` lists every rule the schema states, each once, exactly as an outcome names it, so every rule an outcome
-over the schema names is one of them. In order, however you declared the schema: each table's primary key, by table
+`lawsOf(schema)` lists every rule the schema states, each once, as `{ law, id }`: `law` exactly as an outcome names
+it, so every rule an outcome over the schema names is one of them, and `id` the one a refusal names it by, a refused
+law's own. Name the rules you handle by their ids once, then read a refusal's `laws` by `id`, with no search and no
+table of ids of your own. In order, however you declared the schema: each table's primary key, by table
 name; the rules of the schema's statements in canonical order, one for a key, check, containment, family, tree or fold,
 two containments for a mirrors and an alternatives statement's containments, none for `mutable`; each contract's, by
 name; then each stored field's pattern rule and each generated field's rule, by table name and each table's fields in
@@ -3621,19 +3623,16 @@ text matches, such as `"^.*$"` under `"su"`, states no rule: grizzle drops it, a
 does a contract's pattern, whose refusal names the contract, nor a closed relation's, whose rows the schema fixes. A
 contract only a login's context field names is the login's, never the schema's: PostgreSQL checks a claim against it where a
 statement reads it, and no write is refused by it. Each call compiles the rules, so call it once and keep the list.
-`lawIdsOf(schema)` lists the same rules in the same order, each `{ law, id }` with the `id` a refusal names it by, a
-refused law's own: name the rules you handle by their ids once, then read a refusal's `laws` by `id`, with no search and
-no table of ids of your own. It compiles as `lawsOf` does.
 
 `lawsByStatement(schema)` compiles the rules once and gives a lookup: bind it once,
 `const lawsOfStatement = lawsByStatement(schema)`, then `lawsOfStatement(statement)` lists the rules that statement
-states, each one `lawsOf(schema)` lists, in its order: two containments for a mirrors, an alternatives statement's
+states, each a `law` of `lawsOf(schema)`'s list, in its order: two containments for a mirrors, an alternatives statement's
 containments, none for `mutable`, and a rule two statements state is each one's. A statement is its canonical form, so
 an equal statement built again is the same one, at any level. A lookup compiles nothing, and throws `CompileError` for a
 statement no level of the schema states.
 
 `sameLaw(a, b)` says whether two rules are one: `refused.laws.some((law) => sameLaw(law, rule))` says whether a
-refusal names `rule`, and a handler for each rule of `lawsOf(schema)` handles every refusal.
+refusal names `rule`, and a handler for each `law` of `lawsOf(schema)` handles every refusal.
 `constraintNamesOf(schema)` compiles the rules once and gives a lookup of the name PostgreSQL holds each check under:
 bind it once, `const constraintNameOf = constraintNamesOf(Credits)`, then
 `constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`, and a row check

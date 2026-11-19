@@ -32,7 +32,7 @@ interface CheckName {
  * A schema's laws, derived once from its law model: every law in the schema's canonical order of laws with its
  * identity, each owned statement's laws, by the statement's canonical text (Owned.statementAt), each at its position in
  * that order, none for a statement that states no law, and each check law with the name of every constraint or trigger
- * that discharges it. The one derivation lawsOf, lawIdsOf, lawsByStatement and constraintNamesOf read.
+ * that discharges it. The one derivation lawsOf, lawsByStatement and constraintNamesOf read.
  */
 interface SchemaLaws {
 	readonly laws: ReadonlyArray<IdentifiedLaw<OwnLaw>>
@@ -112,9 +112,13 @@ const schemaLaws = (model: LawModel): SchemaLaws => {
 }
 
 /**
- * lawsOf(schema): every law a schema built by schema(...) or schema.extend states, each once, exactly as an
- * `invariant-rejected` outcome names it (types/changeset Law), so `sameLaw` holds of a law here and a law an outcome
- * names exactly when they are one law, and every law an outcome over the schema names is one of these.
+ * lawsOf(schema): every law a schema built by schema(...) or schema.extend states, each once, with its identity
+ * (types/changeset IdentifiedLaw): `law` exactly as an `invariant-rejected` outcome names it (types/changeset Law), so
+ * `sameLaw` holds of a law here and a law an outcome names exactly when they are one law, and every law an outcome over
+ * the schema names is one of these; and `id`, the one a refusal's RefusedLaw names it by: a theory law's LawId, a
+ * stored field's pattern law's LawId under the text domain its pattern is installed as, and a generated field's
+ * GeneratedLawId. An application that names the laws it handles keys its names by these ids and reads a refusal's laws
+ * by their ids, with no search and no table of ids of its own.
  *
  * In the schema's canonical order of laws, whatever order the schema declares its relations and statements in: the
  * theory's laws in theory order (each ordinary relation's primary key by relation name, then the statements' laws in
@@ -128,19 +132,8 @@ const schemaLaws = (model: LawModel): SchemaLaws => {
  * It throws CompileError for any other value, a role's included, and for a schema that does not compile. Each call
  * compiles the schema's laws.
  */
-export const lawsOf = (schema: AnySchema): ReadonlyArray<OwnLaw> =>
-	Object.freeze(schemaLaws(lawModelOf(schema, "lawsOf")).laws.map((l) => l.law))
-
-/**
- * lawIdsOf(schema): every law lawsOf(schema) lists, in its order, each with its identity (types/changeset
- * IdentifiedLaw), the `id` a refusal's RefusedLaw names it by: a theory law's LawId, a stored field's pattern law's
- * LawId under the text domain its pattern is installed as, and a generated field's GeneratedLawId. An application that
- * names the laws it handles keys its names by these ids and reads a refusal's laws by their ids, with no search and no
- * table of ids of its own. Read from the derivation lawsOf reads, so the two list one sequence of laws. It throws as
- * lawsOf throws; each call compiles the schema's laws.
- */
-export const lawIdsOf = (schema: AnySchema): ReadonlyArray<IdentifiedLaw> =>
-	schemaLaws(lawModelOf(schema, "lawIdsOf")).laws
+export const lawsOf = (schema: AnySchema): ReadonlyArray<IdentifiedLaw<OwnLaw>> =>
+	schemaLaws(lawModelOf(schema, "lawsOf")).laws
 
 /** What a statement given to lawsByStatement's lookup must be. */
 const aStatedStatement =

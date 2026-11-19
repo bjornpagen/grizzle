@@ -187,7 +187,7 @@ each deletes code pantry or edullm keeps today. It lands after the owner's post-
 the compute test fix, the held fill-order, multi-hop and GiST fixes, LOADER's served matchers and admitted literals),
 Q2 to Q6 first. A new feature still needs its correctness need named in its commit.
 - **Q2.** The rowless ChangeSet builder (CULL, its builder series).
-- **Q3.** lawKeyOf, so pantry drops its committed LawId dictionary (a law's ids ship as lawIdsOf, public/schema.ts);
+- **Q3.** lawKeyOf, so pantry drops its committed LawId dictionary (a law's ids ship with lawsOf, public/schema.ts);
   RefusedLaw names no QTI law-table today (ARTIFACTS2).
 - **Q5.** The cost of compiling the law model and building the Qti value (WORKLOAD2).
 - **Q7.** A Compute text split (SHA256). No substring, split_part or pattern group exists, so pantry splits on the host

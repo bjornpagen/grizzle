@@ -469,7 +469,7 @@ const checkBatch = (b: ReadonlyArray<Case>, note: SearchCase<Feature>["noteAll"]
 			Record.values(Record.fromEntries(Arr.map(items, (item, i) => [`Item${i}`, item]))),
 			statements
 		)
-		const laws = lawsOf(declared)
+		const laws = Arr.map(lawsOf(declared), (l) => l.law)
 		const constraintNameOf = constraintNamesOf(declared)
 		const installed = yield* install(declared, {
 			ambient: ordinarySession,

@@ -183,7 +183,7 @@ export const fieldPatternLaws = (model: LawModel): ReadonlyArray<FieldPatternLaw
 
 /**
  * The identity of the pattern law of `p`'s field under `domain`, the text domain its pattern's key is planned as
- * (planTextDomains): what a violation of that domain's CHECK on the field's column reports, what lawIdsOf gives the law
+ * (planTextDomains): what a violation of that domain's CHECK on the field's column reports, what lawsOf gives the law
  * and the one place it is minted.
  */
 export const patternLawId = (

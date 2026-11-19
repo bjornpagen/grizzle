@@ -613,12 +613,10 @@ The command line's own refusals, by stage:
   generated column. A pattern's law names its field, `{ kind: "pattern", relation, field, patterns }`, each `{ source, flags }`
   spelled as that field spells it, every pattern of a `str.and` in order and one law for the field all the same, so two
   fields of one pattern are two laws. `lawsOf(schema)` lists every law a schema states,
-  each once, as an outcome names it: each table's primary key, each statement's laws, each contract's, each stored
+  each once, as `{ law, id }`, `law` as an outcome names it and `id` the one a refused law carries: each table's primary key, each statement's laws, each contract's, each stored
   field's pattern law and each generated field's law, none for a pattern every text matches, which grizzle drops, or
-  for a contract's pattern, whose law is the contract's. Compare refusals against it with `sameLaw`, and never keep a
-  list of laws by hand. `lawIdsOf(schema)` lists the same laws in the same order with their ids, each `{ law, id }`,
-  the `id` a refused law carries: key your names for laws by these ids and read a refusal by `id`, never through a
-  table of ids you keep. For one statement's laws, bind `const lawsOfStatement = lawsByStatement(schema)` once, which
+  for a contract's pattern, whose law is the contract's. Key your names for laws by these ids and read a refusal by
+  `id`, never through a table of ids you keep, and never keep a list of laws by hand. For one statement's laws, bind `const lawsOfStatement = lawsByStatement(schema)` once, which
   compiles, then look each statement up with `lawsOfStatement(statement)`: its laws from lawsOf's list, in its order, a
   mirrors' two containments, an alternatives' containments, none for `mutable`, a law two statements state each
   one's; a statement no level of the schema states throws `CompileError`. `every` names every law grizzle
@@ -740,7 +738,7 @@ The command line's own refusals, by stage:
   installation stay exactly those three: `rds_iam` holds nothing there, so it is no drift, and a membership handing the
   login any privilege or ownership is.
 - A role is over a schema and is no schema itself: `role`, `login`, `schema.extend`, `wholeEntriesOf`,
-  `writableNamesOf`, `lawsOf`, `lawIdsOf` and `lawsByStatement` take a schema, and a role passed to one is a type
+  `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role passed to one is a type
   error; `query`, `ChangeSet.empty` and `workload` take either. A role's `write` names each entry once: a name listed
   twice is a type error, and `RoleRefused` (`writeTwice`) for a JavaScript caller.
 - A role that only inserts lists its entries as `insert` in place of `write`: it holds INSERT and SELECT on them and

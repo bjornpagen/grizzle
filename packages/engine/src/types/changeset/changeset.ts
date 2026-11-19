@@ -1887,7 +1887,7 @@ export type Refused =
 /**
  * A law of a schema with its identity: the law as the schema states it (`law`) and its identity (`id`), a theory law's
  * or a text pattern's the key of the snapshot's theory.laws and a generated field's the one its derived facts hold.
- * lawIdsOf lists a schema's, and a refusal names each law it breaks as one (RefusedLaw).
+ * lawsOf lists a schema's, and a refusal names each law it breaks as one (RefusedLaw).
  */
 export interface IdentifiedLaw<L extends Law = Law> {
 	readonly law: L

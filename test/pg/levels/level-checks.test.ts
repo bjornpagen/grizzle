@@ -76,7 +76,7 @@ import { pg } from "#compiler/public/fields.ts"
 import {
 	check,
 	constraintNamesOf,
-	lawIdsOf,
+	lawsOf,
 	login,
 	relation,
 	role,
@@ -505,13 +505,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										Arr.map([...own, ...level], (s) => constraintNameOf(checkLaw(s.name))),
 										"Attribute's table holds exactly the CHECKs of Base's checks and Media's"
 									)
-									const ids = lawIdsOf(at.media)
+									const ids = lawsOf(at.media)
 									const idOf = (name: string) =>
 										defined(
 											Option.getOrUndefined(
 												Arr.findFirst(ids, (l) => Option.isNone(exact(l.law, checkLaw(name))))
 											),
-											`lawIdsOf lists the check ${name}`
+											`lawsOf lists the check ${name}`
 										).id
 									const baseLaws = levelRecord(done.snapshot, 0).laws
 									const mediaLaws = levelRecord(done.snapshot, 1).laws
