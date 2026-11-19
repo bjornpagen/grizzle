@@ -34,6 +34,24 @@ export const generalized = (text: string): ReadonlyArray<number> =>
 			: [...platform.encode(String.fromCodePoint(cp))]
 	)
 
+/**
+ * Each lone surrogate of `text` the platform's TextEncoder writes as anything but U+FFFD's bytes (0xEF 0xBF 0xBD): none,
+ * which is why generalized UTF-8 states its own bytes for one.
+ */
+export const platformLoneSurrogates = (text: string): ReadonlyArray<number> =>
+	Arr.filter(pointsOf(text), (cp) => {
+		if (!isSurrogate(cp)) {
+			return false
+		}
+		const written = platform.encode(String.fromCharCode(cp))
+		return !(
+			written.length === 3 &&
+			written[0] === 0xef &&
+			written[1] === 0xbf &&
+			written[2] === 0xbd
+		)
+	})
+
 /** The situation each code point of a text is, by its UTF-8 width or as a lone surrogate. */
 export const noteText = (text: string, c: Case<Feature>): void => {
 	if (text.length === 0) {

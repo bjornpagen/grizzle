@@ -141,7 +141,7 @@ export const aTextColumnsBinaryArrayHoldsEachTextAsItsUTF8BytesWhichAStrictDecod
 			kills: [
 				{
 					file: "packages/engine/src/codec/bytea.ts",
-					original: '\t\tout.set(utf8(defined(texts[i], "each text counted")), at)',
+					original: '\t\twriteUtf8(out, at, defined(texts[i], "each text counted"))',
 					replacement:
 						'\t\tnew TextEncoder().encodeInto(defined(texts[i], "each text counted"), out.subarray(at, at + defined(lengths[i], "each length counted")))',
 					why: "Each element is written by TextEncoder.encodeInto into a destination of exactly its length, which Node underfills."

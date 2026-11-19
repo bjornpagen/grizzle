@@ -5,69 +5,99 @@
  * malformed sequence is refused, never replaced by U+FFFD (`fatal`), and a byte order mark is a character of the text,
  * never stripped (`ignoreBOM`). U+FEFF is a scalar like any other, which a stored text, a JSON body or a token may begin
  * with, and a TextDecoder's defaults would drop it from the start of every decode, so the text read would be another
- * value than the one the bytes hold. It imports nothing but the code points of #text/text.ts and runs wherever
- * JavaScript does, a browser included.
+ * value than the one the bytes hold. Its one encoder, `writeUtf8`, writes a text's bytes in place, where its caller
+ * counted them (`utf8Length`, by the same rule), so a text written into a larger array is copied from nowhere. It
+ * imports nothing and runs wherever JavaScript does, a browser included.
  */
-import { codePoints } from "#text/text.ts"
 
-/** The platform's UTF-8 encoder, which writes well-formed text exactly as `wtf8` below does. */
-const encoder = new TextEncoder()
+/** Whether a code unit is a high surrogate, the first of a pair. */
+const isHighSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdbff
 
-/** The UTF-8 bytes of one code point, a surrogate code point as its three-byte WTF-8 sequence. */
-const pointBytes = (code: number): ReadonlyArray<number> =>
-	code < 0x80
-		? [code]
-		: code < 0x800
-			? [0xc0 | (code >> 6), 0x80 | (code & 0x3f)]
-			: code < 0x10000
-				? [0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f)]
-				: [
-						0xf0 | (code >> 18),
-						0x80 | ((code >> 12) & 0x3f),
-						0x80 | ((code >> 6) & 0x3f),
-						0x80 | (code & 0x3f)
-					]
+/** Whether a code unit is a low surrogate, the second of a pair; NaN, past a text's end, is none. */
+const isLowSurrogate = (unit: number): boolean => unit >= 0xdc00 && unit <= 0xdfff
+
+/** How many bytes UTF-8 writes one code point in: a code unit's sequence, or a surrogate pair's. */
+type Width = 1 | 2 | 3 | 4
 
 /**
- * UTF-8, a lone surrogate as its three-byte WTF-8 sequence. A string iterates by code point, a lone surrogate as a code
- * point of its own, so each step writes one code point's bytes.
+ * How many bytes the code point at code unit `at` of `text` takes, the one rule `utf8Length` counts by and `writeUtf8`
+ * writes by: one below U+0080, two below U+0800, four for a surrogate pair, which takes the unit after it too, and three
+ * for any other unit, a lone surrogate's three-byte WTF-8 sequence among them.
  */
-const wtf8 = (text: string): Uint8Array =>
-	Uint8Array.from(codePoints(text).flatMap((point) => pointBytes(point)))
+const widthAt = (text: string, at: number): Width => {
+	const unit = text.charCodeAt(at)
+	return unit < 0x80
+		? 1
+		: unit < 0x800
+			? 2
+			: isHighSurrogate(unit) && isLowSurrogate(text.charCodeAt(at + 1))
+				? 4
+				: 3
+}
+
+/** How many code units a code point of `width` bytes takes: a surrogate pair's two, any other one. */
+const unitsOf = (width: Width): 1 | 2 => (width === 4 ? 2 : 1)
 
 /**
- * The bytes SHA-256 hashes for a text: UTF-8 for well-formed text, and WTF-8 for a lone surrogate, which keeps the
- * encoding injective. A lone surrogate is written as its three-byte WTF-8 sequence rather than replaced by U+FFFD, as
- * the platform's UTF-8 encoding would, so two different strings never hash as the same bytes. Well-formed text, nearly
- * every text hashed, is the platform encoder's; one with a lone surrogate is written by `wtf8`.
- */
-export const utf8 = (text: string): Uint8Array =>
-	text.isWellFormed() ? encoder.encode(text) : wtf8(text)
-
-/**
- * The UTF-8 byte length of a text, lone surrogates counting three bytes, as in `utf8`, counted from its code units
- * without encoding it: one byte below U+0080, two below U+0800, four for a surrogate pair, and three for any other unit.
+ * The UTF-8 byte length of a text, a lone surrogate counting three bytes, as `writeUtf8` writes it, counted from its
+ * code units without writing it (`widthAt`).
  */
 export const utf8Length = (text: string): number => {
 	let bytes = 0
-	for (let at = 0; at < text.length; at += 1) {
-		const unit = text.charCodeAt(at)
-		if (unit < 0x80) {
-			bytes += 1
-		} else if (unit < 0x800) {
-			bytes += 2
-		} else if (unit >= 0xd800 && unit <= 0xdbff && isLowSurrogate(text.charCodeAt(at + 1))) {
-			bytes += 4
-			at += 1
-		} else {
-			bytes += 3
-		}
+	for (let at = 0; at < text.length;) {
+		const width = widthAt(text, at)
+		bytes += width
+		at += unitsOf(width)
 	}
 	return bytes
 }
 
-/** Whether a code unit is a low surrogate, the second of a pair; NaN, past a text's end, is none. */
-const isLowSurrogate = (unit: number): boolean => unit >= 0xdc00 && unit <= 0xdfff
+/**
+ * The one encoder of text as bytes: writes `text`'s UTF-8 into `out` from `at`, each code point's bytes in place, as
+ * many as `widthAt` gives it, and answers the position past its last byte, `at` plus its utf8Length, which `out` holds
+ * from `at` (its caller counted them). Well-formed text is exactly the platform's UTF-8 (TextEncoder); a lone surrogate,
+ * which the platform writes as U+FFFD, is its own three-byte WTF-8 sequence, so the encoding stays injective: two
+ * different strings never write the same bytes, nor hash as the same digest.
+ */
+export const writeUtf8 = (out: Uint8Array, at: number, text: string): number => {
+	let to = at
+	for (let i = 0; i < text.length;) {
+		const width = widthAt(text, i)
+		const unit = text.charCodeAt(i)
+		switch (width) {
+			case 1:
+				out[to] = unit
+				break
+			case 2:
+				out[to] = 0xc0 | (unit >> 6)
+				out[to + 1] = 0x80 | (unit & 0x3f)
+				break
+			case 3:
+				out[to] = 0xe0 | (unit >> 12)
+				out[to + 1] = 0x80 | ((unit >> 6) & 0x3f)
+				out[to + 2] = 0x80 | (unit & 0x3f)
+				break
+			case 4: {
+				const point = ((unit - 0xd800) << 10) + (text.charCodeAt(i + 1) - 0xdc00) + 0x10000
+				out[to] = 0xf0 | (point >> 18)
+				out[to + 1] = 0x80 | ((point >> 12) & 0x3f)
+				out[to + 2] = 0x80 | ((point >> 6) & 0x3f)
+				out[to + 3] = 0x80 | (point & 0x3f)
+				break
+			}
+		}
+		to += width
+		i += unitsOf(width)
+	}
+	return to
+}
+
+/** A text's bytes, the ones SHA-256 hashes for it: its UTF-8 (`writeUtf8`), in an array of their own. */
+export const utf8 = (text: string): Uint8Array => {
+	const out = new Uint8Array(utf8Length(text))
+	writeUtf8(out, 0, text)
+	return out
+}
 
 /** A decoder that refuses a malformed sequence and keeps a byte order mark (see the header). */
 const strict = (): TextDecoder => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })

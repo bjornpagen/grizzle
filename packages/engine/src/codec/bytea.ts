@@ -6,7 +6,7 @@
  * with format code 1 and every other parameter as text, each by its own format code, so one statement mixes the two
  * (pg-protocol's serializer, `writeValues`).
  */
-import { utf8, utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { utf8Length, writeUtf8 } from "@bjornpagen/grizzle-text/utf8"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
@@ -167,11 +167,13 @@ export const byteaArray = (
  * which text's receive function reads as the literal's element would be read: no quoting or escaping, and no string
  * of the whole array, so a column of any total length within a message travels.
  *
- * Each element's bytes are the platform encoder's whole encoding of its text (grizzle-text utf8.ts utf8), copied into place,
- * as many as utf8Length counted. TextEncoder.encodeInto is not used: on Node 26.13 it writes one character short into a destination of
- * exactly the text's length when the text ends in a scalar of U+0400 to U+07FF and is long enough to take its
- * vectorized path (from 53 UTF-16 units), which left the last character's two bytes 0x00 and PostgreSQL refused the
- * array as invalid UTF-8.
+ * Each element's bytes are written in place by the one UTF-8 encoder (grizzle-text utf8.ts writeUtf8), as many as
+ * utf8Length counted by the same rule, so no element is encoded into an array of its own and copied. A parameter text
+ * is well-formed (scalar/values/identity.ts admits no lone surrogate), so its bytes are its UTF-8. The platform's
+ * TextEncoder.encodeInto is not the encoder: on Node 26.13 it writes one character short into a destination of exactly
+ * the text's length when the text ends in a scalar of U+0400 to U+07FF and is long enough to take its vectorized path
+ * (from 53 UTF-16 units), which left the last character's two bytes 0x00 and PostgreSQL refused the array as invalid
+ * UTF-8.
  */
 export const textArray = (
 	input: string,
@@ -180,7 +182,7 @@ export const textArray = (
 ): Result.Result<ParamBinary, LiteralBound> => {
 	const lengths = texts.map(utf8Length)
 	return binaryArray<never>(textOid, input, column, lengths, (out, at, i) => {
-		out.set(utf8(defined(texts[i], "each text counted")), at)
+		writeUtf8(out, at, defined(texts[i], "each text counted"))
 		return Result.ok(undefined)
 	})
 }
