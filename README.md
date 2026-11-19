@@ -2293,7 +2293,11 @@ definition too.
   changes how grizzle lowers the rule, drops or renames a column the rule does not read, or changes a closed payload it
   does not read, keeps it, so the proof the rule's earlier check made of the stored rows still stands, and one that
   changes the rule, a definition, a column it reads or a closed fact it reads (a seat count lowered under the live
-  holds it bounds) states a new identity, which its check proves over the rows.
+  holds it bounds) states a new identity, which its check proves over the rows. The proof is of the values the rule
+  read, so a migration that writes again a column it reads checks it again too, whatever its identity: a generated
+  column re-expressed (SET EXPRESSION, a closed row its generation reads among the causes), converted, or dropped and
+  added again, and a column a family's backfill draws again, none of which the rule's triggers see. A materialized
+  view above such a column's table is created again and filled for the same reason.
 - **TRUNCATE** fires no capture, so a rule over a query does not judge a TRUNCATE of a table it reads, and judges
   the rows a transaction added to it before a TRUNCATE as if they stood. grizzle never truncates and no role may; a
   direct writer who truncates such a table answers for the rule itself.

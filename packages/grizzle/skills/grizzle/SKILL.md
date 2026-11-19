@@ -290,7 +290,10 @@ breaking change may briefly break older application instances that are still run
   differently, or which drops or renames a column no rule reads, proves as it is generated that each rule means what
   it meant, so the proof its earlier check made of the rows still stands. A closed relation's facts a rule reads by
   `C.at`, `C.has` or `C.row`, its key set and each payload field a `C.at` reads, are of that meaning, so a migration
-  that changes them, such as a lowered count a rule bounds stored rows by, checks the rule again. Its functions and its
+  that changes them, such as a lowered count a rule bounds stored rows by, checks the rule again. So does a migration
+  that writes again a column the rule reads, which its triggers never see: a generated column re-expressed (by its
+  expression, or by a closed row or roster its generation reads), converted, or dropped and added again, or a column a
+  family's backfill draws again; a materialized view above that column's table is created again. Its functions and its
   deferred constraint triggers, one on each table its query reads, are
   created or replaced here too, before the checks, so no write runs past them; a renamed table's trigger, which
   PostgreSQL drops under ACCESS EXCLUSIVE, is created again last, its table locked against writers before the checks.
