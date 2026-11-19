@@ -1615,7 +1615,7 @@ const placedBeforeIn = (level: boolean) => {
 const placedAfterIn = (level: boolean) => {
 	const Session = relation(
 		"Session",
-		{ child: pg.integer, item: pg.integer, n: place({ by: "stage" }), stage: pg.integer },
+		{ child: pg.integer, item: pg.integer, n: place.by("stage"), stage: pg.integer },
 		["child", "item", "n"]
 	)
 	const Attempt = relation(
@@ -1760,30 +1760,41 @@ const keysGen = (size: {
 	)
 
 /**
- * A clock a migration adds to stored rows (deploy/diff/diff.ts stampedColumn): its sign-ins, by user and an email each,
- * keyed by user, stored in a drawn order, re-keyed by user and the clock; or keyed by user and email, which the new key
- * (user, at) does not hold, so the migration is refused.
+ * A stamped head a migration adds to stored rows (deploy/diff/diff.ts stampedColumn), a clock or an unordered place:
+ * sign-ins, by user and an email each, keyed by user, stored in a drawn order, re-keyed by user and the head; or keyed
+ * by user and email, which the new key (user, head) does not hold, so the migration is refused.
  */
-export type Clocked =
+export type Clocked = {
+	readonly head: StampedHead
+} & (
 	| { readonly kind: "held"; readonly users: ReadonlyArray<number> }
 	| { readonly kind: "not held" }
+)
+
+/** The head a stamped case adds: a clock, `at`, or an unordered place, `n`. */
+type StampedHead = "clock" | "place"
 
 export type ClockedFeature =
-	| "a clock added over stored rows"
+	| `a ${StampedHead} added over stored rows`
 	| "over no row"
-	| "refused: the old key not held"
+	| `refused: the old key not held under a ${StampedHead}`
 
-/** The clock case's stored users, distinct, stored in a drawn order, or the refused case. */
-export const clockedGen: Gen<Clocked> = weighted<Clocked>([
-	[3, map(keysGen({ min: 0, max: 6 }), (users): Clocked => ({ kind: "held", users }))],
-	[1, constant<Clocked>({ kind: "not held" })]
-])
+/** The stamped case's head and its stored users, distinct, stored in a drawn order, or the refused case. */
+export const clockedGen: Gen<Clocked> = (source) => {
+	const head = source.draw(map(between(0, 1), (i): StampedHead => (i === 0 ? "clock" : "place")))
+	return source.draw(
+		weighted<Clocked>([
+			[3, map(keysGen({ min: 0, max: 6 }), (users): Clocked => ({ head, kind: "held", users }))],
+			[1, constant<Clocked>({ head, kind: "not held" })]
+		])
+	)
+}
 
 export const clockedNotes = (c: Clocked): ReadonlyArray<ClockedFeature> =>
 	c.kind === "not held"
-		? ["refused: the old key not held"]
+		? [`refused: the old key not held under a ${c.head}`]
 		: [
-				"a clock added over stored rows",
+				`a ${c.head} added over stored rows`,
 				...(c.users.length === 0 ? (["over no row"] as const) : [])
 			]
 
@@ -1801,19 +1812,30 @@ const signedBefore = (key: "user" | "user and email") =>
 		[]
 	)
 
-/** The sign-ins keyed by user and the instant each was recorded at, a clock of child user. */
-const signedAfter = schema(
-	"Backfill",
-	[relation("SignIn", { user: pg.integer, at: instant, email: pg.integer }, ["user", "at"])],
-	[]
-)
+/** The sign-ins keyed by user and `head`: the instant each was recorded at, a clock of child user, or its unordered
+ * place among its user's. */
+const signedAfter = (head: StampedHead) =>
+	schema(
+		"Backfill",
+		[
+			head === "clock"
+				? relation("SignIn", { user: pg.integer, at: instant, email: pg.integer }, ["user", "at"])
+				: relation("SignIn", { user: pg.integer, n: place, email: pg.integer }, ["user", "n"])
+		],
+		[]
+	)
+
+/** The field a stamped case's head is. */
+const headField = (head: StampedHead): string => (head === "clock" ? "at" : "n")
 
 /**
- * What the clock case's migration must do: where the new key holds the old one, every stored sign-in takes the
- * migration's instant, the model's (modelInstant), and the catalog is the one its target installs from nothing; where
- * it does not, the draft is refused as InstantRefused addedOverRows at SignIn.at, naming both keys.
+ * What the stamped case's migration must do: where the new key holds the old one, every stored sign-in takes one value,
+ * a clock's the migration's instant, the model's (modelInstant), and an unordered place's 0, and the catalog is the one
+ * its target installs from nothing; where it does not, the draft is refused as InstantRefused or PlaceRefused
+ * addedOverRows at the head, naming both keys.
  */
 export const judgeClocked = (c: Clocked): void => {
+	const field = headField(c.head)
 	if (c.kind === "not held") {
 		const first = succeeded(
 			generate({
@@ -1825,43 +1847,52 @@ export const judgeClocked = (c: Clocked): void => {
 				name: "first"
 			})
 		)
-		const reason = refused(
-			generate({
-				installation: compile(signedAfter, asDrafted),
-				timestamp: draftedAt(2),
-				previous: fromSnapshot(first.snapshot),
-				workload: noWorkload,
-				declared: noDeclarations,
-				name: "second"
-			}),
-			"InstantRefused",
-			"a clock added over rows its new key would not keep apart"
-		).reason
+		const drafted = generate({
+			installation: compile(signedAfter(c.head), asDrafted),
+			timestamp: draftedAt(2),
+			previous: fromSnapshot(first.snapshot),
+			workload: noWorkload,
+			declared: noDeclarations,
+			name: "second"
+		})
+		const reason =
+			c.head === "clock"
+				? refused(
+						drafted,
+						"InstantRefused",
+						"a clock added over rows its new key would not keep apart"
+					).reason
+				: refused(
+						drafted,
+						"PlaceRefused",
+						"a place added over rows its new key would not keep apart"
+					).reason
 		assert.deepEqual(
-			reason._tag === "InstantRefused"
+			reason._tag === "InstantRefused" || reason._tag === "PlaceRefused"
 				? { relation: reason.relation, field: reason.field, rule: reason.rule }
 				: reason,
 			{
 				relation: "SignIn",
-				field: "at",
-				rule: { kind: "addedOverRows", key: ["user", "at"], held: ["user", "email"] }
+				field,
+				rule: { kind: "addedOverRows", key: ["user", field], held: ["user", "email"] }
 			},
-			"the refusal names the clock, the new key and the old one"
+			"the refusal names the head, the new key and the old one"
 		)
 		return
 	}
-	const m = migrationOf(signedBefore("user"), signedAfter)
+	const m = migrationOf(signedBefore("user"), signedAfter(c.head))
 	const state = migrated(m, [
 		{ relation: "SignIn", rows: Arr.map(c.users, (user) => ({ user, email: user + 100 })) }
 	])
-	const column = (field: string) => fieldColumn(m.second, "SignIn", field)
+	const column = (name: string) => fieldColumn(m.second, "SignIn", name)
+	const value = c.head === "clock" ? `${modelInstant.micros}` : "0"
 	assert.deepEqual(
-		rowsOf(m, state, "SignIn", (cell) => `${cell(column("user"))} ${cell(column("at"))}`),
+		rowsOf(m, state, "SignIn", (cell) => `${cell(column("user"))} ${cell(column(field))}`),
 		Arr.sort(
-			Arr.map(c.users, (user) => `${user} ${modelInstant.micros}`),
+			Arr.map(c.users, (user) => `${user} ${value}`),
 			Order.String
 		),
-		"every stored sign-in takes the migration's instant"
+		"every stored sign-in takes the migration's one value of its head"
 	)
 	assertFresh(m, state)
 }

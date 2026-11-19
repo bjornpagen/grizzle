@@ -3300,16 +3300,14 @@ export const signIn = ChangeSet.empty(Auth)
 
 ### Places
 
-`place({ by })` is a row's place in its group, a natural the database stamps when an insert adds the row: one past the
-greatest place the group holds, 0 for its first. It stands last in its relation's primary key, and the key's fields
-before it are its **group**: `relation("ItemSession", { child, package, item, n: place({ by: "stage" }), stage }, ["child",
-"package", "item", "n"])` numbers each child's sessions of an item 0, 1, 2, … in the order their calls commit, so a
-group's places are gapless from 0 with no law to state it and no count for a write to read.
+`place` is a row's place in its group, a natural the database stamps when an insert adds the row: one past the greatest
+place the group holds, 0 for its first. It stands last in its relation's primary key, and the key's fields before it are
+its **group**: `relation("Claim", { step, attempt: place, holds: drawn(natural) }, ["step", "attempt"])` numbers each
+step's claims 0, 1, 2, … in the order their calls commit, so a group's places are gapless from 0 with no law to state it
+and no count for a write to read.
 
 - **Declared once.** A place first in its key (`groupless`), before another field of it (`notLast`) or outside it
-  (`outsideKey`) is refused when the schema compiles (`PlaceRefused`). `by` names another field of the relation
-  (`byUnknown`, `byItself`), and a key of the relation holds no field but the group's and `by`'s (`byUnkeyed`, which
-  names the key the group and `by` would be): above, `key(on(ItemSession, "child", "package", "item", "stage"))`.
+  (`outsideKey`) is refused when the schema compiles (`PlaceRefused`).
 - **Stamped by its insert.** An insert's rows leave the place out, as they leave out every field grizzle writes: a row
   that states one is refused as its heading's mismatch. Every row a call stamps in one group holds one place, so a
   call adds one row a group. A place is stamped as a clock is, in one statement of one stratum (`stampedApart`), never
@@ -3318,14 +3316,22 @@ group's places are gapless from 0 with no law to state it and no count for a wri
   commit one place.
 - **Written by inserts alone.** A put would state a place and a delete would leave a gap, so neither writes a relation
   with a place (`written`).
-- **A migration that adds one** numbers each group's stored rows from 0 in `by`'s order, `row_number() OVER (PARTITION
-  BY <group> ORDER BY <by>) - 1`, total by the key above, in its backfill ([Migrations](#migrations)), with no
-  placeholder; the inserts after it stamp on from each group's greatest. A child keyed by the parent's old key and
-  re-keyed by its place, `Attempt` from `(child, stage, package, item, at)` to `(child, package, item, n, at)` beside a
-  containment into `ItemSession`'s `(child, package, item, n)`, takes each row's `n` from the session its old
-  containment named: a column a migration adds to stored rows that a containment carries is drawn from the row the
-  previous installation's containment over the same table named, every other pair of the two containments alike, and
-  is the reviewer's placeholder only where there is none.
+- **Its order is the migration's.** A place's declaration says nothing a write reads beyond the place itself; it states
+  only how a migration that adds the place to a table holding rows numbers them. `place` states no order: a relation
+  created with it numbers nothing, and a migration that adds it to stored rows gives every one place 0, which keeps them
+  apart at the new primary key exactly when it holds the old one, re-keying `(child, item)` to `(child, item, n)`; where
+  it does not, so a group would hold two stored rows, the draft is refused (`addedOverRows`, naming both keys).
+  `place.by(field)` numbers them: each group's stored rows from 0 in `field`'s order, `row_number() OVER (PARTITION BY
+  <group> ORDER BY <field>) - 1`, in its backfill ([Migrations](#migrations)), with no placeholder, which a key of the
+  relation within the group and the field makes total (`byUnkeyed`, which names the key the group and the field would
+  be; `byUnknown`, `byItself`): `relation("ItemSession", { child, package, item, n: place.by("stage"), stage }, ["child",
+  "package", "item", "n"])` beside `key(on(ItemSession, "child", "package", "item", "stage"))`. The inserts after a
+  migration stamp on from each group's greatest. A child keyed by the parent's old key and re-keyed by its place,
+  `Attempt` from `(child, stage, package, item, at)` to `(child, package, item, n, at)` beside a containment into
+  `ItemSession`'s `(child, package, item, n)`, takes each row's `n` from the session its old containment named: a column
+  a migration adds to stored rows that a containment carries is drawn from the row the previous installation's
+  containment over the same table named, every other pair of the two containments alike, and is the reviewer's
+  placeholder only where there is none.
 
 ## Derived tables
 

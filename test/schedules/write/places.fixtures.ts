@@ -14,7 +14,7 @@ import { rigTemplate } from "#test/support/schedules/rig.ts"
 
 export const Session = relation(
 	"Session",
-	{ child: pg.integer, item: pg.integer, n: place({ by: "stage" }), stage: pg.integer },
+	{ child: pg.integer, item: pg.integer, n: place.by("stage"), stage: pg.integer },
 	["child", "item", "n"]
 )
 

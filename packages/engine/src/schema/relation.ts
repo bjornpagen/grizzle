@@ -30,6 +30,7 @@ import {
 	fieldTypes,
 	type KeySlotDesc,
 	type LiteralDesc,
+	type PlaceOrderDesc,
 	type QueryDesc,
 	type RelationDesc,
 	recordAdmitted,
@@ -103,6 +104,7 @@ import type {
 	Bits,
 	ClosedIdField,
 	DrawnField,
+	PlaceDescriptor,
 	PlaceField,
 	FieldBase,
 	GeneratedField,
@@ -257,36 +259,57 @@ export const drawnField = (type: NaturalField, extra: ReadonlyArray<unknown>): D
 	return value
 }
 
+/** The members every place field carries: natural's column and SQL type, so it is read as every natural is. */
+const placeMembers = {
+	...builtMark,
+	...fieldMark,
+	writing: "place",
+	natural: true,
+	column: naturalDescriptor.column,
+	sql: naturalDescriptor.sql
+} as const
+
 /**
- * place({ by }): a natural the insert that adds its row stamps, one past the greatest place its group holds, 0 for its
- * first (ir/instant.ts Head), `by` the relation's field that orders the rows a migration finds stored when it adds the
- * place, which the schema checks once it reads the relation (analysis/theory/instants.ts). The value carries natural's
- * column and SQL type, so it is read as every natural is.
+ * `value`, a place field of `order` (ir/desc.ts PlaceOrderDesc), registered: a natural the insert that adds its row
+ * stamps, one past the greatest place its group holds, 0 for its first (ir/instant.ts PlaceHead), the order how a
+ * migration that adds it to stored rows numbers them, which the schema checks once it reads the relation
+ * (analysis/theory/instants.ts).
  */
-export const placeField = (options: unknown, extra: ReadonlyArray<unknown>): PlaceField => {
-	const by =
-		typeof options === "object" && options !== null && "by" in options ? options.by : undefined
-	if (extra.length > 0 || typeof by !== "string") {
-		throw malformed(
-			"place",
-			"place({ by }): one argument, `by` the name of the field that orders stored rows"
-		)
-	}
-	const value: PlaceField = Object.freeze({
-		...builtMark,
-		...fieldMark,
-		writing: "place",
-		natural: true,
-		column: naturalDescriptor.column,
-		sql: naturalDescriptor.sql
-	})
+const placed = <F extends PlaceField>(value: F, order: PlaceOrderDesc): F => {
 	fieldEntries.set(value, {
 		kind: "written",
 		type: naturalDescriptor,
-		writing: { kind: "place", by }
+		writing: { kind: "place", order }
 	})
 	return value
 }
+
+/**
+ * place.by(field): a place whose stored rows a migration that adds it numbers in `field`'s order, from 0 in each group;
+ * one argument, the name of another field of its relation.
+ */
+const placeBy = (field: unknown, extra: ReadonlyArray<unknown>): PlaceField => {
+	if (extra.length > 0 || typeof field !== "string") {
+		throw malformed(
+			"place.by",
+			"place.by(field): one argument, the name of the field that orders the rows a migration that adds the place finds stored"
+		)
+	}
+	return placed(Object.freeze({ ...placeMembers }), { kind: "by", by: field })
+}
+
+/**
+ * place: a row's place in its group, stamped by the insert that adds the row, which states no order of stored rows, so a
+ * migration adds it only where each stored row stands alone in its group; `place.by(field)` is the place whose stored
+ * rows a migration numbers by `field`.
+ */
+export const placeDescriptor: PlaceDescriptor = placed(
+	Object.freeze({
+		...placeMembers,
+		by: (field: string, ...extra: ReadonlyArray<never>): PlaceField => placeBy(field, extra)
+	}),
+	{ kind: "unordered" }
+)
 
 /**
  * The retirement field of a header (`retirable`), over `type`, PostgreSQL's boolean: false when its row is inserted,

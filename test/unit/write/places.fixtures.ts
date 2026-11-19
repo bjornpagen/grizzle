@@ -1,26 +1,33 @@
 /** What the properties of places.test.ts read: their schemas, their cases with their verdicts, and their features. */
 
-import { element, type Gen } from "@bjornpagen/testing/gen"
+import { int as between, element, type Gen, map } from "@bjornpagen/testing/gen"
+import { Array as Arr } from "effect"
 import type { PlaceRule } from "#compiler/core/causes.ts"
-import { instant, natural, pg, place } from "#compiler/public/fields.ts"
+import { instant, natural, type PlaceField, pg, place } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { compileWrite } from "#compiler/write/program/compile.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { asDrafted, compile, installedStatements } from "#test/support/migrate/kit.ts"
+import { checking } from "#test/support/policy.ts"
+import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** A stage decision of a child, at its clock of child `child`. */
 const Stage = relation("Stage", { child: pg.integer, at: instant }, ["child", "at"])
 /** A child's session of an item, at its place `n` within the child's item, its stage a reference to Stage's clock. */
 const Session = relation(
 	"Session",
-	{ child: pg.integer, item: pg.integer, n: place({ by: "stage" }), stage: instant },
+	{ child: pg.integer, item: pg.integer, n: place.by("stage"), stage: instant },
 	["child", "item", "n"]
 )
 /** A mark at its place within a group that holds a clock: `at`, of child `child`. */
-const Mark = relation(
-	"Mark",
-	{ child: pg.integer, at: instant, n: place({ by: "x" }), x: pg.integer },
-	["child", "at", "n"]
-)
+const Mark = relation("Mark", { child: pg.integer, at: instant, n: place.by("x"), x: pg.integer }, [
+	"child",
+	"at",
+	"n"
+])
 
 export const Placed = schema(
 	"Placed",
@@ -143,89 +150,114 @@ type SessionField = "child" | "item" | "n" | "stage" | "note"
 /** Fields of a schema case's Session in key order, at least one. */
 type KeyOf = readonly [SessionField, ...ReadonlyArray<SessionField>]
 
+/** The primary keys a schema case's Session takes: n after its group, outside it, first in it, or before another field;
+ * none of them the fields of a key beside it (`keyFields`), which a schema refuses as malformed. */
+const primaryKeys: readonly [KeyOf, ...ReadonlyArray<KeyOf>] = [
+	["child", "item", "n"],
+	["child", "item", "note"],
+	["n", "child", "item"],
+	["child", "n", "item"]
+]
+
 /** The keys a schema case declares beside Session's primary key: (child, item, stage), (child, item), (child, note)
  * and (item, stage, note), or none. */
 type Keys = "group and stage" | "group" | "outside group and stage" | "none"
 
-/** A schema's place, as a case declares it: its relation's key, its `by`, and the keys beside it. */
-export interface PlaceSchemaCase {
-	readonly name: string
-	readonly primaryKey: KeyOf
-	readonly by: string
-	readonly keys: Keys
-	/** The rule that refuses it, or none where it is a place. */
-	readonly refusal: Exclude<PlaceRule, WriteRule> | undefined
-}
-
-const schemaCases: readonly [PlaceSchemaCase, ...ReadonlyArray<PlaceSchemaCase>] = [
-	{
-		name: "a place after its group, ordered by a key",
-		primaryKey: ["child", "item", "n"],
-		by: "stage",
-		keys: "group and stage",
-		refusal: undefined
-	},
-	{
-		name: "a place ordered by a key within its group",
-		primaryKey: ["child", "item", "n"],
-		by: "stage",
-		keys: "group",
-		refusal: undefined
-	},
-	{
-		name: "a place outside its key",
-		primaryKey: ["child", "item", "stage"],
-		by: "stage",
-		keys: "none",
-		refusal: { kind: "outsideKey" }
-	},
-	{
-		name: "a place first in its key",
-		primaryKey: ["n", "child", "item"],
-		by: "stage",
-		keys: "group and stage",
-		refusal: { kind: "groupless" }
-	},
-	{
-		name: "a place before another field of its key",
-		primaryKey: ["child", "n", "item"],
-		by: "stage",
-		keys: "group and stage",
-		refusal: { kind: "notLast" }
-	},
-	{
-		name: "a place by no field",
-		primaryKey: ["child", "item", "n"],
-		by: "when",
-		keys: "group and stage",
-		refusal: { kind: "byUnknown", by: "when" }
-	},
-	{
-		name: "a place by itself",
-		primaryKey: ["child", "item", "n"],
-		by: "n",
-		keys: "none",
-		refusal: { kind: "byItself" }
-	},
-	{
-		name: "a place ordered by no key",
-		primaryKey: ["child", "item", "n"],
-		by: "stage",
-		keys: "outside group and stage",
-		refusal: { kind: "byUnkeyed", key: ["child", "item", "stage"] }
-	}
+const keyChoices: readonly [Keys, ...ReadonlyArray<Keys>] = [
+	"group and stage",
+	"group",
+	"outside group and stage",
+	"none"
 ]
 
-export const placeSchemaGen: Gen<PlaceSchemaCase> = element(schemaCases)
+/** A schema case's place's order (ir/desc.ts PlaceOrderDesc): unordered, or by stage, by `when`, no field, or by n,
+ * itself. */
+type CaseOrder = { readonly kind: "unordered" } | { readonly kind: "by"; readonly by: string }
 
-/** The schema a schema case declares: Session's fields, its place `n` by the case's `by`, keyed as the case says. */
+const orders: readonly [CaseOrder, ...ReadonlyArray<CaseOrder>] = [
+	{ kind: "unordered" },
+	{ kind: "by", by: "stage" },
+	{ kind: "by", by: "when" },
+	{ kind: "by", by: "n" }
+]
+
+/** A schema's place, as a case declares it: its relation's key, its order, and the keys beside it. */
+export interface PlaceSchemaCase {
+	readonly primaryKey: KeyOf
+	readonly order: CaseOrder
+	readonly keys: Keys
+}
+
+/** Every schema case: each primary key, order and keys beside it, drawn on its own. */
+export const placeSchemaGen: Gen<PlaceSchemaCase> = (source) => ({
+	primaryKey: source.draw(element(primaryKeys)),
+	order: source.draw(element(orders)),
+	keys: source.draw(element(keyChoices))
+})
+
+/** The fields of each key a case declares beside its primary key. */
+const keyFields = (keys: Keys): ReadonlyArray<ReadonlyArray<SessionField>> => {
+	switch (keys) {
+		case "group and stage":
+			return [["child", "item", "stage"]]
+		case "group":
+			return [["child", "item"]]
+		case "outside group and stage":
+			return [
+				["child", "note"],
+				["item", "stage", "note"]
+			]
+		case "none":
+			return []
+	}
+}
+
+/**
+ * The rule that refuses a case's place, or none where it is a place, as the README's Places states it: last in its
+ * primary key after its group, and, ordered by a field, by another field of the relation under a key within the group and
+ * that field.
+ */
+export const refusalOf = (c: PlaceSchemaCase): Exclude<PlaceRule, WriteRule> | undefined => {
+	const at = c.primaryKey.indexOf("n")
+	if (at < 0) {
+		return { kind: "outsideKey" }
+	}
+	if (at === 0) {
+		return { kind: "groupless" }
+	}
+	if (at !== c.primaryKey.length - 1) {
+		return { kind: "notLast" }
+	}
+	if (c.order.kind === "unordered") {
+		return undefined
+	}
+	const by = c.order.by
+	if (!["child", "item", "n", "stage", "note"].includes(by)) {
+		return { kind: "byUnknown", by }
+	}
+	if (by === "n") {
+		return { kind: "byItself" }
+	}
+	const group = c.primaryKey.slice(0, at)
+	const within = new Set<string>([...group, by])
+	const keyed = Arr.some([c.primaryKey, ...keyFields(c.keys)], (k) =>
+		Arr.every(k, (f) => within.has(f))
+	)
+	if (keyed) {
+		return undefined
+	}
+	const [first, ...rest] = group
+	return first === undefined ? undefined : { kind: "byUnkeyed", key: [first, ...rest, by] }
+}
+
+/** The schema a schema case declares: Session's fields, its place `n` of the case's order, keyed as the case says. */
 export const placeSchemaOf = (c: PlaceSchemaCase) => {
 	const Declared = relation(
 		"Session",
 		{
 			child: pg.integer,
 			item: pg.integer,
-			n: place({ by: c.by }),
+			n: c.order.kind === "unordered" ? place : place.by(c.order.by),
 			stage: pg.integer,
 			note: pg.integer
 		},
@@ -246,8 +278,97 @@ export const placeSchemaOf = (c: PlaceSchemaCase) => {
 	return schema("Declared", [Declared], keys)
 }
 
-/** What a schema case reaches: a place, or its refusal's rule. */
-export type PlaceSchemaFeature = "a place" | Exclude<PlaceRule, WriteRule>["kind"]
+/** What a schema case reaches: a place by its order, or its refusal's rule. */
+export type PlaceSchemaFeature =
+	| "a place"
+	| "an unordered place"
+	| Exclude<PlaceRule, WriteRule>["kind"]
 
-export const schemaFeatureOf = (c: PlaceSchemaCase): PlaceSchemaFeature =>
-	c.refusal === undefined ? "a place" : c.refusal.kind
+export const schemaFeatureOf = (c: PlaceSchemaCase): PlaceSchemaFeature => {
+	const refusal = refusalOf(c)
+	return refusal !== undefined
+		? refusal.kind
+		: c.order.kind === "unordered"
+			? "an unordered place"
+			: "a place"
+}
+
+/**
+ * A relation whose place a twin pair declares two ways: its group of one field or two, its place, and an ordering
+ * field `o`, keyed by the group and `o` or by the group alone.
+ */
+export interface OrderedPlaceCase {
+	readonly group: 1 | 2
+	readonly keyed: "group and order" | "group"
+}
+
+export const orderedPlaceGen: Gen<OrderedPlaceCase> = (source) => ({
+	group: source.draw(map(between(1, 2), (n): 1 | 2 => (n === 1 ? 1 : 2))),
+	keyed: source.draw(
+		map(between(0, 1), (n): OrderedPlaceCase["keyed"] => (n === 0 ? "group and order" : "group"))
+	)
+})
+
+export type OrderedPlaceFeature =
+	| "a place over a group of one field"
+	| "a place over a group of two fields"
+	| "keyed by its group and order"
+	| "keyed by its group"
+
+export const orderedPlaceFeatures = (c: OrderedPlaceCase): ReadonlyArray<OrderedPlaceFeature> => [
+	c.group === 1 ? "a place over a group of one field" : "a place over a group of two fields",
+	c.keyed === "group and order" ? "keyed by its group and order" : "keyed by its group"
+]
+
+/** The case's relation with its place `n` as `n` declares it, and its schema. */
+const twinOf = (c: OrderedPlaceCase, n: PlaceField) => {
+	if (c.group === 1) {
+		const Twin = relation("Twin", { a: pg.integer, n, o: pg.integer }, ["a", "n"])
+		return {
+			Twin,
+			schema: schema(
+				"Twins",
+				[Twin],
+				[c.keyed === "group and order" ? key(on(Twin, "a", "o")) : key(on(Twin, "a"))]
+			)
+		}
+	}
+	const Twin = relation("Twin", { a: pg.integer, b: pg.integer, n, o: pg.integer }, ["a", "b", "n"])
+	return {
+		Twin,
+		schema: schema(
+			"Twins",
+			[Twin],
+			[c.keyed === "group and order" ? key(on(Twin, "a", "b", "o")) : key(on(Twin, "a", "b"))]
+		)
+	}
+}
+
+/** The case's twins: its relation with its place ordered by `o`, and with it unordered. */
+export const orderedPlaceTwins = (c: OrderedPlaceCase) => ({
+	by: twinOf(c, place.by("o")),
+	unordered: twinOf(c, place)
+})
+
+/**
+ * What a twin installs and writes: every statement of its installation's content (migrate/kit.ts installedStatements),
+ * and the compiled program of an insert of its host rows, each statement's AST and step.
+ */
+export const installedAndWritten = (twin: ReturnType<typeof twinOf>) => {
+	const artifacts = succeeded(testArtifacts(twin.schema, testCompile), "the twin's artifacts")
+	const written = succeeded(
+		compileWrite(
+			checking(twin.schema),
+			descOf(ChangeSet.empty(twin.schema).insert(twin.Twin, [])),
+			realityWrite(artifacts)
+		),
+		"the twin's insert compiles"
+	)
+	return {
+		installed: installedStatements(compile(twin.schema, asDrafted)),
+		written: {
+			statements: Arr.map(written.artifact.statements, (s) => s.ast),
+			steps: written.artifact.steps
+		}
+	}
+}

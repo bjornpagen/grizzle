@@ -652,7 +652,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			case "retirement":
 				return retirementWriting
 			case "place":
-				return Object.freeze({ kind: "place", by: w.by })
+				return Object.freeze({ kind: "place", order: w.order })
 			case "accumulated":
 				if (storedOnly(type)) {
 					return fail(

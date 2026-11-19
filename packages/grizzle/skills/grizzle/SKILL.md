@@ -96,10 +96,11 @@ export default defineConfig({
   insert leaving it out stamps with the call's instant at the user, `greatest(clock, the user's latest + 1)`, so a
   user's instants increase in the order their calls commit; a role that stamps runs SERIALIZABLE. An instant a
   containment carries into another relation's instant is a reference, stamped beside an insert of its clock or stated
-  from a stored instant (README "Instants"). A row's place in its group is `place({ by })`, last in its primary key after
-  the group: an insert leaving it out stamps one past the group's greatest, 0 first, so a group's places are gapless
-  from 0 in commit order; no put or delete writes its relation, a key within the group and `by` is declared, and a
-  migration adding it numbers the stored rows by `by` (README "Places"). The member `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key or
+  from a stored instant (README "Instants"). A row's place in its group is `place`, last in its primary key after the
+  group: an insert leaving it out stamps one past the group's greatest, 0 first, so a group's places are gapless from 0
+  in commit order; no put or delete writes its relation. A migration adding `place` to stored rows gives each place 0
+  where the new key holds the old one, and is refused elsewhere; `place.by(field)`, beside a key within the group and
+  the field, numbers the stored rows by the field (README "Places"). The member `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key or
   a clocked read, reads in a SERIALIZABLE READ ONLY DEFERRABLE transaction: it waits until every SERIALIZABLE
   read-write transaction running on the cluster when it began has ended, then never fails with a serialization
   failure, never makes another transaction fail and holds no predicate lock. A plain read answers at once and may

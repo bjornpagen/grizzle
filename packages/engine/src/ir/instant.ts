@@ -62,17 +62,28 @@ export interface Clock {
  * the key's fields before it, its group, which the insert that adds a row stamps `coalesce(h + 1, 0)`, h the greatest
  * place the group holds, none where it holds none: one place for every row of the call in the group, so a group's
  * places run gapless from 0 in the order its rows' calls commit, and its relation admits no put and no delete, which
- * would state a place or leave a gap. `by` is the field that orders the group's rows where a migration adds the place
- * to stored rows, `row_number() OVER (PARTITION BY <group> ORDER BY <by>) - 1` (deploy/diff/backfill.ts), which a key
- * of the relation within the group and `by` makes total (analysis/theory/instants.ts).
+ * would state a place or leave a gap. `order` is how a migration that adds the place to a table holding rows numbers
+ * them (PlaceOrder), the one thing a place reads beyond its group.
  */
 export interface PlaceHead {
 	readonly kind: "place"
 	readonly relation: StoredRelationName
 	readonly field: LawField
 	readonly child: NonEmptyReadonlyArray<LawField>
-	readonly by: LawField
+	readonly order: PlaceOrder
 }
+
+/**
+ * How a migration that adds a place to a table holding rows numbers them (deploy/diff/backfill.ts, deploy/diff/diff.ts
+ * placedColumn), the only reader of a place's order: `unordered`, no order, so every stored row takes place 0, which
+ * keeps them apart at the new primary key exactly where its group holds the old one, and the migration is refused
+ * anywhere else; or `by`, each group's stored rows numbered from 0 in `field`'s order, `row_number() OVER (PARTITION BY
+ * <group> ORDER BY <field>) - 1`, which a key of the relation within the group and `field` makes total
+ * (analysis/theory/instants.ts).
+ */
+export type PlaceOrder =
+	| { readonly kind: "unordered" }
+	| { readonly kind: "by"; readonly field: LawField }
 
 /** What a stamp counts on from: the head of a clock or a place, the greatest value its child holds. */
 export type Head = Clock | PlaceHead

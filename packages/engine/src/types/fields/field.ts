@@ -368,6 +368,15 @@ export interface PlaceField extends NaturalField, UnwrittenField {
 }
 
 /**
+ * `place`: a place that states no order of stored rows, so a migration adds it only where each stored row stands alone in
+ * its group; `place.by(field)` is the place whose stored rows a migration that adds it numbers in `field`'s order
+ * (schema/relation.ts placeDescriptor).
+ */
+export interface PlaceDescriptor extends PlaceField {
+	readonly by: (field: string) => PlaceField
+}
+
+/**
  * A header's retirement field: a boolean PostgreSQL defaults to false when its row is inserted, and the retirement of its
  * group sets to true for good (schema/relation.ts retirementField). In a Fact, never in an Addition.
  */

@@ -25,9 +25,10 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
  * relations reaches no clock either.
  *
  * The classifier reads each place too (ir/instant.ts PlaceHead): a field written as one stands last in its relation's
- * primary key after at least one field, its group, and its `by` is another field of the relation, a key of which holds
- * no field but the group's and `by`'s; else it is refused as PlaceRefused, `outsideKey`, `groupless`, `notLast`,
- * `byUnknown`, `byItself` or `byUnkeyed`, naming the key the place's group and `by` would be.
+ * primary key after at least one field, its group, else it is refused as PlaceRefused, `outsideKey`, `groupless` or
+ * `notLast`; a place ordered `by` a field orders by another field of the relation, a key of which holds no field but the
+ * group's and the field's, else it is refused as `byUnknown`, `byItself` or `byUnkeyed`, naming the key the group and
+ * the field would be. An unordered place states no order, so it has no such rule.
  */
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { PlaceRule } from "#compiler/core/causes.ts"
@@ -39,6 +40,7 @@ import {
 	type InstantRole,
 	type Instants,
 	type PlaceHead,
+	type PlaceOrder,
 	sameStamp,
 	type StampSource
 } from "#compiler/ir/instant.ts"
@@ -233,9 +235,9 @@ export const instantRoles = (
 
 /**
  * The place `field` of `r` is (ir/instant.ts PlaceHead), none where it is no place: last in `r`'s primary key after at
- * least one field, its group, and ordered for a migration by `by`, another field of `r`, where a key of `r` holds no
- * field but the group's and `by`, so each group's rows are distinct by `by` and their order total. Refused as
- * PlaceRefused otherwise, the key a missing one named by the group and `by`.
+ * least one field, its group, and, ordered by a field, ordered by another field of `r` where a key of `r` holds no field
+ * but the group's and that field, so each group's stored rows are distinct by it and their order total. Refused as
+ * PlaceRefused otherwise, the key a missing one named by the group and the field.
  */
 const placeOf = (
 	r: RelationInfo,
@@ -266,23 +268,34 @@ const placeOf = (
 	if (at !== r.primaryFields.length - 1) {
 		return refused({ kind: "notLast" })
 	}
-	const by = r.fields.find((f) => f.name === w.by)
-	if (by === undefined) {
-		return refused({ kind: "byUnknown", by: w.by })
-	}
-	if (by.name === field.name) {
-		return refused({ kind: "byItself" })
-	}
-	const within = new Set([...child.map((f) => f.name), by.name])
-	const keyed = [r.primaryFields, ...r.keyFields].some((k) => k.every((f) => within.has(f.name)))
-	if (!keyed) {
-		return refused({
-			kind: "byUnkeyed",
-			key: appendNonEmpty(
-				mapNonEmpty(child, (f) => f.name),
-				by.name
+	const placed = (order: PlaceOrder): Result.Result<PlaceHead, CompileError> =>
+		Result.ok({ kind: "place", relation: r.name, field, child, order })
+	switch (w.order.kind) {
+		case "unordered":
+			return placed({ kind: "unordered" })
+		case "by": {
+			const name = w.order.by
+			const by = r.fields.find((f) => f.name === name)
+			if (by === undefined) {
+				return refused({ kind: "byUnknown", by: name })
+			}
+			if (by.name === field.name) {
+				return refused({ kind: "byItself" })
+			}
+			const within = new Set([...child.map((f) => f.name), by.name])
+			const keyed = [r.primaryFields, ...r.keyFields].some((k) =>
+				k.every((f) => within.has(f.name))
 			)
-		})
+			if (!keyed) {
+				return refused({
+					kind: "byUnkeyed",
+					key: appendNonEmpty(
+						mapNonEmpty(child, (f) => f.name),
+						by.name
+					)
+				})
+			}
+			return placed({ kind: "by", field: by })
+		}
 	}
-	return Result.ok({ kind: "place", relation: r.name, field, child, by })
 }

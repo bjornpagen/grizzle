@@ -545,12 +545,14 @@ export type InstantRule =
 
 /**
  * Why a place is refused (ir/instant.ts PlaceHead): as the schema declares it, outside its relation's primary key
- * (`outsideKey`), first in it, its group no field (`groupless`), or before another of its fields (`notLast`); its `by`
- * no field of its relation (`byUnknown`) or the place itself (`byItself`); or no key of its relation within its group
- * and `by`, `key` the one that would order each group's stored rows (`byUnkeyed`). As a write writes it: a put or a
- * delete writes its relation's rows (`written`); its group holds a field the same insert stamps, `stamped`
+ * (`outsideKey`), first in it, its group no field (`groupless`), or before another of its fields (`notLast`); ordered by
+ * a field, no field of its relation (`byUnknown`) or the place itself (`byItself`), or no key of its relation within its
+ * group and that field, `key` the one that would order each group's stored rows (`byUnkeyed`). As a write writes it: a
+ * put or a delete writes its relation's rows (`written`); its group holds a field the same insert stamps, `stamped`
  * (`groupStamped`); or one call would stamp it in more than one statement, each reading its own head, in two strata or
- * in a stratum of several statements (`stampedApart`).
+ * in a stratum of several statements (`stampedApart`). As a migration adds it to a table holding rows, unordered, where
+ * the new primary key `key` does not hold the old one, `held`, so 0 on every stored row would meet at it
+ * (`addedOverRows`).
  */
 export type PlaceRule =
 	| { readonly kind: "outsideKey" }
@@ -562,6 +564,11 @@ export type PlaceRule =
 	| { readonly kind: "written"; readonly op: "put" | "delete" }
 	| { readonly kind: "groupStamped"; readonly stamped: string }
 	| { readonly kind: "stampedApart"; readonly apart: "strata" | "statements" }
+	| {
+			readonly kind: "addedOverRows"
+			readonly key: NonEmptyReadonlyArray<string>
+			readonly held: NonEmptyReadonlyArray<string>
+	  }
 
 /** A place rule's sentence. */
 export const placeRuleText = (rule: PlaceRule): string => {
@@ -573,17 +580,19 @@ export const placeRuleText = (rule: PlaceRule): string => {
 		case "notLast":
 			return "a place stands last in its relation's primary key, so the key is its group and its place, one row at each place"
 		case "byUnknown":
-			return `a place's \`by\` names a field of its relation, the one that orders the rows a migration that adds the place finds stored, and its relation has no field ${rule.by}`
+			return `a place.by(field) names a field of its relation, the one that orders the rows a migration that adds the place finds stored, and its relation has no field ${rule.by}`
 		case "byItself":
-			return "a place's `by` names another field of its relation, the one that orders the rows a migration that adds the place finds stored"
+			return "a place.by(field) names another field of its relation, the one that orders the rows a migration that adds the place finds stored"
 		case "byUnkeyed":
-			return `a place's group and its \`by\` hold a key of its relation, so a migration that adds the place orders each group's stored rows totally, and none is within (${rule.key.join(", ")}): declare that key`
+			return `a place.by(field)'s group and field hold a key of its relation, so a migration that adds the place orders each group's stored rows totally, and none is within (${rule.key.join(", ")}): declare that key, or declare the place unordered`
 		case "written":
 			return `a place's relation is written by inserts alone, which keep each group's places gapless from 0, and ${rule.op === "put" ? "a put would state a place" : "a delete would leave a gap"}: write the relation by insert`
 		case "groupStamped":
 			return `a place's group is stated, never stamped by the same insert, and ${rule.stamped} is: state it from a stored value, or stamp it in an earlier stratum`
 		case "stampedApart":
 			return `one call stamps a place in one statement, whose every row in a group shares one place, and this one would stamp it ${rule.apart === "strata" ? "in two strata" : "in a stratum of several statements"}: stamp it in one stratum`
+		case "addedOverRows":
+			return `an unordered place a migration adds to a table that holds rows is 0 on every stored row, which keeps them apart at the new primary key only where it holds the old one, and (${rule.key.join(", ")}) does not hold (${rule.held.join(", ")}): declare it place.by(field), a field that orders each group's stored rows, or add it under the old key's fields`
 	}
 }
 

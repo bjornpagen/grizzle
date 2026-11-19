@@ -190,7 +190,7 @@ export const aPlaceAMigrationAddsToStoredRowsNumbersEachGroupByItsByFromZeroAndE
 			},
 			{
 				file: "packages/engine/src/deploy/diff/backfill.ts",
-				original: '\t\t\t\t\t\t\t\t[col("k", place.by.column)],\n',
+				original: '\t\t\t\t\t\t\t\t[col("k", by.column)],\n',
 				replacement: "\t\t\t\t\t\t\t\t[],\n",
 				why: "A place's stored rows are numbered in no order, so a group stored out of its stages' order holds places that are not its stages' ranks."
 			},
@@ -230,15 +230,17 @@ export const aPlaceAMigrationAddsToStoredRowsNumbersEachGroupByItsByFromZeroAndE
 		]
 	})
 
-/** A clock a migration adds to stored rows takes the migration's instant on every one where the new key holds the old one, with no placeholder, and is refused, naming both keys, where it does not. */
-export const aClockAMigrationAddsToStoredRowsTakesTheMigrationsInstantOnEveryOneWhereTheNewKeyHoldsTheOldOneAndIsRefusedWhereItDoesNot =
+/** A clock or an unordered place a migration adds to stored rows gives every one the migration's one value of it, the migration's instant or 0, where the new key holds the old one, with no placeholder, and is refused, naming both keys, where it does not. */
+export const aClockOrAnUnorderedPlaceAMigrationAddsToStoredRowsGivesEveryOneItsOneValueWhereTheNewKeyHoldsTheOldOneAndIsRefusedWhereItDoesNot =
 	property.explore(clockedGen, {
 		needs: {},
 		budget: { runs: 50, steered: 50 },
 		situations: [
 			"a clock added over stored rows",
+			"a place added over stored rows",
 			"over no row",
-			"refused: the old key not held"
+			"refused: the old key not held under a clock",
+			"refused: the old key not held under a place"
 		] satisfies ReadonlyArray<Reached<ClockedFeature>>,
 		check: (_, c: Case<ClockedFeature>) => (clocked) =>
 			Effect.sync(() => {
@@ -247,7 +249,7 @@ export const aClockAMigrationAddsToStoredRowsTakesTheMigrationsInstantOnEveryOne
 			}),
 		oracle: {
 			kind: "specification",
-			name: "every stored sign-in at the model's instant and the target's fresh catalog, or the refusal naming the clock and both keys, run against the catalog model of PostgreSQL executing the drafted migration"
+			name: "every stored sign-in at the model's instant or at place 0 and the target's fresh catalog, or the refusal naming the head and both keys, run against the catalog model of PostgreSQL executing the drafted migration"
 		},
 		kept: [],
 		kills: [
@@ -255,13 +257,13 @@ export const aClockAMigrationAddsToStoredRowsTakesTheMigrationsInstantOnEveryOne
 				file: "packages/engine/src/deploy/diff/diff.ts",
 				original: "\t\tconst stamped = this.stampedColumn(t, c)\n",
 				replacement: "\t\tconst stamped = undefined\n",
-				why: "A clock added to stored rows is the reviewer's, so its migration asks for it at a placeholder, the hand data step it must not ask."
+				why: "A clock or an unordered place added to stored rows is the reviewer's, so its migration asks for it at a placeholder, the hand data step it must not ask."
 			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
 				original: "\t\tif (!held.every((column) => column !== c.name && key.includes(column))) {\n",
 				replacement: "\t\tif (false) {\n",
-				why: "A clock is added under a key that does not hold the old one, so the stored rows of one user would share the key at the migration's one instant: the refused case drafts."
+				why: "A clock or an unordered place is added under a key that does not hold the old one, so the stored rows of one user would share the key at the migration's one value: the refused cases draft."
 			}
 		]
 	})

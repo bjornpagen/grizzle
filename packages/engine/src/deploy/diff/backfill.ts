@@ -50,9 +50,10 @@ import {
  * - **Tree chains:** a tree's copy of its parent's column that reads the copy back through its row has its source's
  *   value over the parent's row as its own copies leave that row, drawn by a recursion down the tree from its roots,
  *   which hold its base (treeChainDerivation).
- * - **Places:** a place a migration adds to stored rows (ir/instant.ts PlaceHead) numbers each group's rows from 0 in its
- *   `by`'s order, ‹n› = row_number() OVER (PARTITION BY its group ORDER BY `by`) − 1, total by the key the classifier
- *   demands within the group and `by`, and the inserts after it stamp on from the group's greatest.
+ * - **Places:** a place ordered by a field that a migration adds to stored rows (ir/instant.ts PlaceOrder) numbers each
+ *   group's rows from 0 in that field's order, ‹n› = row_number() OVER (PARTITION BY its group ORDER BY `by`) − 1, total
+ *   by the key the classifier demands within the group and `by`, and the inserts after it stamp on from the group's
+ *   greatest; an unordered one is no derivation's, each stored row at 0 (deploy/diff/diff.ts stampedColumn).
  * - **Carried:** a column a migration adds to stored rows that a containment of the target carries from another table
  *   (Carry, deploy/diff/diff.ts carryOf) takes, on each row, the value of the row the previous installation's
  *   containment named, read off one sorted stream of both tables at that containment's columns, as a copy is; then its
@@ -96,7 +97,7 @@ import {
 	layoutKey
 } from "#compiler/ir/fill.ts"
 import type { PlaceHead } from "#compiler/ir/instant.ts"
-import type { NativeColumn, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
+import type { LawField, NativeColumn, RelationInfo, TableRelation } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
@@ -279,6 +280,11 @@ const drawnOf = (
 
 const zero: TypedLiteral = { kind: "int", value: 0n }
 
+/** The place of a group's first row, 0, as a literal of the place's type: an unordered place's value on every stored row
+ * of a table a migration adds it to (deploy/diff/diff.ts stampedColumn). */
+export const placeStart = (installation: Installation, place: PlaceHead): Expr =>
+	drawnOf(installation, zero, place.field.type).placeholder
+
 /** A family's counts and indices, 0 where it is empty, typed by its count's base. */
 const zeroOf = (installation: Installation, family: Family): DrawnColumn =>
 	drawnOf(installation, zero, family.count.type)
@@ -293,7 +299,8 @@ const identityOf = (installation: Installation, plane: FoldPlane): DrawnColumn =
  * copy ‹n›, each fold plane's before and after; on an owner, the count and each fold plane's end; a tree's parent and
  * interval among them; and every copy an axis carries (Copy) on its source. Each holds 0 where its family is
  * empty, but an accumulator or an end, which holds its plane's identity, and a copy, which holds its base. Each place
- * (ir/instant.ts PlaceHead) is drawn too, at 0 before its derivation numbers its stored rows (placeDerivation).
+ * ordered by a field (ir/instant.ts PlaceOrder) is drawn too, at 0 before its derivation numbers its stored rows
+ * (placeDerivation); an unordered one is stamped (deploy/diff/diff.ts stampedColumn).
  */
 export const drawnColumns = (installation: Installation): DrawnColumns => {
 	const out = new Map<NameKey, Map<string, DrawnColumn>>()
@@ -332,7 +339,9 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 		}
 	}
 	for (const place of installation.laws.theory.instants.places.values()) {
-		put(place.relation, place.field.column, drawnOf(installation, zero, place.field.type))
+		if (place.order.kind === "by") {
+			put(place.relation, place.field.column, drawnOf(installation, zero, place.field.type))
+		}
 	}
 	return out
 }
@@ -1870,11 +1879,12 @@ const chainTable = "__chain"
 const chainName = (n: number): string => `__chained_${n}`
 
 /**
- * A place's derivation (ir/instant.ts PlaceHead): each stored row's place, `row_number() OVER (PARTITION BY <group> ORDER
- * BY <by>) - 1`, every group's rows numbered from 0 in its `by`'s order, which a key of the relation within the group
- * and `by` makes total (analysis/theory/instants.ts), and which each later insert stamps past, one place a call.
+ * A place's derivation (ir/instant.ts PlaceHead), ordered `by` a field: each stored row's place, `row_number() OVER
+ * (PARTITION BY <group> ORDER BY <by>) - 1`, every group's rows numbered from 0 in its `by`'s order, which a key of the
+ * relation within the group and `by` makes total (analysis/theory/instants.ts), and which each later insert stamps past,
+ * one place a call.
  */
-const placeDerivation = (place: PlaceHead, table: ObjectName): Derivation => {
+const placeDerivation = (place: PlaceHead, by: LawField, table: ObjectName): Derivation => {
 	const value = drawnName(1)
 	const group = mapNonEmpty(place.child, (f) => f.column)
 	return {
@@ -1892,7 +1902,7 @@ const placeDerivation = (place: PlaceHead, table: ObjectName): Derivation => {
 							[],
 							window(
 								group.map((g) => col("k", g)),
-								[col("k", place.by.column)],
+								[col("k", by.column)],
 								false
 							)
 						),
@@ -1905,7 +1915,7 @@ const placeDerivation = (place: PlaceHead, table: ObjectName): Derivation => {
 			undefined
 		),
 		set: [{ column: place.field.column, value }],
-		reads: cellsOf(table, [...group, place.by.column])
+		reads: cellsOf(table, [...group, by.column])
 	}
 }
 
@@ -2577,8 +2587,11 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 	}
 	for (const place of installation.laws.theory.instants.places.values()) {
 		const table = tableOf(installation, place.relation)
-		if (drawnOn(input, table).has(place.field.column)) {
-			planned.push({ drawer: { kind: "place", place }, derivation: placeDerivation(place, table) })
+		if (place.order.kind === "by" && drawnOn(input, table).has(place.field.column)) {
+			planned.push({
+				drawer: { kind: "place", place },
+				derivation: placeDerivation(place, place.order.field, table)
+			})
 		}
 	}
 	for (const carry of input.carried) {

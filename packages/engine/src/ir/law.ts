@@ -16,7 +16,7 @@ import {
 	nonEmptyNameSet
 } from "#compiler/core/set.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
-import type { ExprDesc, FieldDesc, TermDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, PlaceOrderDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
@@ -64,14 +64,14 @@ export interface LawField extends HeadingColumn {
  * gives it, `start` at the axis's base, and proved by PostgreSQL; retirement, a header's boolean PostgreSQL defaults
  * to false and its group's retirement alone sets true; instant, by the database's clock, stamped where it is its
  * relation's clock or a stored instant where it is a reference (analysis/theory/instants.ts); or place, by the insert
- * that adds its row, one past its group's greatest place, `by` the field of its relation that orders the rows a
- * migration that adds it finds stored (ir/instant.ts Head). Only a caller field is in an insert's head, and an instant
+ * that adds its row, one past its group's greatest place, `order` how a migration that adds it numbers the rows it
+ * finds stored (ir/desc.ts PlaceOrderDesc, ir/instant.ts PlaceOrder). Only a caller field is in an insert's head, and an instant
  * one where the insert states a stored instant into it.
  */
 export type FieldWriting =
 	| { readonly kind: "caller" | "drawn" | "retirement" | "instant" }
 	| { readonly kind: "generated"; readonly desc: ExprDesc; readonly expr: ScalarExpr }
-	| { readonly kind: "place"; readonly by: string }
+	| { readonly kind: "place"; readonly order: PlaceOrderDesc }
 	| { readonly kind: "accumulated"; readonly start: TypedLiteral }
 
 /**

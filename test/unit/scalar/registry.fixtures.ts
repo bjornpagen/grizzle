@@ -73,7 +73,7 @@ import {
 	accumulatedField,
 	admittedClosedId,
 	drawnField,
-	placeField,
+	placeDescriptor,
 	retirementField
 } from "#compiler/schema/relation.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
@@ -944,7 +944,8 @@ const descriptors: Arr.NonEmptyReadonlyArray<object> = [
 /** A field of each writing of its own a caller may pass where a descriptor is asked: its value no caller states. */
 const writtenFields: Arr.NonEmptyReadonlyArray<object> = [
 	drawnField(naturalDescriptor, []),
-	placeField({ by: "stage" }, []),
+	placeDescriptor,
+	placeDescriptor.by("stage"),
 	retirementField(pgDescriptors.boolean),
 	accumulatedField(pgDescriptors.integer, 0, [])
 ]

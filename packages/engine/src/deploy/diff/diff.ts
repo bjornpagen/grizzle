@@ -38,6 +38,7 @@ import { type Aside, asideStatements } from "#compiler/deploy/diff/aside.ts"
 import {
 	type BackfilledTable,
 	backfillOf,
+	placeStart,
 	type Carry,
 	changedOver,
 	type DrawnColumns,
@@ -104,7 +105,7 @@ import type {
 } from "#compiler/deploy/snapshot/types.ts"
 import type { LawChecks, MigrationCheck, RuleCheck } from "#compiler/deploy/snapshot/violation.ts"
 import { keptRosters, type PreviousRoster, type RosterFate } from "#compiler/ir/codes.ts"
-import type { Clock } from "#compiler/ir/instant.ts"
+import type { Head } from "#compiler/ir/instant.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
@@ -387,20 +388,33 @@ const byDropOrder = mapInput(compareNumbers, (d: { readonly rank: number }) => d
 
 const tableIdent = (name: ObjectName): string => qualifiedIdent("table", name.schema, name.name)
 
-/** The target's clocks (ir/instant.ts Clock), by their table's key and their column, as the classifier read them. */
-const clocksOf = (installation: Installation): ReadonlyMap<NameKey, ReadonlyMap<string, Clock>> => {
-	const out = new Map<NameKey, Map<string, Clock>>()
-	for (const [relation, roles] of installation.laws.theory.instants.roles) {
-		const table = installation.names.relation(relation)
+/**
+ * The target's stamped heads a migration gives one value on every stored row of a table it adds them to, by their
+ * table's key and their column, as the classifier read them (ir/instant.ts Head): each clock, which every stored row
+ * takes the migration's instant of, and each unordered place (PlaceOrder `unordered`), which every stored row takes 0
+ * of; a place ordered by a field is its backfill's (backfill.ts placeDerivation).
+ */
+const stampedHeadsOf = (
+	installation: Installation
+): ReadonlyMap<NameKey, ReadonlyMap<string, Head>> => {
+	const out = new Map<NameKey, Map<string, Head>>()
+	const put = (head: Head): void => {
+		const table = installation.names.relation(head.relation)
 		const key = nameKey(objectName(table.schema, table.name))
+		const of = out.get(key) ?? new Map<string, Head>()
+		of.set(head.field.column, head)
+		out.set(key, of)
+	}
+	for (const roles of installation.laws.theory.instants.roles.values()) {
 		for (const role of roles.values()) {
-			const head = role.kind === "clock" ? role.stamp.head : undefined
-			if (head?.kind !== "clock") {
-				continue
+			if (role.kind === "clock" && role.stamp.head.kind === "clock") {
+				put(role.stamp.head)
 			}
-			const of = out.get(key) ?? new Map<string, Clock>()
-			of.set(head.field.column, head)
-			out.set(key, of)
+		}
+	}
+	for (const place of installation.laws.theory.instants.places.values()) {
+		if (place.order.kind === "unordered") {
+			put(place)
 		}
 	}
 	return out
@@ -868,9 +882,9 @@ class Differ {
 	/** The columns the target's families draw, each with the placeholder default it is added under to a table that may
 	 * hold rows (backfill.ts drawnColumns). */
 	readonly drawn: DrawnColumns
-	/** The target's clocks (ir/instant.ts Clock), by their table's key and their column: a clock this migration adds to a
-	 * table that may hold rows takes the migration's instant on every stored row (stampedColumn). */
-	readonly clocks: ReadonlyMap<NameKey, ReadonlyMap<string, Clock>>
+	/** The target's stamped heads a migration gives one value on every stored row, by their table's key and their column
+	 * (stampedHeadsOf): a clock or an unordered place this migration adds to a table that may hold rows (stampedColumn). */
+	readonly stamped: ReadonlyMap<NameKey, ReadonlyMap<string, Head>>
 	/** The drawn columns this migration adds to tables that may hold rows under their placeholders, by table key, in the
 	 * order it adds them, which the backfill draws and then drops the default of. */
 	readonly backfilled = new Map<
@@ -888,7 +902,7 @@ class Differ {
 		this.input = input
 		this.schema = input.target.schema
 		this.drawn = drawnColumns(input.installation)
-		this.clocks = clocksOf(input.installation)
+		this.stamped = stampedHeadsOf(input.installation)
 		this.generationOf = migrationGenerations(input.installation.laws, (r) =>
 			input.installation.names.relation(r)
 		)
@@ -2353,30 +2367,41 @@ class Differ {
 	}
 
 	/**
-	 * The ADD COLUMN of a clock (ir/instant.ts Clock) this migration adds to `t`, a table that may hold rows: under the
-	 * DEFAULT of the migration's instant, the transaction's reading of the database's clock in its unit, which every
-	 * stored row takes at once and the backfill's DROP DEFAULT then gives up (backfill.ts dropDefaults), so the column is
-	 * the database's alone from its first row. One instant on every stored row keeps them apart at the new primary key
-	 * exactly when that key holds the old one beside the clock: else the clock is refused, InstantRefused `addedOverRows`,
-	 * naming both keys. None for any other column, or one of a table that holds no row.
+	 * The ADD COLUMN of a stamped head this migration adds to `t`, a table that may hold rows (stampedHeadsOf), under the
+	 * DEFAULT of the one value every stored row takes at once, which the backfill's DROP DEFAULT then gives up
+	 * (backfill.ts dropDefaults), so the column is the database's alone from its first row: a clock's, the migration's
+	 * instant, the transaction's reading of the database's clock in its unit; an unordered place's, 0, the place of a
+	 * group's first row. One value on every stored row keeps them apart at the new primary key exactly when that key holds
+	 * the old one beside the column: else the column is refused, a clock's InstantRefused and a place's PlaceRefused
+	 * `addedOverRows`, naming both keys. None for any other column, or one of a table that holds no row.
 	 */
 	stampedColumn(t: ObjectName, c: ColumnDef): AlterTableAction | undefined {
-		const clock = this.clocks.get(nameKey(t))?.get(c.name)
+		const head = this.stamped.get(nameKey(t))?.get(c.name)
 		const kept = this.keptTables.get(tableIdent(t))
-		if (clock === undefined || kept === undefined || !this.mayHoldRows(t)) {
+		if (head === undefined || kept === undefined || !this.mayHoldRows(t)) {
 			return undefined
 		}
 		const key = mapNonEmpty(kept.create.primaryKey.columns, (k) => k.column)
 		const held = mapNonEmpty(kept.old.primaryKey.columns, (k) => k.column)
 		if (!held.every((column) => column !== c.name && key.includes(column))) {
+			const at = relationLoc(this.input.installation, head.relation)
+			const rule = { kind: "addedOverRows", key, held } as const
 			throw new Refusal(
-				CompileError.make({
-					_tag: "InstantRefused",
-					at: relationLoc(this.input.installation, clock.relation),
-					relation: clock.relation,
-					field: clock.field.name,
-					rule: { kind: "addedOverRows", key, held }
-				})
+				head.kind === "clock"
+					? CompileError.make({
+							_tag: "InstantRefused",
+							at,
+							relation: head.relation,
+							field: head.field.name,
+							rule
+						})
+					: CompileError.make({
+							_tag: "PlaceRefused",
+							at,
+							relation: head.relation,
+							field: head.field.name,
+							rule
+						})
 			)
 		}
 		const tableKey = nameKey(t)
@@ -2387,7 +2412,10 @@ class Differ {
 		return {
 			kind: "addColumnDefault",
 			column: c,
-			default: { kind: "clock", of: { kind: "stamp" }, unit: "micros", type: types.bigint }
+			default:
+				head.kind === "clock"
+					? { kind: "clock", of: { kind: "stamp" }, unit: "micros", type: types.bigint }
+					: placeStart(this.input.installation, head)
 		}
 	}
 

@@ -1393,8 +1393,8 @@ export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<C
  * - retirement: by its group's retirement, a boolean false when its row is inserted and true once the group it heads is
  *   retired, which exactly one retirable statement names (`RetirableDesc`).
  * - place: by the insert that adds its row, a natural the database stamps one past its group's greatest, 0 for the
- *   first, so every group's places run gapless from 0 in the order its rows were inserted; `by` the relation's field
- *   that orders the rows a migration finds stored when it adds the place (ir/instant.ts Head).
+ *   first, so every group's places run gapless from 0 in the order its rows were inserted; `order` how a migration that
+ *   adds the place numbers the rows it finds stored (PlaceOrderDesc, ir/instant.ts PlaceHead).
  */
 export type Writing<L = Located> =
 	| { readonly kind: "caller" }
@@ -1410,7 +1410,17 @@ export type Writing<L = Located> =
 			readonly start: LiteralDesc
 	  }
 	| { readonly kind: "retirement" }
-	| { readonly kind: "place"; readonly by: string }
+	| { readonly kind: "place"; readonly order: PlaceOrderDesc }
+
+/**
+ * How a migration that adds a place to a table holding rows numbers them (ir/instant.ts PlaceOrder), the one thing a
+ * place's declaration says beyond the place itself: `unordered`, which states no order, so a migration adds it only
+ * where every stored row stands alone in its group and takes place 0; or `by`, the relation's field that orders each
+ * group's stored rows.
+ */
+export type PlaceOrderDesc =
+	| { readonly kind: "unordered" }
+	| { readonly kind: "by"; readonly by: string }
 
 /** A stored relation's field as declared: its type, and how it is written. */
 export interface FieldDecl<L = Located> {
@@ -2596,7 +2606,9 @@ const writingShape: S.Shape<Writing> = S.tagged("kind", {
 	drawn: S.struct({}),
 	accumulated: S.struct({ start: literalDescShape }),
 	retirement: S.struct({}),
-	place: S.struct({ by: S.string })
+	place: S.struct({
+		order: S.tagged("kind", { unordered: S.struct({}), by: S.struct({ by: S.string }) })
+	})
 })
 
 /** Whether a field's declaration is no retirement field, or one of boolean, the one type a group's state is of. */
