@@ -55,7 +55,7 @@ const databases = factSubsets({
 })
 
 /** The name of Account's primary key in the ledger's catalog. */
-export const accountKey = keyConstraintName(ledgerCatalog, "Account", ["id"], "primary")
+export const accountKey = keyConstraintName(ledgerCatalog, "Account", ["id"])
 
 /**
  * The stage a take bounds: accounts' (id, name), carrying Account's key beside its wide name, or postings matched with

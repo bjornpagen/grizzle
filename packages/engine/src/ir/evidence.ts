@@ -73,13 +73,9 @@ export interface ClosedEvidence {
 export interface EvidenceCatalog {
 	/**
 	 * The constraint backing a declared key of a relation (its primary key, an additional key, or a derived
-	 * relation's inherited key), or undefined when none is installed.
+	 * relation's inherited key), of the kind the key was installed as, or undefined when none is installed.
 	 */
-	readonly keyConstraint: (
-		relation: string,
-		columns: KeySet,
-		role: { readonly primary: boolean; readonly derived: boolean }
-	) => KeyConstraint | undefined
+	readonly keyConstraint: (relation: string, columns: KeySet) => KeyConstraint | undefined
 	/** The containments the schema installs. */
 	readonly containments: ReadonlyArray<ExistenceConstraint>
 	/** A declared closed relation by its name, or undefined when the schema declares none of that name. */

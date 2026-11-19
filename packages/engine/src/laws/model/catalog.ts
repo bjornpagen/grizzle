@@ -35,11 +35,11 @@ export const existenceConstraints = (
  * its spans as values. */
 export const derivedKeyConstraints = (analysis: DerivedAnalysis): ReadonlyArray<CatalogKey> =>
 	analysis.order.flatMap((a) =>
-		a.keys.map((k, i): CatalogKey => ({
+		a.keys.map((k): CatalogKey => ({
 			relation: a.name,
 			fields: k.fields,
 			spans: [],
-			primary: i === 0,
+			kind: "uniqueIndex",
 			constraint: k.index
 		}))
 	)

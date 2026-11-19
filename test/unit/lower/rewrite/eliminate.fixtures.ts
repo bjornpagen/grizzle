@@ -48,7 +48,7 @@ const Referenced: SchemaDesc = {
 const referenced = ownedFixture(Referenced)
 
 /** The name of Account's primary key as ownership installs it. */
-export const accountKey = keyConstraintName(referenced.catalog, "Account", ["id"], "primary")
+export const accountKey = keyConstraintName(referenced.catalog, "Account", ["id"])
 
 /** The catalog of the installed ledger, with Account's key and the containment's foreign key. */
 export const installed = referenced.catalog
@@ -133,8 +133,8 @@ export const seenDatabases = (
 /** The installed catalog with no constraint of Account's key: existence then proves no at-most-one. */
 export const unkeyed: EvidenceCatalog = {
 	...installed,
-	keyConstraint: (relation, columns, role) =>
-		relation === "Account" ? undefined : installed.keyConstraint(relation, columns, role)
+	keyConstraint: (relation, columns) =>
+		relation === "Account" ? undefined : installed.keyConstraint(relation, columns)
 }
 
 /**

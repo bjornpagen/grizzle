@@ -194,7 +194,7 @@ export type Left = "account ids" | "posting accounts"
 export type Evidence = "snapshot" | "transaction"
 
 /** The name of Account's primary key in the ledger's catalog. */
-export const accountKey = keyConstraintName(ledgerCatalog, "Account", ["id"], "primary")
+export const accountKey = keyConstraintName(ledgerCatalog, "Account", ["id"])
 
 /** The names of the region's variables a source reads: the variables an occurrence over it is correlated on. */
 const regionReads = (region: NodeOf<"MatchRegion">, source: RelNode): ReadonlySet<string> =>

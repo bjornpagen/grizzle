@@ -58,22 +58,16 @@ export const catalogsResolvesEachPersonKeyToItsConstraintAndAScanProvesExactlyTh
 							relations: theory.relations
 						})
 						for (const k of personKeys) {
-							const resolved = catalog.keyConstraint("Person", k.fields, {
-								primary: k.primary,
-								derived: false
-							})
+							const resolved = catalog.keyConstraint("Person", k.fields)
 							assert.deepEqual(resolved, {
 								relation: "Person",
 								columns: k.fields,
 								spans: k.spans,
 								constraint: k.constraint,
-								kind: k.primary ? "primaryKey" : "unique"
+								kind: k.kind
 							})
 						}
-						assert.equal(
-							catalog.keyConstraint("Person", ["city"], { primary: false, derived: false }),
-							undefined
-						)
+						assert.equal(catalog.keyConstraint("Person", ["city"]), undefined)
 						/** The rules: every installed key holds at every statement; a scan proves the keys whose fields it reads. */
 						const proving = Arr.filter(personKeys, (k) =>
 							Arr.every(k.fields, (field) => read.includes(field))
@@ -123,7 +117,7 @@ export const catalogsResolvesEachPersonKeyToItsConstraintAndAScanProvesExactlyTh
 								(premise) =>
 									premise.kind === "constraint" &&
 									premise.constraint === k.constraint &&
-									premise.constraintKind === (k.primary ? "primaryKey" : "unique")
+									premise.constraintKind === k.kind
 							)
 						assert.equal(
 							proof.premises.length,

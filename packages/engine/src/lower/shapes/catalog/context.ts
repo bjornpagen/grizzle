@@ -104,17 +104,12 @@ export class CatalogContext {
 		source: KindOver<"Base", EditRefs>,
 		covered: ReadonlySet<string>
 	): KeyGrounds | undefined {
-		const declared = [
-			{ key: source.primaryKey, primary: true },
-			...source.keys.map((key) => ({ key, primary: false }))
-		]
-		for (const d of declared.filter((x) => x.key.every((c) => covered.has(c)))) {
-			const constraint = this.options.catalog.keyConstraint(source.relation, d.key, {
-				primary: d.primary,
-				derived: source.relationKind === "derived"
-			})
+		for (const key of [source.primaryKey, ...source.keys].filter((k) =>
+			k.every((c) => covered.has(c))
+		)) {
+			const constraint = this.options.catalog.keyConstraint(source.relation, key)
 			if (constraint !== undefined) {
-				return { key: d.key, ...keyEvidence(constraint) }
+				return { key, ...keyEvidence(constraint) }
 			}
 		}
 		return undefined

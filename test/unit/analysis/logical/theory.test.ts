@@ -408,9 +408,13 @@ export const evidenceAndItsValidityContextKeysAndChecksAreImmediateStorageFactsU
 					unorderedEqual(
 						Arr.map(
 							Arr.filter(t.evidence.keys, (k) => k.relation === r.name),
-							(k) => [k.fields, k.primary, k.constraint, k.context] as const
+							(k) => [k.fields, k.kind, k.constraint, k.context] as const
 						),
-						Arr.map(keys, (k) => [k.fields, k.primary, k.constraint, "immediate"] as const)
+						Arr.map(
+							keys,
+							(k) =>
+								[k.fields, k.primary ? "primaryKey" : "unique", k.constraint, "immediate"] as const
+						)
 					)
 				}
 				for (const check of t.evidence.checks) {

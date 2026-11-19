@@ -84,13 +84,9 @@ export const genCatalog = (schema: GenSchema): EvidenceCatalog =>
 export const keyConstraintName = (
 	catalog: EvidenceCatalog,
 	relation: string,
-	columns: KeySet,
-	role: "primary" | "candidate"
+	columns: KeySet
 ): ConstraintName => {
-	const constraint = catalog.keyConstraint(relation, columns, {
-		primary: role === "primary",
-		derived: false
-	})
+	const constraint = catalog.keyConstraint(relation, columns)
 	if (constraint === undefined) {
 		throw new Error(
 			`the catalog installs no constraint for the key (${Arr.join(columns, ", ")}) of ${relation}`

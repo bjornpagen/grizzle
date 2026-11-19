@@ -67,14 +67,15 @@ export const containmentEvidence = (
 
 /**
  * A key the catalog resolves to its installed constraint: a stored relation's declared key and the constraint
- * ownership derived for it, or a derived relation's inherited key and the unique index its view is installed with.
+ * ownership derived for it, its primary key's or a unique's, or a derived relation's inherited key and the unique index
+ * its view is installed with: the kind it is installed as, stated where the key is made.
  */
 export interface CatalogKey {
 	readonly relation: string
 	readonly fields: KeySet
 	/** The fields compared WITHOUT OVERLAPS (KeyConstraint spans). */
 	readonly spans: KeySet
-	readonly primary: boolean
+	readonly kind: ConstraintKind
 	readonly constraint: ConstraintName
 }
 
@@ -116,18 +117,11 @@ export const theoryCatalog = (
 ): EvidenceCatalog => {
 	const closed = closedEvidence(options.relations)
 	return {
-		keyConstraint: (relation, columns, role) => {
+		keyConstraint: (relation, columns) => {
 			const k = evidence.keys.find((e) => e.relation === relation && sameMembers(e.fields, columns))
-			if (k === undefined) {
-				return undefined
-			}
-			return {
-				relation,
-				columns,
-				spans: k.spans,
-				constraint: k.constraint,
-				kind: role.derived ? "uniqueIndex" : k.primary ? "primaryKey" : "unique"
-			}
+			return k === undefined
+				? undefined
+				: { relation, columns, spans: k.spans, constraint: k.constraint, kind: k.kind }
 		},
 		containments: options.containments,
 		closed: (relation) => closed.get(relation)

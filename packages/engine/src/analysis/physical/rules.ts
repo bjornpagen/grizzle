@@ -855,7 +855,7 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
 	const fds = new DependencyDraft(columns)
 	const declared = [node.primaryKey, ...node.keys]
-	for (const [i, k] of declared.entries()) {
+	for (const k of declared) {
 		if (node.relationKind === "world") {
 			const just = withReason(
 				joinJustifications([
@@ -868,10 +868,7 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 			fds.identify(k, just)
 			continue
 		}
-		const constraint = cx.catalog.keyConstraint(node.relation, k, {
-			primary: i === 0,
-			derived: node.relationKind === "derived"
-		})
+		const constraint = cx.catalog.keyConstraint(node.relation, k)
 		if (constraint === undefined) {
 			continue
 		}
@@ -946,11 +943,8 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
 	const fds = new DependencyDraft(columns)
-	for (const [i, k] of node.keys.entries()) {
-		const constraint = cx.catalog.keyConstraint(node.relation, k, {
-			primary: i === 0,
-			derived: false
-		})
+	for (const k of node.keys) {
+		const constraint = cx.catalog.keyConstraint(node.relation, k)
 		if (constraint === undefined) {
 			continue
 		}

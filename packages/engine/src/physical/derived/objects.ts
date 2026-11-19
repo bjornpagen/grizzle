@@ -168,7 +168,7 @@ const viewObjects = (
 	)
 
 	const keys: Array<{ readonly key: CatalogKey; readonly object: Node<"structure"> }> = []
-	for (const [i, k] of a.keys.entries()) {
+	for (const k of a.keys) {
 		/** The one name every evidence catalog gives the view's key (`derivedKeyConstraints`), which
 		 * the derived analysis names. */
 		const named = identity.derivedKey(name, k.fields)
@@ -197,7 +197,7 @@ const viewObjects = (
 			[viewObject]
 		)
 		keys.push({
-			key: { relation: name, fields: k.fields, spans: [], primary: i === 0, constraint: index },
+			key: { relation: name, fields: k.fields, spans: [], kind: "uniqueIndex", constraint: index },
 			object
 		})
 	}

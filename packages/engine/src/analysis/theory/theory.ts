@@ -119,7 +119,8 @@ interface KeyEvidence {
 	readonly fields: KeySet
 	/** The span fields of a nonoverlap key, compared WITHOUT OVERLAPS; none for a scalar key. */
 	readonly spans: KeySet
-	readonly primary: boolean
+	/** The constraint it is installed as: its relation's primary key, or a unique. */
+	readonly kind: "primaryKey" | "unique"
 	/** The constraint identifier ownership derived. */
 	readonly constraint: ConstraintName
 	readonly law: LawId
@@ -826,7 +827,7 @@ export const theoryEvidence = (
 				relation: d.relation,
 				fields: fieldNames(d.key.fields),
 				spans: d.key.span === undefined ? [] : [d.key.span.name],
-				primary: d.key.primary,
+				kind: d.key.primary ? "primaryKey" : "unique",
 				constraint: identifierOf(d.key.named),
 				law: law.id,
 				context: "immediate"
