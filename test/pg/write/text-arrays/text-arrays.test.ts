@@ -1,38 +1,3 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	array,
-	codePoint,
-	constant,
-	element,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, Order, String as Str } from "effect"
-import { Db } from "#adapter/public/db.ts"
-import { textArrayParam } from "#compiler/codec/recordset.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-
-import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
-import { Id } from "#test/support/ids.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
-import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-
 /**
  * A text column's array parameter, which travels as a binary text[] of its values' UTF-8 bytes (codec/bytea.ts
  * textArray), on PostgreSQL 19rc2: every text a write's insert, put and delete slots carry, and every text a read's
@@ -56,209 +21,62 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * The oracle is the literal path the binary array replaced (codec/recordset.ts textArrayParam): each read gives exactly
  * the texts PostgreSQL stores from the text array literal of the texts written, compared as JavaScript strings.
  */
-const Body = str.regex("^.*$", "su")
-const Note = relation("Note", { id: Id, body: Body }, ["id"])
-const Response = relation("Response", { id: Id, value: Body }, ["id"])
-const Texts = schema("TextArrays", [Note, Response], [mutable(Note), mutable(Response)])
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Effect, Formatter, Array as Arr, String as Str } from "effect"
+import { Db } from "#adapter/public/db.ts"
+import { textArrayParam } from "#compiler/codec/recordset.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
+import {
+	features,
+	holdsTwoByteRange,
+	reversed,
+	sorted,
+	textCases,
+	type TextFeature,
+	Texts,
+	textsInstall,
+	textsTemplate
+} from "#test/pg/write/text-arrays/text-arrays.fixtures.ts"
+import { assert, defined } from "#test/support/assert.ts"
+import { answered, rowsOf } from "#test/support/calls.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+import { withLayer } from "#test/support/with-layer.ts"
+import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * The full world's workload: Note's insert, put and delete, each from its call's facts; Response's insert from the
- * relation parameter `responses`; and the reads of every Note, of the relation parameter `rows`, and of every Response.
+ * Carries every text a write's slots or a read's relation parameter hold to PostgreSQL as the text the host holds, each
+ * case on the worker's seat of Texts, installed once per member, opening its own Db, where the search shared one Db
+ * across its cases.
+ *
+ * Its pre-conversion budget: runs 40, coverage cases 40 (test/pg/write/text-arrays/text-arrays.test.ts at 8d892899f).
  */
-const programs = Object.freeze({
-	insertNote: ChangeSet.empty(Texts).insert(Note, []),
-	putNote: ChangeSet.empty(Texts).put(Note, []),
-	deleteNote: ChangeSet.empty(Texts).delete(Note, []),
-	answer: ChangeSet.empty(Texts).insert(
-		Response,
-		query(Texts).rule((r) => {
-			const given = r.relation("responses", { id: Response.fields.id, value: Body })
-			const row = v(given, "given")
-			return r.match(given, row).find(row)
-		})
-	),
-	notes: query(Texts).rule((r) => {
-		const { id, body } = v(Note, "note")
-		return r.match(Note, { id, body }).find({ id, body })
-	}),
-	echoed: query(Texts).rule((r) => {
-		const rows = r.relation("rows", { body: Body })
-		const row = v(rows, "row")
-		return r.match(rows, row).find(row)
-	}),
-	recorded: query(Texts).rule((r) => {
-		const { id, value } = v(Response, "response")
-		return r.match(Response, { id, value }).find({ id, value })
-	})
-})
-
-/** One scalar of a text: a character a literal array quotes or escapes, or a scalar of any plane but NUL. */
-const scalar: Gen<string> = weighted([
-	[
-		3,
-		element([
-			'"',
-			"\\",
-			"{",
-			"}",
-			",",
-			" ",
-			"\t",
-			"\n",
-			"'",
-			"a",
-			"é",
-			"Ѐ",
-			"ש",
-			"ك",
-			"漢",
-			"\u{1F600}",
-			"\u{10FFFF}"
-		])
-	],
-	[1, oneOf([codePoint(0x01, 0xd7_ff), codePoint(0xe0_00, 0x10_ff_ff)])]
-])
-
-/** A scalar whose presence let the encodeInto of nodejs/node#65994 underfill: U+0400 to U+07FF. */
-const twoByteRange: Gen<string> = codePoint(0x04_00, 0x07_ff)
-
-/**
- * A text: the empty text, the text NULL in a case, a short run of scalars, a run of 53 to 1200 scalars, a run of one
- * scalar ending in a scalar of U+0400 to U+07FF and a tail of up to three scalars, a run of ASCII with one scalar of
- * U+0400 to U+07FF anywhere in it, or a long run of one scalar. The underfill's lengths are not contiguous, so every
- * length of the band is drawn.
- */
-const text: Gen<string> = weighted([
-	[1, constant("")],
-	[1, element(["NULL", "null", "Null"])],
-	[4, map(array(scalar, { min: 1, max: 8 }), Arr.join(""))],
-	[2, map(array(scalar, { min: 53, max: 1200 }), Arr.join(""))],
-	[
-		2,
-		(s) => {
-			const run = Str.repeat(s.draw(int(0, 1200)))(s.draw(scalar))
-			const tail = Arr.join(s.draw(array(scalar, { min: 0, max: 3 })), "")
-			return `${run}${s.draw(twoByteRange)}${tail}`
-		}
-	],
-	[
-		1,
-		(s) => {
-			const length = s.draw(int(53, 1200))
-			const at = s.draw(int(0, length - 1))
-			return `${Str.repeat(at)("a")}${s.draw(twoByteRange)}${Str.repeat(length - 1 - at)("a")}`
-		}
-	],
-	[1, map(scalar, (s) => Str.repeat(2 ** 12)(s))]
-])
-
-/** A child's Cyrillic answer of 281 units ending in U+0400. */
-const cyrillicAnswer = `${Str.repeat(14)("Ученик выбрал ответ ")}Ѐ`
-
-/** A child's Hebrew answer of 271 units ending in a Hebrew letter. */
-const hebrewAnswer = `${Str.repeat(15)("התלמיד בחר בתשובה ")}ש`
-
-/** The texts of the lengths where nodejs/node#65994 underfilled on Node v26.13.0, beside the two answers. */
-const underfilled: ReadonlyArray<readonly [string, string]> = [
-	["U+0400 x 258 then 'a'", `${Str.repeat(258)("Ѐ")}a`],
-	["U+0400 x 263 then 'a'", `${Str.repeat(263)("Ѐ")}a`],
-	["U+0400 x 317 then 'a'", `${Str.repeat(317)("Ѐ")}a`],
-	["U+0400 x 950 then 'a'", `${Str.repeat(950)("Ѐ")}a`],
-	["'a' x 52 then U+0400", `${Str.repeat(52)("a")}Ѐ`],
-	["'a' x 309 then U+0400", `${Str.repeat(309)("a")}Ѐ`]
-]
-
-type TextFeature =
-	| "a quote or a backslash"
-	| "a brace or a comma"
-	| "the text NULL"
-	| "an astral scalar"
-	| "the empty text"
-	| "a long text"
-	| "a text of 53 units or more holding U+0400 to U+07FF"
-
-const features: Arr.NonEmptyReadonlyArray<TextFeature> = [
-	"a quote or a backslash",
-	"a brace or a comma",
-	"the text NULL",
-	"an astral scalar",
-	"the empty text",
-	"a long text",
-	"a text of 53 units or more holding U+0400 to U+07FF"
-]
-
-/** Whether a text holds a scalar of U+0400 to U+07FF. */
-const holdsTwoByteRange = (t: string): boolean =>
-	Arr.some(Arr.fromIterable(t), (point) =>
-		Option.exists(Str.codePointAt(0)(point), (code) => code >= 0x04_00 && code <= 0x07_ff)
-	)
-
-/** A text's code points reversed, so a put changes every text but a palindrome's. */
-const reversed = (t: string): string => Arr.join(Arr.reverse(Array.from(t)), "")
-
-/** Texts in code unit order, so two reads compare as multisets. */
-const sorted = (texts: ReadonlyArray<string>): ReadonlyArray<string> =>
-	Arr.sort(texts, Order.String)
-
-layer(Substrate.layer, { excludeTestServices: true })("a text column's array parameter", (it) => {
-	it.effect(
-		"carries every text a write's slots or a read's relation parameter hold to PostgreSQL as the text the host holds",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const o = yield* installed(Texts, {}, { label: "textarrays", programs })
-					const s = yield* Substrate
-					const names = namesOf(o.installed)
-					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(o.served.login.roles.app, {})
-						const bodies = Effect.map(
-							rowsOf(db.workload.notes.once({ params: {}, facts: {} })),
-							(rows) => sorted(Arr.map(rows, (row) => row.body))
-						)
-						const values = Effect.map(
-							rowsOf(db.workload.recorded.once({ params: {}, facts: {} })),
-							(rows) => sorted(Arr.map(rows, (row) => row.value))
-						)
-						return yield* explore(
-							{
-								suite: "pg/write/text-arrays",
-								draw: drawn(array(text, { min: 1, max: 6 })),
-								literal: Formatter.format,
-								oracle: {
-									kind: "second-implementation",
-									name: "the texts PostgreSQL stores from the text array literal of the texts written"
-								},
-								coverage: required<TextFeature>(features, { cases: 40, sense: notesOnly }),
-								kept: [
-									{
-										note: "a child's Cyrillic answer of 281 units ending in U+0400, which encodeInto wrote two bytes short",
-										sketch: [cyrillicAnswer],
-										draws: "",
-										reaches: ["a text of 53 units or more holding U+0400 to U+07FF"]
-									},
-									{
-										note: "a child's Hebrew answer of 271 units ending in a Hebrew letter, which encodeInto wrote two bytes short",
-										sketch: [hebrewAnswer],
-										draws: "",
-										reaches: ["a text of 53 units or more holding U+0400 to U+07FF"]
-									},
-									...Arr.map(underfilled, ([note, t]) => ({
-										note: `nodejs/node#65994 on Node v26.13.0: ${note}`,
-										sketch: [t],
-										draws: "",
-										reaches: Arr.of<TextFeature>(
-											"a text of 53 units or more holding U+0400 to U+07FF"
-										)
-									}))
-								],
-								runs: 40,
-								shrink: completeShrink,
-								steerEvery: 8,
-								caseHang
-							},
-							(texts, c) =>
-								Effect.gen(function* () {
+export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds =
+	property.explore(textCases, {
+		needs: { seated: Substrate.seat(textsTemplate) },
+		situations: features satisfies ReadonlyArray<Reached<TextFeature>>,
+		check:
+			({ seated }, c: Case<TextFeature>) =>
+			(texts) =>
+				Effect.scoped(
+					Effect.flatMap(seated, (taken) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const o = yield* openedIn(Texts, {}, textsInstall, taken)
+								const s = yield* Substrate
+								const names = namesOf(o.installed)
+								yield* Effect.gen(function* () {
+									const db = yield* Db.open(o.served.login.roles.app, {})
+									const bodies = Effect.map(
+										rowsOf(db.workload.notes.once({ params: {}, facts: {} })),
+										(rows) => sorted(Arr.map(rows, (row) => row.body))
+									)
+									const values = Effect.map(
+										rowsOf(db.workload.recorded.once({ params: {}, facts: {} })),
+										(rows) => sorted(Arr.map(rows, (row) => row.value))
+									)
 									yield* replaceRows(s.admin, installationGroup(names), [])
 									/** The texts PostgreSQL reads from the text array literal of `written`, in code unit order. */
 									const literal = (written: ReadonlyArray<string>) =>
@@ -366,16 +184,78 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 									if (Arr.some(texts, (t) => t.length >= 53 && holdsTwoByteRange(t))) {
 										c.note("a text of 53 units or more holding U+0400 to U+07FF")
 									}
-								})
+								}).pipe(Effect.scoped, withLayer(o.served.layer))
+							}),
+							Substrate,
+							taken.substrate
 						)
-					}).pipe(
-						(body) =>
-							Effect.flatMap(Layer.build(o.served.layer), (context) =>
-								Effect.provideContext(body, context)
-							),
-						Effect.scoped
 					)
-				}).pipe(Effect.scoped)
-			)
-	)
-})
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the texts PostgreSQL stores from the text array literal of the texts written"
+		},
+		show: Formatter.format,
+		budget: { runs: 40, steered: 40 },
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/write/text-arrays/text-arrays.test.ts#carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds:-:1"
+				),
+				reason:
+					"a child's Cyrillic answer of 281 units ending in U+0400, which encodeInto wrote two bytes short",
+				since: "2026-11-09"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/text-arrays/text-arrays.test.ts#carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds:-:2"
+				),
+				reason:
+					"a child's Hebrew answer of 271 units ending in a Hebrew letter, which encodeInto wrote two bytes short",
+				since: "2026-11-09"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/text-arrays/text-arrays.test.ts#carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds:-:3"
+				),
+				reason: "nodejs/node#65994 on Node v26.13.0: U+0400 x 258 then 'a'",
+				since: "2026-11-09"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/text-arrays/text-arrays.test.ts#carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds:-:4"
+				),
+				reason: "nodejs/node#65994 on Node v26.13.0: U+0400 x 263 then 'a'",
+				since: "2026-11-09"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/text-arrays/text-arrays.test.ts#carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds:-:5"
+				),
+				reason: "nodejs/node#65994 on Node v26.13.0: U+0400 x 317 then 'a'",
+				since: "2026-11-09"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/text-arrays/text-arrays.test.ts#carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds:-:6"
+				),
+				reason: "nodejs/node#65994 on Node v26.13.0: U+0400 x 950 then 'a'",
+				since: "2026-11-09"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/text-arrays/text-arrays.test.ts#carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds:-:7"
+				),
+				reason: "nodejs/node#65994 on Node v26.13.0: 'a' x 52 then U+0400",
+				since: "2026-11-09"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/text-arrays/text-arrays.test.ts#carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds:-:8"
+				),
+				reason: "nodejs/node#65994 on Node v26.13.0: 'a' x 309 then U+0400",
+				since: "2026-11-09"
+			}
+		],
+		kills: []
+	})
