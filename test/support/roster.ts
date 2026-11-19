@@ -218,6 +218,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/text/**/*.test.ts",
 	"test/pg/transactions/apply.test.ts",
 	"test/pg/values/**/*.test.ts",
+	"test/pg/vector/ann/oracle.test.ts",
 	"test/pg/vector/derived/derived.test.ts",
 	"test/pg/vector/exact/equality.test.ts",
 	"test/pg/vector/exact/storage.test.ts",
