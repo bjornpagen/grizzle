@@ -102,7 +102,16 @@ export interface NoteRow {
 }
 
 /** One to three notes' numbers. */
-export const numbersGen: Gen<ReadonlyArray<number>> = array(int(-1000, 1000), { min: 1, max: 3 })
+const numbersGen: Gen<ReadonlyArray<number>> = array(int(-1000, 1000), { min: 1, max: 3 })
+
+/**
+ * A case's write rounds: one or two, each its notes' numbers, every round's write followed by the consumer's read of
+ * every note the case has written so far, so a second round's read follows an earlier write of the case's own.
+ */
+export const roundsGen: Gen<ReadonlyArray<ReadonlyArray<number>>> = array(numbersGen, {
+	min: 1,
+	max: 2
+})
 
 /** The uuid of the `i`th note written. */
 export const noteId = (i: number): Uuid =>

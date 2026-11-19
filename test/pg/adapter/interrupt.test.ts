@@ -40,12 +40,10 @@ import {
 	type Note,
 	resolveWrite,
 	situations,
-	workInstall,
-	workTemplate,
 	interruptAims
 } from "#test/pg/adapter/interrupt.fixtures.ts"
 import { defaultPool, poolFor, rowsOn, until } from "#test/pg/adapter/support.ts"
-import { openedIn } from "#test/pg/reads/support.ts"
+import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
 import { aimedSteered } from "#test/support/aims.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { oneOf, readOnce } from "#test/support/calls.ts"
@@ -67,7 +65,7 @@ import { makeTap } from "#test/support/wire-tap.ts"
 export const interruptedPublicCallsLeaveTheStateBeforeOrAfterAndNothingRunning = property.explore(
 	aimedSteered(steered(aimedSketchGen), interruptAims),
 	{
-		needs: { fixture: Substrate.seat(workTemplate) },
+		needs: { fixture: Substrate.seat(workSeatTemplate) },
 		situations: situations satisfies ReadonlyArray<Reached<InterruptFeature>>,
 		check:
 			({ fixture }, cx: Case<InterruptFeature>) =>
@@ -77,7 +75,7 @@ export const interruptedPublicCallsLeaveTheStateBeforeOrAfterAndNothingRunning =
 						Effect.provideService(
 							Effect.gen(function* () {
 								const s = yield* Substrate
-								const o = yield* openedIn(W.Work, workFacts, workInstall, taken)
+								const o = yield* openedIn(W.Work, workFacts, workSeatInstall, taken)
 								const names = namesOf(o.installed)
 								const notes = names.table(W.TaskNote)
 								const noteTask = names.column(W.TaskNote, "task")

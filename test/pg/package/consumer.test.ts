@@ -4,10 +4,10 @@
  * its login's committed served file with the runtime entry's served(file, name), builds the login's DbLayer of it and the cluster's connection, opens a Db of the role with
  * Db.open, and reads every note once through its workload's member. The schema is installed under an allocated name as
  * `grizzle generate` drafts and serves it with its login (test/support/install-migrate.ts installGenerated), and the
- * login's served file is the one generate wrote, written as generate writes it. The test writes each case's notes through a Db of its own, and the consumer must read exactly
- * every note written so far: a model of the table, the notes the cases wrote, compared as a set.
+ * login's served file is the one generate wrote, written as generate writes it. A case writes one or two rounds of notes, each through a Db of its own, and after each round the consumer must read exactly
+ * every note the case has written so far: a model of the table, the notes the case wrote, compared as a set.
  *
- * Features: a case of one note and one of several, and a read after an earlier case's write.
+ * Features: a round of one note and one of several, and a second round's read after the case's first write.
  *
  * The package's pin and command line through a submodule consumer's own install (test/unit/dev/consumer.ts
  * submoduleConsumer), in every layout of that install: the consumer's link to grizzle runs generate and migrate into a
@@ -47,7 +47,7 @@ import {
 	type NoteRow,
 	notesOf,
 	notesTemplate,
-	numbersGen,
+	roundsGen,
 	pinProgram,
 	shellPin,
 	shellSpelling
@@ -78,7 +78,7 @@ import {
  * Its pre-conversion budget: runs 2, coverage cases 8 (test/pg/package/consumer.test.ts at d8eed1786).
  */
 export const thePackageAsASubmoduleConsumerTakesItOnTheDevClusterOpensARoleOfALoginWithTheLinkedPackagesDbOpenAndReadsExactlyEveryNoteWrittenSoFar =
-	property.explore(numbersGen, {
+	property.explore(roundsGen, {
 		needs: { notes: Substrate.seat(notesTemplate) },
 		situations: [
 			"one note",
@@ -87,7 +87,7 @@ export const thePackageAsASubmoduleConsumerTakesItOnTheDevClusterOpensARoleOfALo
 		] satisfies ReadonlyArray<Reached<ConsumerFeature>>,
 		check:
 			({ notes }, c: Case<ConsumerFeature>) =>
-			(numbers) =>
+			(rounds) =>
 				Effect.flatMap(notes, ({ substrate: seat, value: generated }) =>
 					Effect.provideService(
 						Effect.gen(function* () {
@@ -127,42 +127,46 @@ export const thePackageAsASubmoduleConsumerTakesItOnTheDevClusterOpensARoleOfALo
 								})
 							)
 
-							const notes = Arr.map(numbers, (n, i) => ({ id: noteId(written.length + i), n }))
-							c.note(notes.length === 1 ? "one note" : "several notes")
-							if (Arr.isReadonlyArrayNonEmpty(written)) {
-								c.note("a read after an earlier write")
-							}
-							const outcome = yield* withServedDb(
-								installed,
-								own.server.roles.app,
-								{},
-								({ serve }) =>
-									Effect.flatMap(serve({ add: ChangeSet.empty(App).insert(Note, []) }), (served) =>
-										answered(
-											writeOnce(member(served, "add"))({
-												params: {},
-												facts: { insert: { Note: notes } }
-											})
+							for (const numbers of rounds) {
+								const notes = Arr.map(numbers, (n, i) => ({ id: noteId(written.length + i), n }))
+								c.note(notes.length === 1 ? "one note" : "several notes")
+								if (Arr.isReadonlyArrayNonEmpty(written)) {
+									c.note("a read after an earlier write")
+								}
+								const outcome = yield* withServedDb(
+									installed,
+									own.server.roles.app,
+									{},
+									({ serve }) =>
+										Effect.flatMap(
+											serve({ add: ChangeSet.empty(App).insert(Note, []) }),
+											(served) =>
+												answered(
+													writeOnce(member(served, "add"))({
+														params: {},
+														facts: { insert: { Note: notes } }
+													})
+												)
+										)
+								).pipe(Effect.scoped)
+								assert.equal(outcome.kind, "accepted")
+								for (const note of notes) {
+									written.push(note)
+								}
+								const read = yield* Effect.scoped(
+									Effect.andThen(
+										installed.cluster.budget.within(consumerConnections),
+										runChild(
+											process.execPath,
+											[...hardenedNode, program, config],
+											consumer.project,
+											{}
 										)
 									)
-							).pipe(Effect.scoped)
-							assert.equal(outcome.kind, "accepted")
-							for (const note of notes) {
-								written.push(note)
-							}
-							const read = yield* Effect.scoped(
-								Effect.andThen(
-									installed.cluster.budget.within(consumerConnections),
-									runChild(
-										process.execPath,
-										[...hardenedNode, program, config],
-										consumer.project,
-										{}
-									)
 								)
-							)
-							assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
-							unorderedEqual(trustedJson<ReadonlyArray<NoteRow>>(Str.trim(read.stdout)), written)
+								assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
+								unorderedEqual(trustedJson<ReadonlyArray<NoteRow>>(Str.trim(read.stdout)), written)
+							}
 						}),
 						Substrate,
 						seat

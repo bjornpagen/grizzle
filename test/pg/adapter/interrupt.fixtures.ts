@@ -16,10 +16,8 @@ import type { ServedDbContext } from "#adapter/db/context.ts"
 import { onceCalls, variantOf } from "#adapter/db/handles.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { Uuid } from "#compiler/public/fields.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
-import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import type { BackendMessage } from "#test/support/wire-tap.ts"
@@ -252,12 +250,6 @@ export const applyFacts = (ctx: ServedDbContext, change: LoadedMember, facts: un
 	)
 	return answered(writeOnce(onceCalls(ctx, change))({ params: {}, facts }))
 }
-
-/** How the module's fixture is installed: its label and the programs its login's workload holds. */
-export const workInstall = Object.freeze({ label: "real", programs: {} })
-
-/** W.Work installed as `grizzle generate` drafts it, once per member: the template every case clones. */
-export const workTemplate = fixtureTemplate(import.meta, W.Work, workInstall)
 
 /**
  * The cases the search kept by value, which reached their situations on every run: each is the aim of the situations
