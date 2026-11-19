@@ -13,7 +13,7 @@ import {
 	rowNode
 } from "#compiler/check/generated.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
-import { catchRefusal, compareText } from "#compiler/core/canonical.ts"
+import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { GeneratedRule, KeyFault } from "#compiler/core/causes.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
@@ -490,7 +490,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				o.kind === "derived" && o.view.kind === "materialized" ? [{ r: o, view: o.view }] : []
 			)
 			.toSorted(({ r: a }, { r: b }) =>
-				a.desc.level === b.desc.level ? compareText(a.name, b.name) : a.desc.level - b.desc.level
+				a.desc.level === b.desc.level ? compareStrings(a.name, b.name) : a.desc.level - b.desc.level
 			)) {
 			const analysis = unwrap(analyzeDerivedRelation(this, r, view))
 			derived.push(analysis)

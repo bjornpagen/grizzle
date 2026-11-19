@@ -438,7 +438,7 @@ const rosterTags = { ordered: "roster", unordered: "unorderedroster" } as const 
 
 /**
  * A roster's handles in its own order: an ordered roster's as declared, and an unordered roster's, a set, in UTF-16
- * code-unit order (core/canonical.ts compareText), so no declaration's order reaches its identity: the order its
+ * code-unit order (core/order.ts compareStrings), so no declaration's order reaches its identity: the order its
  * Description (schema/relation.ts admitRoster) and its Roster hold them in.
  */
 export const handlesInOrder = (

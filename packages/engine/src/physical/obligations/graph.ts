@@ -2,12 +2,12 @@ import { compareIdentities, type Identity, identifierOf } from "#compiler/core/i
 import type { IdentityKind, LawId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import {
-	type Comparator,
-	combine,
 	combineAll,
+	type Comparator,
 	compareNumbers,
 	compareStrings,
-	mapInput
+	mapInput,
+	thenBy
 } from "#compiler/core/order.ts"
 
 import {
@@ -518,7 +518,7 @@ export class ObligationGraph {
 			edges: this.#nodes
 				.flatMap((to) => [...to.after].map((from) => ({ from, to })))
 				.toSorted(
-					combine(
+					thenBy(
 						mapInput(compareKeys, (e) => e.from.key),
 						mapInput(compareKeys, (e) => e.to.key)
 					)

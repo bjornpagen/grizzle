@@ -2,10 +2,11 @@ import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.
 import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { catchCompileError, compareText } from "#compiler/core/canonical.ts"
+import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, within } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type ChangeSetDesc,
@@ -428,7 +429,7 @@ const loginPlans = (
 		}
 		appendAll(programs, planned.value)
 	}
-	return Result.ok(programs.toSorted(([a], [b]) => compareText(a, b)))
+	return Result.ok(programs.toSorted(([a], [b]) => compareStrings(a, b)))
 }
 
 /** Each program of one workload with its plan, in its record's order (loginPlans). */
@@ -520,9 +521,9 @@ const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
 	return {
 		kind: "reads",
 		tables: [...tables]
-			.toSorted(([a], [b]) => compareText(a, b))
-			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareText) })),
-		views: [...views].toSorted(compareText)
+			.toSorted(([a], [b]) => compareStrings(a, b))
+			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) })),
+		views: [...views].toSorted(compareStrings)
 	}
 }
 
@@ -557,7 +558,7 @@ export const compileWorkload = (
 	const access: Record<string, Readonly<Record<string, ProgramAccess>>> = {}
 	const footprints = new Map<string, ReadonlyMap<string, Footprint>>()
 	const params: Array<ParamTypes> = []
-	for (const login of [...logins].toSorted((a, b) => compareText(a.login, b.login))) {
+	for (const login of [...logins].toSorted((a, b) => compareStrings(a.login, b.login))) {
 		const programs = loginPlans(login.workloads, schema, artifacts)
 		if (!programs.ok) {
 			return programs
@@ -580,7 +581,7 @@ export const compileWorkload = (
 	const planned: Array<ProgramAccess> = Object.values(access).flatMap((programs) =>
 		Object.values(programs)
 	)
-	for (const role of options.roles.toSorted((a, b) => compareText(a.name, b.name))) {
+	for (const role of options.roles.toSorted((a, b) => compareStrings(a.name, b.name))) {
 		const filters = filterAccess(role, artifacts)
 		if (!filters.ok) {
 			return Result.err(planRefused(filters.error))
@@ -684,7 +685,7 @@ export const servedHolds = (
 	[...served].flatMap(([login, roles]) =>
 		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleHold> =>
 			[...new Set([...changes.members.values()].flatMap(variantHolds))]
-				.toSorted(compareText)
+				.toSorted(compareStrings)
 				.map((header) => ({ login, role, header }))
 		)
 	)
@@ -776,7 +777,9 @@ export const accessDrift = (
 ): ReadonlyArray<AccessDrift> => {
 	const before = Object.hasOwn(recorded, login) ? recorded[login] : undefined
 	const was: Readonly<Record<string, ProgramAccess>> = before ?? {}
-	const names = [...new Set([...Object.keys(was), ...Object.keys(current)])].toSorted(compareText)
+	const names = [...new Set([...Object.keys(was), ...Object.keys(current)])].toSorted(
+		compareStrings
+	)
 	return names.flatMap((program): ReadonlyArray<AccessDrift> => {
 		const a = Object.hasOwn(was, program) ? was[program] : undefined
 		const b = Object.hasOwn(current, program) ? current[program] : undefined

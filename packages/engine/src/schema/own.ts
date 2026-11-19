@@ -1,5 +1,5 @@
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { arrayText, catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
+import { arrayText, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { RoleRule } from "#compiler/core/causes.ts"
 import {
 	CompileError,
@@ -706,7 +706,7 @@ interface StatementEntry {
 
 /** The entries of a map in name order, as `[...map.keys()].sort()` orders the names. */
 const byName = <V>(map: ReadonlyMap<string, V>): ReadonlyArray<readonly [string, V]> =>
-	[...map].toSorted(([a], [b]) => compareText(a, b))
+	[...map].toSorted(([a], [b]) => compareStrings(a, b))
 
 /** A roster's heading: its handle, under `id`. */
 const rosterHeading = (desc: RosterDesc): Readonly<Record<string, FieldDesc>> => ({
@@ -793,7 +793,7 @@ const canonicalComparison = (
 		isBare(left.form) !== isBare(right.form)
 			? isBare(left.form)
 			: expr.op === "eq" || expr.op === "ne"
-				? compareText(left.text, right.text) > 0
+				? compareStrings(left.text, right.text) > 0
 				: expr.op === "gt" || expr.op === "ge"
 	const [first, second] = swapped ? [right, left] : [left, right]
 	return madeOf(
@@ -821,7 +821,7 @@ const canonicalPredicate = (expr: ExprDesc): Canonical<ExprDesc> => {
 		case "and":
 		case "or": {
 			const sorted = sortNonEmpty(mapNonEmpty(expr.args, canonicalPredicate), (a, b) =>
-				compareText(a.text, b.text)
+				compareStrings(a.text, b.text)
 			)
 			const args = mapNonEmpty(sorted, (a) => a.form)
 			Object.freeze(args)
@@ -839,7 +839,7 @@ const canonicalPredicate = (expr: ExprDesc): Canonical<ExprDesc> => {
 		case "in": {
 			const arg = canonicalPredicate(expr.arg)
 			const values = [...new Map(expr.values.map((v) => [textOf(v), v] as const))].toSorted(
-				([a], [b]) => compareText(a, b)
+				([a], [b]) => compareStrings(a, b)
 			)
 			return madeOf(
 				Object.freeze({
@@ -890,7 +890,7 @@ const canonicalSelectionOf = (selection: SelectionDesc): Canonical<SelectionDesc
 				.map(canonicalPredicate)
 				.map((c) => [c.text, c.form] as const)
 		)
-	].toSorted(([a], [b]) => compareText(a, b))
+	].toSorted(([a], [b]) => compareStrings(a, b))
 	return madeOf(
 		Object.freeze({ conjuncts: Object.freeze(conjuncts.map(([, conjunct]) => conjunct)) }),
 		new Map([["conjuncts", arrayText(conjuncts.map(([text]) => text))]])
@@ -949,7 +949,7 @@ const canonicalStatement = (s: StatementDesc): Canonical<StatementDesc> => {
 		case "alternatives":
 			return asIs(s)
 		case "retirable": {
-			const [first, ...rest] = s.bodies.toSorted((a, b) => compareText(a.relation, b.relation))
+			const [first, ...rest] = s.bodies.toSorted((a, b) => compareStrings(a.relation, b.relation))
 			if (first === undefined) {
 				return asIs(s)
 			}
@@ -2666,7 +2666,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			broken(e.loc, {
 				kind: "entryParameters",
 				entry: e.name,
-				parameters: [...uses.inputs].toSorted(compareText)
+				parameters: [...uses.inputs].toSorted(compareStrings)
 			})
 		}
 		for (const read of uses.relations) {
@@ -2698,8 +2698,8 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			name: entryName,
 			entry: e,
 			query: e.query,
-			reads: [...uses.relations].toSorted(compareText),
-			contexts: [...uses.contexts.keys()].toSorted(compareText),
+			reads: [...uses.relations].toSorted(compareStrings),
+			contexts: [...uses.contexts.keys()].toSorted(compareStrings),
 			loc: e.loc
 		}
 	}
@@ -2776,7 +2776,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		(r) => !heldRelation(r.desc) || relations[r.name]?.kind === "whole"
 	)
 	const ownedContexts: Record<string, ContextDesc> = {}
-	for (const [name, c] of [...contexts].toSorted(([a], [b]) => compareText(a, b))) {
+	for (const [name, c] of [...contexts].toSorted(([a], [b]) => compareStrings(a, b))) {
 		ownedContexts[name] = c.desc
 	}
 	return {
@@ -2784,10 +2784,10 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		loc: desc.loc,
 		base,
 		relations,
-		writes: new Map([...admitted].toSorted(([a], [b]) => compareText(a, b))),
+		writes: new Map([...admitted].toSorted(([a], [b]) => compareStrings(a, b))),
 		writing: "insert" in desc ? "insert" : "write",
-		refresh: [...desc.refresh].toSorted(compareText),
-		retire: [...desc.retire].toSorted(compareText),
+		refresh: [...desc.refresh].toSorted(compareStrings),
+		retire: [...desc.retire].toSorted(compareStrings),
 		full,
 		contexts: ownedContexts
 	}
@@ -2832,7 +2832,7 @@ const ownLoginOf = (
 		name: loginName,
 		loc: desc.loc,
 		base,
-		roles: roles.toSorted((a, b) => compareText(a.name, b.name))
+		roles: roles.toSorted((a, b) => compareStrings(a.name, b.name))
 	}
 }
 
@@ -2888,7 +2888,7 @@ export const fullRoleDesc = (
 	Result.flatMap(own(base), (owned) => {
 		const relations = Object.values(owned.relations)
 			.filter((r) => heldRelation(r.desc))
-			.toSorted((a, b) => compareText(a.name, b.name))
+			.toSorted((a, b) => compareStrings(a.name, b.name))
 		const [first, ...rest] = relations.map((r): RoleEntryDesc => ({
 			kind: "whole",
 			name: r.name,

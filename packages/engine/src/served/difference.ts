@@ -1,5 +1,6 @@
-import { catchSignal, compareText, taggedValueOf } from "#compiler/core/canonical.ts"
+import { catchSignal, taggedValueOf } from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
@@ -187,7 +188,7 @@ export const servedDifference = (ours: string, committed: string): ServedParting
 		throw defect(`the compile's own served file reads back: ${ownRead.error.message}`)
 	}
 	const own: Readonly<Record<string, unknown>> = ownRead.value
-	const keys = [...new Set([...Object.keys(own), ...Object.keys(theirs)])].toSorted(compareText)
+	const keys = [...new Set([...Object.keys(own), ...Object.keys(theirs)])].toSorted(compareStrings)
 	for (const key of keys) {
 		const found =
 			key !== rolesMember

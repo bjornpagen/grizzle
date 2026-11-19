@@ -64,17 +64,17 @@ export const aLoginsServedReadsCarryTheFootprintTheirProgramReadsRoutedByTheFiel
 			{
 				file: "packages/engine/src/logical/routes.ts",
 				original:
-					"\t\ttables.set(relation, new Map(routes.toSorted(([a], [b]) => compareText(a, b))))",
+					"\t\ttables.set(relation, new Map(routes.toSorted(([a], [b]) => compareStrings(a, b))))",
 				replacement:
-					"\t\ttables.set(relation, new Map(routes.toSorted(([a], [b]) => compareText(a, b)).slice(0, -1)))",
+					"\t\ttables.set(relation, new Map(routes.toSorted(([a], [b]) => compareStrings(a, b)).slice(0, -1)))",
 				why: "footprintOf drops each table's last routed field; the footprint property fails."
 			},
 			{
 				file: "packages/engine/src/logical/routes.ts",
 				original:
-					"\t\ttables.set(relation, new Map(routes.toSorted(([a], [b]) => compareText(a, b))))",
+					"\t\ttables.set(relation, new Map(routes.toSorted(([a], [b]) => compareStrings(a, b))))",
 				replacement:
-					"\t\tconst [firstColumn] = (occurrences[0]?.heading ?? []).filter((c) => routable[c.type.carrier])\n\t\tconst [firstParam] = named.values()\n\t\tif (routes.length === 0 && firstColumn !== undefined && firstParam !== undefined) {\n\t\t\troutes.push([firstColumn.name, firstParam])\n\t\t}\n\t\ttables.set(relation, new Map(routes.toSorted(([a], [b]) => compareText(a, b))))",
+					"\t\tconst [firstColumn] = (occurrences[0]?.heading ?? []).filter((c) => routable[c.type.carrier])\n\t\tconst [firstParam] = named.values()\n\t\tif (routes.length === 0 && firstColumn !== undefined && firstParam !== undefined) {\n\t\t\troutes.push([firstColumn.name, firstParam])\n\t\t}\n\t\ttables.set(relation, new Map(routes.toSorted(([a], [b]) => compareStrings(a, b))))",
 				why: "footprintOf routes a table its program reads table-wide by its first column, under the program's first parameter; the footprint property fails (and routes-sound.test.ts's)."
 			},
 			{

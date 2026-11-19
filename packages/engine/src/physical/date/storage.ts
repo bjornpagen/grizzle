@@ -1,5 +1,5 @@
-import { compareText } from "#compiler/core/canonical.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
@@ -48,7 +48,7 @@ const dateColumns = (heading: ReadonlyArray<HeadingColumn>): ReadonlyArray<Headi
  */
 export const dateRanges = (b: InstallBuilder): ReadonlyArray<DateRange> =>
 	Object.entries(b.model.theory.relations)
-		.toSorted(([x], [y]) => compareText(x, y))
+		.toSorted(([x], [y]) => compareStrings(x, y))
 		.flatMap(([name, r]) =>
 			r.kind === "relation"
 				? dateColumns(r.fields).map((c): DateRange => {

@@ -2,7 +2,6 @@ import {
 	type CanonicalObject,
 	canonicalOf,
 	catchRefusal,
-	compareText,
 	floatSpecialOf,
 	isCanonicalInteger,
 	type Json,
@@ -18,6 +17,7 @@ import type { DeclaredName } from "#compiler/core/identity.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Parts, type SharingFormat, shareRepeated } from "#compiler/core/share.ts"
@@ -368,7 +368,7 @@ class ServedWriter {
 	/** A record's members in key order, and, where some are revived, the keys of those under `~`. */
 	record(value: Readonly<Record<string, unknown>>): JsonRecord {
 		const members: Array<readonly [string, Json]> = []
-		for (const key of Object.keys(value).toSorted(compareText)) {
+		for (const key of Object.keys(value).toSorted(compareStrings)) {
 			if (key.startsWith("~")) {
 				unserved(this.#path, `a key not beginning with ~, not ${key}`)
 			}
@@ -430,7 +430,7 @@ const listUnder = (record: JsonRecord, key: string): ReadonlyArray<Json> | undef
 const memberKeys = (record: JsonRecord): ReadonlyArray<string> =>
 	Object.keys(record)
 		.filter((key) => key !== revivedKey)
-		.toSorted(compareText)
+		.toSorted(compareStrings)
 
 /**
  * The served file's nodes as its sharing reads them (core/share.ts): every array, record, Map and Set a reference may

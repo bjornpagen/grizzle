@@ -417,7 +417,7 @@ const enter = (reading: Reading, node: RegexNode, table: Map<RegexNode, Pieces>)
 }
 
 /**
- * The order of two nodes' canonical texts (core/canonical.ts compareText, UTF-16 code-unit order), read from their
+ * The order of two nodes' canonical texts (core/order.ts compareStrings, UTF-16 code-unit order), read from their
  * pieces (kept in `table`) without writing either text: the two readings advance together, a node met at the same
  * place in both is skipped whole, and so is a literal both read whole, and the first code unit that differs decides.
  * It reads only up to that unit, past any subtree the two share, so ordering costs no node's whole text and a node of

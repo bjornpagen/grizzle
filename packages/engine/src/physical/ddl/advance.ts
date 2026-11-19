@@ -1,5 +1,5 @@
-import { compareText } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { CreateFunction, Expr, ObjectName, Revoke } from "#compiler/sql/ast.ts"
@@ -134,7 +134,7 @@ export type AdvanceFunctions = ReadonlyMap<string, ReadonlyMap<string, Node<"str
 export const addAdvanceFunctions = (b: InstallBuilder): AdvanceFunctions => {
 	const out = new Map<string, ReadonlyMap<string, Node<"structure">>>()
 	for (const [relation, r] of Object.entries(b.owned.relations).toSorted(([x], [y]) =>
-		compareText(x, y)
+		compareStrings(x, y)
 	)) {
 		if (r.kind !== "relation") {
 			continue

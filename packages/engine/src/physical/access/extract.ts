@@ -1,14 +1,14 @@
 import { firstIndex, appendAll } from "#compiler/core/array.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
-	type Comparator,
-	combine,
 	combineAll,
+	type Comparator,
 	compareBooleans,
 	compareNumbers,
 	compareStrings,
 	flip,
-	mapInput
+	mapInput,
+	thenBy
 } from "#compiler/core/order.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type {
@@ -529,7 +529,7 @@ interface RangeColumn {
 }
 
 /** The range a B-tree path leads with: one bounded on both sides first, then by column. */
-const rangeOrder: Comparator<RangeColumn> = combine(
+const rangeOrder: Comparator<RangeColumn> = thenBy(
 	mapInput(flip(compareBooleans), (r: RangeColumn) => r.both),
 	mapInput(compareStrings, (r: RangeColumn) => r.column)
 )

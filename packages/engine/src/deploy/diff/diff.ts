@@ -25,11 +25,11 @@ import {
 } from "#compiler/core/nonempty.ts"
 import {
 	type Comparator,
-	combine,
 	compareNumbers,
 	compareStrings,
 	flip,
-	mapInput
+	mapInput,
+	thenBy
 } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -2934,7 +2934,7 @@ class Differ {
 	 * being stable) as drafted. */
 	draftRemovals(): void {
 		const ordered = this.removals.toSorted(
-			combine(
+			thenBy(
 				mapInput(compareNumbers, (r: Removal) => r.rank),
 				mapInput(flip(compareNumbers), (r: Removal) => r.order)
 			)

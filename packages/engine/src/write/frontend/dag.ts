@@ -1,6 +1,6 @@
-import { compareText } from "#compiler/core/canonical.ts"
 import { allocatedKinds, ExprId, NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import {
 	assembledDag,
 	emptyDag,
@@ -253,5 +253,5 @@ export const deltaSources = (start: RelNode): ReadonlyArray<NodeOf<"Delta">> => 
 			out.set(`${node.relation}\u0000${node.side}`, node)
 		}
 	}
-	return [...out.entries()].toSorted(([a], [b]) => compareText(a, b)).map(([, d]) => d)
+	return [...out.entries()].toSorted(([a], [b]) => compareStrings(a, b)).map(([, d]) => d)
 }

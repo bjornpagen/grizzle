@@ -1,8 +1,8 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import type { MemberRelation } from "#compiler/check/schema.ts"
-import { compareText } from "#compiler/core/canonical.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type {
 	ChangeSetDesc,
 	ContextDesc,
@@ -134,7 +134,7 @@ export const fillQuery = (entry: CheckedEntry, input: Heading, loc: SourceLoc): 
 	const matches: Array<MatchDesc> = [
 		{ loc, source: { kind: "param", name: entryRowsParam, heading }, bindings: rowBindings },
 		...[...contextBindings]
-			.toSorted(([a], [b]) => compareText(a, b))
+			.toSorted(([a], [b]) => compareStrings(a, b))
 			.map(([, { context, bindings }]): MatchDesc => ({
 				loc,
 				source: { kind: "context", context },
@@ -260,5 +260,5 @@ export const fillContexts = <Target, F>(
 			return write?.kind !== "rows" ? [] : [...fixedContexts(write.writable).keys()]
 		})
 	)
-	return [...new Set(names)].toSorted(compareText)
+	return [...new Set(names)].toSorted(compareStrings)
 }

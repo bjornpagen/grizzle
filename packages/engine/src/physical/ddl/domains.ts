@@ -1,5 +1,5 @@
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal, compareText, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { type DomainDigest, domainDigest } from "#compiler/core/fingerprint.ts"
 import {
@@ -595,7 +595,7 @@ export const planTextDomains = (
 					: 1
 				: a.stored
 					? compareUses(a.uses[0], b.uses[0])
-					: compareText(a.digest, b.digest)
+					: compareStrings(a.digest, b.digest)
 		)
 		.map(({ regex, uses }): TextDomainPlan => {
 			const named = textDomainIdentity(regex)
@@ -727,7 +727,7 @@ const addContractDomain = (
 export const addContractDomains = (b: InstallBuilder): ReadonlyArray<ObjectName> => {
 	const domains = b.natives
 		.flatMap((n) => (n.namespace === "domain" ? [n] : []))
-		.toSorted((x, y) => compareText(x.object.name, y.object.name))
+		.toSorted((x, y) => compareStrings(x.object.name, y.object.name))
 	const byName = new Map(domains.map((d) => [d.object.name, d] as const))
 	const added = new Map<string, ObjectName>()
 	/** A contract's domain, after the domain of the contract its base is. */

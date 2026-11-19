@@ -182,7 +182,7 @@ const probeOrder = (
 	settled: ReadonlyArray<UniqueObject>
 ): ReadonlyArray<UniqueObject> => {
 	const ordered = candidates.toSorted(
-		Order.combine(
+		Order.thenBy(
 			Order.mapInput(Order.compareBooleans, predicated),
 			Order.mapInput(Order.compareNumbers, width)
 		)

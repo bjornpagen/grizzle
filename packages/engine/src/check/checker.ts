@@ -1748,7 +1748,7 @@ export class Checker {
 				 * every ordinary relation: over a relation the ChangeSet does not write
 				 * both are empty, which the write program supplies, so a read-back shared by ChangeSets that write
 				 * different relations checks against each. A closed or derived relation is never written. Over a role,
-				 * any world relation's delta is typed by its checked heading in canonical order (compareText), the order
+				 * any world relation's delta is typed by its checked heading in canonical order (compareStrings), the order
 				 * the write front end delivers it in: empty, its target's projected onto its head, or refused there.
 				 */
 				const info = this.schema.relation(src.relation, loc)

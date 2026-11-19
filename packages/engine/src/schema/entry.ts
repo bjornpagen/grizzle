@@ -1,6 +1,6 @@
-import { compareText } from "#compiler/core/canonical.ts"
 import type { WritabilityReason } from "#compiler/core/causes.ts"
 import { EntryName } from "#compiler/core/ids.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type BindingsDesc,
@@ -284,7 +284,9 @@ export const writableEntry = (
 
 	/** The head: each field a bare variable, no variable named twice. */
 	const headVars = new Map<string, string>()
-	for (const [field, term] of Object.entries(arm.head).toSorted(([a], [b]) => compareText(a, b))) {
+	for (const [field, term] of Object.entries(arm.head).toSorted(([a], [b]) =>
+		compareStrings(a, b)
+	)) {
 		if (term.kind !== "var") {
 			return refused(name, { kind: "headNotBareVariable", field })
 		}
@@ -311,7 +313,9 @@ export const writableEntry = (
 		if (context === undefined) {
 			continue
 		}
-		for (const [field, e] of Object.entries(m.bindings).toSorted(([a], [b]) => compareText(a, b))) {
+		for (const [field, e] of Object.entries(m.bindings).toSorted(([a], [b]) =>
+			compareStrings(a, b)
+		)) {
 			if (e.kind === "var" && !contextBound.has(e.var)) {
 				contextBound.set(e.var, { context, field })
 			}
@@ -323,7 +327,7 @@ export const writableEntry = (
 	 * family draws, which no fact states.
 	 */
 	const keyed = keyFieldsOf(base, target)
-	const drawnKey = [...keyed].toSorted(compareText).find((field) => family(target, field))
+	const drawnKey = [...keyed].toSorted(compareStrings).find((field) => family(target, field))
 	if (drawnKey !== undefined) {
 		return refused(name, { kind: "keyHoldsFamily", field: drawnKey })
 	}
@@ -331,7 +335,7 @@ export const writableEntry = (
 	 * Every field of T: written by a head variable, which binds no other field of T, or fixed; one context field may
 	 * fix several. A field T's family draws is in the head or nowhere: the filter below refuses one it reads.
 	 */
-	const fields = Object.keys(target.fields).toSorted(compareText)
+	const fields = Object.keys(target.fields).toSorted(compareStrings)
 	const fixed: Array<FixedField<string>> = []
 	const fieldOfVar = new Map<string, string>()
 	for (const field of fields) {
@@ -372,7 +376,7 @@ export const writableEntry = (
 	 * binds its variable.
 	 */
 	const head = new Map<string, HeadField<string>>()
-	for (const [x, headField] of [...headVars].toSorted(([, a], [, b]) => compareText(a, b))) {
+	for (const [x, headField] of [...headVars].toSorted(([, a], [, b]) => compareStrings(a, b))) {
 		const field = fieldOfVar.get(x)
 		if (field === undefined) {
 			return refused(name, { kind: "noSupplyingOccurrence", candidates: 0 })

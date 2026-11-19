@@ -10,7 +10,6 @@ import {
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { compareText } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	extendNonEmpty,
@@ -19,6 +18,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type {
 	InferredBindings,
@@ -740,7 +740,7 @@ export const storedSideArm = (
 	for (const c of selection.conjuncts) {
 		fieldsOf(c, read)
 	}
-	const fields = [...read].toSorted(compareText)
+	const fields = [...read].toSorted(compareStrings)
 	const id = (f: string): string => `${prefix}${f}`
 	const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(id(f)) }
 	const bound = Object.fromEntries(fields.map((f) => [f, varRef(id(f))] as const))
@@ -777,9 +777,9 @@ export const ruleReads = (rule: QueryRule): ReadonlyArray<string> => {
 						[...a.matches, ...negatedMatches(a)].map((m) => m.relation)
 					)
 				)
-			].toSorted(compareText)
+			].toSorted(compareStrings)
 		case "whole":
-			return [...new Set(rule.reads.map((r) => r.relation))].toSorted(compareText)
+			return [...new Set(rule.reads.map((r) => r.relation))].toSorted(compareStrings)
 	}
 }
 
@@ -1164,7 +1164,7 @@ const wholeSide = (
 	for (const c of side.selection.conjuncts) {
 		fieldsOf(c, read)
 	}
-	const fields = [...read].toSorted(compareText)
+	const fields = [...read].toSorted(compareStrings)
 	const id = (f: string): string => `${prefix}${f}`
 	const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(id(f)) }
 	const bound = Object.fromEntries(fields.map((f) => [f, varRef(id(f))] as const))
@@ -1728,7 +1728,7 @@ const columnsOf = (
 	)
 	return read.length === 0
 		? undefined
-		: [...new Set(read.flatMap((m) => Object.keys(m.bindings)))].toSorted(compareText)
+		: [...new Set(read.flatMap((m) => Object.keys(m.bindings)))].toSorted(compareStrings)
 }
 
 /** What writing `relation` can break of `rule` (`Touches`), undefined where the rule reads no row of it. */
@@ -1758,7 +1758,7 @@ const wholeTouches = (rule: WholeRule, relation: string): Touches | undefined =>
 		const read = of.filter((r) => r.polarity === polarity || r.polarity === "both")
 		return read.length === 0 && also.length === 0
 			? undefined
-			: [...new Set([...read.flatMap((r) => r.columns), ...also])].toSorted(compareText)
+			: [...new Set([...read.flatMap((r) => r.columns), ...also])].toSorted(compareStrings)
 	}
 	return touchesOf(columns("positive", []), columns("negative", replaced))
 }

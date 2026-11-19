@@ -1,10 +1,10 @@
 import {
-	type Comparator,
-	combine,
 	combineAll,
+	type Comparator,
 	compareNumbers,
 	compareStrings,
-	mapInput
+	mapInput,
+	thenBy
 } from "#compiler/core/order.ts"
 
 import { defaultOpclass, type IndexOpclass } from "#compiler/ir/law.ts"
@@ -25,7 +25,7 @@ const pathKey = (p: AccessPath): string =>
 
 /** The canonical order of paths, by relation, method, keys and use: strings by code unit; key lists elementwise, the
  * longer first when one begins the other. */
-const keyOrder: Comparator<AccessKey> = combine(
+const keyOrder: Comparator<AccessKey> = thenBy(
 	mapInput(compareStrings, (k: AccessKey) => k.field),
 	mapInput(compareStrings, (k: AccessKey) => k.dir)
 )

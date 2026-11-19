@@ -56,14 +56,14 @@ export const anInstallationsLivePlanIsExactlyTheUnionOfWhatItsServedReadsRouteBy
 			{
 				file: "packages/engine/src/program/workload/compile.ts",
 				original:
-					"\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareText) })),",
+					"\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) })),",
 				replacement:
-					"\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareText).slice(1) })),",
+					"\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings).slice(1) })),",
 				why: "Each table's first routed field is left out of the live plan."
 			},
 			{
 				file: "packages/engine/src/program/workload/compile.ts",
-				original: "\t\tviews: [...views].toSorted(compareText)",
+				original: "\t\tviews: [...views].toSorted(compareStrings)",
 				replacement: "\t\tviews: []",
 				why: "Every materialized derived relation is left out of the live plan."
 			}

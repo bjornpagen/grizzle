@@ -27,7 +27,7 @@ export const mapInput =
 		compare(f(a), f(b))
 
 /** `first`, and `second` where `first` ties. */
-export const combine =
+export const thenBy =
 	<A>(first: Comparator<A>, second: Comparator<A>): Comparator<A> =>
 	(a, b) => {
 		const order = first(a, b)

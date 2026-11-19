@@ -1,5 +1,5 @@
 import { maxStringLength } from "#compiler/core/canonical.ts"
-import { compareText, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { int4Max } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
@@ -19,6 +19,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type BlockCoordinate,
 	blockRadices,
@@ -205,7 +206,7 @@ const payloadColumn = (
 		}
 	}
 	const keyed = values.map((value) => [literalKey(value), value] as const)
-	const ordered = [...new Map(keyed)].toSorted(([a], [b]) => compareText(a, b))
+	const ordered = [...new Map(keyed)].toSorted(([a], [b]) => compareStrings(a, b))
 	const positions = new Map(ordered.map(([key], code) => [key, code] as const))
 	return {
 		space: {
@@ -669,7 +670,7 @@ export const planClosed = (
 	codes: Codebook
 ): ClosedPlan => {
 	const out = new Map<string, PlannedRelation>()
-	for (const r of closed.toSorted((x, y) => compareText(x.name, y.name))) {
+	for (const r of closed.toSorted((x, y) => compareStrings(x.name, y.name))) {
 		const entry = owned.relations[r.name]
 		if (entry?.kind !== "closedRelation") {
 			continue
@@ -1020,7 +1021,7 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 	const sets = setRosters(b)
 	return Object.values(b.owned.relations)
 		.flatMap((r) => (r.kind === "closed" ? [r] : []))
-		.toSorted((x, y) => compareText(x.name, y.name))
+		.toSorted((x, y) => compareStrings(x.name, y.name))
 		.map((r): RosterObjects => {
 			const roster = r.name
 			const codec = defined(b.names.codes.rosters.get(roster), "the codebook holds every roster")

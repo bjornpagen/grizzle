@@ -1,3 +1,8 @@
+import { appendAll } from "#compiler/core/array.ts"
+import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 /**
  * A login's OpenAPI 3.2 document, read off its served file alone (served/forms.ts ServedFile): one operation per program
  * of each of its roles, `POST /<login>/<role>/<program>`, whose request body is the program's input and whose answer is
@@ -12,11 +17,7 @@
  * operation and role carries for a client (`x-grizzle-wire`) holds each node it shares once, in the root's table, as
  * live/document.ts reads it. Every reference is the document's own, from its root.
  */
-import { appendAll } from "#compiler/core/array.ts"
-import { compareText, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Base32 } from "#compiler/core/sha256.ts"
@@ -515,11 +516,11 @@ const propertiesKeyword = "properties"
  */
 const schemaMembers = (schema: { readonly [key: string]: Json }): ReadonlyArray<SchemaMember> =>
 	Object.keys(schema)
-		.toSorted(compareText)
+		.toSorted(compareStrings)
 		.map((key): SchemaMember => {
 			const value = defined(schema[key], `a schema's member ${key}`)
 			if (key === propertiesKeyword && typeof value === "object" && !isList(value)) {
-				return { key, kind: "properties", names: Object.keys(value).toSorted(compareText) }
+				return { key, kind: "properties", names: Object.keys(value).toSorted(compareStrings) }
 			}
 			if (schemaListKeywords.has(key) && isList(value)) {
 				return { key, kind: "list", length: value.length }
@@ -625,7 +626,7 @@ const wireSharing: SharingFormat = {
 		if (Object.hasOwn(node, referenceKey)) {
 			throw defect(`a wire record holding no member ${referenceKey}`)
 		}
-		const keys = Object.keys(node).toSorted(compareText)
+		const keys = Object.keys(node).toSorted(compareStrings)
 		return {
 			frame: `{${canonicalText(keys)}`,
 			slots: keys.map((key) => defined(node[key], `a wire record's member ${key}`))
@@ -637,7 +638,7 @@ const wireSharing: SharingFormat = {
 		}
 		return Object.fromEntries(
 			Object.keys(node)
-				.toSorted(compareText)
+				.toSorted(compareStrings)
 				.map((key, at) => [key, defined(slots[at], `a wire record's member ${key}`)])
 		)
 	},

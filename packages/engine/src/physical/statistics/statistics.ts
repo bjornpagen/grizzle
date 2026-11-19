@@ -1,7 +1,7 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
-import { compareText } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { statisticsMaxColumns } from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
@@ -27,7 +27,7 @@ const statisticsKey = (s: Pick<StatisticsRequest, "relation" | "columns">): stri
 /** The canonical order of requests: by relation, then column list, strings by code unit, and of two column lists one
  * of which begins the other, the longer first. */
 const compareRequests = (a: StatisticsRequest, b: StatisticsRequest): number => {
-	const relation = compareText(a.relation, b.relation)
+	const relation = compareStrings(a.relation, b.relation)
 	if (relation !== 0) {
 		return relation
 	}
@@ -36,7 +36,7 @@ const compareRequests = (a: StatisticsRequest, b: StatisticsRequest): number => 
 		if (y === undefined) {
 			break
 		}
-		const order = compareText(x, y)
+		const order = compareStrings(x, y)
 		if (order !== 0) {
 			return order
 		}
@@ -60,7 +60,7 @@ export const mergeStatistics = (
 			relation: r.relation,
 			columns: r.columns,
 			kinds: statisticsKinds.filter((k) => prior.kinds.includes(k) || r.kinds.includes(k)),
-			uses: [...new Set([...prior.uses, ...r.uses])].toSorted(compareText)
+			uses: [...new Set([...prior.uses, ...r.uses])].toSorted(compareStrings)
 		})
 	}
 	return [...merged.values()].toSorted(compareRequests)

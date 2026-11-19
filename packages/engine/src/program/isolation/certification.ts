@@ -7,11 +7,11 @@ import {
 } from "#compiler/analysis/isolation/certify.ts"
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
 import type { CheckedSchema, RoleWorld } from "#compiler/analysis/schema.ts"
-import { compareText } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
@@ -272,7 +272,7 @@ const changeFacts =
 
 /** Two tables in the order of their qualified names, schema then name: the one order every fenced write locks in. */
 const byQualifiedName = (a: ObjectName, b: ObjectName): number =>
-	compareText(a.schema, b.schema) || compareText(a.name, b.name)
+	compareStrings(a.schema, b.schema) || compareStrings(a.name, b.name)
 
 /**
  * `write` of change member `name` with the relations of `fenced` its flight writes, by its facts at its level, locked

@@ -1,6 +1,6 @@
-import { compareText } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import {
@@ -308,7 +308,7 @@ export const footprintOf = (
 		params.flatMap((p) => (p.kind === "scalar" ? [[p.id, p.name] as const] : []))
 	)
 	const tables = new Map<string, Routes>()
-	for (const relation of [...scans.keys()].toSorted(compareText)) {
+	for (const relation of [...scans.keys()].toSorted(compareStrings)) {
 		const occurrences = scans.get(relation) ?? []
 		const fixed = common(occurrences.map((o) => o.r))
 		const routes: Array<readonly [string, string]> = []
@@ -318,12 +318,12 @@ export const footprintOf = (
 					const name = named.get(p)
 					return name === undefined ? [] : [name]
 				})
-				.toSorted(compareText)
+				.toSorted(compareStrings)
 			if (param !== undefined && routable[column.type.carrier]) {
 				routes.push([column.name, param])
 			}
 		}
-		tables.set(relation, new Map(routes.toSorted(([a], [b]) => compareText(a, b))))
+		tables.set(relation, new Map(routes.toSorted(([a], [b]) => compareStrings(a, b))))
 	}
-	return { tables, views: new Set([...views].toSorted(compareText)) }
+	return { tables, views: new Set([...views].toSorted(compareStrings)) }
 }

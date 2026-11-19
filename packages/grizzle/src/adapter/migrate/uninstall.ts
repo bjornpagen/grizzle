@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, type Scope } from "effect"
+import { Array as Arr, Effect, Order, type Scope } from "effect"
 import { textArray } from "#adapter/admission/roles.ts"
 import {
 	type MigrateError,
@@ -200,8 +200,9 @@ const installationRolesOf = (
 			Arr.dedupe(Arr.filter(grantees, (role) => !held.has(role))),
 			(role): InstallationRole => ({ kind: "decoder", role })
 		)
-		return Arr.sort([...inNamespace, ...decoders], (a: InstallationRole, b: InstallationRole) =>
-			compareText(a.role, b.role)
+		return Arr.sort(
+			[...inNamespace, ...decoders],
+			Order.mapInput(Order.String, (r: InstallationRole) => r.role)
 		)
 	})
 
@@ -328,8 +329,5 @@ export const uninstall = Effect.fn("uninstall")(function* (input: {
 			)
 		)
 	}
-	return { schemas: Arr.sort(schemas, compareText), roles: Arr.map(roles, (r) => r.role) }
+	return { schemas: Arr.sort(schemas, Order.String), roles: Arr.map(roles, (r) => r.role) }
 }, Effect.scoped)
-
-/** Code point order of two texts. */
-const compareText = (a: string, b: string): -1 | 0 | 1 => (a < b ? -1 : a > b ? 1 : 0)

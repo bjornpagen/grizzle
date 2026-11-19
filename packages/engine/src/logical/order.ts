@@ -1,8 +1,8 @@
 import { appendAll } from "#compiler/core/array.ts"
-import { compareText } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { KeyClasses, KeyFactors } from "#compiler/ir/keys.ts"
 import type { CompletedOrder, Heading, HeadingColumn, OrderKey } from "#compiler/ir/rel.ts"
@@ -135,13 +135,13 @@ export const completeOrder = (
 			if (members.some(settled)) {
 				continue
 			}
-			const [least] = members.filter(orderable).toSorted(compareText)
+			const [least] = members.filter(orderable).toSorted(compareStrings)
 			if (least === undefined) {
 				return undefined
 			}
 			chosen.push(least)
 		}
-		return chosen.toSorted(compareText)
+		return chosen.toSorted(compareStrings)
 	}
 	/** Fewer names first, then the sorted names compared in order. */
 	const fewer = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): number => {
@@ -149,7 +149,7 @@ export const completeOrder = (
 			return a.length - b.length
 		}
 		for (const [i, x] of a.entries()) {
-			const d = compareText(x, defined(b[i], "two candidates of one width"))
+			const d = compareStrings(x, defined(b[i], "two candidates of one width"))
 			if (d !== 0) {
 				return d
 			}
@@ -189,7 +189,7 @@ export const completeOrder = (
 			return [
 				{
 					additional: additional.map((c) => c.name),
-					identities: additional.map(identity).toSorted(compareText)
+					identities: additional.map(identity).toSorted(compareStrings)
 				}
 			]
 		})
@@ -202,7 +202,7 @@ export const completeOrder = (
 				if (y === undefined) {
 					break
 				}
-				const d = compareText(x, y)
+				const d = compareStrings(x, y)
 				if (d !== 0) {
 					return d
 				}

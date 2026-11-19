@@ -1,7 +1,7 @@
 import { appendAll } from "#compiler/core/array.ts"
-import { compareText } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { CoercionIdentity, ElisionReason } from "#compiler/ir/certificate.ts"
 import type { EvidenceContext, Grounds, Premise } from "#compiler/ir/evidence.ts"
 import { evidenceContexts, lessDemanding, premiseText, strongest } from "#compiler/ir/evidence.ts"
@@ -72,12 +72,14 @@ export const joinJustifications = (justs: Iterable<Justification>): Justificatio
 		}
 	}
 	return {
-		premises: [...premises.entries()].toSorted(([a], [b]) => compareText(a, b)).map(([, p]) => p),
+		premises: [...premises.entries()]
+			.toSorted(([a], [b]) => compareStrings(a, b))
+			.map(([, p]) => p),
 		context: strongest(contexts),
 		reasons: [...new Set(reasons)],
 		equality: sortedOps(equality),
 		coercions: sortedUnique(coercions),
-		outer: [...outer.entries()].toSorted(([a], [b]) => compareText(a, b)).map(([, o]) => o)
+		outer: [...outer.entries()].toSorted(([a], [b]) => compareStrings(a, b)).map(([, o]) => o)
 	}
 }
 

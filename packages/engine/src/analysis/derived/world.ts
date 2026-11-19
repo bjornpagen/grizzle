@@ -2,10 +2,10 @@ import { analyzedDefinition, type DeclaredColumn } from "#compiler/analysis/deri
 import { type InheritedKey, inheritedKeys } from "#compiler/analysis/logical/derived.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
-import { compareText } from "#compiler/core/canonical.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
@@ -119,8 +119,8 @@ export const analyzeWorld = (
 		query: { ...checked, dag: analyzed.dag },
 		heading: declared,
 		keys,
-		reads: [...reads].toSorted(compareText),
-		contexts: [...contexts].toSorted(compareText),
+		reads: [...reads].toSorted(compareStrings),
+		contexts: [...contexts].toSorted(compareStrings),
 		read: {
 			heading,
 			keys: keys.map((k) => ({

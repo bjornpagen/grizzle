@@ -17,9 +17,9 @@ import {
 	type WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
-import { compareText } from "#compiler/core/canonical.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleSet } from "#compiler/core/tuple-map.ts"
@@ -520,7 +520,7 @@ class Writers {
 	fencers(relation: string): ReadonlyArray<string> {
 		return this.#updated.has(relation)
 			? []
-			: [...(this.#deleters.get(relation) ?? [])].toSorted(compareText)
+			: [...(this.#deleters.get(relation) ?? [])].toSorted(compareStrings)
 	}
 }
 
@@ -2370,7 +2370,7 @@ const fencesOf = <R, S, E>(
 			])
 			return isNonEmpty(roles) ? [...fencers].map((login) => ({ login, relation, for: roles })) : []
 		})
-		.toSorted((a, b) => compareText(a.login, b.login) || compareText(a.relation, b.relation))
+		.toSorted((a, b) => compareStrings(a.login, b.login) || compareStrings(a.relation, b.relation))
 }
 
 /** The condition `form`: one reason per change member with no READ COMMITTED form, at the relation it has none for. */

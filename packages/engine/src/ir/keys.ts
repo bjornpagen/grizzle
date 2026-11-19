@@ -1,7 +1,7 @@
 import { appendAll } from "#compiler/core/array.ts"
-import { compareText } from "#compiler/core/canonical.ts"
 import type { ExprId, NodeId, OccurrenceId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type EvidenceContext,
 	type Grounds,
@@ -722,7 +722,7 @@ const proved = (
 			groundProof(g, basis.inner)
 			break
 	}
-	const premises = [...g.premises].toSorted(([a], [b]) => compareText(a, b)).map(([, p]) => p)
+	const premises = [...g.premises].toSorted(([a], [b]) => compareStrings(a, b)).map(([, p]) => p)
 	return Object.freeze({
 		node,
 		key: Object.freeze([...key]),

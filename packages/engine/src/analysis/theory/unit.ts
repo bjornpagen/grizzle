@@ -1,3 +1,23 @@
+import { refuse } from "#compiler/analysis/theory/build.ts"
+import {
+	type LeafRewrite,
+	mapBindings,
+	mapLeaves,
+	varRef
+} from "#compiler/analysis/theory/leaves.ts"
+import {
+	type LawSide,
+	queryOf,
+	type RelationRead,
+	type ReplacedRead,
+	ruleDesc,
+	type RuleLaw,
+	type WholeRule
+} from "#compiler/analysis/theory/query.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 /**
  * Unit-local rules: a rule over a query every fact of whose violation lies within one unit, a value of the key every
  * relation it reads leads with, each of them immutable (ir/unit.ts), which the judge reads whole over the units a
@@ -34,26 +54,7 @@
  * key fields of the rows that side holds. The restriction is one function for every whole rule, and it is the query's
  * own text, which the checker and the lowering read as they read any query.
  */
-import { refuse } from "#compiler/analysis/theory/build.ts"
-import {
-	type LeafRewrite,
-	mapBindings,
-	mapLeaves,
-	varRef
-} from "#compiler/analysis/theory/leaves.ts"
-import {
-	type LawSide,
-	queryOf,
-	type RelationRead,
-	type ReplacedRead,
-	ruleDesc,
-	type RuleLaw,
-	type WholeRule
-} from "#compiler/analysis/theory/query.ts"
-import { canonicalEquals, compareText } from "#compiler/core/canonical.ts"
-import { defect, defined } from "#compiler/core/invariant.ts"
-import type { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type ExprDesc,
 	exprChildren,
@@ -318,7 +319,7 @@ const sourceUnit = (
 			w.reads.push({
 				relation: source.name,
 				polarity: at.polarity,
-				columns: Object.keys(bindings).toSorted(compareText)
+				columns: Object.keys(bindings).toSorted(compareStrings)
 			})
 			const fields = w.holders.get(source.name)
 			if (fields === undefined) {
@@ -1140,7 +1141,7 @@ const regionOf = (
 			return j >= 0 ? regionVar(j) : rowVar(field)
 		}
 		const at = proofs.get(place)
-		const fields = [...new Set([...key, ...[...read, ...(at ?? [])].toSorted(compareText)])]
+		const fields = [...new Set([...key, ...[...read, ...(at ?? [])].toSorted(compareStrings)])]
 		const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(varOf(f)) }
 		if (
 			at !== undefined &&
@@ -1379,7 +1380,7 @@ const storedReads = (
 	}
 	const inQuery = (q: InferredQuery): void => inStage(q.stage)
 	inQuery(query)
-	return [...names].toSorted(compareText).flatMap((name) => {
+	return [...names].toSorted(compareStrings).flatMap((name) => {
 		const r = relations.get(name)
 		return r?.kind === "relation" ? [r] : []
 	})

@@ -14,7 +14,7 @@ import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	compareIdentities,
@@ -34,6 +34,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
@@ -293,7 +294,7 @@ export const contextFieldsOf = (
 		roles.flatMap((role) =>
 			Object.values(role.contexts).flatMap((context) =>
 				Object.entries(context.fields)
-					.toSorted(([a], [b]) => compareText(a, b))
+					.toSorted(([a], [b]) => compareStrings(a, b))
 					.map(([field, desc]): ContextField => {
 						const loc = SourceLoc(`context ${context.name} of role ${role.name}`, [])
 						return { context: context.name, field, desc, type: checked.fieldType(desc, loc), loc }
@@ -1181,7 +1182,7 @@ export const readableRelations = (
 		entry.kind === "whole" ? [entry.relation.name] : entry.reads.flatMap(stored)
 	)
 	return [...new Set([...viewed, ...grantedPrivileges(model, checked).keys()])].toSorted(
-		compareText
+		compareStrings
 	)
 }
 
@@ -1598,7 +1599,7 @@ const addLogin = (
 		[roleObject, b.schemaNode, b.snapshotGuard, ...fenced.map((relation) => b.table(relation))]
 	)
 	const outcomes = [...roles]
-		.toSorted((x, y) => compareText(x.checked.world.role.name, y.checked.world.role.name))
+		.toSorted((x, y) => compareStrings(x.checked.world.role.name, y.checked.world.role.name))
 		.map((r) =>
 			addRole(
 				b,
@@ -1667,7 +1668,7 @@ const addPolicy = (b: InstallBuilder, w: Writer): Node<"publish"> => {
  * policy would be TRUE, which admits exactly what the role's grants admit, so the grants alone decide its writes. */
 const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void => {
 	const byTable = [...Map.groupBy(writers, (w) => w.relation)].toSorted(([x], [y]) =>
-		compareText(x, y)
+		compareStrings(x, y)
 	)
 	for (const [relation, on] of byTable) {
 		if (on.every((w) => w.membership.kind === "every")) {
@@ -1813,7 +1814,7 @@ export const addWorlds = (
 	holds: ReadonlyArray<RoleHold>,
 	fences: ReadonlyArray<LoginFence>
 ): WorldsPlan => {
-	const logins = [...checkedLogins].toSorted((x, y) => compareText(x.login.name, y.login.name))
+	const logins = [...checkedLogins].toSorted((x, y) => compareStrings(x.login.name, y.login.name))
 	const cx = worldsContext(b)
 	const roleDefaults: Array<SqlStatement> = []
 	const searchDefaults: Array<SqlStatement> = []

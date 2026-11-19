@@ -12,7 +12,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
-import { type Comparator, combine, compareStrings, mapInput } from "#compiler/core/order.ts"
+import { type Comparator, compareStrings, mapInput, thenBy } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type CanonicalFloat,
@@ -170,7 +170,7 @@ export const partialOp = nominal<OpId, PartialOp>()
  * carrier.
  */
 /** Range operators by code, then by carrier. */
-const rangeOpOrder: Comparator<RangeOpId> = combine(
+const rangeOpOrder: Comparator<RangeOpId> = thenBy(
 	mapInput(compareStrings, (op: RangeOpId) => op.code),
 	mapInput(compareStrings, (op: RangeOpId) => op.carrier)
 )

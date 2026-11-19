@@ -1,5 +1,5 @@
 import { type InstalledRoleTooLong, roleInSpace, type RoleSpace } from "#compiler/core/identity.ts"
-import { combine, compareStrings, mapInput } from "#compiler/core/order.ts"
+import { compareStrings, mapInput, thenBy } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ManifestStatement } from "#compiler/deploy/admission/manifest.ts"
 import { databaseDefaults } from "#compiler/physical/ddl/isolation.ts"
@@ -316,7 +316,7 @@ export const roleExpectation = (
 		policies: namingPolicies
 			.map((p) => ({ table: p.table.name, name: p.name }))
 			.toSorted(
-				combine(
+				thenBy(
 					mapInput(
 						compareStrings,
 						(p: { readonly table: string; readonly name: string }) => p.table

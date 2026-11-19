@@ -29,7 +29,7 @@ import {
 	spelledSlots
 } from "#compiler/analysis/theory/spelling.ts"
 import { checkDefinition, checkQuery } from "#compiler/check/index.ts"
-import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import {
 	type Identity,
@@ -567,7 +567,9 @@ class Builder {
 		for (const { statement, index } of this.checked.closure.statements) {
 			normalizer.statement(statement, index)
 		}
-		const contracts = Object.entries(this.owned.contracts).toSorted(([a], [b]) => compareText(a, b))
+		const contracts = Object.entries(this.owned.contracts).toSorted(([a], [b]) =>
+			compareStrings(a, b)
+		)
 		for (const [index, [name, contract]] of contracts.entries()) {
 			const uses = [...this.relations.values()].flatMap((r) =>
 				r.kind === "relation" ? r.fields.flatMap((f) => contractUses(r, f, name)) : []
@@ -728,7 +730,7 @@ class Builder {
 		}
 		return Object.freeze(
 			Object.fromEntries(
-				[...deps].map(([r, set]) => [r, Object.freeze([...set].toSorted(compareText))])
+				[...deps].map(([r, set]) => [r, Object.freeze([...set].toSorted(compareStrings))])
 			)
 		)
 	}
@@ -759,7 +761,7 @@ class Builder {
 		) {
 			caps.add("extension:vector")
 		}
-		return Object.freeze([...caps].toSorted(compareText))
+		return Object.freeze([...caps].toSorted(compareStrings))
 	}
 }
 

@@ -1,5 +1,5 @@
-import { compareText } from "#compiler/core/canonical.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { vectorFunctions } from "#compiler/lower/conservative/vector/index.ts"
@@ -62,7 +62,7 @@ const vectorColumns = (heading: ReadonlyArray<HeadingColumn>): ReadonlyArray<Hea
  * and the statement finds it present. A schema without vectors gets no extension object at all. */
 export const vectorNorms = (b: InstallBuilder): ReadonlyArray<VectorNorm> => {
 	const relations = Object.entries(b.model.theory.relations).toSorted(([x], [y]) =>
-		compareText(x, y)
+		compareStrings(x, y)
 	)
 	if (relations.some(([, r]) => r.kind !== "relation" && vectorColumns(r.fields).length > 0)) {
 		b.provider("vector")

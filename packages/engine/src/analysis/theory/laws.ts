@@ -55,7 +55,6 @@ import { combineRule, foldPlane } from "#compiler/check/fold.ts"
 import {
 	canonicalEquals,
 	catchRefusal,
-	compareText,
 	ownedText,
 	Refusal,
 	withoutSourceLocs
@@ -72,6 +71,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -347,7 +347,7 @@ export const fixedSelection = (selection: ResolvedSelection): FixedSelection | u
 
 /** A fixed selection's selectors, in field name order: none for every fact. */
 export const selectorsOf = (selection: FixedSelection): ReadonlyArray<ResolvedSelector> =>
-	selection.conjuncts.map((c) => c.selector).toSorted((a, b) => compareText(a.column, b.column))
+	selection.conjuncts.map((c) => c.selector).toSorted((a, b) => compareStrings(a.column, b.column))
 
 /**
  * A side a statement declares, with the relation it names and the field of each term resolved where the statement is

@@ -48,9 +48,6 @@ export const int4Max = 2147483647
 
 export const canonicalFormat = "grizzle-canonical"
 
-/** UTF-16 code-unit order: the order canonical text sorts object keys in, and every sorted list of names or keys. */
-export const compareText = (a: string, b: string): number => compareStrings(a, b)
-
 export const canonicalTag: unique symbol = Symbol.for("grizzle/canonical")
 
 /**
@@ -1038,7 +1035,7 @@ const writeJsonValue = (sink: TextSink, frames: Array<JsonFrame>, value: Json): 
 		sink.open("object")
 		frames.push({
 			kind: "object",
-			members: Object.entries(value).toSorted(([a], [b]) => compareText(a, b)),
+			members: Object.entries(value).toSorted(([a], [b]) => compareStrings(a, b)),
 			next: 0
 		})
 	}
