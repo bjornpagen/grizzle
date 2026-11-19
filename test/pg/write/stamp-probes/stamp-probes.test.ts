@@ -17,84 +17,40 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
  *
  * Features: one child and several, one row a child and several, a stored head and none.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option } from "effect"
+import { Formatter } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { explainedChange, installWrites, openFull, owner } from "#bench/write/support/writes.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { instant, pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import {
+	build,
+	Log,
+	type Situation,
+	situations,
+	stampingGen,
+	writeOf
+} from "#test/pg/write/stamp-probes/stamp-probes.fixtures.ts"
 import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { writeAuditViolations } from "#test/support/write-audit.ts"
 
-const Log = relation("Log", { child: pg.integer, at: instant, note: pg.integer }, [
-	"child",
-	"at",
-	"note"
-])
-
-const build = (name: string) => schema(name, [Log], [])
-
-type Schema = ReturnType<typeof build>
-
-/** A case: how many children the call stamps, how many rows each, and whether each child holds a head before it. */
-interface Stamping {
-	readonly children: 1 | 3 | 10
-	readonly rows: 1 | 4
-	readonly head: boolean
-}
-
-const stampingGen: Gen<Stamping> = (source) => ({
-	children: source.draw(element([1, 3, 10] as const)),
-	rows: source.draw(element([1, 4] as const)),
-	head: source.draw(element([false, true] as const))
-})
-
-const situations = [
-	"one child",
-	"several children",
-	"one row a child",
-	"several rows a child",
-	"a stored head",
-	"no head"
-] as const
-
-type Situation = (typeof situations)[number]
-
-/** The call's rows: `rows` notes at each of `children` children, every instant left out. */
-const writeOf = (s: Schema, c: Stamping) =>
-	ChangeSet.empty(s).insert(
-		Log,
-		Arr.flatMap(indices(c.children), (child) =>
-			Arr.map(indices(c.rows), (note) => ({ child, note }))
-		)
-	)
-
-layer(Substrate.layer)("a stamping insert's head probes", (it) => {
-	it.effect("read the clock's head once per child", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "pg/write/stamp-probes",
-					generator: stampingGen,
-					literal: Formatter.format,
-					box: "1, 3 and 10 children of 1 and 4 rows each, over a stored head at each child or none",
-					oracle: {
-						kind: "specification",
-						name: "one probe of the head per child the call stamps"
-					},
-					coverage: requiredInSpace<Situation>(situations),
-					caseHang
-				},
-				(c, k) =>
+/**
+ * A stamping insert's head probes read the clock's head once per child, each case installing the schema on the
+ * worker's clone, as each case of the search installed it.
+ *
+ * Its pre-conversion budget: the box, 12 cases (test/pg/write/stamp-probes/stamp-probes.test.ts at f6a7126a8).
+ */
+export const aStampingInsertsHeadProbesReadTheClocksHeadOncePerChild = property.exhaust(
+	finite(stampingGen),
+	{
+		needs: { substrate: Substrate.installing },
+		situations,
+		check:
+			({ substrate }, k: Case<Situation>) =>
+			(c) =>
+				Effect.provideServiceEffect(
 					Effect.scoped(
 						Effect.gen(function* () {
 							const fx = yield* installWrites(build("StampProbes"), "stampprobes", {
@@ -145,8 +101,14 @@ layer(Substrate.layer)("a stamping insert's head probes", (it) => {
 							k.note(c.rows === 1 ? "one row a child" : "several rows a child")
 							k.note(c.head ? "a stored head" : "no head")
 						})
-					)
-			)
-		)
-	)
-})
+					),
+					Substrate,
+					substrate
+				),
+		oracle: { kind: "specification", name: "one probe of the head per child the call stamps" },
+		box: "1, 3 and 10 children of 1 and 4 rows each, over a stored head at each child or none",
+		show: Formatter.format,
+		kept: [],
+		kills: []
+	}
+)
