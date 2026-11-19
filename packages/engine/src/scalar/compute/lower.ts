@@ -377,13 +377,12 @@ const parseRemedy: { readonly [F in ParseForm]: "lexicalForm" | "doubleText" | "
 /**
  * The remedy of a parse whose operand is not proved a member of its form: Compute.matches of the form's pattern
  * (parseRemedy); and for a form whose byte bound cuts its pattern (formOctets), a bound on the operand's bytes at it
- * where the operand's language already lies inside the pattern and octetLength stands, as for a cast into str.bytes.
+ * where the operand's language already lies inside the pattern, as for a cast into str.bytes.
  */
 const lexicalRemedy = (
 	form: ParseForm,
 	operand: Typed,
 	target: ScalarType,
-	mode: LowerEnv["mode"],
 	patterns: PatternAutomata
 ): GuardTest => {
 	const matches: GuardTest = { kind: "matches", pattern: parseRemedy[form] }
@@ -393,7 +392,6 @@ const lexicalRemedy = (
 	if (
 		lexical === undefined ||
 		octets === undefined ||
-		mode === "query" ||
 		regex === undefined ||
 		regex === "wildcard"
 	) {
@@ -416,7 +414,6 @@ const guardTest = (
 	precondition: Precondition,
 	operand: Typed,
 	target: ScalarType,
-	mode: LowerEnv["mode"],
 	patterns: PatternAutomata
 ): GuardTest => {
 	switch (precondition.kind) {
@@ -441,9 +438,9 @@ const guardTest = (
 				? { kind: "within" }
 				: { kind: "typed" }
 		case "language":
-			return languageRemedy(operand, target, mode, patterns)
+			return languageRemedy(operand, target, patterns)
 		case "lexical":
-			return lexicalRemedy(precondition.form, operand, target, mode, patterns)
+			return lexicalRemedy(precondition.form, operand, target, patterns)
 		case "bounded":
 			return { kind: "octets", bytes: regexTextMaxBytes }
 	}
@@ -454,13 +451,11 @@ const guardTest = (
  * operand's bytes are within the target's str.bytes bound, or it has none, its pattern is the shortfall, which
  * Compute.matches of the target's pattern remedies. Where its bytes are the shortfall, a bound on them at the target's
  * bound, Compute.within(Compute.octetLength(x), 0, bytes), remedies it once its pattern lies inside the target's, and
- * the match first where it does not; a byte bound stands only where octetLength does, so in a query only a value of the
- * target's type remedies it.
+ * the match first where it does not, in a query as in a check.
  */
 const languageRemedy = (
 	operand: Typed,
 	target: ScalarType,
-	mode: LowerEnv["mode"],
 	patterns: PatternAutomata
 ): GuardTest => {
 	const refinement = refinementOf(target)
@@ -471,9 +466,6 @@ const languageRemedy = (
 	}
 	if (text.byteBound !== undefined && text.byteBound <= octets) {
 		return { kind: "matches", pattern: "target" }
-	}
-	if (mode === "query") {
-		return { kind: "typed" }
 	}
 	return patternIncludes(textPatterns(text.regex), refinement.patterns, patterns).kind ===
 		"included"
@@ -834,7 +826,7 @@ class Lowering<R extends Refs> {
 					operand: text,
 					guard: guardOf(
 						precondition.kind,
-						guardTest(precondition, named, target, this.env.mode, this.env.patterns),
+						guardTest(precondition, named, target, this.env.patterns),
 						text,
 						operation
 					)
@@ -936,13 +928,14 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * In a query, the refusal of a regex read, `~`, over a text whose pattern does not bound its bytes within
-	 * regexTextMaxBytes: PostgreSQL's regex engine widens its subject to four bytes for every byte before it matches and
-	 * refuses an allocation past 1 GB, and a read never fails on a value. A check or a generated field reads any text,
-	 * and its write fails on a longer one.
+	 * In a query, the refusal of a regex read, `~`, over a text whose bytes are not proved within regexTextMaxBytes
+	 * (typing.ts textBytes, the one proof every mode reads: its type's byte bound, or the enclosing Compute.when that
+	 * bounds Compute.octetLength of it): PostgreSQL's regex engine widens its subject to four bytes for every byte before
+	 * it matches and refuses an allocation past 1 GB, and a read never fails on a value. A check or a generated field
+	 * reads any text, and its write fails on a longer one.
 	 */
 	regexReadable(what: string, subject: Typed, at: SourceLoc): void {
-		const bytes = textOf(subject.nominal)?.byteBound
+		const bytes = textBytes(subject)
 		if (this.env.mode === "query" && (bytes === undefined || bytes > regexTextMaxBytes)) {
 			stop(
 				"UnsupportedOperation",

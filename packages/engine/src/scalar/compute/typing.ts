@@ -1165,7 +1165,9 @@ const signBoundsOver = (
 
 /**
  * The most UTF-8 bytes a text term's value takes: a text literal's own, and any other term's its type's byte bound,
- * none where its type bounds no bytes.
+ * which an enclosing Compute.when(Compute.within(Compute.octetLength(x), 0, bytes), ...) narrows at every occurrence of
+ * x in its branch (WhenScope), none where neither bounds its bytes. It is the one proof of a text's bytes every mode
+ * reads: a `bounded` precondition's (lower.ts), and a query's regex read (lower.ts regexReadable) and translate.
  */
 export const textBytes = (x: Typed): number | undefined => {
 	const literal = nodeLiteral(x.node)
@@ -2350,7 +2352,8 @@ class Typing<R extends Refs> {
 	 * computes text; the term is text of the image of x's language under the map, within the bytes the image of a value
 	 * of x's type takes where its type bounds them (translatedType). PostgreSQL allocates the result for four bytes of
 	 * every byte of x and refuses one past MaxAllocSize, and a read never fails on a value, so a query translates only an
-	 * x whose type bounds its bytes within translateMaxBytes; a check or generated field translates any text, and its
+	 * x whose bytes are proved within translateMaxBytes (textBytes: its type's bound, or the Compute.when bounding its
+	 * octetLength whose branch it stands in); a check or generated field translates any text, and its
 	 * write fails on a longer one. Unanalyzed, the term is text of no pattern.
 	 */
 	translate(
@@ -2373,7 +2376,7 @@ class Typing<R extends Refs> {
 		if (!map.ok) {
 			return stop("MalformedDescription", at, map.error)
 		}
-		const bytes = textOf(x.nominal)?.byteBound
+		const bytes = textBytes(x)
 		if (bytes === undefined || bytes > translateMaxBytes) {
 			this.refusedAt(
 				"query",
@@ -3581,11 +3584,13 @@ class Typing<R extends Refs> {
 				return this.width(arg(0), here)
 			case "charLength":
 			case "octetLength": {
-				this.refusedAt(
-					"query",
-					here,
-					`${desc.fn} in a query: it exists only in contract predicates and row checks, because queries have no text functions`
-				)
+				if (desc.fn === "charLength") {
+					this.refusedAt(
+						"query",
+						here,
+						"charLength in a query: it exists only in contract predicates and row checks, because queries have no text functions"
+					)
+				}
 				const a = this.term(arg(0), here)
 				if (baseOf(a.actual).carrier !== "text") {
 					return stop(

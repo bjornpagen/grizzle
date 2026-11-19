@@ -1045,8 +1045,10 @@ export interface ComputeApi {
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "integer">>
 	/**
-	 * octet_length, the text's UTF-8 bytes; admitted only in contract predicates and row checks, never in a query. A
-	 * contract's octetLength bound bounds the text's bytes in a key exactly.
+	 * octet_length, the text's UTF-8 bytes, total, so admitted everywhere, a query included. A contract's octetLength
+	 * bound bounds the text's bytes in a key exactly, and a guard on it, `Compute.when(Compute.within(Compute.octetLength(x),
+	 * 0, bytes), (n) => ..., otherwise)`, bounds x's bytes in its branch, which is how a query reads an unbounded text by
+	 * Compute.matches or Compute.translate.
 	 */
 	octetLength<A extends TermBase | FirstValue, X, PA, OA>(
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
@@ -1196,7 +1198,10 @@ export interface ComputeApi {
 	 * compiled, and any other term, which can be any text, is refused. A string is no pattern. A match is also a guard:
 	 * Compute.when's branch receives its subject, which compilation reads as text of the pattern's language where the
 	 * pattern is a Pattern, and as it is where it is a term, whose values hold no one language, so the when is then a
-	 * conditional over the match.
+	 * conditional over the match. In a query the subject's bytes are proved within the 268,435,454 PostgreSQL's regex
+	 * engine reads, by its type or by a guard whose branch the match stands in, `Compute.when(Compute.within(
+	 * Compute.octetLength(x), 0, bytes), () => Compute.matches(x, p), false)`, which lowers to CASE, so PostgreSQL reads
+	 * the match only where the guard holds; the answer past the bound is the program's own.
 	 */
 	matches<A extends TermBase | FirstValue, X, PA, OA, V, FA extends Facts, L, const B>(
 		subject: A & First<A, [B]> & Term<X, PA, OA, "text", V, FA, L>,
