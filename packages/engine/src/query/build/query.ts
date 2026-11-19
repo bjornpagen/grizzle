@@ -1,3 +1,4 @@
+import { sameMembers } from "#compiler/core/array.ts"
 import { decoderOf, headingsOf, oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { parseNameCharacters } from "#compiler/core/identity.ts"
@@ -211,10 +212,8 @@ const armGroup = <Head, IHead>(
 
 /** Whether two groups' decoders share a heading: a key set both deliver records of, in rows or in an immediate read. */
 const sharesHeading = (a: Decoders<unknown, unknown>, b: Decoders<unknown, unknown>): boolean => {
-	const same = (x: ReadonlyArray<string>, y: ReadonlyArray<string>): boolean =>
-		x.length === y.length && x.every((key) => y.includes(key))
 	const shared = (x: RowDecoder<unknown>, y: RowDecoder<unknown>): boolean =>
-		headingsOf(x).some((h) => headingsOf(y).some((k) => same(h, k)))
+		headingsOf(x).some((h) => headingsOf(y).some((k) => sameMembers(h, k)))
 	return shared(a.rows, b.rows) || shared(a.immediate, b.immediate)
 }
 

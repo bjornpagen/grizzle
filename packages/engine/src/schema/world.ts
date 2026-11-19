@@ -1,3 +1,4 @@
+import { sameOrder } from "#compiler/core/array.ts"
 import { sameContent } from "#compiler/core/canonical.ts"
 import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
 import { CompileError, ruleRefused } from "#compiler/core/errors.ts"
@@ -755,10 +756,6 @@ const admitLogin = (base: unknown, name: unknown, roles: unknown): LoginDesc => 
 /** The workloads of a login built without options. */
 const noWorkloads: ReadonlyArray<AnyWorkload> = Object.freeze([])
 
-/** Whether two lists hold the same items in the same order. */
-const sameItems = (a: ReadonlyArray<unknown>, b: ReadonlyArray<unknown>): boolean =>
-	a.length === b.length && a.every((item, i) => item === b[i])
-
 /**
  * Whether `value` is the login of `roles` and `workload` the builder below made: a login whose `roles` holds, under each
  * role's name, that role reached through the login, and nothing else, and whose `workload` holds the options'. Its
@@ -774,7 +771,7 @@ const isLoginOf = <
 	roles: Roles,
 	options: LoginOptions<Ws>
 ): value is AnyLogin & Login<Base, Name, Roles, Ws> =>
-	sameItems(value.workload, options[0]?.workload ?? noWorkloads) &&
+	sameOrder(value.workload, options[0]?.workload ?? noWorkloads) &&
 	Object.keys(value.roles).length === roles.length &&
 	roles.every((r) => {
 		const reached = Object.hasOwn(value.roles, r.name) ? value.roles[r.name] : undefined
