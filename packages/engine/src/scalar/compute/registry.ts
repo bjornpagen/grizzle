@@ -17,6 +17,7 @@ import type { OperandIndex, ParseForm, Precondition } from "#compiler/ir/proof.t
 import {
 	type Carrier,
 	carriers,
+	nativeNames,
 	type PatternSource,
 	type SpanCarrier
 } from "#compiler/ir/scalar.ts"
@@ -422,30 +423,14 @@ export type CommonTypeOp = CommonTypeOverload & Extract<Identified, { readonly p
 export type NativeOp = FixedOp | CommonTypeOp
 
 /**
- * PostgreSQL's regtype spelling of a carrier in pg_operator and pg_proc. A closed id's are smallint's, its code's;
- * range operators are polymorphic, and vector's extension-owned.
+ * PostgreSQL's regtype spelling of a carrier in pg_operator and pg_proc: its type's own name (ir/scalar.ts nativeNames),
+ * a closed id's smallint's, its code's, and a range's anyrange, since range operators are polymorphic.
  */
 export const catalogTypeName = {
-	int2: "smallint",
-	int4: "integer",
-	int8: "bigint",
-	numeric: "numeric",
-	float4: "real",
-	float8: "double precision",
-	money: "money",
-	bool: "boolean",
-	uuid: "uuid",
-	date: "date",
-	text: "text",
-	bytes: "bytea",
-	code: "smallint",
-	bits: "bit",
+	...nativeNames,
 	range4: "anyrange",
 	range8: "anyrange",
-	rangeDate: "anyrange",
-	vector: "vector",
-	exactInteger: "numeric",
-	exactMoney: "numeric"
+	rangeDate: "anyrange"
 } as const satisfies { readonly [C in Carrier]: string }
 type CatalogTypeName = (typeof catalogTypeName)[Carrier]
 

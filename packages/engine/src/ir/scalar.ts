@@ -984,7 +984,7 @@ export const isRefined = (t: ScalarType): boolean => {
 }
 
 /** Each carrier's PostgreSQL type name, which typeLabel prints for a carrier of no parameters. */
-export const nativeNames: Readonly<Record<Carrier, string>> = {
+export const nativeNames = {
 	int2: "smallint",
 	int4: "integer",
 	int8: "bigint",
@@ -1005,7 +1005,7 @@ export const nativeNames: Readonly<Record<Carrier, string>> = {
 	vector: "vector",
 	exactInteger: "numeric",
 	exactMoney: "numeric"
-}
+} as const satisfies { readonly [C in Carrier]: string }
 
 /**
  * A text refinement as diagnostics name it: its patterns, and the byte bound str.bytes cuts it to, as

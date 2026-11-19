@@ -7,7 +7,7 @@ import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
 import { deepFreeze, hasProperties } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, InferredFieldDesc, PgScalarName } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
@@ -495,7 +495,7 @@ const pgCarriers = {
 	money: "money",
 	boolean: "bool",
 	date: "date"
-} as const
+} as const satisfies { readonly [N in PgScalarName]: Carrier }
 
 /**
  * The descriptors are built here, frozen, from a decoded FieldDesc and the environment's resolved metadata, so each
