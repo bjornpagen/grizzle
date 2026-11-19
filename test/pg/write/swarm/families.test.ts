@@ -236,7 +236,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 			},
 			{
 				token: ReplayToken(
-					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.p.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.0.2.0.1.1.0.2.1.3.2.0.1.2.0.1.0.0"
+					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:r"
 				),
 				reason:
 					"pantry's importWrite (1ce7c08f, drawn alone by the deleted test/pg/write/stratum-order): R2's rows name R1's rows whole and own R3's, every owner immutable, all in one stratum; one additions statement for R1's and R3's rows could land neither before nor after R2's insert, and the stratum was refused as UnorderableStratum",
@@ -292,7 +292,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 			},
 			{
 				token: ReplayToken(
-					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.1.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.2.2.0.0.2.1.0.2.1.3.2"
+					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.1.0.0.0.0.0.0.0.0.0.h.0.0.0.0.0.0.h.0.0.0.0.0.0.0.0.0.0.0.h.0.0.0.0.0.0.0.0.0.0.0.1.0.2.1.3"
 				),
 				reason:
 					"1bf3dbb: a counted family's or end, its owner inserted beside its members, one member per fact",
@@ -332,7 +332,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 			},
 			{
 				token: ReplayToken(
-					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.h.0.2.2.0.0.1.0.1.1.0"
+					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:s"
 				),
 				reason:
 					"72f7d03: an owner fact stated twice at its key with another v and the same nested member",
@@ -388,7 +388,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 			},
 			{
 				token: ReplayToken(
-					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.1.0.0.0.0.0.0.0.h.0.0.0.0.0.0.0.h.f.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.h.0.0.0.0.2.2.0.1.1.1.0.1.3.0.2.0.1.0.0.0"
+					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:t"
 				),
 				reason:
 					"found: a first counted member inserted under a stored owner whose members copy the owner's generated field dies encoding the edit",
@@ -396,7 +396,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 			},
 			{
 				token: ReplayToken(
-					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.f.0.0.f.0.0.0.0.0.g.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.2.1.0.0.1.0.0.1.1.1.0.1.1.2.3.0"
+					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:u"
 				),
 				reason:
 					"found: an immutable counted member that owns a counted family, inserted beside its own members, once inserted at its empty family's count and max end, which its members' owner axis refuses",
@@ -460,7 +460,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 			},
 			{
 				token: ReplayToken(
-					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.1.0.0.0.0.0.0.0.h.0.0.0.0.0.0.h.h.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.h.0.0.0.0.2.2.0.1.1.1.0.1.0.1.2.1.0.1.0.0"
+					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:v"
 				),
 				reason:
 					"KEYEDWRITE's red (TEST_SEED=3927981720, the rotating stream, case 8), reduced by hand to the two relations it needs, since a shrink with no budget drifted to another failure: R1's counted members copy R0's generated g (g = v) along its owner axis and sum the copy into R0's end; a put of R0's v alone changes g, which the put's cascade carries into the copy, and the refill ahead of it drew the members' running sums from the stored g, so the cascade's row broke the fold's CHECK",

@@ -881,9 +881,10 @@ const inserted = (
 })
 
 /**
- * The swarm cases kept by value that the space reaches beyond toolchain-test keep (none within 790 to 2720 s each),
- * each a real bug the property once caught, recorded beside the space (gen.ts recorded); the cases keep found are kept by
- * their tokens.
+ * The swarm cases kept by value that the space reaches beyond toolchain-test keep, each a real bug the property once
+ * caught, recorded beside the space (gen.ts recorded): 26 keep never found, within 790 to 2720 s each, then five whose
+ * tokens keep had found went stale under 0d63f3740's fill generators, none found again in 1162 s; the one keep finds
+ * again is kept by its token.
  */
 export const recordedSwarmCases: Arr.NonEmptyReadonlyArray<SwarmCase> = [
 	{
@@ -1957,6 +1958,145 @@ export const recordedSwarmCases: Arr.NonEmptyReadonlyArray<SwarmCase> = [
 				plain: [],
 				query: undefined,
 				shape: { split: true, repeat: false }
+			}
+		]
+	},
+	{
+		spec: importWrite([false, false, false, false], importWriteFamilies),
+		steps: [
+			inserted(
+				[
+					{ relation: 0, id: 1, v: 0n, memberOf: [] },
+					{ relation: 1, id: 2, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+					{ relation: 1, id: 3, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+					{ relation: 2, id: 4, v: 0n, memberOf: [] },
+					{ relation: 2, id: 5, v: 1n, memberOf: [] },
+					{ relation: 3, id: 6, v: 0n, memberOf: [{ family: 1, owner: 4, slot: 0 }] },
+					{ relation: 3, id: 7, v: 1n, memberOf: [{ family: 1, owner: 4, slot: 0 }] }
+				],
+				false,
+				undefined
+			)
+		]
+	},
+	{
+		spec: {
+			fill: {
+				relations: [relationFlags(true), relationFlags(true)],
+				families: [{ kind: "ordered", owner: 0, member: 1, fold: "none" }],
+				copies: [],
+				steps: []
+			},
+			ends: [],
+			plains: [],
+			laws: []
+		},
+		steps: [
+			inserted(
+				[
+					{ relation: 0, id: 1, v: 0n, memberOf: [] },
+					{ relation: 1, id: 2, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }
+				],
+				false,
+				1
+			)
+		]
+	},
+	{
+		spec: bare({
+			relations: [
+				{ generated: generationOfV, mutable: true },
+				{ generated: generationOfV, mutable: true }
+			],
+			families: [{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
+			copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
+			steps: []
+		}),
+		steps: [
+			inserted([{ relation: 0, id: 1, v: 2n, memberOf: [] }], true, undefined),
+			{
+				kind: "follow",
+				followUp: {
+					owner: 0,
+					row: 1,
+					put: Option.none(),
+					inserted: [{ relation: 1, id: 2, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }],
+					removed: Option.none(),
+					appended: Option.none(),
+					moved: Option.none()
+				},
+				plain: [],
+				query: undefined,
+				shape: { split: false, repeat: false }
+			}
+		]
+	},
+	{
+		spec: {
+			fill: coreOf(
+				[true, false, true],
+				[
+					{ kind: "counted", owner: 0, member: 1, fold: "none" },
+					{ kind: "counted", owner: 1, member: 2, fold: "none" }
+				],
+				[],
+				[]
+			),
+			ends: [{ family: 1, monoid: "max" }],
+			plains: [],
+			laws: []
+		},
+		steps: [
+			inserted(
+				[
+					{ relation: 0, id: 1, v: 0n, memberOf: [] },
+					{ relation: 1, id: 2, v: 1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+					{ relation: 2, id: 3, v: 2n, memberOf: [{ family: 1, owner: 2, slot: 0 }] },
+					{ relation: 2, id: 4, v: 0n, memberOf: [{ family: 1, owner: 2, slot: 0 }] }
+				],
+				false,
+				undefined
+			)
+		]
+	},
+	{
+		spec: {
+			fill: {
+				relations: [
+					{ generated: generationOfV, mutable: true },
+					{ generated: generationOfV, mutable: true }
+				],
+				families: [{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
+				copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
+				steps: [{ kind: "copy", family: 0, copy: 0 }]
+			},
+			ends: [],
+			plains: [],
+			laws: []
+		},
+		steps: [
+			inserted(
+				[
+					{ relation: 0, id: 1, v: 0n, memberOf: [] },
+					{ relation: 1, id: 2, v: -1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }
+				],
+				false,
+				undefined
+			),
+			{
+				kind: "follow",
+				followUp: {
+					owner: 0,
+					row: 1,
+					put: Option.some(1n),
+					inserted: [],
+					removed: Option.none(),
+					appended: Option.none(),
+					moved: Option.none()
+				},
+				plain: [],
+				query: undefined,
+				shape: { split: false, repeat: false }
 			}
 		]
 	}
