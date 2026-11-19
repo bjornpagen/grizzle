@@ -1,18 +1,17 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
 import { characterOf, element, type Gen, int, map, oneOf, string } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
-import { notesOnly } from "@bjornpagen/testing/sense"
+import { type Case as PropertyCase } from "@bjornpagen/testing/property"
 import { bigint, uuid } from "@bjornpagen/testing/values"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Layer, pipe, Result, String as Str } from "effect"
-import type { LawId } from "#compiler/core/ids.ts"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, pipe, Result, String as Str } from "effect"
+import { Db } from "#adapter/public/db.ts"
+import { type LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { ChangeSet, type Law, type Witness } from "#compiler/public/changeset.ts"
+import { Uuid } from "#compiler/public/fields.ts"
 import {
 	Club,
 	Clubs,
@@ -26,23 +25,20 @@ import {
 	Seats,
 	seatsLaw
 } from "#test/pg/laws/outcomes/schemas.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
-import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
-import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
-
-import { regex } from "arkregex"
-import { Db } from "#adapter/public/db.ts"
-import { Uuid } from "#compiler/public/fields.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { refusedLaws } from "#test/support/refused.ts"
-const member = (n: number): IdValue =>
-	Id(`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`)
 import { answered } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
+import { type Installed, type Generated } from "#test/support/install-migrate.ts"
+import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
+import { refusedLaws } from "#test/support/refused.ts"
+import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
+import { type RawSession } from "#test/support/substrate/session.ts"
+import { Substrate, worldSession, type SubstrateCase } from "#test/support/substrate/substrate.ts"
+import { withLayer } from "#test/support/with-layer.ts"
+
+const member = (n: number): IdValue =>
+	Id(`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`)
 
 /** One lawful club with two members, the first its captain. */
 const clubFacts = {
@@ -78,15 +74,6 @@ const clubInstall = {
 		insertClubMembers: ChangeSet.empty(Clubs).insert(Club, []).insert(Member, [])
 	}
 } as const
-
-/** Runs `body` with the services `layer` builds, which are released when `body` ends. */
-const withLayer = <A, E, R, ROut, E2>(
-	body: Effect.Effect<A, E, R>,
-	provided: Layer.Layer<ROut, E2>
-): Effect.Effect<A, E | E2, Exclude<R, ROut>> =>
-	Effect.scoped(
-		Effect.flatMap(Layer.build(provided), (services) => Effect.provideContext(body, services))
-	)
 
 /** PostgreSQL's fields of a failure a server raised; any other failure is a defect of the test. */
 const serverFields = (error: unknown): PgErrorFields =>
@@ -169,7 +156,7 @@ const clubKeyGen: Gen<ClubKey> = (source) => ({
  * past the refinement's twenty characters (the text refinement domain), and a member of the stored club whose code is
  * past them (the same domain, Member's code its own law).
  */
-type NativeCase =
+export type NativeCase =
 	| {
 			readonly kind: "a candidate key"
 			readonly id: IdValue
@@ -208,7 +195,7 @@ const freshIdGen = (lead: "e" | "f"): Gen<IdValue> =>
 const freshEmailGen = (domain: "org" | "net"): Gen<string> =>
 	matching(regex(`^[a-z]{4,12}@example\\.${domain}$`))
 
-const nativeCaseGen: Gen<NativeCase> = oneOf<NativeCase>([
+export const nativeCaseGen: Gen<NativeCase> = oneOf<NativeCase>([
 	(source) => ({
 		kind: "a candidate key",
 		id: source.draw(freshIdGen("f")),
@@ -251,7 +238,7 @@ const nativeCaseGen: Gen<NativeCase> = oneOf<NativeCase>([
 	})
 ])
 
-type NativeFeature = `refused by ${NativeCase["kind"]}`
+export type NativeFeature = `refused by ${NativeCase["kind"]}`
 
 /** A club's row as its INSERT's parameters, its region as the code `code` gives its handle. */
 const club = (
@@ -278,260 +265,217 @@ const club = (
  * The expected outcome is stated from the drawn values alone; the classifier that maps a server error to it is never
  * read. The oracle is the specification turned into a checker: each kind's constraint, read through the naming door.
  */
-export const witnessSuite = (): void => {
-	layer(Substrate.layer)("what a law's refusal names, against PostgreSQL 19", (it) => {
-		it.effect(
-			"statement-time native violations are raised under their law's constraint, and a served write reports the law",
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const o = yield* installed(Clubs, clubFacts, clubInstall)
-						const q = quoteIdent(o.installed.schema)
-						const insertMember = `INSERT INTO ${q}."member" ("id", "region", "number", "code", "email", "captain") VALUES ($1::uuid, $2::smallint, $3::bigint, $4::text, $5::text, $6::boolean)`
-						const insertCaptains = `INSERT INTO ${q}."member" ("id", "region", "number", "code", "email", "captain") VALUES ($1::uuid, $2::smallint, $3::bigint, $4::text, $5::text, true), ($6::uuid, $2::smallint, $3::bigint, $4::text, $7::text, true)`
-						const insertClub = `INSERT INTO ${q}."club" ("region", "number", "code", "seats") VALUES ($1::smallint, $2::bigint, $3::text, $4::integer)`
-						/** A region's code, as the installation numbers its roster: a closed id is stored as its code. */
-						const regions = defined(
-							o.installed.names.codes.rosters.get(parsedName("Region")),
-							"the codes of Region"
-						)
-						const region = (handle: ClubKey["region"]): string => String(codeOf(regions, handle))
-						/** The contract's domain CHECK, read through the naming door. */
-						const seats = clubs.contract("Seats")
-						if (seats.kind !== "checked") {
-							return assert.fail("Seats is a checked contract")
-						}
-						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.served.login.roles.app, {})
-							const writer = yield* s.session({
-								...worldSession(o.installed.world(o.app)),
-								label: "writer"
-							})
-							/**
-							 * What each case provokes as the writer, the constraint PostgreSQL must raise it under, and the same
-							 * change through a served write with the outcome it must have.
-							 */
-							const provoked = (k: NativeCase) => {
-								switch (k.kind) {
-									case "a candidate key":
-									case "a selected side's UNIQUE": {
-										const fact = {
-											id: k.id,
-											region: "North" as const,
-											number: 1n,
-											code: "alpha",
-											email: k.email,
-											captain: k.kind === "a selected side's UNIQUE"
-										}
-										const law = k.kind === "a candidate key" ? memberKey : clubs.lawOf(captainKey)
-										return {
-											sql: insertMember,
-											params: [
-												fact.id,
-												region(fact.region),
-												"1",
-												fact.code,
-												fact.email,
-												String(fact.captain)
-											],
-											sqlstate: sqlstates.uniqueViolation,
-											/** The key's UNIQUE, a field's or a selected side's law columns', read through the naming door. */
-											constraint: clubs.constraintOf(law, "Unique"),
-											expected: refusedBy(
-												o.installed,
-												law,
-												k.kind === "a candidate key"
-													? { kind: "key", relation: "Member", values: { email: k.email } }
-													: {
-															kind: "key",
-															relation: "Member",
-															values: { region: "North", number: 1n, code: "alpha" }
-														}
-											),
-											applied: answered(
-												db.workload.insertMember.once({
-													params: {},
-													facts: { insert: { Member: [fact] } }
-												})
-											)
-										}
-									}
-									case "a selected side's UNIQUE within one input": {
-										/** Two captains of a new club the same ChangeSet inserts: a pair no stored fact meets. */
-										const captainOf = (id: IdValue, email: string) => ({
-											id,
-											...k.club,
-											email,
-											captain: true
-										})
-										const law = clubs.lawOf(captainKey)
-										return {
-											sql: insertCaptains,
-											params: [
-												k.ids[0],
-												region("North"),
-												"1",
-												"alpha",
-												k.emails[0],
-												k.ids[1],
-												k.emails[1]
-											],
-											sqlstate: sqlstates.uniqueViolation,
-											constraint: clubs.constraintOf(law, "Unique"),
-											expected: refusedBy(o.installed, law, {
-												kind: "key",
-												relation: "Member",
-												values: { region: k.club.region, number: k.club.number, code: k.club.code }
-											}),
-											applied: answered(
-												db.workload.insertClubMembers.once({
-													params: {},
-													facts: {
-														insert: {
-															Club: [{ ...k.club, seats: Seats(10) }],
-															Member: [
-																captainOf(k.ids[0], k.emails[0]),
-																captainOf(k.ids[1], k.emails[1])
-															]
-														}
-													}
-												})
-											)
-										}
-									}
-									case "a text refinement domain another relation shares": {
-										/** A member of the stored club past the refinement Club's code shares with it. */
-										const fact = {
-											id: k.id,
-											region: "North" as const,
-											number: 1n,
-											code: k.code,
-											email: k.email,
-											captain: false
-										}
-										return {
-											sql: insertMember,
-											params: [fact.id, region(fact.region), "1", fact.code, fact.email, "false"],
-											sqlstate: sqlstates.checkViolation,
-											constraint: undefined,
-											/** The member the ChangeSet states breaks Member's code, which the host names. */
-											expected: refusedBy(o.installed, memberCodeLaw, {
-												kind: "key",
-												relation: "Member",
-												values: { id: k.id }
-											}),
-											applied: answered(
-												db.workload.insertMember.once({
-													params: {},
-													facts: { insert: { Member: [fact] } }
-												})
-											)
-										}
-									}
-									case "a table CHECK":
-									case "a contract domain":
-									case "a text refinement domain": {
-										const seatsValue = k.kind === "a text refinement domain" ? 10 : k.seats
-										const law =
-											k.kind === "a table CHECK"
-												? positiveSeats
-												: k.kind === "a contract domain"
-													? seatsLaw
-													: clubCodeLaw
-										return {
-											sql: insertClub,
-											params: club(k.club, seatsValue, region),
-											sqlstate: sqlstates.checkViolation,
-											/** A table CHECK's and a domain's CHECK, read through the naming door. */
-											constraint:
-												k.kind === "a table CHECK"
-													? clubs.constraintOf(law, "TableCheck")
-													: k.kind === "a contract domain"
-														? seats.constraint
-														: undefined,
-											/** The club the ChangeSet states is the row that breaks the law, which the host names. */
-											expected: refusedBy(o.installed, law, {
-												kind: "key",
-												relation: "Club",
-												values: { region: k.club.region, number: k.club.number, code: k.club.code }
-											}),
-											/**
-											 * Outside the contract or the refinement through the unchecked brand constructor, or a
-											 * code of this language read as any string: only PostgreSQL checks them.
-											 */
-											applied: answered(
-												db.workload.insertClub.once({
-													params: {},
-													facts: { insert: { Club: [{ ...k.club, seats: Seats(seatsValue) }] } }
-												})
-											)
-										}
-									}
-								}
-							}
-							return yield* explore(
-								{
-									suite: "laws/witness/native",
-									draw: drawn(nativeCaseGen),
-									literal: Formatter.format,
-									oracle: {
-										kind: "postgresql",
-										name: "each kind's constraint, read through the naming door, as PostgreSQL raises it, and the outcome a served write must report"
-									},
-									kept: [
-										{
-											note: "qti-pie's shape: one pattern source in two relations, Club's code and Member's code, one domain PostgreSQL names alike; a member's code past it is refused by Member's code's law, never Club's",
-											sketch: {
-												kind: "a text refinement domain another relation shares",
-												id: member(9),
-												email: "kept@example.org",
-												code: "abcdefghijklmnopqrstu"
-											},
-											draws: "",
-											reaches: ["refused by a text refinement domain another relation shares"]
-										}
-									],
-									runs: 60,
-									shrink: { kind: "bounded", candidates: 100 },
-									steerEvery: 16,
-									coverage: required<NativeFeature>(
-										[
-											"refused by a candidate key",
-											"refused by a selected side's UNIQUE",
-											"refused by a selected side's UNIQUE within one input",
-											"refused by a table CHECK",
-											"refused by a contract domain",
-											"refused by a text refinement domain",
-											"refused by a text refinement domain another relation shares"
-										],
-										{ cases: 60, sense: notesOnly }
-									),
-									caseHang
-								},
-								(k, c) =>
-									Effect.gen(function* () {
-										const p = provoked(k)
-										yield* writer.begin
-										const failure = yield* failingStatement(writer, p.sql, p.params)
-										assert.equal(failure.code, p.sqlstate, k.kind)
-										if (p.constraint !== undefined) {
-											assert.equal(failure.constraint, p.constraint, k.kind)
-										}
-										const applied = yield* Effect.result(p.applied)
-										assert.ok(Result.isSuccess(applied), k.kind)
-										const outcome = applied.success
-										assert.ok(outcome.kind === "refused", `${k.kind}: ${outcome.kind}`)
-										assert.equal(outcome.refused.kind, "every", k.kind)
-										assert.deepEqual(refusedLaws(outcome.refused), p.expected.laws, k.kind)
-										assert.deepEqual(outcome.witness, p.expected.witness, k.kind)
-										c.note(`refused by ${k.kind}`)
-									})
-							)
-						}).pipe(Effect.scoped, (body) => withLayer(body, o.served.layer))
-					}).pipe(Effect.scoped)
-				)
+export const nativeCase = (
+	taken: SubstrateCase<Generated>,
+	k: NativeCase,
+	c: PropertyCase<NativeFeature>
+) =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const o = yield* openedIn(Clubs, clubFacts, clubInstall, taken)
+		const q = quoteIdent(o.installed.schema)
+		const insertMember = `INSERT INTO ${q}."member" ("id", "region", "number", "code", "email", "captain") VALUES ($1::uuid, $2::smallint, $3::bigint, $4::text, $5::text, $6::boolean)`
+		const insertCaptains = `INSERT INTO ${q}."member" ("id", "region", "number", "code", "email", "captain") VALUES ($1::uuid, $2::smallint, $3::bigint, $4::text, $5::text, true), ($6::uuid, $2::smallint, $3::bigint, $4::text, $7::text, true)`
+		const insertClub = `INSERT INTO ${q}."club" ("region", "number", "code", "seats") VALUES ($1::smallint, $2::bigint, $3::text, $4::integer)`
+		/** A region's code, as the installation numbers its roster: a closed id is stored as its code. */
+		const regions = defined(
+			o.installed.names.codes.rosters.get(parsedName("Region")),
+			"the codes of Region"
 		)
+		const region = (handle: ClubKey["region"]): string => String(codeOf(regions, handle))
+		/** The contract's domain CHECK, read through the naming door. */
+		const seats = clubs.contract("Seats")
+		if (seats.kind !== "checked") {
+			return assert.fail("Seats is a checked contract")
+		}
+
+		return yield* Effect.gen(function* () {
+			const db = yield* Db.open(o.served.login.roles.app, {})
+			const writer = yield* s.session({
+				...worldSession(o.installed.world(o.app)),
+				label: "writer"
+			})
+			/**
+			 * What each case provokes as the writer, the constraint PostgreSQL must raise it under, and the same
+			 * change through a served write with the outcome it must have.
+			 */
+			const provoked = (k: NativeCase) => {
+				switch (k.kind) {
+					case "a candidate key":
+					case "a selected side's UNIQUE": {
+						const fact = {
+							id: k.id,
+							region: "North" as const,
+							number: 1n,
+							code: "alpha",
+							email: k.email,
+							captain: k.kind === "a selected side's UNIQUE"
+						}
+						const law = k.kind === "a candidate key" ? memberKey : clubs.lawOf(captainKey)
+						return {
+							sql: insertMember,
+							params: [
+								fact.id,
+								region(fact.region),
+								"1",
+								fact.code,
+								fact.email,
+								String(fact.captain)
+							],
+							sqlstate: sqlstates.uniqueViolation,
+							/** The key's UNIQUE, a field's or a selected side's law columns', read through the naming door. */
+							constraint: clubs.constraintOf(law, "Unique"),
+							expected: refusedBy(
+								o.installed,
+								law,
+								k.kind === "a candidate key"
+									? { kind: "key", relation: "Member", values: { email: k.email } }
+									: {
+											kind: "key",
+											relation: "Member",
+											values: { region: "North", number: 1n, code: "alpha" }
+										}
+							),
+							applied: answered(
+								db.workload.insertMember.once({
+									params: {},
+									facts: { insert: { Member: [fact] } }
+								})
+							)
+						}
+					}
+					case "a selected side's UNIQUE within one input": {
+						/** Two captains of a new club the same ChangeSet inserts: a pair no stored fact meets. */
+						const captainOf = (id: IdValue, email: string) => ({
+							id,
+							...k.club,
+							email,
+							captain: true
+						})
+						const law = clubs.lawOf(captainKey)
+						return {
+							sql: insertCaptains,
+							params: [k.ids[0], region("North"), "1", "alpha", k.emails[0], k.ids[1], k.emails[1]],
+							sqlstate: sqlstates.uniqueViolation,
+							constraint: clubs.constraintOf(law, "Unique"),
+							expected: refusedBy(o.installed, law, {
+								kind: "key",
+								relation: "Member",
+								values: { region: k.club.region, number: k.club.number, code: k.club.code }
+							}),
+							applied: answered(
+								db.workload.insertClubMembers.once({
+									params: {},
+									facts: {
+										insert: {
+											Club: [{ ...k.club, seats: Seats(10) }],
+											Member: [captainOf(k.ids[0], k.emails[0]), captainOf(k.ids[1], k.emails[1])]
+										}
+									}
+								})
+							)
+						}
+					}
+					case "a text refinement domain another relation shares": {
+						/** A member of the stored club past the refinement Club's code shares with it. */
+						const fact = {
+							id: k.id,
+							region: "North" as const,
+							number: 1n,
+							code: k.code,
+							email: k.email,
+							captain: false
+						}
+						return {
+							sql: insertMember,
+							params: [fact.id, region(fact.region), "1", fact.code, fact.email, "false"],
+							sqlstate: sqlstates.checkViolation,
+							constraint: undefined,
+							/** The member the ChangeSet states breaks Member's code, which the host names. */
+							expected: refusedBy(o.installed, memberCodeLaw, {
+								kind: "key",
+								relation: "Member",
+								values: { id: k.id }
+							}),
+							applied: answered(
+								db.workload.insertMember.once({
+									params: {},
+									facts: { insert: { Member: [fact] } }
+								})
+							)
+						}
+					}
+					case "a table CHECK":
+					case "a contract domain":
+					case "a text refinement domain": {
+						const seatsValue = k.kind === "a text refinement domain" ? 10 : k.seats
+						const law =
+							k.kind === "a table CHECK"
+								? positiveSeats
+								: k.kind === "a contract domain"
+									? seatsLaw
+									: clubCodeLaw
+						return {
+							sql: insertClub,
+							params: club(k.club, seatsValue, region),
+							sqlstate: sqlstates.checkViolation,
+							/** A table CHECK's and a domain's CHECK, read through the naming door. */
+							constraint:
+								k.kind === "a table CHECK"
+									? clubs.constraintOf(law, "TableCheck")
+									: k.kind === "a contract domain"
+										? seats.constraint
+										: undefined,
+							/** The club the ChangeSet states is the row that breaks the law, which the host names. */
+							expected: refusedBy(o.installed, law, {
+								kind: "key",
+								relation: "Club",
+								values: { region: k.club.region, number: k.club.number, code: k.club.code }
+							}),
+							/**
+							 * Outside the contract or the refinement through the unchecked brand constructor, or a
+							 * code of this language read as any string: only PostgreSQL checks them.
+							 */
+							applied: answered(
+								db.workload.insertClub.once({
+									params: {},
+									facts: { insert: { Club: [{ ...k.club, seats: Seats(seatsValue) }] } }
+								})
+							)
+						}
+					}
+				}
+			}
+
+			const p = provoked(k)
+			yield* writer.begin
+			const failure = yield* failingStatement(writer, p.sql, p.params)
+			assert.equal(failure.code, p.sqlstate, k.kind)
+			if (p.constraint !== undefined) {
+				assert.equal(failure.constraint, p.constraint, k.kind)
+			}
+			const applied = yield* Effect.result(p.applied)
+			assert.ok(Result.isSuccess(applied), k.kind)
+			const outcome = applied.success
+			assert.ok(outcome.kind === "refused", `${k.kind}: ${outcome.kind}`)
+			assert.equal(outcome.refused.kind, "every", k.kind)
+			assert.deepEqual(refusedLaws(outcome.refused), p.expected.laws, k.kind)
+			assert.deepEqual(outcome.witness, p.expected.witness, k.kind)
+			c.note(`refused by ${k.kind}`)
+		}).pipe(Effect.scoped, withLayer(o.served.layer))
 	})
-}
+
+export const clubsTemplate = fixtureTemplate(import.meta, Clubs, clubInstall)
+
+/**
+ * The cases kept by value the suite's space draws beyond toolchain-test keep, each a red it once caught, recorded beside
+ * its space (gen.ts recorded).
+ */
+export const recordedNatives: Arr.NonEmptyReadonlyArray<NativeCase> = [
+	{
+		kind: "a text refinement domain another relation shares",
+		id: member(9),
+		email: "kept@example.org",
+		code: "abcdefghijklmnopqrstu"
+	}
+]

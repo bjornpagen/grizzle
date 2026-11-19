@@ -1,6 +1,4 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
 import {
 	array,
 	codePoint,
@@ -12,9 +10,7 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+import { type Case as PropertyCase } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
@@ -22,15 +18,15 @@ import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, generated, pg, Uuid, Vector } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
+import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -154,12 +150,12 @@ const statedGen: Gen<Stated> = (source) => ({
 })
 
 /** A case: one write of one to four accounts, inserted or put. */
-interface Case {
+export interface AccountCase {
 	readonly op: "insert" | "put"
 	readonly accounts: ReadonlyArray<Stated>
 }
 
-const caseGen: Gen<Case> = (source) => ({
+export const accountCaseGen: Gen<AccountCase> = (source) => ({
 	op: source.draw(element(["insert", "put"] as const)),
 	accounts: source.draw(array(statedGen, { min: 1, max: 4 }))
 })
@@ -248,7 +244,7 @@ const brokenBy = (a: Stated): ReadonlySet<Broken> => {
 	return out
 }
 
-type Feature =
+export type AccountFeature =
 	| `refused by ${Broken}`
 	| "accepted"
 	| "witnessed among several breaking accounts"
@@ -272,224 +268,138 @@ type Feature =
  * pattern's domain, which names no column, exactly the pattern laws of the account's fields it refuses, the code's, the
  * alias's or both, in their columns' canonical order; and where it met any other object, one law the account breaks.
  */
-export const hostWitnessSuite = (): void => {
-	layer(Substrate.layer)("a native refusal witnessed on the host, against PostgreSQL 19", (it) => {
-		it.effect(
-			"a refused write names one law its accounts break and the key of an account that breaks it",
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const o = yield* installed(Accounts, {}, { label: "real", programs })
-						const names = namesOf(o.installed)
-						const group = installationGroup(names)
-						return yield* Effect.gen(function* () {
-							const db = yield* Db.open(o.served.login.roles.app, {})
-							return yield* explore(
-								{
-									suite: "laws/witness/host",
-									draw: drawn(caseGen),
-									literal: Formatter.format,
-									oracle: {
-										kind: "specification",
-										name: "each account's rules restated over its drawn fields, and a witness naming an account that breaks the law"
-									},
-									kept: [
-										{
-											note: "a bronze account past its rate beside a gold one whose rate is NULL: the gold row's generated NOT NULL refuses it before WithinRate, so WithinRate's witness is the bronze account",
-											sketch: {
-												op: "insert",
-												accounts: [
-													{ tier: "bronze", units: 400, code: "b", alias: "b", heading: "apart" },
-													{ tier: "gold", units: 0, code: "a", alias: "a", heading: "apart" }
-												]
-											},
-											draws: "",
-											reaches: ["refused by withinRate"]
-										},
-										{
-											note: "qti-pie's shape: one relation whose two fields share one pattern source, the second broken alone, so the refusal names that field and never the other",
-											sketch: {
-												op: "insert",
-												accounts: [
-													{ tier: "bronze", units: 10, code: "a", alias: "A1", heading: "apart" }
-												]
-											},
-											draws: "",
-											reaches: ["refused by alias"]
-										},
-										{
-											note: "both fields of one pattern broken in one account: the domain PostgreSQL names refuses the first column it casts, and the refusal names both fields' laws",
-											sketch: {
-												op: "put",
-												accounts: [
-													{ tier: "silver", units: 5, code: "Q", alias: "", heading: "apart" }
-												]
-											},
-											draws: "",
-											reaches: ["refused by the code and the alias at once"]
-										},
-										{
-											note: "one account breaking Positive and Distinct, two row CHECKs: the host judges both, the vector one over the vectors themselves, so the refusal names both whichever PostgreSQL tried first",
-											sketch: {
-												op: "insert",
-												accounts: [
-													{ tier: "bronze", units: 0, code: "a", alias: "a", heading: "same" }
-												]
-											},
-											draws: "",
-											reaches: ["refused by two row CHECKs at once"]
-										},
-										{
-											note: "a row CHECK over two vectors, the second account's equal: the host judges from <> to over the vectors themselves, so Distinct's witness is that account, never unreported (lane VALUEONE: the host read no vector column, and left every vector check unjudged)",
-											sketch: {
-												op: "insert",
-												accounts: [
-													{ tier: "bronze", units: 10, code: "a", alias: "a", heading: "apart" },
-													{ tier: "silver", units: 20, code: "b", alias: "b", heading: "same" }
-												]
-											},
-											draws: "",
-											reaches: ["refused by distinct"]
-										}
-									],
-									runs: 60,
-									shrink: { kind: "bounded", candidates: 100 },
-									steerEvery: 16,
-									coverage: required<Feature>(
-										[
-											"refused by rate",
-											"refused by units",
-											"refused by positive",
-											"refused by withinRate",
-											"refused by distinct",
-											"refused by code",
-											"refused by alias",
-											"refused by the code and the alias at once",
-											"refused by two row CHECKs at once",
-											"accepted",
-											"witnessed among several breaking accounts"
-										],
-										{ cases: 60, sense: notesOnly }
-									),
-									caseHang
-								},
-								(k, c) =>
-									Effect.gen(function* () {
-										yield* replaceRows(s.admin, group, [])
-										const facts = Arr.map(k.accounts, (a, i) => ({
-											id: idOf(i),
-											tier: a.tier,
-											units: Units(a.units),
-											code: a.code,
-											alias: a.alias,
-											from: east,
-											to: a.heading === "same" ? east : north
-										}))
-										const applied = yield* Effect.result(
-											k.op === "insert"
-												? answered(
-														db.workload.insertAccounts.once({
-															params: {},
-															facts: { insert: { Account: facts } }
-														})
-													)
-												: answered(
-														db.workload.putAccounts.once({
-															params: {},
-															facts: { put: { Account: facts } }
-														})
-													)
-										)
-										assert.ok(Result.isSuccess(applied), "the write is an outcome")
-										const outcome = applied.success
-										const broken = Arr.map(k.accounts, brokenBy)
-										if (Arr.every(broken, (b) => b.size === 0)) {
-											assert.equal(outcome.kind, "accepted")
-											c.note("accepted")
-											return
-										}
-										if (outcome.kind !== "refused") {
-											return assert.fail(
-												`a write that breaks a rule is refused, not ${outcome.kind}`
-											)
-										}
-										assert.equal(
-											outcome.refused.kind,
-											"every",
-											"every account is stated, so the host judges the refused one"
-										)
-										const named: ReadonlyArray<Broken> = Arr.map(
-											refusedLaws(outcome.refused),
-											(law): Broken => {
-												const rule = brokenOf(law)
-												if (rule === undefined) {
-													return assert.fail(
-														`the law ${Formatter.format(law)} is one of the accounts' rules`
-													)
-												}
-												assert.deepEqual(law, lawOf[rule])
-												return rule
-											}
-										)
-										const witness = outcome.witness
-										if (witness.kind !== "key") {
-											return assert.fail("every account is stated, so the host witnesses it")
-										}
-										assert.equal(witness.relation, "Account")
-										const at = Arr.findFirstIndex(facts, (f) => f.id === witness.values["id"])
-										if (Option.isNone(at)) {
-											return assert.fail("the witness is a stated account's key")
-										}
-										const breaks = defined(broken[at.value], "the witnessed account's rules")
-										const patterns = Arr.filter(named, (rule) => Arr.contains(patternRules, rule))
-										const checks = Arr.filter(named, (rule) => Arr.contains(checkRules, rule))
-										if (checks.length > 0) {
-											assert.deepEqual(
-												Arr.sort(named, Order.String),
-												Arr.sort(
-													Arr.filter(checkRules, (rule) => breaks.has(rule)),
-													Order.String
-												),
-												"a row CHECK's refusal names every row CHECK's law the witnessed account breaks"
-											)
-											if (checks.length > 1) {
-												c.note("refused by two row CHECKs at once")
-											}
-										} else if (patterns.length === 0) {
-											assert.equal(named.length, 1, "one law")
-											assert.ok(
-												Arr.every(named, (rule) => breaks.has(rule)),
-												"the witnessed account breaks the law"
-											)
-										} else {
-											assert.deepEqual(
-												named,
-												Arr.sortWith(
-													Arr.filter(patternRules, (rule) => breaks.has(rule)),
-													(rule) => names.columnIdent(Account, rule),
-													Order.String
-												),
-												"the pattern's domain names exactly the witnessed account's fields it refuses, in their columns' canonical order"
-											)
-											if (patterns.length > 1) {
-												c.note("refused by the code and the alias at once")
-											}
-										}
-										for (const rule of named) {
-											c.note(`refused by ${rule}`)
-										}
-										if (
-											Arr.filter(broken, (b) => Arr.some(named, (rule) => b.has(rule))).length > 1
-										) {
-											c.note("witnessed among several breaking accounts")
-										}
-									})
-							)
-						}).pipe(Effect.scoped, withLayer(o.served.layer))
-					}).pipe(Effect.scoped)
+export const hostCase = (
+	taken: SubstrateCase<Generated>,
+	k: AccountCase,
+	c: PropertyCase<AccountFeature>
+) =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const o = yield* openedIn(Accounts, {}, accountsInstall, taken)
+		const names = namesOf(o.installed)
+		const group = installationGroup(names)
+
+		return yield* Effect.gen(function* () {
+			const db = yield* Db.open(o.served.login.roles.app, {})
+
+			yield* replaceRows(s.admin, group, [])
+			const facts = Arr.map(k.accounts, (a, i) => ({
+				id: idOf(i),
+				tier: a.tier,
+				units: Units(a.units),
+				code: a.code,
+				alias: a.alias,
+				from: east,
+				to: a.heading === "same" ? east : north
+			}))
+			const applied = yield* Effect.result(
+				k.op === "insert"
+					? answered(
+							db.workload.insertAccounts.once({
+								params: {},
+								facts: { insert: { Account: facts } }
+							})
+						)
+					: answered(
+							db.workload.putAccounts.once({
+								params: {},
+								facts: { put: { Account: facts } }
+							})
+						)
+			)
+			assert.ok(Result.isSuccess(applied), "the write is an outcome")
+			const outcome = applied.success
+			const broken = Arr.map(k.accounts, brokenBy)
+			if (Arr.every(broken, (b) => b.size === 0)) {
+				assert.equal(outcome.kind, "accepted")
+				c.note("accepted")
+				return
+			}
+			if (outcome.kind !== "refused") {
+				return assert.fail(`a write that breaks a rule is refused, not ${outcome.kind}`)
+			}
+			assert.equal(
+				outcome.refused.kind,
+				"every",
+				"every account is stated, so the host judges the refused one"
+			)
+			const named: ReadonlyArray<Broken> = Arr.map(refusedLaws(outcome.refused), (law): Broken => {
+				const rule = brokenOf(law)
+				if (rule === undefined) {
+					return assert.fail(`the law ${Formatter.format(law)} is one of the accounts' rules`)
+				}
+				assert.deepEqual(law, lawOf[rule])
+				return rule
+			})
+			const witness = outcome.witness
+			if (witness.kind !== "key") {
+				return assert.fail("every account is stated, so the host witnesses it")
+			}
+			assert.equal(witness.relation, "Account")
+			const at = Arr.findFirstIndex(facts, (f) => f.id === witness.values["id"])
+			if (Option.isNone(at)) {
+				return assert.fail("the witness is a stated account's key")
+			}
+			const breaks = defined(broken[at.value], "the witnessed account's rules")
+			const patterns = Arr.filter(named, (rule) => Arr.contains(patternRules, rule))
+			const checks = Arr.filter(named, (rule) => Arr.contains(checkRules, rule))
+			if (checks.length > 0) {
+				assert.deepEqual(
+					Arr.sort(named, Order.String),
+					Arr.sort(
+						Arr.filter(checkRules, (rule) => breaks.has(rule)),
+						Order.String
+					),
+					"a row CHECK's refusal names every row CHECK's law the witnessed account breaks"
 				)
-		)
+				if (checks.length > 1) {
+					c.note("refused by two row CHECKs at once")
+				}
+			} else if (patterns.length === 0) {
+				assert.equal(named.length, 1, "one law")
+				assert.ok(
+					Arr.every(named, (rule) => breaks.has(rule)),
+					"the witnessed account breaks the law"
+				)
+			} else {
+				assert.deepEqual(
+					named,
+					Arr.sortWith(
+						Arr.filter(patternRules, (rule) => breaks.has(rule)),
+						(rule) => names.columnIdent(Account, rule),
+						Order.String
+					),
+					"the pattern's domain names exactly the witnessed account's fields it refuses, in their columns' canonical order"
+				)
+				if (patterns.length > 1) {
+					c.note("refused by the code and the alias at once")
+				}
+			}
+			for (const rule of named) {
+				c.note(`refused by ${rule}`)
+			}
+			if (Arr.filter(broken, (b) => Arr.some(named, (rule) => b.has(rule))).length > 1) {
+				c.note("witnessed among several breaking accounts")
+			}
+		}).pipe(Effect.scoped, withLayer(o.served.layer))
 	})
-}
+
+/** Accounts with its programs, installed once per member as a read fixture, where the suite installed it. */
+const accountsInstall = { label: "real", programs } as const
+
+export const accountsTemplate = fixtureTemplate(import.meta, Accounts, accountsInstall)
+
+/**
+ * The cases kept by value the suite's space draws beyond toolchain-test keep, each a red it once caught, recorded beside
+ * its space (gen.ts recorded).
+ */
+export const recordedAccounts: Arr.NonEmptyReadonlyArray<AccountCase> = [
+	{
+		op: "insert",
+		accounts: [{ tier: "bronze", units: 10, code: "a", alias: "A1", heading: "apart" }]
+	},
+	{
+		op: "put",
+		accounts: [{ tier: "silver", units: 5, code: "Q", alias: "", heading: "apart" }]
+	}
+]
