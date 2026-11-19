@@ -27,6 +27,7 @@ import type {
 	OperandCore,
 	OperandSelect,
 	OrderItem,
+	PlStatement,
 	RowsProof,
 	Select,
 	SelectBody,
@@ -820,3 +821,26 @@ export const provedSelect = (
 	from: ReadonlyArray<FromItem>,
 	where: Expr | undefined
 ): Select => select(provedCore(rows, targets, from, where))
+
+/**
+ * PERFORM 1 FROM (<query>) AS "found"; IF FOUND THEN <body> END IF: `body` run when `query` returns a row, the query
+ * planned for all its rows (sql/ast.ts PlStatement whenFound), as a probe whose row refuses is, whose rows are none
+ * wherever what it refuses holds. Any query stands under it, its WITH and its set operations included.
+ */
+export const whenFound = (
+	query: OperandSelect,
+	body: NonEmptyReadonlyArray<PlStatement>
+): PlStatement => ({
+	kind: "whenFound",
+	probe: {
+		body: core(
+			[target(lit.int(1, types.integer))],
+			[derived(query, "found", [], false)],
+			undefined
+		),
+		orderBy: [],
+		limit: undefined,
+		offset: undefined
+	},
+	body
+})

@@ -511,7 +511,7 @@ const bodiesOf = (s: PlStatement): ReadonlyArray<PlBody> => {
 			return [
 				{ body: s.body, rebuild: (at, statement) => ({ ...s, body: s.body.with(at, statement) }) }
 			]
-		case "whenAbsent":
+		case "whenFound":
 			return [
 				{
 					body: s.body,

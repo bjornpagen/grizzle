@@ -1126,7 +1126,7 @@ export class Transform {
 				const fn = this.name(s.function, "function")
 				return fn === s.function ? s : { ...s, function: fn }
 			}
-			case "whenAbsent": {
+			case "whenFound": {
 				const probe = this.performQuery(s.probe)
 				const body = mapNonEmptyKept(s.body, (b) => this.plStatement(b))
 				return probe === s.probe && body === s.body ? s : { ...s, probe, body }

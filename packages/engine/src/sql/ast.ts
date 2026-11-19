@@ -1951,9 +1951,16 @@ export type PlStatement =
 	  }
 	| { readonly kind: "perform"; readonly query: PerformQuery }
 	| {
-			/** PERFORM <probe>; IF NOT FOUND THEN <body> END IF: the probe and what its emptiness obliges, one statement,
-			 * so FOUND is read only right after the probe that set it. */
-			readonly kind: "whenAbsent"
+			/**
+			 * PERFORM <probe>; IF FOUND THEN <body> END IF: the probe and what a row of it obliges, one statement, so FOUND
+			 * is read only right after the probe that set it (sql/build.ts whenFound). PostgreSQL plans a PERFORM for every
+			 * row of its query (PostgreSQL 19rc2, src/pl/plpgsql/src/pl_exec.c exec_run_select at 5929-5935, no
+			 * CURSOR_OPT_FAST_PLAN; src/backend/optimizer/plan/planner.c at 485-488, tuple_fraction 0) and an EXISTS
+			 * sublink for its first (src/backend/optimizer/plan/subselect.c make_subplan at 215-216, "just like a LIMIT
+			 * 1"), the plan of a query that returns rows. A probe whose row refuses, a law's violation, returns none
+			 * wherever the law holds, so a first-row plan of it runs to its end.
+			 */
+			readonly kind: "whenFound"
 			readonly probe: PerformQuery
 			readonly body: NonEmptyReadonlyArray<PlStatement>
 	  }

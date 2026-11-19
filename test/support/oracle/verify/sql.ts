@@ -2322,7 +2322,7 @@ class StatementAuditor {
 				this.ident(statement.table, "table", "table")
 				this.objectName(statement.function, "function", "function")
 				return
-			case "whenAbsent":
+			case "whenFound":
 				this.at("probe", () => {
 					embeddedSelect({ kind: "select", with: undefined, ...statement.probe })
 				})

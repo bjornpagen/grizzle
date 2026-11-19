@@ -1460,7 +1460,7 @@ const plStatementsOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<PlState
 				]
 			case "forQuery":
 				return [st, ...plStatementsOf(st.body)]
-			case "whenAbsent":
+			case "whenFound":
 				return [st, ...plStatementsOf(st.body)]
 			case "case":
 				return [st, ...Arr.flatMap(st.whens, (w) => plStatementsOf(w.body))]

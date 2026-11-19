@@ -179,7 +179,7 @@ const statementAt = (depth: number): Gen<PlStatement> =>
 				[
 					1,
 					(s) => ({
-						kind: "whenAbsent",
+						kind: "whenFound",
 						probe: s.draw(performQuery),
 						body: s.draw(nonEmptyStatements(depth - 1))
 					})

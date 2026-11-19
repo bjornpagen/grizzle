@@ -1574,9 +1574,9 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			return out.line(
 				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printTableName({ schema: temporarySchema, name: statement.table })} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`
 			)
-		case "whenAbsent":
+		case "whenFound":
 			performLine(out, statement.probe)
-			out.line("IF NOT FOUND THEN")
+			out.line("IF FOUND THEN")
 			plStatements(out.nested(), statement.body)
 			return out.line("END IF;")
 		case "case": {

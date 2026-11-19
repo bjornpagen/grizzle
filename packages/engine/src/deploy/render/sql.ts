@@ -1,5 +1,6 @@
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import type { Lines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -30,8 +31,8 @@ import {
 	noTransactionMarker,
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
-import type { ColumnDef, ObjectName, PlBlock, SqlStatement } from "#compiler/sql/ast.ts"
-import { cast, exists, lit, tableCol, types } from "#compiler/sql/build.ts"
+import type { ColumnDef, ObjectName, PlBlock, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import { cast, lit, tableCol, types, whenFound } from "#compiler/sql/build.ts"
 import {
 	commandsOf,
 	commented,
@@ -198,6 +199,27 @@ const spellAlteration = (
 		: alteration
 }
 
+/**
+ * A law's violation check, the DO block a migration runs it by: its violation query read whole, SQLSTATE 23000 raised
+ * under the law's identity when it finds a row (sql/build.ts whenFound), as the law function itself raises, so a
+ * violating file rolls back with the law's identity.
+ */
+export const violationCheck = (law: LawId, query: Select): PlBlock => ({
+	declare: [],
+	body: [
+		whenFound(query, [
+			{
+				kind: "raise",
+				message: `law ${law} is violated by existing rows`,
+				using: [
+					{ option: "ERRCODE", value: lit.text("integrity_constraint_violation", types.text) },
+					{ option: "CONSTRAINT", value: lit.text(law, types.text) }
+				]
+			}
+		])
+	]
+})
+
 /** The statements an action drafts, in order, as the file spells them: every action drafts one at least. */
 const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 	switch (action.kind) {
@@ -212,41 +234,13 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 					write: (out) => writeFill(out, action.table, action.fields)
 				}
 			]
-		case "violation": {
-			const block: PlBlock = {
-				declare: [],
-				body: [
-					{
-						kind: "if",
-						branches: [
-							{
-								condition: exists(action.query),
-								body: [
-									{
-										kind: "raise",
-										message: `law ${action.law} is violated by existing rows`,
-										using: [
-											{
-												option: "ERRCODE",
-												value: lit.text("integrity_constraint_violation", types.text)
-											},
-											{ option: "CONSTRAINT", value: lit.text(action.law, types.text) }
-										]
-									}
-								]
-							}
-						],
-						else: []
-					}
-				]
-			}
+		case "violation":
 			return [
 				{
 					above: [`-- The full violation query of law ${action.law}.`],
-					write: (out) => writeDoBlock(out, block)
+					write: (out) => writeDoBlock(out, violationCheck(action.law, action.query))
 				}
 			]
-		}
 		case "analyze":
 			return [oneLine([], `ANALYZE ${printObjectName(action.table)}`)]
 		case "dropStatistics":
@@ -293,9 +287,9 @@ const renderDraft = (out: Lines, draft: Draft): void => {
  *   the placeholder as its default (sql/ast.ts addColumnPlaceholder) or whose ALTER COLUMN ... TYPE takes it as its
  *   USING (sql/ast.ts Using), a field converted in place; then the DROP DEFAULT of each column added at a placeholder,
  *   which follows the reviewer's value;
- * - a violation check: a DO block whose condition is the violation query, raising SQLSTATE 23000 with the law's
- *   identity as the constraint name, as the law function itself does, so a violating Validate file rolls back with the
- *   law's identity;
+ * - a violation check: a DO block that reads the violation query whole and raises when it found a row (sql/build.ts
+ *   whenFound), SQLSTATE 23000 with the law's identity as the constraint name, as the law function itself does, so a
+ *   violating Validate file rolls back with the law's identity;
  * - `ANALYZE <table>` and `DROP STATISTICS <name>`;
  * - a confirm's marker and its statements;
  * - a loss's marker, saying what it loses and how to decide it, above its statement commented the same way.

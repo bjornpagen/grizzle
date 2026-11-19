@@ -161,9 +161,8 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 		},
 		{
 			file: "packages/engine/src/deploy/render/sql.ts",
-			original:
-				'\t\t\t\t\t\t\t\t\t\t\t{ option: "CONSTRAINT", value: lit.text(action.law, types.text) }',
-			replacement: `\t\t\t\t\t\t\t\t\t\t\t{ option: "CONSTRAINT", value: lit.text(\`\${action.law}_elsewhere\`, types.text) }`,
+			original: '\t\t\t\t\t{ option: "CONSTRAINT", value: lit.text(law, types.text) }',
+			replacement: `\t\t\t\t\t{ option: "CONSTRAINT", value: lit.text(\`\${law}_elsewhere\`, types.text) }`,
 			why: "The violation check raises under `<law>_elsewhere` (render/sql.ts), so a broken regroup's refusal names no law of the family."
 		}
 	]
