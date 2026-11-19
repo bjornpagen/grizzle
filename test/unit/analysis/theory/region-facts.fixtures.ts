@@ -8,6 +8,8 @@ import { assert, defined } from "#test/support/assert.ts"
 import {
 	contained,
 	counted,
+	decodedQuery,
+	decodedSchema,
 	f,
 	on,
 	onWhere,
@@ -53,10 +55,17 @@ interface Requirement {
 	readonly target: Selection
 }
 
-/** A stated containment between two plain relations. */
+/** A stated containment of a plain relation into another or into the view V. */
 interface Containment extends Requirement {
 	readonly from: Plain
-	readonly to: Plain
+	readonly to: Plain | "V"
+}
+
+/** A rule of the view V: a plain relation matched with V's k and x its fields `k` and `x`. */
+interface ViewRule {
+	readonly relation: Plain
+	readonly k: Field
+	readonly x: Field
 }
 
 /** A counted family of `member` under `owner`, its group the member's fields `group`, one per field of the owner's key. */
@@ -72,6 +81,8 @@ export interface Box {
 	readonly containments: ReadonlyArray<Containment>
 	readonly family: Family | undefined
 	readonly tree: boolean
+	/** The rules of the derived relation V(k, x), each reading one plain relation; none where no V stands. */
+	readonly view: ReadonlyArray<ViewRule>
 }
 
 const valueGen: Gen<bigint> = (s) => BigInt(s.draw(int(0, 2)))
@@ -121,6 +132,27 @@ const containmentGen: Gen<Containment> = (s) => {
 
 const keyGen: Gen<Arr.NonEmptyReadonlyArray<Field>> = (s) => (s.draw(boolean) ? ["k"] : ["k", "x"])
 
+const viewRuleGen: Gen<ViewRule> = (s) => {
+	const [k, x] = s.draw(shuffled(fields, { min: 2, max: 2 }))
+	return { relation: s.draw(element(plain)), k: defined(k, "V's k"), x: defined(x, "V's x") }
+}
+
+/** A containment of a plain relation into V at one or both of V's fields. */
+const intoViewGen: Gen<Containment> = (s) => {
+	const width = s.draw(int(1, 2))
+	return {
+		from: s.draw(element(plain)),
+		to: "V",
+		left: s.draw(termsGen(width, false)),
+		right: Arr.map(s.draw(shuffled(["k", "x"], { min: width, max: width })), (field) => ({
+			field,
+			pred: false
+		})),
+		source: s.draw(selectionGen),
+		target: every
+	}
+}
+
 const familyGen =
 	(keys: Box["keys"]): Gen<Family> =>
 	(s) => {
@@ -135,11 +167,16 @@ const familyGen =
 
 export const boxGen: Gen<Box> = (s) => {
 	const keys = { A: s.draw(keyGen), B: s.draw(keyGen), C: s.draw(keyGen), D: s.draw(keyGen) }
+	const view = s.draw(boolean) ? s.draw(array(viewRuleGen, { min: 1, max: 2 })) : []
 	return {
 		keys,
-		containments: s.draw(array(containmentGen, { min: 1, max: 5 })),
+		containments: [
+			...s.draw(array(containmentGen, { min: 1, max: 5 })),
+			...(view.length > 0 ? s.draw(array(intoViewGen, { min: 1, max: 2 })) : [])
+		],
 		family: s.draw(boolean) ? s.draw(familyGen(keys)) : undefined,
-		tree: s.draw(boolean)
+		tree: s.draw(boolean),
+		view
 	}
 }
 
@@ -167,9 +204,43 @@ const headingOf = (box: Box, relationName: string): ReadonlyArray<string> =>
 		? ["k", "parent", "at", "n", "start", "end"]
 		: [...fields, ...(box.family?.owner === relationName ? ["n"] : [])]
 
-/** The box's schema: A, B and C of k, x and y, its family's owner also of a drawn n, and, where it stands, the tree T. */
-export const schemaOfBox = (box: Box): SchemaDesc =>
-	schemaOf(
+/** V's definition: each rule a match of its relation at its two fields, delivered as V's k and x. */
+const viewOf = (view: Arr.NonEmptyReadonlyArray<ViewRule>) => ({
+	kind: "derived" as const,
+	name: "V",
+	level: 1,
+	storage: "live" as const,
+	query: decodedQuery({
+		kind: "rules",
+		arms: Arr.map(view, (r) => ({
+			vars: [
+				{ id: "vk", origin: { relation: r.relation, field: r.k } },
+				{ id: "vx", origin: { relation: r.relation, field: r.x } }
+			],
+			matches: [
+				{
+					source: { kind: "relation" as const, name: r.relation },
+					bindings: {
+						[r.k]: { kind: "var" as const, var: "vk" },
+						[r.x]: { kind: "var" as const, var: "vx" }
+					}
+				}
+			],
+			where: [],
+			head: { k: { kind: "var" as const, var: "vk" }, x: { kind: "var" as const, var: "vx" } },
+			interiors: [],
+			attach: []
+		}))
+	})
+})
+
+/**
+ * The box's schema: A to D of k, x and y, its family's owner also of a drawn n, and, where it stands, the tree T, with
+ * every statement among them; and, where V stands, an extension of it declaring V and the containments into V, as a
+ * derived relation is declared above the schema its definition reads.
+ */
+export const schemaOfBox = (box: Box): SchemaDesc => {
+	const base = schemaOf(
 		[
 			...Arr.map(plain, (r) =>
 				relation(
@@ -201,8 +272,9 @@ export const schemaOfBox = (box: Box): SchemaDesc =>
 				: [])
 		],
 		[
-			...Arr.map(box.containments, (c) =>
-				contained(sideOf(c.from, c.left, c.source), sideOf(c.to, c.right, c.target))
+			...Arr.map(
+				Arr.filter(box.containments, (c) => c.to !== "V"),
+				(c) => contained(sideOf(c.from, c.left, c.source), sideOf(c.to, c.right, c.target))
 			),
 			...(box.family === undefined
 				? []
@@ -224,6 +296,19 @@ export const schemaOfBox = (box: Box): SchemaDesc =>
 				: [])
 		]
 	)
+	const view = box.view
+	return !Arr.isReadonlyArrayNonEmpty(view)
+		? base
+		: {
+				name: "T_1",
+				extends: decodedSchema(base),
+				relations: [viewOf(view)],
+				statements: Arr.map(
+					Arr.filter(box.containments, (c) => c.to === "V"),
+					(c) => contained(sideOf(c.from, c.left, c.source), sideOf(c.to, c.right, c.target))
+				)
+			}
+}
 
 /** A row of the box: every field a natural. */
 type Row = Readonly<Record<string, bigint>>
@@ -332,12 +417,13 @@ export const instanceGen =
 			let added = false
 			for (const q of requirements) {
 				const source = defined(rows[q.from], `the rows of ${q.from}`)
-				const target = defined(rows[q.to], `the rows of ${q.to}`)
 				/** The source's rows at the round's start: a tree's source is its target, which the round adds to. */
 				const count = source.length
 				for (let at = 0; at < count; at += 1) {
 					const e = defined(source[at], "a row of the source")
 					const tuple = admits(e, q.source) ? tupleOf(e, q.left) : undefined
+					const target =
+						q.to === "V" ? viewRows(box, rows) : defined(rows[q.to], `the rows of ${q.to}`)
 					if (
 						tuple === undefined ||
 						Arr.some(target, (n) => {
@@ -345,6 +431,25 @@ export const instanceGen =
 							return met !== undefined && sameTuple(met, tuple)
 						})
 					) {
+						continue
+					}
+					if (q.to === "V") {
+						/** A row of V is a row of the relation some rule reads: one drawn rule's, at its two fields. */
+						const rule = defined(box.view[s.draw(int(0, box.view.length - 1))], "a rule of V")
+						const row = rowAt(
+							box,
+							rule.relation,
+							Arr.map(
+								q.right,
+								(t, i) =>
+									[t.field === "k" ? rule.k : rule.x, defined(tuple[i], "a tuple's value")] as const
+							),
+							every
+						)
+						defined(rows[rule.relation], `the rows of ${rule.relation}`).push(
+							defined(row, "a row of a rule's relation, which no selection refuses")
+						)
+						added = true
 						continue
 					}
 					const row = rowAt(
@@ -360,7 +465,7 @@ export const instanceGen =
 					if (row === undefined) {
 						return undefined
 					}
-					target.push(row)
+					defined(rows[q.to], `the rows of ${q.to}`).push(row)
 					added = true
 				}
 			}
@@ -392,14 +497,34 @@ const conjunctHolds = (row: Row, conjunct: ExprDesc): boolean => {
 	return assert.fail(`a selection conjunct the box states: ${Formatter.format(conjunct)}`)
 }
 
-/** The rows of `fact`'s source its selection admits that no row of its target meets at its pairs. */
-export const breaches = (instance: Instance, fact: FieldContainment): ReadonlyArray<Row> =>
-	Arr.filter(
-		instance[fact.from] ?? [],
+/** V's rows over `instance`: each rule's relation's rows at its two fields, as V's k and x. */
+const viewRows = (box: Box, instance: Instance): ReadonlyArray<Row> =>
+	Arr.dedupeWith(
+		Arr.flatMap(box.view, (r) =>
+			Arr.map(instance[r.relation] ?? [], (row) => ({
+				k: defined(row[r.k], "a rule's k"),
+				x: defined(row[r.x], "a rule's x")
+			}))
+		),
+		sameRow
+	)
+
+/** The rows of `fact`'s source its selection admits that no row of its target meets at its pairs, V's rows its
+ * definition's over the instance. */
+export const breaches = (
+	box: Box,
+	instance: Instance,
+	fact: FieldContainment
+): ReadonlyArray<Row> => {
+	const rowsOf = (name: string): ReadonlyArray<Row> =>
+		name === "V" ? viewRows(box, instance) : (instance[name] ?? [])
+	return Arr.filter(
+		rowsOf(fact.from),
 		(e) =>
 			Arr.every(fact.selection, (c) => conjunctHolds(e, c)) &&
-			!Arr.some(instance[fact.to] ?? [], (n) => Arr.every(fact.pairs, (p) => n[p.to] === e[p.from]))
+			!Arr.some(rowsOf(fact.to), (n) => Arr.every(fact.pairs, (p) => n[p.to] === e[p.from]))
 	)
+}
 
 /** The situations a case reaches. */
 export type Feature =
@@ -410,6 +535,8 @@ export type Feature =
 	| "a composition of three containments"
 	| "a family's group into its owner's key"
 	| "a tree's parent into its starts"
+	| "a derived relation into the relation its every rule reads"
+	| "a containment into a derived relation composed into a relation it reads"
 
 /** A pair of a source's field and a target's. */
 interface Pair {
@@ -423,22 +550,31 @@ const pairsOf = (q: Requirement): ReadonlyArray<Pair> | undefined =>
 		? undefined
 		: Arr.map(q.left, (t, i) => ({ from: t.field, to: defined(q.right[i], "a paired term").field }))
 
-/** Whether `fact` is requirement `q` read at its pairs, each in its place. */
-const readsAt = (fact: FieldContainment, q: Requirement): boolean => {
-	const pairs = pairsOf(q)
-	return (
-		pairs !== undefined &&
-		fact.from === q.from &&
-		fact.to === q.to &&
-		fact.pairs.length === pairs.length &&
-		Arr.every(fact.pairs, (p, i) => {
-			const q = pairs[i]
-			return q !== undefined && p.from === q.from && p.to === q.to
-		})
-	)
+/** A fact as the closures below read it: its relations, whether its source is selected, and its pairs. */
+interface Held {
+	readonly from: string
+	readonly to: string
+	readonly selected: boolean
+	readonly pairs: ReadonlyArray<Pair>
 }
 
-/** A fact's relations and pairs as text, by which the closure below holds each once. */
+/** V into each plain relation every rule of V reads, at the fields every rule reads alike. */
+const viewFacts = (box: Box): ReadonlyArray<Held> =>
+	Arr.flatMap(plain, (n) => {
+		if (box.view.length === 0 || !Arr.every(box.view, (r) => r.relation === n)) {
+			return []
+		}
+		const pairs = Arr.filter(
+			[
+				{ from: "k", to: defined(box.view[0], "a rule of V").k },
+				{ from: "x", to: defined(box.view[0], "a rule of V").x }
+			],
+			(p) => Arr.every(box.view, (r) => (p.from === "k" ? r.k : r.x) === p.to)
+		)
+		return pairs.length > 0 ? [{ from: "V", to: n, selected: false, pairs }] : []
+	})
+
+/** A fact's relations and pairs as text, by which the closures below hold each once. */
 const factText = (from: string, to: string, pairs: ReadonlyArray<Pair>): string =>
 	`${from}>${to}:${Arr.join(
 		Arr.map(pairs, (p) => `${p.from}=${p.to}`),
@@ -446,58 +582,27 @@ const factText = (from: string, to: string, pairs: ReadonlyArray<Pair>): string 
 	)}`
 
 /**
- * The facts of `box` composed only where a first containment reaches every pair of a second, never projected: the
- * closure the engine would hold without projections, against which a fact it holds is one a projection made.
+ * The fewest of `box`'s containments each fact composes from, by its text, a fact of level n one of level n − 1
+ * composed with a stated one: the closure the engine holds where `project` and `view` say so, and without its
+ * projections, or without V's own containments, where they do not, against which a fact the engine holds is one that
+ * a projection or V made.
  */
-const unprojected = (box: Box): ReadonlySet<string> => {
-	const stated = Arr.flatMap(requirementsOf(box), (q) => {
-		const pairs = pairsOf(q)
-		return pairs === undefined
-			? []
-			: [{ from: q.from, to: q.to, selected: q.source.kind !== "every", pairs }]
-	})
-	const held = Arr.copy(stated)
-	for (let at = 0; at < held.length; at += 1) {
-		const first = defined(held[at], "a held fact")
-		for (const second of stated) {
-			if (first.to !== second.from || second.selected) {
-				continue
-			}
-			const pairs = Arr.flatMap(second.pairs, (p) =>
-				Option.match(
-					Arr.findFirst(first.pairs, (x) => x.to === p.from),
-					{ onNone: () => [], onSome: (q) => [{ from: q.from, to: p.to }] }
-				)
-			)
-			const text = factText(first.from, second.to, pairs)
-			if (
-				pairs.length === second.pairs.length &&
-				!Arr.some(held, (h) => factText(h.from, h.to, h.pairs) === text)
-			) {
-				held.push({ from: first.from, to: second.to, selected: first.selected, pairs })
-			}
-		}
-	}
-	return new Set(Arr.map(held, (h) => factText(h.from, h.to, h.pairs)))
-}
-
-/**
- * The fewest of `box`'s containments each fact composes from, by its text: the closure the engine holds, projections
- * among it, read level by level, a fact of level n one of level n − 1 composed with a stated one.
- */
-const depths = (box: Box): ReadonlyMap<string, number> => {
-	const stated = Arr.flatMap(requirementsOf(box), (q) => {
-		const pairs = pairsOf(q)
-		return pairs === undefined
-			? []
-			: [{ from: q.from, to: q.to, selected: q.source.kind !== "every", pairs }]
-	})
+const closure = (box: Box, project: boolean, view: boolean): ReadonlyMap<string, number> => {
+	const stated: ReadonlyArray<Held> = [
+		...Arr.flatMap(requirementsOf(box), (q) => {
+			const pairs = pairsOf(q)
+			return pairs === undefined
+				? []
+				: [{ from: q.from, to: q.to, selected: q.source.kind !== "every", pairs }]
+		}),
+		...(view ? viewFacts(box) : [])
+	]
 	const depth = new Map<string, number>(
 		Arr.map(stated, (c) => [factText(c.from, c.to, c.pairs), 1])
 	)
 	let level = stated
 	for (let n = 2; level.length > 0; n += 1) {
-		const next: Array<(typeof stated)[number]> = []
+		const next: Array<Held> = []
 		for (const first of level) {
 			for (const second of stated) {
 				if (first.to !== second.from || second.selected) {
@@ -510,7 +615,11 @@ const depths = (box: Box): ReadonlyMap<string, number> => {
 					)
 				)
 				const text = factText(first.from, second.to, pairs)
-				if (pairs.length > 0 && !depth.has(text)) {
+				if (
+					pairs.length > 0 &&
+					(project || pairs.length === second.pairs.length) &&
+					!depth.has(text)
+				) {
 					depth.set(text, n)
 					next.push({ from: first.from, to: second.to, selected: first.selected, pairs })
 				}
@@ -521,33 +630,56 @@ const depths = (box: Box): ReadonlyMap<string, number> => {
 	return depth
 }
 
+/** Whether `fact` is `held` read at its pairs, each in its place. */
+const readsAt = (fact: FieldContainment, held: Held): boolean =>
+	fact.from === held.from &&
+	fact.to === held.to &&
+	fact.pairs.length === held.pairs.length &&
+	Arr.every(fact.pairs, (p, i) => {
+		const q = held.pairs[i]
+		return q !== undefined && p.from === q.from && p.to === q.to
+	})
+
 /** The situation `fact` reaches over `box`'s statements. */
 export const featureOf = (box: Box, fact: FieldContainment): Feature => {
 	if (fact.from === "T" && fact.to === "T") {
 		return "a tree's parent into its starts"
 	}
+	if (fact.from === "V") {
+		return "a derived relation into the relation its every rule reads"
+	}
+	const heldOf = (q: Requirement): ReadonlyArray<Held> => {
+		const pairs = pairsOf(q)
+		return pairs === undefined ? [] : [{ from: q.from, to: q.to, selected: false, pairs }]
+	}
 	const family = box.family
 	if (
 		family !== undefined &&
-		readsAt(fact, {
-			from: family.member,
-			to: family.owner,
-			left: Arr.map(family.group, (field) => ({ field, pred: false })),
-			right: Arr.map(box.keys[family.owner], (field) => ({ field, pred: false })),
-			source: every,
-			target: every
-		})
+		Arr.some(
+			heldOf({
+				from: family.member,
+				to: family.owner,
+				left: Arr.map(family.group, (field) => ({ field, pred: false })),
+				right: Arr.map(box.keys[family.owner], (field) => ({ field, pred: false })),
+				source: every,
+				target: every
+			}),
+			(h) => readsAt(fact, h)
+		)
 	) {
 		return "a family's group into its owner's key"
 	}
-	if (Arr.some(box.containments, (c) => readsAt(fact, c))) {
+	if (Arr.some(Arr.flatMap(box.containments, heldOf), (h) => readsAt(fact, h))) {
 		return "a stated containment"
 	}
 	const text = factText(fact.from, fact.to, fact.pairs)
-	if ((depths(box).get(text) ?? 0) >= 3) {
+	if (!closure(box, true, false).has(text)) {
+		return "a containment into a derived relation composed into a relation it reads"
+	}
+	if ((closure(box, true, true).get(text) ?? 0) >= 3) {
 		return "a composition of three containments"
 	}
-	if (!unprojected(box).has(text)) {
+	if (!closure(box, false, true).has(text)) {
 		return "a composition projected onto the pairs its first reaches"
 	}
 	return fact.selection.length > 0

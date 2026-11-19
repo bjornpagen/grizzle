@@ -6,7 +6,8 @@
  * The box: four relations A to D of naturals k, x and y, each keyed by k or by (k, x); one to five containments
  * between two of them, each of one or two pairs, a field of one side paired with any field of the other, a source term a field or its predecessor, either side selected by a
  * field at a value or among two, or not at all; at most one counted family of one under another; and at most a tree T
- * over itself, rooted at k. Each case draws three instances: rows of each relation, each statement's containment then
+ * over itself, rooted at k; and at most a derived relation V(k, x) of one or two rules, each matching one of them at
+ * two of its fields, with one or two containments into it. Each case draws three instances: rows of each relation, each statement's containment then
  * made to hold by adding the target rows it misses.
  *
  * Oracle: the laws themselves. Each instance holds every containment law the theory states, as its violation query
@@ -16,7 +17,8 @@
  *
  * Features: a stated containment read at its pairs; a composition, one projected onto the pairs its first containment
  * reaches, one carrying its first's selection and one of three containments, a chain the closure follows to its end; a
- * family's group into its owner's key; and a tree's parent into its starts.
+ * family's group into its owner's key; a tree's parent into its starts; a derived relation into the relation its every
+ * rule reads; and a containment into a derived relation composed into a relation it reads.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -62,6 +64,8 @@ export const everyContainmentAWholeRulesRegionReadsHoldsInEveryStateTheSchemasCo
 			"a composition projected onto the pairs its first reaches",
 			"a composition carrying its first's selection",
 			"a composition of three containments",
+			"a derived relation into the relation its every rule reads",
+			"a containment into a derived relation composed into a relation it reads",
 			"a family's group into its owner's key",
 			"a tree's parent into its starts"
 		] satisfies ReadonlyArray<Reached<Feature>>,
@@ -78,7 +82,7 @@ export const everyContainmentAWholeRulesRegionReadsHoldsInEveryStateTheSchemasCo
 						`the instance holds every containment law: ${Formatter.format(instance)}`
 					)
 					for (const fact of facts) {
-						const missed = breaches(instance, fact)
+						const missed = breaches(drawn.box, instance, fact)
 						assert.equal(
 							missed.length,
 							0,
@@ -93,6 +97,12 @@ export const everyContainmentAWholeRulesRegionReadsHoldsInEveryStateTheSchemasCo
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\tconst pairs = rest.reduce(",
+				replacement: "\t\tconst pairs = [].reduce(",
+				why: "A derived relation is read into the relation its first rule matches, as if every rule did, so a row of V a second rule derives from another relation is said to stand in the first's, which an instance refutes."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: "\tfor (let at = 0; at < containments.length; at++) {",

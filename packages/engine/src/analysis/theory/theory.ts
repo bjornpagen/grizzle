@@ -490,7 +490,8 @@ class Builder {
 		this.relations = new Map(checked.stored.map((r) => [r.name, r] as const))
 		this.regionFacts = regionFactsOf(
 			checked.closure.statements.map((s) => s.statement),
-			this.relations
+			this.relations,
+			this.definitions
 		)
 	}
 

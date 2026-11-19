@@ -69,7 +69,10 @@ import {
 	type InferredStage,
 	type LiteralDesc,
 	mapExprChildren,
+	type MatchDesc,
+	type QueryDesc,
 	queryParamNames,
+	type RuleDesc,
 	type TermDesc,
 	type VarDesc
 } from "#compiler/ir/desc.ts"
@@ -906,10 +909,66 @@ export interface RegionFacts {
 	readonly containments: ReadonlyArray<FieldContainment>
 }
 
+/**
+ * The containments derived relation `name`'s definition states of it into a relation it reads (`regionFactsOf`): D(F) ⊆
+ * N(G) wherever every rule of its one rules stage matches N, stored or derived, by a match that binds each field of G
+ * to the variable the rule's head delivers at the paired field of F, the pairs every rule's match binds alike. Each row
+ * of D is a rule's fact, derived from a row n of N its match reads, and the rule delivers at each field of F the
+ * variable the match binds at its pair in G, so the row holds at F the values n holds at G. The first rule's matches of
+ * N each start a candidate, which each later rule narrows to the pairs of its match that keeps the most of them; a
+ * definition of another stage, a recursion or an order, states none.
+ */
+const definedOf = (
+	name: string,
+	query: QueryDesc,
+	held: (name: string) => boolean
+): ReadonlyArray<FieldContainment> => {
+	const stage = query.stage
+	if (stage.kind !== "rules") {
+		return []
+	}
+	/** The pairs of D's head fields and N's fields a rule's match `m` binds alike. */
+	const pairsOf = (
+		rule: RuleDesc,
+		m: MatchDesc
+	): ReadonlyArray<{ readonly from: string; readonly to: string }> =>
+		Object.entries(rule.head).flatMap(([from, h]) =>
+			h.kind === "var"
+				? Object.entries(m.bindings).flatMap(([to, b]) =>
+						b.kind === "var" && b.var === h.var ? [{ from, to }] : []
+					)
+				: []
+		)
+	const same = (
+		a: { readonly from: string; readonly to: string },
+		b: { readonly from: string; readonly to: string }
+	) => a.from === b.from && a.to === b.to
+	const [first, ...rest] = stage.arms
+	return first.matches.flatMap((m) => {
+		const n = m.source.kind === "relation" ? m.source.name : undefined
+		if (n === undefined || !held(n)) {
+			return []
+		}
+		const pairs = rest.reduce(
+			(kept, rule) =>
+				rule.matches
+					.filter((o) => o.source.kind === "relation" && o.source.name === n)
+					.map((o) => kept.filter((p) => pairsOf(rule, o).some((q) => same(p, q))))
+					.reduce<ReadonlyArray<{ readonly from: string; readonly to: string }>>(
+						(best, next) => (next.length > best.length ? next : best),
+						[]
+					),
+			pairsOf(first, m)
+		)
+		return isNonEmpty(pairs) ? [{ from: name, to: n, pairs, selection: [] }] : []
+	})
+}
+
 /** The containments one statement states between stored relations (`regionFactsOf`), each a FieldContainment. */
 const statedOf = (
 	s: OwnedStatement,
-	stored: (name: string) => RelationInfo | undefined
+	stored: (name: string) => RelationInfo | undefined,
+	held: (name: string) => boolean
 ): ReadonlyArray<FieldContainment> => {
 	switch (s.kind) {
 		case "contained": {
@@ -919,7 +978,7 @@ const statedOf = (
 					: []
 			)
 			return stored(s.left.relation) !== undefined &&
-				stored(s.right.relation) !== undefined &&
+				held(s.right.relation) &&
 				isNonEmpty(pairs) &&
 				pairs.length === s.pairs.length
 				? [
@@ -969,9 +1028,11 @@ const statedOf = (
  * The containments `statements` state over the rows of a stored relation its source's selection admits, field by field
  * into a stored relation (`RegionFacts`), and every one they compose to:
  *
- * - a `contained` statement whose sides are stored relations (`stored`), at its pairs of a field on each side, its
- *   source's selection its own (FieldContainment `selection`), its target selecting rows or not, since a row in a
- *   selection of `to` is a row of `to`;
+ * - a `contained` statement whose source is a stored relation (`stored`) and whose target is a stored or a derived
+ *   one, at its pairs of a field on each side, its source's selection its own (FieldContainment `selection`), its
+ *   target selecting rows or not, since a row in a selection of `to` is a row of `to`;
+ * - a derived relation into each relation every rule of its definition matches at the fields its head delivers there
+ *   (`definedOf`), so a containment into a derived relation composes into the relations its definition reads;
  * - a family's member relation at its group into its owner at the owner's primary key, the group's j-th field paired
  *   with the key's j-th, as counted(on(F, g…), fin(O, n)) and ordered(on(F, g…, i), fin(O, n)) pair them
  *   (analysis/theory/families.ts familyShape), over every row of F: every member names its owner, a law every
@@ -991,13 +1052,18 @@ const statedOf = (
  */
 export const regionFactsOf = (
 	statements: ReadonlyArray<OwnedStatement>,
-	relations: ReadonlyMap<string, TheoryRelation>
+	relations: ReadonlyMap<string, TheoryRelation>,
+	definitions: ReadonlyMap<string, QueryDesc>
 ): RegionFacts => {
 	const stored = (name: string): RelationInfo | undefined => {
 		const r = relations.get(name)
 		return r?.kind === "relation" ? r : undefined
 	}
-	const stated = statements.flatMap((s) => statedOf(s, stored))
+	const known = (name: string): boolean => stored(name) !== undefined || definitions.has(name)
+	const stated = [
+		...statements.flatMap((s) => statedOf(s, stored, known)),
+		...[...definitions].flatMap(([name, query]) => definedOf(name, query, known))
+	]
 	const containments: Array<FieldContainment> = []
 	const hold = (c: FieldContainment): void => {
 		const states = c.from !== c.to || c.pairs.some((p) => p.from !== p.to)
