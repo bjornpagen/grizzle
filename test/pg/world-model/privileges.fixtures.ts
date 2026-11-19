@@ -1,5 +1,5 @@
 import { assert } from "@bjornpagen/testing/assert"
-import { type Reached } from "@bjornpagen/testing/features"
+import { type Reached, type Situations } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 /** What the properties of privileges.test.ts read: its installations, its expected privileges and its rules. */
 import type { Case } from "@bjornpagen/testing/property"
@@ -17,6 +17,8 @@ import {
 	startingWith
 } from "#test/support/worlds/drive/suite.ts"
 import { realize } from "#test/support/worlds/execute/index.ts"
+import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
+import { perturbationKinds } from "#test/support/worlds/invalid/catalog.ts"
 import {
 	docsEditorInstall,
 	docsInstall,
@@ -505,3 +507,13 @@ export const catalogFeature = (f: WorldFeature): boolean =>
 	opIn({ kinds: ["open-db"], writers: ["db"], observations: ["opened", "open-refused"] })(f) ||
 	opIn({ kinds: ["tamper"], writers: everyWriter, observations: ["ok"] })(f) ||
 	opIn({ kinds: ["drift"], writers: everyWriter, observations: ["drift"] })(f)
+
+/**
+ * What the tampered-migrate suite must reach: a complete migrate over each perturbation kind of the catalog
+ * (invalid/catalog.ts perturbationKinds), whose outcome the model predicts as the drift check that ends the run judges
+ * what the folder left of it.
+ */
+export const tamperMigratedRequired: Situations<WorldFeature> = knownNonEmpty(
+	Arr.map(perturbationKinds, (kind): WorldFeature => `migration-over:${kind}`),
+	"the perturbation kinds of the catalog"
+)

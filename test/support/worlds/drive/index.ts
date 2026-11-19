@@ -14,9 +14,9 @@ import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValues, valueText } from "#test/support/laws/model.ts"
 import type { RealWorld } from "#test/support/worlds/execute/index.ts"
 import { featuresOf } from "#test/support/worlds/features.ts"
+import { withinTamper } from "#test/support/worlds/generate/offered.ts"
 import { factKey } from "#test/support/worlds/model/host.ts"
 import { invariantsOf } from "#test/support/worlds/model/invariants.ts"
-import { driftOf } from "#test/support/worlds/model/session/catalog.ts"
 import { begunSession } from "#test/support/worlds/model/session/direct.ts"
 import { loginGone, sessionAt, withSession } from "#test/support/worlds/model/session/state.ts"
 import {
@@ -189,16 +189,14 @@ export const serial = (state: ModelState, action: Action): boolean =>
 	)
 
 /**
- * Whether a program may go on with `action` in `state`: a serial driver can perform it (`serial`), and the catalog is
- * still within the contract. A tamper that changed what a world can do (a policy, a grant, row security, a membership,
- * an attribute, a setting: one drift reports) puts every later call outside the README's contract, so a program goes
- * on only by opening a Db, whose calls it then draws none of, or by asking drift.
+ * Whether a program may go on with `action` in `state`: a serial driver can perform it (`serial`), and the catalog's
+ * contract admits it (generate/offered.ts withinTamper). A tamper that changed what a world can do (a policy, a grant,
+ * row security, a membership, an attribute, a setting: one drift reports) puts every later call outside the README's
+ * contract, so a program goes on only by opening a Db, whose calls it then draws none of, by asking drift, or by
+ * migrating, which rewrites what was tampered with or ends refusing the drift it leaves.
  */
 const drivable = (state: ModelState, action: Action): boolean =>
-	serial(state, action) &&
-	(!Arr.isReadonlyArrayNonEmpty(driftOf(state.install, state.tampered)) ||
-		action.kind === "open-db" ||
-		action.kind === "drift")
+	serial(state, action) && withinTamper(state, action.kind)
 
 const factTexts = (fact: HostFact): ReadonlyArray<string> => Arr.map(Rec.values(fact), valueText)
 

@@ -138,15 +138,25 @@ export const namesOffered = (state: ModelState, action: Action): boolean => {
 
 /**
  * Whether the catalog has left the contract: a perturbation in the state that `grizzle drift` finds, as the model
- * predicts it (every perturbation `Db.open` refuses is among them). From there only opening a Db and checking drift are
- * drawn, a harness rule; an inert perturbation (a membership that confers nothing, a setting of the owner's, a grant
- * already held) leaves the program going.
+ * predicts it (every perturbation `Db.open` refuses is among them). From there only opening a Db, checking drift and
+ * migrating are drawn, a harness rule: a migrate over it either rewrites what was tampered with or ends refusing the
+ * drift it leaves (model/session/migrate.ts migrateBranches, healedBy), which is what a tampered catalog must never let
+ * pass; an inert perturbation (a membership that confers nothing, a setting of the owner's, a grant already held)
+ * leaves the program going.
  */
 const catalogLeftContract = (state: ModelState): boolean =>
 	driftOf(state.install, state.tampered).length > 0
 
 /** The kinds drawn once the catalog has left the contract. */
-const afterTamper: ReadonlySet<ActionKind> = new Set(["open-db", "drift"])
+const afterTamper: ReadonlySet<ActionKind> = new Set(["open-db", "drift", "migrate"])
+
+/**
+ * Whether a program may go on with an action of `kind` as far as the catalog's contract goes: any while it holds, and
+ * only opening a Db, checking drift or migrating once a tamper left it (catalogLeftContract), the one rule the
+ * generator offers by (applicable) and the driver performs by (drive/index.ts drivable).
+ */
+export const withinTamper = (state: ModelState, kind: ActionKind): boolean =>
+	afterTamper.has(kind) || !catalogLeftContract(state)
 
 /** The kinds never drawn while a folder is unfinished: each acts on a catalog the model leaves to the runner. */
 const migratingBlocked: ReadonlySet<ActionKind> = new Set(["direct-begin", "tamper"])
@@ -167,7 +177,7 @@ export const applicable = (state: ModelState, kind: ActionKind): boolean => {
 	) {
 		return false
 	}
-	if (!afterTamper.has(kind) && catalogLeftContract(state)) {
+	if (!withinTamper(state, kind)) {
 		return false
 	}
 	if (migratingBlocked.has(kind) && migrating(state)) {

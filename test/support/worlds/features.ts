@@ -2126,6 +2126,12 @@ export const featuresOf = (
 			...claimUnreadOf(state, action, observation),
 			...(action.kind === "migrate"
 				? [`migration:${migrationKindOf(state, action.to)}:${observation.kind}` as const]
+				: []),
+			...(action.kind === "migrate" && action.how === "complete"
+				? Arr.map(
+						Arr.dedupe(Arr.map(state.tampered, (p) => p.kind)),
+						(kind) => `migration-over:${kind}` as const
+					)
 				: [])
 		])
 }

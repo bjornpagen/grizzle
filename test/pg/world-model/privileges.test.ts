@@ -8,7 +8,8 @@ import {
 	installs,
 	privilegeCase,
 	readmeSqlstate,
-	situations
+	situations,
+	tamperMigratedRequired
 } from "#test/pg/world-model/privileges.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -19,7 +20,8 @@ import {
 	leadsOf,
 	noLead,
 	programProperty,
-	requiredWhere
+	requiredWhere,
+	tamperThenMigrate
 } from "#test/support/worlds/drive/suite.ts"
 
 /**
@@ -57,6 +59,24 @@ export const privilegesCatalogCheck = programProperty({
 	required: requiredWhere(catalogFeature),
 	realities: drawnRealities,
 	lead: noLead,
+	check: () => undefined,
+	kept: [],
+	kills: []
+})
+
+/**
+ * Least privilege: a migrate over a tampered catalog either rewrites what was tampered with or ends refusing the drift
+ * it leaves, for each perturbation kind of the catalog (README "Migrations": the run ends with the drift check): never
+ * an `ok` over a catalog that still departs from the contract, a PUBLIC grant or an extra grant among them.
+ */
+export const privilegesTamperMigrated = programProperty({
+	installs,
+	focus: ["tamper", "migrate", "open-db", "drift"],
+	steps: 4,
+	cases: 64,
+	required: tamperMigratedRequired,
+	realities: drawnRealities,
+	lead: tamperThenMigrate(tamperMigratedRequired),
 	check: () => undefined,
 	kept: [],
 	kills: []

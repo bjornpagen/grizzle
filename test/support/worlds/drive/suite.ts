@@ -439,6 +439,60 @@ export const dbSession =
 		])
 	}
 
+/**
+ * What a tamper reaches next through a complete migrate, read of the tamper's outcome: every feature such a migrate the
+ * box offers from the state it leaves reaches as the model predicts it (noted).
+ */
+const afterTampering =
+	(_state: ModelState, action: Action) =>
+	(outcome: Allowed): ReadonlyArray<string> => {
+		if (action.kind !== "tamper") {
+			return []
+		}
+		const { next } = settled(outcome)
+		return Arr.flatMap(
+			Arr.filter(
+				enumerateKind(next, "migrate", defaultScope),
+				(a: Action): boolean => a.kind === "migrate" && a.how === "complete"
+			),
+			(a: Action) => Arr.flatMap(step(next, a), noted(next, a))
+		)
+	}
+
+/**
+ * A lead for a suite requiring a migrate over each perturbation of the catalog: a tamper from which a required feature
+ * still pending is one complete migrate away (afterTampering, aimed on every draw among the box's perturbations), then
+ * that migrate, aimed at the same features.
+ */
+export const tamperThenMigrate =
+	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
+	(weights, _install, at) => {
+		const [first, ...rest] = requiredFeatures(required, () => true)
+		if (first === undefined) {
+			return []
+		}
+		return whilePending([first, ...rest], at, () => [
+			{
+				...weights,
+				kinds: ["tamper"],
+				actions: { ...zeroWeights.actions, tamper: 1 },
+				validity: { live: 0, stale: 0, wild: 1 },
+				aims: everyDraw([first, ...rest], afterTampering, (a) => a.kind === "tamper")
+			},
+			{
+				...weights,
+				kinds: ["migrate"],
+				actions: { ...zeroWeights.actions, migrate: 1 },
+				validity: liveOnly,
+				aims: everyDraw(
+					[first, ...rest],
+					noted,
+					(a) => a.kind === "migrate" && a.how === "complete"
+				)
+			}
+		])
+	}
+
 /** A Db opened as a role that refreshes a derived relation computed from one it writes: a lead's own move. */
 const dbRefreshingWritten = "lead:a Db refreshing what it writes" as const
 

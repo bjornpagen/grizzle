@@ -140,6 +140,40 @@ const defaultable = (
 		Arr.map(r.fields, (f: FieldSpec) => ({ relation: r.name, field: f.name }))
 	)
 
+/** Every perturbation kind of the catalog, each once: a kind the union adds is a compile error here until it is listed. */
+const perturbationKindOf: { readonly [K in CatalogPerturbation["kind"]]: K } = {
+	"membership-admin": "membership-admin",
+	"membership-inherit": "membership-inherit",
+	"membership-revoked": "membership-revoked",
+	"membership-extra": "membership-extra",
+	"member-extra": "member-extra",
+	"role-attribute": "role-attribute",
+	"role-setting": "role-setting",
+	"database-setting": "database-setting",
+	"row-security": "row-security",
+	"extra-grant": "extra-grant",
+	"grant-revoked": "grant-revoked",
+	"extra-column-grant": "extra-column-grant",
+	"inherited-grant": "inherited-grant",
+	"public-grant": "public-grant",
+	"policy-dropped": "policy-dropped",
+	"policy-edited": "policy-edited",
+	"view-redefined": "view-redefined",
+	"function-redefined": "function-redefined",
+	"search-path-altered": "search-path-altered",
+	"default-privileges": "default-privileges",
+	"column-default": "column-default",
+	"not-null-dropped": "not-null-dropped",
+	"extra-index": "extra-index",
+	"extra-table": "extra-table",
+	"rewrite-rule": "rewrite-rule",
+	"trigger-disabled": "trigger-disabled"
+}
+
+/** Every perturbation kind of the catalog, in the vocabulary's order (invalid/kinds.ts, the catalog boundary). */
+export const perturbationKinds: ReadonlyArray<CatalogPerturbation["kind"]> =
+	Record.values(perturbationKindOf)
+
 /**
  * Every perturbation kind of the catalog, each over the state's logins, roles, entries, relations, fields, functions
  * and triggers with every option combination of its own, the inert ones (a setting another database holds, an extra

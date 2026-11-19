@@ -1143,6 +1143,7 @@ export type WorldFeature =
 	| `strata:${"one" | "union" | "sequence" | "refused-order"}`
 	| AdditionFeature
 	| `migration:${MigrationKind}:${ActionOutcome["kind"]}`
+	| `migration-over:${CatalogPerturbation["kind"]}`
 	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-stale-snapshot"}`
 
 /**
