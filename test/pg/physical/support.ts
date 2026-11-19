@@ -1,5 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { Array as Arr, Effect, type Scope } from "effect"
+import { Array as Arr, Effect } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -30,16 +30,19 @@ import {
 	lawFunctionsOf,
 	lawTriggersOf
 } from "#test/support/catalog/installed.ts"
-import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
+import { readCatalog } from "#test/support/catalog/read.ts"
 import type { ErasureExpectation } from "#test/support/catalog/verify.ts"
 import { type FixtureSchema, installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import type { SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
-import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { noTables } from "#test/support/substrate/replace.ts"
+import {
+	installTemplate,
+	Substrate,
+	type SubstrateTemplate
+} from "#test/support/substrate/substrate.ts"
 
 /**
  * The worlds a fixture description opens in, as values: the full role `writer`, holding every relation whole, writing
@@ -98,46 +101,69 @@ export const installedRoleOf = (
 	throw new Error(`the installation holds no role ${role.name}`)
 }
 
-/**
- * Installing a compiled schema in the substrate's database for the physical tests: each installation gets a unique
- * schema name, because roles are cluster-wide, and the substrate's schema finalizer drops the schema and every
- * `<schema>__*` role it created.
- *
- * Installs `desc` with `logins` under a fresh schema and reads its catalog.
- */
-export const installed = (
+/** `desc` compiled for the physical tests under the schema `schema`, with `logins`: a defect where it does not compile. */
+export const compiledFixture = (
 	desc: FixtureSchema,
-	label: string,
+	schema: string,
 	logins: ReadonlyArray<OwnedLogin>
-): Effect.Effect<InstalledFixture, SqlError | TransactionRolledBack, Substrate | Scope.Scope> =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const schema = yield* substrate.schema({ create: false, label })
-		const owned = owning(desc)
-		const compiled = compileInstallation(owned, {
-			...installOptions(owned),
-			levels: [identity.schema(parsedSchemaName(schema))],
-			logins
-		})
-		if (!compiled.ok) {
-			return yield* Effect.die(new Error(`compile: ${compiled.error.message}`))
-		}
-		const installation: Installation = compiled.value
-		yield* transaction(substrate.admin, installationSql(installation, substrate.database))
-		const read = yield* readCatalog(substrate.admin, [schema])
-		if (read.kind === "absent") {
-			return yield* Effect.die(new Error(`the installed schema ${schema} is absent`))
-		}
-		const catalog: Catalog = read.catalog
-		return { installation, catalog, schema }
+): Installation => {
+	const owned = owning(desc)
+	const compiled = compileInstallation(owned, {
+		...installOptions(owned),
+		levels: [identity.schema(parsedSchemaName(schema))],
+		logins
 	})
+	if (!compiled.ok) {
+		throw new Error(`compile: ${compiled.error.message}`)
+	}
+	return compiled.value
+}
 
-/** An installed fixture: its installation, the catalog read back from it, and the schema it is installed under. */
-interface InstalledFixture {
+/** A fixture a template installed: its installation and the schema it is installed under. */
+export interface TemplateFixture {
 	readonly installation: Installation
-	readonly catalog: Catalog
 	readonly schema: string
 }
+
+/**
+ * `installed`'s installation as a template (substrate.ts installTemplate): compiled under the template's schema name by
+ * every worker as it plans, its script run once per member, where a suite installed it before its cases. A case reads
+ * its catalog from its clone (fixtureCatalog); its seat empties no table, since a case writes only in a transaction it
+ * rolls back.
+ */
+export const physicalTemplate = (spec: {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly desc: FixtureSchema
+	readonly logins: ReadonlyArray<OwnedLogin>
+}): SubstrateTemplate<TemplateFixture> =>
+	installTemplate({
+		declaredIn: spec.declaredIn,
+		name: spec.name,
+		content: { fixture: spec.desc.name },
+		plan: (names) =>
+			Effect.sync(() => ({
+				schema: names.schema,
+				installation: compiledFixture(spec.desc, names.schema, spec.logins)
+			})),
+		install: ({ installation }) =>
+			Effect.flatMap(Substrate, (substrate) =>
+				transaction(substrate.admin, installationSql(installation, substrate.database))
+			),
+		bind: (fixture) => fixture,
+		reset: () => noTables
+	})
+
+/** The catalog of a template's fixture as its case's clone holds it. */
+export const fixtureCatalog = (fixture: TemplateFixture) =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const read = yield* readCatalog(substrate.admin, [fixture.schema])
+		if (read.kind === "absent") {
+			return yield* Effect.die(new Error(`the installed schema ${fixture.schema} is absent`))
+		}
+		return read.catalog
+	})
 
 /**
  * The expectation of a fixture installed with its worlds: the declaration's, the fixture's login with its two roles,
