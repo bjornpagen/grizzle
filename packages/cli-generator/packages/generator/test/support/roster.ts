@@ -14,6 +14,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/emit/readme-model.test.ts",
 	"test/emit/refusals.test.ts",
 	"test/generated/methods-bodies.test.ts",
+	"test/generated/redirect-chains.test.ts",
 	"test/grizzle/once.test.ts",
 	"test/load/document-set.test.ts",
 	"test/load/read.test.ts",
