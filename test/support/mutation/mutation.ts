@@ -66,11 +66,6 @@ export const equivalent: ReadonlyArray<Equivalent> = [
 	},
 	{
 		file: "packages/engine/src/logical/props.ts",
-		mutant: "b55119c113",
-		why: "finish's attribute filter (logical/props.ts) drops nothing: every caller hands it dependencies over the node's own attributes, carried renaming each input attribute to a delivered column or to a hidden attribute the caller lists (hiddenOf, keptRest), a region its sources' attributes, each bound or hidden, so keeping every dependency changes no closure."
-	},
-	{
-		file: "packages/engine/src/logical/props.ts",
 		mutant: "732fc7ff89",
 		why: "Without the shortcut (logical/props.ts regionProps givenBy), a determinant's column the source fixes is given by its hidden attribute or a bound member of its class; determinantsOf lists the empty determinant first, whose dependency from the region's lateral reads alone reaches every column the source fixes, so the longer from is reached exactly when the shorter is and every closure is unchanged."
 	},

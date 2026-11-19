@@ -30,6 +30,7 @@ import {
 } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
+import { attributesOver, bitsOf, namesOf } from "#compiler/logical/attributes.ts"
 import { minimalKeys } from "#compiler/logical/closure.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { Ir } from "#test/support/fixtures/ir/build.ts"
@@ -115,11 +116,20 @@ export const minimalKeysAreExactlyTheTablesMinimalKeysEveryOneFoundFromTheWholeH
 				if (Arr.some(oracle, (key) => key.length > 1)) {
 					c.note("a minimal key of several columns")
 				}
-				const exchange = Arr.map(dependencies, (d) => ({ from: d.from, to: new Set(d.to) }))
+				const attributes = attributesOver(columns, [])
+				const exchange = Arr.map(dependencies, (d) => ({
+					from: bitsOf(attributes, d.from),
+					to: bitsOf(attributes, d.to)
+				}))
 				assert.deepEqual(
 					Arr.map(
-						minimalKeys(columns, [columns], (cs) => (isKey(cs) ? true : undefined), exchange),
-						(k) => k.key
+						minimalKeys(
+							attributes.heading,
+							[attributes.heading],
+							(cs) => (isKey(namesOf(attributes, cs)) ? true : undefined),
+							exchange
+						),
+						(k) => namesOf(attributes, k.key)
 					),
 					oracle
 				)
@@ -141,7 +151,7 @@ export const minimalKeysAreExactlyTheTablesMinimalKeysEveryOneFoundFromTheWholeH
 			{
 				file: "packages/engine/src/logical/closure.ts",
 				original:
-					"\tfor (const { key } of found) {\n\t\tfor (const d of dependencies) {\n\t\t\tadd([...d.from, ...key.filter((c) => !d.to.has(c))])\n\t\t}\n\t}\n",
+					"\tfor (const { key } of found) {\n\t\tfor (const d of dependencies) {\n\t\t\tadd(union(d.from, minus(key, d.to)))\n\t\t}\n\t}\n",
 				replacement: "",
 				why: "No exchange after the heading's minimization (logical/closure.ts minimalKeys); the minimal keys property fails."
 			}
@@ -551,7 +561,7 @@ export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDet
 											defined(
 												Option.getOrUndefined(
 													Arr.findFirst(
-														inputProps.dependencies,
+														Arr.map(inputProps.stated.rows, (row) => row.dependency),
 														(d) => d.rule.rule === "equal" && d.from[0] === "x" && d.to[0] === "y"
 													)
 												),

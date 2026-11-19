@@ -41,9 +41,9 @@ export const theAnalysisOfKJoinedRelationsOfTwoKeysEachComputesLinearlyManyClosu
 		kills: [
 			{
 				file: "packages/engine/src/logical/props.ts",
-				original: "\t\t\tconst delivered = factor.filter((c) => !isHidden(c))",
+				original: "\t\t\tconst delivered = intersect(factor, heading)",
 				replacement:
-					"\t\t\tconst delivered = factor.filter((c) => !isHidden(c))\n\t\t\tfor (const _ of factors) {\n\t\t\t\tminimalKeys(delivered, [delivered], () => undefined, [])\n\t\t\t}",
+					"\t\t\tconst delivered = intersect(factor, heading)\n\t\t\tfor (const _ of factors) {\n\t\t\t\tminimalKeys(delivered, [delivered], () => undefined, [])\n\t\t\t}",
 				why: "A key search run for each factor once per factor, k² of them (logical/props.ts finish); the property fails."
 			}
 		]

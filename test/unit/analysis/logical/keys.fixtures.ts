@@ -20,7 +20,7 @@ import { defined } from "#test/support/assert.ts"
  */
 
 /** A drawn table: its column count, and each dependency as the masks of its determinants and its determined columns. */
-interface Table {
+export interface Table {
 	readonly width: number
 	readonly dependencies: ReadonlyArray<{ readonly from: number; readonly to: number }>
 }

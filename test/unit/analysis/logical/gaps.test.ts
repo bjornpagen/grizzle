@@ -7,7 +7,8 @@ import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { keyFactors, keyIn } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type Heading } from "#compiler/ir/rel.ts"
-import { closure, namesNothing } from "#compiler/logical/closure.ts"
+import { bitsOf } from "#compiler/logical/attributes.ts"
+import { closure, namesNothing, reaches } from "#compiler/logical/closure.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import {
@@ -398,12 +399,15 @@ export const projectionsOfAJoinDetermineExactlyWhatTheJoinDeterminesAmongTheirCo
 				for (const node of [first, second]) {
 					const { props } = analysis.of(node)
 					const heading = Arr.map(node.heading, (h) => h.name)
-					const attributes = new Set([...heading, ...props.hidden])
 					/** Only the dependencies whose determinants the node delivers: what a projection that drops would keep. */
 					const delivered = Arr.filter(deps, (d) => Arr.every(d.from, (x) => heading.includes(x)))
 					for (const set of subsetsOf(heading)) {
-						const reached = closure(node.id, attributes, props.dependencies, set, namesNothing)
-						const got = Arr.filter(heading, (h) => reached.columns.has(h))
+						const reached = closure(
+							props.stated,
+							bitsOf(props.stated.attributes, set),
+							namesNothing
+						)
+						const got = Arr.filter(heading, (h) => reaches(reached, h))
 						const known = closedUnder(deps, set)
 						assert.deepEqual(
 							got,
@@ -434,8 +438,8 @@ export const projectionsOfAJoinDetermineExactlyWhatTheJoinDeterminesAmongTheirCo
 		kills: [
 			{
 				file: "packages/engine/src/logical/props.ts",
-				original: "\t\thidden: [...hiddenFrom.keys()]",
-				replacement: "\t\thidden: []",
+				original: "\tconst attributes = attributesOver(all, [...hiddenFrom.keys()])",
+				replacement: "\tconst attributes = attributesOver(all, [])",
 				why: "A projection keeps no hidden attribute of its input (logical/props.ts projectProps); the projections search fails."
 			}
 		]
