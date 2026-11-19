@@ -208,9 +208,15 @@ const divScale = (x: FiniteParts, y: FiniteParts): number => {
 }
 
 /**
- * The quotient of two finite values at `scale` decimal places: rounded half away from zero, or truncated toward zero.
+ * The quotient of two finite values at `scale` decimal places, by `rounding`: half away from zero, numeric_div's, or
+ * toward zero, numeric_div_trunc's.
  */
-const quotient = (x: FiniteParts, y: FiniteParts, scale: number, round: boolean): bigint => {
+const quotient = (
+	x: FiniteParts,
+	y: FiniteParts,
+	scale: number,
+	rounding: "halfAwayFromZero" | "towardZero"
+): bigint => {
 	/** x / y * 10^scale = (X / 10^sx) / (Y / 10^sy) * 10^scale = X * 10^(sy + scale) / (Y * 10^sx) */
 	let num = x.coefficient
 	let den = y.coefficient
@@ -221,7 +227,7 @@ const quotient = (x: FiniteParts, y: FiniteParts, scale: number, round: boolean)
 		den *= pow10(-shift)
 	}
 	let q = num / den
-	if (round && (num % den) * 2n >= den) {
+	if (rounding === "halfAwayFromZero" && (num % den) * 2n >= den) {
 		q += 1n
 	}
 	return x.negative !== y.negative ? -q : q
@@ -269,7 +275,7 @@ export const div = (a: Decimal, b: Decimal): NumericResult => {
 		return d.result
 	}
 	const scale = divScale(d.x, d.y)
-	return fromUnits(quotient(d.x, d.y, scale, true), scale)
+	return fromUnits(quotient(d.x, d.y, scale, "halfAwayFromZero"), scale)
 }
 
 /** numeric_div_trunc, the function div(a, b): the quotient truncated toward zero, an integer. */
@@ -278,7 +284,7 @@ export const divTrunc = (a: Decimal, b: Decimal): NumericResult => {
 	if (d.kind === "decided") {
 		return d.result
 	}
-	return fromUnits(quotient(d.x, d.y, 0, false), 0)
+	return fromUnits(quotient(d.x, d.y, 0, "towardZero"), 0)
 }
 
 /**
