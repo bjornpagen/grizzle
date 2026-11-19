@@ -87,11 +87,16 @@ const plain: Arr.NonEmptyReadonlyArray<RelationSpec> = knownNonEmpty(
 const admin = "admin"
 
 /**
- * The relations whose key PostgreSQL shows the admin in a DETAIL: those under no row security,
- * since the admin holds SELECT on every table.
+ * The relations whose key PostgreSQL shows the admin in a DETAIL, spelling a value the scan can recognize: those under no
+ * row security, since the admin holds SELECT on every table, that hold a uuid field, a value no other text of a refusal
+ * spells by chance (plantedTokens). Visit, keyed by its integers since grizzle mints no ids (10a0cd919), is none: a
+ * DETAIL planted on it planted no token, so its scan could report nothing (TEST_SEED=1759120296's steered case 15).
  */
-const spelling: ReadonlyArray<RelationSpec> = Arr.filter(plain, (r) =>
-	keyShown(docsInstall, admin, r.name, r.key)
+const spelling: ReadonlyArray<RelationSpec> = Arr.filter(
+	plain,
+	(r) =>
+		keyShown(docsInstall, admin, r.name, r.key) &&
+		Arr.some(r.fields, (f) => f.domain.kind === "uuid")
 )
 
 /** The relations of `spelling` a reality holds facts of, each with its facts: where a DETAIL can be planted. */
