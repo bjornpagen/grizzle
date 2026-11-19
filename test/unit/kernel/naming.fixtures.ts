@@ -90,8 +90,11 @@ export const handlesOf = (side: SideDesc): Arr.NonEmptyReadonlyArray<string> => 
 }
 
 /**
- * The foreign keys from an alternatives arm into its parent, among the law model's natives: into the parent's key and
- * discriminator through the arm's constant law column where the arm relation is one handle's, or into its key alone.
+ * The arm's own foreign keys into its parent, among the law model's natives, each through a law column: into the
+ * parent's key and discriminator through the arm's constant law column where the arm relation is one handle's, or into
+ * the parent's law column of its key over the arm's handles. The foreign key from the arm's key into the parent's key
+ * beside it, over fields alone, is the one its containment implies at the arm's key (laws/model/plan.ts keyReferences),
+ * which holds the arm in no parent of its handles.
  */
 export const foreignKeysInto = (
 	model: LawModel,
@@ -102,7 +105,8 @@ export const foreignKeysInto = (
 		n.namespace === "constraint" &&
 		n.object.kind === "ForeignKey" &&
 		n.object.relation.name === arm &&
-		n.object.target.name === parent
+		n.object.target.name === parent &&
+		Arr.some([...n.object.columns, ...n.object.targetColumns], (c) => c.kind === "law")
 			? [{ owner: { kind: "table", name: n.owner } as const, ident: identifierOf(n.named) }]
 			: []
 	)

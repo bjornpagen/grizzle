@@ -8,6 +8,9 @@
  *   `#reference`), so the arm holds no constant and the parent no UNIQUE over (id, tag);
  * - **reverse**, per armed handle h: each parent of tag h has its arm row, a law column on the parent holding its id
  *   where its tag is h, referencing X's id: one generated column per armed handle;
+ * - **the arm's key**, per arm relation X: the forward containment carries X's key, its id, whole into the parent's,
+ *   so X's id references the parent's id too (laws/model/plan.ts keyReferences), as the forward one is deferred; the
+ *   reverse one, out of a law column null on a parent of another tag, implies none;
  * - every one of these foreign keys is deferred, since forward and reverse form a cycle, and no other is installed.
  *
  * A law column is told by what it holds, read by the reference evaluator on a parent of every tag: the handles whose

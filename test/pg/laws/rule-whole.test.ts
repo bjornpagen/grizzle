@@ -85,7 +85,7 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original: "\t\t\t\t\t\treturn judgedPlan(law, discharge.rule)",
+				original: "\t\t\t\t\t\treturn judgedPlan(law, discharge.rule, implied)",
 				replacement: "\t\t\t\t\t\treturn done([])",
 				why: "A containment discharged whole installs nothing and the judge holds nothing of it, so a transaction that breaks Expressed or Parented commits, which its native twin refuses."
 			},

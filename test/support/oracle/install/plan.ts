@@ -953,6 +953,60 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			period,
 			location
 		})
+		if (!period) {
+			planKeyReferences(source, referenced, pairs, location)
+		}
+	}
+	/**
+	 * The foreign keys a containment of fields into a key implies at its source's keys, the oracle's own statement of the
+	 * rule (packages/engine/src/laws/model/plan.ts keyReferences): for each declared key of the source over scalar fields
+	 * alone whose every field the containment pairs, the target fields they meet, where those are exactly a declared key
+	 * of the target over scalar fields alone, `FOREIGN KEY (key) REFERENCES target (met)`, named as every foreign key is
+	 * by its two sides; none where the key is the containment's every field, its own foreign key, none from a key into
+	 * itself, and one per name.
+	 */
+	const planKeyReferences = (
+		source: TableDraft,
+		referenced: TableDraft,
+		pairs: ReadonlyArray<{ readonly from: string; readonly to: string }>,
+		location: string
+	): void => {
+		const scalar = (k: OracleKey): boolean => k.span.kind === "none"
+		for (const key of Arr.filter([source.primaryKey, ...source.keys], scalar)) {
+			const met = Arr.flatMap(key.fields, (f) =>
+				Option.match(
+					Arr.findFirst(pairs, (p) => p.from === f),
+					{ onNone: () => [], onSome: (p) => [p.to] }
+				)
+			)
+			if (
+				met.length !== key.fields.length ||
+				met.length === pairs.length ||
+				!Arr.some(Arr.filter([referenced.primaryKey, ...referenced.keys], scalar), (k) =>
+					sameFields(met, k.fields)
+				) ||
+				(source.relation === referenced.relation && Arr.every(key.fields, (f, i) => met[i] === f))
+			) {
+				continue
+			}
+			const name = door.foreignKey(
+				{ relation: source.relation, fields: key.fields },
+				{ relation: referenced.relation, fields: met },
+				false
+			).identifier
+			if (Arr.some(source.foreignKeys, (fk) => fk.name === name)) {
+				continue
+			}
+			unwrap(source.constraints.claim(name, location))
+			source.foreignKeys.push({
+				name,
+				fields: key.fields,
+				references: referenced.relation,
+				referencedFields: met,
+				period: false,
+				location
+			})
+		}
 	}
 	for (const { value: s, location } of statements) {
 		switch (s.kind) {
