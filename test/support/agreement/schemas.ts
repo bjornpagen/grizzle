@@ -30,7 +30,13 @@ import {
 	writtenNames
 } from "#compiler/ir/desc.ts"
 import type { Heading as Columns } from "#compiler/ir/rel.ts"
-import { type RosterOrder, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	integerTypmodOf,
+	type NumericTypmod,
+	type RosterOrder,
+	sameScalarType,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { parseSchemaInput, type SchemaArtifacts } from "#compiler/program/schema.ts"
 import { bits, closedId, Decimal, Money, Vector } from "#compiler/public/fields.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -2516,6 +2522,10 @@ const typeUnion = (types: ReadonlyArray<string>): string =>
 const literalUnion = (values: ReadonlyArray<string>): string =>
 	Arr.isReadonlyArrayNonEmpty(values) ? Arr.join(Arr.map(values, jsonText), " | ") : "never"
 
+/** A numeric(p, s) field's host, its scale's: a bigint at scale 0, whose values are integers, a Decimal at any other. */
+const numericHost = (typmod: NumericTypmod): string =>
+	typmod.scale === 0 ? "bigint" : "Fi.Decimal"
+
 /**
  * The host type of a field as the engine describes it (ir/desc.ts FieldDesc), as TypeScript: what its column delivers,
  * a contract's values its base's branded with its name, a closed id one of its roster's handles, a set the roster's
@@ -2526,7 +2536,7 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 		case "pg":
 			return pgHost[desc.type]
 		case "numeric":
-			return "Fi.Decimal"
+			return numericHost(desc)
 		case "uuid":
 			return "Fi.Uuid"
 		case "bytes":
@@ -2668,8 +2678,10 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 		case "int8":
 		case "exactInteger":
 			return "bigint"
-		case "numeric":
-			return "Fi.Decimal"
+		case "numeric": {
+			const typmod = integerTypmodOf(t)
+			return typmod === undefined ? "Fi.Decimal" : numericHost(typmod)
+		}
 		case "money":
 		case "exactMoney":
 			return "Fi.Money"
@@ -5442,7 +5454,7 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 		case "pg":
 			return `Fi.Field<${pgHost[desc.type]}, ${jsonText(desc.type)}>`
 		case "numeric":
-			return "Fi.NumericTypmodField"
+			return `Fi.NumericTypmodField<${numericHost(desc)}>`
 		case "uuid":
 			return 'Fi.Field<Fi.Uuid, "uuid">'
 		case "bytes":
@@ -5472,8 +5484,9 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 
 /**
  * The literal a field's comparison takes, as the engine admits one (scalar/literal.ts literalDescFor): its base's host
- * value, a contract's literal its base's, and a numeric's a Decimal, a bigint or an exact decimal string. A vector's,
- * a buffer of its dimensions, has a type the public barrels do not name, so a vector field's is not asserted.
+ * value, a contract's literal its base's, and a numeric's a Decimal, a bigint or an exact decimal string, at scale 0 a
+ * bigint alone, its host (types/fields LiteralOf). A vector's, a buffer of its dimensions, has a type the public
+ * barrels do not name, so a vector field's is not asserted.
  */
 const literalType = (
 	desc: Exclude<FieldDesc, { readonly kind: "vector" }>,
@@ -5486,7 +5499,7 @@ const literalType = (
 				? hostOfDesc(desc, base, ids)
 				: literalType(desc.base, base, ids)
 		case "numeric":
-			return "Fi.Decimal | bigint | string"
+			return desc.scale === 0 ? "bigint" : "Fi.Decimal | bigint | string"
 		case "bits":
 			return `ReadonlySet<${literalUnion(rosterNamed(base, desc.roster).handles)}>`
 		case "pg":

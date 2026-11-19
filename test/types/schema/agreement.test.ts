@@ -1,3 +1,4 @@
+import { ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr } from "effect"
 import {
 	keptFaultCase,
@@ -29,8 +30,23 @@ export const schemas = agreement(schemaCases, {
 	checking: "disarmed",
 	program: schemaProgram,
 	oracle: { kind: "second-implementation", name: "the engine's description of each drawn schema" },
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/types/schema/agreement.test.ts#schemas:3fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff.1:0.0.0.0.0.f.h.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"a relation of a numeric(7, 2) field, whose descriptor is NumericTypmodField<Decimal> since numeric's host follows its scale (4da9792ba), where the model wrote the bare NumericTypmodField, Decimal | bigint (TEST_SEED=655968417)",
+			since: "2026-11-19"
+		}
+	],
 	kills: [
+		{
+			file: "packages/engine/src/scalar/values/convert.ts",
+			original: "\t\t: Decimal\n",
+			replacement: "\t\t: Decimal | bigint\n",
+			why: "numeric(p, s)'s host forgets its scale at a literal scale other than 0, Decimal | bigint, where the engine reads a Decimal (types/fields NumericHostOf); the kept numeric(7, 2) case fails."
+		},
 		{
 			file: "packages/engine/src/types/schema/schema.ts",
 			original: "\t\t\t: true extends SameAs<UnderName<Relations, NameStated<R>>, R>",
