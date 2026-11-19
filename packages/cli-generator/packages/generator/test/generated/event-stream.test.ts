@@ -30,860 +30,144 @@
  * that splits an event; each failure verdict with and without a budget, on the read and on the write; a cut read and a
  * cut write, each with and without a budget; refused data of each event type.
  */
-import { exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { Checkout } from "@bjornpagen/testing/checkout"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option, Record as Rec, Schema, String as Str } from "effect"
 import {
-	array,
-	boolean,
-	constant,
-	element,
-	type Gen,
-	int,
-	map,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner"
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import {
-	Array as Arr,
-	Context,
-	Duration,
-	Effect,
-	FileSystem,
-	Formatter,
-	Layer,
-	Option,
-	Path,
-	Record as Rec,
-	Ref,
-	Schema,
-	Stream,
-	String as Str
-} from "effect"
-import { Headers, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http"
-import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import { generateFixture } from "#test/support/cli-package.ts"
-import { aimedAmong } from "#test/support/steering.ts"
-
-/** The generated package: its directory and its built entry. */
-class Site extends Context.Service<
-	Site,
-	{ readonly bin: string; readonly dir: string; readonly wire: Readonly<Record<string, string>> }
->()("effect-openapi-cli-generator/test/generated/event-stream.test/Site") {}
-
-/**
- * The fixture's package, generated into a scoped temp directory and built by its own `tsconfig.build.json` with the
- * workspace's TypeScript, its `node_modules` the workspace's installed packages, which are the versions it pins.
- */
-const siteLayer = Layer.effect(Site)(
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		const specPath = path.resolve(import.meta.dirname, "../fixtures/specs/event-stream.json")
-		const spec = yield* fs.readFileString(specPath)
-		const generated = yield* generateFixture({
-			spec: { path: "event-stream.json", text: spec },
-			config: {
-				path: "author-config.json",
-				text: '{"binName":"site","envPrefix":"SITE","package":{"name":"site-cli","version":"0.1.0"}}\n'
-			},
-			authorFiles: []
-		})
-		const installed = path.resolve(import.meta.dirname, "../../../../node_modules")
-		yield* fs.symlink(installed, path.join(generated.dir, "node_modules"))
-		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-		const built = yield* Effect.scoped(
-			Effect.flatMap(
-				spawner.spawn(
-					ChildProcess.make(path.join(installed, ".bin", "tsc"), ["-p", "tsconfig.build.json"], {
-						cwd: generated.dir
-					})
-				),
-				(handle) => handle.exitCode
-			)
-		)
-		if (built !== 0) {
-			return yield* Effect.die(`the generated package does not build: tsc exited ${built}`)
-		}
-		const declared = yield* Schema.decodeEffect(WireDigests)(spec)
-		return {
-			bin: path.join(generated.dir, "dist", "src", "bin.js"),
-			dir: generated.dir,
-			wire: Rec.map(declared.paths, (item) =>
-				Arr.join(
-					Arr.map(item.post.parameters, (parameter) => parameter.schema.const),
-					""
-				)
-			)
-		}
-	})
-)
-
-/** The `grizzle-wire` digest each operation of the fixture declares as its one header value. */
-const WireDigests = Schema.fromJsonString(
-	Schema.Struct({
-		paths: Schema.Record(
-			Schema.String,
-			Schema.Struct({
-				post: Schema.Struct({
-					parameters: Schema.Array(
-						Schema.Struct({ schema: Schema.Struct({ const: Schema.String }) })
-					)
-				})
-			})
-		)
-	})
-)
-
-/** One scripted response: the writes of its body, and whether the server then closes it or holds it open. */
-type Scripted = Readonly<{ writes: ReadonlyArray<string>; close: boolean }>
-
-/** The local server: its origin, the responses it gives the next requests, and how many requests it has had. */
-class Server extends Context.Service<
-	Server,
-	{
-		readonly origin: string
-		readonly script: (responses: ReadonlyArray<Scripted>) => Effect.Effect<void>
-		readonly requests: Effect.Effect<number>
-		readonly wire: Effect.Effect<ReadonlyArray<string>>
-	}
->()("effect-openapi-cli-generator/test/generated/event-stream.test/Server") {}
-
-/**
- * A server that answers each request with the next scripted response, a `text/event-stream` body of its writes, then
- * closed or held open, and 404 once the script is spent.
- */
-const serverLayer = Layer.effect(Server)(
-	Effect.gen(function* () {
-		const queue = yield* Ref.make<ReadonlyArray<Scripted>>([])
-		const count = yield* Ref.make(0)
-		const wire = yield* Ref.make<ReadonlyArray<string>>([])
-		const encoder = new TextEncoder()
-		yield* HttpServer.serveEffect()(
-			Effect.gen(function* () {
-				const request = yield* HttpServerRequest.HttpServerRequest
-				yield* Ref.update(count, (seen) => seen + 1)
-				yield* Ref.update(wire, (seen) => [
-					...seen,
-					...Option.toArray(Headers.get(request.headers, "grizzle-wire"))
-				])
-				const next = yield* Ref.modify(
-					queue,
-					(responses) => [Arr.head(responses), Arr.drop(responses, 1)] as const
-				)
-				return Option.match(next, {
-					onNone: () => HttpServerResponse.empty({ status: 404 }),
-					onSome: (scripted) =>
-						HttpServerResponse.stream(
-							Stream.concat(
-								Stream.fromIterable(Arr.map(scripted.writes, (write) => encoder.encode(write))),
-								scripted.close ? Stream.empty : Stream.never
-							),
-							{ contentType: "text/event-stream" }
-						)
-				})
-			})
-		)
-		const server = yield* HttpServer.HttpServer
-		const port = "port" in server.address ? server.address.port : 0
-		return {
-			origin: `http://127.0.0.1:${port}`,
-			requests: Ref.get(count),
-			script: (responses) =>
-				Effect.andThen(
-					Ref.set(queue, responses),
-					Effect.andThen(Ref.set(count, 0), Ref.set(wire, []))
-				),
-			wire: Ref.get(wire)
-		}
-	})
-)
-
-/** What a run of the generated CLI did: its exit code, and its stdout and stderr text. */
-type Run = Readonly<{ exitCode: number; stdout: string; stderr: string }>
-
-/**
- * Run the generated CLI with `args`; when `interruptAt` is given, send it SIGINT once its stdout holds that text.
- */
-const runCli = (args: ReadonlyArray<string>, interruptAt: Option.Option<string>) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const site = yield* Site
-			const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-			const handle = yield* spawner.spawn(
-				ChildProcess.make(process.execPath, [site.bin, ...args], {
-					cwd: site.dir,
-					env: {},
-					extendEnv: false
-				})
-			)
-			const stdout = yield* Ref.make("")
-			const interrupted = yield* Ref.make(false)
-			const watch = Stream.runForEach(Stream.decodeText(handle.stdout), (text) =>
-				Effect.gen(function* () {
-					const seen = yield* Ref.updateAndGet(stdout, (before) => `${before}${text}`)
-					const due = Option.exists(interruptAt, (marker) => Str.includes(marker)(seen))
-					const already = yield* Ref.getAndSet(interrupted, due)
-					if (due && !already) {
-						yield* handle.kill({ killSignal: "SIGINT" })
-					}
-				})
-			)
-			const [, stderr, exitCode] = yield* Effect.all(
-				[watch, Stream.mkString(Stream.decodeText(handle.stderr)), handle.exitCode],
-				{ concurrency: "unbounded" }
-			)
-			const run: Run = { exitCode, stderr, stdout: yield* Ref.get(stdout) }
-			return run
-		})
-	)
-
-/** An event the server sends: its type and its JSON data, as the tokens it is written with. */
-type SentEvent = Readonly<{
-	type: "remove" | "reset" | "upsert"
-	tokens: Arr.NonEmptyReadonlyArray<string>
-}>
-
-/** A stream to send: items, `ready`, live items, an optional `end`, the gaps written between data tokens. */
-type Feed = Readonly<{
-	before: ReadonlyArray<SentEvent>
-	after: ReadonlyArray<SentEvent>
-	ends: boolean
-	gaps: ReadonlyArray<string>
-	comments: boolean
-	writes: number
-	follow: boolean
-}>
-
-/**
- * Event data as grizzle spells it on the wire, each as the fixture's `contentSchema` of its event admits it, since the
- * CLI checks it there: a reset's key fields, none for the key read `postPage`; a row whose uuid, int8, money and bytes
- * are strings, whose code is an enum member, and whose int4 is a number; a removed row's key, none.
- */
-const tokenSets: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [
-	["{", '"key"', ":", "[", "]", "}"],
-	[
-		"{",
-		'"row"',
-		":",
-		"{",
-		'"id"',
-		":",
-		'"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"',
-		",",
-		'"title"',
-		":",
-		'"a b"',
-		",",
-		'"body"',
-		":",
-		'"x"',
-		",",
-		'"comments"',
-		":",
-		"[",
-		"]",
-		",",
-		'"views"',
-		":",
-		'"9007199254740993"',
-		",",
-		'"price"',
-		":",
-		'"12.50"',
-		",",
-		'"avatar"',
-		":",
-		'"AAECAw=="',
-		",",
-		'"status"',
-		":",
-		'"active"',
-		",",
-		'"rank"',
-		":",
-		"7",
-		"}",
-		"}"
-	],
-	["{", '"key"', ":", "[", "]", "}"]
-]
-
-/** Each item event's data, as the fixture's `contentSchema` of that event admits it. */
-const tokensOf = (type: SentEvent["type"]): Arr.NonEmptyReadonlyArray<string> =>
-	Option.getOrElse(Arr.get(tokenSets, type === "reset" ? 0 : type === "upsert" ? 1 : 2), () =>
-		Arr.headNonEmpty(tokenSets)
-	)
-
-const sentEvent: Gen<SentEvent> = (source) => {
-	const type = element<SentEvent["type"]>(["reset", "upsert", "remove"])(source)
-	return { type, tokens: tokensOf(type) }
-}
-
-const feed: Gen<Feed> = (source) => ({
-	before: array(sentEvent, { min: 0, max: 3 })(source),
-	after: array(sentEvent, { min: 0, max: 2 })(source),
-	ends: boolean(source),
-	gaps: array(element(["", " ", "\n", "\t "]), { min: 40, max: 40 })(source),
-	comments: boolean(source),
-	writes: int(1, 3)(source),
-	follow: boolean(source)
-})
-
-/** A feed made to reach `feature`, every other choice drawn. */
-const feedFor =
-	(feature: FeedFeature): Gen<Feed> =>
-	(source) => {
-		const drawnFeed = feed(source)
-		switch (feature) {
-			case "stopped at ready":
-				return { ...drawnFeed, follow: false }
-			case "followed to its end":
-				return { ...drawnFeed, follow: true, ends: true }
-			case "interrupted while following":
-				return { ...drawnFeed, follow: true, ends: false }
-			case "data across lines":
-				return {
-					...drawnFeed,
-					before: [{ type: "upsert", tokens: tokensOf("upsert") }, ...drawnFeed.before],
-					gaps: ["\n", ...Arr.drop(drawnFeed.gaps, 1)]
-				}
-			case "a comment":
-				return { ...drawnFeed, comments: true }
-			case "a write that splits an event":
-				return { ...drawnFeed, writes: int(2, 3)(source) }
-		}
-	}
-
-const FEED_FEATURES: Arr.NonEmptyReadonlyArray<FeedFeature> = [
-	"stopped at ready",
-	"followed to its end",
-	"interrupted while following",
-	"data across lines",
-	"a comment",
-	"a write that splits an event"
-]
-
-/** A focus, or none, each half the time: none draws any feed. */
-const FEED_FOCUS: Gen<Option.Option<FeedFeature>> = weighted([
-	[1, constant(Option.none())],
-	[1, map(element(FEED_FEATURES), Option.some)]
-])
-
-/** An event's data as written: its tokens with the feed's gaps between them, a gap with a line feed splitting lines. */
-const writtenData = (
-	event: Readonly<{ tokens: Arr.NonEmptyReadonlyArray<string> }>,
-	gaps: ReadonlyArray<string>
-) =>
-	Arr.join(
-		Arr.map(event.tokens, (token, index) =>
-			index === 0 ? token : `${Option.getOrElse(Arr.get(gaps, index - 1), () => "")}${token}`
-		),
-		""
-	)
-
-/** One event's text on the wire. */
-const eventText = (type: string, data: string, comments: boolean): string =>
-	`${comments ? ": note\n" : ""}event: ${type}\n${Arr.join(
-		Arr.map(Str.split("\n")(data), (line) => `data: ${line}\n`),
-		""
-	)}\n`
-
-const readyEvent = { tokens: ["{", "}"] } as const satisfies Readonly<{
-	tokens: Arr.NonEmptyReadonlyArray<string>
-}>
-
-/** The feed's whole body, the events in order. */
-const bodyOf = (sent: Feed): string =>
-	Arr.join(
-		[
-			...Arr.map(sent.before, (event) =>
-				eventText(event.type, writtenData(event, sent.gaps), sent.comments)
-			),
-			eventText("ready", writtenData(readyEvent, sent.gaps), sent.comments),
-			...Arr.map(sent.after, (event) =>
-				eventText(event.type, writtenData(event, sent.gaps), sent.comments)
-			),
-			...(sent.ends ? [eventText("end", "{}", sent.comments)] : [])
-		],
-		""
-	)
-
-/** The body cut into the feed's number of writes. */
-const writesOf = (body: string, writes: number): ReadonlyArray<string> => {
-	const size = Math.ceil(body.length / writes)
-	return Array.from({ length: writes }, (_, index) =>
-		Str.slice(index * size, (index + 1) * size)(body)
-	)
-}
-
-const quoted = Schema.encodeEffect(Schema.fromJsonString(Schema.String))
-
-/** One event's line, as the contract states it: its JSON data compacted, then its type. */
-const lineOf = (type: string, tokens: ReadonlyArray<string>) =>
-	Effect.map(quoted(type), (name) => `{"data":${Arr.join(tokens, "")},"event":${name}}\n`)
-
-/** The lines a run prints: the items, `ready`; under `--follow` the live items and `end`. */
-const expectedOf = (sent: Feed) =>
-	Effect.gen(function* () {
-		const before = yield* Effect.forEach(sent.before, (event) => lineOf(event.type, event.tokens))
-		const ready = yield* lineOf("ready", readyEvent.tokens)
-		const after = yield* Effect.forEach(sent.after, (event) => lineOf(event.type, event.tokens))
-		const end = sent.ends ? [yield* lineOf("end", ["{", "}"])] : []
-		return Arr.join([...before, ready, ...(sent.follow ? [...after, ...end] : [])], "")
-	})
-
-/** The features a feed reaches. */
-type FeedFeature =
-	| "stopped at ready"
-	| "followed to its end"
-	| "interrupted while following"
-	| "data across lines"
-	| "a comment"
-	| "a write that splits an event"
-
-const feedFeatures = (sent: Feed): ReadonlyArray<FeedFeature> => {
-	const features: ReadonlyArray<readonly [FeedFeature, boolean]> = [
-		["stopped at ready", !sent.follow],
-		["followed to its end", sent.follow && sent.ends],
-		["interrupted while following", sent.follow && !sent.ends],
-		["data across lines", Arr.contains(sent.gaps, "\n")],
-		["a comment", sent.comments],
-		["a write that splits an event", sent.writes > 1]
-	]
-	return Arr.flatMap(features, ([feature, reached]) => (reached ? [feature] : []))
-}
-
-/** A read's request body: the post it reads, no facts. */
-const readBody = '{"params":{"id":"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"},"facts":{}}'
-
-/** A write's request body: one comment inserted. */
-const writeBody =
-	'{"params":{},"facts":{"insert":{"Comment":[{"author":"user_a","body":"hi","id":"0d1e2f3a-4b5c-4d6e-8f70-112233445566","post":"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"}]}}}'
-
-/** The arguments of one read call, with `--follow` when the case follows. */
-const readArgs = (origin: string, follow: boolean): ReadonlyArray<string> => [
-	"--base-url",
-	origin,
-	"--error-format",
-	"json",
-	"reader",
-	"post-page",
-	"--body",
+	bodyOf,
+	cutCases,
+	type CutFeature,
+	cutFeature,
+	errorData,
+	ErrorLine,
+	errorText,
+	kindOf,
+	expectedOf,
+	failureCases,
+	type FailureFeature,
+	failureFeature,
+	FEED_FEATURES,
+	type FeedFeature,
+	feedFeatures,
+	feeds,
+	firstItem,
+	lineOf,
+	outcomeText,
+	readArgs,
 	readBody,
-	...(follow ? ["--follow"] : [])
-]
+	refusedCases,
+	type RefusedData,
+	refusedText,
+	resetText,
+	runCli,
+	Server,
+	Site,
+	streamFixture,
+	writeBody,
+	writesOf
+} from "#test/generated/event-stream.fixtures.ts"
 
-/** A failure case: the error event's verdict, the caller's `--retries`, and the command. */
-type FailureCase = Readonly<{
-	verdict: "never" | "safe"
-	retries: Option.Option<number>
-	command: "comment" | "post-page"
-}>
-
-const failureCase: Gen<FailureCase> = (source) => ({
-	verdict: element<FailureCase["verdict"]>(["safe", "never"])(source),
-	retries: element([Option.none(), Option.some(1)])(source),
-	command: element<FailureCase["command"]>(["post-page", "comment"])(source)
-})
-
-/** The features of the failure space. */
-type FailureFeature =
-	`${FailureCase["verdict"]} ${"with" | "without"} a budget on ${FailureCase["command"]}`
-
-const failureFeature = (failure: FailureCase): FailureFeature =>
-	`${failure.verdict} ${Option.isSome(failure.retries) ? "with" : "without"} a budget on ${failure.command}`
-
-/** The CallError kind the fixture's error schema pairs with a verdict: `transient` is safe, `stale` never. */
-const kindOf = (verdict: string): string => (verdict === "safe" ? "transient" : "stale")
-
-/** The error event's text for a verdict. */
-const errorText = (verdict: string): string =>
-	`event: error\ndata: {"error":{"kind":"${kindOf(verdict)}","retry":"${verdict}","message":"try again"}}\n\n`
-
-/** The first item each failing call sends before its error: a read's reset, a write's outcome. */
-const firstItem = (command: FailureCase["command"]): readonly [string, string] =>
-	command === "post-page"
-		? ["reset", 'event: reset\ndata: {"key":[]}\n\n']
-		: ["outcome", 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":{}}}\n\n']
-
-const ErrorLine = Schema.fromJsonString(
-	Schema.Struct({
-		error: Schema.Struct({ kind: Schema.String, data: Schema.optionalKey(Schema.Json) })
-	})
-)
-
-/** The error event's data as a JSON value, which `--error-format json` prints as `data`. */
-const errorData = (verdict: string): Schema.Json => ({
-	error: { kind: kindOf(verdict), retry: verdict, message: "try again" }
-})
-
-/**
- * An event whose data its `contentSchema` in the fixture refuses, one of each type a read sends: a reset with a member
- * its closed object does not declare, an upsert without its row's members, a remove of a key of one column, a ready
- * with a member, and an error whose kind the schema pairs with the other retry. (The reset's `const` key is not one the
- * CLI asserts, SCH-28, so its fault is the excess member.)
+/** Each stream's events are written exactly as sent, through the stop point its flags name. Its budget is the count
+ * its suite stated before the conversion: 4 independent cases, and up to 16 steered while a situation is unreached.
  */
-type RefusedData = "reset" | "upsert" | "remove" | "ready" | "error"
-
-const refusedText: Readonly<Record<RefusedData, string>> = {
-	reset: 'event: reset\ndata: {"key":[],"fields":["id"]}\n\n',
-	upsert: 'event: upsert\ndata: {"row":{"id":"6f1c2a4e-0b7d-4c1e-9a3f-2d5e8b7c1a90"}}\n\n',
-	remove: 'event: remove\ndata: {"key":[1]}\n\n',
-	ready: 'event: ready\ndata: {"more":true}\n\n',
-	error: 'event: error\ndata: {"error":{"kind":"stale","retry":"safe","message":"m"}}\n\n'
-}
-
-const refusedData: Gen<RefusedData> = element<RefusedData>([
-	"reset",
-	"upsert",
-	"remove",
-	"ready",
-	"error"
-])
-
-/** A cut case: the command whose stream is cut, and the caller's `--retries`. */
-type CutCase = Readonly<{ command: FailureCase["command"]; retries: Option.Option<number> }>
-
-const cutCase: Gen<CutCase> = (source) => ({
-	command: element<CutCase["command"]>(["post-page", "comment"])(source),
-	retries: element([Option.none(), Option.some(1)])(source)
+export const streamFeed = property.explore(feeds, {
+	needs: { fixture: streamFixture, checkout: Checkout.dir },
+	situations: FEED_FEATURES,
+	check:
+		({ fixture }, k: Case<FeedFeature>) =>
+		(sent) =>
+			Effect.flatMap(fixture, (services) =>
+				Effect.gen(function* () {
+					const server = yield* Server
+					yield* server.script([{ writes: writesOf(bodyOf(sent), sent.writes), close: sent.ends }])
+					const interrupted = sent.follow && !sent.ends
+					const expected = yield* expectedOf(sent)
+					const lastLine = Option.getOrElse(
+						Arr.last(Str.split("\n")(Str.trimEnd(expected))),
+						() => ""
+					)
+					const run = yield* runCli(
+						readArgs(server.origin, sent.follow),
+						interrupted ? Option.some(lastLine) : Option.none()
+					)
+					k.noteAll(feedFeatures(sent))
+					deepStrictEqual(
+						{ exitCode: run.exitCode, stdout: run.stdout },
+						{ exitCode: interrupted ? 130 : 0, stdout: expected }
+					)
+				}).pipe(Effect.provideContext(services))
+			),
+	oracle: {
+		kind: "specification",
+		name: "the events' own lines, through the stop point the command's flags name"
+	},
+	kept: [],
+	budget: { runs: 4, steered: 16 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/sse.ts",
+			original: '\tFlag.map((follow): StopAt => (follow ? "terminal" : "ready"))',
+			replacement: '\tFlag.map((follow): StopAt => (follow ? "ready" : "ready"))',
+			why: "--follow stops at the first ready as the default does, so a followed stream's live items and end are never printed; the property fails."
+		}
+	]
 })
 
-type CutFeature = `a cut ${"read" | "write"} ${"with" | "without"} a budget`
-
-const cutFeature = (cut: CutCase): CutFeature =>
-	`a cut ${cut.command === "post-page" ? "read" : "write"} ${Option.isSome(cut.retries) ? "with" : "without"} a budget`
-
-/** The read's reset, ready and end, and the write's outcome, as the server writes them and the CLI prints them. */
-const resetText = 'event: reset\ndata: {"key":[]}\n\n'
-
-const outcomeText = 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":{}}}\n\n'
-
-const environment = Layer.mergeAll(siteLayer, serverLayer).pipe(
-	Layer.provideMerge(
-		Layer.mergeAll(NodeChildProcessSpawner.layer, NodeCrypto.layerDigest).pipe(
-			Layer.provideMerge(NodeHttpServer.layerTest)
-		)
-	)
-)
-
-layer(environment, { timeout: Duration.minutes(5) })(
-	"a generated CLI reading an event stream",
-	(it) => {
-		it.effect(
-			"writes exactly the events sent, through the stop point its flags name",
-			(ctx) =>
-				searched(
-					ctx,
-					explore(
-						{
-							suite: "generated/event-stream-feed",
-							oracle: {
-								kind: "specification",
-								name: "the events' own lines, through the stop point the command's flags name"
-							},
-							draw: aimedAmong(FEED_FEATURES, FEED_FOCUS, (feature) =>
-								constant(Option.some(feature))
-							),
-							literal: Formatter.format,
-							coverage: required<FeedFeature>(FEED_FEATURES, { cases: 16, sense: notesOnly }),
-							kept: [],
-							runs: 4,
-							shrink: completeShrink,
-							steerEvery: 4,
-							caseHang: Duration.seconds(60)
-						},
-						(focus, c) =>
-							Effect.gen(function* () {
-								const sent = c.draw(Option.match(focus, { onNone: () => feed, onSome: feedFor }))
-								const server = yield* Server
-								yield* server.script([
-									{ writes: writesOf(bodyOf(sent), sent.writes), close: sent.ends }
-								])
-								const interrupted = sent.follow && !sent.ends
-								const expected = yield* expectedOf(sent)
-								const lastLine = Option.getOrElse(
-									Arr.last(Str.split("\n")(Str.trimEnd(expected))),
-									() => ""
-								)
-								const run = yield* runCli(
-									readArgs(server.origin, sent.follow),
-									interrupted ? Option.some(lastLine) : Option.none()
-								)
-								c.noteAll(feedFeatures(sent))
-								deepStrictEqual(
-									{ exitCode: run.exitCode, stdout: run.stdout },
-									{ exitCode: interrupted ? 130 : 0, stdout: expected }
-								)
-							})
+/** An error event ends the run with exit 1, and is retried as a fresh call only when it says retrying is safe and
+ * the caller gave --retries.
+ */
+export const streamFailure = property.exhaust(failureCases, {
+	box: "every pairing of the error event's verdict, a --retries budget or none, and the read or the write",
+	needs: { fixture: streamFixture, checkout: Checkout.dir },
+	situations: [
+		"safe with a budget on post-page",
+		"safe without a budget on post-page",
+		"never with a budget on post-page",
+		"never without a budget on post-page",
+		"safe with a budget on comment",
+		"safe without a budget on comment",
+		"never with a budget on comment",
+		"never without a budget on comment"
+	],
+	check:
+		({ fixture }, k: Case<FailureFeature>) =>
+		(failure) =>
+			Effect.flatMap(fixture, (services) =>
+				Effect.gen(function* () {
+					const server = yield* Server
+					const [itemType, itemText] = firstItem(failure.command)
+					const retried = failure.verdict === "safe" && Option.isSome(failure.retries)
+					const success =
+						failure.command === "post-page"
+							? "event: ready\ndata: {}\n\n"
+							: "event: end\ndata: {}\n\n"
+					yield* server.script([
+						{ writes: [itemText, errorText(failure.verdict)], close: true },
+						{ writes: [itemText, success], close: true }
+					])
+					const run = yield* runCli(
+						[
+							"--base-url",
+							server.origin,
+							"--error-format",
+							"json",
+							...Option.match(failure.retries, {
+								onNone: () => [],
+								onSome: (n) => ["--retries", String(n)]
+							}),
+							"reader",
+							failure.command,
+							"--body",
+							failure.command === "post-page" ? readBody : writeBody
+						],
+						Option.none()
 					)
-				),
-			Duration.toMillis(Duration.minutes(5))
-		)
-
-		it.effect(
-			"fails with exit 1 after an error event, retrying as a fresh call only a safe one under --retries",
-			(ctx) =>
-				searched(
-					ctx,
-					exhaust(
-						{
-							suite: "generated/event-stream-failure",
-							oracle: {
-								kind: "specification",
-								name: "the stream's contract: the lines printed, the exit code, the calls made and the header each carried, and the error object's data"
-							},
-							box: "every pairing of the error event's verdict, a --retries budget or none, and the read or the write",
-							generator: failureCase,
-							literal: Formatter.format,
-							coverage: requiredInSpace<FailureFeature>([
-								"safe with a budget on post-page",
-								"safe without a budget on post-page",
-								"never with a budget on post-page",
-								"never without a budget on post-page",
-								"safe with a budget on comment",
-								"safe without a budget on comment",
-								"never with a budget on comment",
-								"never without a budget on comment"
-							]),
-							caseHang: Duration.seconds(60)
-						},
-						(failure, c) =>
-							Effect.gen(function* () {
-								const server = yield* Server
-								const [itemType, itemText] = firstItem(failure.command)
-								const retried = failure.verdict === "safe" && Option.isSome(failure.retries)
-								const success =
-									failure.command === "post-page"
-										? "event: ready\ndata: {}\n\n"
-										: "event: end\ndata: {}\n\n"
-								yield* server.script([
-									{ writes: [itemText, errorText(failure.verdict)], close: true },
-									{ writes: [itemText, success], close: true }
-								])
-								const run = yield* runCli(
-									[
-										"--base-url",
-										server.origin,
-										"--error-format",
-										"json",
-										...Option.match(failure.retries, {
-											onNone: () => [],
-											onSome: (n) => ["--retries", String(n)]
-										}),
-										"reader",
-										failure.command,
-										"--body",
-										failure.command === "post-page" ? readBody : writeBody
-									],
-									Option.none()
-								)
-								const item = yield* lineOf(
-									itemType,
-									failure.command === "post-page"
-										? ["{", '"key"', ":", "[", "]", "}"]
-										: [
-												"{",
-												'"outcome"',
-												":",
-												"{",
-												'"kind"',
-												":",
-												'"unchanged"',
-												",",
-												'"reads"',
-												":",
-												"{",
-												"}",
-												"}",
-												"}"
-											]
-								)
-								const error = yield* lineOf("error", [
-									"{",
-									'"error"',
-									":",
-									"{",
-									'"kind"',
-									":",
-									`"${kindOf(failure.verdict)}"`,
-									",",
-									'"retry"',
-									":",
-									`"${failure.verdict}"`,
-									",",
-									'"message"',
-									":",
-									'"try again"',
-									"}",
-									"}"
-								])
-								const last = yield* lineOf(failure.command === "post-page" ? "ready" : "end", [
-									"{",
-									"}"
-								])
-								const lastError = Option.getOrElse(
-									Arr.last(Str.split("\n")(Str.trim(run.stderr))),
-									() => ""
-								)
-								const printedError = Option.map(
-									Schema.decodeOption(ErrorLine)(lastError),
-									(line) => ({ kind: line.error.kind, data: line.error.data })
-								)
-								const site = yield* Site
-								const digest = Rec.get(
-									site.wire,
-									failure.command === "post-page" ? "/site/reader/postPage" : "/site/reader/comment"
-								)
-								const requests = yield* server.requests
-								const wire = yield* server.wire
-								c.note(failureFeature(failure))
-								deepStrictEqual(wire, Arr.getSomes(Array.from({ length: requests }, () => digest)))
-								deepStrictEqual(
-									{
-										exitCode: run.exitCode,
-										requests,
-										stdout: run.stdout,
-										printedError
-									},
-									retried
-										? {
-												exitCode: 0,
-												requests: 2,
-												stdout: `${item}${error}${item}${last}`,
-												printedError: Option.none()
-											}
-										: {
-												exitCode: 1,
-												requests: 1,
-												stdout: `${item}${error}`,
-												printedError: Option.some({
-													kind: "StreamEventError",
-													data: errorData(failure.verdict)
-												})
-											}
-								)
-							})
-					)
-				),
-			Duration.toMillis(Duration.minutes(5))
-		)
-
-		it.effect(
-			"ends with exit 5 at an event whose data its contentSchema refuses, printing nothing of it",
-			(ctx) =>
-				searched(
-					ctx,
-					exhaust(
-						{
-							suite: "generated/event-stream-refused-data",
-							oracle: {
-								kind: "specification",
-								name: "the event's contentSchema: data it refuses ends the stream with invalidData, exit 5, and is never printed"
-							},
-							box: "the read sent one event of each type whose data its contentSchema refuses",
-							generator: refusedData,
-							literal: Formatter.format,
-							coverage: requiredInSpace<RefusedData>([
-								"reset",
-								"upsert",
-								"remove",
-								"ready",
-								"error"
-							]),
-							caseHang: Duration.seconds(60)
-						},
-						(refused, c) =>
-							Effect.gen(function* () {
-								const server = yield* Server
-								yield* server.script([{ writes: [refusedText[refused]], close: true }])
-								const run = yield* runCli(readArgs(server.origin, false), Option.none())
-								c.note(refused)
-								deepStrictEqual(
-									{
-										exitCode: run.exitCode,
-										stdout: run.stdout,
-										invalidData: Str.includes("invalidData")(run.stderr)
-									},
-									{ exitCode: 5, stdout: "", invalidData: true }
-								)
-							})
-					)
-				)
-		)
-
-		it.effect(
-			"calls a read cut by its transport again under --retries, and never a cut write",
-			(ctx) =>
-				searched(
-					ctx,
-					exhaust(
-						{
-							suite: "generated/event-stream-cut",
-							oracle: {
-								kind: "specification",
-								name: "a cut read is a retry-safe unavailable event and a cut write ends the run: the lines printed, the exit code and the calls made"
-							},
-							box: "the read followed past its ready and the write, each cut before its terminal event, with a --retries budget or none",
-							generator: cutCase,
-							literal: Formatter.format,
-							coverage: requiredInSpace<CutFeature>([
-								"a cut read with a budget",
-								"a cut read without a budget",
-								"a cut write with a budget",
-								"a cut write without a budget"
-							]),
-							caseHang: Duration.seconds(60)
-						},
-						(cut, c) =>
-							Effect.gen(function* () {
-								const server = yield* Server
-								const read = cut.command === "post-page"
-								yield* server.script(
-									read
-										? [
-												{ writes: [resetText, "event: ready\ndata: {}\n\n"], close: true },
-												{
-													writes: [
-														resetText,
-														"event: ready\ndata: {}\n\n",
-														"event: end\ndata: {}\n\n"
-													],
-													close: true
-												}
-											]
-										: [
-												{ writes: [outcomeText], close: true },
-												{ writes: [outcomeText, "event: end\ndata: {}\n\n"], close: true }
-											]
-								)
-								const run = yield* runCli(
-									[
-										"--base-url",
-										server.origin,
-										...Option.match(cut.retries, {
-											onNone: () => [],
-											onSome: (n) => ["--retries", String(n)]
-										}),
-										"reader",
-										cut.command,
-										"--body",
-										read ? readBody : writeBody,
-										...(read ? ["--follow"] : [])
-									],
-									Option.none()
-								)
-								const reset = yield* lineOf("reset", ["{", '"key"', ":", "[", "]", "}"])
-								const ready = yield* lineOf("ready", ["{", "}"])
-								const end = yield* lineOf("end", ["{", "}"])
-								const outcome = yield* lineOf("outcome", [
+					const item = yield* lineOf(
+						itemType,
+						failure.command === "post-page"
+							? ["{", '"key"', ":", "[", "]", "}"]
+							: [
 									"{",
 									'"outcome"',
 									":",
@@ -898,24 +182,217 @@ layer(environment, { timeout: Duration.minutes(5) })(
 									"}",
 									"}",
 									"}"
-								])
-								const requests = yield* server.requests
-								c.note(cutFeature(cut))
-								const resumed = read && Option.isSome(cut.retries)
-								deepStrictEqual(
-									{ exitCode: run.exitCode, requests, stdout: run.stdout },
-									resumed
-										? { exitCode: 0, requests: 2, stdout: `${reset}${ready}${reset}${ready}${end}` }
-										: {
-												exitCode: 5,
-												requests: 1,
-												stdout: read ? `${reset}${ready}` : outcome
-											}
-								)
-							})
+								]
 					)
-				),
-			Duration.toMillis(Duration.minutes(5))
-		)
-	}
-)
+					const error = yield* lineOf("error", [
+						"{",
+						'"error"',
+						":",
+						"{",
+						'"kind"',
+						":",
+						`"${kindOf(failure.verdict)}"`,
+						",",
+						'"retry"',
+						":",
+						`"${failure.verdict}"`,
+						",",
+						'"message"',
+						":",
+						'"try again"',
+						"}",
+						"}"
+					])
+					const last = yield* lineOf(failure.command === "post-page" ? "ready" : "end", ["{", "}"])
+					const lastError = Option.getOrElse(
+						Arr.last(Str.split("\n")(Str.trim(run.stderr))),
+						() => ""
+					)
+					const printedError = Option.map(Schema.decodeOption(ErrorLine)(lastError), (line) => ({
+						kind: line.error.kind,
+						data: line.error.data
+					}))
+					const site = yield* Site
+					const digest = Rec.get(
+						site.wire,
+						failure.command === "post-page" ? "/site/reader/postPage" : "/site/reader/comment"
+					)
+					const requests = yield* server.requests
+					const wire = yield* server.wire
+					k.note(failureFeature(failure))
+					deepStrictEqual(wire, Arr.getSomes(Array.from({ length: requests }, () => digest)))
+					deepStrictEqual(
+						{
+							exitCode: run.exitCode,
+							requests,
+							stdout: run.stdout,
+							printedError
+						},
+						retried
+							? {
+									exitCode: 0,
+									requests: 2,
+									stdout: `${item}${error}${item}${last}`,
+									printedError: Option.none()
+								}
+							: {
+									exitCode: 1,
+									requests: 1,
+									stdout: `${item}${error}`,
+									printedError: Option.some({
+										kind: "StreamEventError",
+										data: errorData(failure.verdict)
+									})
+								}
+					)
+				}).pipe(Effect.provideContext(services))
+			),
+	oracle: {
+		kind: "specification",
+		name: "the stream's contract: the lines printed, the exit code, the calls made and the header each carried, and the error object's data"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/sse.ts",
+			original: '\t"retryWhen" in row && saysSafe(event.data, row.retryWhen)',
+			replacement: '\t"retryWhen" in row',
+			why: "An error event is taken as safe to retry whatever its verdict, so a `never` error under --retries is called again; the property fails."
+		}
+	]
+})
+
+/** An event whose data its contentSchema refuses ends the run with exit 5 (invalidData), printing nothing of it. */
+export const streamRefusedData = property.exhaust(refusedCases, {
+	box: "the read sent one event of each type whose data its contentSchema refuses",
+	needs: { fixture: streamFixture, checkout: Checkout.dir },
+	situations: ["reset", "upsert", "remove", "ready", "error"],
+	check:
+		({ fixture }, k: Case<RefusedData>) =>
+		(refused) =>
+			Effect.flatMap(fixture, (services) =>
+				Effect.gen(function* () {
+					const server = yield* Server
+					yield* server.script([{ writes: [refusedText[refused]], close: true }])
+					const run = yield* runCli(readArgs(server.origin, false), Option.none())
+					k.note(refused)
+					deepStrictEqual(
+						{
+							exitCode: run.exitCode,
+							stdout: run.stdout,
+							invalidData: Str.includes("invalidData")(run.stderr)
+						},
+						{ exitCode: 5, stdout: "", invalidData: true }
+					)
+				}).pipe(Effect.provideContext(services))
+			),
+	oracle: {
+		kind: "specification",
+		name: "the event's contentSchema: data it refuses ends the stream with invalidData, exit 5, and is never printed"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/sse.ts",
+			original: "\tif (!admitted(row.data, event.data)) {",
+			replacement: "\tif (false) {",
+			why: "An event's data is printed without its contentSchema's check, so refused data is written and the run goes on; the property fails."
+		}
+	]
+})
+
+/** A read cut by its transport is called again under --retries and read anew; a cut write ends the run with exit 5. */
+export const streamCut = property.exhaust(cutCases, {
+	box: "the read followed past its ready and the write, each cut before its terminal event, with a --retries budget or none",
+	needs: { fixture: streamFixture, checkout: Checkout.dir },
+	situations: [
+		"a cut read with a budget",
+		"a cut read without a budget",
+		"a cut write with a budget",
+		"a cut write without a budget"
+	],
+	check:
+		({ fixture }, k: Case<CutFeature>) =>
+		(cut) =>
+			Effect.flatMap(fixture, (services) =>
+				Effect.gen(function* () {
+					const server = yield* Server
+					const read = cut.command === "post-page"
+					yield* server.script(
+						read
+							? [
+									{ writes: [resetText, "event: ready\ndata: {}\n\n"], close: true },
+									{
+										writes: [resetText, "event: ready\ndata: {}\n\n", "event: end\ndata: {}\n\n"],
+										close: true
+									}
+								]
+							: [
+									{ writes: [outcomeText], close: true },
+									{ writes: [outcomeText, "event: end\ndata: {}\n\n"], close: true }
+								]
+					)
+					const run = yield* runCli(
+						[
+							"--base-url",
+							server.origin,
+							...Option.match(cut.retries, {
+								onNone: () => [],
+								onSome: (n) => ["--retries", String(n)]
+							}),
+							"reader",
+							cut.command,
+							"--body",
+							read ? readBody : writeBody,
+							...(read ? ["--follow"] : [])
+						],
+						Option.none()
+					)
+					const reset = yield* lineOf("reset", ["{", '"key"', ":", "[", "]", "}"])
+					const ready = yield* lineOf("ready", ["{", "}"])
+					const end = yield* lineOf("end", ["{", "}"])
+					const outcome = yield* lineOf("outcome", [
+						"{",
+						'"outcome"',
+						":",
+						"{",
+						'"kind"',
+						":",
+						'"unchanged"',
+						",",
+						'"reads"',
+						":",
+						"{",
+						"}",
+						"}",
+						"}"
+					])
+					const requests = yield* server.requests
+					k.note(cutFeature(cut))
+					const resumed = read && Option.isSome(cut.retries)
+					deepStrictEqual(
+						{ exitCode: run.exitCode, requests, stdout: run.stdout },
+						resumed
+							? { exitCode: 0, requests: 2, stdout: `${reset}${ready}${reset}${ready}${end}` }
+							: {
+									exitCode: 5,
+									requests: 1,
+									stdout: read ? `${reset}${ready}` : outcome
+								}
+					)
+				}).pipe(Effect.provideContext(services))
+			),
+	oracle: {
+		kind: "specification",
+		name: "a cut read is a retry-safe unavailable event and a cut write ends the run: the lines printed, the exit code and the calls made"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/sse.ts",
+			original: '\t\t\tArr.some(Rec.values(contract.events), (row) => row.role === "ready")',
+			replacement: "\t\t\tfalse",
+			why: "No operation reads state, so a read cut by its transport is never called again under --retries; the property fails."
+		}
+	]
+})
