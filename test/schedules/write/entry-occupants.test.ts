@@ -34,23 +34,27 @@
  * Oracle: specification, the serial order W, then A, over the stated seats, with the SerializationFailure of a call
  * whose snapshot misses W's commit at its key.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { boolean, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Fiber, Formatter, Option, Order, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { workload } from "#compiler/public/workload.ts"
+import {
+	Gate,
+	otherId,
+	otherTeam,
+	type RaceFeature,
+	raceGen,
+	Seat,
+	seatOf,
+	seats,
+	wId,
+	wTeam
+} from "#test/schedules/write/entry-occupants.fixtures.ts"
 import { assert, deepEquals } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { untilAnswered } from "#test/support/schedules/grizzle.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
@@ -58,265 +62,184 @@ import { lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { tokenOf } from "#test/support/worlds.ts"
 
-const Subject = str.regex("^u_[a-z]{1,8}$")
-const Seat = relation("Seat", { id: pg.integer, team: pg.integer, holder: Subject }, ["id"])
-/** The relation a held call inserts last, which the owner's SHARE lock holds it at. */
-const Gate = relation("Gate", { id: pg.uuidv7, n: pg.integer }, ["id"])
-
-/** The schema, the role `holder`, which inserts its subject's seats and Gate, and its two logins. */
-const seats = (name: string) => {
-	const base = schema(name, [Seat, Gate], [])
-	const Session = context("Session", { sub: Subject })
-	const mine = query(base).rule((r) => {
-		const { id, team, holder } = v(Seat, "seat")
-		return r.match(Seat, { id, team, holder }).match(Session, { sub: holder }).find({ id, team })
-	})
-	const holder = role(base, "holder", { MySeat: mine, Gate }, { insert: ["MySeat", "Gate"] })
-	const direct = role(base, "direct", { Seat, Gate })
-	const MySeat = holder.relations.MySeat
-	return {
-		schema: base,
-		holder,
-		direct,
-		server: login(base, "server", [holder], {
-			workload: [
-				workload(holder, {
-					take: ChangeSet.empty(holder)
-						.insert(MySeat, [])
-						.read("added", (d) =>
-							query(holder).rule((r) => {
-								const { id, team } = v(d.added(MySeat), "seat")
-								return r.match(d.added(MySeat), { id, team }).find({ id, team })
-							})
-						)
-						.read("met", (d) =>
-							query(holder).rule((r) => {
-								const { id, team } = v(d.met(MySeat), "seat")
-								return r.match(d.met(MySeat), { id, team }).find({ id, team })
-							})
-						),
-					held: ChangeSet.sequence(
-						ChangeSet.empty(holder).insert(MySeat, []),
-						ChangeSet.empty(holder).insert(Gate, [])
-					)
-				})
-			]
-		}),
-		psql: login(base, "psql", [direct])
-	}
-}
-
-/** One case of the box. */
-interface Race {
-	/** Whether W runs as carl, outside ann's entry, or as ann. */
-	readonly outside: boolean
-	/** Whether A requests W's id, and whether at W's team. */
-	readonly sameId: boolean
-	readonly sameTeam: boolean
-}
-
-const raceGen: Gen<Race> = (source) => ({
-	outside: source.draw(boolean),
-	sameId: source.draw(boolean),
-	sameTeam: source.draw(boolean)
-})
-
-type RaceFeature =
-	| "an outside seat committed past the snapshot: 40001, then refused on the key's law"
-	| "an own seat committed past the snapshot: 40001, then met as an exact repeat"
-	| "an own seat at another team committed past the snapshot: 40001, then refused on the key's law"
-	| "a free id, inserted without waiting"
-
-/** A seat a call reads back, as a plain record. */
-const seatOf = (r: { readonly id: number; readonly team: number }) => ({ id: r.id, team: r.team })
-
-/** W's seat, and A's at another id or team. */
-const wId = 1
-const wTeam = 1
-const otherId = 2
-const otherTeam = 2
-
-layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (it) => {
-	it.effect("fails at an occupant past its snapshot, and its retry answers serially", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const rig = yield* openRig(seats)
-				const names = namesOf(rig.installed)
-				const seatTable = names.table(Seat)
-				const gate = names.table(Gate)
-				const column = (field: "id" | "team" | "holder") => names.column(Seat, field)
-				const openAs =
-					(sub: string) => (context: Parameters<Parameters<typeof rig.servedWriter>[1]>[0]) =>
-						openServed(rig.served.roles.holder, { token: tokenOf({ sub }) }).pipe(
-							Effect.provideContext(context)
-						)
-				const a = yield* rig.servedWriter("a", openAs("u_ann"), (db) =>
-					answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
-				)
-				const carl = yield* rig.servedWriter("carl", openAs("u_carl"), (db) =>
-					answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
-				)
-				const ann = yield* rig.servedWriter("ann", openAs("u_ann"), (db) =>
-					answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
-				)
-				assert.equal(a.ctx.isolation, "serializable", "generate certifies holder SERIALIZABLE")
-				const { owner } = yield* openActors(s, {
-					owner: { kind: "raw", as: rig.installed.ambientOwner.credentials }
-				})
-				const state = Effect.map(
-					s.admin.queryValues(
-						`SELECT ${column("id")}::text, ${column("team")}::text, ${column("holder")}::text FROM ${seatTable} ORDER BY 1`,
-						[]
-					),
-					(rows) => Arr.map(rows, (row) => Arr.join(Arr.map(row, String), ","))
-				)
-				/**
-				 * Whether a backend `waiter` waited for `holder` before `fiber` ended (collisions.test.ts), each read at every
-				 * poll, a grizzle actor's being the connection its call holds then.
-				 */
-				const waitedOrEnded = <A>(
-					fiber: Fiber.Fiber<A>,
-					waiter: Effect.Effect<Option.Option<number>>,
-					holder: Effect.Effect<Option.Option<number>>
-				) =>
+/**
+ * A query entry's insertion racing a commit at its key fails at an occupant past its snapshot, and its retry answers serially.
+ */
+export const aQueryEntrysInsertionRacingACommitAtItsKeyFailsAtAnOccupantPastItsSnapshotAndItsRetryAnswersSerially =
+	property.exhaust(finite(raceGen), {
+		needs: { substrate: Substrate.installing },
+		situations: [
+			"an outside seat committed past the snapshot: 40001, then refused on the key's law",
+			"an own seat committed past the snapshot: 40001, then met as an exact repeat",
+			"an own seat at another team committed past the snapshot: 40001, then refused on the key's law",
+			"a free id, inserted without waiting"
+		] satisfies ReadonlyArray<Reached<RaceFeature>>,
+		check:
+			({ substrate }, k: Case<RaceFeature>) =>
+			(c) =>
+				Effect.provideServiceEffect(
 					Effect.gen(function* () {
-						for (;;) {
-							if (fiber.pollUnsafe() !== undefined) {
-								return "ended" as const
-							}
-							const backends = Option.all([yield* waiter, yield* holder])
-							if (Option.isSome(backends)) {
-								const [waiting, holding] = backends.value
-								const wait = yield* lockWaitOf(s.admin, waiting)
-								if (wait?.blockedBy.includes(holding) === true) {
-									return "waited" as const
-								}
-							}
-							yield* Effect.yieldNow
-						}
-					})
-				return yield* exhaust(
-					{
-						suite: "schedules/write/entry-occupants",
-						generator: raceGen,
-						literal: Formatter.format,
-						coverage: requiredInSpace<RaceFeature>([
-							"an outside seat committed past the snapshot: 40001, then refused on the key's law",
-							"an own seat committed past the snapshot: 40001, then met as an exact repeat",
-							"an own seat at another team committed past the snapshot: 40001, then refused on the key's law",
-							"a free id, inserted without waiting"
-						]),
-						caseHang,
-						box: "W as carl or as ann; A's seat at W's id or another, at W's team or another",
-						oracle: {
-							kind: "specification",
-							name: "the serial order W, then A, over the stated seats, with the SerializationFailure of a call whose snapshot misses W's commit at its key"
-						}
-					},
-					(c, k) =>
-						Effect.gen(function* () {
-							yield* rig.replace([])
-							const w = c.outside ? carl : ann
-							const wSub = c.outside ? "u_carl" : "u_ann"
-							const request = {
-								id: c.sameId ? wId : otherId,
-								team: c.sameTeam ? wTeam : otherTeam
-							}
-							yield* owner.perform({ _tag: "Begin" })
-							yield* owner.perform({ _tag: "Sql", sql: `LOCK TABLE ${gate} IN SHARE MODE` })
-							const fiberW = yield* Effect.forkChild(
-								Effect.result(
-									answered(
-										w.db.workload.held.once({
-											params: {},
-											facts: { insert: { MySeat: [{ id: wId, team: wTeam }], Gate: [{ n: 0 }] } }
-										})
-									)
-								),
-								{ startImmediately: true }
-							)
-							const atGate = yield* waitedOrEnded(
-								fiberW,
-								w.actor.backend,
-								Effect.succeedSome(owner.pid)
-							)
-							assert.equal(atGate, "waited", "W writes its seat and waits at Gate")
-							const fiberA = yield* Effect.forkChild(
-								a.db.workload.take
-									.once({ params: {}, facts: { insert: { MySeat: [request] } } })
-									.pipe(answered, untilAnswered, Effect.result),
-								{ startImmediately: true }
-							)
-							const waited = yield* waitedOrEnded(fiberA, a.actor.backend, w.actor.backend)
-							yield* owner.perform({ _tag: "Commit" })
-							const ranW = yield* Fiber.join(fiberW)
-							const ranA = yield* Fiber.join(fiberA)
-							const final = yield* state
-							assert.ok(Result.isSuccess(ranW), `W commits its seat: ${Formatter.format(ranW)}`)
-							assert.equal(
-								waited === "waited",
-								c.sameId,
-								"A waits for W exactly where it requests W's id"
-							)
-							const wRow = `${wId},${wTeam},${wSub}`
-							const aRow = `${request.id},${request.team},u_ann`
-							assert.ok(Result.isSuccess(ranA), `A answers, never fails: ${Formatter.format(ranA)}`)
-							const { refused, answered: answer } = ranA.success
-							assert.ok(
-								c.sameId
-									? Arr.isReadonlyArrayNonEmpty(refused) &&
-											Arr.every(refused, (reason) => reason === "SerializationFailure")
-									: refused.length === 0,
-								`A's calls fail with SerializationFailure alone exactly where it requests W's id: ${Formatter.format(refused)}`
-							)
-							if (!c.sameId) {
-								assert.ok(
-									answer.kind === "accepted" &&
-										deepEquals(Arr.map(answer.reads.added, seatOf), [
-											{ id: request.id, team: request.team }
-										]) &&
-										answer.reads.met.length === 0,
-									`A inserts its seat at a free id, reading it back as added: ${Formatter.format(answer)}`
+						const s = yield* Substrate
+						const rig = yield* openRig(seats)
+						const names = namesOf(rig.installed)
+						const seatTable = names.table(Seat)
+						const gate = names.table(Gate)
+						const column = (field: "id" | "team" | "holder") => names.column(Seat, field)
+						const openAs =
+							(sub: string) => (context: Parameters<Parameters<typeof rig.servedWriter>[1]>[0]) =>
+								openServed(rig.served.roles.holder, { token: tokenOf({ sub }) }).pipe(
+									Effect.provideContext(context)
 								)
-								assert.deepEqual(
-									final,
-									Arr.sort([wRow, aRow], Order.String),
-									"the table holds both seats"
-								)
-								k.note("a free id, inserted without waiting")
-								return
-							}
-							if (!c.outside && c.sameTeam) {
-								assert.ok(
-									answer.kind === "unchanged" &&
-										answer.reads.added.length === 0 &&
-										deepEquals(Arr.map(answer.reads.met, seatOf), [{ id: wId, team: wTeam }]),
-									`A's exact repeat of ann's own seat is unchanged, met: ${Formatter.format(answer)}`
-								)
-								assert.deepEqual(final, [wRow], "the table holds W's seat")
-								k.note(
-									"an own seat committed past the snapshot: 40001, then met as an exact repeat"
-								)
-								return
-							}
-							assert.ok(
-								answer.kind === "refused" &&
-									Arr.length(answer.refused.laws) === 1 &&
-									answer.witness.kind === "key" &&
-									deepEquals(answer.witness.values, { id: wId }),
-								`A is refused on Seat's key law at its submitted id: ${Formatter.format(answer)}`
-							)
-							assert.deepEqual(final, [wRow], "the table holds W's seat alone")
-							k.note(
-								c.outside
-									? "an outside seat committed past the snapshot: 40001, then refused on the key's law"
-									: "an own seat at another team committed past the snapshot: 40001, then refused on the key's law"
-							)
+						const a = yield* rig.servedWriter("a", openAs("u_ann"), (db) =>
+							answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
+						)
+						const carl = yield* rig.servedWriter("carl", openAs("u_carl"), (db) =>
+							answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
+						)
+						const ann = yield* rig.servedWriter("ann", openAs("u_ann"), (db) =>
+							answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
+						)
+						assert.equal(a.ctx.isolation, "serializable", "generate certifies holder SERIALIZABLE")
+						const { owner } = yield* openActors(s, {
+							owner: { kind: "raw", as: rig.installed.ambientOwner.credentials }
 						})
-				)
-			})
-		)
-	)
-})
+						const state = Effect.map(
+							s.admin.queryValues(
+								`SELECT ${column("id")}::text, ${column("team")}::text, ${column("holder")}::text FROM ${seatTable} ORDER BY 1`,
+								[]
+							),
+							(rows) => Arr.map(rows, (row) => Arr.join(Arr.map(row, String), ","))
+						)
+						/**
+						 * Whether a backend `waiter` waited for `holder` before `fiber` ended (collisions.test.ts), each read at every
+						 * poll, a grizzle actor's being the connection its call holds then.
+						 */
+						const waitedOrEnded = <A>(
+							fiber: Fiber.Fiber<A>,
+							waiter: Effect.Effect<Option.Option<number>>,
+							holder: Effect.Effect<Option.Option<number>>
+						) =>
+							Effect.gen(function* () {
+								for (;;) {
+									if (fiber.pollUnsafe() !== undefined) {
+										return "ended" as const
+									}
+									const backends = Option.all([yield* waiter, yield* holder])
+									if (Option.isSome(backends)) {
+										const [waiting, holding] = backends.value
+										const wait = yield* lockWaitOf(s.admin, waiting)
+										if (wait?.blockedBy.includes(holding) === true) {
+											return "waited" as const
+										}
+									}
+									yield* Effect.yieldNow
+								}
+							})
+
+						yield* rig.replace([])
+						const w = c.outside ? carl : ann
+						const wSub = c.outside ? "u_carl" : "u_ann"
+						const request = {
+							id: c.sameId ? wId : otherId,
+							team: c.sameTeam ? wTeam : otherTeam
+						}
+						yield* owner.perform({ _tag: "Begin" })
+						yield* owner.perform({ _tag: "Sql", sql: `LOCK TABLE ${gate} IN SHARE MODE` })
+						const fiberW = yield* Effect.forkChild(
+							Effect.result(
+								answered(
+									w.db.workload.held.once({
+										params: {},
+										facts: { insert: { MySeat: [{ id: wId, team: wTeam }], Gate: [{ n: 0 }] } }
+									})
+								)
+							),
+							{ startImmediately: true }
+						)
+						const atGate = yield* waitedOrEnded(
+							fiberW,
+							w.actor.backend,
+							Effect.succeedSome(owner.pid)
+						)
+						assert.equal(atGate, "waited", "W writes its seat and waits at Gate")
+						const fiberA = yield* Effect.forkChild(
+							a.db.workload.take
+								.once({ params: {}, facts: { insert: { MySeat: [request] } } })
+								.pipe(answered, untilAnswered, Effect.result),
+							{ startImmediately: true }
+						)
+						const waited = yield* waitedOrEnded(fiberA, a.actor.backend, w.actor.backend)
+						yield* owner.perform({ _tag: "Commit" })
+						const ranW = yield* Fiber.join(fiberW)
+						const ranA = yield* Fiber.join(fiberA)
+						const final = yield* state
+						assert.ok(Result.isSuccess(ranW), `W commits its seat: ${Formatter.format(ranW)}`)
+						assert.equal(
+							waited === "waited",
+							c.sameId,
+							"A waits for W exactly where it requests W's id"
+						)
+						const wRow = `${wId},${wTeam},${wSub}`
+						const aRow = `${request.id},${request.team},u_ann`
+						assert.ok(Result.isSuccess(ranA), `A answers, never fails: ${Formatter.format(ranA)}`)
+						const { refused, answered: answer } = ranA.success
+						assert.ok(
+							c.sameId
+								? Arr.isReadonlyArrayNonEmpty(refused) &&
+										Arr.every(refused, (reason) => reason === "SerializationFailure")
+								: refused.length === 0,
+							`A's calls fail with SerializationFailure alone exactly where it requests W's id: ${Formatter.format(refused)}`
+						)
+						if (!c.sameId) {
+							assert.ok(
+								answer.kind === "accepted" &&
+									deepEquals(Arr.map(answer.reads.added, seatOf), [
+										{ id: request.id, team: request.team }
+									]) &&
+									answer.reads.met.length === 0,
+								`A inserts its seat at a free id, reading it back as added: ${Formatter.format(answer)}`
+							)
+							assert.deepEqual(
+								final,
+								Arr.sort([wRow, aRow], Order.String),
+								"the table holds both seats"
+							)
+							k.note("a free id, inserted without waiting")
+							return
+						}
+						if (!c.outside && c.sameTeam) {
+							assert.ok(
+								answer.kind === "unchanged" &&
+									answer.reads.added.length === 0 &&
+									deepEquals(Arr.map(answer.reads.met, seatOf), [{ id: wId, team: wTeam }]),
+								`A's exact repeat of ann's own seat is unchanged, met: ${Formatter.format(answer)}`
+							)
+							assert.deepEqual(final, [wRow], "the table holds W's seat")
+							k.note("an own seat committed past the snapshot: 40001, then met as an exact repeat")
+							return
+						}
+						assert.ok(
+							answer.kind === "refused" &&
+								Arr.length(answer.refused.laws) === 1 &&
+								answer.witness.kind === "key" &&
+								deepEquals(answer.witness.values, { id: wId }),
+							`A is refused on Seat's key law at its submitted id: ${Formatter.format(answer)}`
+						)
+						assert.deepEqual(final, [wRow], "the table holds W's seat alone")
+						k.note(
+							c.outside
+								? "an outside seat committed past the snapshot: 40001, then refused on the key's law"
+								: "an own seat at another team committed past the snapshot: 40001, then refused on the key's law"
+						)
+					}),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "specification",
+			name: "the serial order W, then A, over the stated seats, with the SerializationFailure of a call whose snapshot misses W's commit at its key"
+		},
+		box: "W as carl or as ann; A's seat at W's id or another, at W's team or another",
+		kept: [],
+		kills: []
+	})
