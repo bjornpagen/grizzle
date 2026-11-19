@@ -157,7 +157,8 @@ export const ridingAFamilyAxis21TheTheoryLowersEachContainmentOntoTheAxis21sRule
 				"a key carried alone",
 				"an accumulated field one statement fills",
 				"an accumulated field no statement fills",
-				"an accumulated field two statements fill"
+				"an accumulated field two statements fill",
+				"an accumulated field its filler copies from its own predecessor"
 			] satisfies ReadonlyArray<Reached<TheoryRideFeature>>,
 			check:
 				(_, k: Case<TheoryRideFeature>) =>
@@ -207,6 +208,35 @@ export const ridingAFamilyAxis21TheTheoryLowersEachContainmentOntoTheAxis21sRule
 						}
 						if (was) {
 							k.note("an accumulated field one statement fills")
+						}
+						/**
+						 * A filler riding the predecessor axis that carries `was` onto `was` copies each member's was
+						 * from the member before, whose was is that same copy again: a chain no window of a family's
+						 * scan draws (analysis/theory/fill.ts readsBack), refused at the copy.
+						 */
+						const selfCopied = Arr.some(
+							verdicts,
+							(v, i) =>
+								v.kind === "rides" &&
+								v.axis === "predecessor" &&
+								Arr.some(carriedBy(i), ([l, r]) => l.field === "was" && r.field === "was")
+						)
+						if (was && selfCopied) {
+							k.note("an accumulated field its filler copies from its own predecessor")
+							const reason = refused(result, "UnfillableField").reason
+							assert.deepEqual(
+								reason._tag === "UnfillableField"
+									? {
+											relation: reason.relation,
+											field: reason.field,
+											axis: reason.axis,
+											later: reason.later
+										}
+									: reason,
+								{ relation: "F", field: "was", axis: "predecessor", later: { kind: "cycle" } },
+								"refused at the copy of was that reads its own value on the member before"
+							)
+							return
 						}
 						const theory = succeeded(result)
 						const family = defined(theory.families[0])
@@ -271,6 +301,12 @@ export const ridingAFamilyAxis21TheTheoryLowersEachContainmentOntoTheAxis21sRule
 			oracle: { kind: "specification", name: "§2.1's riding rule and §3.7's one filler" },
 			kept: [],
 			kills: [
+				{
+					file: "packages/engine/src/analysis/theory/fill.ts",
+					original: "\t\t\t\t\t\t\t  readsBack(draftOf(member, at), rule.to, entry.column)",
+					replacement: "\t\t\t\t\t\t\t  false",
+					why: "A predecessor copy that reads its own value on the member before is ordered like any other, as before GENACCUM's readsBack: the copy of was from its own predecessor is filled by the walk and drawn by no window of the family's scan, and the theory admits it; this property fails."
+				},
 				{
 					file: "packages/engine/src/analysis/theory/families.ts",
 					original: "\t\tpairs.length >= width &&",

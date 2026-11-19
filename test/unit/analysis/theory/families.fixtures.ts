@@ -421,6 +421,7 @@ export type TheoryRideFeature =
 	| "an accumulated field one statement fills"
 	| "an accumulated field no statement fills"
 	| "an accumulated field two statements fill"
+	| "an accumulated field its filler copies from its own predecessor"
 
 export const treeDesc = schemaOf(
 	[
