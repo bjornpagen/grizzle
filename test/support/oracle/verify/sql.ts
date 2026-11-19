@@ -2164,16 +2164,26 @@ class StatementAuditor {
 				})
 			}
 		})
+		this.argumentsBody(fn.params, () => {
+			this.embedded(() => {
+				this.at("body", () => {
+					this.expr(fn.body, context("pl", undefined, undefined, new Set()))
+				})
+			})
+		})
+	}
+
+	/**
+	 * A function body that names its arguments by position alone, `body` audited as it runs: every parameter it holds is
+	 * one of `params`, typed as that argument is, and no parameter of the installing statement reaches it.
+	 */
+	argumentsBody(params: ReadonlyArray<{ readonly type: TypeRef }>, body: () => void): void {
 		const saved = { allowed: this.#paramsAllowed, params: new Map(this.#params) }
 		this.#paramsAllowed = true
 		this.#params.clear()
-		this.embedded(() => {
-			this.at("body", () => {
-				this.expr(fn.body, context("pl", undefined, undefined, new Set()))
-			})
-		})
+		body()
 		for (const [index, used] of this.#params) {
-			const arg = fn.params[index - 1]
+			const arg = params[index - 1]
 			if (arg === undefined) {
 				this.report("param", `$${index} names no argument of the function`, "body")
 			} else if (printType(arg.type) !== used.printed) {
@@ -2773,8 +2783,10 @@ class StatementAuditor {
 				this.at("returns", () => {
 					this.type(statement.returns)
 				})
-				this.at("body", () => {
-					this.constantBody(statement.body)
+				this.argumentsBody(statement.params, () => {
+					this.at("body", () => {
+						this.constantBody(statement.body)
+					})
 				})
 				return
 			case "packConstant": {

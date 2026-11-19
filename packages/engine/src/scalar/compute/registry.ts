@@ -115,7 +115,8 @@ type Owner = "catalog" | "vector"
  * a text's ASCII case fold is lower under the C collation, collated back as every text is,
  * `lower(x COLLATE "C") COLLATE pg_c_utf8` (textLowerAscii); a reference's resolution against a base is a call of the
  * installation's own function of grizzle's library (ir/physical.ts LibraryFn), `<schema>.<fn>(base, reference)`
- * (textResolveReference).
+ * (textResolveReference); and a text's digest is the library's textDigest of it written as lowercase hex,
+ * `encode(<schema>.<textDigest>(x), 'hex')` (textSha256).
  */
 type SqlForm =
 	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
@@ -146,6 +147,14 @@ type SqlForm =
 	  }
 	| { readonly kind: "floatBits"; readonly from: "float4" | "float8" }
 	| { readonly kind: "library"; readonly fn: LibraryFn }
+	| { readonly kind: "textSha256" }
+
+/**
+ * The library function a node's SQL calls (ir/physical.ts LibraryFn), which its installation installs: a library
+ * call's own, and a text's digest's `textDigest`, which its hex encoding wraps (textSha256); none for any other form.
+ */
+export const libraryOf = (sql: SqlForm): LibraryFn | undefined =>
+	sql.kind === "library" ? sql.fn : sql.kind === "textSha256" ? "textDigest" : undefined
 
 /**
  * The catalog object that implements the node, as PostgreSQL's catalog names it. Every type it names is a carrier's
@@ -960,6 +969,24 @@ const floatBitsOf = (carrier: "float4" | "float8"): FixedOverload =>
 		reads: "value"
 	})
 
+/**
+ * A text's SHA-256 digest as 64 lowercase hex digits, the digest of its UTF-8 bytes, as Compute.sha256 reads a bytes
+ * value's: `encode(<schema>.<textDigest>(x), 'hex')`, the installation's library function (physical/ddl/library.ts
+ * textDigest, `sha256(convert_to(x, 'UTF8'))`), IMMUTABLE and defined on every text, so it stands in a query, a CHECK
+ * and a generated field alike, and the same digest a text's image is (a key over a text of no byte bound). Its text is
+ * digestText's language (typing.ts sha256).
+ */
+const textSha256: FixedOverload = frozen({
+	fn: "sha256",
+	operands: positional(["text"]),
+	result: "text",
+	sql: { kind: "textSha256" },
+	catalog: { kind: "construct", uses: [] },
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
 /** A boolean connective over any number of boolean operands. */
 const connective = (fn: "and" | "or"): FixedOverload =>
 	frozen({
@@ -1253,6 +1280,7 @@ const catalogOverloads = {
 	"sha256:bytea": bytesDigest,
 	"floatBits:float8": floatBitsOf("float8"),
 	"floatBits:float4": floatBitsOf("float4"),
+	"sha256:text": textSha256,
 	"translate(text,text,text)": fnCall(
 		"translate",
 		"translate",

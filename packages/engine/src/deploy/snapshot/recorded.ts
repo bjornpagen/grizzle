@@ -325,15 +325,15 @@ const declaredStub = (h: DeclaredHeader): CreateDeclaredFunction["body"] => {
 }
 
 /**
- * The value a recorded constant is replayed as: the empty value of its type, an empty array, an empty text (a library
- * function's, physical/ddl/library.ts) or an empty bit string, a constant's every result type. The drift check
- * describes a constant by its name, its owner, its parameters and its result type alone, and the scratch replay reads
- * no row, so no value is read.
+ * The value a recorded constant is replayed as: the empty value of its type, an empty array, the empty input of a
+ * library function's text or bytea (physical/ddl/library.ts; `''` reads as either type's empty value) or an empty bit
+ * string, a constant's every result type. The drift check describes a constant by its name, its owner, its parameters
+ * and its result type alone, and the scratch replay reads no row, so no value is read.
  */
 const stubValue = (returns: TypeRef): Expr =>
 	returns.array
 		? lit.text("{}", returns)
-		: returns.kind === "builtin" && returns.name === "text"
+		: returns.kind === "builtin" && (returns.name === "text" || returns.name === "bytea")
 			? lit.text("", returns)
 			: lit.bits("", returns)
 

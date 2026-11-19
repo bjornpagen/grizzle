@@ -162,6 +162,7 @@ export const lowerVectorOp = (
 		case "floatBits":
 		case "utf16Length":
 		case "library":
+		case "textSha256":
 			return refuseAt("UnsupportedOperation", at, `the vector operation ${describeOp(expr.op)}`)
 	}
 }

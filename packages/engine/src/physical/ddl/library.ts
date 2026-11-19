@@ -21,7 +21,7 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import { persistentExprs } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
-import { nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { libraryOf, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type {
 	CreateConstant,
 	Expr,
@@ -444,8 +444,23 @@ const resolveReferenceDefinition = (): LibraryDefinition => {
 }
 
 /** Each library function's definition, made once. */
+/**
+ * textDigest(text): the SHA-256 digest of a text's UTF-8 bytes, `sha256(convert_to($1, 'UTF8'))`, 32 bytes: the image a
+ * text of no byte bound is keyed by (Compute.sha256 over text writes it as lowercase hex). An installation's database is
+ * UTF8 (grizzle refuses another at its first migration), so convert_to converts nothing and copies the text's bytes
+ * as they are stored; convert_to is STABLE in pg_proc only because a conversion's result can depend on the database's
+ * encoding, which a database never changes, and sha256 is IMMUTABLE, so the digest is one value of a text wherever it
+ * stands, a generated column among them, and the function is declared IMMUTABLE as PostgreSQL's own digests are.
+ */
+const textDigestDefinition = (): LibraryDefinition => ({
+	params: [{ name: "text", type: types.text }],
+	returns: types.bytea,
+	body: call("sha256", [call("convert_to", [param(1, types.text), text("UTF8")])])
+})
+
 const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
-	resolveReference: resolveReferenceDefinition()
+	resolveReference: resolveReferenceDefinition(),
+	textDigest: textDigestDefinition()
 }
 
 /** Each library function's identity, by its name and its definition's digest, minted once. */
@@ -453,6 +468,10 @@ const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
 	resolveReference: identity.libraryFunction(
 		"resolveReference",
 		constantDigest("library-function", definitions.resolveReference, everyProperty)
+	),
+	textDigest: identity.libraryFunction(
+		"textDigest",
+		constantDigest("library-function", definitions.textDigest, everyProperty)
 	)
 }
 
@@ -467,11 +486,10 @@ export const libraryIdentity = (fn: LibraryFn): Identity<"libraryFunction"> => i
 export const libraryCalls = (model: LawModel): ReadonlyArray<LibraryFn> => {
 	const called = new Set<LibraryFn>()
 	for (const e of exprClosure(persistentExprs(model))) {
-		if (e.kind === "op") {
-			const sql = nativeOp(e.op)?.sql
-			if (sql?.kind === "library") {
-				called.add(sql.fn)
-			}
+		const sql = e.kind === "op" ? nativeOp(e.op)?.sql : undefined
+		const fn = sql === undefined ? undefined : libraryOf(sql)
+		if (fn !== undefined) {
+			called.add(fn)
 		}
 	}
 	return [...called].toSorted(compareStrings)

@@ -378,6 +378,13 @@ const registryForm = (
 				? qualifiedCall(fn.schema, fn.name, args)
 				: undefined
 		}
+		case "textSha256": {
+			const fn = library("textDigest")
+			const [x] = args
+			return args.length === 1 && x !== undefined
+				? call("encode", [qualifiedCall(fn.schema, fn.name, [x]), lit.text("hex", types.text)])
+				: undefined
+		}
 	}
 }
 

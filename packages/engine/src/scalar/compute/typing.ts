@@ -2849,20 +2849,23 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Compute.sha256(x): the SHA-256 digest of a bytes value as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the
+	 * Compute.sha256(x): the SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, as 64 lowercase hex digits,
+	 * `encode(sha256(x), 'hex')` and `encode(<textDigest>(x), 'hex')` (registry.ts bytesDigest, textSha256). It is the
 	 * one operation that reads a bytes value, which it reads whole, as a head does (whole): no operation yields bytes, so
-	 * its operand is a bytes reference, a row's field or a variable. The node computes text; the term is text of
-	 * digestText's language (registry.ts), whose pattern bounds it at 64 bytes, so a cast into a text type whose language
-	 * holds it is proved, and a literal opposite it is judged by it; unanalyzed, text of no pattern. Its SQL allocates 64
-	 * characters whatever x's length, so it stands in a query as in a check or a generated field.
+	 * a bytes operand is a bytes reference, a row's field or a variable; a text operand is any text term. The node
+	 * computes text; the term is text of digestText's language (registry.ts), whose pattern bounds it at 64 bytes, so a
+	 * cast into a text type whose language holds it is proved, and a literal opposite it is judged by it; unanalyzed,
+	 * text of no pattern. Its SQL allocates 64 characters whatever x's length, so it stands in a query as in a check or
+	 * a generated field.
 	 */
 	sha256(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		const x = this.whole(subjectDesc, childLoc(at, 0))
-		if (baseOf(x.actual).carrier !== "bytes") {
+		const carrier = baseOf(x.actual).carrier
+		if (carrier !== "bytes" && carrier !== "text") {
 			return stop(
 				"MalformedDescription",
 				at,
-				`a bytes term for sha256, not ${typeLabel(x.nominal)}`
+				`a bytes or text term for sha256, not ${typeLabel(x.nominal)}`
 			)
 		}
 		const op = this.overload("sha256", [x.actual], at)

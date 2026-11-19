@@ -5,6 +5,8 @@ import { resolveReference } from "@bjornpagen/grizzle-text/uri"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { ExprId } from "#compiler/core/ids.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import { declaredOrder } from "#compiler/ir/codes.ts"
 import { dayNumber } from "#compiler/ir/date.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
@@ -545,7 +547,8 @@ type Apply = (args: ReadonlyArray<HostValue>, patterns: PatternReads) => SqlResu
  * (String.length, within the bytes PostgreSQL's regex engine reads), a text's concatenation, prefix and suffix tests,
  * regex match (by the pattern's automaton) and translation (by code points, as PostgreSQL's translate reads them), a
  * double's parse from its decimal text, a decimal's from its text, a bytes value's SHA-256 digest, worked out by
- * core/sha256.ts sha256Hex where the value was admitted (scalar/values/bytes.ts AdmittedBytes), span endpoints, LEAST
+ * core/sha256.ts sha256Hex where the value was admitted (scalar/values/bytes.ts AdmittedBytes), and a text's, the
+ * digest of its UTF-8 as sha256Hex hashes a well-formed text, which every text a check reads is, span endpoints, LEAST
  * and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and
  * disjointness, and a set with one more handle, over its handles. Each case reads its operands as the host values of
  * the carriers its overload takes (identity.ts hostOf); the IR's typing guarantees them, so another is a defect. `and`,
@@ -663,7 +666,9 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 		case "resolveReference":
 			return (args) => Result.ok(resolveReference(hostOf("text", a(args)), hostOf("text", b(args))))
 		case "sha256":
-			return (args) => Result.ok(hostOf("bytes", a(args)).digest)
+			return c === "bytes"
+				? (args) => Result.ok(hostOf("bytes", a(args)).digest)
+				: (args) => Result.ok(sha256Hex(wellFormed(hostOf("text", a(args)))))
 		case "floatBits": {
 			const carrier =
 				baseOf(defined(argTypes[0], "floatBits's operand")).carrier === "float4"

@@ -1215,17 +1215,18 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<Decimal, PA, ComputedOrigin<OA>, "numeric">>
 	/**
-	 * The SHA-256 digest of a bytes value as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the one operation that
-	 * reads a bytes value, read whole: text of the language `^[0-9a-f]{64}$`, which compilation reads, so a cast into a
-	 * text type whose language holds it, `str.regex("^[0-9a-f]{64}$")` among them, needs no guard, a cast into one whose
-	 * language lacks it is PartialOperation, and a literal opposite it is judged by it. IMMUTABLE and defined on every
-	 * value, it stands in row checks, selections, generated fields and queries:
-	 * `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))` is a field whose every value PostgreSQL
-	 * computes from the bytes it stores.
+	 * The SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, as 64 lowercase hex digits,
+	 * `encode(sha256(x), 'hex')`, the one operation that reads a bytes value, read whole: text of the language
+	 * `^[0-9a-f]{64}$`, which compilation reads, so a cast into a text type whose language holds it,
+	 * `str.regex("^[0-9a-f]{64}$")` among them, needs no guard, a cast into one whose language lacks it is
+	 * PartialOperation, and a literal opposite it is judged by it. IMMUTABLE and defined on every value, it stands in row
+	 * checks, selections, generated fields and queries: `generated(str.regex("^[0-9a-f]{64}$"), Compute.sha256(row.content))`
+	 * is a field whose every value PostgreSQL computes from the bytes it stores, and `Compute.sha256(row.body)` the
+	 * digest of a text's UTF-8.
 	 */
 	sha256<A extends TermBase | FirstValue, X, PA, OA>(
-		x: A & WholeTerm<A> & InputTerm<X, PA, OA, "bytea">
-	): Admitted<TakesFirst<A, "bytea">, Term<string, PA, ComputedOrigin<OA>, "text">>
+		x: A & WholeTerm<A> & InputTerm<X, PA, OA, "bytea" | "text">
+	): Admitted<TakesFirst<A, "bytea" | "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
 	/**
 	 * A float's identity image: float8send's 8 bytes, the bits of its IEEE 754 binary64 encoding, read as a signed
 	 * bigint, a real widened exactly to double precision first, every NaN in one form (0x7ff8000000000000), as Java's

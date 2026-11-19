@@ -79,7 +79,7 @@ export interface SelectionKey {
  * where its schema's persistent expressions call it: resolveReference, RFC 3986's resolution of a reference against a
  * base (scalar/compute/registry.ts textResolveReference).
  */
-const libraryFns = ["resolveReference"] as const
+const libraryFns = ["resolveReference", "textDigest"] as const
 export type LibraryFn = (typeof libraryFns)[number]
 
 /** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */
