@@ -148,11 +148,15 @@ const numericClasses: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string
 	["0.1", "0.10"]
 ]
 
+/**
+ * A float's two zeros are two values, each spelled one way: a read row's identity tells -0 from 0 as the fact identity
+ * does (codec/read.ts cellText, c067533e8), where they were two spellings of one.
+ */
 const floatClasses: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [
-	["0", "-0"],
+	["0"],
+	["-0"],
 	["1.5"],
 	["NaN"],
-	["1e-07"],
 	["-Infinity"]
 ]
 

@@ -96,8 +96,8 @@ const cellAt = (row: RawRow, i: number): string => {
 /**
  * The canonical text of a cell of `type`: the kernel's strict reading of PostgreSQL's output text (kernel/strict.ts),
  * which admits only what the output function writes, written in the value's one form (values/identity.ts
- * canonicalText). Two cells have one canonical text exactly when their values are equal, so 1.50 and 1.5, or -0 and 0,
- * agree, and any other difference of value does not. The comparison shares no text shortcut with production
+ * canonicalText). Two cells have one canonical text exactly when they spell one value, so 1.50 and 1.5 agree, and any
+ * other difference of value does not, a float's -0 and 0 among them, two values since c067533e8. The comparison shares no text shortcut with production
  * (codec/scalar.ts cellText): it reads every cell to its value first, a closed id's or a set's under the installation's
  * codes. A text the strict reader refuses is no output of the type, a defect of the run.
  */
@@ -115,7 +115,7 @@ export const canonicalCell = (type: ScalarType, codes: Codebook): ((cell: string
 
 /**
  * A statement's rows as values: each cell of a column it states read as its canonical text (canonicalCell), and each
- * cell of a column some row leaves unstated as it is, so two spellings of one value (-0 and 0, 1.0 and 1.00) are one row.
+ * cell of a column some row leaves unstated as it is, so two spellings of one value (1.0 and 1.00) are one row.
  */
 export const canonicalRows = (s: StatementRows): ReadonlyArray<RawRow> => {
 	const unstated = new Set(unstatedColumns(s))

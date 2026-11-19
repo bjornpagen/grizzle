@@ -142,6 +142,13 @@ export const canonicalCellKeyedSetsAgreeExactlyWhenEachRunsCellsSpellASetOfValue
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/scalar/values/float.ts",
+				original:
+					'export const floatText = (x: number): string => (Object.is(x, -0) ? "-0" : String(x))',
+				replacement: "export const floatText = (x: number): string => String(x)",
+				why: "A float's -0 is written as 0 again, as before c067533e8, so a run's -0 and 0 are one canonical cell: two rows that differ only by the zero's sign read as one repeated; this property fails."
+			},
+			{
 				file: "packages/engine/src/core/tuple-map.ts",
 				original: "\t\t\t\tchild.value = value",
 				replacement: "\t\t\t\t{}",
