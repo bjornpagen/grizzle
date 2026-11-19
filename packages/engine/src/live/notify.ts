@@ -1,3 +1,4 @@
+import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
 /**
  * Liveness's one grammar: what a committed write changed, as the route keys a live program's runtime routes it by,
  * the text that spells each, and the sealed batches of those texts the fan-out channel carries. The side that reads a
@@ -341,34 +342,6 @@ export const sealNonce = (bytes: Uint8Array): Result.Result<SealNonce, LiveTextR
 export const sealBatch = (secret: LiveSecret, nonce: SealNonce, batch: LiveBatch): string =>
 	seal(secret, nonce, utf8(wellFormed(batch))).toBase64()
 
-const isBase64Digit = (unit: number): boolean =>
-	isLetter(unit) ||
-	(unit >= 0x41 && unit <= 0x5a) ||
-	isDigit(unit) ||
-	unit === 0x2b ||
-	unit === 0x2f
-
-/**
- * The bytes a base64 text spells, padded as sealBatch writes it: groups of four digits of the standard alphabet, the
- * last ending in at most two `=`; undefined where it spells none, which Uint8Array.fromBase64 is never asked.
- */
-const fromBase64 = (text: string): Uint8Array | undefined => {
-	if (text.length % 4 !== 0) {
-		return undefined
-	}
-	const digits = text.endsWith("==")
-		? text.length - "==".length
-		: text.endsWith("=")
-			? text.length - "=".length
-			: text.length
-	for (let at = 0; at < digits; at += 1) {
-		if (!isBase64Digit(text.charCodeAt(at))) {
-			return undefined
-		}
-	}
-	return Uint8Array.fromBase64(text)
-}
-
 /**
  * The notifications a batch's text holds (batchesOf), its texts joined by NUL, each parsed (parseNotification), or the
  * first text that parts from the grammar: a sealed payload's opened text, or an announcement's plaintext.
@@ -389,7 +362,7 @@ export const openPayload = (
 	secret: LiveSecret,
 	payload: string
 ): Result.Result<ReadonlyArray<Notification>, LiveTextRefused> => {
-	const sealed = fromBase64(payload)
+	const sealed = base64Bytes(payload)
 	const opened = sealed === undefined ? undefined : open(secret, sealed)
 	if (opened === undefined) {
 		return refused(payload, "a batch sealed under the installation's live secret, in base64")

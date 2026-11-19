@@ -1,3 +1,4 @@
+import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
 import { int4Max } from "#compiler/core/canonical.ts"
 /**
  * The JSON wire's spelling of every scalar grizzle serves, as one table over the carriers (`carrierWire`): for each, the
@@ -696,7 +697,7 @@ const carrierWire: CarrierWires = {
 			if (typeof json !== "string") {
 				return Result.err("json")
 			}
-			const bytes = base64Of(json)
+			const bytes = base64Bytes(json)
 			if (bytes === undefined) {
 				return Result.err("spelling")
 			}
@@ -811,57 +812,6 @@ const carrierWire: CarrierWires = {
 		decode: (json) => Money.fromOutput(trustedString(json)),
 		is: isMoney
 	}
-}
-
-/**
- * Whether a code unit is a digit of base64's alphabet, RFC 4648 §4.
- *
- * @formatConstant RFC 4648 §4's base64 alphabet
- */
-const isBase64Digit = (c: number): boolean =>
-	(c >= 0x41 && c <= 0x5a) ||
-	(c >= 0x61 && c <= 0x7a) ||
-	(c >= 0x30 && c <= 0x39) ||
-	c === 0x2b ||
-	c === 0x2f
-
-/**
- * The shape of base64's text, RFC 4648 §4: four digits to a group, and the most a last group pads with `=`.
- *
- * @formatConstant RFC 4648 §4's base64: four digits to a group, at most two of its last padding
- */
-const base64Groups = { digits: 4, padding: 2 } as const
-
-/**
- * Whether a text is whole groups of base64 digits, RFC 4648 §4, its last group padded by at most two `=`: no whitespace
- * and no padding elsewhere, so Uint8Array.fromBase64 reads it without refusing.
- */
-const isBase64Shape = (text: string): boolean => {
-	if (text.length % base64Groups.digits !== 0) {
-		return false
-	}
-	let end = text.length
-	while (end > 0 && text.length - end < base64Groups.padding && text.charCodeAt(end - 1) === 0x3d) {
-		end--
-	}
-	for (let i = 0; i < end; i++) {
-		if (!isBase64Digit(text.charCodeAt(i))) {
-			return false
-		}
-	}
-	return true
-}
-
-/**
- * The bytes a base64 text spells in its one spelling, RFC 4648 §4: whole padded groups, and its padding bits zero, the
- * text the bytes' own toBase64 writes; undefined for any other text.
- */
-const base64Of = (text: string): Uint8Array<ArrayBuffer> | undefined => {
-	if (!isBase64Shape(text)) {
-		return undefined
-	}
-	const bytes = Uint8Array.fromBase64(text)
-	return bytes.toBase64() === text ? bytes : undefined
 }
 
 /** The row of `spec`'s carrier, typed by it. */

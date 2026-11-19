@@ -12,6 +12,7 @@
 		"#text/*": "./src/*"
 	},
 	"exports": {
+		"./base64": "./src/base64.ts",
 		"./text": "./src/text.ts",
 		"./uri": "./src/uri.ts",
 		"./utf8": "./src/utf8.ts",
