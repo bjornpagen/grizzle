@@ -30,17 +30,15 @@ import {
 } from "#compiler/write/insert/unique.ts"
 
 /**
- * A column of a member relation's row layout: its native column, its key, its type, whether an update sets it, and
- * whether it is a copy of an owner's count, which only a refill sets.
+ * A column of a member relation's row layout: its native column, its key, its type, and whether a redraw's update in
+ * place sets it (write/family/removals.ts writesOf): every column but the key and a group field, since a move between
+ * groups is a delete and an insert, a copy of an owner's count among them, which the redraw draws again.
  */
 export interface RowColumn {
 	readonly column: NativeColumn
 	readonly key: ColumnKey
 	readonly type: ScalarType
-	/** An update in place leaves the key, every group field and every copy of an owner's count: a move between groups
-	 * is a delete and an insert, and the owner axes cascade the counts. */
 	readonly settable: boolean
-	readonly copy: boolean
 }
 
 /**
@@ -87,11 +85,9 @@ export const memberFamilies = (
 export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family>): RowLayout => {
 	const mine = memberFamilies(relation.name, families)
 	const groups = new Set(mine.flatMap((f) => f.group.map((g) => columnKeyOf(g.member.name))))
-	const copies = new Set(mine.map((f) => columnKeyOf(f.copy)))
 	const of = (column: NativeColumn, type: ScalarType): RowColumn => {
 		const key = columnKey(column)
-		const copy = copies.has(key)
-		return { column, key, type, settable: !groups.has(key) && !copy, copy }
+		return { column, key, type, settable: !groups.has(key) }
 	}
 	const keyNames = new Set(relation.primaryFields.map((f) => f.name))
 	const fields = relation.fields.flatMap((f) =>
@@ -114,8 +110,7 @@ export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family
 		column: { kind: "field", field: f } as const,
 		key: columnKey({ kind: "field", field: f }),
 		type: f.type,
-		settable: false,
-		copy: false
+		settable: false
 	}))
 	return Object.freeze({ relation: relation.name, key: keyColumns, columns: [...fields, ...law] })
 }

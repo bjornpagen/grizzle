@@ -1947,7 +1947,7 @@ const writesOf = (
 			rows: "facts"
 		})
 	}
-	const settable = member.layout.columns.filter((c) => c.settable || c.copy)
+	const settable = member.layout.columns.filter((c) => c.settable)
 	const [firstSettable, ...restSettable] = settable
 	if (firstSettable !== undefined && replacing.kind !== "every") {
 		const t = supply.relation(internal("updated table"))
