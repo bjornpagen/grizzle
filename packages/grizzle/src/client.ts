@@ -3,13 +3,15 @@
  * Node module, no compiler and no served layer: the login's type alone (`import type`), its OpenAPI document as data,
  * Effect, and the exact values its answers decode into (Decimal, Money, Vector, keyed values).
  *
- * `clientOf<typeof Web>(document, "web", { url, token })` holds each role's programs, `client.<role>.<program>`, each
- * with `watch` and `once`; the HttpClient they require is the caller's: FetchHttpClient.layer in a browser, or
+ * `clientOf<typeof Web>(document, "web", { url, token })` is a Result: the client, which holds each role's programs,
+ * `client.<role>.<program>`, each with `watch` and `once`, or ClientDocumentRefused where the document is another
+ * login's. The HttpClient its calls require is the caller's: FetchHttpClient.layer in a browser, or
  * handlerClient(handler) in the handler's own process.
  */
 export {
 	type Client,
 	type ClientCalls,
+	ClientDocumentRefused,
 	type ClientOptions,
 	clientCalls,
 	clientOf,

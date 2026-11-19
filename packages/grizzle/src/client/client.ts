@@ -1,8 +1,10 @@
 import type * as Arr from "effect/Array"
+import * as Data from "effect/Data"
 import type * as Effect from "effect/Effect"
 import type * as HttpClient from "effect/http/HttpClient"
 import * as Option from "effect/Option"
 import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
 import type * as Stream from "effect/Stream"
 import * as Str from "effect/String"
 import { type ClientMember, memberCalls, type ShapedCalls, type Token } from "#client/call.ts"
@@ -129,6 +131,20 @@ const urlOf = (base: URL, path: string): URL => {
 	return url
 }
 
+/**
+ * clientOf or clientCalls was handed the document of another login: the document `grizzle generate` wrote for the login
+ * `document` names, as the login `login`. generate writes each login's document under its own name, so the import
+ * named the wrong file.
+ */
+export class ClientDocumentRefused extends Data.TaggedError("ClientDocumentRefused")<{
+	readonly login: string
+	readonly document: string
+}> {
+	override get message(): string {
+		return `the OpenAPI document is login ${this.document}'s, read as login ${this.login}: import the document generate wrote for login ${this.login}`
+	}
+}
+
 /** The token clientOf's options carry: none for a login that sends none. */
 const tokenOf = <E>(options: TokenClientOptions<E> | UrlClientOptions): Option.Option<Token<E>> =>
 	"token" in options ? Option.some(options.token) : Option.none()
@@ -139,17 +155,17 @@ const tokenOf = <E>(options: TokenClientOptions<E> | UrlClientOptions): Option.O
  * time. clientOf types the same calls by the login's type.
  *
  * `document` is the login's OpenAPI document as `grizzle generate` wrote it, read once and trusted: grizzle's own
- * file. `name` must be the document's login: a document of another login is a defect of the caller's wiring, refused
- * here, before any call.
+ * file. `name` must be the document's login: a document of another login is the caller's import of the wrong file,
+ * ClientDocumentRefused, before any call.
  */
 export const clientCalls = <E = never>(
 	document: unknown,
 	name: string,
 	options: TokenClientOptions<E> | UrlClientOptions
-): ClientCalls<E> => {
+): Result.Result<ClientCalls<E>, ClientDocumentRefused> => {
 	const read = documentWire(document)
 	if (read.login !== name) {
-		throw defect(`a client of login ${name} over the document of login ${read.login}`)
+		return Result.fail(new ClientDocumentRefused({ login: name, document: read.login }))
 	}
 	const token = tokenOf(options)
 	const roles: Record<string, Record<string, ShapedCalls<E>>> = {}
@@ -173,27 +189,29 @@ export const clientCalls = <E = never>(
 	for (const programs of Rec.values(roles)) {
 		Object.freeze(programs)
 	}
-	return Object.freeze(roles)
+	return Result.succeed(Object.freeze(roles))
 }
 
 /**
  * clientOf<typeof Login>(document, name, options): the client of a login's served programs over HTTP, typed from the
  * login's type alone, as served<typeof Login>(file, name) types a served login, so no schema module is evaluated:
  * `client.<role>.<program>.watch(input)` and `.once(input)`. Its calls are clientCalls' over the same document, each
- * typed as the login's type states its program: the document is L's, the one site of that trust.
+ * typed as the login's type states its program: the document is L's, the one site of that trust. A document of
+ * another login is ClientDocumentRefused, as clientCalls refuses it.
  */
 export const clientOf = <L extends AnyLogin, E = never>(
 	document: unknown,
 	name: NoInfer<L["name"]>,
 	options: ClientOptions<L, E>
-): Client<L, E> => {
-	const roles: Record<string, Record<string, ShapedCalls<E>["calls"]>> = {}
-	for (const [role, programs] of Rec.toEntries(clientCalls(document, name, options))) {
-		const typed: Record<string, ShapedCalls<E>["calls"]> = {}
-		for (const [program, shaped] of Rec.toEntries(programs)) {
-			typed[program] = shaped.calls
+): Result.Result<Client<L, E>, ClientDocumentRefused> =>
+	Result.map(clientCalls(document, name, options), (calls) => {
+		const roles: Record<string, Record<string, ShapedCalls<E>["calls"]>> = {}
+		for (const [role, programs] of Rec.toEntries(calls)) {
+			const typed: Record<string, ShapedCalls<E>["calls"]> = {}
+			for (const [program, shaped] of Rec.toEntries(programs)) {
+				typed[program] = shaped.calls
+			}
+			roles[role] = Object.freeze(typed)
 		}
-		roles[role] = Object.freeze(typed)
-	}
-	return trusted<Client<L, E>>(Object.freeze(roles))
-}
+		return trusted<Client<L, E>>(Object.freeze(roles))
+	})

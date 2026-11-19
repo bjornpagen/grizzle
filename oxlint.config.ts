@@ -61,6 +61,7 @@ const DICTIONARY_MINTS = [
 	"test/types/text/regex.dictionary.ts",
 	"test/unit/bench/harness.dictionary.ts",
 	"test/unit/cli/skill.dictionary.ts",
+	"test/unit/client/document.dictionary.ts",
 	"test/unit/compute/bits.dictionary.ts",
 	"test/unit/compute/evaluation.dictionary.ts",
 	"test/unit/core/identity.dictionary.ts",

@@ -30,7 +30,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Queue, Stream } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Queue, Result, Stream } from "effect"
 import { HttpClient } from "effect/http"
 import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
@@ -353,13 +353,17 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 							if (!text.ok) {
 								return assert.fail(`the login's document is written\n${printed()}`)
 							}
-							const client = clientOf<typeof world.server>(
+							const clientRead = clientOf<typeof world.server>(
 								trustedJson<unknown>(text.value),
 								world.server.name,
 								{
 									url: new URL(origin)
 								}
 							)
+							if (Result.isFailure(clientRead)) {
+								return assert.fail(`the login's own document opens its client\n${printed()}`)
+							}
+							const client = clientRead.success
 							const overHttp = Effect.provideService(HttpClient.HttpClient, handlerClient(handler))
 							const opened = yield* openServed(login.roles.app, {})
 							const local = (name: string): ServedCalls =>

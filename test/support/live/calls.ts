@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Record as Rec, Redacted, Ref, Stream } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, Redacted, Ref, Result, Stream } from "effect"
 import { HttpClient } from "effect/http"
 import { liveRead, memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
@@ -294,11 +294,15 @@ const httpCalls = (
 		throw new Error(`the OpenAPI document of login ${file.name}: ${text.error.message}`)
 	}
 	const client = handlerClient(handler)
+	const calls = clientCalls(trustedJson<unknown>(text.value), file.name, {
+		url: handlerUrl(),
+		token: Redacted.make(token)
+	})
+	if (Result.isFailure(calls)) {
+		throw new Error(`the OpenAPI document of login ${file.name}: ${calls.failure.message}`)
+	}
 	const programs = defined(
-		clientCalls(trustedJson<unknown>(text.value), file.name, {
-			url: handlerUrl(),
-			token: Redacted.make(token)
-		})[role],
+		calls.success[role],
 		`the role ${role} of the document of login ${file.name}`
 	)
 	const shapedOf = (name: string) =>
