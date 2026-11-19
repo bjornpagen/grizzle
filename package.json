@@ -28,7 +28,7 @@
 	"scripts": {
 		"prepare": "effect-tsgo patch && lefthook install",
 		"types": "turbo run typecheck --filter=./packages/* --filter=//",
-		"check": "turbo run typecheck:full workspace-gate oxlint format dead-code architecture dedupe --filter=./packages/* --filter=// --continue=dependencies-successful",
+		"check": "turbo run typecheck:full workspace-gate oxlint format dead-code architecture dedupe load --filter=./packages/* --filter=// --continue=dependencies-successful",
 		"typecheck": "toolchain-typecheck -b",
 		"typecheck:full": "toolchain-typecheck -p tsconfig.json --incremental false",
 		"workspace-gate": "workspace-gate",
@@ -40,7 +40,7 @@
 		"dedupe": "pnpm dedupe --check",
 		"test": "node --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict node_modules/vitest/vitest.mjs run",
 		"test:properties": "toolchain-test run",
-		"load-modules": "node scripts/dev/load-modules.ts",
+		"load": "toolchain-test load",
 		"test:network": "node --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
 		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
 		"mutate": "toolchain-test mutate",

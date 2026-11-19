@@ -64,6 +64,10 @@
 			"cache": false
 		},
 		"//#format": {},
+		"//#load": {
+			"description": "toolchain-test load: every test module the runner includes loaded apart, each in a process of its own, failing on one that throws as it loads (a const read in its temporal dead zone, an initializer that throws, an export that is no property). Uncached by turbo: toolchain-test keeps each module's pass by its closure hash, so a check loads only what changed.",
+			"cache": false
+		},
 		"//#dead-code": {
 			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
 		},
