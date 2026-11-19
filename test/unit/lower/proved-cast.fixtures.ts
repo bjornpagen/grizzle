@@ -11,7 +11,8 @@ import {
 } from "#compiler/physical/install/compile.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { generated, uuid } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { owning } from "#test/support/policy.ts"
 
@@ -31,10 +32,11 @@ const textMaps = ["collapse", "replaceWhitespace", "lowerAscii", "translate"] as
 export type TextMap = (typeof textMaps)[number]
 
 /**
- * Where a computed text is read: a generated field that casts it into a text type no stored field declares, any text of
- * more bytes than the operand holds, so the cast is total by the bound alone.
+ * Where a computed text is read: a containment of a stored text into a derived relation's head that computes it, whose
+ * two sides the law relabels to their common type, or a generated field that casts it into a text type no stored field
+ * declares, any text of more bytes than the operand holds, so the cast is total by the bound alone.
  */
-const sites = ["generated cast"] as const
+const sites = ["containment", "generated cast"] as const
 export type Site = (typeof sites)[number]
 
 export interface ProvedCastCase {
@@ -61,6 +63,29 @@ const undeclared = str.bytes(4096, anyText)
 /** The case's schema, its site reading the map's image of the operand. */
 const schemaOf = (c: ProvedCastCase) => {
 	switch (c.site) {
+		case "containment": {
+			const Source = relation("Source", { lex: c.operand.text, node: uuid }, ["node"])
+			const Named = relation("Named", { id: uuid, t: c.operand.text }, ["id"])
+			const base = schema("Base", [Source, Named], [])
+			const Image = derived(
+				"Image",
+				query(base).rule((r) => {
+					const { lex, node } = v(Source, "s")
+					const read = r.match(Source, { lex, node })
+					switch (c.map) {
+						case "collapse":
+							return read.find({ image: Compute.collapse(lex), node })
+						case "replaceWhitespace":
+							return read.find({ image: Compute.replaceWhitespace(lex), node })
+						case "lowerAscii":
+							return read.find({ image: Compute.lowerAscii(lex), node })
+						case "translate":
+							return read.find({ image: Compute.translate(lex, "ab", "ba"), node })
+					}
+				})
+			)
+			return schema.extend(base, "Images", [Image], [contained(on(Named, "t"), on(Image, "image"))])
+		}
 		case "generated cast":
 			return schema(
 				"Cast",

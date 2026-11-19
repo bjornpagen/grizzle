@@ -3,7 +3,7 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import { isRefined, refinementText, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { type LowerContext, refuse } from "#compiler/lower/conservative/context.ts"
-import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
+import { type ConservativeParamSlot, judgesLaw } from "#compiler/lower/conservative/types.ts"
 import { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import {
 	type Cte,
@@ -525,11 +525,7 @@ export const refineConservative = (
 	unit: boolean
 ): Select => {
 	const relabeled = query
-	if (
-		unit ||
-		cx.options.subject.kind === "violationProbe" ||
-		!delivered.some((c) => isRefined(c.type))
-	) {
+	if (unit || judgesLaw(cx.options.subject) || !delivered.some((c) => isRefined(c.type))) {
 		return relabeled
 	}
 	const tracer = new Tracer(storedColumns(cx), cx.params.slots)

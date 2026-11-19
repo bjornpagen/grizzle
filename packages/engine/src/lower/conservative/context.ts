@@ -29,18 +29,19 @@ import {
 } from "#compiler/ir/rel.ts"
 import { type RegexRef, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import type {
-	ArrayPart,
-	ArraySlot,
-	ConservativeOptions,
-	ConservativeParamSlot,
-	DeclaredParamSlot,
-	MemberParamSlot,
-	NestedRowsParamSlot,
-	OwnParamSlot,
-	RelationColumn,
-	RelationParamSlot,
-	ScalarParamSlot
+import {
+	judgesLaw,
+	type ArrayPart,
+	type ArraySlot,
+	type ConservativeOptions,
+	type ConservativeParamSlot,
+	type DeclaredParamSlot,
+	type MemberParamSlot,
+	type NestedRowsParamSlot,
+	type OwnParamSlot,
+	type RelationColumn,
+	type RelationParamSlot,
+	type ScalarParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { columnType, namedColumn } from "#compiler/runtime/lower/columns.ts"
 import { unitColumn } from "#compiler/runtime/lower/tree.ts"
@@ -822,12 +823,13 @@ export class LowerContext {
 	}
 
 	/**
-	 * The PostgreSQL type of a value of `t` (physicalTypeOf) under this lowering's subject: a violation probe reads only
-	 * stored values, so it types an unnamed text refinement by its base, pg_catalog's builtin text.
+	 * The PostgreSQL type of a value of `t` (physicalTypeOf) under this lowering's subject: a law's judgement reads only
+	 * values its relations hold (types.ts judgesLaw), so it types an unnamed text refinement by its base, pg_catalog's
+	 * builtin text.
 	 */
 	physicalType(t: ScalarType): PhysicalType {
 		const p = physicalTypeOf(this.names, t)
-		return p.kind === "unnamedText" && this.options.subject.kind === "violationProbe"
+		return p.kind === "unnamedText" && judgesLaw(this.options.subject)
 			? { kind: "type", ref: physicalBaseType(this.names, t) }
 			: p
 	}

@@ -24,6 +24,7 @@ import {
 	Tracer,
 	withScope
 } from "#compiler/lower/conservative/refined.ts"
+import { judgesLaw } from "#compiler/lower/conservative/types.ts"
 import type { Expr, Select, Target, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	cast,
@@ -225,7 +226,7 @@ export const refineDelivered = (cx: LowerContext, query: Select, heading: Headin
 	const agreed = query
 	const refined = heading.flatMap((c, i) => (isRefined(c.type) ? [{ column: c, position: i }] : []))
 	const fused = agreed.body.kind === "core" && agreed.body.targets.length > heading.length
-	if (refined.length === 0 && !fused) {
+	if (judgesLaw(cx.options.subject) || (refined.length === 0 && !fused)) {
 		return agreed
 	}
 	const tracer = new Tracer(storedColumns(cx), cx.params.slots)

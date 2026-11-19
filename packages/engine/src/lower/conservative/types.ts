@@ -135,6 +135,24 @@ type ConservativeSubject =
 	| ReadBackLowering
 	| MembershipLowering
 
+/**
+ * Whether a lowering judges a law: a law's full violation probe or a rule's probe over its region, whose rows the
+ * database reads to judge the law and whose values its relations already hold. Its outputs are no claim to a reader
+ * that trusts their refinements, as a query's, a read-back's and a membership's are, which the host decodes, so a
+ * judgement casts no delivered value to its domain, and types a text refinement no `__text_` domain names by its base.
+ */
+export const judgesLaw = (subject: ConservativeSubject): boolean => {
+	switch (subject.kind) {
+		case "violationProbe":
+		case "ruleRegion":
+			return true
+		case "query":
+		case "readBack":
+		case "membership":
+			return false
+	}
+}
+
 export interface ConservativeOptions {
 	readonly names: PhysicalNames
 	/** The declared parameters: a take or page bound parameter has the type its declaration gives. */
