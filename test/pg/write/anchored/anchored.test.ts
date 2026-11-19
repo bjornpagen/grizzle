@@ -140,10 +140,7 @@ export const anAnchoredDeletionReadsItsRelationOnceByAnIndexCondition = property
 							const pinned = yield* s.admin.pin
 							yield* pinned.query("BEGIN", [])
 							for (const st of statements.slice(0, at)) {
-								if (
-									st.kind === "whole" &&
-									(st.step.kind === "carrier" || st.step.kind === "analyze")
-								) {
+								if (st.kind === "whole" && st.step.kind === "carrier") {
 									yield* pinned.query(st.form.text.sql, paramValues(st.form, hostParams, declared))
 								}
 							}

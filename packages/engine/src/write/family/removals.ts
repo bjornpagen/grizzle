@@ -95,7 +95,9 @@ import { NameSupply } from "#compiler/sql/naming.ts"
 import {
 	type Hop,
 	type KeyArm,
+	heldAmong,
 	keyedAt,
+	keysetAmong,
 	keysetOf,
 	reachFrom,
 	storedAtKeys,
@@ -135,6 +137,7 @@ import {
 } from "#compiler/write/family/written.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
 import { returnedColumn, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
+import { type HeldKey, keyedAmong } from "#compiler/write/probe.ts"
 
 /** A member relation a stratum puts or deletes, with what draws its families again. */
 export interface EditedMember {
@@ -233,6 +236,14 @@ const shapedKey = (
 	r: string
 ): NonEmptyReadonlyArray<Expr> =>
 	mapNonEmpty(relation.primaryFields, (f) => col(r, columnAt(shaped, columnKeyOf(f.name))))
+
+/** The primary key of `relation` as the CTE `shaped` holds it, a field and its column each, which a stored row's
+ * restriction to the CTE's keys reads (write/probe.ts keyedAmong). */
+const shapedHeld = (relation: RelationInfo, shaped: Shaped): NonEmptyReadonlyArray<HeldKey> =>
+	mapNonEmpty(relation.primaryFields, (field) => ({
+		field,
+		column: columnAt(shaped, columnKeyOf(field.name))
+	}))
 
 /** The arm of the rows of `shaped`, a CTE keyed by `relation`'s primary key, at that key: it reads no stored table. */
 const shapedArm = (supply: NameSupply, relation: RelationInfo, shaped: Shaped): KeyArm => {
@@ -520,7 +531,7 @@ const leftByPut = (
 							)
 						)
 					],
-					[reachFrom(w, { held: { cte: facts.name, alias: r }, hops: left.hops })],
+					[reachFrom(w, supply, { held: { cte: facts.name, alias: r }, hops: left.hops })],
 					undefined
 				)
 			)
@@ -966,7 +977,11 @@ const readEdit = (
 							join(
 								tableAs(w, name, s2),
 								cteRefAs(puts.name, p2),
-								and([at(p2, puts, s2), ...(groups === undefined ? [] : [groups])])
+								and([
+									at(p2, puts, s2),
+									...keyedAmong(w, supply, name, s2, puts.name, shapedHeld(relation, puts)),
+									...(groups === undefined ? [] : [groups])
+								])
 							)
 						],
 						undefined
@@ -1038,6 +1053,14 @@ const deferralOf = (
 				[tableAs(w, memberName, y)],
 				and([
 					keyAt,
+					...keyedAmong(
+						w,
+						supply,
+						memberName,
+						y,
+						d.facts.name,
+						shapedHeld(member.relation, d.facts)
+					),
 					...compared.map((field) =>
 						typedEq(
 							field.type,
@@ -1147,7 +1170,17 @@ const redraw = (
 							join(
 								cteRefAs(read.updated.name, u0),
 								tableAs(w, name, s0),
-								storedAtKey(s0, memberKeyOf(u0, read.updated))
+								and([
+									storedAtKey(s0, memberKeyOf(u0, read.updated)),
+									...keyedAmong(
+										w,
+										supply,
+										name,
+										s0,
+										read.updated.name,
+										shapedHeld(member.relation, read.updated)
+									)
+								])
 							)
 						],
 						isNonEmpty(changes) ? or(changes) : lit.bool(false)
@@ -1228,16 +1261,27 @@ const redraw = (
 						join(
 							cteRefAs(touched.name, t0),
 							tableAs(w, owner.name, o0),
-							and(
-								mapNonEmpty(family.group, (g, i) =>
+							and([
+								...mapNonEmpty(family.group, (g, i) =>
 									typedEq(
 										g.owner.type,
 										col(o0, w.names.column(owner.name, g.owner.name)),
 										defined(tGroup[i], "a group key"),
 										w.names
 									)
+								),
+								...keyedAmong(
+									w,
+									supply,
+									owner.name,
+									o0,
+									touched.name,
+									mapNonEmpty(family.group, (g, i) => ({
+										field: g.owner,
+										column: defined(touched.group[i], "a touched group column")
+									}))
 								)
-							)
+							])
 						)
 					],
 					undefined
@@ -1395,17 +1439,23 @@ const redraw = (
 			]
 			const m1 = supply.relation(internal("kept member"))
 			const g1 = supply.relation(internal("kept group"))
-			const memberInGroup = (m: string, g: string): Expr =>
-				and(
-					mapNonEmpty(family.group, (gr, i) =>
-						typedEq(
-							gr.member.type,
-							col(m, w.names.column(name, gr.member.name)),
-							col(g, defined(groups.group[i], "a group column")),
-							w.names
-						)
+			/** Whether the stored member read as `m` is in the group read as `g`, and among the groups' keys, so its group's
+			 * index reaches it however many groups PostgreSQL estimates (write/family/keyset.ts heldAmong). */
+			const memberInGroup = (m: string, g: string): Expr => {
+				const at = (gr: (typeof family.group)[number]): Expr =>
+					col(g, defined(groups.group[family.group.indexOf(gr)], "a group column"))
+				return and([
+					...mapNonEmpty(family.group, (gr) =>
+						typedEq(gr.member.type, col(m, w.names.column(name, gr.member.name)), at(gr), w.names)
+					),
+					...heldAmong(
+						w,
+						supply,
+						{ cte: groups.name, alias: g },
+						{ kind: "group", family, alias: m, at }
 					)
-				)
+				])
+			}
 			const arms: Array<SetArm> = []
 			if (counted) {
 				/** Every kept member at its own slot from the least changed one below the kept count. */
@@ -1544,16 +1594,27 @@ const redraw = (
 									{
 										kind: "on",
 										source: tableAs(w, name, m3),
-										on: and(
-											mapNonEmpty(member.relation.primaryFields, (f, i) =>
+										on: and([
+											...mapNonEmpty(member.relation.primaryFields, (f, i) =>
 												typedEq(
 													f.type,
 													col(m3, w.names.column(name, f.name)),
 													col(mv, defined(movers.key[i], "a mover key")),
 													w.names
 												)
+											),
+											...keyedAmong(
+												w,
+												supply,
+												name,
+												m3,
+												movers.name,
+												mapNonEmpty(member.relation.primaryFields, (field, i) => ({
+													field,
+													column: defined(movers.key[i], "a mover key")
+												}))
 											)
-										)
+										])
 									}
 								]
 							}
@@ -1661,7 +1722,7 @@ const deleteOf = (
 			table: w.names.relation(name),
 			alias: t,
 			using: [cteRefAs(keyset.name, k)],
-			where: keyedAt(w, k, keyset, t),
+			where: and([keyedAt(w, k, keyset, t), ...keysetAmong(w, supply, keyset, t)]),
 			returning: returned.map((x) => targetAs(col(t, w.names.column(name, x.field.name)), x.alias))
 		})
 	)
@@ -1934,6 +1995,7 @@ const writesOf = (
 							w.names
 						)
 					),
+					...keyedAmong(w, supply, name, t, written_.name, shapedHeld(relation, written_)),
 					...(replacing.kind === "sequence" ? [not(replacedAt(a, replacing.scan))] : []),
 					or(changed)
 				]),
@@ -1988,17 +2050,26 @@ const recountOf = (
 		/** Whether the group read as `g` is recounted here. */
 		const here = (g: string): Expr => col(g, r.groups.recounted)
 		/** Whether the stored member read as `m` is in the group read as `g`. */
-		const memberInGroup = (m: string, g: string): Expr =>
-			and(
-				mapNonEmpty(family.group, (gr, i) =>
+		const memberInGroup = (m: string, g: string): Expr => {
+			const at = (gr: (typeof family.group)[number]): Expr =>
+				col(g, defined(r.groups.group[family.group.indexOf(gr)], "a group column"))
+			return and([
+				...mapNonEmpty(family.group, (gr) =>
 					typedEq(
 						gr.member.type,
 						col(m, w.names.column(memberName, gr.member.name)),
-						col(g, defined(r.groups.group[i], "a group column")),
+						at(gr),
 						w.names
 					)
+				),
+				...heldAmong(
+					w,
+					supply,
+					{ cte: r.groups.name, alias: g },
+					{ kind: "group", family, alias: m, at }
 				)
-			)
+			])
+		}
 		const indexColumn = installed(w, memberName, family.shape.index)
 		/** Each arm reads the groups under an alias of its own. */
 		const g1 = supply.relation(internal("recount group row"))
@@ -2163,7 +2234,7 @@ const recountOf = (
 			const b = supply.relation(internal("recount after deletions"))
 			return {
 				from: [cteRefAs(barrier, b), cteRefAs(keyset.name, k)],
-				at: keyedAt(w, k, keyset, o)
+				at: and([keyedAt(w, k, keyset, o), ...keysetAmong(w, supply, keyset, o)])
 			}
 		}
 	)

@@ -214,6 +214,11 @@ class Rewriter {
 				const right = this.expr(e.right, ctx)
 				return left === e.left && right === e.right ? e : { ...e, left, right }
 			}
+			case "equalsAny": {
+				const expr = this.expr(e.expr, ctx)
+				const array = this.expr(e.array, ctx)
+				return expr === e.expr && array === e.array ? e : { ...e, expr, array }
+			}
 			case "and":
 			case "or": {
 				const args = mapNonEmptyArray(e.args, (a) => this.expr(a, ctx))
@@ -310,6 +315,8 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 			return e.table === alias
 		case "binary":
 			return readsAlias(e.left, alias) || readsAlias(e.right, alias)
+		case "equalsAny":
+			return readsAlias(e.expr, alias) || readsAlias(e.array, alias)
 		case "and":
 		case "or":
 		case "greatest":

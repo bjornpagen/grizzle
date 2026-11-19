@@ -57,9 +57,6 @@ export type NameMap = ReadonlyArray<NameEntry>
 
 export const emptyNameMap: NameMap = []
 
-/** What every carrier's name starts with. */
-export const carrierPrefix = "__carrier_"
-
 /**
  * A carrier's declaration: the columns of its CREATE TEMPORARY TABLE, of any width, and its key's columns, or none.
  */
@@ -70,7 +67,7 @@ export interface CarrierDeclaration {
 
 /**
  * __carrier_<ordinal>_<digest>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE
- * TEMPORARY TABLE and ANALYZE take. Only carrierName spells one, through the naming door (core/identity.ts
+ * TEMPORARY TABLE takes. Only carrierName spells one, through the naming door (core/identity.ts
  * identity.carrier). The ordinal is the carrier's place among its program's carriers, from 1, and the digest is its
  * declaration's: a session keeps each served statement under its text (core/prepared.ts), and PostgreSQL plans it again
  * over the carrier its next call creates, so a text that names a carrier must name one declaration, or a statement of

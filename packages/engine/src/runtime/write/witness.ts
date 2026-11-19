@@ -261,7 +261,7 @@ export type Refuser =
  * which casts the facts the action writes into the relation's types (artifact.ts CarrierCasts), stating every fact the
  * ChangeSet adds or puts into them there; a query entry's precheck, which casts the entry's own stated facts into its
  * target's types before any statement writes them; or a statement that states no fact the ChangeSet states: another
- * carrier's, an ANALYZE, a read-back or the COMMIT.
+ * carrier's, a read-back or the COMMIT.
  */
 export type StatementAt =
 	| {

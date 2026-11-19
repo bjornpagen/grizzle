@@ -298,7 +298,6 @@ export const baselineSchema = Effect.fn("baselineSchema")(function* (
 export type StatementLabel =
 	| WriteLabel
 	| { readonly kind: "carrier"; readonly position: number; readonly step: "create" | "fill" }
-	| { readonly kind: "analyze"; readonly position: number }
 	| { readonly kind: "readBack"; readonly position: number; readonly name: string }
 	| { readonly kind: "check"; readonly position: number; readonly entry: string }
 	| { readonly kind: "hold"; readonly position: number; readonly header: string }
@@ -326,8 +325,6 @@ const statementLabel = (statement: ArtifactStatement): StatementLabel => {
 			return { kind: "write", position, relation: step.relation, result: step.result }
 		case "carrier":
 			return { kind: "carrier", position, step: step.step }
-		case "analyze":
-			return { kind: "analyze", position }
 		case "readBack":
 			return { kind: "readBack", position, name: step.name }
 		case "check":
@@ -386,8 +383,6 @@ export const labelText = (label: StatementLabel): string => {
 			return writeText(label.relation, label.result)
 		case "carrier":
 			return `carrier ${label.step}`
-		case "analyze":
-			return "carrier analyze"
 		case "readBack":
 			return `read ${label.name}`
 		case "check":
@@ -1120,17 +1115,16 @@ const explainingSession = (
 })
 
 /**
- * Whether EXPLAIN plans a statement of `label`: every statement but a carrier's creation and an ANALYZE, which name no
- * plan and run as they are, so the statements after them read the carriers they make (write/program/slot-carriers.ts,
- * analyze.ts).
+ * Whether EXPLAIN plans a statement of `label`: every statement but a carrier's creation, which names no plan and runs
+ * as it is, so the statements after it read the carrier it makes (write/program/slot-carriers.ts).
  */
 const explainPlans = (label: StatementLabel): boolean =>
-	!(label.kind === "analyze" || (label.kind === "carrier" && label.step === "create"))
+	!(label.kind === "carrier" && label.step === "create")
 
 /**
  * The plans of one application of a ChangeSet value on the Db `opened`, as observedChange applies it, its program's
  * statements each run under EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) in its place in the
- * transaction that writes, a carrier's creation and an ANALYZE as they are (`explainPlans`), which ends by ROLLBACK
+ * transaction that writes, a carrier's creation as it is (`explainPlans`), which ends by ROLLBACK
  * (explainingSession), with no parameters but the ChangeSet's own facts.
  * The attempt's outcome is no ChangeSet's: its statements answered plans, which it cannot read, so it is not kept.
  */

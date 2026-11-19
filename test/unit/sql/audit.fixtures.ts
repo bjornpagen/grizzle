@@ -437,7 +437,6 @@ export const writtenSituations: Situations<AuditLiveFeature> = [
 	"statement select",
 	"statement insert",
 	"statement createCarrier",
-	"statement analyze",
 	"cte insert",
 	"cte delete",
 	"from arrays",

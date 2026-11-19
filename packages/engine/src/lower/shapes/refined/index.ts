@@ -131,6 +131,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 			case "between":
 			case "inList":
 			case "inQuery":
+			case "equalsAny":
 			case "exists":
 			case "subquery":
 			case "array":

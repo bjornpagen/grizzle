@@ -9,7 +9,7 @@
  * ON CONSTRAINT, or DO NOTHING with no target, which a key of id and a UNIQUE over a and the law column arbitrate, its
  * source a query, a VALUES row, or one of the statement's query CTEs alone, an UPDATE, a DELETE (an INSERT's and a
  * DELETE's target may be a carrier), or a MERGE of up to three WHEN clauses; with
- * statement CTEs that read or write, the reading ones read where a source names them; an ANALYZE, a REFRESH, or a
+ * statement CTEs that read or write, the reading ones read where a source names them; a REFRESH, or a
  * statement no member sends. Each query is a core or a UNION, EXCEPT or INTERSECT of cores. A core reads tables,
  * carriers, CTEs, a writing CTE's RETURNING, relation inputs' arrays, VALUES, a function's rows, derived tables, a
  * probe of a table at a key, a group or a group's last row, an INSERT's met rows (a writing CTE's INSERT and a query

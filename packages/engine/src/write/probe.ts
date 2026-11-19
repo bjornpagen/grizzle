@@ -1,6 +1,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
+	concatNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -31,8 +32,11 @@ import {
 	binary,
 	col,
 	conjunction,
+	cteRefAs,
+	distinctCore,
 	exists,
 	lit,
+	select,
 	simpleSelect,
 	target,
 	types
@@ -58,7 +62,7 @@ export interface DrivenRead {
 /** Where a driven read reaches a relation's rows: each column bound to a value of the driving row, none at a span key
  * of no scalar, the conditions over the probed row, read under the alias `inner` names, that narrow it further, its
  * span's overlap among them there, and the columns that place it, which an existence read delivers. */
-export interface Access {
+export interface ProbeAccess {
 	readonly key: ReadonlyArray<ProbeColumn>
 	readonly filter: (inner: string) => ReadonlyArray<Expr>
 	readonly placed: NonEmptyReadonlyArray<string>
@@ -129,7 +133,7 @@ export const atFields = (
 	relation: string,
 	fields: NonEmptyReadonlyArray<LawField>,
 	value: (f: LawField) => Expr
-): Access => ({
+): ProbeAccess => ({
 	key: mapNonEmpty(fields, (f) => bound(w, relation, f, value(f))),
 	filter: () => [],
 	placed: mapNonEmpty(fields, (f) => w.names.column(relation, f.name))
@@ -150,7 +154,7 @@ export const atObject = (
 	relation: string,
 	u: UniqueObject,
 	value: (f: LawField) => Expr
-): Access =>
+): ProbeAccess =>
 	u.kind === "guarded" && u.reach.kind === "index"
 		? {
 				key: mapNonEmpty(u.reach.columns, (c) => ({
@@ -178,7 +182,7 @@ export const probeKey = (
 	w: WriteContext,
 	supply: NameSupply,
 	relation: string,
-	access: Access,
+	access: ProbeAccess,
 	read: NonEmptyReadonlyArray<string>
 ): Driven => {
 	const inner = supply.relation(internal(`probed ${relation}`))
@@ -280,7 +284,7 @@ export const atRow = (
 	relation: Pick<RelationInfo, "name" | "primaryFields">,
 	fields: ReadonlyArray<LawField>,
 	value: (f: LawField) => Expr
-): { readonly access: Access; readonly equal: ReadonlyArray<Equal> } => ({
+): { readonly access: ProbeAccess; readonly equal: ReadonlyArray<Equal> } => ({
 	access: atFields(w, relation.name, relation.primaryFields, value),
 	equal: fields
 		.filter((f) => !relation.primaryFields.some((k) => k.name === f.name))
@@ -297,7 +301,7 @@ export const storedAt = (
 	w: WriteContext,
 	supply: NameSupply,
 	relation: string,
-	access: Access,
+	access: ProbeAccess,
 	equal: ReadonlyArray<Equal>
 ): Expr => {
 	const probe = probeKey(w, supply, relation, access, checkedColumns(access.placed, equal))
@@ -465,3 +469,85 @@ const placedBy = (
 		? appendNonEmpty(u.equal.map(column), column(u.span))
 		: mapNonEmpty(u.equal, column)
 }
+
+/** One field of a stored relation's key a write statement joins to rows it holds: the field, and the held rows' column
+ * of its value, in the CTE `held` names. */
+export interface HeldKey {
+	readonly field: LawField
+	readonly column: string
+}
+
+/**
+ * The conjuncts of the stored rows of `relation`, read as `alias`, at the keys of the rows the CTE `held` holds, read as
+ * `at`: each of `keys` equal to the held row's value, at its type, and, beside that equality, among the held rows' values of it
+ * (`keyedAmong`), a fact the first implies, stated, so PostgreSQL reaches the stored rows by their key's index. A
+ * write's UPDATE, DELETE and keyed joins of a stored relation reach it so; an index-led probe (`probeKey`) reaches one
+ * row per driving row instead.
+ */
+export const joinedAtKey = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: string,
+	alias: string,
+	held: { readonly name: string; readonly at: string },
+	keys: NonEmptyReadonlyArray<HeldKey>
+): NonEmptyReadonlyArray<Expr> => {
+	const stored = (f: LawField): Expr => col(alias, w.names.column(relation, f.name))
+	return concatNonEmpty(
+		mapNonEmpty(keys, (k) =>
+			typedEq(rowType(k.field), stored(k.field), col(held.at, k.column), w.names)
+		),
+		keyedAmong(w, supply, relation, alias, held.name, keys)
+	)
+}
+
+/**
+ * The stored rows a write statement joins, `stored` read of each, among the values the rows of its CTE `held` give,
+ * `value` reading a held row under the alias it is given: `stored = ANY (ARRAY(SELECT DISTINCT <value> FROM <held>))`,
+ * at the operator of `schema` (none for a row's tid). One condition an index on `stored`'s column serves, a TID scan
+ * where it is a row's tid, its array read once, so PostgreSQL reaches the stored rows by it however many rows it
+ * estimates the held CTE at, a never-analyzed carrier's ten pages among them, and never reads the relation whole, which
+ * under SERIALIZABLE takes a relation-level SIRead lock. Every restriction of a write's stored joins to its rows is this
+ * one (`keyedAmong`, family/keyset.ts heldAmong and rowsAmong), stated beside the join's own equalities, which imply it.
+ */
+export const amongHeld = (
+	supply: NameSupply,
+	stored: Expr,
+	held: string,
+	value: (h: string) => Expr,
+	schema: string | undefined
+): Expr => {
+	const h = supply.relation(internal("held key"))
+	return {
+		kind: "equalsAny",
+		expr: stored,
+		array: {
+			kind: "array",
+			query: select(distinctCore([target(value(h))], [cteRefAs(held, h)], undefined))
+		},
+		schema
+	}
+}
+
+/**
+ * The stored rows of `relation`, read as `alias`, among the keys the rows of the CTE `held` hold: each of `keys` among
+ * the held rows' values of it (`amongHeld`). A statement whose own conditions already equate each key field with a held
+ * row's, a row comparison over more fields among them, states these beside them (`joinedAtKey` is both).
+ */
+export const keyedAmong = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: string,
+	alias: string,
+	held: string,
+	keys: NonEmptyReadonlyArray<HeldKey>
+): NonEmptyReadonlyArray<Expr> =>
+	mapNonEmpty(keys, (k) =>
+		amongHeld(
+			supply,
+			col(alias, w.names.column(relation, k.field.name)),
+			held,
+			(h) => col(h, k.column),
+			operatorSchemaOf(w.names, rowType(k.field))
+		)
+	)

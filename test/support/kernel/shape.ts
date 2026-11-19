@@ -137,6 +137,7 @@ const roleOf = (e: Expr): Role => {
 		case "between":
 		case "inList":
 		case "inQuery":
+		case "equalsAny":
 		case "exists":
 		case "array":
 		case "row":
@@ -242,6 +243,8 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 			return [e.not ? "not exists" : "exists"]
 		case "inQuery":
 			return [e.not ? "not in query" : "in query"]
+		case "equalsAny":
+			return [`predicate = ${roleOf(e.expr)} ${roleOf(e.array)}`]
 		case "inList":
 			return [e.not ? "not in list" : "in list"]
 		case "subquery":

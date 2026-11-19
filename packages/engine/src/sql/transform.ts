@@ -289,6 +289,11 @@ export class Transform {
 				const right = this.expr(e.right)
 				return left === e.left && right === e.right ? e : { ...e, left, right }
 			}
+			case "equalsAny": {
+				const expr = this.expr(e.expr)
+				const array = this.expr(e.array)
+				return expr === e.expr && array === e.array ? e : { ...e, expr, array }
+			}
 			case "and":
 			case "or": {
 				const args = mapNonEmptyKept(e.args, (a) => this.expr(a))
@@ -1455,8 +1460,6 @@ export class Transform {
 				const columns = mapList(s.columns, (c) => this.columnDef(c))
 				return columns === s.columns ? s : { ...s, columns }
 			}
-			case "analyze":
-				return s
 			case "alterDatabaseDefault":
 			case "alterDefaultPrivileges":
 			case "alterDomain":
@@ -2013,6 +2016,23 @@ class Visit {
 						"right",
 						() => {
 							this.expr(e.right)
+						}
+					]
+				])
+				return
+			}
+			case "equalsAny": {
+				inKeyOrder(keys, [
+					[
+						"array",
+						() => {
+							this.expr(e.array)
+						}
+					],
+					[
+						"expr",
+						() => {
+							this.expr(e.expr)
 						}
 					]
 				])

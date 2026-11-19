@@ -179,8 +179,7 @@ export interface InsertedStratum {
 /**
  * The executions of a statement under `transport`, the message bound of the session that sends them, in the order they
  * are sent (write/program/staged.ts Execution): its one, its `values`, or, where its nested rows' arrays are past the
- * transport's message, its staged form's: its carriers created and filled chunk by chunk, their ANALYZE where the
- * staged statement needs one, then the staged statement (write/program/staged.ts executionsOf). Its rows are every
+ * transport's message, its staged form's: its carriers created and filled chunk by chunk, then the staged statement (write/program/staged.ts executionsOf). Its rows are every
  * execution's, in order. A nested row no statement or fill carries even alone is its family's FamilyRowBound, before
  * any statement is sent.
  */
@@ -931,8 +930,6 @@ const partOf = (step: OwnStep): ExecutionPart => {
 	switch (step.kind) {
 		case "carrier":
 			return step.step === "create" ? "create" : "fill"
-		case "analyze":
-			return "analyze"
 		case "write":
 		case "check":
 		case "single":

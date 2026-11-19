@@ -1,10 +1,9 @@
 import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
-import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CompileBound } from "#compiler/core/errors.ts"
-import { isDecimal, quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	cellWidth,
 	type Constant,
@@ -35,12 +34,7 @@ import {
 	inSet,
 	pack
 } from "#compiler/sql/constants.ts"
-import {
-	type CarrierDeclaration,
-	type CarrierName,
-	carrierName,
-	carrierPrefix
-} from "#compiler/sql/naming.ts"
+import { type CarrierDeclaration, type CarrierName, carrierName } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName, printStatement, printType } from "#compiler/sql/print.ts"
 import { type AstHooks, Transform } from "#compiler/sql/transform.ts"
 import { hexOfText, installedText } from "#test/support/closed/bit-text.ts"
@@ -53,26 +47,8 @@ export const transformOperand = (s: OperandSelect, hooks: AstHooks): OperandSele
 const keyIn = (constant: ObjectName, index: Expr, width: number): Expr =>
 	gt(cellCode(constant, index, width), lit.int(0, types.integer))
 
-/**
- * Whether a value spells a carrier (sql/naming.ts carrierName): after the prefix, an ordinal from 1 with no leading zero,
- * a safe integer, then `_` and a hashed name's digest, ten characters of lowercase base32 (core/identity.ts).
- */
-export const isCarrierName = (u: unknown): u is CarrierName => {
-	if (typeof u !== "string" || !Str.startsWith(carrierPrefix)(u)) {
-		return false
-	}
-	const parts = regex("^([0-9]+)_([a-z2-7]{10})$").exec(Str.slice(carrierPrefix.length)(u))
-	const ordinal = parts?.[1]
-	return (
-		ordinal !== undefined &&
-		isDecimal(ordinal) &&
-		ordinal !== "0" &&
-		Number.isSafeInteger(Number(ordinal))
-	)
-}
-
 /** The declaration of the unit relation's carrier: no column and no key. */
-export const unitCarrier: CarrierDeclaration = { columns: [], primaryKey: undefined }
+const unitCarrier: CarrierDeclaration = { columns: [], primaryKey: undefined }
 
 /** The `ordinal`-th carrier of a program, of the unit relation (sql/naming.ts carrierName). */
 export const unitCarrierName = (ordinal: number): CarrierName => carrierName(ordinal, unitCarrier)

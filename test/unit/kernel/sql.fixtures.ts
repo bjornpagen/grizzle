@@ -10,7 +10,6 @@ import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { featureCount, type ShapeFeature, shapeOf } from "#test/support/kernel/shape.ts"
 import { noHoles, oneHole, type SqlCatalog } from "#test/support/kernel/sqlgen.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
-import { unitCarrierName } from "#test/support/sql.ts"
 
 export const catalog: SqlCatalog = [
 	{
@@ -151,7 +150,7 @@ export const renamed = (statement: SqlStatement): SqlStatement =>
  * the variant, and no other site is of that kind.
  */
 export const rootHoleFirst = (statement: SqlStatement): void => {
-	const variant: SqlStatement = { kind: "analyze", carriers: [unitCarrierName(1)] }
+	const variant: SqlStatement = { kind: "commit" }
 	const marker = lit.int(424243, types.integer)
 	const rewrites = oneHole(statement, {
 		...noHoles,

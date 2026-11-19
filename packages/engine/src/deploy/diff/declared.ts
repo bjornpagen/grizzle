@@ -1677,7 +1677,6 @@ const withColumns = (
 		case "rollback":
 		case "setConstraintsImmediate":
 		case "refresh":
-		case "analyze":
 			return s
 		case "createConstraintTrigger": {
 			const into = renamed(s.table)
@@ -1763,7 +1762,6 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "rollback":
 		case "setConstraintsImmediate":
 		case "refresh":
-		case "analyze":
 			return s
 	}
 }

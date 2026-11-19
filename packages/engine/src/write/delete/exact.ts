@@ -1,5 +1,9 @@
-import { appendNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { rowEq, rowNe, typedEq } from "#compiler/ir/compare.ts"
+import {
+	appendNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import { rowEq, rowNe } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
 import { needsOf } from "#compiler/logical/needs.ts"
@@ -27,6 +31,7 @@ import {
 	readOperand,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
+import { joinedAtKey, keyedAmong } from "#compiler/write/probe.ts"
 
 import {
 	buildStatement,
@@ -181,12 +186,17 @@ const buildDelete = (
 		/** Each comparison is at its fields' types: a row holding a vector is spelled column by column through the
 		 * extension's qualified operator, which a row comparison would resolve through the search_path. */
 		const typeOf = rowType
+		/** The target reached at the input's keys by their index whatever the input's estimate (write/probe.ts). */
+		const keys = mapNonEmpty(pk, (field) => ({ field, column: inputs.of(field) }))
 		const where =
 			mode.kind === "exact"
-				? rowEq({ fields: compared, typeOf, left: stored, right: inCol }, w.names)
+				? and([
+						rowEq({ fields: compared, typeOf, left: stored, right: inCol }, w.names),
+						...keyedAmong(w, supply, relation.name, r3, r1, keys)
+					])
 				: and(
 						appendNonEmpty(
-							pk.map((f) => typedEq(typeOf(f), stored(f), inCol(f), w.names)),
+							joinedAtKey(w, supply, relation.name, r3, { name: r1, at: r1 }, keys),
 							rowNe({ fields: mode.payload, typeOf, left: stored, right: inCol }, w.names)
 						)
 					)

@@ -1,24 +1,24 @@
 /**
  * A statement's nested rows past one Bind message (write/program/staged.ts executionsOf): the statement goes inline
  * while its Bind message, every array of its nested rows written whole, fits the transport, and otherwise its carriers
- * are created, filled chunk by chunk, analyzed where the staged statement needs it, and the staged statement sent, each
+ * are created, filled chunk by chunk, and the staged statement sent, each
  * fill as long as one Bind message carries. The cut is measured from the cells' lengths, none of an array written to
  * measure it.
  *
  * Over drawn nested rows of text, bytes and literal columns, of drawn lengths, beside a placeholder the staged
- * statement keeps, its carriers' ANALYZE needed or absent, under a drawn message bound:
+ * statement keeps, under a drawn message bound:
  *
  * - **The executions are the encoders' own** (oracle: a second implementation, the cut by real encodings): the inline
  *   statement, its arrays written whole by the column's encoder, exactly where their Bind message, as the wire counts
  *   it, fits the bound; otherwise the carrier's creation, then fills of the longest runs of rows whose arrays, written
- *   by the same encoders, fit one Bind message, in row order, then the ANALYZE where the staged form holds one
- *   (StagedAnalyze `needed`) and the staged statement with the kept placeholder's value; a row whose fill alone is past the bound refuses the write as that row's NestedRowBound. So
+ *   by the same encoders, fit one Bind message, in row order, then the staged statement with the kept placeholder's
+ *   value; a row whose fill alone is past the bound refuses the write as that row's NestedRowBound. So
  *   every execution's Bind message fits the bound, every row travels exactly once, in order, and no fill could have
  *   carried the next row too.
  *
  * Kept: rows past one Bind message in several fills.
  *
- * Features: the inline statement, several fills, a carrier's ANALYZE, a row past the bound.
+ * Features: the inline statement, several fills, a row past the bound.
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
@@ -52,8 +52,6 @@ export const nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThrough
 			"staged in one fill",
 			"staged in several fills",
 			"a row past one fill alone",
-			"its carriers counted",
-			"its carriers uncounted",
 			"a text column",
 			"a bytes column",
 			"a literal column"
@@ -93,9 +91,6 @@ export const nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThrough
 							? "staged in one fill"
 							: "staged in several fills"
 				)
-				if (want.value.length > 1) {
-					c.note(sketch.analyze === "needed" ? "its carriers counted" : "its carriers uncounted")
-				}
 				assert.deepEqual(got, want, "the executions are the encoders' own cut")
 				for (const e of succeeded(got)) {
 					assert.ok(
@@ -111,7 +106,7 @@ export const nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThrough
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/write/staged.test.ts#nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThroughACarrierFilledInTheLongestChunksOneBindCarries:-:2.1.0.4.3c.14.3c.14.3c.14.3c.14.0.0.0.7a.0"
+					"test/unit/write/staged.test.ts#nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThroughACarrierFilledInTheLongestChunksOneBindCarries:-:2.1.0.4.3c.14.3c.14.3c.14.3c.14.0.0.0.7a"
 				),
 				reason: "rows past one Bind message in several fills",
 				since: "2026-11-09"
@@ -123,13 +118,6 @@ export const nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThrough
 				original: '\t\t\tbound.push(defined(values.get(position), "an encoded value"))\n',
 				replacement: "",
 				why: "The cut measures a statement's Bind message without its placeholders that carry no nested rows (runtime/write/staged.ts executionsOf), so a statement past the bound goes inline."
-			},
-			{
-				file: "packages/engine/src/runtime/write/staged.ts",
-				original:
-					'\tif (staged.analyze.kind === "needed") {\n\t\tout.push({ text: staged.analyze.text, params: [], part: "analyze" })\n\t}\n',
-				replacement: "",
-				why: "The staged form's ANALYZE is never sent where it is needed."
 			},
 			{
 				file: "packages/engine/src/runtime/write/staged.ts",

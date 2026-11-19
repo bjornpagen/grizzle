@@ -141,8 +141,7 @@ import {
 	type WriteStatement,
 	writeContext
 } from "#compiler/write/insert/statement.ts"
-import { withCarrierAnalysis } from "#compiler/write/program/analyze.ts"
-import { castsNothing } from "#compiler/write/program/artifact.ts"
+import { castsNothing, settledArtifact } from "#compiler/write/program/artifact.ts"
 import {
 	type ArtifactForms,
 	DependencyTracker,
@@ -810,9 +809,9 @@ export const placeAdmission = (
 	}
 }
 
-/** The artifact, its carriers analyzed before the statements that join them against stored relations. */
+/** The artifact of the statements built and their carriers. */
 export const finish = (b: ArtifactBuilder, carriers: ReadonlyArray<WriteCarrier>): WriteArtifact =>
-	withCarrierAnalysis(b.statements, Object.freeze([...carriers]))
+	settledArtifact(b.statements, Object.freeze([...carriers]))
 
 /** How the optimized artifact's described members lower: its shape state, whose log holds the choices the statement
  * being lowered made in the per-execution mode it is lowered in, the sharing of sub-queries across its statements, and
@@ -839,7 +838,7 @@ const optimizedArtifact = (
 		optimizedPlacement(frontend, plan, lowering, admission, options).statements,
 		plan.carriers
 	)
-	return withCarrierAnalysis(staged.statements, staged.carriers)
+	return settledArtifact(staged.statements, staged.carriers)
 }
 
 /** The optimized artifact's statements, each with its forms.
@@ -1643,8 +1642,9 @@ const compile = (
  *    stratum where one snapshot suffices one single statement.
  * 4. The optimized artifact: each planned statement built by its package (insert/, delete/, carriers/, put/),
  *    a single statement's writes its parts, each riding read-back a part of its statement over that statement's
- *    RETURNING, and each read-back after the strata lowered over the post-change state. Each carrier is analyzed after it is filled and before
- *    the first statement that joins it against a stored relation. The conservative realization, the write oracle's
+ *    RETURNING, and each read-back after the strata lowered over the post-change state, every stored relation a
+ *    statement joins restricted to the keys of the rows it holds (write/probe.ts amongHeld), so no carrier is analyzed
+ *    and none needs to be. The conservative realization, the write oracle's
  *    baseline, is no part of it (test/support/conservative.ts conservativeWrite).
  * 5. The template: its requirements, and the outcome: count rules, the witness decoder and the constraint-to-law map.
  *

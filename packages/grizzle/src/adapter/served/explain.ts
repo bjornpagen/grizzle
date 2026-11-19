@@ -31,8 +31,8 @@ import type { ServedTables } from "#compiler/plan/serve.ts"
  *
  * Each planned statement is sent as its EXPLAIN, PostgreSQL's unnamed statement over the served statement's text
  * (sql/emit.ts explainOf), with the parameters the application binds to the named prepared statement, and is reported
- * under that statement's name. A carrier's CREATE TEMPORARY TABLE and an ANALYZE, which have no plan, run as the
- * application runs them, so every statement after them plans against the carrier.
+ * under that statement's name. A carrier's CREATE TEMPORARY TABLE, which has no plan, runs as the application runs
+ * it, so every statement after it plans against the carrier.
  */
 
 /** One statement an explain sends: planned, for the served statement it names, or run as it is, with what it does. */
@@ -218,7 +218,7 @@ export const explainChange = (
 				}
 				for (const execution of executions.value) {
 					statements.push(
-						execution.part === "create" || execution.part === "analyze"
+						execution.part === "create"
 							? {
 									kind: "run",
 									statement: preparedStatement(execution.text, execution.params),

@@ -74,7 +74,6 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 		case "familyWrite":
 			return step.parts
 		case "carrier":
-		case "analyze":
 		case "readBack":
 		case "check":
 		case "hold":
@@ -198,7 +197,7 @@ export interface ArtifactStatement {
  *   (`WriteResult`, `PutResult`), the change its rows are for the netting of deltas and
  *   counts, what its rows need of the call's inputs, where they hold no such fact the runtime sending none of it,
  *   and the unique violations (23505, 23P01) at this statement that are aborts rather than key laws;
- * - a carrier statement creates, fills or analyzes transaction-scoped carriers, and returns no rows the outcome reads;
+ * - a carrier statement creates or fills transaction-scoped carriers, and returns no rows the outcome reads;
  * - a read-back statement belongs to one read-back, delivered as a query's statements are.
  *
  * Every write statement's text already casts its outer columns to text; a read-back statement's text is
@@ -267,7 +266,7 @@ export type PlacedStatement = {
 )
 
 /** A placed statement's step: its own, or its read-back's. */
-export const placedStep = (placed: PlacedStatement): WriteStep =>
+const placedStep = (placed: PlacedStatement): WriteStep =>
 	placed.kind === "own" ? placed.step : Object.freeze({ kind: "readBack", name: placed.of.name })
 
 /** A placed statement's forms: its own, or those its read-back statement sends. */
@@ -402,7 +401,6 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 		case "retire":
 		case "admission":
 		case "carrier":
-		case "analyze":
 		case "entryCheck":
 			return []
 	}

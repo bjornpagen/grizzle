@@ -142,6 +142,11 @@ class CoreBinder {
 				const expr = at(e.expr)
 				return expr === e.expr ? e : { ...e, expr }
 			}
+			case "equalsAny": {
+				const expr = at(e.expr)
+				const array = at(e.array)
+				return expr === e.expr && array === e.array ? e : { ...e, expr, array }
+			}
 			case "row": {
 				const items = mapNonEmpty(e.items, at)
 				return items.every((a, i) => a === e.items[i]) ? e : { ...e, items }

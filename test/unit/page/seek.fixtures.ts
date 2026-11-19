@@ -116,6 +116,7 @@ export const evaluate = (
 		case "greatest":
 		case "inList":
 		case "inQuery":
+		case "equalsAny":
 		case "isTrue":
 		case "least":
 		case "mergeAction":

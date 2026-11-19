@@ -16,7 +16,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { columnIn, emptyEnv } from "#compiler/lower/conservative/context.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import {
-	type Analyze,
 	type ColumnDef,
 	type CreateCarrier,
 	type FromItem,
@@ -37,15 +36,9 @@ import {
 	unitTargets
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
-import {
-	type CarrierDeclaration,
-	type CarrierName,
-	carrierName,
-	emptyNameMap
-} from "#compiler/sql/naming.ts"
+import { type CarrierDeclaration, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 import {
-	type AnalyzeResult,
 	buildStatement,
 	type CarrierResult,
 	ownBuild,
@@ -255,25 +248,6 @@ export const buildCreateCarrier = (
 		result: { kind: "carrier", carrier: carrier.name, step: "create" },
 		needs: always
 	}))
-
-/** ANALYZE pg_temp.__carrier_<k>, ... of carriers the program created and filled, so each later statement that joins
- * one against a stored relation plans with its exact row count instead of PostgreSQL's ten-page guess for a relation
- * never analyzed (placement in). A carrier is the session's own,
- * so the lock it takes is uncontended, and the statement reads no stored relation. */
-export const buildAnalyzeCarriers = (
-	carriers: NonEmptyReadonlyArray<CarrierName>
-): WriteStatement<AnalyzeResult> => {
-	const ast: Analyze = { kind: "analyze", carriers: Object.freeze([...carriers]) }
-	const sql = emitText(ast, emptyNameMap)
-	return Object.freeze({
-		role: "carrier" as const,
-		ast,
-		sql,
-		params: [],
-		result: { kind: "analyze" as const, carriers: ast.carriers },
-		needs: always
-	})
-}
 
 /**
  * What fills a carrier: a described member's rows; or, for a carrier of a relation's facts (`relationCarrier`), the

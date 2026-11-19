@@ -517,6 +517,17 @@ export type Expr =
 			readonly query: OperandSelect
 			readonly not: boolean
 	  }
+	| {
+			/**
+			 * `<expr> = ANY (<array>)`, through the operator of `schema` where it names one (an extension type's): whether
+			 * `expr` equals an element of `array`. Over a column, an index on it serves the comparison as one condition, its
+			 * array read once (write/probe.ts keyedAt).
+			 */
+			readonly kind: "equalsAny"
+			readonly expr: Expr
+			readonly array: Expr
+			readonly schema: string | undefined
+	  }
 	| { readonly kind: "exists"; readonly query: OperandSelect; readonly not: boolean }
 	| { readonly kind: "subquery"; readonly query: OperandSelect }
 	| { readonly kind: "array"; readonly query: Select }
@@ -2279,19 +2290,6 @@ export interface Refresh {
 }
 
 /**
- * ANALYZE of a write program's own transaction-scoped carriers after they are filled, so the statements that join them
- * against stored relations plan with their exact row counts. It names carriers only, each printed under pg_temp, which
- * resolves to the session's own temporary schema and never to a stored relation; the library never analyzes a stored
- * relation. Each name is a carrier an earlier statement of the program created, which the test kernel's program audit
- * checks.
- */
-export interface Analyze {
-	readonly kind: "analyze"
-	/** At least one: ANALYZE of no relation analyzes every relation of the database. */
-	readonly carriers: NonEmptyReadonlyArray<CarrierName>
-}
-
-/**
  * What a COMMENT names: a schema or a role by its bare name; a relation, type, domain, sequence, index or statistics
  * object by its qualified name; a column of a table or view; a table's constraint, trigger or policy, on its table; a
  * domain's constraint, on its domain; a function by its signature.
@@ -2382,7 +2380,7 @@ export type Ddl =
 	| LockTable
 	| Comment
 
-export type SqlStatement = Dml | Ddl | CreateCarrier | Txn | Refresh | Analyze
+export type SqlStatement = Dml | Ddl | CreateCarrier | Txn | Refresh
 
 /** SQL text printed from a statement's AST: emit (sql/emit.ts) spells it, and nothing else. */
 export type EmittedText = string & { readonly [emittedTextBrand]: true }

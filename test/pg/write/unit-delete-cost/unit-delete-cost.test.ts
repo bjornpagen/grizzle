@@ -32,7 +32,8 @@ export const aUnitDeleteMeetsEachRowItDeletesOnceThroughWhateverIndexPostgreSQLT
 		kills: [
 			{
 				file: "packages/engine/src/write/delete/unit.ts",
-				original: "\t\t\t\twhere: rowAt(k, found.removed, t),",
+				original:
+					"\t\t\t\twhere: conjunction([rowAt(k, found.removed, t), rowsAmong(supply, found.removed, t)]),",
 				replacement:
 					"\t\t\t\twhere: rowEq({ fields: relation.primaryFields, typeOf: rowType, left: (f) => stored(t, relation, f), right: (f) => col(k, keysetColumn(found.removed, f)) }, w.names),",
 				why: "The unit delete meets each removed row at its key: PostgreSQL reads the key through Node's (pkg, path, kind), shallower than the key's index and estimated at a row as it is, filtering start over every node of the document, so the delete reads each document's nodes once per node."

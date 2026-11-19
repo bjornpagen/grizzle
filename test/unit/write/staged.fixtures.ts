@@ -19,7 +19,6 @@ import {
 	type NestedPlaceholder,
 	type NestedRowBound,
 	nestedSource,
-	type StagedAnalyze,
 	type StagedStatement
 } from "#compiler/runtime/write/staged.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
@@ -39,15 +38,13 @@ type Kind = "text" | "bytes" | "literal"
  */
 type Limit = { readonly kind: "drawn"; readonly bytes: number } | { readonly kind: "one fill" }
 
-/** A case: the nested columns, each row's cell lengths, the text's characters, the kept value, the bound, and whether
- * the staged form counts its carriers. */
+/** A case: the nested columns, each row's cell lengths, the text's characters, the kept value and the bound. */
 interface Sketch {
 	readonly kinds: ReadonlyArray<Kind>
 	readonly rows: ReadonlyArray<ReadonlyArray<number>>
 	readonly character: string
 	readonly kept: number
 	readonly limit: Limit
-	readonly analyze: StagedAnalyze<unknown>["kind"]
 }
 
 /** The least bound a case draws: a Bind message of four parameters and the longest kept value fits it. */
@@ -67,8 +64,7 @@ export const sketchGen: Gen<Sketch> = (source) => {
 		rows: source.draw(array((s) => Arr.map(kinds, () => s.draw(int(0, 120))), { min: 0, max: 12 })),
 		character: source.draw(element(["a", "é", "€", "𝄞", '"', ",", "\\"] as const)),
 		kept: source.draw(int(0, 40)),
-		limit: source.draw(limitGen),
-		analyze: source.draw(element(["needed", "absent"] as const))
+		limit: source.draw(limitGen)
 	}
 }
 
@@ -77,8 +73,6 @@ export type Feature =
 	| "staged in one fill"
 	| "staged in several fills"
 	| "a row past one fill alone"
-	| "its carriers counted"
-	| "its carriers uncounted"
 	| "a text column"
 	| "a bytes column"
 	| "a literal column"
@@ -112,7 +106,6 @@ const stagedTexts = Object.freeze({
 	inline: prepared(testSql("inline")),
 	create: prepared(testSql("create")),
 	fill: prepared(testSql("fill")),
-	analyze: prepared(testSql("analyze")),
 	staged: prepared(testSql("staged"))
 })
 
@@ -146,10 +139,6 @@ export const resolved = (sketch: Sketch) => {
 					columns: [defined(firstColumn, "a nested column"), ...restColumns]
 				}
 			],
-			analyze:
-				sketch.analyze === "needed"
-					? { kind: "needed", text: stagedTexts.analyze }
-					: { kind: "absent" },
 			sql: stagedTexts.staged,
 			kept: [width]
 		},
@@ -171,7 +160,7 @@ export const resolved = (sketch: Sketch) => {
 		literalUnits: maxStringLength,
 		frame: bindFrame
 	}
-	return { cells, statement, value, transport, width, analyze: sketch.analyze }
+	return { cells, statement, value, transport, width }
 }
 
 type Resolved = ReturnType<typeof resolved>
@@ -221,9 +210,6 @@ export const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, N
 			part: "fill"
 		})
 		from = to
-	}
-	if (r.analyze === "needed") {
-		out.push({ text: stagedTexts.analyze, params: [], part: "analyze" })
 	}
 	out.push({ text: stagedTexts.staged, params: [r.value], part: "statement" })
 	return Result.ok(out)

@@ -3,8 +3,8 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-tex
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * A statement's executions in the call's one flight: its one, inline, or, where its nested rows' arrays are past one
- * Bind message, its staged form's, its carriers created and filled chunk by chunk, their ANALYZE where the staged
- * statement needs one, and the staged statement (write/program/staged.ts, which compiles the staged form and says why).
+ * Bind message, its staged form's, its carriers created and filled chunk by chunk and the staged statement
+ * (write/program/staged.ts, which compiles the staged form and says why).
  */
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
@@ -32,19 +32,8 @@ export interface StagedCarrier {
 }
 
 /**
- * Whether a staged statement's carriers are counted before it runs (write/program/staged.ts): `needed`, their ANALYZE,
- * where the statement holds a target the planner joins against rows the carriers feed; `absent` where it holds none,
- * its every read of a stored row driven by a row it holds or an arbitration's (write/probe.ts), which no count of the
- * carriers plans differently.
- */
-export type StagedAnalyze<Text> =
-	| { readonly kind: "needed"; readonly text: Text }
-	| { readonly kind: "absent" }
-
-/**
  * How a statement's nested rows may travel: `none`, a statement that reads none, whose every array rides its own Bind
- * message; or `carriers`, its staged form: a carrier per FROM item of its nested rows, their ANALYZE where it needs one,
- * its text reading them, and the positions among the inline form's placeholders it keeps, in its own placeholders'
+ * message; or `carriers`, its staged form: a carrier per FROM item of its nested rows, its text reading them, and the positions among the inline form's placeholders it keeps, in its own placeholders'
  * order.
  */
 export type Staged =
@@ -52,7 +41,6 @@ export type Staged =
 	| {
 			readonly kind: "carriers"
 			readonly carriers: NonEmptyReadonlyArray<StagedCarrier>
-			readonly analyze: StagedAnalyze<EmittedText>
 			readonly sql: EmittedText
 			readonly kept: ReadonlyArray<number>
 	  }
@@ -70,7 +58,6 @@ export type PreparedStaged =
 	| {
 			readonly kind: "carriers"
 			readonly carriers: NonEmptyReadonlyArray<PreparedCarrier>
-			readonly analyze: StagedAnalyze<Prepared<EmittedText>>
 			readonly sql: Prepared<EmittedText>
 			readonly kept: ReadonlyArray<number>
 	  }
@@ -78,10 +65,10 @@ export type PreparedStaged =
 /**
  * What one execution of an artifact statement does: `create`, a CREATE TEMPORARY TABLE, a carrier step's of the
  * program's own or a staged carrier's, the one kind a role without TEMPORARY on the database is refused; `fill`, a
- * carrier's fill, a staged one's of a chunk of its rows among them; `analyze`, an ANALYZE of carriers; or `statement`,
- * any other, a staged statement and a chunk of a family step among them.
+ * carrier's fill, a staged one's of a chunk of its rows among them; or `statement`, any other, a staged statement and a
+ * chunk of a family step among them.
  */
-export type ExecutionPart = "statement" | "create" | "fill" | "analyze"
+export type ExecutionPart = "statement" | "create" | "fill"
 
 /** One execution of an artifact statement: its prepared text, its placeholders' values and what it is. */
 export interface Execution {
@@ -319,8 +306,7 @@ export interface StagedStatement {
 /**
  * A statement's executions (see the header): its one, inline, where it reads no nested rows or its Bind message, its
  * nested rows' arrays as written, fits the transport; otherwise its staged form's, each carrier created
- * and filled chunk by chunk, their ANALYZE where the staged statement needs one (StagedAnalyze), then the staged
- * statement. `part` is what the statement itself does, which
+ * and filled chunk by chunk, then the staged statement. `part` is what the statement itself does, which
  * its inline execution is. `encode` writes the value of the placeholder at a position that carries no nested rows.
  * An inline execution sends each column's array as its source holds it, written once for every statement that sends
  * it, whose bytes and code units the cut reads; a fill writes its chunk's arrays.
@@ -406,9 +392,6 @@ export const executionsOf = (
 			}
 			out.push({ text: carrier.fill, params, part: "fill" })
 		}
-	}
-	if (staged.analyze.kind === "needed") {
-		out.push({ text: staged.analyze.text, params: [], part: "analyze" })
 	}
 	out.push({
 		text: staged.sql,

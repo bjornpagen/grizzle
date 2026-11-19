@@ -611,6 +611,8 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 			return holdsNullOnEmpty(e.expr)
 		case "binary":
 			return any([e.left, e.right])
+		case "equalsAny":
+			return any([e.expr, e.array])
 		case "nullif":
 			return any([e.expr, e.absent])
 		case "subscript":

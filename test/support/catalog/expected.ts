@@ -570,7 +570,6 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "alterDefaultPrivileges":
 			case "createExtension":
 			case "select":
-			case "analyze":
 			case "comment":
 			case "insert":
 			case "update":

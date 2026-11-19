@@ -21,7 +21,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { typedEq } from "#compiler/ir/compare.ts"
+import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import type { Family, TreeShape } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type {
@@ -56,8 +56,10 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
+import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import { internal, one, tableAs } from "#compiler/write/family/written.ts"
 import type { WriteContext } from "#compiler/write/insert/statement.ts"
+import { amongHeld } from "#compiler/write/probe.ts"
 
 /** A field of a family's group: the member's field and the owner primary-key field it names. */
 type GroupPair = Family["group"][number]
@@ -132,18 +134,57 @@ interface Reach {
 	readonly hops: ReadonlyArray<Hop>
 }
 
-/** A reach as one FROM item. */
-export const reachFrom = (w: WriteContext, reach: Reach): FromItem => {
+/** A reach as one FROM item: its first hop also among the held rows' values (`heldAmong`). */
+export const reachFrom = (w: WriteContext, supply: NameSupply, reach: Reach): FromItem => {
 	const held = cteRefAs(reach.held.cte, reach.held.alias)
-	const step = (hop: Hop): JoinStep => ({
+	const step = (hop: Hop, among: ReadonlyArray<Expr>): JoinStep => ({
 		kind: "on",
 		source: hopSource(w, hop),
-		on: and(bindings(w, hop))
+		on: and([...bindings(w, hop), ...among])
 	})
 	const [first, ...rest] = reach.hops
 	return first === undefined
 		? held
-		: { kind: "joins", first: held, steps: [step(first), ...rest.map(step)] }
+		: {
+				kind: "joins",
+				first: held,
+				steps: [
+					step(first, heldAmong(w, supply, reach.held, first)),
+					...rest.map((hop) => step(hop, []))
+				]
+			}
+}
+
+/**
+ * The stored rows a hop from held rows reaches among the held rows' values: each field it binds among its value's, the
+ * value's reads of the held rows read again in the array (write/probe.ts amongHeld). Its bindings, which imply it, stand
+ * beside it.
+ */
+export const heldAmong = (
+	w: WriteContext,
+	supply: NameSupply,
+	held: Reach["held"],
+	hop: Hop
+): NonEmptyReadonlyArray<Expr> => {
+	const among = (stored: Expr, value: Expr, type: LawField["type"]): Expr =>
+		amongHeld(
+			supply,
+			stored,
+			held.cte,
+			(h) =>
+				transformExpr(value, {
+					...identityHooks,
+					expr: (e) => (e.kind === "column" && e.table === held.alias ? { ...e, table: h } : e)
+				}),
+			operatorSchemaOf(w.names, type)
+		)
+	return hop.kind === "group"
+		? mapNonEmpty(hop.family.group, (g) =>
+				among(storedAt(w, hop.family.member, hop.alias, g.member), hop.at(g), g.member.type)
+			)
+		: mapNonEmpty(accessFields(hop), (f) =>
+				among(storedAt(w, hop.relation, hop.alias, f), hop.at(f), f.type)
+			)
 }
 
 /**
@@ -191,6 +232,7 @@ export const rowOf = (alias: string): Expr => col(alias, "ctid")
 /** The union of `arms`, each projecting `targetsOf` it: SELECT DISTINCT for one arm, UNION for more. */
 const unionOf = <A extends KeyArm>(
 	w: WriteContext,
+	supply: NameSupply,
 	arms: NonEmptyReadonlyArray<A>,
 	targetsOf: (arm: A) => NonEmptyReadonlyArray<Expr>
 ): Select => {
@@ -198,14 +240,14 @@ const unionOf = <A extends KeyArm>(
 	const armCore = (arm: A) =>
 		core(
 			targetsOf(arm).map((e) => target(e)),
-			[reachFrom(w, arm)],
+			[reachFrom(w, supply, arm)],
 			arm.where
 		)
 	return select(
 		second === undefined
 			? distinctCore(
 					mapNonEmpty(targetsOf(first), (e) => target(e)),
-					[reachFrom(w, first)],
+					[reachFrom(w, supply, first)],
 					first.where
 				)
 			: setOperation("UNION", [armCore(first), armCore(second), ...rest.map(armCore)])
@@ -230,7 +272,7 @@ export const keysetOf = (
 		...cte(
 			name,
 			[...columns],
-			unionOf(w, arms, (arm) => arm.key)
+			unionOf(w, supply, arms, (arm) => arm.key)
 		),
 		materialized
 	})
@@ -257,7 +299,7 @@ export const rowKeysetOf = (
 		...cte(
 			name,
 			[...columns, row],
-			unionOf(w, arms, (arm) => appendNonEmpty(arm.key, arm.row))
+			unionOf(w, supply, arms, (arm) => appendNonEmpty(arm.key, arm.row))
 		),
 		materialized
 	})
@@ -458,9 +500,31 @@ export const atKeyset = (k: string, keyset: Keyset, s: string): Hop => ({
 export const keyedAt = (w: WriteContext, k: string, keyset: Keyset, s: string): Expr =>
 	and(bindings(w, atKeyset(k, keyset, s)))
 
+/**
+ * The stored rows at alias `s` among the keyset's keys: each field the keyset's access binds `= ANY (ARRAY(SELECT
+ * DISTINCT ...))` of the keyset's values of it, one condition its index serves, the array read once, however many rows
+ * PostgreSQL estimates the keyset at (write/probe.ts keyedAmong). Stated beside `keyedAt`, whose equalities it implies.
+ */
+export const keysetAmong = (
+	w: WriteContext,
+	supply: NameSupply,
+	keyset: Keyset,
+	s: string
+): NonEmptyReadonlyArray<Expr> => {
+	const k = supply.relation(internal("keyset row"))
+	return heldAmong(w, supply, { cte: keyset.name, alias: k }, atKeyset(k, keyset, s))
+}
+
 /** Whether the stored row at alias `s` is the row of the row keyset's row at alias `k`: the one at its tid. */
 export const rowAt = (k: string, keyset: RowKeyset, s: string): Expr =>
 	eq(rowOf(s), col(k, keyset.row))
+
+/**
+ * The stored rows at alias `s` among the rows of the row keyset: `ctid = ANY (ARRAY(SELECT DISTINCT row FROM keyset))`,
+ * which PostgreSQL reads by a TID scan of the array (write/probe.ts amongHeld).
+ */
+export const rowsAmong = (supply: NameSupply, keyset: RowKeyset, s: string): Expr =>
+	amongHeld(supply, rowOf(s), keyset.name, (h) => col(h, keyset.row), undefined)
 
 /** The stored rows of `relation` under alias `s` at the keys its arms find (`Keyset`): the keyset joined to them. */
 export const storedAtKeys = (
@@ -473,7 +537,10 @@ export const storedAtKeys = (
 ): FromItem => {
 	const keyset = keysetOf(w, supply, ctes, { kind: "key", relation }, arms, undefined)
 	const k = supply.relation(internal("keyset row"))
-	return reachFrom(w, { held: { cte: keyset.name, alias: k }, hops: [atKeyset(k, keyset, s)] })
+	return reachFrom(w, supply, {
+		held: { cte: keyset.name, alias: k },
+		hops: [atKeyset(k, keyset, s)]
+	})
 }
 
 /** The fields an access path binds as the stored row at alias `s` holds them: a primary key, or a tree's root. */

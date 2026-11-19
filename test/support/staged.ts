@@ -9,7 +9,7 @@ import { wholeForms } from "#test/support/whole-forms.ts"
 /**
  * Every text a statement of `flight` sends, by whether explain plans it (adapter/served/explain.ts): its form and its
  * large form, and its staged form's statement and its carriers' fills, which explain sends as their EXPLAIN, and its
- * carriers' creations and their ANALYZE where the staged statement needs one, which explain runs as they are. Each is a served text, named.
+ * carriers' creations, which explain runs as they are. Each is a served text, named.
  */
 const textsOf = (
 	flight: FlightWrite
@@ -25,10 +25,7 @@ const textsOf = (
 	]),
 	run: Arr.flatMap(flight.statements, (s) =>
 		s.kind === "whole" && s.staged.kind === "carriers"
-			? [
-					...(s.staged.analyze.kind === "needed" ? [s.staged.analyze.text] : []),
-					...Arr.map(s.staged.carriers, (k) => k.create)
-				]
+			? Arr.map(s.staged.carriers, (k) => k.create)
 			: []
 	)
 })
@@ -47,7 +44,7 @@ const longest = (lengths: ReadonlyArray<number>): number =>
 /**
  * The message bound a test plants on a staged write's session (Session.messageMaxBytes): the longest Parse message of
  * any text a statement of `flight` sends, under its name, its form and its large form, and its staged form's
- * statement, carriers' creations and fills, and ANALYZE, so every statement's text fits the bound and only the rows'
+ * statement and its carriers' creations and fills, so every statement's text fits the bound and only the rows'
  * arrays of its Bind messages meet it.
  */
 export const textBound = (flight: FlightWrite): number => {

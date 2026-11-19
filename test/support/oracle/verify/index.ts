@@ -13,11 +13,7 @@ import type { OracleTemplate } from "#test/support/conservative.ts"
 import { artifactProblems, channelProblems } from "#test/support/oracle/verify/channels.ts"
 import { verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
 import { problemText, type VerificationProblem } from "#test/support/oracle/verify/problems.ts"
-import {
-	auditCarrierProgramViolations,
-	auditStatementViolations,
-	auditTextViolations
-} from "#test/support/oracle/verify/sql.ts"
+import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 
 /** What a lowering is checked against: the conservative artifact of the same template, or none for a read-back. */
 export type Alignment =
@@ -133,21 +129,14 @@ const auditedText = (s: SqlStatement): string =>
 
 /**
  * Asserts every statement passes the structural audit, the statement audit on its AST and the text audit on its
- * printed text, and that a write program's ANALYZE statements name only carriers an earlier statement created
- * (sql.ts). `label` names the statements in a failure.
+ * printed text (sql.ts). `label` names the statements in a failure.
  */
 export const checkedStatements = (statements: ReadonlyArray<SqlStatement>, label: string): void => {
-	const violations = [
-		...Arr.flatMap(statements, (s, i) =>
-			Arr.map(
-				[...auditStatementViolations(s), ...auditTextViolations(auditedText(s))],
-				(v) => `${label} ${i}: ${v.rule} at ${v.where}: ${v.detail}`
-			)
-		),
-		...Arr.map(
-			auditCarrierProgramViolations(statements),
-			(v) => `${label}: ${v.rule} at ${v.where}: ${v.detail}`
+	const violations = Arr.flatMap(statements, (s, i) =>
+		Arr.map(
+			[...auditStatementViolations(s), ...auditTextViolations(auditedText(s))],
+			(v) => `${label} ${i}: ${v.rule} at ${v.where}: ${v.detail}`
 		)
-	]
+	)
 	assert.deepEqual(violations, [], `every ${label} passes the structural audit`)
 }

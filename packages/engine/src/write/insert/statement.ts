@@ -142,12 +142,6 @@ export interface CarrierResult {
 	readonly step: "create" | "fill"
 }
 
-/** The ANALYZE of filled carriers before a statement that joins them against a stored relation; no rows. */
-export interface AnalyzeResult {
-	readonly kind: "analyze"
-	readonly carriers: ReadonlyArray<string>
-}
-
 /** A query entry's check of the facts an addition is about to write: no rows, or the
  * outside-world refusal of the entry it names, raised inside it. */
 export interface EntryCheckResult {
@@ -162,7 +156,6 @@ export type WriteResult =
 	| RetireResult
 	| AdmissionResult
 	| CarrierResult
-	| AnalyzeResult
 	| EntryCheckResult
 
 /** A built statement whose rows mean `R`.

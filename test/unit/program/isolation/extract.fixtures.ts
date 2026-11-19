@@ -348,7 +348,7 @@ type CteSpec =
 type StatementSpec =
 	| { readonly kind: "dml"; readonly dml: Dml; readonly ctes: ReadonlyArray<CteSpec> }
 	| { readonly kind: "select"; readonly query: QuerySpec; readonly ctes: ReadonlyArray<CteSpec> }
-	| { readonly kind: "analyze" | "refresh" | "schema" }
+	| { readonly kind: "refresh" | "schema" }
 
 /** A member's statements and the level they were compiled for, which a `met` source and an untargeted ON CONFLICT need. */
 interface MemberCase {
@@ -770,7 +770,7 @@ const statementGen: Gen<StatementSpec> = weighted<StatementSpec>([
 			ctes: s.draw(array(cteGen, { min: 0, max: 2 }))
 		})
 	],
-	[1, (s) => ({ kind: s.draw(element(["analyze", "refresh", "schema"] as const)) })]
+	[1, (s) => ({ kind: s.draw(element(["refresh", "schema"] as const)) })]
 ])
 
 export const caseGen: Gen<MemberCase> = (s) => ({
@@ -1527,8 +1527,6 @@ const envOf = (ctes: ReadonlyArray<CteSpec>): Env =>
 
 export const buildStatement = (s: StatementSpec): SqlStatement => {
 	switch (s.kind) {
-		case "analyze":
-			return { kind: "analyze", carriers: [unitCarrierName(1)] }
 		case "refresh":
 			return { kind: "refresh", view: objectName("app", "v"), concurrently: false }
 		case "schema":
@@ -2467,8 +2465,6 @@ const insertsIn = (s: StatementSpec): ReadonlyMap<string, WritingInsert> => {
 export const expected = (s: StatementSpec, level: Isolation): Expect => {
 	const x = new Expect(writtenIn(s), insertsIn(s), level)
 	switch (s.kind) {
-		case "analyze":
-			return x
 		case "refresh":
 			x.shapes.add("a statement no member sends")
 			x.opaque('?refresh:"app"."v"', topPlace)

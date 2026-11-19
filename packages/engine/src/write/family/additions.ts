@@ -165,6 +165,8 @@ import {
 	type MetAccess,
 	metFound,
 	metRowsOf,
+	type HeldKey,
+	keyedAmong,
 	probeGroup,
 	probeKey,
 	storedAt
@@ -2158,6 +2160,8 @@ const recountOf = (
 	const row = supply.relation(internal("recount row"))
 	const recount = ((): {
 		readonly source: string
+		/** The owner's key fields `source` holds, each with its column there. */
+		readonly keys: NonEmptyReadonlyArray<HeldKey>
 		readonly at: Expr
 		readonly value: (
 			x: { readonly family: Family; readonly last: PerGroup },
@@ -2169,6 +2173,10 @@ const recountOf = (
 		if (!isNonEmpty(others)) {
 			return {
 				source: only.last.name,
+				keys: mapNonEmpty(only.last.group, (column, i) => ({
+					field: defined(only.family.group[i], "a group field").owner,
+					column
+				})),
 				at: sameGroupExprs(w.names, only.family, ownerKey(only.family), row, only.last.group),
 				value: (_, column, stored) => firstNonNull([col(row, column), stored])
 			}
@@ -2274,6 +2282,10 @@ const recountOf = (
 		)
 		return {
 			source: recounts,
+			keys: mapNonEmpty(owner.primaryFields, (field, i) => ({
+				field,
+				column: defined(keys[i], "a recounted key")
+			})),
 			at: and(
 				mapNonEmpty(owner.primaryFields, (f, i) =>
 					typedEq(
@@ -2305,6 +2317,6 @@ const recountOf = (
 	})()
 	return recountUpdate(w, supply, ctes, owner, o, lasts, recount.value, () => ({
 		from: [cteRefAs(recount.source, row)],
-		at: recount.at
+		at: and([recount.at, ...keyedAmong(w, supply, name, o, recount.source, recount.keys)])
 	}))
 }

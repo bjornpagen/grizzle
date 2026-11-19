@@ -63,11 +63,6 @@ export type WriteStep =
 			/** What its statement casts into a stored relation's types (CarrierCasts). */
 			readonly casts: CarrierCasts
 	  }
-	| {
-			readonly kind: "analyze"
-			readonly carriers: ReadonlyArray<string>
-			readonly stratum: StratumAt | undefined
-	  }
 	| { readonly kind: "readBack"; readonly name: string }
 	| HoldStep
 	| RetireStep
@@ -182,7 +177,6 @@ export const writeRows = (
 				}
 			})
 		case "carrier":
-		case "analyze":
 		case "readBack":
 		case "check":
 		case "hold":
@@ -197,15 +191,13 @@ export type OwnStep = Exclude<WriteStep, { readonly kind: "readBack" }>
 
 /** The stratum a step belongs to, none for a carrier around the strata, a read-back's statement, a hold and the
  * admission. */
-export const stratumOf = (step: WriteStep): StratumAt | undefined => {
+const stratumOf = (step: WriteStep): StratumAt | undefined => {
 	switch (step.kind) {
 		case "readBack":
 		case "hold":
 		case "admission":
 			return undefined
 		case "carrier":
-		case "analyze":
-			return step.stratum
 		case "write":
 		case "check":
 		case "single":
@@ -217,7 +209,7 @@ export const stratumOf = (step: WriteStep): StratumAt | undefined => {
 
 /**
  * What a step's statement reaches when it runs: stored state, a relation or carrier it reads or writes, a lock it
- * takes, statistics it gathers; or the call's parameters alone, the admission (write/admission/statement.ts), which
+ * takes; or the call's parameters alone, the admission (write/admission/statement.ts), which
  * binds and checks them, reads no relation and writes nothing. A statement that reaches only parameters commutes with
  * every other transaction: the certifier reads no fact of it (program/isolation/certification.ts flightStatements), and
  * a race takes it as no step of its own (test/pg/isolation/support/race.ts callStatements).
@@ -233,7 +225,6 @@ export const reachOf = (step: WriteStep): StepReach => {
 		case "hold":
 		case "retire":
 		case "carrier":
-		case "analyze":
 		case "write":
 		case "check":
 		case "single":

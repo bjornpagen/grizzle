@@ -119,6 +119,7 @@ import {
 	rowAt,
 	rowKeysetOf,
 	rowOf,
+	rowsAmong,
 	rowsWhere,
 	storedKey
 } from "#compiler/write/family/keyset.ts"
@@ -426,7 +427,12 @@ export const unitSql = (
 					targetAs(rowOf(s), tid),
 					targetAs(broken(col(f, flagged.flag), s), at)
 				],
-				[reachFrom(w, { held: { cte: flagged.name, alias: f }, hops: [atKeyset(f, flagged, s)] })],
+				[
+					reachFrom(w, supply, {
+						held: { cte: flagged.name, alias: f },
+						hops: [atKeyset(f, flagged, s)]
+					})
+				],
 				undefined
 			)
 		)
@@ -527,7 +533,12 @@ export const unitSql = (
 						local
 					)
 				],
-				[reachFrom(w, { held: { cte: flagged.name, alias: f }, hops: [atKeyset(f, flagged, x)] })],
+				[
+					reachFrom(w, supply, {
+						held: { cte: flagged.name, alias: f },
+						hops: [atKeyset(f, flagged, x)]
+					})
+				],
 				undefined
 			)
 		)
@@ -741,7 +752,7 @@ export const unitSql = (
 				table: w.names.relation(relation.name),
 				alias: t,
 				using: [cteRefAs(found.removed.name, k)],
-				where: rowAt(k, found.removed, t),
+				where: conjunction([rowAt(k, found.removed, t), rowsAmong(supply, found.removed, t)]),
 				returning: returned.map((x) => targetAs(stored(t, relation, x.field), x.alias))
 			})
 		)

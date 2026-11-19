@@ -67,10 +67,6 @@ const preparedStaged = (staged: Staged): PreparedStaged =>
 						columns: carrier.columns
 					})
 				),
-				analyze:
-					staged.analyze.kind === "needed"
-						? Object.freeze({ kind: "needed", text: prepared(staged.analyze.text) })
-						: staged.analyze,
 				sql: prepared(staged.sql),
 				kept: staged.kept
 			})
@@ -143,7 +139,6 @@ const servedStep = (step: OwnStep, isolation: Isolation): OwnStep => {
 				uniqueAborts: uniqueAbortsAt(step.uniqueAborts, isolation)
 			}
 		case "carrier":
-		case "analyze":
 		case "check":
 		case "familyWrite":
 		case "hold":

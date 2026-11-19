@@ -1264,7 +1264,7 @@ const precheck = (
 			sql: bound.form(statement).text.sql,
 			params: succeeded(bound.values(statement)),
 			before: Arr.map(before, (st) =>
-				st.step.kind === "carrier" || st.step.kind === "analyze"
+				st.step.kind === "carrier"
 					? ([bound.form(st).text.sql, succeeded(bound.values(st))] as const)
 					: assert.fail(`${label}: a ${st.step.kind} statement before the check`)
 			),

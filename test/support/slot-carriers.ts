@@ -2,8 +2,8 @@ import { Array as Arr, String as Str } from "effect"
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { MemberParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
-import { relationAccess } from "#compiler/sql/access.ts"
 import type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
+import { carrierReads } from "#test/support/carrier-reads.ts"
 import { wholeForms } from "#test/support/whole-forms.ts"
 
 /**
@@ -31,7 +31,7 @@ export const slotsRead = (
 ): ReadonlyMap<ParamId, MemberParamSlot> => {
 	const carriers = slotCarriers(artifact)
 	const own = Arr.flatMap(statement.spec.paramSlots, (s) => (s.kind === "member" ? [s] : []))
-	const carried = Arr.flatMap([...relationAccess(statement.ast).reads], (name) => {
+	const carried = Arr.flatMap([...carrierReads(statement.ast)], (name) => {
 		const slot = carriers.get(name)
 		return slot === undefined ? [] : [slot]
 	})
@@ -56,7 +56,7 @@ export const flightSlotCarriers = (flight: FlightWrite): ReadonlySet<string> =>
 
 /**
  * The prepared names of every text of a loaded flight that names one of the carriers `carriers`, as a quoted identifier:
- * each such carrier's creation and fill, its ANALYZE, and each statement that reads it.
+ * each such carrier's creation and fill, and each statement that reads it.
  */
 export const textsNaming = (
 	flight: FlightWrite,

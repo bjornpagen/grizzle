@@ -91,6 +91,8 @@ const anyCall = (e: Expr, test: (call: CallExpr) => boolean): boolean => {
 			return any([e.array, e.index])
 		case "binary":
 			return any([e.left, e.right])
+		case "equalsAny":
+			return any([e.expr, e.array])
 		case "and":
 		case "or":
 		case "greatest":

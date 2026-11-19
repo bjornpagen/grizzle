@@ -85,6 +85,7 @@ import {
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
 import { buildProbe, probeArms } from "#compiler/write/insert/unique.ts"
+import { joinedAtKey } from "#compiler/write/probe.ts"
 import type { InPlace, KeyArbiter } from "#compiler/write/put/choose.ts"
 import type { MergeScope } from "#compiler/write/put/proof.ts"
 import { type RefusalArm, refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
@@ -503,7 +504,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 	const at = `put update ${relation.name}`
 	return buildPut(w, (supply) => {
 		const head = putHead(w, spec, supply, at)
-		const { all, pk, payload, r1, r2, r3, r4, inCol, ctes, gate, column } = head
+		const { all, pk, payload, r1, r2, r3, r4, inputs, inCol, ctes, gate, column } = head
 		const fresh = fieldColumns(all, () => supply.column(internal("new column")))
 		const old = fieldColumns(all, () => supply.column(internal("old column")))
 		const c9 = r4 === undefined ? undefined : supply.column(internal("same-key marker"))
@@ -519,7 +520,14 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 			from: [cteRef(r1)],
 			where: and(
 				concatNonEmpty(
-					pk.map((f) => typedEq(f.type, col(r3, column(f)), inCol(f), w.names)),
+					joinedAtKey(
+						w,
+						supply,
+						relation.name,
+						r3,
+						{ name: r1, at: r1 },
+						mapNonEmpty(pk, (field) => ({ field, column: inputs.of(field) }))
+					),
 					[
 						rowNe(
 							{

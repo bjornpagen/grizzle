@@ -195,7 +195,6 @@ export const claimLabel = (f: AttemptFailure): string => {
 			}
 			return `at ${labelText(label)} ${f.sqlstate}`
 		case "carrier":
-		case "analyze":
 		case "readBack":
 		case "check":
 		case "hold":

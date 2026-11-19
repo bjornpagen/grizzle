@@ -768,7 +768,6 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "alterDefaultPrivileges":
 			case "createExtension":
 			case "select":
-			case "analyze":
 			case "comment":
 			case "insert":
 			case "update":

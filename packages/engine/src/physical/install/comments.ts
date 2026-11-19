@@ -202,7 +202,6 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "rollback":
 		case "setConstraintsImmediate":
 		case "refresh":
-		case "analyze":
 		case "comment":
 			return []
 	}

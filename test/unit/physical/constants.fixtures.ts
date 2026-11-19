@@ -428,6 +428,7 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 		case "between":
 		case "inList":
 		case "inQuery":
+		case "equalsAny":
 		case "exists":
 		case "subquery":
 		case "array":

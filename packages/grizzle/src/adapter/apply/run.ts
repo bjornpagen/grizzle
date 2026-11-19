@@ -277,8 +277,7 @@ const outcomeOf = <R>(classified: Classified): Effect.Effect<ApplyOutcome<R>, Ap
 
 /**
  * A statement a write sends, by its index in its flight: the `chunk`th execution of an artifact statement (BoundWrite
- * chunks), its `part` what the execution is: the statement itself, or one of its staged carriers' creation, fills or
- * ANALYZE.
+ * chunks), its `part` what the execution is: the statement itself, or one of its staged carriers' creation or fills.
  */
 interface SentStatement {
 	readonly statement: FlightStatement
@@ -351,8 +350,8 @@ export interface BoundReads<R> {
 
 /**
  * A write's statements as `chunks` executes them under `transport`, in the order they are sent, each by the statement
- * it executes (SentStatement): one execution of most, a staged statement's carriers' creations, fills and, where it
- * needs one, ANALYZE before it, and one of a family step per statement of its kind its family's plan cuts, each the step's one text over
+ * it executes (SentStatement): one execution of most, a staged statement's carriers' creations and fills before it, and
+ * one of a family step per statement of its kind its family's plan cuts, each the step's one text over
  * its own rows' arrays. The read-backs' follow every write.
  */
 const writeStatements = (

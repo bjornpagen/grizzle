@@ -14,7 +14,6 @@ import {
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
 import {
-	type Analyze,
 	builtinFunctions,
 	builtinTypeNames,
 	type Call,
@@ -807,6 +806,14 @@ class StatementAuditor {
 				})
 				this.at("query", () => {
 					this.subquery(e.query, ctx)
+				})
+				return
+			case "equalsAny":
+				this.at("expr", () => {
+					this.expr(e.expr, ctx)
+				})
+				this.at("array", () => {
+					this.expr(e.array, ctx)
 				})
 				return
 			case "exists":
@@ -2091,11 +2098,6 @@ class StatementAuditor {
 		})
 	}
 
-	/** ANALYZE names carriers, each at most once. */
-	analyze(statement: Analyze): void {
-		this.uniqueNames(statement.carriers, "analyzed carrier")
-	}
-
 	uniqueNames(names: ReadonlyArray<string>, what: string): void {
 		const seen = new Set<string>()
 		for (const name of names) {
@@ -2374,9 +2376,6 @@ class StatementAuditor {
 				return
 			case "refresh":
 				this.objectName(statement.view, "materialized view", "view")
-				return
-			case "analyze":
-				this.analyze(statement)
 				return
 			case "createCarrier":
 				this.withoutParams(() => {
@@ -2994,6 +2993,9 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "between":
 			all([e.expr, e.low, e.high])
 			return
+		case "equalsAny":
+			all([e.expr, e.array])
+			return
 		case "inList":
 			all([e.expr, ...e.list])
 			return
@@ -3110,8 +3112,7 @@ export interface StatementAudit {
  *   data-modifying CTE only in the statement's own WITH; MERGE WHEN clauses and RETURNING naming only the rows their
  *   match has; UNION arms named by position with the union's names; no builtin function outside the catalogue of
  *   ast.ts; and none of the NULL-yielding aggregate and window forms: LEAD or LAG
- *   without its default (R27), or a NULL-on-empty aggregate in an ungrouped core. A program audit
- *   holds each ANALYZE of a write program to carriers it created.
+ *   without its default (R27), or a NULL-on-empty aggregate in an ungrouped core.
  * - The text audit lexes the printed text (lexer.ts) and refuses, wherever they occur outside identifiers, strings,
  *   dollar bodies and comments: NULL (other than a column constraint's NOT NULL in table DDL), IS [NOT] NULL, ISNULL,
  *   NOTNULL, IS UNKNOWN, outer joins, SELECT * and RETURNING *, SKIP LOCKED, an uncast parameter,
@@ -3138,36 +3139,6 @@ export const auditStatementViolations = (statement: SqlStatement): ReadonlyArray
 
 export const auditStatement = (statement: SqlStatement): Result.Result<void, CompileError> =>
 	firstOrOk(auditStatementViolations(statement), "sql statement")
-
-/**
- * The program audit of a write program's carriers, over its statements in execution order: every ANALYZE names only
- * carriers an earlier statement of the program created as CREATE TEMPORARY TABLE, so it can analyze nothing but the
- * program's own transaction-scoped carriers. `where` is the statement's position.
- */
-export const auditCarrierProgramViolations = (
-	statements: ReadonlyArray<SqlStatement>
-): ReadonlyArray<SqlViolation> => {
-	const created = new Set<string>()
-	const violations: Array<SqlViolation> = []
-	for (const [i, statement] of statements.entries()) {
-		if (statement.kind === "createCarrier") {
-			created.add(statement.name)
-		}
-		if (statement.kind !== "analyze") {
-			continue
-		}
-		for (const name of statement.carriers) {
-			if (!created.has(name)) {
-				violations.push({
-					rule: "context",
-					where: `statement ${i}`,
-					detail: `ANALYZE of "${name}", which no earlier statement of the program creates`
-				})
-			}
-		}
-	}
-	return violations
-}
 
 const isWord = (token: Token | undefined, upper: string): boolean =>
 	token?.kind === "word" && token.upper === upper

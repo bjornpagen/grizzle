@@ -279,6 +279,8 @@ const operandsOf = (e: Expr): ReadonlyArray<Expr> => {
 			return [e.expr, ...e.list]
 		case "inQuery":
 			return [e.expr]
+		case "equalsAny":
+			return [e.expr, e.array]
 		case "row":
 			return e.items
 		case "case":
@@ -682,7 +684,6 @@ class Walk<Top extends Arrival> {
 		}
 		if (
 			s.kind === "createCarrier" ||
-			s.kind === "analyze" ||
 			s.kind === "beginRead" ||
 			s.kind === "beginWrite" ||
 			s.kind === "commit" ||

@@ -683,6 +683,11 @@ const expr = (e: Expr): Printed => {
 			const right = wrapTighter(expr(e.right), self)
 			return printed(`${left} ${op} ${right}`, self)
 		}
+		case "equalsAny": {
+			const { self } = binaryLevels("=", e.schema !== undefined)
+			const op = e.schema !== undefined ? `OPERATOR(${quoteIdent(e.schema)}.=)` : "="
+			return printed(`${wrapTighter(expr(e.expr), self)} ${op} ANY (${printExpr(e.array)})`, self)
+		}
 		case "negate":
 			return negated(expr(e.expr))
 		case "and":
@@ -2245,8 +2250,6 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			return out.line(
 				`REFRESH MATERIALIZED VIEW ${statement.concurrently ? "CONCURRENTLY " : ""}${printObjectName(statement.view)}`
 			)
-		case "analyze":
-			return out.line(`ANALYZE ${statement.carriers.map(printTableName).join(", ")}`)
 	}
 }
 
@@ -2319,7 +2322,6 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "rollback":
 		case "setConstraintsImmediate":
 		case "refresh":
-		case "analyze":
 			return own(command)
 	}
 }

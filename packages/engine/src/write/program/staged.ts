@@ -12,32 +12,24 @@
  *   INSERT INTO "pg_temp"."__carrier_<k>" ("c5", "c6", ...)
  *     SELECT "r7"."c5", "r7"."c6", ... FROM (SELECT pg_catalog.unnest($1::uuid[]) AS "c5", ...) AS "r7"
  *   ... the fill again, once per chunk of the rows ...
- *   ANALYZE "pg_temp"."__carrier_<k>", ...                     -- where the statement needs it (below)
  *   <the statement, each nested rows FROM item "pg_temp"."__carrier_<k>" AS "r7", its other placeholders from $1>
  *
  * The staged form (`stagedOf`) is compiled with the statement: each FROM item that reads its nested rows' arrays reads
  * a carrier of the same columns under the same alias instead, and the placeholders left are numbered again in order.
  * The runtime (`executionsOf`) sends the statement inline where its Bind message, measured from the rows' encoded
  * lengths, fits the transport, and otherwise the carriers' creations, their fills, each chunk of the rows as long as
- * one fill's Bind message carries, their ANALYZE where it is needed, and the staged statement, in that order, every
+ * one fill's Bind message carries, and the staged statement, in that order, every
  * one in the call's flight. The statement runs once over every row, so what it writes and what its laws judge are the inline
  * statement's. A carrier is the session's own, named after the program's carriers (sql/naming.ts carrierName), drops at
  * COMMIT, and a rollback drops it with the rest; the role creates it under the database's TEMPORARY privilege, without
  * which the write is TemporaryRefused.
  *
- * The ANALYZE is for what the statement may refuse, never for speed, and the statement's own shape decides whether it
- * is sent (`analyzeOf`). A carrier created in the transaction that reads it has never been analyzed, so the planner
- * reads its size from its heap alone, and a heap of under ten pages, which rows of large values stored out of line make
- * (pantry's sixteen entries of 64 MiB are one page), is planned as ten pages of narrow rows, hundreds of them. A
- * statement reads stored rows only through sources each driven by a row it holds, or the row an arbitration met
- * (write/probe.ts), which PostgreSQL plans once per driving row whatever the carrier's count, so an arbitrated insert,
- * pantry's import among them, needs no ANALYZE. A target the statement updates, deletes from or merges into is planned
- * as a join against the rows the carriers feed: against the guess it scans the target whole, and under SERIALIZABLE a
- * sequential scan takes a relation-level SIRead lock, so every concurrent writer of that relation meets this write as a
- * serialization conflict and one of the two fails with 40001, a refusal of no conflict the two writes' rows hold.
- * Counted, the carrier's rows are what the planner probes the target by, one key at a time, as the program's own
- * carriers are analyzed for (write/program/analyze.ts). So a statement that holds such a target, a family additions
- * statement's recount of its owners, sends the ANALYZE, and no other does.
+ * No carrier is analyzed. One created in the transaction that reads it never has been, so PostgreSQL reads its size
+ * from its heap alone, and a heap of under ten pages, which rows of large values stored out of line make (pantry's
+ * sixteen entries of 64 MiB are one page), is planned as ten pages of narrow rows, hundreds of them. Every stored
+ * relation the statement joins is restricted to the keys of the rows it holds (write/probe.ts amongHeld), so it is
+ * read by its key's index whatever that estimate, never whole, which under SERIALIZABLE takes a relation-level SIRead
+ * lock and fails every concurrent writer of the relation with 40001.
  */
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
@@ -49,12 +41,10 @@ import {
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { partIndex } from "#compiler/runtime/lower/slots.ts"
-import type { Staged, StagedAnalyze } from "#compiler/runtime/write/staged.ts"
+import type { Staged } from "#compiler/runtime/write/staged.ts"
 import type {
 	ArrayColumn,
 	CreateCarrier,
-	CteBody,
-	EmittedText,
 	FromSource,
 	Insert,
 	SqlStatement
@@ -152,32 +142,6 @@ const nestedSources = (
 		}
 	})
 	return found
-}
-
-/** Whether `query` changes a target the planner joins against the rows it reads: an UPDATE, a DELETE or a MERGE; an
- * INSERT writes its rows and arbitrates by index, and a query changes nothing. */
-const joinsTarget = (query: SqlStatement | CteBody): boolean =>
-	query.kind === "update" || query.kind === "delete" || query.kind === "merge"
-
-/**
- * The ANALYZE of a staged statement's carriers (see the header): needed where the statement, or a data-modifying CTE
- * of it, changes a target the planner joins against the rows the carriers feed (`joinsTarget`), absent otherwise. A
- * data-modifying CTE stands only in a statement's top-level WITH, so those are all the statement's changes.
- */
-const analyzeOf = (
-	ast: SqlStatement,
-	sources: NonEmptyReadonlyArray<StagedSource>
-): StagedAnalyze<EmittedText> => {
-	const ctes = "with" in ast && ast.with !== undefined ? ast.with.ctes : []
-	return joinsTarget(ast) || ctes.some((c) => joinsTarget(c.query))
-		? {
-				kind: "needed",
-				text: emitText(
-					{ kind: "analyze", carriers: mapNonEmpty(sources, (s) => s.carrier) },
-					emptyNameMap
-				).text
-			}
-		: { kind: "absent" }
 }
 
 /** A carrier's CREATE TEMPORARY TABLE, of its declaration. */
@@ -302,7 +266,6 @@ export const stagedOf = (
 				columns: mapNonEmpty(s.columns, (c) => c.array.number - 1)
 			})
 		),
-		analyze: Object.freeze(analyzeOf(ast, sources)),
 		sql: emitText(staged, emptyNameMap).text,
 		kept: Object.freeze(kept)
 	})

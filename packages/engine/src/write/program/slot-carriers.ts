@@ -21,8 +21,8 @@
  * a reader did, each through its check: the carrier holds exactly the rows each reader's arrays held, the slot's normal
  * facts, a set the host made, which the reader keeps reading as a relation input's (sql/ast.ts RowsProof `input`). A
  * reader's other placeholders are numbered again in order. The carriers are created and filled after the admission,
- * before any stratum, and belong to none; each is analyzed before the first statement that joins it against a stored
- * relation (write/program/analyze.ts), as every carrier of the program is. A slot of no column, read through its count,
+ * before any stratum, and belong to none; never analyzed, since every stored relation a reader joins is restricted to
+ * the keys of the rows it holds (write/probe.ts amongHeld). A slot of no column, read through its count,
  * carries nothing to stage.
  */
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"

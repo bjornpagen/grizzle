@@ -138,7 +138,7 @@ const unstated: StatementAt = Object.freeze({ kind: "unstated" })
  * What the statement at `origin` states, as the host reads it: a write statement's action, a single statement's parts'
  * actions, at its stratum; a family statement's relations; the fill of an action's member's carrier, which casts the
  * facts the action writes into its relation's types (CarrierCasts); a query entry's precheck, which casts the entry's
- * facts into its target's types; nothing for another carrier's statement, an ANALYZE or a hold, whose
+ * facts into its target's types; nothing for another carrier's statement or a hold, whose
  * refusal names its law and key in its DETAIL, a retirement, which states its groups and no fact of a relation it
  * writes, the admission, whose refusal names a parameter's domain, a read-back, or the COMMIT.
  */
@@ -168,7 +168,6 @@ const statementAt = (origin: FailureOrigin): StatementAt => {
 			return step.casts.kind === "member"
 				? { kind: "write", stratum: step.casts.stratum, relations: [step.casts.relation] }
 				: unstated
-		case "analyze":
 		case "readBack":
 		case "hold":
 		case "retire":
@@ -193,8 +192,6 @@ const stepText = (step: WriteStep): string => {
 			)}`
 		case "carrier":
 			return `the ${step.step} of carrier ${step.carrier}`
-		case "analyze":
-			return `the ANALYZE of ${Arr.join(step.carriers, ", ")}`
 		case "readBack":
 			return `read-back ${step.name}`
 		case "check":

@@ -985,6 +985,7 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "greatest":
 		case "inList":
 		case "inQuery":
+		case "equalsAny":
 		case "least":
 		case "mergeAction":
 		case "nullif":
@@ -1050,6 +1051,8 @@ const callsAggregate = (e: Expr): boolean => {
 			return callsAggregate(e.array) || callsAggregate(e.index)
 		case "inQuery":
 			return callsAggregate(e.expr)
+		case "equalsAny":
+			return callsAggregate(e.expr) || callsAggregate(e.array)
 		case "array":
 		case "column":
 		case "domainValue":
@@ -3898,7 +3901,6 @@ class Model {
 			case "alterDefaultPrivileges":
 			case "createExtension":
 			case "select":
-			case "analyze":
 			case "comment":
 				return
 			case "update":
