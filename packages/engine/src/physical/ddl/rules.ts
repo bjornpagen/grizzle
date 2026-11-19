@@ -63,7 +63,6 @@ import type {
 	PlFunction,
 	PlStatement,
 	Revoke,
-	Select,
 	TransitionEvent,
 	TransitionTable,
 	TypeRef
@@ -72,7 +71,6 @@ import { transitionTables } from "#compiler/sql/ast.ts"
 import {
 	and,
 	call,
-	cast,
 	col,
 	core,
 	cUtf8Collation,
@@ -84,7 +82,6 @@ import {
 	le,
 	lit,
 	not,
-	isIn,
 	notExists,
 	objectName,
 	operandSelect,
@@ -98,6 +95,7 @@ import {
 	whenFound,
 	windowOf
 } from "#compiler/sql/build.ts"
+import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { type ImagedColumns, imagedColumns } from "#compiler/sql/image.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 
@@ -509,7 +507,7 @@ const armedSentinel = (sentinel: string, judge: ObjectName): PlStatement => ({
 		{
 			condition: not(standing(sentinel)),
 			body: [
-				{ kind: "createSessionTable", name: sentinel, columns: [] },
+				{ kind: "createSessionTable", name: sentinel, columns: sentinelTable },
 				{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }
 			]
 		},
@@ -533,7 +531,10 @@ const armedSentinel = (sentinel: string, judge: ObjectName): PlStatement => ({
 	else: []
 })
 
-/** INSERT INTO pg_temp.<sentinel> SELECT WHERE NOT EXISTS (SELECT FROM pg_temp.<sentinel>): its one row, once. */
+/**
+ * INSERT INTO pg_temp.<sentinel> (__written) SELECT '{}' WHERE NOT EXISTS (SELECT FROM pg_temp.<sentinel>): its one
+ * row, once, its written set empty until a capture marks a delta (`marked`).
+ */
 const arming = (sentinel: string): PlStatement => ({
 	kind: "modify",
 	statement: {
@@ -543,12 +544,12 @@ const arming = (sentinel: string): PlStatement => ({
 		alias: undefined,
 		onConflict: undefined,
 		returning: [],
-		columns: [],
+		columns: [writtenColumn],
 		source: {
 			kind: "query",
 			query: provedSelect(
 				"oneRow",
-				[],
+				[{ expr: lit.text("{}", namesType), alias: undefined }],
 				[],
 				notExists(
 					simpleSelect(
@@ -561,6 +562,61 @@ const arming = (sentinel: string): PlStatement => ({
 		}
 	}
 })
+
+/**
+ * Marks `delta` in the transaction's written set, the sentinel row's (`writtenColumn`), where the delta holds a row:
+ * every row a delta holds is the transaction's, since COMMIT deletes them and a rolled-back write's go with it, so the
+ * set names exactly the deltas the transaction wrote a row into, each once, which the judge reads in place of every
+ * delta the session holds (`addRules`).
+ *
+ *   IF EXISTS (SELECT FROM pg_temp.<delta>) THEN
+ *     UPDATE pg_temp.<sentinel> SET __written = __written || '<delta>' WHERE NOT __written @> '{<delta>}'
+ *   END IF
+ */
+const marked = (sentinel: string, delta: SessionDelta): PlStatement => {
+	const set = col("r2", writtenColumn)
+	return {
+		kind: "if",
+		branches: [
+			{
+				condition: holding(delta.name, "r1"),
+				body: [
+					{
+						kind: "modify",
+						statement: {
+							kind: "update",
+							with: undefined,
+							table: sessionTable(sentinel),
+							alias: "r2",
+							set: assignments(ungenerated, "r2", [
+								{
+									column: writtenColumn,
+									value: {
+										kind: "binary",
+										op: "||",
+										left: set,
+										right: lit.text(delta.name, types.text),
+										schema: undefined
+									}
+								}
+							]),
+							from: [],
+							where: not({
+								kind: "binary",
+								op: "@>",
+								left: set,
+								right: namesOf([delta.name]),
+								schema: undefined
+							}),
+							returning: []
+						}
+					}
+				]
+			}
+		],
+		else: []
+	}
+}
 
 /** A row's image on a side (`JudgedSide`): its primary key's columns, then every other column the side reads. */
 const imageOf = (relation: RelationInfo, side: JudgedSide): NonEmptyReadonlyArray<string> => {
@@ -768,13 +824,11 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 }
 
 /**
- * The name of the judge's variable, and of each part's parameter, that holds the names of the installation's deltas the
- * session holds, read once a run (`addRules`): the definer's own, since the judge refuses any other first.
+ * The name of the sentinel's one column, of the judge's variable and of each part's parameter: the transaction's written
+ * set, the names of the deltas its captures wrote a row into since the judge last ran (`marked`), which the judge reads
+ * once a run, from the sentinel's row, and runs its parts by.
  */
-const heldName = "__held"
-
-/** The name of the judge's variable that holds the name of a session table another role made under a delta's name. */
-const foreignName = "__foreign"
+const writtenColumn = "__written"
 
 /** text[]: the names of session tables. */
 const namesType: TypeRef = {
@@ -785,8 +839,13 @@ const namesType: TypeRef = {
 	array: true
 }
 
-/** The judge's, or a part's, `heldName`. */
-const held: Expr = { kind: "plVar", name: heldName }
+/** The sentinel's declaration: its one column, the written set. */
+const sentinelTable: NonEmptyReadonlyArray<ColumnDefinition> = [
+	{ name: writtenColumn, type: namesType, collation: undefined }
+]
+
+/** The judge's, or a part's, written set (`writtenColumn`). */
+const written: Expr = { kind: "plVar", name: writtenColumn }
 
 /** The text[] literal of `names`, each element quoted. */
 const namesOf = (names: NonEmptyReadonlyArray<string>): Expr =>
@@ -795,30 +854,30 @@ const namesOf = (names: NonEmptyReadonlyArray<string>): Expr =>
 		namesType
 	)
 
-/** That the session holds the delta named `name`: `held` names it. */
-const holds = (name: string): Expr => ({
+/** That the transaction wrote a row into the delta named `name`: the written set names it. */
+const wrote = (name: string): Expr => ({
 	kind: "binary",
 	op: "@>",
-	left: held,
+	left: written,
 	right: namesOf([name]),
 	schema: undefined
 })
 
 /**
- * The name of a part's variable that holds the names of its deltas that hold a row once netted (`partBody`): the
- * transaction's write, one set, so a part's PL/pgSQL names one variable however many deltas it holds, and PostgreSQL's
- * compile of it, which looks every word of its text up among its variables, costs no more than the text.
+ * The name of a part's variable that holds the names of its deltas that hold a row once netted (`partBody`): one set,
+ * so a part's PL/pgSQL names one variable however many deltas it holds, and PostgreSQL's compile of it, which looks
+ * every word of its text up among its variables, costs no more than the text.
  */
-const writtenName = "__written"
+const rowedName = "__rowed"
 
-/** A part's `writtenName`. */
-const writtenSet: Expr = { kind: "plVar", name: writtenName }
+/** A part's `rowedName`. */
+const rowedSet: Expr = { kind: "plVar", name: rowedName }
 
-/** Whether any of `deltas` holds a row: the condition a block runs on, and a delta is stood up on. */
-const anyWritten = (deltas: NonEmptyReadonlyArray<SessionDelta>): Expr => ({
+/** Whether any of `deltas` holds a row once netted: the condition a block runs on, and a delta is stood up on. */
+const anyRowed = (deltas: NonEmptyReadonlyArray<SessionDelta>): Expr => ({
 	kind: "binary",
 	op: "&&",
-	left: writtenSet,
+	left: rowedSet,
 	right: namesOf(mapNonEmpty(deltas, (d) => d.name)),
 	schema: undefined
 })
@@ -875,15 +934,18 @@ const partsOf = (judged: ReadonlyArray<Judged>): ReadonlyArray<JudgePart> => {
 }
 
 /**
- * A part's body, run where the session holds one of its deltas, `held` the names of those it holds:
+ * A part's body, run where the transaction wrote a row into one of its deltas, `written` the names of those it wrote
+ * (`marked`):
  *
- * - the names of its deltas that hold a row, into `writtenName`, each read once: none the session does not hold, and a
- *   side of news that holds one netted first (`netted`), so it holds delta.added;
- * - each delta a block reads beside the one that ran it, stood up where such a block runs: a whole rule's region reads
- *   the delta of each side it reads of each holder of its unit, and a transaction that wrote one of them need not have
- *   written the others, which the session then may not hold (no other role's table stands under its name: the judge
- *   refused one first). A delta every block that reads it runs on alone stands wherever one of them runs, its own row
- *   having run it;
+ * - the names of its written deltas that hold a row once netted, into `rowedName`: each side of news netted first
+ *   (`netted`), so it holds delta.added, and read again, since the images it held may all cancel; a side of olds holds
+ *   the rows it was marked for. A delta the transaction did not write is never read: a session's deltas of every
+ *   relation an earlier transaction wrote hold no row of this one;
+ * - each delta a block reads beside the one that ran it, stood up where such a block runs (`ensured`, which refuses a
+ *   table another role made under its name): a whole rule's region reads the delta of each side it reads of each holder
+ *   of its unit, and a transaction that wrote one of them need not have written the others, which the session then may
+ *   not hold. A delta every block that reads it runs on alone stands wherever one of them runs, its own row having run
+ *   it;
  * - each block, where a delta it reads holds a row: over deltas that hold none its region is empty, and every statement
  *   of it finds no row.
  */
@@ -893,14 +955,13 @@ const partBody = (
 ): PlBlock => {
 	const flags = mapNonEmpty(part.deltas, (delta): PlStatement => {
 		const { t, s } = sideOf(delta.name)
-		const rowed = holding(delta.name, "r1")
 		const record: PlStatement = {
 			kind: "assign",
-			target: writtenName,
+			target: rowedName,
 			value: {
 				kind: "binary",
 				op: "||",
-				left: writtenSet,
+				left: rowedSet,
 				right: lit.text(delta.name, types.text),
 				schema: undefined
 			}
@@ -909,17 +970,16 @@ const partBody = (
 			s.side === "added"
 				? [
 						netted(t.relation, s),
-						{ kind: "if", branches: [{ condition: rowed, body: [record] }], else: [] }
+						{
+							kind: "if",
+							branches: [{ condition: holding(delta.name, "r1"), body: [record] }],
+							else: []
+						}
 					]
 				: [record]
 		return {
 			kind: "if",
-			branches: [
-				{
-					condition: holds(delta.name),
-					body: [{ kind: "if", branches: [{ condition: rowed, body: kept }], else: [] }]
-				}
-			],
+			branches: [{ condition: wrote(delta.name), body: kept }],
 			else: []
 		}
 	})
@@ -935,40 +995,22 @@ const partBody = (
 			? [
 					{
 						kind: "if",
-						branches: [
-							{
-								condition: anyWritten(besides),
-								body: [
-									{
-										kind: "if",
-										branches: [
-											{
-												condition: not(holds(delta.name)),
-												body: [
-													{ kind: "createSessionTable", name: delta.name, columns: delta.table }
-												]
-											}
-										],
-										else: []
-									}
-								]
-							}
-						],
+						branches: [{ condition: anyRowed(besides), body: [ensured(delta)] }],
 						else: []
 					}
 				]
 			: []
 	})
 	return {
-		declare: [{ name: writtenName, type: namesType }],
+		declare: [{ name: rowedName, type: namesType }],
 		body: [
-			{ kind: "assign", target: writtenName, value: lit.text("{}", namesType) },
+			{ kind: "assign", target: rowedName, value: lit.text("{}", namesType) },
 			headNonEmpty(flags),
 			...flags.slice(1),
 			...stoodUp,
 			...part.blocks.map((j): PlStatement => ({
 				kind: "if",
-				branches: [{ condition: anyWritten(j.reads), body: j.body }],
+				branches: [{ condition: anyRowed(j.reads), body: j.body }],
 				else: []
 			}))
 		]
@@ -994,26 +1036,30 @@ const partBody = (
  *
  * - Capture: on each table, an AFTER statement trigger per event its rules read (sql/ast.ts CreateTransitionTrigger):
  *   INSERT where a rule reads NEW, DELETE where one reads either side, UPDATE where one reads a column on either side.
- *   Its function writes the rows the statement wrote into the session's delta of each side (`captured`), every column of
+ *   A statement that wrote no row captures nothing: its function reads its transition table first, and stands up no
+ *   delta and arms no judge where it is empty. Otherwise it writes the rows the statement wrote into the session's delta
+ *   of each side (`captured`), every column of
  *   the relation's heading, typed by its base type, an UPDATE's only where it changed the row's image, its key or a
  *   column the side reads: into the side of olds, delta.removed, the rows as the statement found them; into the side of
  *   news, the transaction's net write, each image the statement put counted 1 and each it removed counted -1. Each delta
  *   is a table of pg_temp, created at the session's first capture of that side, ON COMMIT DELETE ROWS, so it lives as
  *   long as the session and holds one transaction's rows. Its columns name no domain: a session's table typed by one
  *   would block DROP DOMAIN and ALTER DOMAIN ... ADD CONSTRAINT in every other session while it lives.
- * - Arming: a capture that writes the rows a statement put, or those it found into the side of olds, then inserts the
+ * - Arming: a capture that writes the rows a statement put, or those it found into the side of olds, first inserts the
  *   one row of the session's sentinel, a table of pg_temp created with it, whose DEFERRABLE INITIALLY DEFERRED
  *   constraint trigger runs the judge, so the judge runs once, at COMMIT, or at SET CONSTRAINTS ALL IMMEDIATE and after
- *   each statement from then on. A sentinel that holds its row arms nothing more. A DELETE that only cancels images
- *   of news arms nothing: it can break no rule, and the images it cancels were put by a statement that armed the judge.
- * - The judge: it deletes the sentinel's row, so a later statement arms it again, refuses a delta the definer does not
- *   own, and reads once which of the installation's deltas the session holds, two reads of pg_class whatever the
- *   installation holds. Its rules stand in parts (`partsOf`), each a function of its own (identity.ruleJudgePart): the
- *   classes of the rules' blocks under reading a delta in common, so a part's rules read only its deltas, and the judge
- *   runs a part only where the session holds one of them. A session compiles, plans and runs only the parts of the
- *   relations it writes: a learner's write never reads a content package's rules, nor stands up their deltas, nor
- *   compiles their PL/pgSQL. A part reads once whether each of its deltas holds a row, netting each side of news that
- *   holds one to delta.added first (`netted`), the images the transaction leaves that it did not find; then, for each
+ *   each statement from then on. A sentinel that holds its row arms nothing more. The row holds the transaction's
+ *   written set, the names of the deltas its captures wrote a row into, each marked by the capture that wrote it
+ *   (`marked`). A DELETE that only cancels images of news arms and marks nothing: it can break no rule, and the images
+ *   it cancels were put by a statement that armed the judge and marked their delta.
+ * - The judge: it reads the written set and deletes the sentinel's row, so a later statement arms it again into a new
+ *   set. Its rules stand in parts (`partsOf`), each a function of its own (identity.ruleJudgePart): the classes of the
+ *   rules' blocks under reading a delta in common, so a part's rules read only its deltas, and the judge runs a part
+ *   only where the transaction wrote one of them. A transaction reads, judges and compiles only the parts of the
+ *   relations it wrote: a learner's write never reads a content package's rules, nor stands up their deltas, nor
+ *   compiles their PL/pgSQL, and no COMMIT reads a catalog, or a delta of a relation another transaction of its
+ *   session wrote, which holds none of its rows. A part reads each of its written deltas once, netting a side of news
+ *   to delta.added first (`netted`), the images the transaction leaves that it did not find; then, for each
  *   rule in trigger-name order, each table it reads and each side it reads there, where that side's delta holds a row,
  *   it runs each probe of the side over its region (`compileProbe`), the session's delta, and a whole rule's violation
  *   over its units where any delta its region reads holds one (`partBody`), each read whole as a PERFORM and raised
@@ -1032,10 +1078,11 @@ const partBody = (
  * subset at every row of the delta. A probe's lookup of any other table at its key remains PostgreSQL's choice, which
  * statistics make (README, Rules over queries).
  * - Tamper: pg_temp is one namespace per session, which every role of it writes, so a login could create a delta or the
- *   sentinel first, own it and empty it before COMMIT. Every capture checks the sentinel and the delta it writes, and
- *   the judge every delta of the installation the session holds: each must be the definer's own temporary table
- *   (`ours`), the sentinel's trigger the judge, or the statement is refused, insufficient_privilege naming the table
- *   (`foreign`). Every function is SECURITY
+ *   sentinel first, own it and empty it before COMMIT. Every capture checks the sentinel and the delta it writes, and a
+ *   part every delta it stands up: each must be the definer's own temporary table (`ours`), the sentinel's trigger the
+ *   judge, or the statement is refused, insufficient_privilege naming the table (`foreign`). The judge reads only the
+ *   deltas the written set names, each checked by the capture that marked it, and the set itself the sentinel's row,
+ *   which no other role may write. Every function is SECURITY
  *   DEFINER under closedSearchPath, every name it reads schema-qualified, EXECUTE revoked from PUBLIC.
  *
  * Every writer of a guarded table is SERIALIZABLE (isolation.ts), so PostgreSQL's SSI orders each probe's reads against
@@ -1060,7 +1107,11 @@ export const addRules = (
 	const catalog = evidenceCatalog({ laws: b.model, views: [] })
 	const tables = judgedTables(b)
 	const judge = objectName(b.schema, b.name(identity.ruleJudge()))
-	const sentinel = b.name(identity.ruleSentinel(headNonEmpty(b.names.levels)))
+	const sentinelIdent = identity.ruleSentinel(
+		headNonEmpty(b.names.levels),
+		canonicalTextOf(sentinelTable)
+	)
+	const sentinel = b.name(sentinelIdent)
 	const deltaOf = (t: JudgedTable, side: ProbeSide): SessionDelta | undefined =>
 		t.sides.find((s) => s.side === side)?.delta
 	const requests: Array<IndexRequest> = []
@@ -1249,6 +1300,7 @@ export const addRules = (
 		).t.relation.name
 		const named = identity.ruleJudgePart(
 			relation,
+			sentinelIdent,
 			mapNonEmpty(part.deltas, (d) => d.ident)
 		)
 		const fn = objectName(b.schema, b.name(named))
@@ -1257,7 +1309,7 @@ export const addRules = (
 				kind: "createFunction",
 				language: "plpgsql",
 				name: fn,
-				params: [{ name: heldName, type: namesType }],
+				params: [{ name: writtenColumn, type: namesType }],
 				returns: "void",
 				volatility: "VOLATILE",
 				parallel: "UNSAFE",
@@ -1282,78 +1334,71 @@ export const addRules = (
 		return { part, fn, node }
 	})
 	/**
-	 * The session's own tables named as `names`, the installation's deltas, by name: those the definer owns, or those it
-	 * does not (`ours`).
+	 * The judge's run: the transaction's written set read from the sentinel's row (`marked`), the row deleted, so a later
+	 * statement arms the judge again and marks its deltas into a new set, and each part run where the transaction wrote
+	 * one of its deltas, with the set. It reads no catalog and no delta the transaction did not write: a session holds a
+	 * delta of every relation any of its transactions wrote, none of whose rows outlives its COMMIT. None where the
+	 * installation holds no delta, nor any rule over a query.
 	 */
-	const sessionDeltas = (names: NonEmptyReadonlyArray<string>, ownedByDefiner: boolean): Select =>
-		provedSelect(
-			"keyed",
-			[targetAs(cast(col("r1", "relname"), types.text), "c1")],
-			[catalogTable("pg_class", "r1")],
-			and([
-				eq(col("r1", "relnamespace"), call("pg_my_temp_schema", [])),
-				isIn(
-					cast(col("r1", "relname"), types.text),
-					mapNonEmpty(names, (name) => lit.text(name, types.text))
-				),
-				ownedByDefiner ? and(owned("r1")) : not(and(owned("r1")))
-			])
-		)
-	/**
-	 * The judge's reads of the session's deltas, once a run: a table another role made under a delta's name refused
-	 * first, naming the least of them, then the names of the deltas the session holds into `held`, and each part run
-	 * where the session holds one of its deltas. None where the installation holds no delta, nor any rule over a query.
-	 */
-	const [d0, ...ds] = deltas
-	const judging: ReadonlyArray<PlStatement> =
-		d0 === undefined
-			? []
-			: [
-					{
-						kind: "forQuery",
-						variable: foreignName,
-						query: {
-							...sessionDeltas([d0, ...ds], false),
-							orderBy: [{ expr: cast(col("r1", "relname"), types.text), direction: "ASC" }]
-						},
-						body: [foreignOf({ kind: "plVar", name: foreignName })]
-					},
-					{
-						kind: "assign",
-						target: heldName,
-						value: { kind: "array", query: sessionDeltas([d0, ...ds], true) }
-					},
-					...parts.map(({ part, fn }): PlStatement => ({
-						kind: "if",
-						branches: [
-							{
-								condition: {
-									kind: "binary",
-									op: "&&",
-									left: held,
-									right: namesOf(mapNonEmpty(part.deltas, (d) => d.name)),
-									schema: undefined
-								},
-								body: [
-									{
-										kind: "perform",
-										query: {
-											body: core(
-												[{ expr: qualifiedCall(fn.schema, fn.name, [held]), alias: undefined }],
-												[],
-												undefined
-											),
-											orderBy: [],
-											limit: undefined,
-											offset: undefined
-										}
+	const consumed: PlStatement = {
+		kind: "modify",
+		statement: {
+			kind: "delete",
+			with: undefined,
+			table: sessionTable(sentinel),
+			alias: "r1",
+			using: [],
+			where: undefined,
+			returning: []
+		}
+	}
+	const judging: ReadonlyArray<PlStatement> = !isNonEmpty(deltas)
+		? [consumed]
+		: [
+				{
+					kind: "assign",
+					target: writtenColumn,
+					value: {
+						kind: "subquery",
+						query: simpleSelect(
+							[{ expr: col("r1", writtenColumn), alias: undefined }],
+							[{ kind: "table", table: sessionTable(sentinel), alias: "r1" }],
+							undefined
+						)
+					}
+				},
+				consumed,
+				...parts.map(({ part, fn }): PlStatement => ({
+					kind: "if",
+					branches: [
+						{
+							condition: {
+								kind: "binary",
+								op: "&&",
+								left: written,
+								right: namesOf(mapNonEmpty(part.deltas, (d) => d.name)),
+								schema: undefined
+							},
+							body: [
+								{
+									kind: "perform",
+									query: {
+										body: core(
+											[{ expr: qualifiedCall(fn.schema, fn.name, [written]), alias: undefined }],
+											[],
+											undefined
+										),
+										orderBy: [],
+										limit: undefined,
+										offset: undefined
 									}
-								]
-							}
-						],
-						else: []
-					}))
-				]
+								}
+							]
+						}
+					],
+					else: []
+				}))
+			]
 	const judgeDdl: readonly [PlFunction, Revoke] = [
 		{
 			kind: "createFunction",
@@ -1365,31 +1410,8 @@ export const addRules = (
 			parallel: "UNSAFE",
 			security: "DEFINER",
 			body: {
-				declare:
-					d0 === undefined
-						? []
-						: [
-								{ name: foreignName, type: types.text },
-								{ name: heldName, type: namesType }
-							],
-				body: appendNonEmpty(
-					[
-						{
-							kind: "modify",
-							statement: {
-								kind: "delete",
-								with: undefined,
-								table: sessionTable(sentinel),
-								alias: "r1",
-								using: [],
-								where: undefined,
-								returning: []
-							}
-						},
-						...judging
-					],
-					{ kind: "return", value: { kind: "plSpecial", name: "NEW" } }
-				)
+				declare: isNonEmpty(deltas) ? [{ name: writtenColumn, type: namesType }] : [],
+				body: appendNonEmpty(judging, { kind: "return", value: { kind: "plSpecial", name: "NEW" } })
 			}
 		},
 		revokeOf(judge, [])
@@ -1441,23 +1463,30 @@ const addCapture = (
 	const side = (s: ProbeSide): JudgedSide | undefined => t.sides.find((x) => x.side === s)
 	const news = side("added")
 	const olds = side("removed")
+	/** The sentinel stood up and armed, its row's written set there for the writes to mark (`marked`), then the writes. */
 	const armed = (writes: ReadonlyArray<PlStatement>): ReadonlyArray<PlStatement> => [
 		armedSentinel(sentinel, judge),
-		...writes,
-		arming(sentinel)
+		arming(sentinel),
+		...writes
 	]
 	const into = (
 		s: JudgedSide,
 		rows: TransitionTable,
 		other: TransitionTable | undefined
-	): ReadonlyArray<PlStatement> => [ensured(s.delta), captured(relation, s, rows, other)]
+	): ReadonlyArray<PlStatement> => [
+		ensured(s.delta),
+		captured(relation, s, rows, other),
+		marked(sentinel, s.delta)
+	]
 	const updated = [news, olds].flatMap((s): ReadonlyArray<PlStatement> =>
 		s === undefined || s.read.length === 0
 			? []
 			: s.side === "added"
 				? [
-						...into(s, transitionTables.news, transitionTables.olds),
-						captured(relation, s, transitionTables.olds, transitionTables.news)
+						ensured(s.delta),
+						captured(relation, s, transitionTables.news, transitionTables.olds),
+						captured(relation, s, transitionTables.olds, transitionTables.news),
+						marked(sentinel, s.delta)
 					]
 				: into(s, transitionTables.olds, transitionTables.news)
 	)
@@ -1488,24 +1517,54 @@ const addCapture = (
 						else: []
 					}
 				]
+	/**
+	 * `body` where the statement wrote a row, its transition table `rows` holding one: a statement that wrote none
+	 * captures nothing, stands up no delta and arms no judge, so a part of a write whose input held no fact, or whose
+	 * every row met a stored one, costs its capture one read of an empty transition table.
+	 */
+	const whereRowed = (
+		rows: TransitionTable,
+		body: ReadonlyArray<PlStatement>
+	): ReadonlyArray<PlStatement> => [
+		{
+			kind: "if",
+			branches: [
+				{
+					condition: exists(
+						simpleSelect([], [{ kind: "transition", table: rows, alias: "r4" }], undefined)
+					),
+					body
+				}
+			],
+			else: []
+		}
+	]
 	const branches = [
 		...(news === undefined
 			? []
 			: [
 					{
 						event: "insert" as const,
-						body: armed(into(news, transitionTables.news, undefined))
+						body: whereRowed(
+							transitionTables.news,
+							armed(into(news, transitionTables.news, undefined))
+						)
 					}
 				]),
-		...(updated.length === 0 ? [] : [{ event: "update" as const, body: armed(updated) }]),
+		...(updated.length === 0
+			? []
+			: [{ event: "update" as const, body: whereRowed(transitionTables.news, armed(updated)) }]),
 		...(olds === undefined
 			? news === undefined
 				? []
-				: [{ event: "delete" as const, body: removedFromNews }]
+				: [{ event: "delete" as const, body: whereRowed(transitionTables.olds, removedFromNews) }]
 			: [
 					{
 						event: "delete" as const,
-						body: armed([...into(olds, transitionTables.olds, undefined), ...removedFromNews])
+						body: whereRowed(
+							transitionTables.olds,
+							armed([...into(olds, transitionTables.olds, undefined), ...removedFromNews])
+						)
 					}
 				])
 	]

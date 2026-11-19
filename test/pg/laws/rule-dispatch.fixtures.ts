@@ -156,6 +156,9 @@ const ops = [
 ] as const
 type Op = (typeof ops)[number]
 
+/** The relation an op writes: its last word. */
+const relationOf = (op: Op): string => Arr.lastNonEmpty(Str.split(op, " "))
+
 /** The most transactions a case runs in its one session. */
 const transactionsAtMost = 3
 
@@ -266,14 +269,21 @@ const listed = (names: Iterable<string>): string =>
 const sameSet = (x: ReadonlySet<string>, y: ReadonlySet<string>): boolean =>
 	x.size === y.size && Arr.every([...x], (n) => y.has(n))
 
-/** What the session holds once a transaction's judge ran: the deltas that stand, those of them holding a row, and the
- * stored tables it holds ACCESS SHARE on, which a statement takes on every table it reads until the transaction ends. */
+/** What the session holds once a transaction's judge ran: the deltas it holds a lock on, which every statement of the
+ * transaction that read or wrote one took, read before anything here reads a delta; the deltas that stand, those of them
+ * holding a row, and the stored tables it holds ACCESS SHARE on, which a statement takes on every table it reads until
+ * the transaction ends. */
 const observed = (
 	session: RawSession,
 	deltas: ReadonlyArray<string>,
 	stored: ReadonlyArray<string>
 ) =>
 	Effect.gen(function* () {
+		const locks = yield* session.values(
+			"SELECT c.relname::text FROM pg_catalog.pg_locks AS l JOIN pg_catalog.pg_class AS c ON c.oid = l.relation WHERE l.pid = pg_catalog.pg_backend_pid() AND l.locktype = 'relation' AND c.relpersistence = 't'",
+			[]
+		)
+		const touched = new Set(Arr.map(locks, ([name]) => String(name)))
 		const standing = new Set<string>()
 		const written = new Set<string>()
 		for (const name of deltas) {
@@ -303,7 +313,7 @@ const observed = (
 				locked.add(table)
 			}
 		}
-		return { standing, written, locked }
+		return { touched, standing, written, locked }
 	})
 
 /**
@@ -338,7 +348,7 @@ export const runWrites = (
 				yield* session.query(statementOf(installed, op, t), [])
 			}
 			yield* session.query("SET CONSTRAINTS ALL IMMEDIATE", [])
-			const { standing, written, locked } = yield* observed(session, deltas, stored)
+			const { touched, standing, written, locked } = yield* observed(session, deltas, stored)
 			const ran = Arr.filter(statements, (s) => Arr.some(s.deltas, (d) => written.has(d)))
 			const expectedLocked = new Set(Arr.flatMap(ran, (s) => s.stored))
 			assert.ok(
@@ -346,6 +356,18 @@ export const runWrites = (
 				`${where}: the transaction holds ACCESS SHARE on exactly the tables the statements over its written deltas ${listed(written)} read, ${listed(expectedLocked)}, not ${listed(locked)}`
 			)
 			const stoodUp = new Set(Arr.flatMap(ran, (s) => s.deltas))
+			/** The deltas of a relation the transaction's statements wrote, whose captures read or wrote them. */
+			const capturedBy = (d: string): boolean =>
+				Arr.some(writes, (op) =>
+					Arr.some(["news", "olds"], (side) =>
+						Str.startsWith(`__delta_${side}_${Str.toLowerCase(relationOf(op))}_`)(d)
+					)
+				)
+			const read = Arr.filter([...touched], (d) => Arr.contains(deltas, d))
+			assert.ok(
+				Arr.every(read, (d) => written.has(d) || stoodUp.has(d) || capturedBy(d)),
+				`${where}: the judge reads no delta but those the transaction wrote, ${listed(written)}, and those the statements that ran read, ${listed(stoodUp)}, not ${listed(read)}`
+			)
 			const added = Arr.filter([...standing], (d) => !before.has(d))
 			assert.ok(
 				Arr.every(added, (d) => written.has(d) || stoodUp.has(d)),

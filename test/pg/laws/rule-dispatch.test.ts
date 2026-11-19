@@ -65,27 +65,29 @@ export const theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote = 
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\tbranches: [{ condition: anyWritten(j.reads), body: j.body }],",
+				original: "\t\t\t\tbranches: [{ condition: anyRowed(j.reads), body: j.body }],",
 				replacement: "\t\t\t\tbranches: [{ condition: lit.bool(true), body: j.body }],",
 				why: "Every rule's block of a part runs whatever the transaction wrote, as before the dispatch: a write of a package's parts runs the probes over the documents' deltas the session never stood up, which PostgreSQL refuses (42P01), or, once they stand, over deltas holding no row, each statement read and its tables locked."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\tbranches: [{ condition: anyWritten(j.reads), body: j.body }],",
+				original: "\t\t\t\tbranches: [{ condition: anyRowed(j.reads), body: j.body }],",
 				replacement:
-					"\t\t\t\tbranches: [{ condition: anyWritten([headNonEmpty(j.reads)]), body: j.body }],",
+					"\t\t\t\tbranches: [{ condition: anyRowed([headNonEmpty(j.reads)]), body: j.body }],",
 				why: "A rule's block runs on its first delta alone, so a whole containment a transaction wrote only the target of, a document or a visit deleted, is never judged, and its tables are never read."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: '\t\tconst rowed = holding(delta.name, "r1")',
-				replacement: "\t\tconst rowed = lit.bool(true)",
-				why: "A delta counts as written wherever the session holds it, rows or none, so in a session's later transaction every rule over a relation an earlier one wrote runs again over its empty deltas: a learner's steady COMMIT runs the rules of every relation it ever wrote."
+				original: "\t\t\tbranches: [{ condition: wrote(delta.name), body: kept }],",
+				replacement: "\t\t\tbranches: [{ condition: standing(delta.name), body: kept }],",
+				why: "A delta counts as written wherever the session holds it, as the judge read it before the written set: in a session's later transaction every rule over a relation an earlier one wrote runs again over its empty side of olds, its tables read and locked, and a learner's steady COMMIT reads every delta it ever stood up."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t\t\t\t\tcondition: anyWritten(besides),",
-				replacement: "\t\t\t\t\t\t\t\tcondition: lit.bool(true),",
+				original:
+					"\t\t\t\t\t\tbranches: [{ condition: anyRowed(besides), body: [ensured(delta)] }],",
+				replacement:
+					"\t\t\t\t\t\tbranches: [{ condition: lit.bool(true), body: [ensured(delta)] }],",
 				why: "Every delta a part's whole rule reads is stood up at every run of its part, as the judge stood every unit's delta up before the dispatch: a transaction that writes a learner's answers creates the visits' delta, and one that writes a package's parts the documents', a temporary table each, whose every COMMIT truncates it."
 			}
 		]

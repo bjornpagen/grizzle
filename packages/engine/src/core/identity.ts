@@ -1595,17 +1595,19 @@ export const identity = Object.freeze({
 		mint("ruleJudge", [], ["judge"], "the rule judge", readable("__judge")),
 	/**
 	 * A part of the rule judge (physical/ddl/rules.ts addRules): the function that judges every rule whose statements
-	 * read one of the session's deltas `deltas`, which the judge runs where the session holds one of them. It is named
-	 * by its deltas, and its stem by the relation of the first, `relation`, so a part whose deltas change is another
-	 * function, created in its place.
+	 * read one of the session's deltas `deltas`, which the judge runs where the transaction wrote one of them, the
+	 * written set its `sentinel` holds. It is named by its sentinel and its deltas, and its stem by the relation of the
+	 * first, `relation`, so a part whose deltas or whose written set's declaration change is another function, created
+	 * in its place, never one whose parameters CREATE OR REPLACE would have to rename (42P13).
 	 */
 	ruleJudgePart: (
 		relation: string,
+		sentinel: Identity<"ruleSentinel">,
 		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>
 	): Identity<"ruleJudgePart"> =>
 		mint(
 			"ruleJudgePart",
-			deltas,
+			[sentinel, ...deltas],
 			["judge", ...nameSegments(relation)],
 			`the rule judge of the deltas of ${relation} and the relations its rules join it to`,
 			hashed
@@ -1631,12 +1633,14 @@ export const identity = Object.freeze({
 		),
 	/**
 	 * A session's sentinel of an installation, the identity of its root schema (physical/ddl/rules.ts addRules): a table
-	 * of pg_temp whose one row arms its deferred trigger, which runs the judge.
+	 * of pg_temp whose one row arms its deferred trigger, which runs the judge, and holds the transaction's written set,
+	 * named by its declaration's canonical text too, so a migration that changes it names another and no capture meets
+	 * a session's sentinel of the old declaration.
 	 */
-	ruleSentinel: (installation: Identity<"schema">): Identity<"ruleSentinel"> =>
+	ruleSentinel: (installation: Identity<"schema">, declaration: string): Identity<"ruleSentinel"> =>
 		mint(
 			"ruleSentinel",
-			[installation],
+			[installation, declaration],
 			["sentinel"],
 			`the rule sentinel of ${installation.display}`,
 			hashed
