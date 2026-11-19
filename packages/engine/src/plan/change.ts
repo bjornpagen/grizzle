@@ -46,7 +46,9 @@ export {
 	type RoleChanges
 } from "#compiler/program/workload/change.ts"
 export { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
+export { factsDecoderOver } from "#compiler/program/decode.ts"
 export { insertPreviewOver } from "#compiler/program/preview.ts"
+export type { FactsDecoder } from "#compiler/types/changeset/decode.ts"
 export type { InsertPreview } from "#compiler/types/changeset/preview.ts"
 export type { WorkloadProgram } from "#compiler/program/workload/value.ts"
 export type { WriteNames } from "#compiler/write/insert/statement.ts"

@@ -4,8 +4,9 @@ import { changeSets } from "#compiler/write/changeset/value.ts"
 
 /**
  * Public barrel: ChangeSet, Delta, the rows a caller writes (Addition, AdditionIn), outcomes, witnesses, the laws an
- * outcome names, and what an insertion preview reads and gives (InsertAllRowsOf, InsertPreview, PreviewRows and the
- * PreviewRefusal arms), whose function, insertPreview, is the shell's (packages/grizzle/src/adapter/public/host.ts).
+ * outcome names, what an insertion preview reads and gives (InsertAllRowsOf, InsertPreview, PreviewRows and the
+ * PreviewRefusal arms), and what a facts decoder gives (FactsDecoder, FactsRefused and RowPlace), whose functions,
+ * insertPreview and factsDecoder, are the shell's (packages/grizzle/src/adapter/public/host.ts).
  * packages/grizzle/src/index.ts re-exports it.
  *
  * ChangeSet is the sealed canonical value of packages/engine/src/write/changeset, built under its public signature
@@ -48,6 +49,7 @@ export type {
 	WritableOf
 } from "#compiler/types/changeset/changeset.ts"
 export type { GeneratedLawId, LawId } from "#compiler/core/ids.ts"
+export type { FactsDecoder, FactsRefused, RowPlace } from "#compiler/types/changeset/decode.ts"
 export type {
 	InsertPreview,
 	PreviewRefusal,

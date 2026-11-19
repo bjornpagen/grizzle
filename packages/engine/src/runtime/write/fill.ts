@@ -9,7 +9,7 @@ import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
  * (analysis/theory/fill.ts).
  *
  * A caller writes an owner with its families' members nested at its count fields, to any depth, a tree's nodes
- * included (write/changeset/value.ts encodeAddition). Each row's caller fields are the caller's; every other column the
+ * included (runtime/write/addition.ts additionSplitter). Each row's caller fields are the caller's; every other column the
  * host writes is grizzle's, and PostgreSQL proves each one again through the native that reads it:
  *
  * - a member's group, its owner's key: a tree node's root fields, its parent's, and its parent, its parent's start;

@@ -91,22 +91,18 @@ const factRecord = (
 		isPlainRecord(value) ? Result.ok(Object.freeze({ ...value })) : Result.err("factShape")
 	)
 
-/**
- * The addition `fact` of `relation` split along `families`: each family whose owner is the fact's relation holds its
- * members as an array at the owner's count field, each member a fact of the family's member relation, split alike, so
- * a tree's nodes nest to any depth. The walk is iterative, with no limit on the depth, and linear in the facts it
- * reads: each fact is read once, its position is one cell over its owner's, and each relation's split is computed once.
- * A fact that is no plain record, or a count field that holds no array, is refused as factShape at its path. Each fact
- * keeps every field it states but its count fields, so one it states beyond the fields its caller writes, a field
- * grizzle draws or accumulates among them, reaches its level's normalizer, which admits exactly those and refuses it as
- * factShape, as a deletion's fact stating one is: dropped here, its value would be lost unsaid. Encoding them is the
- * program's, with the installation's codes.
- */
-export const encodeAddition = (
+/** A splitter of additions along `families` (`additionSplitter`): `relation`'s addition `fact` split, or its refusal. */
+export type AdditionSplitter = (
 	relation: StoredRelationName,
-	fact: unknown,
-	families: ReadonlyArray<SplitFamily>
-): Result.Result<NestedAddition, ChangeSetRefusal> => {
+	fact: unknown
+) => Result.Result<NestedAddition, ChangeSetRefusal>
+
+/**
+ * The splitter of additions along `families`, each relation's split worked out once, where a fact of it is first split,
+ * and read by every later fact (`splitAddition`), so splitting a call's facts costs each relation's split once, whatever
+ * the facts' count: a nested write's facts, and a decoded relation's rows (program/decode.ts).
+ */
+export const additionSplitter = (families: ReadonlyArray<SplitFamily>): AdditionSplitter => {
 	const relationSplits = new Map<StoredRelationName, RelationSplit>()
 	const splitOf = (name: StoredRelationName): RelationSplit => {
 		const known = relationSplits.get(name)
@@ -117,6 +113,25 @@ export const encodeAddition = (
 		relationSplits.set(name, split)
 		return split
 	}
+	return (relation, fact) => splitAddition(splitOf, relation, fact)
+}
+
+/**
+ * The addition `fact` of `relation` split along the families `splitOf` reads each relation's split off: each family
+ * whose owner is the fact's relation holds its members as an array at the owner's count field, each member a fact of the
+ * family's member relation, split alike, so a tree's nodes nest to any depth. The walk is iterative, with no limit on
+ * the depth, and linear in the facts it reads: each fact is read once and its position is one cell over its owner's.
+ * A fact that is no plain record, or a count field that holds no array, is refused as factShape at its path. Each fact
+ * keeps every field it states but its count fields, so one it states beyond the fields its caller writes, a field
+ * grizzle draws or accumulates among them, reaches its level's normalizer, which admits exactly those and refuses it as
+ * factShape, as a deletion's fact stating one is: dropped here, its value would be lost unsaid. Encoding them is the
+ * program's, with the installation's codes.
+ */
+const splitAddition = (
+	splitOf: (name: StoredRelationName) => RelationSplit,
+	relation: StoredRelationName,
+	fact: unknown
+): Result.Result<NestedAddition, ChangeSetRefusal> => {
 	const splits: Array<Split | undefined> = [undefined]
 	const pending: Array<{
 		readonly relation: StoredRelationName

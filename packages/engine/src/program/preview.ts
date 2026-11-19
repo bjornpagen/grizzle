@@ -4,7 +4,7 @@ import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { captureLoc } from "#compiler/core/loc.ts"
+import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 /**
  * insertPreview(schema): the host half of an insertion, `ChangeSet.empty(S).insertAll(rows)`, as the first write of an
  * installation holding no row stores it, closed relations aside, with no SQL sent.
@@ -27,12 +27,18 @@ import { captureLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import { noClock } from "#compiler/ir/clock.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { familyKey, type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
-import { builtLawModel, parseBuiltSchema, schemaArtifacts } from "#compiler/program/schema.ts"
+import {
+	builtLawModel,
+	parseBuiltSchema,
+	type SchemaArtifacts,
+	schemaArtifacts
+} from "#compiler/program/schema.ts"
 import { compileParsed } from "#compiler/program/workload/change.ts"
 import { bindWrite, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import type { CountedFamily, MemberAt } from "#compiler/runtime/write/binding.ts"
+import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 import type { MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -44,6 +50,7 @@ import type {
 } from "#compiler/types/changeset/preview.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { changeSetOver, parseChangeSet } from "#compiler/write/changeset/value.ts"
+import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 
 /**
@@ -164,24 +171,27 @@ const isPreviewRowsOf = <S extends AnySchema>(
 ): built is Readonly<Record<string, ReadonlyArray<PreviewRow>>> & PreviewRows<S> =>
 	Object.keys(built).length === names.length && names.every((name) => Object.hasOwn(built, name))
 
-/** A preview's rows by relation name, as a caller that knows its schema only at run time reads them (`previewOver`). */
-export type PreviewRowsByName = Readonly<Record<string, ReadonlyArray<PreviewRow>>>
-
 /**
- * insertPreview over `transport` for a caller whose schema is known only at run time (see the header): `schema`
- * compiled once into the preview of its insertions, or the schema's CompileError; each call reads its rows off the
- * caller's record (`memberFactsOf`) and binds them under `transport`, the message bound of the wire the write would go
- * over, so the preview refuses what the write would (InputRefused), and gives every writable relation's rows by name.
- * insertPreviewOver is this one under S's types.
+ * The first write of an installation holding no row that inserts every top-level relation of a schema, compiled once
+ * by the compile every write takes (see the header): its artifacts planned over a fresh installation's codes, its
+ * rosters' declared order (ir/codes.ts firstCodebook), insertAll over every relation it takes at its top level, each
+ * member an array, compiled for reality (program/workload/change.ts compileParsed), then projected and loaded as a
+ * served write is (write/program/served.ts flightOf); or the schema's CompileError, refused at `loc`. What a preview
+ * binds its rows by, and what a facts decoder admits its rows by (program/decode.ts).
  */
-export const previewOver = (
+export const insertAllFlight = (
 	schema: AnySchema,
-	transport: Transport
+	loc: SourceLoc
 ): Result.Result<
-	(rows: unknown) => Result.Result<PreviewRowsByName, PreviewRefusal>,
+	{
+		readonly codes: Codebook
+		readonly artifacts: SchemaArtifacts
+		readonly compiled: CompiledWrite
+		readonly flight: FlightWrite
+	},
 	CompileError
 > => {
-	const built = parseBuiltSchema(schema, captureLoc("insertPreview", []))
+	const built = parseBuiltSchema(schema, loc)
 	if (!built.ok) {
 		return built
 	}
@@ -206,7 +216,36 @@ export const previewOver = (
 		return entry
 	}
 	const { compiled } = entry.value
-	const flight = flightOf(compiled, codes)
+	return Result.ok({
+		codes,
+		artifacts: artifacts.value,
+		compiled,
+		flight: flightOf(compiled, codes)
+	})
+}
+
+/** A preview's rows by relation name, as a caller that knows its schema only at run time reads them (`previewOver`). */
+export type PreviewRowsByName = Readonly<Record<string, ReadonlyArray<PreviewRow>>>
+
+/**
+ * insertPreview over `transport` for a caller whose schema is known only at run time (see the header): `schema`
+ * compiled once into the preview of its insertions, or the schema's CompileError; each call reads its rows off the
+ * caller's record (`memberFactsOf`) and binds them under `transport`, the message bound of the wire the write would go
+ * over, so the preview refuses what the write would (InputRefused), and gives every writable relation's rows by name.
+ * insertPreviewOver is this one under S's types.
+ */
+export const previewOver = (
+	schema: AnySchema,
+	transport: Transport
+): Result.Result<
+	(rows: unknown) => Result.Result<PreviewRowsByName, PreviewRefusal>,
+	CompileError
+> => {
+	const insert = insertAllFlight(schema, captureLoc("insertPreview", []))
+	if (!insert.ok) {
+		return insert
+	}
+	const { artifacts, compiled, flight } = insert.value
 	const names: ReadonlyArray<string> = writableNamesOf(schema)
 	/** Each written relation's fields PostgreSQL does not generate, in declared order, each at its position. */
 	const fields = new Map(
@@ -225,7 +264,7 @@ export const previewOver = (
 	)
 	/** Each counted family's law as lawsOf lists it, by the family's key (ir/law.ts familyKey). */
 	const familyLaws = new Map(
-		artifacts.value.theoryLaws.flatMap(({ described }) =>
+		artifacts.theoryLaws.flatMap(({ described }) =>
 			described.kind === "family" && described.order === "counted"
 				? [[familyKey(described.slots), described] as const]
 				: []

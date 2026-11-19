@@ -492,6 +492,10 @@ const isItemsOf = <S, R>(
 	relation: RelationReading
 ): items is Items & Pick<RowEvaluation<S, R>, "generated" | "checks"> => items.relation === relation
 
+/** A value admitValue read as a fact holds it: a bytes value with its digest (values/bytes.ts AdmittedBytes). */
+const heldRead = (value: unknown): unknown =>
+	value instanceof Uint8Array ? new AdmittedBytes(value) : value
+
 /**
  * The first refined field of `refined` whose value is outside its domain, its contract and its patterns, as PostgreSQL
  * holds each value before it computes anything of it: the one judgment of a value's domain on the host, every
@@ -499,13 +503,13 @@ const isItemsOf = <S, R>(
  * value its field's type admitted. None when every value is inside its domain. The judge evaluates every contract and
  * pattern a schema's types state, so one it does not is a defect.
  */
-const domainRefusal = (
+export const domainRefusal = (
 	judge: Judge,
 	refined: ReadonlyArray<JudgedField>,
 	held: (field: string) => unknown
 ): string | undefined => {
 	for (const field of refined) {
-		const member = judge.member(evaluatedValue(field.type, held(field.name)), field.type)
+		const member = judge.member(evaluatedValue(field.type, heldRead(held(field.name))), field.type)
 		if (member === undefined) {
 			throw defect(`the domain of ${field.name}, a contract and a pattern the host evaluates`)
 		}
@@ -515,10 +519,6 @@ const domainRefusal = (
 	}
 	return undefined
 }
-
-/** A value admitValue read as a fact holds it: a bytes value with its digest (values/bytes.ts AdmittedBytes). */
-const heldRead = (value: HostValue | Uint8Array): HostValue =>
-	value instanceof Uint8Array ? new AdmittedBytes(value) : value
 
 /**
  * A row of R admitted (see rowEvaluator's admit), pure: each field of R the row states read as its column's type, as

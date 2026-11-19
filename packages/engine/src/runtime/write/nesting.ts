@@ -26,7 +26,7 @@ import type { MessageBound } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
-	encodeAddition,
+	additionSplitter,
 	type NestedAddition,
 	type SplitFamily
 } from "#compiler/runtime/write/addition.ts"
@@ -272,22 +272,19 @@ export const nestedRows = (
 > => {
 	const normalizerOf = (relation: StoredRelationName, heading: Heading): Level => {
 		const columns = walk.columns(relation)
-		const normalize = relationNormalizer({
-			relation,
-			columns: positionalColumns(heading),
-			slot: { kind: "slot", name: member },
-			codes: walk.codes
-		})
+		const normalize = levelNormalizer(relation, heading, member, walk.codes)
 		return {
 			normalize,
 			fields: normalize.fields.map((name) => ({ name, at: columns.at(columnKeyOf(name)) }))
 		}
 	}
-	const sequences = nesting.sequences
-	const normalizers: LevelNormalizers = {
+	const normalizers: NestingLevels<Level> = {
 		own: normalizerOf(nesting.relation, nesting.own),
-		members: new Map(sequences.map((f) => [f.id, normalizerOf(f.member, f.heading)] as const))
+		members: new Map(
+			nesting.sequences.map((f) => [f.id, normalizerOf(f.member, f.heading)] as const)
+		)
 	}
+	const split = additionSplitter(nesting.sequences)
 	const shapes = new Map<StoredRelationName, RowShape>()
 	/** The shape of a reached relation's rows, each relation's made once for the write. */
 	const shapeOf = (reached: StoredRelationName): RowShape => {
@@ -321,11 +318,11 @@ export const nestedRows = (
 	const top = nesting.top.map(shapedField)
 	const hosts: Array<HostNode> = []
 	for (const fact of facts) {
-		const split = encodeAddition(relation, fact, sequences)
-		if (!split.ok) {
-			return Result.err(encodeFailure(split.error.fault, slotPlace(member)))
+		const addition = split(relation, fact)
+		if (!addition.ok) {
+			return Result.err(encodeFailure(addition.error.fault, slotPlace(member)))
 		}
-		const host = hostNodes(normalizers, split.value, { member, book, transport })
+		const host = hostNodes(normalizers, addition.value, { member, book, transport })
 		if (!host.ok) {
 			return host
 		}
@@ -446,11 +443,53 @@ interface Level {
 	readonly fields: ReadonlyArray<{ readonly name: string; readonly at: number }>
 }
 
-/** The levels of a nesting (`Level`): its facts' own, and each sequence's members', by the sequence's id, the one its
- * split additions name it by (addition.ts encodeAddition), so no node spells a family's key. */
-interface LevelNormalizers {
-	readonly own: Level
-	readonly members: ReadonlyMap<FamilyId, Level>
+/** The levels of a nesting, each an L: its facts' own, and each sequence's members', by the sequence's id, the one its
+ * split additions name it by (addition.ts additionSplitter), so no node spells a family's key. */
+export interface NestingLevels<L> {
+	readonly own: L
+	readonly members: ReadonlyMap<FamilyId, L>
+}
+
+/**
+ * The normalizer of a nesting's level, `relation`'s facts admitted by `heading` under `codes`, each refusal placed at
+ * the nested input's member slot `member`: the one a nested write reads each level of its facts by, and a decoded
+ * relation's level its rows (program/decode.ts).
+ */
+export const levelNormalizer = (
+	relation: StoredRelationName,
+	heading: Heading,
+	member: string,
+	codes: Codebook
+): RelationNormalizer =>
+	relationNormalizer({
+		relation,
+		columns: positionalColumns(heading),
+		slot: { kind: "slot", name: member },
+		codes
+	})
+
+/**
+ * Every addition of the nesting `root` heads, in pre-order, each with the level it stands at in `levels`: the order a
+ * nested write reads its levels in, backwards, members before their owners (`hostNodes`), as a decoded row's are read.
+ */
+export const levelOrder = <L>(
+	levels: NestingLevels<L>,
+	root: NestedAddition
+): ReadonlyArray<{ readonly addition: NestedAddition; readonly level: L }> => {
+	const order: Array<{ readonly addition: NestedAddition; readonly level: L }> = []
+	const pending: Array<{ readonly addition: NestedAddition; readonly level: L }> = [
+		{ addition: root, level: levels.own }
+	]
+	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+		order.push(next)
+		for (const g of next.addition.families) {
+			const level = defined(levels.members.get(g.family), "a sequence the nesting splits along")
+			for (const m of g.members) {
+				pending.push({ addition: m, level })
+			}
+		}
+	}
+	return order
 }
 
 /**
@@ -459,7 +498,7 @@ interface LevelNormalizers {
  * built before their owners, so any depth converts.
  */
 const hostNodes = (
-	normalizers: LevelNormalizers,
+	normalizers: NestingLevels<Level>,
 	root: NestedAddition,
 	write: {
 		readonly member: string
@@ -467,23 +506,7 @@ const hostNodes = (
 		readonly transport: Transport
 	}
 ): Result.Result<HostNode, EncodingFailure | MessageBound> => {
-	/** Every addition in pre-order, with the normalizer of the level it stands at. */
-	const order: Array<{ readonly addition: NestedAddition; readonly level: Level }> = []
-	const pending: Array<{ readonly addition: NestedAddition; readonly level: Level }> = [
-		{ addition: root, level: normalizers.own }
-	]
-	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-		order.push(next)
-		for (const g of next.addition.families) {
-			const level = defined(
-				normalizers.members.get(g.family),
-				"a sequence the nesting splits along"
-			)
-			for (const m of g.members) {
-				pending.push({ addition: m, level })
-			}
-		}
-	}
+	const order = levelOrder(normalizers, root)
 	const built = new Map<NestedAddition, HostNode>()
 	for (let i = order.length - 1; i >= 0; i -= 1) {
 		const { addition, level } = defined(order[i], "a nested addition met in pre-order")

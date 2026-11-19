@@ -9,6 +9,8 @@ export type { Err, Ok } from "@bjornpagen/grizzle-text/base/result"
 export {
 	check,
 	codecText,
+	type FactsDecoder,
+	factsDecoder,
 	generated,
 	insertPreview,
 	type InsertPreview,

@@ -15,7 +15,7 @@ import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import { countParam, type ScalarCodec, scalarCodec, textParam } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
-import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
+import type { CodecFault, EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { sortInPlace } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
@@ -122,6 +122,11 @@ export interface RelationNormalizer {
 		book: DigestBook
 	) => Result.Result<AdmittedRelation, EncodingFailure>
 	/**
+	 * One fact read as `read` reads each, its refusal not yet placed in the input (RowRefusal): what a decoded row is
+	 * read by (program/decode.ts), which places it at the row's position.
+	 */
+	readonly readRow: (fact: unknown) => Result.Result<ReadFact, RowRefusal>
+	/**
 	 * One fact read alone, as `read` reads an input of it alone: the fact read, and its arrays' bytes, its `widest` and
 	 * its `together` alike. A nested write's level reads its facts one at a time, each the input of its own row.
 	 */
@@ -134,6 +139,12 @@ export interface RelationNormalizer {
 		read: ReadFact,
 		book: DigestBook
 	) => Result.Result<IdentifiedFact, EncodingFailure>
+}
+
+/** A fact's refusal as its normalizer reads it: the codec's fault, and the field it is at, none for the fact as a whole. */
+export interface RowRefusal {
+	readonly fault: CodecFault
+	readonly field: string | undefined
 }
 
 /** A relation parameter's normalization, its facts' text rows written beside them. */
@@ -332,25 +343,27 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		}
 		return byteaElementBytes(value.length)
 	}
-	/** One fact read: the null ban, then the fact read against the heading. */
-	const readOneFact = (fact: unknown): Result.Result<ReadFact, EncodingFailure> => {
+	/** One fact read, its refusal unplaced: the null ban, then the fact read against the heading. */
+	const readRow = (fact: unknown): Result.Result<ReadFact, RowRefusal> => {
 		if (fact === null || fact === undefined) {
-			return Result.err(encodeFailure("nullValue", placeOf(s, undefined)))
+			return Result.err({ fault: "nullValue", field: undefined })
 		}
 		if (isRecord(fact)) {
 			for (const column of columns) {
 				if (Object.hasOwn(fact, column.field)) {
 					const value = fact[column.field]
 					if (value === null || value === undefined) {
-						return Result.err(encodeFailure("nullValue", placeOf(s, column.field)))
+						return Result.err({ fault: "nullValue", field: column.field })
 					}
 				}
 			}
 		}
-		const one = readFact(s.plan, fact)
-		return one.ok
-			? Result.ok(one.value)
-			: Result.err(encodeFailure(one.error.fault, placeOf(s, one.error.field)))
+		return readFact(s.plan, fact)
+	}
+	/** One fact read (readRow), its refusal placed in the input. */
+	const readOneFact = (fact: unknown): Result.Result<ReadFact, EncodingFailure> => {
+		const one = readRow(fact)
+		return one.ok ? one : Result.err(encodeFailure(one.error.fault, placeOf(s, one.error.field)))
 	}
 	/** The bytes a read fact's binary arrays take with it alone. */
 	const aloneBytes = (one: ReadFact): number =>
@@ -425,6 +438,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		fields: s.plan.entries.map((f) => f.name),
 		read,
 		admit,
+		readRow,
 		readOne,
 		admitOne: digested
 	}

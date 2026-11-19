@@ -1,7 +1,13 @@
 import type { Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import { type InsertPreview, inForce, insertPreviewOver } from "#compiler/plan/change.ts"
+import {
+	type FactsDecoder,
+	factsDecoderOver,
+	type InsertPreview,
+	inForce,
+	insertPreviewOver
+} from "#compiler/plan/change.ts"
 import {
 	type AnySchema,
 	type CodecFault,
@@ -13,8 +19,8 @@ import {
 } from "#compiler/plan/common.ts"
 
 /**
- * Public barrel: the host's readings of a schema's values, which send no SQL: insertPreview, rowEvaluator and
- * codecText. packages/grizzle/src/index.ts re-exports it. Each answers Effect's Result, the one Result a caller reads:
+ * Public barrel: the host's readings of a schema's values, which send no SQL: insertPreview, factsDecoder,
+ * rowEvaluator and codecText. packages/grizzle/src/index.ts re-exports it. Each answers Effect's Result, the one Result a caller reads:
  * the engine computes each answer in its own (core/result.ts) and spells it through toResult (adapter/engine.ts), the
  * PublicResult each takes, where the answer is made, so an item computed where it is first read stays so.
  */
@@ -31,6 +37,17 @@ export const insertPreview = <S extends AnySchema>(
 	schema: S
 ): Result.Result<InsertPreview<S>, CompileError> =>
 	toResult(insertPreviewOver(schema, inForce(bindFrame), toResult))
+
+/**
+ * factsDecoder(schema): the rows `ChangeSet.empty(schema).insertAll(rows)` takes of one top-level relation, decoded from
+ * a value of any shape, a value another process sent among them, by the insert's own admission (engine
+ * program/decode.ts): the schema compiled once, by insertAll's compile, as a Result whose error is its CompileError,
+ * then `decode(K, value)` is the value itself as K's rows, every row admitted as the write admits a fact and held to its
+ * domains as rowEvaluator holds a row, or the first refusal its rows meet, at its row and field, by the write's fault.
+ */
+export const factsDecoder = <S extends AnySchema>(
+	schema: S
+): Result.Result<FactsDecoder<S>, CompileError> => toResult(factsDecoderOver(schema, toResult))
 
 /**
  * rowEvaluator(schema): the host's evaluation of rows of the schema's sources, by the one evaluator grizzle judges a

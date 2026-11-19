@@ -6,7 +6,7 @@ import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
  *
  * At compile time a nesting is the insert's relation and every family its rows reach, each at its depth (`Reached`), and
  * the heading each level's own fields are admitted by. At bind time each fact is split along its families
- * (runtime/write/addition.ts encodeAddition), each level's own fields admitted through its carriers' codecs, the whole
+ * (runtime/write/addition.ts additionSplitter), each level's own fields admitted through its carriers' codecs, the whole
  * nesting filled in one walk by the write's filler, which draws and fills the rest (runtime/write/nesting.ts
  * NestedWalk, runtime/write/fill.ts), and its rows cut into each family's write: every owner the ChangeSet inserts is
  * fresh, so each sequence's write is each owner's members placed at slots 0 … n − 1 with no count statement, and a

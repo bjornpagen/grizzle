@@ -2,7 +2,7 @@
  * A nested addition's facts, as a JavaScript caller states them, hold the fields their caller writes at every depth, as
  * its type says (AdditionIn): a fact that states a field grizzle draws or accumulates, or one its relation lacks, is
  * refused before any SQL by its level's normalizer, an EncodingFailure of factShape. The split of an addition along its
- * families (write/changeset/value.ts encodeAddition) keeps every field a fact states but its count fields, where it
+ * families (runtime/write/addition.ts additionSplitter) keeps every field a fact states but its count fields, where it
  * used to drop a drawn or accumulated field unsaid, its value lost.
  *
  * The schema: an owner of an ordered family with a sum fold, so the owner has an accumulated end and each member a
@@ -117,7 +117,7 @@ export const aNestedAdditionsFactsBindExactlyWhenEveryFactStatesItsCallersFields
 					"\t\tconst own = Object.freeze(\n\t\t\tObject.fromEntries(Object.entries(read.value).filter(([name]) => !counts.has(name)))\n\t\t)",
 				replacement:
 					"\t\tconst stated = Object.entries(read.value).filter(([name]) => !counts.has(name))\n\t\tconst own = Object.freeze(Object.fromEntries(next.at === undefined ? stated : stated.slice(0, 1)))",
-				why: "The split keeps a nested member's first field alone (runtime/write/addition.ts encodeAddition), so a drawn index or a foreign field is dropped unsaid."
+				why: "The split keeps a nested member's first field alone (runtime/write/addition.ts additionSplitter), so a drawn index or a foreign field is dropped unsaid."
 			}
 		]
 	})

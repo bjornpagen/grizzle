@@ -5,7 +5,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 /**
  * The public-Result program: the box of every answer a public reader gives that can refuse with a value, each printed
  * as one line of a program the type batch checks: codecText's text, rowEvaluator's compile, an admission, a generated
- * value, a check's verdict and a selection, insertPreview's compile and a preview, and indexesOf's index map.
+ * value, a check's verdict and a selection, insertPreview's compile and a preview, factsDecoder's compile and a
+ * decode, and indexesOf's index map.
  *
  * The oracle: grizzle answers one Result, Effect's. Each answer is Effect's Result of its own success and failure
  * exactly, and neither shape of the engine's own Result (core/result.ts), Ok or Err, is assignable to it, so a caller
@@ -23,6 +24,8 @@ const answers = {
 	"a selection": "RowEvaluation<typeof Accounts, typeof Account>['selected']",
 	"insertPreview's compile": "typeof preview",
 	"a preview": "ReturnType<InsertPreview<typeof Accounts>>",
+	"factsDecoder's compile": "typeof decoder",
+	"a decode": "ReturnType<FactsDecoder<typeof Accounts>['decode']>",
 	"indexesOf's index map": "ReturnType<typeof indexesOf>"
 } as const
 
@@ -38,6 +41,8 @@ export const resultsBoxItems: Arr.NonEmptyReadonlyArray<Answer> = [
 	"a selection",
 	"insertPreview's compile",
 	"a preview",
+	"factsDecoder's compile",
+	"a decode",
 	"indexesOf's index map"
 ]
 
@@ -53,6 +58,7 @@ const resultsHeader: ReadonlyArray<string> = [
 	"export const unitsText = codecText(Account.fields.units)",
 	"export const evaluator = rowEvaluator(Accounts)",
 	"export const preview = insertPreview(Accounts)",
+	"export const decoder = factsDecoder(Accounts)",
 	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 	"export type Expect<T extends true> = T",
 	"/** Whether T is Effect's Result of its own success and failure, exactly. */",
