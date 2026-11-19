@@ -1,47 +1,106 @@
-To: pgsql-bugs@lists.postgresql.org
-Subject: UPDATE rebuilds stored generated column expressions per row when none needs computing
+To: Peter Eisentraut <peter@eisentraut.org>
+Cc: Tom Lane <tgl@sss.pgh.pa.us>,
+ Matthias van de Meent <boekewurm+postgres@gmail.com>,
+ "Anton A. Melnikov" <a.melnikov@postgrespro.ru>,
+ pgsql-hackers@lists.postgresql.org
+Subject: Re: [BUG] Excessive memory usage with update on STORED generated columns.
+In-Reply-To: <CAEze2WhrYY6J=0X54EQbTH0POWPTSnWeAwNJd01vcoWoXhtiig@mail.gmail.com>
+References: <ddc34dbd-1efc-4710-824c-e101e7eb63e6@postgrespro.ru>
+ <CAEze2Wh+_C8LtmiMRb58df=A1PrBVmMnYMOfbBUk9c=m99CN+w@mail.gmail.com>
+ <420a2def-969d-4161-bacf-17e9b7a79562@postgrespro.ru>
+ <2542714.1774895703@sss.pgh.pa.us>
+ <CAEze2WhsfFwfjooci5gqpSvq_1ibJHnJZ29c58GbDJWH9nbYkA@mail.gmail.com>
+ <2546907.1774898070@sss.pgh.pa.us>
+ <CAEze2WhrYY6J=0X54EQbTH0POWPTSnWeAwNJd01vcoWoXhtiig@mail.gmail.com>
+Attach: master/v3-0001-Don-t-initialize-generated-columns-again-for-ever.patch
 
 Hi,
 
-On PostgreSQL 18.6 and 19rc1, an UPDATE of a table with stored generated
-columns, none of which reads a column the UPDATE assigns, initializes the
-generation expressions again for every row it updates.  Each row parses
-every stored generated column's expression again (build_column_default())
-and builds its attrs_used bitmap, in the per-query memory context, and
-nothing frees them before the statement ends.  Memory grows with the rows
-updated, and so does time.
+This thread stalled in March and nothing was committed, so 18.0
+through 18.7, 19.0 and master still initialize the generated columns
+again for every row of such an UPDATE.  We hit it independently: a
+schema migration of ours updated 865,000 rows of a table with 104
+stored generated columns, assigning only columns none of them reads,
+and ExecutorState reached 72 GB before we cancelled it.
 
-The attached repro.sql (psql -X, as a superuser for
-pg_backend_memory_contexts) creates a table with one stored generated
-column over a, whose expression is a 1,000-element IN list, and reads
-ExecutorState in a statement-level AFTER UPDATE trigger:
+Tom Lane <tgl@sss.pgh.pa.us> writes:
+> I don't like using ri_extraUpdatedCols_valid here: it requires callers
+> to know more than they should about how ExecInitGenerated works, and
+> it does not fix the comparable performance problem that probably
+> exists in the INSERT path.  I think the right fix is to have three
+> booleans specifically reflecting the validity of ri_GeneratedExprsU,
+> ri_GeneratedExprsI, and ri_extraUpdatedCols.
 
-  statement            | rows  | executor_state_bytes
-  SET a = a, b = b + 1 |  2000 |               262144
-  SET a = a, b = b + 1 | 32000 |               262144
-  SET b = b + 1        |  2000 |            167772160
-  SET b = b + 1        | 32000 |           2592079872
+Matthias, for his part, would rather not add fields in the back
+branches, even in padding.  The attached v3 takes a third way, which I
+think meets both concerns: ExecInitGenerated() keeps its array even
+when no column needs computing, as ExecInitStoredGenerated() did
+before 83ea6c54025, instead of freeing it and storing NULL.  A NULL
+ri_GeneratedExprsU or ri_GeneratedExprsI then again means only that
+ExecInitGenerated() hasn't run for that command type, alike for UPDATE
+and INSERT, so ExecComputeStoredGenerated() goes on testing the very
+field it is about to use and needs to know nothing more.  Nothing is
+added to ResultRelInfo, and the same patch applies to master,
+REL_19_STABLE and REL_18_STABLE.  The cost is one array of natts
+pointers per result relation, kept where it used to be freed.
 
-that is about 81 kB per row for UPDATE t SET b = b + 1, and 13.4 s
-against 0.76 s for 32,000 rows on 19rc1.  18.6 gives the same numbers.
-In a migration of ours, an UPDATE of 865,000 rows over a table with 104
-stored generated columns grew ExecutorState to 71.7 GB before we
-cancelled it.
+v3 also makes the UPDATE branch's "Don't call twice" assertion test
+ri_extraUpdatedCols_valid, which ExecInitGenerated() sets whenever it
+runs for UPDATE.  The existing one tests the array, which the bug
+leaves NULL, so it could not fire.  The new test in
+generated_stored.sql (mirrored in generated_virtual.sql) updates
+several rows without touching what the generated column reads, by
+UPDATE, INSERT ... ON CONFLICT DO UPDATE, MERGE, an UPDATE with a
+statement-level BEFORE UPDATE trigger (which reaches
+ExecInitGenerated() first, through ExecGetAllUpdatedCols()), and an
+UPDATE of a partitioned table.  On an assert-enabled build with the
+new assertion but without the fix, it fails:
 
-The cause is in nodeModifyTable.c.  When no stored generated column
-depends on an UPDATE target column, ExecInitGenerated() frees the array
-it built ("didn't need it after all") and stores NULL in
-ri_GeneratedExprsU.  ExecComputeStoredGenerated() tests
-ri_GeneratedExprsU == NULL to decide whether to initialize, so every row
-calls ExecInitGenerated() again; the "Don't call twice" Assert tests the
-same NULL and does not fire.  REL_17_STABLE's ExecInitStoredGenerated()
-always kept the array, so 17 is not affected; REL_18_STABLE and master
-have the same code as 19rc1.
+  TRAP: failed Assert("!resultRelInfo->ri_extraUpdatedCols_valid"), File: "nodeModifyTable.c", Line: 536
 
-A possible fix is to test the flag ExecInitGenerated() always sets for an
-UPDATE, ri_extraUpdatedCols_valid, instead of the array's NULL (attached
-diff, unbuilt and untested), or to keep the empty array.  A workaround
-for users is to assign, in the same UPDATE, some column a stored generated
-column reads to itself.
+No existing regression test reaches a second call.  I don't see a way
+to test the memory itself in the regression suite.
+
+To reproduce (psql -X, as a superuser for pg_backend_memory_contexts):
+
+  SELECT format('CREATE TABLE t (a int, b int, g int GENERATED ALWAYS AS '
+                '(CASE WHEN a IN (%s) THEN 1 ELSE 0 END) STORED)',
+                string_agg(i::text, ', '))
+  FROM generate_series(0, 999) AS i \gexec
+  INSERT INTO t (a, b) SELECT i, i FROM generate_series(1, 40000) AS i;
+  CREATE FUNCTION probe() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN
+    RAISE NOTICE 'ExecutorState: % bytes', (SELECT max(total_bytes)
+      FROM pg_backend_memory_contexts WHERE name = 'ExecutorState');
+    RETURN NULL;
+  END $$;
+  CREATE TRIGGER probe AFTER UPDATE ON t
+    FOR EACH STATEMENT EXECUTE FUNCTION probe();
+  \timing on
+  UPDATE t SET b = b + 1;         -- g doesn't read b
+  UPDATE t SET a = a, b = b + 1;  -- g reads a
+
+On master (5c06a7ef24c), with the backend's CPU time from
+log_statement_stats:
+
+                                   ExecutorState       CPU
+  unpatched  SET b = b + 1         3238002688 bytes    16.47 s
+             SET a = a, b = b + 1      262144 bytes    0.145 s
+  v3         SET b = b + 1             131072 bytes    0.052 s
+             SET a = a, b = b + 1      262144 bytes    0.145 s
+
+Unpatched, the first statement takes about 81 kB per row at 10,000,
+20,000 and 40,000 rows alike, and so does the same SET list through
+INSERT ... ON CONFLICT DO UPDATE, MERGE, or an UPDATE of a partitioned
+table; with v3 all of them stay flat.  REL_18_STABLE and REL_19_STABLE
+give the same numbers byte for byte, and 83ea6c54025's parent is flat.
+
+Tested: meson test, every suite, TAP tests included, on assert-enabled
+builds of master, REL_19_STABLE and REL_18_STABLE with v3 applied,
+with no failures.  pgindent leaves nodeModifyTable.c unchanged.
+
+The patch's Reported-by lines credit Anton's report and ours; adjust
+as you see fit.
 
 Thanks,
+Bjorn

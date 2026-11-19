@@ -1,0 +1,264 @@
+From 55265b9d7dcfa1b0f534a6d008550dea19e22b0c Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Thu, 19 Nov 2026 00:04:27 -0600
+Subject: [PATCH REL_19 v3] Don't initialize generated columns again for every
+ row in UPDATE
+
+When an UPDATE changes no column that any stored generated column of
+its target table depends on, ExecInitGenerated() finds that no
+generation expression needs computing.  Since commit 83ea6c54025, it
+then freed its array of ExprStates and stored NULL in
+ri_GeneratedExprsU.  But ExecComputeStoredGenerated() takes a NULL
+ri_GeneratedExprsU to mean that ExecInitGenerated() hasn't been called
+yet, so it called it again for every row.  Each call fetches every
+generated column's expression again with build_column_default(), which
+runs stringToNode() on its adbin, and collects its Vars into a new
+bitmap, all in the per-query memory context, which isn't reset before
+the statement ends.  So both the memory and the time such an UPDATE
+uses grow with the number of rows times the size of the table's
+generation expressions: with one stored generated column whose
+expression is a 1000-element IN list, an UPDATE of 40000 rows took
+3.2 GB and 16 s of CPU instead of 128 kB and 0.05 s, and an UPDATE
+of a few hundred thousand rows of a table with many stored generated
+columns can run out of memory.  INSERT ... ON CONFLICT DO UPDATE and
+MERGE behave the same.
+
+To fix, keep the array even when no column needs computing, as before
+83ea6c54025, so that a NULL array again means only that
+ExecInitGenerated() hasn't run.  Nothing depends on the array being
+NULL in that case, and no field is added to ResultRelInfo.
+
+Also make the "Don't call twice" assertion for UPDATE check
+ri_extraUpdatedCols_valid, which ExecInitGenerated() sets whenever it
+runs for UPDATE, rather than the array, which this bug left NULL.  The
+regression test added here updates several rows with UPDATE, INSERT
+... ON CONFLICT DO UPDATE and MERGE, through a statement-level BEFORE
+UPDATE trigger and in a partitioned table, without touching any column
+a generated column reads; without the fix, it fails that assertion.
+The memory growth itself isn't something the regression tests can
+check.
+
+Reported-by: Anton A. Melnikov <a.melnikov@postgrespro.ru>
+Reported-by: REPLACE-ME <REPLACE-ME>
+Discussion: https://postgr.es/m/ddc34dbd-1efc-4710-824c-e101e7eb63e6@postgrespro.ru
+Backpatch-through: 18
+---
+ src/backend/executor/nodeModifyTable.c        | 15 +++----
+ .../regress/expected/generated_stored.out     | 41 +++++++++++++++++++
+ .../regress/expected/generated_virtual.out    | 41 +++++++++++++++++++
+ src/test/regress/sql/generated_stored.sql     | 27 ++++++++++++
+ src/test/regress/sql/generated_virtual.sql    | 27 ++++++++++++
+ 5 files changed, 142 insertions(+), 9 deletions(-)
+
+diff --git a/src/backend/executor/nodeModifyTable.c b/src/backend/executor/nodeModifyTable.c
+index f936e9a686a..bc4238cc59e 100644
+--- a/src/backend/executor/nodeModifyTable.c
++++ b/src/backend/executor/nodeModifyTable.c
+@@ -522,18 +522,15 @@ ExecInitGenerated(ResultRelInfo *resultRelInfo,
+ 		}
+ 	}
+ 
+-	if (ri_NumGeneratedNeeded == 0)
+-	{
+-		/* didn't need it after all */
+-		pfree(ri_GeneratedExprs);
+-		ri_GeneratedExprs = NULL;
+-	}
+-
+-	/* Save in appropriate set of fields */
++	/*
++	 * Save in appropriate set of fields.  We keep the array even if no column
++	 * needs to be computed, since ExecComputeStoredGenerated takes a NULL
++	 * array to mean that we haven't been called yet.
++	 */
+ 	if (cmdtype == CMD_UPDATE)
+ 	{
+ 		/* Don't call twice */
+-		Assert(resultRelInfo->ri_GeneratedExprsU == NULL);
++		Assert(!resultRelInfo->ri_extraUpdatedCols_valid);
+ 
+ 		resultRelInfo->ri_GeneratedExprsU = ri_GeneratedExprs;
+ 		resultRelInfo->ri_NumGeneratedNeededU = ri_NumGeneratedNeeded;
+diff --git a/src/test/regress/expected/generated_stored.out b/src/test/regress/expected/generated_stored.out
+index d7a18e478f8..11600af8e85 100644
+--- a/src/test/regress/expected/generated_stored.out
++++ b/src/test/regress/expected/generated_stored.out
+@@ -492,6 +492,47 @@ SELECT * FROM gtest3a ORDER BY a;
+     | 
+ (4 rows)
+ 
++-- UPDATE, ON CONFLICT DO UPDATE and MERGE of several rows, none of which
++-- needs its generated column recomputed
++CREATE TABLE gtest3b (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (a * 3) STORED);
++INSERT INTO gtest3b (a, b) VALUES (1, 1), (2, 2), (3, 3);
++UPDATE gtest3b SET b = b * 10;
++INSERT INTO gtest3b (a, b) VALUES (1, 4), (2, 5)
++  ON CONFLICT (a) DO UPDATE SET b = excluded.b;
++MERGE INTO gtest3b t USING (VALUES (2, 6), (3, 7), (4, 8)) v(a, b) ON t.a = v.a
++  WHEN MATCHED THEN UPDATE SET b = v.b
++  WHEN NOT MATCHED THEN INSERT (a, b) VALUES (v.a, v.b);
++CREATE FUNCTION gtest3b_trigger() RETURNS trigger LANGUAGE plpgsql
++  AS $$ BEGIN RETURN NULL; END $$;
++CREATE TRIGGER gtest3b_bs BEFORE UPDATE ON gtest3b
++  FOR EACH STATEMENT EXECUTE FUNCTION gtest3b_trigger();
++UPDATE gtest3b SET b = b + 1;
++SELECT * FROM gtest3b ORDER BY a;
++ a | b | c  
++---+---+----
++ 1 | 5 |  3
++ 2 | 7 |  6
++ 3 | 8 |  9
++ 4 | 9 | 12
++(4 rows)
++
++DROP TABLE gtest3b;
++DROP FUNCTION gtest3b_trigger();
++CREATE TABLE gtest3p (a int, b int, c int GENERATED ALWAYS AS (a * 3) STORED) PARTITION BY RANGE (a);
++CREATE TABLE gtest3p_1 PARTITION OF gtest3p FOR VALUES FROM (0) TO (10);
++CREATE TABLE gtest3p_2 PARTITION OF gtest3p FOR VALUES FROM (10) TO (20);
++INSERT INTO gtest3p (a, b) VALUES (1, 1), (2, 2), (11, 11), (12, 12);
++UPDATE gtest3p SET b = b * 10;
++SELECT tableoid::regclass, * FROM gtest3p ORDER BY a;
++ tableoid  | a  |  b  | c  
++-----------+----+-----+----
++ gtest3p_1 |  1 |  10 |  3
++ gtest3p_1 |  2 |  20 |  6
++ gtest3p_2 | 11 | 110 | 33
++ gtest3p_2 | 12 | 120 | 36
++(4 rows)
++
++DROP TABLE gtest3p;
+ -- COPY
+ TRUNCATE gtest1;
+ INSERT INTO gtest1 (a) VALUES (1), (2);
+diff --git a/src/test/regress/expected/generated_virtual.out b/src/test/regress/expected/generated_virtual.out
+index b14e10fb5a0..0cda8ececde 100644
+--- a/src/test/regress/expected/generated_virtual.out
++++ b/src/test/regress/expected/generated_virtual.out
+@@ -486,6 +486,47 @@ SELECT * FROM gtest3a ORDER BY a;
+     | 
+ (4 rows)
+ 
++-- UPDATE, ON CONFLICT DO UPDATE and MERGE of several rows, none of which
++-- needs its generated column recomputed
++CREATE TABLE gtest3b (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (a * 3) VIRTUAL);
++INSERT INTO gtest3b (a, b) VALUES (1, 1), (2, 2), (3, 3);
++UPDATE gtest3b SET b = b * 10;
++INSERT INTO gtest3b (a, b) VALUES (1, 4), (2, 5)
++  ON CONFLICT (a) DO UPDATE SET b = excluded.b;
++MERGE INTO gtest3b t USING (VALUES (2, 6), (3, 7), (4, 8)) v(a, b) ON t.a = v.a
++  WHEN MATCHED THEN UPDATE SET b = v.b
++  WHEN NOT MATCHED THEN INSERT (a, b) VALUES (v.a, v.b);
++CREATE FUNCTION gtest3b_trigger() RETURNS trigger LANGUAGE plpgsql
++  AS $$ BEGIN RETURN NULL; END $$;
++CREATE TRIGGER gtest3b_bs BEFORE UPDATE ON gtest3b
++  FOR EACH STATEMENT EXECUTE FUNCTION gtest3b_trigger();
++UPDATE gtest3b SET b = b + 1;
++SELECT * FROM gtest3b ORDER BY a;
++ a | b | c  
++---+---+----
++ 1 | 5 |  3
++ 2 | 7 |  6
++ 3 | 8 |  9
++ 4 | 9 | 12
++(4 rows)
++
++DROP TABLE gtest3b;
++DROP FUNCTION gtest3b_trigger();
++CREATE TABLE gtest3p (a int, b int, c int GENERATED ALWAYS AS (a * 3) VIRTUAL) PARTITION BY RANGE (a);
++CREATE TABLE gtest3p_1 PARTITION OF gtest3p FOR VALUES FROM (0) TO (10);
++CREATE TABLE gtest3p_2 PARTITION OF gtest3p FOR VALUES FROM (10) TO (20);
++INSERT INTO gtest3p (a, b) VALUES (1, 1), (2, 2), (11, 11), (12, 12);
++UPDATE gtest3p SET b = b * 10;
++SELECT tableoid::regclass, * FROM gtest3p ORDER BY a;
++ tableoid  | a  |  b  | c  
++-----------+----+-----+----
++ gtest3p_1 |  1 |  10 |  3
++ gtest3p_1 |  2 |  20 |  6
++ gtest3p_2 | 11 | 110 | 33
++ gtest3p_2 | 12 | 120 | 36
++(4 rows)
++
++DROP TABLE gtest3p;
+ -- COPY
+ TRUNCATE gtest1;
+ INSERT INTO gtest1 (a) VALUES (1), (2);
+diff --git a/src/test/regress/sql/generated_stored.sql b/src/test/regress/sql/generated_stored.sql
+index ef639ec6a18..8f4923db6ca 100644
+--- a/src/test/regress/sql/generated_stored.sql
++++ b/src/test/regress/sql/generated_stored.sql
+@@ -202,6 +202,33 @@ SELECT * FROM gtest3a ORDER BY a;
+ UPDATE gtest3a SET a = 'bb' WHERE a = 'b';
+ SELECT * FROM gtest3a ORDER BY a;
+ 
++-- UPDATE, ON CONFLICT DO UPDATE and MERGE of several rows, none of which
++-- needs its generated column recomputed
++CREATE TABLE gtest3b (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (a * 3) STORED);
++INSERT INTO gtest3b (a, b) VALUES (1, 1), (2, 2), (3, 3);
++UPDATE gtest3b SET b = b * 10;
++INSERT INTO gtest3b (a, b) VALUES (1, 4), (2, 5)
++  ON CONFLICT (a) DO UPDATE SET b = excluded.b;
++MERGE INTO gtest3b t USING (VALUES (2, 6), (3, 7), (4, 8)) v(a, b) ON t.a = v.a
++  WHEN MATCHED THEN UPDATE SET b = v.b
++  WHEN NOT MATCHED THEN INSERT (a, b) VALUES (v.a, v.b);
++CREATE FUNCTION gtest3b_trigger() RETURNS trigger LANGUAGE plpgsql
++  AS $$ BEGIN RETURN NULL; END $$;
++CREATE TRIGGER gtest3b_bs BEFORE UPDATE ON gtest3b
++  FOR EACH STATEMENT EXECUTE FUNCTION gtest3b_trigger();
++UPDATE gtest3b SET b = b + 1;
++SELECT * FROM gtest3b ORDER BY a;
++DROP TABLE gtest3b;
++DROP FUNCTION gtest3b_trigger();
++
++CREATE TABLE gtest3p (a int, b int, c int GENERATED ALWAYS AS (a * 3) STORED) PARTITION BY RANGE (a);
++CREATE TABLE gtest3p_1 PARTITION OF gtest3p FOR VALUES FROM (0) TO (10);
++CREATE TABLE gtest3p_2 PARTITION OF gtest3p FOR VALUES FROM (10) TO (20);
++INSERT INTO gtest3p (a, b) VALUES (1, 1), (2, 2), (11, 11), (12, 12);
++UPDATE gtest3p SET b = b * 10;
++SELECT tableoid::regclass, * FROM gtest3p ORDER BY a;
++DROP TABLE gtest3p;
++
+ -- COPY
+ TRUNCATE gtest1;
+ INSERT INTO gtest1 (a) VALUES (1), (2);
+diff --git a/src/test/regress/sql/generated_virtual.sql b/src/test/regress/sql/generated_virtual.sql
+index e62880f941a..c0360a244a0 100644
+--- a/src/test/regress/sql/generated_virtual.sql
++++ b/src/test/regress/sql/generated_virtual.sql
+@@ -202,6 +202,33 @@ SELECT * FROM gtest3a ORDER BY a;
+ UPDATE gtest3a SET a = 'bb' WHERE a = 'b';
+ SELECT * FROM gtest3a ORDER BY a;
+ 
++-- UPDATE, ON CONFLICT DO UPDATE and MERGE of several rows, none of which
++-- needs its generated column recomputed
++CREATE TABLE gtest3b (a int PRIMARY KEY, b int, c int GENERATED ALWAYS AS (a * 3) VIRTUAL);
++INSERT INTO gtest3b (a, b) VALUES (1, 1), (2, 2), (3, 3);
++UPDATE gtest3b SET b = b * 10;
++INSERT INTO gtest3b (a, b) VALUES (1, 4), (2, 5)
++  ON CONFLICT (a) DO UPDATE SET b = excluded.b;
++MERGE INTO gtest3b t USING (VALUES (2, 6), (3, 7), (4, 8)) v(a, b) ON t.a = v.a
++  WHEN MATCHED THEN UPDATE SET b = v.b
++  WHEN NOT MATCHED THEN INSERT (a, b) VALUES (v.a, v.b);
++CREATE FUNCTION gtest3b_trigger() RETURNS trigger LANGUAGE plpgsql
++  AS $$ BEGIN RETURN NULL; END $$;
++CREATE TRIGGER gtest3b_bs BEFORE UPDATE ON gtest3b
++  FOR EACH STATEMENT EXECUTE FUNCTION gtest3b_trigger();
++UPDATE gtest3b SET b = b + 1;
++SELECT * FROM gtest3b ORDER BY a;
++DROP TABLE gtest3b;
++DROP FUNCTION gtest3b_trigger();
++
++CREATE TABLE gtest3p (a int, b int, c int GENERATED ALWAYS AS (a * 3) VIRTUAL) PARTITION BY RANGE (a);
++CREATE TABLE gtest3p_1 PARTITION OF gtest3p FOR VALUES FROM (0) TO (10);
++CREATE TABLE gtest3p_2 PARTITION OF gtest3p FOR VALUES FROM (10) TO (20);
++INSERT INTO gtest3p (a, b) VALUES (1, 1), (2, 2), (11, 11), (12, 12);
++UPDATE gtest3p SET b = b * 10;
++SELECT tableoid::regclass, * FROM gtest3p ORDER BY a;
++DROP TABLE gtest3p;
++
+ -- COPY
+ TRUNCATE gtest1;
+ INSERT INTO gtest1 (a) VALUES (1), (2);
+-- 
+2.53.0
+

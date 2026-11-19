@@ -1,10 +1,16 @@
-NOTES: the per-row rebuild of stored generation expressions in an UPDATE that feeds none of them
+NOTES: the per-row re-initialization of stored generated columns in an UPDATE that feeds none of them
 
 grizzle's side (lane FILLMEM): every UPDATE grizzle emits, a backfill's, a fill's, a write's ON CONFLICT DO UPDATE and
 MERGE UPDATE among them, gets its SET list from one door, packages/engine/src/sql/generation.ts assignments(), which
 adds the table's anchor, a column the cheapest stored generated column reads, assigned its own value, where the SET
-list feeds none (the workaround of email.txt). That module says when to delete it: once production runs a release
-whose ExecInitGenerated keeps the array or a flag that nothing is needed.
+list feeds none (the workaround: then ExecInitGenerated needs at least one expression and keeps its array). That
+module says when to delete it: once production runs a release whose ExecInitGenerated keeps the array, or a flag that
+nothing is needed. v3 (README.txt) is the first kind; no release has it yet, and none will until upstream commits a
+fix and ships it in an 18 or 19 minor release.
 
-Files: repro.sql (with repro-size.sql, which it includes per size), EVIDENCE.txt, email.txt,
-proposed-extra-updated-cols-valid.diff, CHECKLIST.txt.
+The upstream side (lane PGPATCH, 2026-11-19): the bug was already on pgsql-hackers since 2026-03-30, unresolved.
+README.txt says what to send and how; email.txt is the reply in that thread; EVIDENCE.txt has the numbers.
+
+Where the commits live: ~/.cache/grizzle-release/PGPATCH-pg, a clone of https://git.postgresql.org/git/postgresql.git,
+branches generated-update-init-once (master), generated-update-init-once-19 and generated-update-init-once-18. The
+patch files here are those commits' git format-patch, so that clone holds nothing more of them.
