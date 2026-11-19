@@ -107,8 +107,9 @@ export const rolledBack = property.explore(int(1, 4), {
 	kills: [
 		{
 			file: "test/support/substrate/substrate.ts",
-			original: 'const transactionBegan = bare("SELECT pg_catalog.transaction_timestamp()::text")',
-			replacement: 'const transactionBegan = bare("SELECT pg_catalog.pg_current_xact_id()::text")',
+			original:
+				"\t\"SELECT pg_catalog.extract('epoch', pg_catalog.transaction_timestamp())::text\"",
+			replacement: '\t"SELECT pg_catalog.pg_current_xact_id()::text"',
 			why: "A case's transaction is named by its transaction id, read as it begins, as before: every rolled-back case holds one for its whole length, and a logical slot's making waits for it (EVALCOMPILE2's decoder-derivation: the slot's making held up behind rolled-back cases); this property fails."
 		},
 		{
