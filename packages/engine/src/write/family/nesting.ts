@@ -1,5 +1,5 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A nested write: an insert of an owner, or of a tree's roots, with every family it owns nested at its count fields,
  * to any depth.
@@ -26,13 +26,21 @@ import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
  * and its owner's count and ends, is drawn from the family's stored group, a counted family being a set its inserts
  * append to, so no fact states it: an owner inserted again beside a new member of its counted family is the same fact,
  * and the member is appended.
+ *
+ * A nesting whose rows leave out a field a stamp fills (ir/instant.ts Stamped), its root's place or clock and every
+ * member's field its group carries from one, is a stamped nesting (`stamps`): the walk fills no stamped column, which no
+ * fact states and no nested row sends (`NestedLayout` pending), and its one family statement stamps each head once at
+ * each of its rows' children and fills every row that carries it from that one stamp (write/family/additions.ts), so
+ * every member carries exactly its owner's stamp, never one read again.
  */
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { type Family, isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { type FillAt, type FillOrder, type FillPosition, layoutKey } from "#compiler/ir/fill.ts"
+import type { Stamped } from "#compiler/ir/instant.ts"
 import {
 	type FamilyId,
 	familyKey,
+	type LawField,
 	type LawRelation,
 	type RelationInfo,
 	type ColumnKey,
@@ -66,9 +74,10 @@ export type NestingRoot =
 
 /**
  * A relation whose rows a nesting's family statements write: its row layout (statements.ts rowLayout), the columns of it
- * the counted families it is a member of fill after the walk, none for a relation of no counted family, the columns of
- * it the walk fills, which its rows state (`walkedAt`), and where its rows stand in the walk, at which the counts and
- * ends of the counted families they own are filled (runtime/write/bind.ts freshOwners).
+ * its family statement fills after the walk, those the counted families it is a member of fill and those a stamp fills
+ * (Nesting `stamps`), none for a relation of neither, the columns of it the walk fills, which its rows state
+ * (`walkedAt`), and where its rows stand in the walk, at which the counts and ends of the counted families they own are
+ * filled (runtime/write/bind.ts freshOwners).
  */
 export interface NestedLayout {
 	readonly layout: RowLayout
@@ -90,10 +99,17 @@ const idData = (id: FamilyId): { readonly id: FamilyId } => ({
 const atData = (at: FillPosition): FillAt =>
 	at.kind === "top" ? { kind: "top" } : { kind: at.kind, family: idData(at.family.id) }
 
-/** A nesting as a binding holds it (`NestingData`). */
+/** A nesting as a binding holds it (`NestingData`): its own rows keyed by their key's fields but those a stamp fills,
+ * which every row of a call holds alike in each group (`keyedOf`). */
 export const nestingData = (nesting: Nesting): NestingData => ({
 	relation: nesting.relation.name,
-	primary: mapNonEmpty(nesting.relation.primaryFields, (f) => ({ name: f.name, type: f.type })),
+	primary: mapNonEmpty(
+		keyedOf(nesting.relation, nesting.stamps.get(nesting.relation.name) ?? []),
+		(f) => ({
+			name: f.name,
+			type: f.type
+		})
+	),
 	root:
 		nesting.root.kind === "tree"
 			? { kind: "tree", family: idData(nesting.root.family.id) }
@@ -134,7 +150,56 @@ export interface Nesting {
 	readonly top: Heading
 	/** The columns of the insert's own row the walk fills where it starts (`walkedAt`), which its facts state. */
 	readonly walked: ReadonlySet<ColumnKey>
+	/**
+	 * Each relation of the nesting whose rows leave out a field a stamp fills, with those fields (ir/instant.ts Stamped):
+	 * the insert's own, its place, clocks and stamped references, and each member's group field paired with a stamped
+	 * field of its owner, stamped by the owner's stamp at the member's fields paired with that stamp's child; none where
+	 * no row leaves one out. Its one family statement stamps them all (write/family/additions.ts).
+	 */
+	readonly stamps: ReadonlyMap<StoredRelationName, NonEmptyReadonlyArray<Stamped>>
 }
+
+/**
+ * The key fields of `relation` its rows in one call are keyed by: every field of its primary key but one a stamp fills
+ * (`stamped`), which every row of the call holds alike at its group, so two rows that agree at the rest meet at the key.
+ * A stamp stands after its child in the key, so at least that child is left.
+ */
+const keyedOf = (
+	relation: RelationInfo,
+	stamped: ReadonlyArray<Stamped>
+): NonEmptyReadonlyArray<LawField> => {
+	const [first, ...rest] = relation.primaryFields.filter(
+		(f) => !stamped.some((s) => s.field.name === f.name)
+	)
+	if (first === undefined) {
+		throw defect(`the key of ${relation.name} beyond its stamped fields, its stamps' child`)
+	}
+	return [first, ...rest]
+}
+
+/**
+ * The stamps a nesting's members carry from `owned`, the stamps of the rows of their families' owner (Nesting `stamps`):
+ * each member's group field paired with an owner's stamped field, stamped by the owner's stamp at the member's fields
+ * the group pairs with that stamp's child. A family's group pairs its owner's whole key, and a stamp's child stands in
+ * its row's key, so every child field is paired.
+ */
+const carriedStamps = (family: Family, owned: ReadonlyArray<Stamped>): ReadonlyArray<Stamped> =>
+	owned.flatMap((s): ReadonlyArray<Stamped> => {
+		const pair = family.group.find((g) => g.owner.name === s.field.name)
+		if (pair === undefined) {
+			return []
+		}
+		const child = mapNonEmpty(s.stamp.child, (c) => {
+			const paired = family.group.find((g) => g.owner.name === c.name)
+			if (paired === undefined) {
+				throw defect(
+					`the member field of ${family.member.name} its group pairs with ${family.owner.name}.${c.name}, a stamp's child`
+				)
+			}
+			return paired.member
+		})
+		return [{ field: pair.member, stamp: { head: s.stamp.head, child } }]
+	})
 
 /** The fields of a level a fact supplies: its caller's, but those its nesting supplies: a member's
  * group, a tree node's root fields among them. A tree's root states its root fields; its parent is drawn. */
@@ -190,11 +255,15 @@ const walkedAt = (
 
 /**
  * The nesting of an insert into `relation` by the schema's fill order: every family it reaches, each at its depth, and
- * its levels' headings. The fill order admits no sequences that nest each other in a cycle, so each sequence is reached
- * once, a tree's own members by its recursion, and every reached row is filled by the walk, but the columns its counted
- * families fill.
+ * its levels' headings, its own rows leaving out `stamped`, the fields its insert stamps. The fill order admits no
+ * sequences that nest each other in a cycle, so each sequence is reached once, a tree's own members by its recursion, and
+ * every reached row is filled by the walk, but the columns its counted families fill and those a stamp fills (`stamps`).
  */
-export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
+export const nestingOf = (
+	relation: RelationInfo,
+	fill: FillOrder,
+	stamped: ReadonlyArray<Stamped>
+): Nesting => {
 	const families = fill.families
 	const tree = families.find((f) => isTreeOf(f, relation.name))
 	const root: NestingRoot =
@@ -223,6 +292,21 @@ export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 		}
 		frontier = next
 	}
+	/** Each relation's stamps, its own rows' first, each member's carried from its owner's as the walk reaches it. */
+	const stamps = new Map<StoredRelationName, NonEmptyReadonlyArray<Stamped>>()
+	const [firstStamp, ...moreStamps] = stamped
+	if (firstStamp !== undefined) {
+		stamps.set(relation.name, [firstStamp, ...moreStamps])
+	}
+	for (const { family } of reached.toSorted((a, b) => a.depth - b.depth)) {
+		const [first, ...more] = carriedStamps(family, stamps.get(family.owner.name) ?? [])
+		if (first !== undefined && !isTreeOf(family, family.member.name)) {
+			stamps.set(family.member.name, [first, ...more])
+		}
+	}
+	/** The columns of `name` a stamp fills, which the walk leaves to its family statement. */
+	const stampedOf = (name: StoredRelationName): ReadonlySet<ColumnKey> =>
+		new Set((stamps.get(name) ?? []).map((s) => columnKeyOf(s.field.name)))
 	const layouts = new Map<StoredRelationName, NestedLayout>()
 	const start = walkStart(families, relation.name)
 	/** The insert's own relation as a family's member, a tree's or a counted family's, when its family statements write
@@ -238,14 +322,16 @@ export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 		]
 	for (const { member, position } of written) {
 		if (!layouts.has(member.name)) {
+			const filled = stampedOf(member.name)
 			layouts.set(member.name, {
 				layout: rowLayout(member, families),
-				pending: pendingOf(fill, member.name),
-				walked: walkedAt(fill, member, position),
+				pending: new Set([...pendingOf(fill, member.name), ...filled]),
+				walked: new Set([...walkedAt(fill, member, position)].filter((k) => !filled.has(k))),
 				position
 			})
 		}
 	}
+	const ownStamped = stampedOf(relation.name)
 	return Object.freeze({
 		relation,
 		root,
@@ -258,8 +344,9 @@ export const nestingOf = (relation: RelationInfo, fill: FillOrder): Nesting => {
 		),
 		layouts,
 		top: relation.fields
-			.filter((f) => f.writing.kind !== "generated")
+			.filter((f) => f.writing.kind !== "generated" && !ownStamped.has(columnKeyOf(f.name)))
 			.map((f) => ({ name: f.name, type: f.type })),
-		walked: walkedAt(fill, relation, start)
+		walked: new Set([...walkedAt(fill, relation, start)].filter((k) => !ownStamped.has(k))),
+		stamps
 	})
 }

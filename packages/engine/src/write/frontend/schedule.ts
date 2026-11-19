@@ -63,16 +63,17 @@ export interface OwnerCopy {
 }
 
 /**
- * One member relation's family additions in a stratum, one statement (write/family/additions.ts): it inserts rows of
- * `member` and changes the rows of `owners`; or, appending none, it recounts the owners its stratum puts of `member`'s
- * families. Each member relation's additions take their own place in the stratum's order, as its appends' keys need, so
- * a member relation has one in a stratum.
+ * A stratum's family additions of member relations, one statement (write/family/additions.ts): it inserts rows of each
+ * of `members` and changes the rows of `owners`; or, appending none, it recounts the owners its stratum puts of
+ * `member`'s families. Each member relation's additions take their own place in the stratum's order, as its appends' keys
+ * need, so a member relation has one in a stratum; the relations a stamped nesting writes are one statement's, which
+ * stamps each head once (write/family/nesting.ts Nesting `stamps`), the nesting's root among them.
  */
 export type FamilyAdditions =
 	| {
 			readonly kind: "additions"
 			readonly appends: "rows"
-			readonly member: string
+			readonly members: NonEmptyReadonlyArray<string>
 			/** The owner relations whose rows its appended members copy a column of that the database draws, read as the
 			 * stratum's earlier statements leave them, so it follows each statement that writes them (`OwnerCopy`
 			 * `drawn`). */
@@ -80,7 +81,7 @@ export type FamilyAdditions =
 			/** Where each owner copy its appended members' families draw reads its owner's column. */
 			readonly ownerCopies: ReadonlyArray<OwnerCopy>
 			readonly owners: ReadonlyArray<RowChanges>
-			/** The member relations whose rows an edit of `member` refills from the rows this statement appends of it, a
+			/** The member relations whose rows an edit of a member refills from the rows this statement appends of it, a
 			 * stored one a put moves among them, as its removals refill them from the rows they redraw (FamilyRemovals
 			 * `riders`): a re-placed row's dependants follow it, at the columns their families draw. */
 			readonly riders: ReadonlyArray<RowChanges>
@@ -127,10 +128,16 @@ export const familyNodeRelations = (node: FamilyNode): ReadonlyArray<string> =>
 		? unitRelations(node.units, node.below).map((r) => r.name)
 		: [...writtenMembers(node), ...node.owners.map((o) => o.relation)]
 
-/** The member relations an additions or removals statement writes the rows of: its member and its riders, none where it
- * appends none. */
+/** The member relations an additions or removals statement writes the rows of: its members and its riders, none where
+ * it appends none. */
 const writtenMembers = (node: FamilyAdditions | FamilyRemovals): ReadonlyArray<string> =>
-	writesMember(node) ? [node.member, ...ridersOf(node).map((r) => r.relation)] : []
+	writesMember(node) ? [...ownMembers(node), ...ridersOf(node).map((r) => r.relation)] : []
+
+/** The member relations a statement that writes its members' rows inserts or re-places: a removals statement's one, an
+ * appending additions statement's every one. */
+const ownMembers = (
+	node: FamilyRemovals | Extract<FamilyAdditions, { readonly appends: "rows" }>
+): NonEmptyReadonlyArray<string> => (node.kind === "removals" ? [node.member] : node.members)
 
 /** Whether a family statement writes its member's rows: a removals statement, or an additions statement that appends. */
 const writesMember = (
@@ -156,7 +163,7 @@ const writesAt = (
 	relation: string,
 	columns: ReadonlyArray<string>
 ): boolean =>
-	(writesMember(node) && relation === node.member) ||
+	(writesMember(node) && ownMembers(node).includes(relation)) ||
 	ridersOf(node).some((r) => r.relation === relation && touches(r, columns))
 
 /** A column PostgreSQL generates from its row, by key (ir/law.ts ColumnKey), with the keys of the columns it
@@ -539,7 +546,7 @@ const orderFamilyWrite = <V extends { readonly follows: Set<V> }>(
 		y.follows.add(x)
 	}
 	const effectAt = (relation: string, columns: ReadonlyArray<string>): Effect | undefined => {
-		if (writesMember(node) && relation === node.member) {
+		if (writesMember(node) && ownMembers(node).includes(relation)) {
 			return node.kind === "additions"
 				? { adds: true, removes: false, updates: false }
 				: { adds: node.edits.some((e) => e !== "delete"), removes: true, updates: true }
@@ -681,7 +688,12 @@ const cycleAmong = <A>(
 export const sameNode = (a: FamilyNode, b: FamilyNode): boolean => {
 	switch (a.kind) {
 		case "additions":
-			return b.kind === "additions" && a.member === b.member
+			return (
+				b.kind === "additions" &&
+				(a.appends === "rows"
+					? b.appends === "rows" && a.members[0] === b.members[0]
+					: b.appends === "nothing" && a.member === b.member)
+			)
 		case "removals":
 			return b.kind === "removals" && a.member === b.member
 		case "unit":

@@ -3316,6 +3316,12 @@ and no count for a write to read.
   at a group the same insert stamps (`groupStamped`), and a role whose ChangeSet stamps one runs SERIALIZABLE: two
   calls that stamp one group each read the other's head or are refused with 40001, a retryable `transient`, so no two
   commit one place.
+- **Its members carry it.** An owner whose place a nested insert stamps hands it to its members: each member's group
+  field paired with the place carries the one place its owner's row takes, at any depth, and no member states it. The
+  owner and every member are written by one family statement, which stamps the place once at each group, every row that
+  carries it joining that one stamp, so the place is read from its group's head once per group and never again; a
+  read-back of the owner's `delta.added` rides that statement, so the call reads back the place it was stamped:
+  `ChangeSet.empty(S).insert(Claim, []).read("held", (delta) => ...)` over rows `{ step, holds: [{ resource }] }`.
 - **Written by inserts alone.** A put would state a place and a delete would leave a gap, so neither writes a relation
   with a place (`written`).
 - **Its order is the migration's.** A place's declaration says nothing a write reads beyond the place itself; it states

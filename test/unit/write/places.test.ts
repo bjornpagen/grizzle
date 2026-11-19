@@ -21,10 +21,11 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Order } from "effect"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
@@ -41,6 +42,10 @@ import {
 	placeWriteGen,
 	refusalOf,
 	schemaFeatureOf,
+	type StampedNestingFeature,
+	stampedNestingFeatures,
+	stampedNestingGen,
+	stampedNestingOf,
 	writeFeatureOf
 } from "#test/unit/write/places.fixtures.ts"
 
@@ -161,9 +166,9 @@ export const aPlaceThatStatesNoOrderCompilesAndStampsExactlyAsOneOrderedByAField
 			{
 				file: "packages/engine/src/write/insert/stamp.ts",
 				original:
-					'\t\t\t\tcase "place":\n\t\t\t\t\treturn { kind: "coalesce", args: [next, lit.int(0, types.bigint)] }\n',
+					'\t\t\tcase "place":\n\t\t\t\treturn { kind: "coalesce", args: [next, lit.int(0, types.bigint)] }\n',
 				replacement:
-					'\t\t\t\tcase "place":\n\t\t\t\t\treturn counted.order.kind === "by" ? { kind: "coalesce", args: [next, lit.int(0, types.bigint)] } : next\n',
+					'\t\t\tcase "place":\n\t\t\t\treturn head.order.kind === "by" ? { kind: "coalesce", args: [next, lit.int(0, types.bigint)] } : next\n',
 				why: "An unordered place's insert stamps one past its group's greatest place with no first place, so a group's first row would hold NULL: its insert differs from the ordered place's, and the property fails."
 			},
 			{
@@ -231,6 +236,97 @@ export const aChangeSetStampsAPlaceItsInsertLeavesOutAndWritesItsRelationByInser
 				replacement:
 					'\t\tcase "place":\n\t\t\treturn true\n\t\tcase "retirement":\n\t\t\treturn false\n',
 				why: "A member head may hold a place, so the insert stating its place is not refused as its heading's mismatch, and the property fails."
+			}
+		]
+	})
+
+/** A stamped nesting is one statement that writes its owner and every member, its head stamped by one CTE that every row it carries joins. */
+export const aStampedNestingIsOneStatementWritingItsOwnerAndEveryMemberItsHeadStampedByOneCte =
+	property.exhaust(finite(stampedNestingGen), {
+		needs: {},
+		situations: [
+			"one sequence of members",
+			"members two deep and two sequences"
+		] satisfies ReadonlyArray<Reached<StampedNestingFeature>>,
+		check: (_, k: Case<StampedNestingFeature>) => (c) =>
+			Effect.gen(function* () {
+				k.noteAll(stampedNestingFeatures(c))
+				const nested = stampedNestingOf(c)
+				const artifacts = succeeded(
+					testArtifacts(nested.schema, testCompile),
+					"the nesting's artifacts"
+				)
+				const [compiled, counts] = yield* callCounts(
+					Effect.sync(() =>
+						compileWrite(
+							checking(nested.schema),
+							descOf(nested.changeSet()),
+							realityWrite(artifacts)
+						)
+					),
+					{
+						stamps: { file: "packages/engine/src/write/insert/stamp.ts", name: "headStampsCte" },
+						programs: {
+							file: "packages/engine/src/write/program/compile.ts",
+							name: "familyProgram"
+						}
+					}
+				)
+				const written = succeeded(compiled, "the stamped nesting's insert compiles")
+				assert.deepEqual(
+					Arr.flatMap(written.artifact.steps, (step) => {
+						switch (step.kind) {
+							case "write":
+							case "single":
+								return [[step.kind]]
+							case "familyWrite":
+								return [
+									Arr.dedupe(
+										Arr.sort(
+											Arr.flatMap(step.parts, (p) =>
+												p.rows === "facts" ? [String(p.relation)] : []
+											),
+											Order.String
+										)
+									)
+								]
+							case "carrier":
+							case "readBack":
+							case "check":
+							case "hold":
+							case "retire":
+							case "admission":
+								return []
+						}
+					}),
+					[Arr.sort(nested.relations, Order.String)],
+					"one family statement inserts the owner and every member, and no other statement writes"
+				)
+				assert.equal(
+					counts.stamps,
+					counts.programs,
+					"each build of the write's family statements stamps the head by one CTE, each child probed once, which every row that carries it joins"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "README's Places: a nesting's stamp is computed once, by the one statement that writes every row carrying it"
+		},
+		box: "an owner keyed by its group and a place, its one sequence of members, or members two deep and a second sequence, each member carrying the owner's stamp in its group",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original:
+					"\t\t\t\tconst joined = sets.filter((x) => [...heads].some((h) => x.heads.has(h)))\n",
+				replacement: "\t\t\t\tconst joined = sets.filter(() => false)\n",
+				why: "The members' additions are statements of their own, after the owner's: each stamps the head again, reading the owner's row it now holds, so the head is probed twice at each child and a member's stamp is its owner's plus one; the program holds two writing statements and two stamps' CTEs."
+			},
+			{
+				file: "packages/engine/src/write/family/nesting.ts",
+				original: "\t\tconst pair = family.group.find((g) => g.owner.name === s.field.name)\n",
+				replacement: "\t\tconst pair = family.group.find(() => false)\n",
+				why: "No member carries its owner's stamp, so the walk sends a member's stamped group field it never filled and the members are their own statement's, apart from the owner's stamp."
 			}
 		]
 	})

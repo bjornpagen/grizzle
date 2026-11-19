@@ -1,4 +1,4 @@
-import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -17,7 +17,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { familyDrawn } from "#compiler/ir/fill.ts"
-import { familyKey, type RelationInfo } from "#compiler/ir/law.ts"
+import { columnKeyOf, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	type CallerParamDecl,
@@ -162,6 +162,7 @@ import {
 	noRiding,
 	type ReadBackPart,
 	type Riding,
+	ridingFamilyStatement,
 	type SharedPart,
 	type SingleStatement,
 	singleStatement
@@ -181,7 +182,8 @@ import {
 	deltaCteName,
 	deltaIn,
 	deltaTarget,
-	emptyDelta
+	emptyDelta,
+	familyAddedCte
 } from "#compiler/write/readback/deltas.ts"
 import { type DeltasOf, deltaSourceIn, lowerReadBack } from "#compiler/write/readback/lower.ts"
 import {
@@ -497,23 +499,41 @@ const familyProgram = (
 					frontend.nested.flatMap((n) =>
 						n.stratum === s
 							? [...n.nesting.layouts].map(([relation, at]) => {
+									const stamps = n.nesting.stamps.get(relation) ?? []
+									const stamped = new Set(stamps.map((st) => columnKeyOf(st.field.name)))
 									const source: Extract<RowSource, { readonly kind: "nestedRows" }> = {
 										kind: "nestedRows",
 										stratum: s,
-										layout: sentLayout(at),
-										walked: at.walked
+										layout: sentLayout({
+											layout: at.layout,
+											pending: new Set([...at.pending].filter((k) => !stamped.has(k)))
+										}),
+										walked: at.walked,
+										stamps
 									}
 									return [relation, source] as const
 								})
 							: []
 					)
 				)
+				/** The stamps of the facts of `slot`: a stamped nesting's root's, its family statement's to stamp
+				 * (write/family/nesting.ts Nesting `stamps`), none for any other slot. */
+				const slotStamps = (slot: MemberSlot) => {
+					const nested = frontend.nested.find((n) => n.stratum === s && n.slot.slot === slot.slot)
+					return nested?.nesting.stamps.get(nested.nesting.relation.name) ?? []
+				}
+				/** The member relations the statement appends, or, appending none, the one whose owners it recounts. */
+				const members = node.appends === "rows" ? node.members : [node.member]
 				/** Each appended relation's row sources: its slots, then its nested rows. */
 				const sourced = new Map<string, [RowSource, ...Array<RowSource>]>()
 				for (const edit of stratumEdits) {
-					const slots = edit.slots.flatMap((e) =>
-						e.as === "deletes" ? [] : [{ as: e.as, slot: memberSlotOf(frontend, e.slot) }]
-					)
+					const slots = edit.slots.flatMap((e) => {
+						if (e.as === "deletes") {
+							return []
+						}
+						const slot = memberSlotOf(frontend, e.slot)
+						return [{ as: e.as, slot, stamps: slotStamps(slot) }]
+					})
 					if (isNonEmpty(slots)) {
 						sourced.set(edit.relation.name, [{ kind: "slots", slots }])
 					}
@@ -526,9 +546,8 @@ const familyProgram = (
 						known.push(source)
 					}
 				}
-				const member = node.member
 				const appended = [...sourced].flatMap(([name, sources]): ReadonlyArray<AppendedMember> => {
-					if (name !== member) {
+					if (!members.includes(name)) {
 						return []
 					}
 					const relation = info(name)
@@ -563,7 +582,9 @@ const familyProgram = (
 					({ relation, slot }): ReadonlyArray<PutOwner> => {
 						const recounted = all.filter(
 							(f) =>
-								f.owner.name === relation && f.shape.kind !== "tree" && f.member.name === member
+								f.owner.name === relation &&
+								f.shape.kind !== "tree" &&
+								members.includes(f.member.name)
 						)
 						const owner = info(relation)
 						return isNonEmpty(recounted) && owner.mutable
@@ -636,43 +657,133 @@ const familyProgram = (
 }
 
 /**
- * Places the family statement of `node` in `stratum`, after the statements placed so far and those `deps` gives it.
+ * The read-backs riding a family statement: `none`, or `riding`, its read-backs with what lowers them (`ridingFamily`).
+ */
+export type FamilyRiders =
+	| { readonly kind: "none" }
+	| {
+			readonly kind: "riding"
+			readonly readBacks: NonEmptyReadonlyArray<ReadBack>
+			readonly context: RidingContext
+	  }
+
+/**
+ * Places the family statement of `node` in `stratum`, after the statements placed so far and those `deps` gives it,
+ * with the read-backs `riders` riding it, each evaluated in it (`ridingFamily`).
  */
 export const placeFamily = (
 	b: ArtifactBuilder,
 	placements: ReadonlyArray<FamilyPlacement>,
 	stratum: StratumAt,
 	node: FamilyNode,
-	deps: (placement: FamilyPlacement) => ReadonlyArray<number>
+	deps: (placement: FamilyPlacement) => ReadonlyArray<number>,
+	riders: FamilyRiders
 ): void => {
 	const placement = defined(
 		placements.find((p) => p.stratum === stratum && sameNode(p.node, node)),
 		"a family statement the schedule placed, built once"
 	)
 	const { step, sql } = placement
-	const width = maxOf(
-		step.parts.map((p) => p.width),
-		0
-	)
+	const ridden =
+		riders.kind === "riding"
+			? ridingFamily(sql, riders.readBacks, riders.context)
+			: { ast: sql.ast, sql: sql.sql, params: sql.params, width: sql.width, riders: [] }
 	placeSpec(
 		b,
 		step,
 		Object.freeze({
-			sql: sql.sql.text,
-			paramSlots: sql.params,
+			sql: ridden.sql.text,
+			paramSlots: ridden.params,
 			heading: [
 				{ name: "tag", type: plainType("int4") },
-				...indices(width).map((i) => ({ name: `column ${i + 1}`, type: wildcardText }))
+				...indices(ridden.width).map((i) => ({ name: `column ${i + 1}`, type: wildcardText }))
 			],
 			role: "member",
 			dependsOn: Object.freeze([...deps(placement)])
 		}),
-		sql.ast,
-		sql.sql.nameMap,
+		ridden.ast,
+		ridden.sql.nameMap,
 		wholeText,
 		oneForm,
-		[]
+		ridden.riders
 	)
+}
+
+/**
+ * The family statement `sql` with the read-backs `readBacks` riding it (write/schedule/plan.ts placeReadBacks), and each
+ * riding read-back with where its rows stand among the statement's. A relation's added side the statement inserts is one
+ * CTE over the rows its insert's RETURNING returns, every field in heading order (write/readback/deltas.ts deltaCteName),
+ * and every other side of a relation it writes is the empty relation: an additions statement removes nothing, and the
+ * root it inserts for a read-back is a stamped nesting's, whose stamped rows meet no stored one. Each read-back is
+ * lowered over those deltas, named past them and past every earlier read-back's, and is one part of the statement after
+ * the family's parts, its rows behind its tag, every arm padded to the widest, as a single statement's riders are
+ * (write/program/single.ts singleStatement). A read-back's statement rides in its first form.
+ */
+const ridingFamily = (
+	sql: FamilyWriteSql,
+	readBacks: NonEmptyReadonlyArray<ReadBack>,
+	context: RidingContext
+): ReturnType<typeof ridingFamilyStatement> & {
+	readonly riders: ReadonlyArray<RidingReadBack>
+} => {
+	const { frontend } = context
+	const start = namesPast(sql.sql.nameMap, ownStatement)
+	const named = new Map(
+		frontend.deltas.flatMap((d) => (d.kind === "relation" ? [[d.relation.name, d] as const] : []))
+	)
+	const targetOf = (relation: string): string => deltaTarget(frontend.deltaEntries, relation)
+	const supply = new NameSupply(start)
+	const written = new Set<string>(sql.returnings.map((r) => r.relation))
+	/** Each inserted relation's added side the read-backs name, a CTE over its insert's RETURNING. */
+	const added = new Map<string, DeltaCteName>()
+	const deltaCtes = sql.returnings.flatMap((r) => {
+		const delta = named.get(r.relation)
+		const read = readBacks.some((x) =>
+			x.deltas.some((d) => targetOf(d.relation) === r.relation && d.side === "added")
+		)
+		if (delta === undefined || !read || r.result.kind !== "insert" || r.rows !== "facts") {
+			return []
+		}
+		const cte = deltaCteName(delta.relation, "added", supply)
+		added.set(r.relation, cte)
+		return [familyAddedCte(r, cte)]
+	})
+	const deltaNames: NameMap = supply.map()
+	const held = (target: string, side: DeltaSide): DeltaHeld | undefined => {
+		const cte = side === "added" ? added.get(target) : undefined
+		if (cte !== undefined) {
+			return { kind: "cte", cte: cte.cte, heading: cte.heading }
+		}
+		return written.has(target) ? { kind: "empty" } : emptyDelta(context.made, target, side)
+	}
+	const deltas: DeltasOf = (relation, side) =>
+		deltaSourceIn(relation, frontend.deltaEntries, (target) => held(target, side))
+	let cursor = namesPast(deltaNames, start)
+	const placed = mapNonEmpty(readBacks, (read, at) => {
+		const program = context.lower(read, deltas, cursor)
+		const statement = program.statement
+		cursor = namesPast(statement.sql.nameMap, cursor)
+		const width = sentHeading(program.parts, program.roots).length
+		const own = ridingPartOf(statement, width, new NameSupply(cursor))
+		cursor = namesPast(own.part.nameMap, cursor)
+		const tag = sql.parts.length + at
+		const rider: RidingReadBack = Object.freeze({
+			name: read.name,
+			query: read.query,
+			run: Object.freeze({
+				delivery: program.delivery,
+				parts: program.parts,
+				roots: program.roots
+			}),
+			tag,
+			part: own.shape
+		})
+		return { rider, part: own.part, tag }
+	})
+	return {
+		...ridingFamilyStatement(sql, deltaCtes, deltaNames, placed, cursor),
+		riders: placed.map((p) => p.rider)
+	}
 }
 
 /** A statement placed at the next position: its step, its spec, its audited AST, its forms and the read-backs riding
@@ -962,14 +1073,37 @@ const optimizedPlacement = (
 	}
 	/** The family statements, each placed where its stratum's schedule runs it (plan step `family`). */
 	const families = familyProgram(frontend, w)
-	const familyDeps = (placement: FamilyPlacement): ReadonlyArray<number> => {
+	/** What a family statement reads and writes, and what its riding read-backs read, for the dependency tracker. */
+	const familyDeps = (
+		placement: FamilyPlacement,
+		readBacks: ReadonlyArray<ReadBack>
+	): ReadonlyArray<number> => {
 		const relations = placementRelations(placement).map((r) => `relation:${r}`)
-		return tracker.add(relations, relations)
+		const read = readBacks.flatMap((x) => x.node.meta.reads.map((r) => `relation:${r}`))
+		return tracker.add([...relations, ...read], relations)
 	}
 	for (const step of plan.steps) {
 		switch (step.kind) {
 			case "family":
-				placeFamily(b, families, step.stratum, step.node, familyDeps)
+				placeFamily(
+					b,
+					families,
+					step.stratum,
+					step.node,
+					(placement) => familyDeps(placement, step.readBacks),
+					isNonEmpty(step.readBacks)
+						? {
+								kind: "riding",
+								readBacks: step.readBacks,
+								context: {
+									frontend,
+									made: plan.made,
+									lower: (read, deltas, start) =>
+										lowerReadBack(read, deltas, start, readBackOptions)
+								}
+							}
+						: { kind: "none" }
+				)
 				break
 			case "createCarrier": {
 				const deps = tracker.add([], [`carrier:${step.carrier.name}`])

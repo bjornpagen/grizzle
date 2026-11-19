@@ -30,9 +30,9 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
  * commit one place.
  */
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { sameStamp, type Stamped, type StampSource } from "#compiler/ir/instant.ts"
+import { type Head, sameStamp, type Stamped, type StampSource } from "#compiler/ir/instant.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import type { Cte, Expr, FromItem, Select } from "#compiler/sql/ast.ts"
+import type { Cte, Expr, FromItem, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -58,13 +58,92 @@ import { bound, probeGroup } from "#compiler/write/probe.ts"
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
 /** One head's stamps of an insert: its stamp source, the stamped fields it fills, and its CTE's names. */
-interface StampGroup {
+interface StampGroup extends HeadStamps {
 	readonly stamp: StampSource
 	readonly fields: NonEmptyReadonlyArray<LawField>
+}
+
+/** A head's stamps as a CTE: its name, a column for each field of the head's child, in the head's child order, and the
+ * stamp's column. */
+export interface HeadStamps {
 	readonly name: string
 	readonly child: NonEmptyReadonlyArray<string>
 	readonly at: string
 }
+
+/**
+ * The CTE `names` of `head`'s stamps at each child `children` holds, one row a child, its columns in the head's child
+ * order (see the module's header): a clock's `greatest(c, h + 1)`, a place's `coalesce(h + 1, 0)`, h the head's
+ * greatest value at the child, read by one probe of the head's primary key backwards from the child. `children` holds
+ * each child once, so its one materialized evaluation probes each child once.
+ */
+export const headStampsCte = (
+	w: WriteContext,
+	supply: NameSupply,
+	head: Head,
+	names: HeadStamps,
+	children: OperandSelect
+): Cte => {
+	const distinct = supply.relation(internal("stamped children"))
+	const childAt = (i: number): Expr =>
+		col(distinct, defined(names.child[i], "a stamped child column"))
+	const probed = probeGroup(
+		w,
+		supply,
+		head.relation,
+		"last",
+		mapNonEmpty(head.child, (f, i) => bound(w, head.relation, f, childAt(i))),
+		[w.names.column(head.relation, head.field.name)],
+		{ read: [w.names.column(head.relation, head.field.name)], filter: () => [] }
+	)
+	const latest = probed.at(w.names.column(head.relation, head.field.name))
+	/** One past the head, read as the bigint it is, none where the child holds none. */
+	const next: Expr = {
+		kind: "subquery",
+		query: simpleSelect(
+			[target(binary("+", cast(latest, types.bigint), lit.int(1, types.bigint)))],
+			[probed.source],
+			undefined
+		)
+	}
+	/** A clock's stamp is the greater of the clock and one past the head; a place's is one past the head, 0 where
+	 * there is none. Each is written at its field's type. */
+	const stamp: Expr = ((): Expr => {
+		switch (head.kind) {
+			case "clock":
+				return {
+					kind: "greatest",
+					args: [{ kind: "clock", of: { kind: "stamp" }, unit: "micros", type: types.bigint }, next]
+				}
+			case "place":
+				return { kind: "coalesce", args: [next, lit.int(0, types.bigint)] }
+		}
+	})()
+	return {
+		name: names.name,
+		columns: [...names.child, names.at],
+		materialized: "MATERIALIZED",
+		query: select(
+			provedCore(
+				"keyed",
+				[
+					...mapNonEmpty(names.child, (_, i) => target(childAt(i))),
+					target(written(w, stamp, head.field.type))
+				],
+				[derived(children, distinct, names.child, false)],
+				undefined
+			)
+		)
+	}
+}
+
+/** The names of a head's stamps' CTE, allocated from `supply`: its relation, a column per field of its child, and the
+ * stamp's column. */
+export const headStampsNames = (supply: NameSupply, head: Head): HeadStamps => ({
+	name: supply.relation(internal(`stamps of ${head.relation}`)),
+	child: mapNonEmpty(head.child, () => supply.column(internal("stamped child"))),
+	at: supply.column(internal("stamp"))
+})
 
 /**
  * The CTEs of an insert's stamped input (see the module's header): `read`, the input's read of the fields it carries,
@@ -92,79 +171,24 @@ export const stampedInput = (
 			groups[known] = { ...group, fields: [...group.fields, s.field] }
 			continue
 		}
-		groups.push({
-			stamp: s.stamp,
-			fields: [s.field],
-			name: supply.relation(internal(`stamps of ${s.stamp.head.relation}`)),
-			child: mapNonEmpty(s.stamp.child, () => supply.column(internal("stamped child"))),
-			at: supply.column(internal("stamp"))
-		})
+		groups.push({ stamp: s.stamp, fields: [s.field], ...headStampsNames(supply, s.stamp.head) })
 	}
 	const inCol = (f: LawField): Expr => col(input, out.columns.of(f))
-	const stampCtes = groups.map((g): Cte => {
-		const counted = g.stamp.head
-		const distinct = supply.relation(internal("stamped children"))
-		const childAt = (i: number): Expr =>
-			col(distinct, defined(g.child[i], "a stamped child column"))
-		const head = probeGroup(
+	const stampCtes = groups.map((g): Cte =>
+		headStampsCte(
 			w,
 			supply,
-			counted.relation,
-			"last",
-			mapNonEmpty(counted.child, (f, i) => bound(w, counted.relation, f, childAt(i))),
-			[w.names.column(counted.relation, counted.field.name)],
-			{ read: [w.names.column(counted.relation, counted.field.name)], filter: () => [] }
-		)
-		const latest = head.at(w.names.column(counted.relation, counted.field.name))
-		/** One past the head, read as the bigint it is, none where the child holds none. */
-		const next: Expr = {
-			kind: "subquery",
-			query: simpleSelect(
-				[target(binary("+", cast(latest, types.bigint), lit.int(1, types.bigint)))],
-				[head.source],
-				undefined
-			)
-		}
-		/** A clock's stamp is the greater of the clock and one past the head; a place's is one past the head, 0 where
-		 * there is none. Each is written at its field's type. */
-		const stamp: Expr = ((): Expr => {
-			switch (counted.kind) {
-				case "clock":
-					return {
-						kind: "greatest",
-						args: [
-							{ kind: "clock", of: { kind: "stamp" }, unit: "micros", type: types.bigint },
-							next
-						]
-					}
-				case "place":
-					return { kind: "coalesce", args: [next, lit.int(0, types.bigint)] }
-			}
-		})()
-		const children = select(
-			distinctCore(
-				mapNonEmpty(g.stamp.child, (f) => target(inCol(f))),
-				[cteRef(input)],
-				undefined
-			)
-		)
-		return {
-			name: g.name,
-			columns: [...g.child, g.at],
-			materialized: "MATERIALIZED",
-			query: select(
-				provedCore(
-					"keyed",
-					[
-						...mapNonEmpty(g.child, (_, i) => target(childAt(i))),
-						target(written(w, stamp, counted.field.type))
-					],
-					[derived(children, distinct, g.child, false)],
+			g.stamp.head,
+			g,
+			select(
+				distinctCore(
+					mapNonEmpty(g.stamp.child, (f) => target(inCol(f))),
+					[cteRef(input)],
 					undefined
 				)
 			)
-		}
-	})
+		)
+	)
 	const groupOf = (f: LawField): StampGroup | undefined =>
 		groups.find((g) => g.fields.some((s) => s.name === f.name))
 	const [first, ...more] = groups

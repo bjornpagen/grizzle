@@ -54,6 +54,7 @@ import {
 import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
+import { type Head, headText, type Stamped } from "#compiler/ir/instant.ts"
 import {
 	familyKey,
 	type LawField,
@@ -84,9 +85,11 @@ import {
 	cast,
 	col,
 	conjunction,
+	core,
 	cte,
 	cteRef,
 	cteRefAs,
+	derived,
 	distinctCore,
 	eq,
 	exists,
@@ -96,6 +99,8 @@ import {
 	ne,
 	not,
 	notExists,
+	operandSelect,
+	operandUnionAll,
 	provedCore,
 	select,
 	simpleSelect,
@@ -151,6 +156,7 @@ import {
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
 import type { CopySource, OwnerCopy } from "#compiler/write/frontend/schedule.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
+import { type HeadStamps, headStampsCte, headStampsNames } from "#compiler/write/insert/stamp.ts"
 import {
 	returnedColumn,
 	rowType,
@@ -191,13 +197,20 @@ export type RowSource =
 			readonly slots: NonEmptyReadonlyArray<{
 				readonly as: "inserts" | "puts"
 				readonly slot: MemberSlot
+				/** The fields its facts leave out that this statement stamps: a stamped nesting's root's (write/family/
+				 * nesting.ts Nesting `stamps`), none for any other slot. */
+				readonly stamps: ReadonlyArray<Stamped>
 			}>
 	  }
 	| {
 			readonly kind: "nestedRows"
 			readonly stratum: StratumAt
+			/** The columns its rows hold, their sent layout's (runtime/write/nesting.ts sentLayout) and those this statement
+			 * stamps, in their layout's order. */
 			readonly layout: RowLayout
 			readonly walked: ReadonlySet<ColumnKey>
+			/** The fields its rows leave out that this statement stamps (write/family/nesting.ts Nesting `stamps`). */
+			readonly stamps: ReadonlyArray<Stamped>
 	  }
 
 /** Whether the rows of `source` state the column `key`, at which an appended row repeats a stored one: a slot's stated
@@ -324,10 +337,10 @@ export const additionsSql = (
 	const params = new WriteParams()
 	w.cx.beginWriteStatement(supply, params)
 	const ctes: Array<Cte> = []
-	const slots = slotReader(w, supply, ctes)
+	const stated = slotReader(w, supply, ctes)
 	/** Each relation's nested rows of the stratum, a CTE pushed at its first read and shared by every later one. */
 	const nestedRead = new Map<string, Shaped>()
-	const nested: NestedReader = (relation, source) => {
+	const sent: NestedReader = (relation, source) => {
 		const known = nestedRead.get(relation.name)
 		if (known !== undefined) {
 			return known
@@ -336,6 +349,9 @@ export const additionsSql = (
 		nestedRead.set(relation.name, rows)
 		return rows
 	}
+	/** Every source's rows as the statement reads them, each source this statement stamps with its stamps beside them
+	 * (`stampedSources`). */
+	const { slots, nested } = stampedSources(w, supply, ctes, members, stated, sent)
 	/** The rows of an owner relation the stratum inserts whose copied columns the parameters hold (schedule.ts
 	 * CopySource `held`), each source as this statement reads it: a slot's facts or the stratum's nested rows. */
 	const ownerShapes = (owner: string): ReadonlyArray<Shaped> =>
@@ -650,6 +666,7 @@ const appendedOf = (
 			const keys = [
 				...new Set([
 					...source.slots[0].slot.heading.map((c) => columnKeyOf(c.name)),
+					...source.slots[0].stamps.map((st) => columnKeyOf(st.field.name)),
 					...owned.keys()
 				])
 			]
@@ -736,6 +753,180 @@ const appendedOf = (
 
 /** A reader of a stratum's nested rows of a relation, each relation's CTE pushed once (`nestedRowsCte`). */
 type NestedReader = (relation: RelationInfo, source: NestedSent) => Shaped
+
+/** A source's rows this statement stamps: its rows as sent or stated, and the fields they leave out, each stamped. */
+interface StampingSource {
+	readonly rows: Shaped
+	readonly stamps: NonEmptyReadonlyArray<Stamped>
+	/** Its rows with every stamped field's column beside the rest, set once its stamps are read. */
+	readonly view: (stamped: Shaped) => void
+}
+
+/**
+ * The readers of `members`' sources as this statement reads them: a source whose rows leave out a field this statement
+ * stamps (RowSource `stamps`), a stamped nesting's root's slot and its members' nested rows, read with each stamped
+ * field's column beside its own, and every other source as `stated` and `sent` read it.
+ *
+ * Each head its sources stamp is stamped once, by one CTE of its stamps at each child its rows hold, every source's
+ * children read into one DISTINCT (write/insert/stamp.ts headStampsCte), so the head is probed once at each child,
+ * and every row that carries the head's stamp, the root's own and every member's paired with it, joins that one row: a
+ * member carries exactly its owner's stamp, and two of a call's rows at one child carry one. A member's child is its
+ * owner's, which the walk copied, so it joins the stamp its owner's row does.
+ */
+const stampedSources = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	members: ReadonlyArray<AppendedMember>,
+	stated: SlotReader,
+	sent: NestedReader
+): { readonly slots: SlotReader; readonly nested: NestedReader } => {
+	const bySlot = new Map<MemberSlot["slot"], Shaped>()
+	const byRelation = new Map<string, Shaped>()
+	const stamping: Array<StampingSource> = []
+	for (const member of members) {
+		for (const source of member.sources) {
+			if (source.kind === "nestedRows") {
+				const [first, ...rest] = source.stamps
+				if (first !== undefined) {
+					const stampedKeys = new Set(source.stamps.map((st) => columnKeyOf(st.field.name)))
+					const unstamped = (c: RowColumn): boolean => !stampedKeys.has(c.key)
+					const [key, ...keys] = source.layout.key.filter(unstamped)
+					if (key === undefined) {
+						throw defect(
+							`the key of ${member.relation.name}'s nested rows beyond its stamps, their child`
+						)
+					}
+					stamping.push({
+						rows: sent(member.relation, {
+							stratum: source.stratum,
+							layout: {
+								...source.layout,
+								key: [key, ...keys],
+								columns: source.layout.columns.filter(unstamped)
+							}
+						}),
+						stamps: [first, ...rest],
+						view: (view) => {
+							byRelation.set(member.relation.name, view)
+						}
+					})
+				}
+				continue
+			}
+			for (const { slot, stamps } of source.slots) {
+				const [first, ...rest] = stamps
+				if (first !== undefined) {
+					stamping.push({
+						rows: stated(member.relation.name, slot),
+						stamps: [first, ...rest],
+						view: (view) => {
+							bySlot.set(slot.slot, view)
+						}
+					})
+				}
+			}
+		}
+	}
+	/** Each head the sources stamp, once, its stamps' CTE named, by its relation and field (ir/instant.ts headText). */
+	const heads = new Map<string, { readonly head: Head; readonly names: HeadStamps }>()
+	for (const x of stamping) {
+		for (const st of x.stamps) {
+			const at = headText(st.stamp.head)
+			if (!heads.has(at)) {
+				heads.set(at, { head: st.stamp.head, names: headStampsNames(supply, st.stamp.head) })
+			}
+		}
+	}
+	for (const [at, { head, names }] of heads) {
+		const arms = stamping.flatMap((x) =>
+			x.stamps.flatMap((st) => {
+				if (headText(st.stamp.head) !== at) {
+					return []
+				}
+				const r = supply.relation(internal("stamped source"))
+				return [
+					core(
+						mapNonEmpty(st.stamp.child, (f) =>
+							target(col(r, columnAt(x.rows, columnKeyOf(f.name))))
+						),
+						[cteRefAs(x.rows.name, r)],
+						undefined
+					)
+				]
+			})
+		)
+		const [first, ...rest] = arms
+		if (first === undefined) {
+			throw defect(`a source that stamps ${at}`)
+		}
+		const u = supply.relation(internal("stamped children"))
+		const children = select(
+			distinctCore(
+				mapNonEmpty(names.child, (c) => target(col(u, c))),
+				[derived(operandSelect(operandUnionAll([first, ...rest])), u, names.child, false)],
+				undefined
+			)
+		)
+		ctes.push(headStampsCte(w, supply, head, names, children))
+	}
+	for (const x of stamping) {
+		const view = shapedCte(supply, "stamped rows", [
+			...x.rows.columns.keys(),
+			...x.stamps.map((st) => columnKeyOf(st.field.name))
+		])
+		const r = supply.relation(internal("stamped row"))
+		const joined = x.stamps.map((st) => {
+			const names = defined(heads.get(headText(st.stamp.head)), "a stamped head's stamps").names
+			return { st, alias: supply.relation(internal("stamp")), names }
+		})
+		const [firstJoin, ...moreJoins] = joined
+		if (firstJoin === undefined) {
+			throw defect("a stamping source's stamps")
+		}
+		ctes.push(
+			cte(
+				view.name,
+				[...view.columns.values()],
+				select(
+					provedCore(
+						"input",
+						[
+							...[...x.rows.columns].map(([k, c]) => targetAs(col(r, c), columnAt(view, k))),
+							...joined.map(({ st, alias, names }) =>
+								targetAs(col(alias, names.at), columnAt(view, columnKeyOf(st.field.name)))
+							)
+						],
+						[
+							{
+								kind: "joins",
+								first: cteRefAs(x.rows.name, r),
+								steps: mapNonEmpty([firstJoin, ...moreJoins], ({ st, alias, names }) => ({
+									kind: "on",
+									source: cteRefAs(names.name, alias),
+									on: and(
+										mapNonEmpty(st.stamp.child, (f, i) =>
+											eq(
+												col(r, columnAt(x.rows, columnKeyOf(f.name))),
+												col(alias, defined(names.child[i], "a stamped child column"))
+											)
+										)
+									)
+								}))
+							}
+						],
+						undefined
+					)
+				)
+			)
+		)
+		x.view(view)
+	}
+	return {
+		slots: (relation, slot) => bySlot.get(slot.slot) ?? stated(relation, slot),
+		nested: (relation, source) => byRelation.get(relation.name) ?? sent(relation, source)
+	}
+}
 
 /** A stratum's nested rows of a relation as its statements send them: its stratum and their sent layout. */
 interface NestedSent {

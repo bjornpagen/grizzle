@@ -3,9 +3,9 @@
 import { int as between, element, type Gen, map } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { PlaceRule } from "#compiler/core/causes.ts"
-import { instant, natural, type PlaceField, pg, place } from "#compiler/public/fields.ts"
+import { drawn, instant, natural, type PlaceField, pg, place } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, key, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, fin, key, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -370,5 +370,87 @@ export const installedAndWritten = (twin: ReturnType<typeof twinOf>) => {
 			statements: Arr.map(written.artifact.statements, (s) => s.ast),
 			steps: written.artifact.steps
 		}
+	}
+}
+
+/**
+ * A stamped nesting (write/family/nesting.ts Nesting `stamps`): an owner Owner(g, s, x, ms) keyed (g, s), its `s` a place
+ * of group `g`, owning the sequence M1 of members (g, s, at, v) at `ms`; `full` gives M1 a sequence of its own, M2 (g, s,
+ * at, bt, w) at `ks`, and the owner a second one, N1 (g, s, ct, u) at `ns`. Each member carries its owner's `s` in its
+ * group. A clock-keyed owner owns no family, its group being caller fields, which no instant is
+ * (analysis/theory/fill.ts). Its ChangeSet inserts Owner's host rows, with its members nested in them.
+ */
+export interface StampedNesting {
+	readonly full: boolean
+}
+
+export const stampedNestingGen: Gen<StampedNesting> = (source) => ({
+	full: source.draw(map(between(0, 1), (n) => n === 1))
+})
+
+export type StampedNestingFeature = "one sequence of members" | "members two deep and two sequences"
+
+export const stampedNestingFeatures = (c: StampedNesting): ReadonlyArray<StampedNestingFeature> => [
+	c.full ? "members two deep and two sequences" : "one sequence of members"
+]
+
+/** The case's schema, the names of the relations its nesting writes, and its ChangeSet, built as a caller builds it. */
+export const stampedNestingOf = (c: StampedNesting) => {
+	const s = place
+	const carried = natural
+	if (!c.full) {
+		const Owner = relation("Owner", { g: pg.integer, s, x: pg.integer, ms: drawn(natural) }, [
+			"g",
+			"s"
+		])
+		const M1 = relation("M1", { g: pg.integer, s: carried, at: drawn(natural), v: pg.integer }, [
+			"g",
+			"s",
+			"at"
+		])
+		const Nested = schema(
+			"Nested",
+			[Owner, M1],
+			[ordered(on(M1, "g", "s", "at"), fin(Owner, "ms"))]
+		)
+		return {
+			relations: ["Owner", "M1"],
+			schema: Nested,
+			changeSet: () => ChangeSet.empty(Nested).insert(Owner, [])
+		}
+	}
+	const Owner = relation(
+		"Owner",
+		{ g: pg.integer, s, x: pg.integer, ms: drawn(natural), ns: drawn(natural) },
+		["g", "s"]
+	)
+	const M1 = relation(
+		"M1",
+		{ g: pg.integer, s: carried, at: drawn(natural), v: pg.integer, ks: drawn(natural) },
+		["g", "s", "at"]
+	)
+	const M2 = relation(
+		"M2",
+		{ g: pg.integer, s: carried, at: natural, bt: drawn(natural), w: pg.integer },
+		["g", "s", "at", "bt"]
+	)
+	const N1 = relation("N1", { g: pg.integer, s: carried, ct: drawn(natural), u: pg.integer }, [
+		"g",
+		"s",
+		"ct"
+	])
+	const Nested = schema(
+		"Nested",
+		[Owner, M1, M2, N1],
+		[
+			ordered(on(M1, "g", "s", "at"), fin(Owner, "ms")),
+			ordered(on(M2, "g", "s", "at", "bt"), fin(M1, "ks")),
+			ordered(on(N1, "g", "s", "ct"), fin(Owner, "ns"))
+		]
+	)
+	return {
+		relations: ["M1", "M2", "N1", "Owner"],
+		schema: Nested,
+		changeSet: () => ChangeSet.empty(Nested).insert(Owner, [])
 	}
 }

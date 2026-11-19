@@ -11,7 +11,8 @@ import type { InstantRule, PlaceRule } from "#compiler/core/causes.ts"
  * - a put states every instant of its rows, a clock never (`clockStated`), and a delete states every instant
  *   (`unstated`), each from a stored instant, which only a query's term of instant's type is (check/member.ts): no host
  *   row carries an instant (frontend/compile.ts carriedOf);
- * - an insert stamps in one statement: one written whole, by no family statement and through no query entry's
+ * - an insert stamps in the one statement that writes its rows (`StampingWriter`): its own, or its relation's family
+ *   statement, which stamps every row of its nesting (write/family/additions.ts); never through a query entry's
  *   precheck (`stampedApart`, statements);
  * - a ChangeSet stamps each clock in one stratum (`stampedApart`, strata), and a reference it stamps beside an insert of
  *   its clock in that stratum (`clockUnstamped`). A later stratum reads the stamped rows back as stored instants.
@@ -58,17 +59,28 @@ const refusedApart = (
 		: placeRefused(loc, relation, s.field.name, { kind: "stampedApart", apart })
 
 /**
- * What an action of `op` over `relation` stamps, its source delivering `heading`, written in one statement where
- * `alone` (no family statement and no query entry's precheck beside it): the instant fields its insert's rows leave out,
- * each with its stamp source, and its relation's place, which an insert always stamps; none for a put or a delete,
- * which state every instant and write no relation with a place. Refused as the module's header says.
+ * The statement that writes an action's rows, and so stamps them: `own`, its insert's own statement, a part of its
+ * stratum's single statement or one of its own; `family`, its relation's family statement, which writes a nesting's
+ * every row, a stamped one's root among them (write/family/nesting.ts Nesting `stamps`); or `entry`, its insert's
+ * statement through a query entry, whose precheck reads its rows before it, which stamps nothing.
+ */
+export type StampingWriter =
+	| { readonly kind: "own" }
+	| { readonly kind: "family" }
+	| { readonly kind: "entry" }
+
+/**
+ * What an action of `op` over `relation` stamps, its source delivering `heading`, its rows written by `writer`: the
+ * instant fields its insert's rows leave out, each with its stamp source, and its relation's place, which an insert
+ * always stamps; none for a put or a delete, which state every instant and write no relation with a place. Refused as
+ * the module's header says.
  */
 export const stampsOf = (
 	instants: Instants,
 	relation: RelationInfo,
 	op: WriteOp,
 	heading: Heading,
-	alone: boolean,
+	writer: StampingWriter,
 	loc: SourceLoc
 ): ReadonlyArray<Stamped> => {
 	const roles = instants.roles.get(relation.name)
@@ -111,7 +123,7 @@ export const stampsOf = (
 			: placeRefused(loc, relation.name, s.field.name, { kind: "groupStamped", stamped: within })
 	}
 	const [first] = stamped
-	if (first !== undefined && !alone) {
+	if (first !== undefined && writer.kind === "entry") {
 		return refusedApart(loc, relation.name, first, "statements")
 	}
 	return stamped
@@ -145,19 +157,39 @@ export const refuseStampedStatements = (
 	}
 }
 
-/** One action's stamps as the ChangeSet's check reads them: its stratum's position, its relation, and its stamps. */
+/**
+ * One writer's stamps as the ChangeSet's check reads them: its stratum's position, its relation, its stamps, and the
+ * statement that stamps them (StampingWriter): an action's own, or the family statement that writes a stamped nesting's
+ * rows, one statement for every head it stamps (write/frontend/compile.ts familyWorkOf).
+ */
 export interface StampingAction {
 	readonly stratum: number
 	readonly relation: RelationInfo
 	readonly stamps: ReadonlyArray<Stamped>
+	readonly writer: Exclude<StampingWriter["kind"], "entry">
 	readonly loc: SourceLoc
 }
 
 /**
- * Refuses a ChangeSet whose actions `actions` stamp a clock in two strata, or a reference beside no insert of its
- * clock in its stratum (see the module's header).
+ * Refuses a ChangeSet whose actions `actions` stamp a clock in two strata, a head in a stratum's own statements and in
+ * its family statement too, or a reference beside no insert of its clock in its stratum (see the module's header).
  */
 export const refuseStampsApart = (actions: ReadonlyArray<StampingAction>): void => {
+	/** Each head a stratum's family statement stamps, by its stratum and its spelling. */
+	const family = new Set(
+		actions.flatMap((a) =>
+			a.writer === "family" ? a.stamps.map((s) => `${a.stratum}\u0000${clockText(s)}`) : []
+		)
+	)
+	for (const a of actions) {
+		const apart =
+			a.writer === "own"
+				? a.stamps.find((s) => family.has(`${a.stratum}\u0000${clockText(s)}`))
+				: undefined
+		if (apart !== undefined) {
+			return refusedApart(a.loc, a.relation.name, apart, "statements")
+		}
+	}
 	/** Each clock its own stamps stamp, by its relation and field, with the stratum that stamps it. */
 	const clocks = new Map<string, number>()
 	for (const a of actions) {

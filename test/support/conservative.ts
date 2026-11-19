@@ -199,7 +199,7 @@ const conservativeArtifact = (
 		const previous = after()
 		switch (step.kind) {
 			case "family":
-				placeFamily(b, placements, step.stratum, step.node, after)
+				placeFamily(b, placements, step.stratum, step.node, after, { kind: "none" })
 				break
 			case "readBack":
 				placeReadBack(b, step.read, conservativeStatement(step.program), previous)

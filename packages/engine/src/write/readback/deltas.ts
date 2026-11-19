@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
@@ -6,6 +7,7 @@ import type { Cte } from "#compiler/sql/ast.ts"
 import { col, conjunction, cteRef, provedSelect, target } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
+import type { FamilyReturning } from "#compiler/write/family/written.ts"
 import type {
 	DeleteResult,
 	InsertResult,
@@ -142,3 +144,33 @@ export const deltaIn = (
 	returnedSideOf(statement, named.side) === undefined
 		? { kind: "empty" }
 		: { kind: "cte", cte: named.cte, heading: named.heading }
+
+/**
+ * The CTE `named`, the added side of a relation a family statement inserts, over the rows that insert's RETURNING
+ * `returning` returns (write/family/written.ts FamilyReturning), each of the relation's fields in heading order: the
+ * facts the statement made present, each column a stored column of the relation's type, so the CTE casts nothing.
+ */
+export const familyAddedCte = (returning: FamilyReturning, named: DeltaCteName): Cte => {
+	const fields = returning.result.kind === "insert" ? returning.result.fields : []
+	return {
+		name: named.cte,
+		columns: named.heading.map((c) => c.column),
+		materialized: undefined,
+		query: provedSelect(
+			"keyed",
+			named.heading.map((c) =>
+				target(
+					col(
+						returning.cte,
+						defined(
+							returning.columns[fields.indexOf(c.name)],
+							`the returned column of ${returning.relation}.${c.name}`
+						).alias
+					)
+				)
+			),
+			[cteRef(returning.cte)],
+			undefined
+		)
+	}
+}

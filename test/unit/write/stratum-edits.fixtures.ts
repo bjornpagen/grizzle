@@ -163,7 +163,7 @@ const plannedOf = (stratum: StratumAt, node: FamilyNode): Planned => {
 			return {
 				stratum,
 				statement: node.appends === "rows" ? "additions" : "recount",
-				relation: node.member
+				relation: node.appends === "rows" ? node.members[0] : node.member
 			}
 		case "removals":
 			return { stratum, statement: "removals", relation: node.member }

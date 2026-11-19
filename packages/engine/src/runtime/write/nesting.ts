@@ -554,9 +554,10 @@ const hostNodes = (
 }
 
 /**
- * The columns of a relation's row layout its nesting's walk fills, key first: every one but those its counted families
- * fill after the walk (`NestedLayout` pending), which each of its nested rows holds (`NestedRow`) and a family write
- * sends them with (write/family/additions.ts RowSource).
+ * The columns of a relation's row layout its nesting's walk fills, key first: every one but those its family statement
+ * fills after the walk, its counted families' and its stamps' (`NestedLayout` pending), which each of its nested rows
+ * holds (`NestedRow`) and a family write sends them with (write/family/additions.ts RowSource). A stamp fills a key
+ * field after its child, so the key keeps that child: the rows of one call are keyed by it, each group's stamp one.
  */
 export const sentLayout = <C extends LaidColumn>(at: {
 	readonly layout: {
@@ -569,11 +570,17 @@ export const sentLayout = <C extends LaidColumn>(at: {
 	readonly relation: StoredRelationName
 	readonly key: NonEmptyReadonlyArray<C>
 	readonly columns: ReadonlyArray<C>
-} => ({
-	relation: at.layout.relation,
-	key: at.layout.key,
-	columns: at.layout.columns.filter((c) => !at.pending.has(c.key))
-})
+} => {
+	const [first, ...rest] = at.layout.key.filter((c) => !at.pending.has(c.key))
+	if (first === undefined) {
+		throw defect(`the key of ${at.layout.relation} its walk fills, a stamp's child`)
+	}
+	return {
+		relation: at.layout.relation,
+		key: [first, ...rest],
+		columns: at.layout.columns.filter((c) => !at.pending.has(c.key))
+	}
+}
 
 /** A column of a row layout as a nested row reads it: its key, its position among its relation's columns, and its
  * carrier's spec under the installation's codes. */

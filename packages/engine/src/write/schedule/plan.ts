@@ -169,7 +169,14 @@ export type PlanStep =
 			readonly input: WriteInput
 			readonly check: PlannedCheck
 	  }
-	| { readonly kind: "family"; readonly stratum: StratumAt; readonly node: FamilyNode }
+	| {
+			readonly kind: "family"
+			readonly stratum: StratumAt
+			readonly node: FamilyNode
+			/** The read-backs riding the statement, evaluated in it over its inserts' RETURNING: a stamped nesting's
+			 * root's, which its family statement inserts (`placeReadBacks`), none for any other. */
+			readonly readBacks: ReadonlyArray<ReadBack>
+	  }
 	| { readonly kind: "hold"; readonly hold: HeldUnit }
 	| { readonly kind: "retire"; readonly retired: RetiredUnit }
 
@@ -569,7 +576,7 @@ const sequentialSteps = (
 				return []
 			}
 			familyPlaced.add(f)
-			return [{ kind: "family", stratum, node: f.node }]
+			return [{ kind: "family", stratum, node: f.node, readBacks: [] }]
 		})
 	for (const p of placed) {
 		appendAll(steps, familySteps(p.draft.at.index))
@@ -628,22 +635,27 @@ const withCascades = (
 	return out
 }
 
-/** A statement that runs once and returns its writes' rows, which a read-back may ride: a lone write, or a single
- * statement. */
-type Rideable = Extract<PlanStep, { readonly kind: "write" | "single" }>
+/** A statement that runs once and returns its writes' rows, which a read-back may ride: a lone write, a single
+ * statement, or a family statement that inserts a stamped nesting's root (write/frontend/compile.ts readableRoots). */
+type Rideable = Extract<PlanStep, { readonly kind: "write" | "single" | "family" }>
 
-/** `step` with the read-backs `riders` riding it: a single statement's own, or a lone write's as a single statement of
- * that one write. */
-const ridden = (step: Rideable, riders: NonEmptyReadonlyArray<ReadBack>): PlanStep =>
-	step.kind === "single"
-		? { ...step, readBacks: riders }
-		: {
+/** `step` with the read-backs `riders` riding it: a single statement's own or a family statement's, or a lone write's as
+ * a single statement of that one write. */
+const ridden = (step: Rideable, riders: NonEmptyReadonlyArray<ReadBack>): PlanStep => {
+	switch (step.kind) {
+		case "single":
+		case "family":
+			return { ...step, readBacks: riders }
+		case "write":
+			return {
 				kind: "single",
 				stratum: step.action.stratum,
 				shares: [],
 				writes: [step],
 				readBacks: riders
 			}
+	}
+}
 
 /** Where each read-back runs: the strata's statements with the read-backs riding them, the read-backs after the last
  * stratum, which read no delta a statement makes, and the sides of each relation's delta some statement makes, every
@@ -846,7 +858,11 @@ const placeReadBacks = (
 		}
 		const position = at.position
 		const step = strata[position]
-		if (step?.kind !== "write" && step?.kind !== "single") {
+		if (
+			step?.kind !== "write" &&
+			step?.kind !== "single" &&
+			!(step?.kind === "family" && step.node.kind === "additions" && step.node.appends === "rows")
+		) {
 			throw defect(`a read-back's delta made by a statement no read-back rides, at ${position}`)
 		}
 		const later = withCascades(writes.slice(position).flat(), frontend)
@@ -887,7 +903,7 @@ const placeReadBacks = (
 	}
 	return {
 		strata: strata.map((step) => {
-			if (step.kind !== "write" && step.kind !== "single") {
+			if (step.kind !== "write" && step.kind !== "single" && step.kind !== "family") {
 				return step
 			}
 			const riding = riders.get(step)
@@ -929,7 +945,9 @@ const touchesUnit = (frontend: WriteFrontend, step: PlanStep, held: HeldUnit): b
 		case "readBack":
 			return reads(step.read.node)
 		case "family":
-			return familyNodeRelations(step.node).some(body)
+			return (
+				familyNodeRelations(step.node).some(body) || step.readBacks.some((read) => reads(read.node))
+			)
 		case "createCarrier":
 		case "hold":
 		case "retire":
@@ -1111,7 +1129,7 @@ export const planWrite = (
 				})
 				appendAll(
 					strata,
-					family.map((f): PlanStep => ({ kind: "family", stratum: s, node: f.node }))
+					family.map((f): PlanStep => ({ kind: "family", stratum: s, node: f.node, readBacks: [] }))
 				)
 				break
 			case "sequential":

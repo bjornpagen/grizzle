@@ -13,12 +13,22 @@ import { always, type Needs } from "#compiler/ir/needs.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { shiftedPart, taggedArms } from "#compiler/lower/parts.ts"
 import type { CutText, Parted, PartedUnit } from "#compiler/runtime/write/parted.ts"
-import type { Cte, EmittedSql, Select, SqlStatement } from "#compiler/sql/ast.ts"
-import { select, unionAll } from "#compiler/sql/build.ts"
+import type { Cte, EmittedSql, Select, SetArm, SqlStatement, Target } from "#compiler/sql/ast.ts"
+import {
+	col,
+	cteRef,
+	lit,
+	provedCore,
+	select,
+	target,
+	types,
+	unionAll
+} from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
 import { type NameMap, NameSupply, type NameSupplyStart, namesPast } from "#compiler/sql/naming.ts"
 import { printArmBlock, printCteBlock } from "#compiler/sql/print.ts"
+import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
 	type DeleteResult,
 	type InsertResult,
@@ -332,4 +342,82 @@ const cutText = (
 		throw defect(`the placeholders of a single statement's unit after $${from} are a block`)
 	}
 	return { text: { head: text.slice(0, end), holes: holes.toReversed() }, count }
+}
+
+/**
+ * The family statement `family` with read-backs riding it (write/program/compile.ts placeFamily): `deltas`, each added
+ * side a rider reads, CTEs over the statement's inserts' RETURNING, named by `deltaNames`, after its own CTEs; then each
+ * rider's statement whole as one CTE, its placeholders numbered past the statement's and every earlier rider's, its
+ * names past `cursor`; and its rows behind `tag`, an arm after the family's, every arm padded with empty texts to the
+ * widest, the family's tags and its riders' integers alike, as a single statement's riders ride it (`singleStatement`).
+ */
+export const ridingFamilyStatement = (
+	family: FamilyWriteSql,
+	deltas: ReadonlyArray<Cte>,
+	deltaNames: NameMap,
+	riders: NonEmptyReadonlyArray<{ readonly part: ReadBackPart; readonly tag: number }>,
+	cursor: NameSupplyStart
+): {
+	readonly ast: Select
+	readonly sql: EmittedSql
+	readonly params: ReadonlyArray<WriteParamSlot>
+	readonly width: number
+} => {
+	const width = maxOf([family.width, ...riders.map((r) => r.part.width)], 0)
+	const params: Array<WriteParamSlot> = [...family.params]
+	const nameMap: Array<NameMap[number]> = [...family.sql.nameMap, ...deltaNames]
+	let next = cursor
+	const pad = (count: number): ReadonlyArray<Target> =>
+		Array.from({ length: count }, () => target(lit.text("", types.text)))
+	const rides = mapNonEmpty(riders, ({ part, tag }) => {
+		const shifted = shiftedPart(part.query, part.params, params.length)
+		appendAll(params, shifted.params)
+		appendAll(nameMap, part.nameMap)
+		next = namesPast(nameMap, next)
+		const out = freshNames(next, part.width)
+		next = out.next
+		appendAll(nameMap, out.nameMap)
+		const own: Cte = {
+			name: out.relation,
+			columns: out.columns,
+			materialized: undefined,
+			query: shifted.query
+		}
+		const arm: SetArm = provedCore(
+			"keyed",
+			[
+				target(lit.int(tag, types.integer)),
+				...out.columns.map((c) => target(col(out.relation, c))),
+				...pad(width - out.columns.length)
+			],
+			[cteRef(out.relation)],
+			undefined
+		)
+		return { own, arm }
+	})
+	/** The family's own arm, padded to the riders' width. */
+	const padded = (arm: SetArm): SetArm => {
+		if (arm.kind !== "core") {
+			return arm
+		}
+		return arm.distinct === false
+			? { ...arm, targets: [...arm.targets, ...pad(width - family.width)] }
+			: { ...arm, targets: extendNonEmpty(arm.targets, pad(width - family.width)) }
+	}
+	const ast: Select = {
+		...select(
+			unionAll(
+				"disjoint",
+				extendNonEmpty(
+					mapNonEmpty(family.arms, padded),
+					mapNonEmpty(rides, (r) => r.arm)
+				)
+			)
+		),
+		with: {
+			recursive: false,
+			ctes: extendNonEmpty(family.ctes, [...deltas, ...rides.map((r) => r.own)])
+		}
+	}
+	return { ast, sql: emitText(ast, nameMap), params, width }
 }

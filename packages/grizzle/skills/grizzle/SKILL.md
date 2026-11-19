@@ -98,7 +98,9 @@ export default defineConfig({
   containment carries into another relation's instant is a reference, stamped beside an insert of its clock or stated
   from a stored instant (README "Instants"). A row's place in its group is `place`, last in its primary key after the
   group: an insert leaving it out stamps one past the group's greatest, 0 first, so a group's places are gapless from 0
-  in commit order; no put or delete writes its relation. A migration adding `place` to stored rows gives each place 0
+  in commit order; no put or delete writes its relation. A nested insert's members carry their owner's stamped place in
+  their group, the owner and its members one family statement that stamps it once, and a read-back of the owner's
+  `delta.added` returns the place stamped. A migration adding `place` to stored rows gives each place 0
   where the new key holds the old one, and is refused elsewhere; `place.by(field)`, beside a key within the group and
   the field, numbers the stored rows by the field (README "Places"). The member `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key or
   a clocked read, reads in a SERIALIZABLE READ ONLY DEFERRABLE transaction: it waits until every SERIALIZABLE

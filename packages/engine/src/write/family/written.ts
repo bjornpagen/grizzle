@@ -107,12 +107,19 @@ export interface FamilyPart {
 	readonly width: number
 }
 
-/** A family write as one statement: its AST and text, its placeholders, and its rows' parts, in tag order. */
+/** A family write as one statement: its AST and text, its placeholders, its rows' parts, in tag order, and the
+ * data-modifying CTE each part's rows are read from, a read-back riding the statement reads its delta from
+ * (write/program/compile.ts ridingFamily), and the width every arm is padded to. */
 export interface FamilyWriteSql {
 	readonly ast: Select
 	readonly sql: EmittedSql
 	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly parts: NonEmptyReadonlyArray<FamilyPart>
+	readonly returnings: NonEmptyReadonlyArray<FamilyReturning>
+	readonly width: number
+	/** Its AST's CTEs and arms, which a riding read-back's parts follow. */
+	readonly ctes: NonEmptyReadonlyArray<Cte>
+	readonly arms: NonEmptyReadonlyArray<SetArm>
 }
 
 /** A data-modifying CTE's returned columns and the part they are. */
@@ -418,7 +425,11 @@ export const taggedRows = (
 			result: r.result,
 			rows: r.rows,
 			width: r.columns.length
-		}))
+		})),
+		returnings,
+		width,
+		ctes: [firstCte, ...restCtes],
+		arms
 	}
 }
 

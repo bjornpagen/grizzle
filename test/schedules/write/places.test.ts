@@ -1,39 +1,50 @@
 /**
- * Two writers stamp one group's place, and the group's places run gapless from its head in the order their calls
- * commit, two calls at one place meeting as a SERIALIZABLE refusal, never as a duplicate place or a key's refusal.
+ * Two writers stamp one group's place, each session nesting its marks, and the group's places run gapless from its head
+ * in the order their calls commit, every mark carrying exactly its session's stamped place, two calls at one place
+ * meeting as a SERIALIZABLE refusal, never as a duplicate place or a key's refusal.
  *
- * Session(child, item, n, stage) is keyed (child, item, n), its `n` a place by `stage` (ir/instant.ts PlaceHead) whose
- * group is (child, item), beside the key (child, item, stage) the place demands. Gate(n) is the relation a held call
- * inserts last. The role `writer` inserts both, and its workload is `stamp`, an insertion of Session's rows, and
- * `held`, an insertion of Session's rows and then, in a later stratum, of a Gate row. Each call states its rows as an
- * array of `{ child, item, stage }`, which leaves `n` out, so every row is stamped with its group's next place,
- * `coalesce(h + 1, 0)`, h the greatest place the group holds (write/insert/stamp.ts). The schema and its logins are
+ * Session(child, item, n, stage, marks) is keyed (child, item, n), its `n` a place by `stage` (ir/instant.ts PlaceHead)
+ * whose group is (child, item), beside the key (child, item, stage) the place demands, and it owns Mark(child, item, n,
+ * at, v), its ordered family at `marks`, each mark carrying its session's (child, item, n). Gate(n) is the relation a
+ * held call inserts last. The role `writer` inserts all three, and its workload is `stamp`, an insertion of Session's
+ * rows with their marks nested, reading back the sessions it added, and `held`, an insertion of Session's rows and then,
+ * in a later stratum, of a Gate row. Each call states its rows as an array of `{ child, item, stage, marks }`, which
+ * leaves `n` out, so every session is stamped with its group's next place, `coalesce(h + 1, 0)`, h the greatest place
+ * the group holds, and its marks carry that one stamp, the session and its marks written by one family statement that
+ * stamps the head once at each group and returns the sessions it inserted to the read-back riding it
+ * (write/family/additions.ts stampedSources, write/program/compile.ts ridingFamily). The schema and its logins are
  * installed and served as `grizzle generate` drafts them, once per member, each case seated on a clone of that
  * installation (support/schedules/rig.ts rigTemplate and rigIn): `writer` runs at the level generate certifies, which
  * the stamps make SERIALIZABLE (write/schedule/plan.ts formedAt).
  *
- * A case's stored state gives each of the items 1 and 2 of child 1 none, one or two places before the calls. Two
- * writers A and B, two Dbs of `writer` over DbLayers of their own, run one call each, A `held` and B `stamp`, each
- * stating one row at each item it names, at a stage of its own, each retried after a TransientFailure until it
- * answers. In `concurrent`, the schema's owner holds Gate in SHARE mode while A runs: A's rows are stamped and
- * uncommitted when its Gate insert waits on that lock, and B runs then. Where both stamp one item, B stamps the place A
- * holds uncommitted and waits for A at the key; the owner's COMMIT lets A commit first, and B's statement fails with
- * 40001 at the row it could not see, its retry stamping the place after A's. Otherwise B commits while A waits. In
- * `sequential`, A's call commits before B's begins.
+ * A case's stored state gives each of the items 1 and 2 of child 1 none, one or two places before the calls, nesting no
+ * mark. Two writers A and B, two Dbs of `writer` over DbLayers of their own, run one call each, A `held` and B `stamp`,
+ * each stating one row at each item it names, at a stage of its own, nesting none, one or two marks, each retried after
+ * a TransientFailure until it answers. In `concurrent`, the schema's owner holds Gate in SHARE mode while A runs: A's
+ * rows are stamped and uncommitted when its Gate insert waits on that lock, and B runs then. Where both stamp one item,
+ * B stamps the place A holds uncommitted and waits for A at the key; the owner's COMMIT lets A commit first, and B's
+ * statement fails with 40001 at the row it could not see, the whole write refused with none of its marks left, its retry
+ * stamping the place after A's. Otherwise B commits while A waits. In `sequential`, A's call commits before B's begins.
  *
  * Properties, per case:
  * - each call is accepted, adding each of its rows, never refused at the key, and B waits for A exactly where they
  *   stamp one item concurrently;
  * - at each item, the places the calls added are the group's head and those after it, one per call that stamps the
- *   item, in the order the calls commit: A then B.
+ *   item, in the order the calls commit: A then B;
+ * - every session a call added holds exactly its call's marks at its own place, and no other mark stands, so a refused
+ *   try left none;
+ * - B reads back exactly the sessions it added, each at the place stamped.
  *
  * Oracle: the rule, stated over the case's stored heads and the commit order its moves give. Kills, each by hand, each
  * must turn it red: the place's stamp 0, its head unread, so a group over a head is stamped at a place it holds and the
- * insert is refused at the key; and a stamping insert formed at READ COMMITTED, where two concurrent calls at one place
- * meet as a unique violation, a refusal at the key, not as a retryable one.
+ * insert is refused at the key; a stamping insert formed at READ COMMITTED, where two concurrent calls at one place
+ * meet as a unique violation, a refusal at the key, not as a retryable one; the marks' additions a statement of their
+ * own after the session's (write/frontend/compile.ts stampedTogether joining none), which stamps again over the session
+ * it now holds, so a mark carries its session's place plus one and is refused at its owner; and no mark carrying its
+ * session's stamp (write/family/nesting.ts carriedStamps pairing none).
  *
  * Features: each stored head, an item both calls stamp, concurrently and in turn, B waiting for A, B retried after A
- * committed, and two items in one call.
+ * committed, two items in one call, and a session nesting marks or none.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -50,6 +61,8 @@ import {
 	departureAt,
 	Gate,
 	type Items,
+	Mark,
+	marksDeparture,
 	meets,
 	type PlaceFeature,
 	places,
@@ -58,6 +71,8 @@ import {
 	seededRows,
 	Session,
 	type Stored,
+	type StoredMark,
+	stampedDeparture,
 	untilAnswered
 } from "#test/schedules/write/places.fixtures.ts"
 import { answered } from "#test/support/calls.ts"
@@ -67,8 +82,8 @@ import { rigIn } from "#test/support/schedules/rig.ts"
 import { lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Two writers stamping one group's place stamp its places gapless from its head in the order their calls commit, meeting at one place as a retryable refusal. */
-export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInTheOrderTheirCallsCommit =
+/** Two writers stamping one group's place stamp its places gapless from its head in the order their calls commit, each mark carrying its session's place, meeting at one place as a retryable refusal. */
+export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInTheOrderTheirCallsCommitEachMarkCarryingItsSessionsPlace =
 	property.explore(aimed(placingGen, aims), {
 		needs: { rigged: Substrate.seat(placesRig) },
 		situations: [
@@ -79,7 +94,9 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 			"an item both calls stamp, in turn",
 			"B waited for A at a key",
 			"B retried after A committed",
-			"two items in one call"
+			"two items in one call",
+			"a session nesting marks",
+			"a session nesting none"
 		] satisfies ReadonlyArray<Reached<PlaceFeature>>,
 		check:
 			({ rigged }, k: Case<PlaceFeature>) =>
@@ -93,8 +110,23 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 								const names = namesOf(rig.installed)
 								const table = names.table(Session)
 								const gate = names.table(Gate)
-								const column = (field: "child" | "item" | "n" | "stage") =>
+								const column = (field: "child" | "item" | "n" | "stage" | "marks") =>
 									names.column(Session, field)
+								const markTable = names.table(Mark)
+								const markColumn = (field: "item" | "n" | "at" | "v") => names.column(Mark, field)
+								const marks = Effect.map(
+									s.admin.queryValues(
+										`SELECT ${markColumn("item")}::text, ${markColumn("n")}::text, ${markColumn("at")}::text, ${markColumn("v")}::text FROM ${markTable}`,
+										[]
+									),
+									(rows) =>
+										Arr.map(rows, (row): StoredMark => ({
+											item: Number(row[0]),
+											n: Number(row[1]),
+											at: Number(row[2]),
+											v: Number(row[3])
+										}))
+								)
 								const open = (context: Parameters<Parameters<typeof rig.servedWriter>[1]>[0]) =>
 									openServed(rig.served.roles.writer, {}).pipe(Effect.provideContext(context))
 								const a = yield* rig.servedWriter("a", open, (db) =>
@@ -152,12 +184,17 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 									a.db.workload.held
 										.once({
 											params: {},
-											facts: { insert: { Session: callRows("A", items), Gate: [{ n: 0 }] } }
+											facts: {
+												insert: { Session: callRows("A", items, c.marks.A), Gate: [{ n: 0 }] }
+											}
 										})
 										.pipe(answered, untilAnswered)
 								const stamp = (items: Items) =>
 									b.db.workload.stamp
-										.once({ params: {}, facts: { insert: { Session: callRows("B", items) } } })
+										.once({
+											params: {},
+											facts: { insert: { Session: callRows("B", items, c.marks.B) } }
+										})
 										.pipe(answered, untilAnswered)
 
 								const seeded = seededRows(c)
@@ -165,7 +202,7 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 									seeded.length === 0
 										? []
 										: [
-												`INSERT INTO ${table} (${column("child")}, ${column("item")}, ${column("n")}, ${column("stage")}) VALUES ${Arr.join(seeded, ", ")}`
+												`INSERT INTO ${table} (${column("child")}, ${column("item")}, ${column("n")}, ${column("stage")}, ${column("marks")}) VALUES ${Arr.join(seeded, ", ")}`
 											]
 								)
 								const together = c.mode === "concurrent"
@@ -189,6 +226,7 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 								const answeredA = ranA ?? (yield* Fiber.join(fiberA))
 								const answeredB = yield* Fiber.join(fiberB)
 								const final = yield* state
+								const finalMarks = yield* marks
 								const order: ReadonlyArray<readonly ["A" | "B", Items]> =
 									holding && observed === "ended"
 										? [
@@ -220,6 +258,15 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 											: undefined,
 										...Arr.map([1, 2] as const, (item) =>
 											departureAt(item, c.heads[item], added(item), order)
+										),
+										marksDeparture(
+											c,
+											Arr.filter(final, (r) => r.stage < 100),
+											finalMarks
+										),
+										stampedDeparture(
+											answeredB,
+											Arr.filter(final, (r) => r.stage >= 20 && r.stage < 100)
 										)
 									],
 									(d) => d !== undefined
@@ -260,6 +307,9 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 										k.note("two items in one call")
 									}
 								}
+								k.note(
+									c.marks.A + c.marks.B > 0 ? "a session nesting marks" : "a session nesting none"
+								)
 							}),
 							Substrate,
 							taken.substrate

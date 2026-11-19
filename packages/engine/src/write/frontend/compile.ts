@@ -34,7 +34,7 @@ import {
 import { fieldReads } from "#compiler/ir/expr.ts"
 import { type Family, isSequence, isTreeOf, type TreeShape } from "#compiler/ir/family.ts"
 import { familyDrawn, layoutKey } from "#compiler/ir/fill.ts"
-import type { Stamped } from "#compiler/ir/instant.ts"
+import { headText, type Stamped } from "#compiler/ir/instant.ts"
 import {
 	familyKey,
 	type LawField,
@@ -94,7 +94,11 @@ import type { WitnessEntry } from "#compiler/runtime/write/witness.ts"
 import type { UnitDelete, UnitMatch, UnitMember, UnitSource } from "#compiler/write/delete/unit.ts"
 import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import { endColumns, memberFamilies } from "#compiler/write/family/statements.ts"
-import { refuseStampsApart, stampsOf } from "#compiler/write/frontend/instants.ts"
+import {
+	refuseStampsApart,
+	type StampingAction,
+	stampsOf
+} from "#compiler/write/frontend/instants.ts"
 import {
 	type PlainRefill,
 	type RefillHolds,
@@ -755,7 +759,7 @@ const familyWriteAt = (
 	}
 	switch (node.appends) {
 		case "rows":
-			return { relation: node.member, op: "insert" }
+			return { relation: node.members[0], op: "insert" }
 		case "nothing":
 			return { relation: node.owners[0].relation, op: "count" }
 	}
@@ -891,13 +895,28 @@ const compile = (
 		laws.patterns
 	)
 	const nestings = new Map<string, Nesting>()
-	/** The nesting of an insert into `relation`, built once. */
+	/** The nesting of an insert into `relation`, built once: its rows leave out every instant and place, as a nested fact
+	 * states none, which its stamps fill or which are refused (write/frontend/instants.ts stampsOf), its one family
+	 * statement stamping them (write/family/nesting.ts Nesting `stamps`). */
 	const nestingFor = (relation: RelationInfo): Nesting => {
 		const known = nestings.get(relation.name)
 		if (known !== undefined) {
 			return known
 		}
-		const built = nestingOf(relation, laws.theory.fill)
+		const built = nestingOf(
+			relation,
+			laws.theory.fill,
+			stampsOf(
+				laws.theory.instants,
+				relation,
+				"insert",
+				relation.fields
+					.filter((f) => f.writing.kind !== "instant" && f.writing.kind !== "place")
+					.map((f) => ({ name: f.name, type: f.type })),
+				{ kind: "family" },
+				relation.loc
+			)
+		)
 		nestings.set(relation.name, built)
 		return built
 	}
@@ -1776,7 +1795,9 @@ const compile = (
 							if (memberNames !== undefined) {
 								/** A nested insert's facts are its rows as its nesting writes them (Nesting.top), each count and end
 								 * drawn from its members: never a put's, which state their caller's fields, so the host refuses the
-								 * two at one key (normalize/ step 3). */
+								 * two at one key (normalize/ step 3). A stamped nesting's root is written by its family statement,
+								 * which stamps it with every member that carries its stamp (write/family/nesting.ts Nesting
+								 * `stamps`), so it is that statement's edit and no action of its own. */
 								const slot = memberSlot(insert, nesting.top, nesting.walked)
 								groupInputs.push(
 									Object.freeze({
@@ -1800,7 +1821,17 @@ const compile = (
 									)
 								}
 								if (nesting.root.kind === "plain") {
-									draft(insert, nesting.top, slot, [], loc)
+									if (nesting.stamps.has(relation.name)) {
+										edits.push(
+											Object.freeze({
+												stratum,
+												relation: relation.name,
+												write: { op: "insert", slot: slot.slot }
+											})
+										)
+									} else {
+										draft(insert, nesting.top, slot, [], loc)
+									}
 								}
 							}
 							break
@@ -1966,7 +1997,11 @@ const compile = (
 					relation,
 					act.op,
 					read.heading,
-					entry.kind === "whole" && !managed(relation.name) && !nests(relation.name),
+					entry.kind === "whole"
+						? managed(relation.name) || nests(relation.name)
+							? { kind: "family" }
+							: { kind: "own" }
+						: { kind: "entry" },
 					loc
 				),
 				entry:
@@ -1979,9 +2014,25 @@ const compile = (
 	}))
 	/** Each action's stamps by its stratum, which a ChangeSet stamps each clock in one stratum of, every reference beside
 	 * its clock's insert (write/frontend/instants.ts refuseStampsApart). */
-	const stamping = builtByStratum.flatMap(({ stratum, built }) =>
-		built.map(({ info, loc }) => ({ stratum, relation: info.relation, stamps: info.stamps, loc }))
-	)
+	const stamping: ReadonlyArray<StampingAction> = [
+		...builtByStratum.flatMap(({ stratum, built }) =>
+			built.map(({ info, loc }) => ({
+				stratum,
+				relation: info.relation,
+				stamps: info.stamps,
+				writer: "own" as const,
+				loc
+			}))
+		),
+		...nestedWrites.flatMap(({ stratum, nesting }) =>
+			[nesting.relation, ...nesting.reached.map((r) => r.family.member)].flatMap((relation) => {
+				const stamps = nesting.stamps.get(relation.name)
+				return stamps === undefined
+					? []
+					: [{ stratum, relation, stamps, writer: "family" as const, loc: relation.loc }]
+			})
+		)
+	]
 	refuseStampsApart(stamping)
 	/** Each stratum's unit deletes, each its relation's units from its one source, built after every action's. */
 	const unitsByStratum = draftsByStratum.map(({ stratum, units, below }) => ({
@@ -2286,37 +2337,48 @@ const compile = (
 		 * The column keys each source of the rows of `owner` the stratum inserts holds as its rows are written: each insert
 		 * or put slot's stated fields (insert/input.ts RelationInput), never the counts and ends a slot carries at their starts, which a put of a stored owner leaves as stored;
 		 * and its nested rows' sent layout; and whether a described member inserts or puts some, whose rows the database
-		 * computes.
+		 * computes. A stamped nesting's rows hold their stamped columns too, which its family statement stamps as it writes
+		 * them (write/family/additions.ts stampedSources).
 		 */
-		const insertedRows = (owner: StoredRelationName) => ({
-			carried: [
-				...slots.flatMap((g) =>
-					g.stratum === stratum && g.relation.name === owner
-						? g.inputs.flatMap((input) =>
-								writingSlots(input).map((slot) => slot.input.stated.map((c) => columnKeyOf(c.name)))
-							)
-						: []
-				),
-				...nestedWrites.flatMap((n) => {
-					const laid = n.stratum === stratum ? n.nesting.layouts.get(owner) : undefined
-					if (laid === undefined) {
-						return []
-					}
-					const sent = sentLayout(laid)
-					return [[...sent.key, ...sent.columns].map((c) => c.key)]
-				})
-			],
-			described: placedByStratum.some(
-				(p) =>
-					p.stratum === stratum &&
-					p.built.some(
-						(b) =>
-							b.action.relation === owner &&
-							b.action.op !== "delete" &&
-							b.action.source.kind !== "enumerated"
-					)
+		const insertedRows = (owner: StoredRelationName) => {
+			const stamped = nestedWrites.flatMap((n) =>
+				n.stratum === stratum
+					? (n.nesting.stamps.get(owner) ?? []).map((st) => columnKeyOf(st.field.name))
+					: []
 			)
-		})
+			return {
+				carried: [
+					...slots.flatMap((g) =>
+						g.stratum === stratum && g.relation.name === owner
+							? g.inputs.flatMap((input) =>
+									writingSlots(input).map((slot) => [
+										...slot.input.stated.map((c) => columnKeyOf(c.name)),
+										...stamped
+									])
+								)
+							: []
+					),
+					...nestedWrites.flatMap((n) => {
+						const laid = n.stratum === stratum ? n.nesting.layouts.get(owner) : undefined
+						if (laid === undefined) {
+							return []
+						}
+						const sent = sentLayout(laid)
+						return [[...[...sent.key, ...sent.columns].map((c) => c.key), ...stamped]]
+					})
+				],
+				described: placedByStratum.some(
+					(p) =>
+						p.stratum === stratum &&
+						p.built.some(
+							(b) =>
+								b.action.relation === owner &&
+								b.action.op !== "delete" &&
+								b.action.source.kind !== "enumerated"
+						)
+				)
+			}
+		}
 		/** Where an owner copy of `f` reads the owner column `to` (schedule.ts CopySource): held where every row the stratum
 		 * inserts of its owner holds the group's fields and the columns that hold `to` (`heldBy`). */
 		const copySource = (f: Family, to: NativeColumn): CopySource => {
@@ -2351,6 +2413,43 @@ const compile = (
 								: []
 						)
 			)
+		/**
+		 * The member relations the stratum appends, each statement's: one apiece, but the relations whose appended rows a
+		 * nesting stamps from one head, which one statement writes so the head is stamped once (write/family/nesting.ts
+		 * Nesting `stamps`), each set in the order `appended` names its first.
+		 */
+		const stampedTogether = (
+			appended: ReadonlyArray<StoredRelationName>
+		): ReadonlyArray<NonEmptyReadonlyArray<StoredRelationName>> => {
+			const headsOf = (member: StoredRelationName): ReadonlySet<string> =>
+				new Set(
+					nestedWrites.flatMap((n) =>
+						n.stratum === stratum
+							? (n.nesting.stamps.get(member) ?? []).map((st) => headText(st.stamp.head))
+							: []
+					)
+				)
+			const sets: Array<{ members: Array<StoredRelationName>; heads: Set<string> }> = []
+			for (const member of appended) {
+				const heads = headsOf(member)
+				const joined = sets.filter((x) => [...heads].some((h) => x.heads.has(h)))
+				const into = {
+					members: [...joined.flatMap((x) => x.members), member],
+					heads: new Set(heads)
+				}
+				for (const x of joined) {
+					for (const h of x.heads) {
+						into.heads.add(h)
+					}
+					sets.splice(sets.indexOf(x), 1)
+				}
+				sets.push(into)
+			}
+			return sets.flatMap((x) => {
+				const [first, ...rest] = x.members
+				return first === undefined ? [] : [[first, ...rest] as const]
+			})
+		}
 		const recountedOnly = [
 			...new Set(
 				families.flatMap((f) => (redrawing.includes(f.member.name) ? [f.member.name] : []))
@@ -2365,23 +2464,31 @@ const compile = (
 				refilledFrom: refilledFromOf(member),
 				riders: ridersOf(member).map(riderChanges)
 			})),
-			...adding.map((member) => {
-				const drawn = drawnOwners(member)
+			...stampedTogether(adding).map((members) => {
+				const owners = members.flatMap((member) => {
+					const drawn = drawnOwners(member)
+					return [
+						...drawn,
+						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))
+					]
+				})
 				return {
 					kind: "additions" as const,
 					appends: "rows" as const,
-					member,
+					members,
 					copies: [
 						...new Set(
-							ownerCopiesOf(member).flatMap((c) => (c.source === "drawn" ? [c.owner] : []))
+							members.flatMap((member) =>
+								ownerCopiesOf(member).flatMap((c) => (c.source === "drawn" ? [c.owner] : []))
+							)
 						)
 					],
-					ownerCopies: ownerCopiesOf(member),
-					owners: [
-						...drawn,
-						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))
-					],
-					riders: appendRidersOf(member).map(riderChanges)
+					ownerCopies: members.flatMap(ownerCopiesOf),
+					owners: [...groupBy(owners, (o) => o.relation)].map(([relation, changed]) => ({
+						relation,
+						changes: [...new Set(changed.flatMap((o) => o.changes))]
+					})),
+					riders: [...new Set(members.flatMap(appendRidersOf))].map(riderChanges)
 				}
 			}),
 			...recountedOnly.flatMap((member) => {
@@ -2678,8 +2785,24 @@ const compile = (
 	const classified = readBacks.flatMap((r) =>
 		r.deltas.map((d) => ({ read: r.name, delta: d, side: d.side, of: deltaOf(d.relation) }))
 	)
+	/** The roots of the stamped nestings, whose rows their family statements insert with their members', returning them as
+	 * an insert returns its rows, so a read-back of their delta rides that statement (write/schedule/plan.ts
+	 * placeReadBacks); every other relation of a family write is read after the change. */
+	const readableRoots = new Set<string>(
+		nestedWrites.flatMap(({ nesting }) =>
+			nesting.root.kind === "plain" &&
+			nesting.stamps.has(nesting.relation.name) &&
+			!families.some((f) => f.member.name === nesting.relation.name)
+				? [nesting.relation.name]
+				: []
+		)
+	)
 	for (const { read, delta, side, of } of classified) {
-		if (of.kind === "relation" && nestedRelations.has(of.relation)) {
+		if (
+			of.kind === "relation" &&
+			nestedRelations.has(of.relation) &&
+			!readableRoots.has(of.relation)
+		) {
 			refuse(
 				"UnsupportedOperation",
 				childLoc(at, "reads", read),
