@@ -45,7 +45,6 @@ import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	cast,
 	compute,
-	count,
 	gt,
 	imported,
 	lt,
@@ -87,6 +86,7 @@ import {
 	integer,
 	mainArm,
 	mains,
+	naturalField,
 	nothingMore,
 	type Observed,
 	observed,
@@ -360,7 +360,7 @@ export const theFeedbacksShapeRefusesFeedbackReadTwiceNegatedAggregatedMisplaced
 					Effect.sync(() => {
 						const desc = recursive(
 							"Reach",
-							{ node: uuidField, n: bigint },
+							{ node: uuidField, n: naturalField },
 							[baseArm(base)],
 							[mainArm(m), ...extraArms(extra)]
 						)
@@ -936,7 +936,7 @@ export const theSeenStateEstimateCountsACountdownsStatesFromItsSeedToItsBoundAnd
 			"admitted from zero or above",
 			"admitted from below zero",
 			"admitted from bigint's greatest value",
-			"refused data",
+			"refused a parameter",
 			"refused from bigint's least value"
 		] satisfies ReadonlyArray<Reached<CountdownFeature>>,
 		check: (_, c: Case<CountdownFeature>) => (seeded) =>
@@ -949,7 +949,9 @@ export const theSeenStateEstimateCountsACountdownsStatesFromItsSeedToItsBoundAnd
 							vars: vars("Vertex", "id"),
 							matches: [match(relationSource("Vertex"), { id: ref("Vertex", "id") })],
 							where: [],
-							head: { n: seeded.kind === "data" ? count() : typedLit(seeded.value, bigint) },
+							head: {
+								n: seeded.kind === "param" ? param("seed", bigint) : typedLit(seeded.value, bigint)
+							},
 							interiors: [],
 							attach: []
 						})
@@ -975,7 +977,9 @@ export const theSeenStateEstimateCountsACountdownsStatesFromItsSeedToItsBoundAnd
 					assert.equal(cert.stateEstimate, seeded.value >= 0n ? seeded.value + 1n : 1n)
 					return
 				}
-				c.note(seeded.kind === "data" ? "refused data" : "refused from bigint's least value")
+				c.note(
+					seeded.kind === "param" ? "refused a parameter" : "refused from bigint's least value"
+				)
 				const r = checkAuthored(checking(Graph), desc, checkOptions("query"))
 				assert.ok(!r.ok, "the step over bigint's least value is refused")
 				const reason = r.error.reason

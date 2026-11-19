@@ -2344,12 +2344,16 @@ type Verdict =
 
 /**
  * The host type a value of the engine's type has, as the program spells it: a pattern's text the inference of its
- * source, as its field's host type is (text/field.ts str.regex).
+ * source, as its field's host type is (text/field.ts str.regex); natural's, a count's, the bigint it is unbranded.
  */
 const hostText = (t: ScalarType): string => {
 	const named = t.contract
 	if (named !== undefined) {
-		return named.name === "Cents" ? "Infer<typeof Cents>" : `unknown /* ${named.name} */`
+		return named.name === "Cents"
+			? "Infer<typeof Cents>"
+			: named.name === "natural"
+				? "bigint"
+				: `unknown /* ${named.name} */`
 	}
 	switch (t.carrier) {
 		case "int2":

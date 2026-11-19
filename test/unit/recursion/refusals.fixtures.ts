@@ -17,6 +17,7 @@ import { queryOver as untypedQuery } from "#compiler/query/build/query.ts"
 import { assert, defined, type Place, placeOf, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredExprDesc as ExprDesc,
+	f,
 	type HeadTermDesc,
 	type MatchDesc,
 	type QueryDesc,
@@ -129,6 +130,9 @@ export const uuidField: FieldDesc = { kind: "uuid" }
 export const integer: FieldDesc = { kind: "pg", type: "integer" }
 
 export const bigint: FieldDesc = { kind: "pg", type: "bigint" }
+
+/** natural, a count's type: the hop count a feedback's state holds, seeded at 0 or by a count. */
+export const naturalField: FieldDesc = f.natural
 
 /** A state column of the feedback, and the variable a recursive arm reads it into. */
 export const s = (column: string): ExprDesc => varRef(`self.${column}`)
@@ -399,7 +403,7 @@ const vertices = queryDesc(
 
 const nearest = imported(approximateNearest(vertices, "node", 5), {})
 
-const zero = typedLit(0n, bigint)
+const zero = typedLit(0n, naturalField)
 
 export const baseArm = (base: Base): RuleDesc => {
 	switch (base) {
@@ -677,27 +681,28 @@ export type Via = "Inc" | "Echo then Inc" | "a counter beside Echo"
 export type ImportFeature = `${"admitted" | "refused"} ${Via}` | "unproved a counter beside Echo"
 
 /**
- * A countdown over a bigint by n - 1 while n > 0, seeded by data (a count over the vertices) or by a literal s, drawn
- * near each of bigint's least value, zero and its greatest value, or anywhere between. Its states are s down to 0, s +
- * 1 of them, for s at or above 0, and s alone below it; the step may compute n - 1 on any state before its filter drops
- * the row (check/recursion/state.ts counterNarrowing), so the narrowing of the step into n is proved exactly when the
- * least state less one is a bigint. A literal above bigint's least value is admitted, recording its states however
+ * A countdown over a bigint by n - 1 while n > 0, seeded by a parameter, a bigint the call states, or by a literal s,
+ * drawn near each of bigint's least value, zero and its greatest value, or anywhere between. Its states are s down to
+ * 0, s + 1 of them, for s at or above 0, and s alone below it; the step may compute n - 1 on any state before its filter
+ * drops the row (check/recursion/state.ts counterNarrowing), so the narrowing of the step into n is proved exactly when
+ * the least state less one is a bigint. A literal above bigint's least value is admitted, recording its states however
  * many no store holds; a seed admission cannot read is any bigint, and the literal at bigint's least value is that
- * value, so either is PartialOperation, naming n and the fits precondition.
+ * value, so either is PartialOperation, naming n and the fits precondition. A count is no such seed: it is a natural,
+ * never below zero.
  */
-type Seed = Readonly<{ kind: "data" }> | Readonly<{ kind: "literal"; value: bigint }>
+type Seed = Readonly<{ kind: "param" }> | Readonly<{ kind: "literal"; value: bigint }>
 
 export type CountdownFeature =
 	| "admitted from zero or above"
 	| "admitted from below zero"
 	| "admitted from bigint's greatest value"
-	| "refused data"
+	| "refused a parameter"
 	| "refused from bigint's least value"
 
 const literal = (value: bigint): Seed => ({ kind: "literal", value })
 
 export const seedGen: Gen<Seed> = oneOf<Seed>([
-	constant<Seed>({ kind: "data" }),
+	constant<Seed>({ kind: "param" }),
 	map(int(0, 3), (d) => literal(int8Min + BigInt(d))),
 	map(int(-3, 3), (d) => literal(BigInt(d))),
 	map(int(0, 3), (d) => literal(int8Max - BigInt(d))),
@@ -842,7 +847,7 @@ export const readingDefinition = (place: ReadPlace, read: ReadSource, how: ReadH
 	})
 	return recursive(
 		"Reach",
-		{ node: uuidField, n: bigint },
+		{ node: uuidField, n: naturalField },
 		[base],
 		place === "arm reading no self" ? [main, selfless] : [main]
 	)

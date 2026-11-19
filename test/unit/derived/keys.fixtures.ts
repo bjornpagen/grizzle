@@ -18,7 +18,7 @@ import { indices } from "#compiler/core/array.ts"
 import type { DerivedRefusal, KeyFault } from "#compiler/core/causes.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { natural, pg, uuid } from "#compiler/public/fields.ts"
 import { key, on, type Relation, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -1291,7 +1291,7 @@ export const storableModel = (c: StorableCase): Expected => {
 		name: columnName(i),
 		desc: i === 0 ? descOf(uuid) : descOf(storedField(storedAt(c, i)))
 	})
-	const count = descOf(pg.bigint)
+	const count = descOf(natural)
 	const shape = c.shape
 	switch (shape.kind) {
 		case "attached":

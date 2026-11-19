@@ -1,5 +1,5 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
@@ -213,7 +213,7 @@ export const ledger = (name: string) => {
 		const { customer, payments, cents } = v(CustomerSpend, "customerSpend")
 		return r
 			.match(CustomerSpend, { customer, payments, cents })
-			.where(r.ge(payments, r.param("least", pg.bigint)))
+			.where(r.ge(payments, r.param("least", natural)))
 			.find({ customer, cents })
 	})
 	return {

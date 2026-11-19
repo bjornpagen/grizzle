@@ -74,6 +74,7 @@ import type {
 	Field,
 	FieldBase,
 	LiteralOf,
+	NaturalDomain,
 	NotStoredOnly,
 	StoredOnlySql
 } from "#compiler/types/fields/field.ts"
@@ -776,10 +777,10 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	): Producer<V, PA, X, L, ComputedOrigin<OA>>
 
 	/**
-	 * count is bigint; sum and mean take their result type off the SUM and AVG tables by their argument's SQL type
-	 * (scalar/compute/tables.ts): a sum over any integer is an exact numeric.
+	 * count is a natural, whose host and SQL type are bigint's; sum and mean take their result type off the SUM and AVG
+	 * tables by their argument's SQL type (scalar/compute/tables.ts): a sum over any integer is an exact numeric.
 	 */
-	count(): Aggregate<bigint, unknown, "bigint">
+	count(): Aggregate<bigint, unknown, "bigint", NaturalDomain>
 	sum<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql>(
 		term: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
 	): OfFamily<A, NumericSql, Aggregate<PlainHost[SumSql[S]], PA, SumSql[S]>>

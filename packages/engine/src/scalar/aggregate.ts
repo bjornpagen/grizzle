@@ -1,5 +1,5 @@
 import { type CompileError, resourceBound, unsupported } from "#compiler/core/errors.ts"
-import type { SourceLoc } from "#compiler/core/loc.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { int8Digits } from "#compiler/ir/carriers.ts"
 import { type CatalogOpId, OpId as opId } from "#compiler/ir/expr.ts"
@@ -20,7 +20,8 @@ import {
 	valueType
 } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { numericValue } from "#compiler/scalar/registry.ts"
+import { naturalDescriptor } from "#compiler/scalar/natural.ts"
+import { describeFieldOrThrow, numericValue } from "#compiler/scalar/registry.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 
 export type AggregateName = "count" | "sum" | "mean" | "min" | "max"
@@ -370,14 +371,21 @@ export const aggregateOverload = (
 ): Result.Result<AggregateOverload, CompileError> =>
 	call.name === "count" ? Result.ok(countOverload()) : unaryOverload(call.name, call.arg, loc)
 
-/** count(*): bigint over no argument. */
+/**
+ * count(*) over no argument: natural, what a count is, never below zero, PostgreSQL's bigint behind natural's domain
+ * (scalar/natural.ts), so a count meets a natural field, parameter or literal and is written into a natural field as
+ * it is, and a rule's place, the count of the rows before it, is one term with its first, 0.
+ */
 export const countOverload = (): CountOverload => ({
 	fn: "count",
 	op: opId("count()"),
 	sql: "count",
-	result: plainType("int8"),
+	result: naturalType,
 	lowering: native
 })
+
+/** natural's type, a count's (countOverload). */
+const naturalType = describeFieldOrThrow(naturalDescriptor, SourceLoc("natural", [])).scalar
 
 /** The overload of an aggregate of one argument of type `arg`, refused where PostgreSQL defines none. */
 export const unaryOverload = (

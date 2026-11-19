@@ -116,7 +116,7 @@ export const declaredDescOf = (
  * computed numeric no declaration writes (ir/desc.ts InferredFieldDesc). The rules it realizes, each pinned by
  * test/unit/derived/fields.test.ts:
  *
- * - `r.count()` is `pg.bigint`;
+ * - `r.count()` is `natural`, which every schema holds (schema/own.ts #collectFields; test/unit/check/count.test.ts);
  * - `r.sum` is numeric over the integers and numeric, the result type of the bigint and numeric SUM it lowers to (a
  *   sum over smallint or integer is summed as bigint, scalar/aggregate.ts `widened`), and real and double precision
  *   keep their type; money gives exact money, which no field holds (a stored money total sums the

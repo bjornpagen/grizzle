@@ -3,7 +3,7 @@
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { Effect, pipe, String as Str } from "effect"
 import { workload } from "#compiler/program/workload/value.ts"
-import { pg, type Uuid } from "#compiler/public/fields.ts"
+import { natural, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -32,7 +32,7 @@ export const busyAccounts = query(W.Reports).rule((r) => {
 	const { account, tasks, budget } = v(W.AccountBudget, "accountBudget")
 	return r
 		.match(W.AccountBudget, { account, tasks, budget })
-		.where(r.ge(tasks, r.param("least", pg.bigint)))
+		.where(r.ge(tasks, r.param("least", natural)))
 		.find({ account, budget })
 })
 

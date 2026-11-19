@@ -19,12 +19,13 @@ import {
 	definedRangeOp,
 	nativeOp
 } from "#compiler/scalar/compute/registry.ts"
+import { f } from "#test/support/fixtures/ir/desc.ts"
+import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	type GenCarrier,
 	genCarrierOf,
 	genCarriers,
-	hasCap,
-	int8
+	hasCap
 } from "#test/support/oracle/gen/domain.ts"
 
 export const compareOps = ["eq", "ne", "lt", "le", "gt", "ge"] as const
@@ -204,14 +205,17 @@ const overloadOf = (fn: Exclude<GenAggregate, "count">, type: ScalarType | undef
 /** count's lowering: the native call. */
 const nativeLowering: AggregateLowering = { kind: "native" }
 
+/** natural's type, a count's. */
+const naturalType: ScalarType = scalarOf(f.natural, {})
+
 /**
- * The result type the checker gives the aggregate (scalar/aggregate.ts unaryOverload): count is bigint; sum is bigint
+ * The result type the checker gives the aggregate (scalar/aggregate.ts unaryOverload): count is natural; sum is bigint
  * over smallint and integer, numeric over bigint and numeric, the argument's type over the floats and exact money over
  * money; avg is numeric over the exact types and double precision over the floats; min and max keep the argument's
  * descriptor; the folds are boolean.
  */
 export const aggregateResult = (fn: GenAggregate, type: ScalarType | undefined): ScalarType =>
-	fn === "count" ? int8 : overloadOf(fn, type).result
+	fn === "count" ? naturalType : overloadOf(fn, type).result
 
 /**
  * How the conservative lowering calls the aggregate (scalar/aggregate.ts AggregateLowering): natively, or over each

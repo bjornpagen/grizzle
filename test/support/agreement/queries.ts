@@ -319,10 +319,10 @@ type Minted = Rel | "Rows" | "Owned" | "Stage" | "Stray"
 /** What a match reads: a source of variables, or Tones, the union of Item's facts by tone (./schema.ts). */
 type MatchSource = Minted | "Tones"
 /**
- * The kinds of value a JavaScript value or a contract's typed constant is written for: big is a plain bigint, a count's,
- * and date a calendar date, written as its ISO text.
+ * The kinds of value a JavaScript value or a contract's typed constant is written for: big is a plain bigint, nat a
+ * natural, a count's, and date a calendar date, written as its ISO text.
  */
-type LiteralKind = "uuid" | "int" | "code" | "cents" | "big" | "date"
+type LiteralKind = "uuid" | "int" | "code" | "cents" | "big" | "nat" | "date"
 /** A span's kind, by its endpoint type: integer, bigint, Cents, or calendar dates. */
 type SpanKind = "span" | "bigSpan" | "centsSpan" | "dateSpan"
 /** A field's kind: a literal's, a span's or a vector's. */
@@ -381,7 +381,7 @@ const fieldsOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<Field> } = {
 	],
 	OwnerCounts: [
 		{ rel: "OwnerCounts", name: "owner", kind: "uuid" },
-		{ rel: "OwnerCounts", name: "items", kind: "big" }
+		{ rel: "OwnerCounts", name: "items", kind: "nat" }
 	],
 	Tag: [
 		{ rel: "Tag", name: "item", kind: "uuid" },
@@ -439,17 +439,18 @@ const keysOf: { readonly [S in Minted]: Arr.NonEmptyReadonlyArray<ReadonlyArray<
 	Stray: [["id"]]
 }
 const allFields: Arr.NonEmptyReadonlyArray<Field> = Arr.flatMap(rels, (rel) => fieldsOf[rel])
-/** Every field a parameter is declared at: Item's, Slot's, and Cell's plain bigint. */
+/** Every field a parameter is declared at: Item's, Slot's, and Cell's plain bigint and natural. */
 const declared: Arr.NonEmptyReadonlyArray<ParamField> = [
 	...Arr.map(itemFields, (f): ParamField => ({ rel: "Item", name: f.name, kind: f.kind })),
 	...Arr.map(slotFields, (f): ParamField => ({ rel: "Slot", name: f.name, kind: f.kind })),
 	{ rel: "Slot", name: embeddingField.name, kind: "vector" },
 	{ rel: "Slot", name: imageField.name, kind: "vector" },
-	{ rel: "Cell", name: "bigint", kind: "big" }
+	{ rel: "Cell", name: "bigint", kind: "big" },
+	{ rel: "Cell", name: "natural", kind: "nat" }
 ]
 /**
  * The field a parameter of each kind is declared at, wherever it stands: Item's field of the kind, Slot's for a span or
- * a vector, and Cell's for a plain bigint.
+ * a vector, and Cell's for a plain bigint and a natural.
  */
 const paramField = (kind: Kind): ParamField =>
 	Option.getOrThrowWith(
@@ -472,12 +473,6 @@ const itemField = (kind: Kind): Field =>
 const integerField: Field = itemField("int")
 /** Item.tone, the field a rule's first match binds when it draws a constant of Tone by construction (Anchor). */
 const toneField: Field = itemField("code")
-/** A field of a kind some relation of the schema holds, which a parameter of the kind is declared at. */
-const fieldOfKind = (kind: Kind): Field =>
-	Option.getOrThrowWith(
-		Arr.findFirst(allFields, (f) => f.kind === kind),
-		() => new Error(`no relation of the schema has a ${kind} field`)
-	)
 /** Whether a kind is a span's. */
 const isSpan = (kind: Kind): boolean =>
 	kind === "span" || kind === "bigSpan" || kind === "centsSpan" || kind === "dateSpan"
@@ -498,6 +493,7 @@ const pointKind = (kind: Kind): Kind | undefined => {
 		case "code":
 		case "cents":
 		case "big":
+		case "nat":
 		case "date":
 		case "vector":
 			return undefined
@@ -783,6 +779,11 @@ class Drawing {
 	param(at: Field): Term {
 		return { kind: "param", name: this.paramName(), at: declaredAt(at) }
 	}
+
+	/** A parameter of a kind no field it stands for names, declared at the kind's field (paramField). */
+	paramOfKind(kind: Kind): Term {
+		return { kind: "param", name: this.paramName(), at: paramField(kind) }
+	}
 }
 
 const sameVar = (a: Var, b: Var): boolean =>
@@ -817,6 +818,7 @@ const literalForms = (d: Drawing, kind: Kind): ReadonlyArray<Form<Term>> => {
 		case "code":
 		case "cents":
 		case "big":
+		case "nat":
 		case "date":
 			return [["literal", () => literalOf(d, kind)]]
 		case "span":
@@ -850,6 +852,7 @@ const inputOf = (d: Drawing, at: Field): Term => {
 		case "uuid":
 		case "cents":
 		case "big":
+		case "nat":
 		case "date":
 		case "span":
 		case "bigSpan":
@@ -1494,7 +1497,7 @@ const spanFilters = (d: Drawing, plan: Plan, bound: ReadonlyArray<Var>): Readonl
 		const point =
 			Arr.isReadonlyArrayNonEmpty(points) && d.from([0, 1]) === 0
 				? varTerm(d.from(points))
-				: d.param(fieldOfKind(of))
+				: d.paramOfKind(of)
 		return [{ kind: "pointIn", point, span: oppositeOf(d, span, spans) }]
 	})()
 	return [...allen, ...pointIn]
@@ -1553,6 +1556,7 @@ const spanKindOf = (kind: Kind): SpanKind | undefined => {
 		case "code":
 		case "cents":
 		case "big":
+		case "nat":
 		case "date":
 		case "vector":
 			return undefined
@@ -1668,6 +1672,7 @@ const partnerKind = (kind: Kind): Kind => {
 		case "code":
 		case "cents":
 		case "big":
+		case "nat":
 		case "date":
 		case "span":
 		case "dateSpan":
@@ -2309,6 +2314,7 @@ class Rendering {
 					case "int":
 						return String(t.value)
 					case "big":
+					case "nat":
 						return `${t.value}n`
 					case "date":
 						return jsonText(dateOf(t.value))
@@ -2473,6 +2479,7 @@ class Rendering {
 				case "code":
 				case "cents":
 				case "big":
+				case "nat":
 				case "date":
 				case "span":
 				case "bigSpan":
@@ -2997,6 +3004,7 @@ const rowsDescriptor = (f: Field): unknown => {
 		case "code":
 		case "cents":
 		case "big":
+		case "nat":
 		case "date":
 		case "span":
 		case "bigSpan":
@@ -3685,6 +3693,7 @@ const constantTermValue = (
 				case "int":
 					return t.value
 				case "big":
+				case "nat":
 					return BigInt(t.value)
 				case "date":
 					return dateOf(t.value)

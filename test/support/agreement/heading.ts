@@ -124,10 +124,15 @@ const textHost = (regex: RegexRef): string => {
 /** The weight a finite text's members are listed within: each member's bytes and one more, far above any declared. */
 const memberWeight = 4096
 
-/** A host type under its contract's brand, where the type is a contract's. */
+/**
+ * A host type under its contract's brand, where the type is a contract's: natural's, a count's among them, is
+ * unbranded, the bigint it is, and no other contract takes its name.
+ */
 const branded = (type: ScalarType, host: string): string => {
 	const { contract } = type
-	return contract === undefined ? host : `${host} & Brand.Brand<${jsonText(contract.name)}>`
+	return contract === undefined || contract.name === "natural"
+		? host
+		: `${host} & Brand.Brand<${jsonText(contract.name)}>`
 }
 
 /** The host type of a column the engine types `type` and decodes by `column`. */

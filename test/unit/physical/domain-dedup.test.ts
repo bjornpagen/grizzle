@@ -8,7 +8,7 @@
  * - the columns' types name one domain exactly when the pairs' bases and predicates are equal (metamorphic: equal
  *   definitions, equal names; any difference, a new name);
  * - the installation creates each distinct definition's domain once, so the CREATE DOMAINs of contract domains are as
- *   many as the distinct definitions;
+ *   many as the distinct definitions, natural's among them, a bigint VALUE >= 0, which every schema holds;
  * - a role that writes the relation holds USAGE once per domain;
  * - a shared checked domain's constraint reports every contract sharing it, and names each column's contract by the
  *   column, so a violation on either column reports that column's law.
@@ -27,6 +27,7 @@ import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import {
 	type DedupFeature,
+	distinctDefinitions,
 	domainsOf,
 	featuresOf,
 	installationOf,
@@ -55,8 +56,8 @@ export const contractDomainsByDefinitionW6Q10ShareOneDomainExactlyWhenTheirDefin
 				assert.equal(a.name === b.name, same(p.a, p.b), "one domain exactly for equal definitions")
 				assert.equal(
 					domainsOf(i).length,
-					same(p.a, p.b) ? 1 : 2,
-					"each distinct definition's domain is created once"
+					distinctDefinitions(p),
+					"each distinct definition's domain is created once, natural's among them, which every schema holds"
 				)
 				const usage = Arr.flatMap(i.statements, (s) =>
 					s.kind === "grant" && s.on.kind === "DOMAIN" ? Arr.map(s.on.names, (n) => n.name) : []

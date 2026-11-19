@@ -31,7 +31,7 @@ import {
 	type SchemaFingerprint
 } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { labeledChildLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
 	lastNonEmpty,
@@ -86,7 +86,7 @@ import type { Inserts } from "#compiler/ir/law.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
-import { isNaturalDesc } from "#compiler/scalar/natural.ts"
+import { isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { descCapabilities } from "#compiler/scalar/registry.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
 import {
@@ -632,6 +632,22 @@ const declareName = (
 ): DeclaredName => unwrap(namespace.declare(name, kind, loc))
 
 const textOf = (value: unknown): WellFormedText => unwrap(descText(value))
+
+/**
+ * natural as every schema owns it (Owner #collectFields), its descriptor a contract's, its canonical text read once,
+ * where the module loads, so no schema's ownership encodes it again.
+ */
+const naturalOwned = ((): {
+	readonly desc: FieldDesc & { readonly kind: "contract" }
+	readonly text: string
+	readonly loc: SourceLoc
+} => {
+	const desc = naturalDescriptor.desc
+	if (desc.kind !== "contract") {
+		throw defect("natural is a contract")
+	}
+	return { desc, text: textOf(desc), loc: SourceLoc("natural", []) }
+})()
 
 const scopeOf = (side: SideDesc): SideScope => ({
 	relation: side.relation,
@@ -1379,9 +1395,11 @@ class Owner {
 	 * Fields: closed references and sets resolve to declared rosters of the field's level or below, and contract names
 	 * are not reused with a conflicting descriptor. A derived relation's fields are its definition's, which derived
 	 * analysis reads. How many columns a table holds is PostgreSQL's limit, checked where the installation emits the
-	 * table (physical/ddl/context.ts).
+	 * table (physical/ddl/context.ts). natural is every schema's first, whatever its fields: it is the type of every
+	 * count (scalar/aggregate.ts countOverload), and every query over the schema may count.
 	 */
 	#collectFields(): void {
+		this.#contracts.set(naturalOwned.desc.name, naturalOwned)
 		const ordered = [...this.#relations.values()].toSorted((a, b) =>
 			a.desc.name < b.desc.name ? -1 : 1
 		)

@@ -11,7 +11,7 @@ import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
 import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -38,8 +38,8 @@ const BusyBudget = derived.materialized("AccountBudget", automaticBudgetOfBusy)
 
 export const Redefined = schema.extend(W.Work, "Reports", [BusyBudget], [])
 
-/** The view's columns: its key, its count and its computed numeric, each with a parameter type it compares to. */
-const viewColumns = { account: uuid, tasks: pg.bigint, budget: pg.numeric(38, 0) } as const
+/** The view's columns: its key, its count, a natural, and its computed numeric, each with a parameter type it compares to. */
+const viewColumns = { account: uuid, tasks: natural, budget: pg.numeric(38, 0) } as const
 
 type ViewColumn = keyof typeof viewColumns
 

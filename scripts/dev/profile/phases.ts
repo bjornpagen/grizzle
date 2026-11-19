@@ -15,7 +15,7 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { lowerQuery } from "#compiler/program/describe.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { isOrderedValue, isQueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -73,7 +73,7 @@ const busyAccounts = query(workApi.Reports).rule((r) => {
 	const { account, tasks, budget } = v(workApi.AccountBudget, "accountBudget")
 	return r
 		.match(workApi.AccountBudget, { account, tasks, budget })
-		.where(r.ge(tasks, r.param("least", pg.bigint)))
+		.where(r.ge(tasks, r.param("least", natural)))
 		.find({ account, budget })
 })
 

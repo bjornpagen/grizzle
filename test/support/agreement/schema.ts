@@ -1,6 +1,6 @@
 import { Record as Rec } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, date, pg, span, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, date, natural, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
@@ -81,6 +81,7 @@ export const Cell = relation(
 		text: str.regex("^.*$", "su"),
 		integer: pg.integer,
 		bigint: pg.bigint,
+		natural,
 		boolean: pg.boolean,
 		uuid,
 		numeric: pg.numeric(10, 2),

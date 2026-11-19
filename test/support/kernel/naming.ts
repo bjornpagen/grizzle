@@ -12,6 +12,7 @@ import {
 	parseSchemaName,
 	type SchemaName
 } from "#compiler/core/identity.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	installationsOf,
@@ -49,15 +50,18 @@ import {
 } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
+import type { ContractInfo } from "#compiler/ir/scalar.ts"
 import {
 	type ConstraintLaw,
 	compileLaws,
 	constraintLawMap,
+	domainCheck,
 	type LawModel,
 	type TableConstraintLaw
 } from "#compiler/laws/model/model.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import {
+	contractDigest,
 	paramDomainIdentity,
 	type TextDomain,
 	textDomainIdentity
@@ -81,6 +85,8 @@ import type {
 	AnySchema,
 	Statement
 } from "#compiler/public/schema.ts"
+import { naturalDescriptor } from "#compiler/scalar/natural.ts"
+import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
@@ -155,9 +161,10 @@ export const localVectorSchema = "vector_ext"
  * vector extension in `vectorSchema` and the installation's codes `codes` (a fresh one's: ir/codes.ts firstCodebook):
  * each name minted at the naming door (core/identity.ts), a relation's as a stored relation's table. A structural text
  * domain exists only where an installation types a column by it, so these names name none; and they name no closed
- * relation's constant, no contract's domain and no column a lookup index holds by its image, which only an installation
- * holds, since a contract's domain is named by its definition's digest and an index is its installation's. A declared
- * function is named as a root level's, in `at`'s schema.
+ * relation's constant, no contract's domain but natural's and no column a lookup index holds by its image, which only an
+ * installation holds, since a contract's domain is named by its definition's digest and an index is its installation's:
+ * natural's definition is the one every installation holds, a count's type, so its digest is known without one. A
+ * declared function is named as a root level's, in `at`'s schema.
  */
 export const productionNames = (
 	declaredSchema: string,
@@ -169,7 +176,7 @@ export const productionNames = (
 		at.kind === "declared" ? identity.schema(parsedSchemaName(declaredSchema)) : at.installation
 	const schema = identifierOf(installation)
 	const types = installationTypes(installation)
-	return {
+	const names: PhysicalNames = {
 		relation: (relation) => ({ schema, name: identifierOf(identity.table(parsedName(relation))) }),
 		column: (...[, field]) => identifierOf(identity.column(parsedName(field))),
 		rosterDomain: (roster) => ({
@@ -184,9 +191,22 @@ export const productionNames = (
 			return { schema: types, name: identifierOf(identity.bitsDomain(roster, codec.width)) }
 		},
 		contractDomain: (contract) => {
-			throw new Error(
-				`productionNames names no contract's domain, so none of contract ${contract}: a contract's domain is named by its definition's digest, which only an installation holds, so a test that names one reads installationOf(subject, at).names`
-			)
+			if (contract !== naturalInfo.name) {
+				throw new Error(
+					`productionNames names no contract's domain but natural's, so none of contract ${contract}: a contract's domain is named by its definition's digest, which only an installation holds, so a test that names one reads installationOf(subject, at).names`
+				)
+			}
+			return {
+				schema: types,
+				name: identifierOf(
+					identity.contractDomain(
+						contractDigest(names, contract, {
+							base: naturalInfo.base,
+							check: domainCheck(naturalInfo)
+						})
+					)
+				)
+			}
 		},
 		textDomain: () => undefined,
 		paramDomain: (place, regex) => ({
@@ -213,7 +233,17 @@ export const productionNames = (
 		},
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) }
 	}
+	return names
 }
+
+/** natural's contract, the one contract every installation holds (schema/own.ts), which productionNames names. */
+const naturalInfo = ((): ContractInfo => {
+	const info = describeFieldOrThrow(naturalDescriptor, SourceLoc("natural", [])).scalar.contract
+	if (info === undefined) {
+		throw new Error("natural is a contract")
+	}
+	return info
+})()
 
 /**
  * The kinds of constraint a test names by its fields: a primary key, a foreign key, a key (a unique constraint or

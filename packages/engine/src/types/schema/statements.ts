@@ -16,6 +16,7 @@ import type {
 	AccumulatedField,
 	BitsField,
 	DrawnField,
+	NaturalDomain,
 	FieldBase,
 	HandleOf,
 	StoredOnlySql,
@@ -457,8 +458,8 @@ type Accumulators<C, Rest, X, Planes> = Rest extends readonly []
 				: false
 			: false
 
-/** count's value and accumulators are naturals. */
-type NaturalType = readonly [bigint, "bigint"]
+/** count's value and accumulators are naturals: natural's domain and SQL type. */
+type NaturalType = readonly [NaturalDomain, "bigint"]
 
 /**
  * A fold's step, the terms T over the member's heading C: the family's group, then its value (none for count) of a

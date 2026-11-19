@@ -109,13 +109,21 @@ export interface NumericTypmodField extends Field<Decimal, "numeric"> {
 }
 
 /**
- * natural: a bigint never below zero, which its values are proved to be, and the one field type a law side may read
- * pred of. Its host type is bigint, unbranded; `natural` is the member that tells it from every other bigint field.
+ * natural's identity, its terms' domain: a bigint its type declares nonnegative, unbranded, so a natural meets a
+ * natural, a count among them, and no bigint, as the checker types them (scalar/aggregate.ts countOverload), and a
+ * column of it, a count's included, carries the fact wherever a query reads it (ColumnFacts).
+ */
+export type NaturalDomain = bigint & DeclaresAll<"nonnegative">
+
+/**
+ * natural: a bigint never below zero, which its values are proved to be, the type of every count, and the one field
+ * type a law side may read pred of. Its host type is bigint, unbranded; its domain is NaturalDomain, and `natural` is
+ * the member that tells it from every other bigint field.
  */
 export interface NaturalField extends Field<
 	bigint,
 	"bigint",
-	bigint,
+	NaturalDomain,
 	{ readonly nonnegative: true }
 > {
 	readonly natural: true

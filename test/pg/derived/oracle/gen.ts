@@ -4,7 +4,7 @@ import { appendAll, indices } from "#compiler/core/array.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, natural, pg, uuid } from "#compiler/public/fields.ts"
 import type {
 	AnyRoster,
 	AnyDerived,
@@ -63,7 +63,7 @@ import { elementAt, whereIndex } from "#test/support/oracle/pick.ts"
  *   with sum, mean, min and max, which the drawn population reaches about once in 250 cases per function.
  *
  * The kinds track what each derived column holds, so a higher level binds it to variables of the right kind:
- * count is bigint, sum and mean take the native result types, min and max keep their input's kind,
+ * count is natural, sum and mean take the native result types, min and max keep their input's kind,
  * the contract included. An aggregate's computed numeric result ("num"), PostgreSQL's numeric of no typmod, carries the
  * bound its definition proves, a mean's at numeric's display scale, a B-tree datum of some 520 bytes, so a key over
  * several such columns outgrows a B-tree entry (UnrepresentableKey): it is never a group or plain head column, which a
@@ -79,12 +79,32 @@ export const pick = <A>(items: ReadonlyArray<A>, choice: number): A => {
 }
 
 /** The kinds a base field may have. */
-const baseKinds = ["uuid", "int4", "int8", "bool", "text", "cents", "color", "dec", "f8"] as const
+const baseKinds = [
+	"uuid",
+	"int4",
+	"int8",
+	"bool",
+	"text",
+	"cents",
+	"color",
+	"dec",
+	"f8",
+	"nat"
+] as const
 export type BaseKind = (typeof baseKinds)[number]
 /** A derived column may also hold a computed numeric, a sum's or a mean's result. */
 export type Kind = BaseKind | "num"
 
-const ordered: ReadonlySet<Kind> = new Set(["uuid", "int4", "int8", "text", "cents", "dec", "f8"])
+const ordered: ReadonlySet<Kind> = new Set([
+	"uuid",
+	"int4",
+	"int8",
+	"text",
+	"cents",
+	"dec",
+	"f8",
+	"nat"
+])
 /** The kinds sum and mean take. */
 const summedKinds = [
 	"int4",
@@ -92,7 +112,8 @@ const summedKinds = [
 	"cents",
 	"dec",
 	"f8",
-	"num"
+	"num",
+	"nat"
 ] as const satisfies ReadonlyArray<Kind>
 export type SummedKind = (typeof summedKinds)[number]
 /** The kinds min and max take: PostgreSQL has no min or max over uuid or boolean; an enum's order is its roster's, left
@@ -104,7 +125,8 @@ const extremalKinds = [
 	"cents",
 	"dec",
 	"f8",
-	"num"
+	"num",
+	"nat"
 ] as const satisfies ReadonlyArray<Kind>
 export type ExtremalKind = (typeof extremalKinds)[number]
 const isSummed = (k: Kind): k is SummedKind => Arr.some(summedKinds, (s) => s === k)
@@ -136,7 +158,8 @@ const literal: ReadonlySet<Kind> = new Set([
 	"text",
 	"cents",
 	"color",
-	"f8"
+	"f8",
+	"nat"
 ])
 
 /**
@@ -156,13 +179,13 @@ type Aggregate =
 
 /**
  * An aggregate's key and the kind of the column it computes, both read off the one aggregate, so no column's kind
- * strays from what computes it: a count is a bigint; a sum, its argument's sum kind (sumKind), the conditional count a
+ * strays from what computes it: a count is a natural; a sum, its argument's sum kind (sumKind), the conditional count a
  * sum over an integer; a mean, its argument's mean kind; min and max, their argument's kind.
  */
 const aggregated = (a: Aggregate): { readonly key: AggregateKey; readonly kind: Kind } => {
 	switch (a.fn) {
 		case "count":
-			return { key: "count", kind: "int8" }
+			return { key: "count", kind: "nat" }
 		case "cond":
 			return { key: "sum(cond)", kind: sumKind("int4") }
 		case "sum":
@@ -202,6 +225,8 @@ const descriptor = (k: BaseKind): FieldBase => {
 			return pg.numeric(6, 2)
 		case "f8":
 			return pg["double precision"]
+		case "nat":
+			return natural
 	}
 }
 
@@ -236,6 +261,8 @@ const storedValue = (k: BaseKind, n: number): unknown => {
 			return decimals[n % decimals.length]
 		case "f8":
 			return doubles[n % doubles.length]
+		case "nat":
+			return BigInt(n % 4)
 	}
 }
 
@@ -486,16 +513,16 @@ const plantedNumSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s) => ({
 }))
 
 /**
- * A negation beside a conditional count, which the drawn population reaches about once a stream: R0(f0 bigint key,
- * f1 boolean); L1a = R0 ungrouped with its conditional count of f1, `p`, an exact numeric, and its count `n`, a bigint;
+ * A negation beside a conditional count, which the drawn population reaches about once a stream: R0(f0 natural key,
+ * f1 boolean); L1a = R0 ungrouped with its conditional count of f1, `p`, an exact numeric, and its count `n`, a natural;
  * L2a = L1a's two columns, each a variable of its own, less the facts of R0 at its count (its sources: R0, the roster,
- * L1a). The negation's field, R0.f0, is a bigint, which only `n` may bind: a generator that typed `p` a bigint too
+ * L1a). The negation's field, R0.f0, is a natural, which only `n` may bind: a generator that typed `p` a natural too
  * would bind it first.
  */
 export const condNegationSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s) => ({
 	...s,
 	relations: [
-		{ fields: [{ kind: baseKinds.indexOf("int8") }, { kind: baseKinds.indexOf("bool") }], key: 0 }
+		{ fields: [{ kind: baseKinds.indexOf("nat") }, { kind: baseKinds.indexOf("bool") }], key: 0 }
 	],
 	levels: [
 		{
@@ -1052,7 +1079,8 @@ const baseCarriers: { readonly [K in BaseKind]: StorageCarrier } = {
 	cents: "int8",
 	color: "code",
 	dec: "numeric",
-	f8: "float8"
+	f8: "float8",
+	nat: "int8"
 }
 
 /** A stored value of a base kind (storedValue) as the IR's literal: a value of another host type is a defect. */
@@ -1069,6 +1097,7 @@ const literalOfBase = (k: BaseKind, value: unknown): TypedLiteral => {
 				: wrong()
 		case "int8":
 		case "cents":
+		case "nat":
 			return typeof value === "bigint" ? { kind: "int", value } : wrong()
 		case "bool":
 			return typeof value === "boolean" ? { kind: "bool", value } : wrong()

@@ -325,8 +325,9 @@ Nothing there is annotated by hand. grizzle also knows each result's keys. `post
 one parameter, `id: Uuid`, so it returns at most one row, and served in a workload its value,
 `db.workload.postPage.once({ params: { id }, facts: {} })`, is a set of at most one row, keyed by nothing: every row is
 keyed by the key grizzle proves of its result. An aggregate is typed as PostgreSQL computes
-it: `r.count()` is a `bigint`, and the `r.sum` of an integer is an exact `Decimal`. Negation is
-`r.not(Comment, { post: id })`, a union is a second `.rule(...)`, and there is no `` sql`…` `` to fall back to.
+it: `r.count()` is a `natural`, a `bigint` never below zero, and the `r.sum` of an integer is an exact `Decimal`.
+Negation is `r.not(Comment, { post: id })`, a union is a second `.rule(...)`, and there is no `` sql`…` `` to fall
+back to.
 [Queries](#queries) has the whole language.
 
 ### A write moves between lawful states
@@ -543,7 +544,7 @@ CROSS JOIN LATERAL (
 
 The row type is yours to write, and nothing checks it against the query. It is easy to get subtly wrong: node-postgres returns the outer `sum` as a string, while `json_agg` turns the inner `sum` and `count` into JSON numbers, which lose precision past 2^53.
 
-**The reframe.** A query is a set expression, and its result type follows from it. "Each workspace's spend" is a rule with an aggregate. "Its three costliest models" is a second query nested in each row, ordered and cut to three. "Not refunded" is a negation: the calls for which no `Refund` row exists, since a refund is a fact in a table of its own, not a nullable column on the call. grizzle reads the expression instead of sending a string, so the row type follows from it: PostgreSQL's `count` is a bigint and its `sum` of a bigint a numeric, and the type says so.
+**The reframe.** A query is a set expression, and its result type follows from it. "Each workspace's spend" is a rule with an aggregate. "Its three costliest models" is a second query nested in each row, ordered and cut to three. "Not refunded" is a negation: the calls for which no `Refund` row exists, since a refund is a fact in a table of its own, not a nullable column on the call. grizzle reads the expression instead of sending a string, so the row type follows from it: a `count` is a `natural`, the bigint PostgreSQL counts in, never below zero, and a `sum` of a bigint a numeric, and the type says so.
 
 The amounts are contracts. **A `contract`** is a named type over a base type, with an optional check, installed as a PostgreSQL domain that every writer meets. `Micros` is a bigint that is never negative. `Millis` adds no check, but is a type of its own, so an instant is never compared with an amount. `Micros(0n)` makes a value of one: it brands the value without checking it, and the database checks it on every write.
 
@@ -1231,7 +1232,7 @@ For porting an app, each Drizzle construct and what takes its place:
 | `db.select().from(post).where(eq(post.id, id))`        | `query(Blog).rule((r) => r.match(Post, { ... }).where(r.eq(...)).find({ ... }))`                |
 | `.innerJoin(comment, eq(comment.postId, post.id))`     | one variable in two matches                                                                     |
 | `notExists(...)`                                       | `r.not(Comment, { post: id })`                                                                  |
-| `count()`, `sum(...)`                                  | `r.count()`, a `bigint`; `r.sum(x)`, exact (a `Decimal` for any integer)                        |
+| `count()`, `sum(...)`                                  | `r.count()`, a `natural`; `r.sum(x)`, exact (a `Decimal` for any integer)                       |
 | `db.query.post.findMany({ with: { comments: true } })` | `.attach("comments", (post) => ..., "array")`                                                   |
 | `.orderBy(...).limit(10)`                              | `.orderBy([...]).take(10)`, or a `paged(query)` member's windows, anchored at a row's key       |
 | `db.insert(post).values(rows)`                         | `ChangeSet.empty(Blog).insert(Post, rows)`                                                      |
@@ -1739,9 +1740,12 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
 
 - **Contracts.** `Cents(500n)` brands a value without checking it; the database checks it on every write. A fourth
   argument, `{ proves: [...] }`, declares facts the check implies ([Queries](#queries)).
-- **`natural`** is the builtin contract over `pg.bigint`, unbranded: a count, and the one type a rule's `pred` reads
-  ([Rules](#rules)). A negative value is an outcome on the law `{ kind: "contract", contract: "natural" }`. No other
-  contract may be named `natural`.
+- **`natural`** is the builtin contract over `pg.bigint`, unbranded: a count, the type of every `r.count()`, and the one
+  type a rule's `pred` reads ([Rules](#rules)). Every schema holds it, since every query over it may count, so its
+  domain is installed whether or not a field is natural. A count meets a natural field, parameter or literal and is
+  written into a natural field as it is; a count beside a `pg.bigint` is two types, so type that side `natural`, which
+  is what it holds, and an arithmetic's exact integer meets a count as `Compute.base(count)`. A negative value is an
+  outcome on the law `{ kind: "contract", contract: "natural" }`. No other contract may be named `natural`.
 - **`date`** is a day of the proleptic Gregorian calendar, PostgreSQL's date, a plain type: `Compute.base` of a date is
   the date. Its value is its ISO 8601 text, `"2024-02-29"`, one text per day, in calendar order; every login pins
   `DateStyle` to ISO. A CHECK on every date column holds it to 0001-01-01 … 9999-12-31 against any writer, so no
@@ -2829,7 +2833,8 @@ export const sold = query(BoxOffice)
 	})
 ```
 
-Its rows are `{ show: Uuid; sold: bigint }`, one per show, since `0n` takes the count's type, bigint.
+Its rows are `{ show: Uuid; sold: bigint }`, one per show, since `0n` takes the count's type, `natural`, whose values
+are bigints.
 
 ### Nearest rows
 

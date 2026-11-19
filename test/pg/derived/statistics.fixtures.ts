@@ -3,7 +3,7 @@
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Gen, subarray, constant } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record } from "effect"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -97,7 +97,7 @@ export const build = (name: string, picked: ReadonlyArray<ProgramName>) => {
 				.match(Totals, {
 					account,
 					kind: r.param("kind", closedId(Kind)),
-					tasks: r.param("tasks", pg.bigint),
+					tasks: r.param("tasks", natural),
 					total
 				})
 				.find({ account, total })

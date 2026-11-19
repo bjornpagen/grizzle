@@ -112,7 +112,7 @@ export const pointShape = (name: string) => {
 
 const Doc = relation("Doc", { node: uuid, n: pg.integer }, ["node"])
 const Pool = relation("Pool", { doc: uuid, pool: pg.integer, size: pg.integer }, ["doc", "pool"])
-const Sitting = relation("Sitting", { id: uuid, doc: uuid, child: pg.integer, pools: pg.bigint }, [
+const Sitting = relation("Sitting", { id: uuid, doc: uuid, child: pg.integer, pools: natural }, [
 	"id"
 ])
 const Served = relation(

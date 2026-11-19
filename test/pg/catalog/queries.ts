@@ -481,8 +481,8 @@ export const groupedShare = (over: keyof typeof totals, restricted: boolean): Qu
 	)
 
 /**
- * R28: each sitting with its student's count. `restricted` binds the count to the sitting's id, which keeps only the
- * sittings whose id equals their student's count.
+ * R28: each sitting with its student's count. `restricted` binds the count to the count of every sitting as well, a
+ * natural as it is, which keeps only the sittings of a student who sat every sitting.
  */
 export const keyedShare = (restricted: boolean): QueryDesc =>
 	D.queryDesc(
@@ -490,10 +490,8 @@ export const keyedShare = (restricted: boolean): QueryDesc =>
 			vars: [...sVars, D.plainVar("c")],
 			matches: [
 				D.match(D.relationSource("Sitting"), { student: s("student"), id: s("id"), day: s("day") }),
-				D.match(D.imported(perStudent, {}), {
-					student: s("student"),
-					n: restricted ? s("id") : v("c")
-				})
+				D.match(D.imported(perStudent, {}), { student: s("student"), n: v("c") }),
+				...(restricted ? [D.match(D.imported(total, {}), { n: v("c") })] : [])
 			],
 			head: {
 				id: s("id"),

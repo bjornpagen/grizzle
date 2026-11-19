@@ -68,6 +68,13 @@ const contractDesc = (name: string, d: Definition): FieldDesc =>
 export const same = (x: Definition, y: Definition): boolean =>
 	x.base === y.base && x.predicate === y.predicate
 
+/** natural's definition, a bigint never below zero, which every schema holds (schema/own.ts #collectFields). */
+const natural: Definition = { base: "bigint", predicate: "nonnegative" }
+
+/** How many distinct definitions the case's installation holds: A's, B's and natural's, each once. */
+export const distinctDefinitions = (p: Pair): number =>
+	Arr.dedupeWith([p.a, p.b, natural], same).length
+
 const loc = SourceLoc("domain dedup case", [])
 
 export const installationOf = (p: Pair): Installation => {
