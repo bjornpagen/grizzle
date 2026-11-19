@@ -2270,7 +2270,8 @@ definition too.
   it does not see: two transactions that each keep a rule and together break it never both commit, and one fails with
   40001.
 - **Migrations.** A migration that adds a rule over a query, or changes one, runs its violation query over the stored
-  rows, and fails where a row breaks it, as it validates a foreign key.
+  rows, and fails where a row breaks it, as it validates a foreign key. The query reads of each table the columns the
+  rule reads and the table's key, so a migration that drops or renames a column no rule reads runs no rule's check.
 - **TRUNCATE** fires no capture, so a rule over a query does not judge a TRUNCATE of a table it reads, and judges
   the rows a transaction added to it before a TRUNCATE as if they stood. grizzle never truncates and no role may; a
   direct writer who truncates such a table answers for the rule itself.

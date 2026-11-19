@@ -3,16 +3,42 @@ import { digest } from "#compiler/core/fingerprint.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
+import { rooted } from "#compiler/ir/dag.ts"
+import { makePassContext } from "#compiler/ir/pass.ts"
+import type { RelNode } from "#compiler/ir/rel.ts"
+import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
+import { type ConservativeInput, conservativeInput } from "#compiler/lower/conservative/types.ts"
+import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 
 /**
+ * The violation query of one law, its Forbid node `violation`, as it reads its relations: its own DAG pruned by the prune
+ * that narrows the sources too (lower/optimize/prune sourcePrunePass), so it reads of each stored relation the columns
+ * it binds and the relation's primary key, and a column it does not read, dropped or renamed, leaves its query, and so
+ * its check's digest, as they were. Each law's is pruned alone: one law's reads never widen another's.
+ */
+const readsOf = (installation: Installation, violation: RelNode): ConservativeInput => {
+	const pruned = sourcePrunePass.run(
+		{ dag: rooted([violation]), params: [] },
+		makePassContext({
+			evidenceContext: "transaction",
+			catalog: evidenceCatalog({ laws: installation.laws, views: [] })
+		})
+	)
+	if (!pruned.ok) {
+		throw new Refusal(pruned.error)
+	}
+	return conservativeInput(pruned.value)
+}
+
+/**
  * The full violation query of a law of `installation`'s theory, its Forbid node in `violations`, lowered by the oracle
- * baseline over every row: one parameterless statement whose rows are the law's violations. A violation probe reads
- * stored values, which already satisfy their refinements, so a text refinement no stored column carries, such as a
- * contract's base pattern, is typed as text (`ConservativeSubject`).
+ * baseline over every row as it reads its relations (`readsOf`): one parameterless statement whose rows are the law's
+ * violations. A violation probe reads stored values, which already satisfy their refinements, so a text refinement no
+ * stored column carries, such as a contract's base pattern, is typed as text (`ConservativeSubject`).
  */
 const violationQuery = (
 	installation: Installation,
@@ -23,10 +49,11 @@ const violationQuery = (
 	if (violation === undefined) {
 		throw defect(`the violation queries hold the law ${law} of the theory`)
 	}
-	const lowered = lowerConservative(
-		{ dag: violations.dag, root: violation },
-		{ names: installation.names, params: [], subject: { kind: "violationProbe" } }
-	)
+	const lowered = lowerConservative(readsOf(installation, violation), {
+		names: installation.names,
+		params: [],
+		subject: { kind: "violationProbe" }
+	})
 	if (!lowered.ok) {
 		throw new Refusal(lowered.error)
 	}
