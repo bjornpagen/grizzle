@@ -179,13 +179,12 @@ const watchReading = {
 
 /**
  * What ends a live read's subscription and leaves it `unavailable`, which a client calls again, by its reason: its
- * listening session's end, `sessionLost`; the installation's slot not standing yet, `slotAbsent`, or invalidated,
- * `slotInvalidated`, each of which its leader makes; its layer's release, `layerReleased`. A connection its source
+ * listening session's end, `sessionLost`; the installation's slot invalidated, `slotInvalidated`, which its leader
+ * makes again; its layer's release, `layerReleased`. A connection its source
  * lost reads by who ended it (lostCallError).
  */
 const watchUnavailable = {
 	ListenerLost: "sessionLost",
-	SlotAbsent: "slotAbsent",
 	SourceInvalidated: "slotInvalidated",
 	SourceClosed: "layerReleased"
 } as const satisfies { readonly [tag: string]: UnavailableCause }
@@ -445,7 +444,6 @@ export const sourceCallError = (
 		case "ConnectionLost":
 			return lostCallError(reason, message)
 		case "ListenerLost":
-		case "SlotAbsent":
 		case "SourceInvalidated":
 			return unavailable(watchUnavailable[reason._tag], message)
 		case "UnreadableAnswer":

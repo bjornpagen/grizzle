@@ -522,16 +522,6 @@ export class SourceMigrated extends Data.TaggedError("SourceMigrated") {
 }
 
 /**
- * The installation's replication slot does not stand: its leader makes it, so a live read registers once it stands, and
- * one that registers before is refused, for its caller to call again.
- */
-export class SlotAbsent extends Data.TaggedError("SlotAbsent") {
-	override get message(): string {
-		return "the installation's replication slot does not stand yet: its live leader makes it"
-	}
-}
-
-/**
  * The server ended a replication stream: its COPY ended, its ReadyForQuery came, and no change after reaches the live
  * leader that read it.
  */

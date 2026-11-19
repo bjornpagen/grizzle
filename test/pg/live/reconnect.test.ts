@@ -25,14 +25,13 @@
  * test/unit/live/flights.test.ts's.
  *
  * The installation is fresh, so its live source stands only once the leader its first registration starts has made the
- * replication slot: a call made before then is refused `unavailable` (SlotAbsent) before any flight, and called again,
- * as a call's contract asks (test/support/live/system.ts consume), so the first flight a drop gates is the flight of
- * the call that registers.
+ * replication slot: a call made before then waits for it before any flight (adapter/live/listen.ts), so the first
+ * flight a drop gates is the flight of the call that registers.
  *
  * The oracle is grizzle itself: a fresh `once` of the subscription's program and input after each commit.
  *
  * Features: each drop point, each surface, a drop before the first answer and one after COMMIT's, a drop with a re-run
- * in flight, a call refused before the slot stood.
+ * in flight.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { awaitFact } from "@bjornpagen/testing/fact"
@@ -70,7 +69,6 @@ type Feature =
 	| "a drop before its first answer"
 	| "a drop after COMMIT's answer"
 	| "a drop part way through its first flight"
-	| "a call refused before the slot stood"
 
 const bounds: LiveBounds = {
 	groups: 3,
@@ -150,8 +148,7 @@ layer(Substrate.layer)("a subscription dropped and called again", (it) => {
 								"a subscription over HTTP dropped",
 								"a drop before its first answer",
 								"a drop after COMMIT's answer",
-								"a drop part way through its first flight",
-								"a call refused before the slot stood"
+								"a drop part way through its first flight"
 							],
 							{ cases: 48, sense: notesOnly }
 						),
@@ -266,9 +263,6 @@ layer(Substrate.layer)("a subscription dropped and called again", (it) => {
 										})
 									}
 									const sent = yield* first.consumed.checkpoints
-									if ((yield* first.consumed.refused) > 0) {
-										notes.note("a call refused before the slot stood")
-									}
 									if (admitted < answers && Arr.isReadonlyArrayNonEmpty(sent)) {
 										return yield* new Inexact({
 											report: `the dropped call sent a ready its flight's COMMIT had not answered: ${admitted} of ${answers} answers had reached the driver`
@@ -291,11 +285,6 @@ layer(Substrate.layer)("a subscription dropped and called again", (it) => {
 										}
 									})
 								yield* settle(0)
-								for (const r of yield* Ref.get(running)) {
-									if ((yield* r.consumed.refused) > 0) {
-										notes.note("a call refused before the slot stood")
-									}
-								}
 								for (const [k, commit] of c.history.entries()) {
 									yield* commitLive(live, surfaces.inProcess, commit)
 									const dropNow = (point: DropPoint) =>

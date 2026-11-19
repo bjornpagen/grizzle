@@ -253,16 +253,6 @@ const watched = (file: ServedLogin<AnyLogin>, token: string, name: string, input
 		)
 	})
 
-/**
- * A watch's answer once the installation's live source stands: its leader makes the replication slot at the layer's
- * first watch, and until the slot stands a watch is `unavailable`, retried `safe`, which a caller sends again as it is
- * meant to, so `watch` is sent again while `unavailable` says its answer is that.
- */
-const sourced = <A, E, R>(
-	watch: Effect.Effect<A, E, R>,
-	unavailable: (answer: A) => boolean
-): Effect.Effect<A, E, R> => Effect.repeat(watch, { while: unavailable })
-
 /** The error a call's raw answer ends with, its events being exactly that error and its end. */
 const rawError = (events: ReadonlyArray<RawEvent>) => {
 	assert.deepEqual(
@@ -428,34 +418,20 @@ layer(Substrate.layer)("a failing live call", (it) => {
 											const input = { params: { tag: p.tag }, facts: {} }
 											if (p.overHttp) {
 												return Effect.map(
-													sourced(
-														surfaces.raw({
-															method: "POST",
-															path: "/app/writer/tagged",
-															headers: {
-																authorization: `Bearer ${token}`,
-																"grizzle-wire": wireOf(file, "writer", "tagged")
-															},
-															body: jsonText(input)
-														}),
-														(events) =>
-															Arr.some(
-																events,
-																(e) => e.type === "error" && errorOf(e).kind === "unavailable"
-															)
-													),
+													surfaces.raw({
+														method: "POST",
+														path: "/app/writer/tagged",
+														headers: {
+															authorization: `Bearer ${token}`,
+															"grizzle-wire": wireOf(file, "writer", "tagged")
+														},
+														body: jsonText(input)
+													}),
 													(events) => rawError(events).kind
 												)
 											}
 											return Effect.map(
-												sourced(
-													Effect.provideContext(watched(file, token, "tagged", input), dbContext),
-													(events) =>
-														Arr.some(
-															events,
-															(e) => e.kind === "error" && e.error.kind === "unavailable"
-														)
-												),
+												Effect.provideContext(watched(file, token, "tagged", input), dbContext),
 												(events) => {
 													const [only, ...more] = events
 													assert.ok(

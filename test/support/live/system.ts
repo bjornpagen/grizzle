@@ -98,17 +98,13 @@ export type Standing =
 
 /**
  * A subscription consumed as it arrives: every value its stream was whole at (each `ready`), in order, and where it
- * stands now. The consumer runs in the scope and stops with it. A call refused before its first ready because no
- * replication slot stands yet (SlotAbsent: a fresh installation's live source, whose leader the first registration
- * starts and which makes the slot) is called again, `unavailable` and safe to call again, as a call's contract asks of
- * its caller: the refusal paces it, never a timer, and the subscription stands opening meanwhile, its refusals
- * counted (`refused`).
+ * stands now. The consumer runs in the scope and stops with it. A call made before its installation's replication slot
+ * stands (a fresh installation's live source, whose leader the first registration starts and which makes the slot)
+ * waits for it, and the subscription stands opening meanwhile.
  */
 export interface Consumed {
 	readonly checkpoints: Effect.Effect<ReadonlyArray<LiveValue>>
 	readonly standing: Effect.Effect<Standing>
-	/** How many calls were refused before its first ready because no replication slot stood yet. */
-	readonly refused: Effect.Effect<number>
 	/** Drops the call: interrupts its consumer, as a client that goes away does, and waits for it to end. */
 	readonly drop: Effect.Effect<void>
 }
@@ -129,27 +125,14 @@ const consume = (
 					readies: was.kind === "live" ? was.readies + 1 : 1
 				}))
 			)
-		const refused = yield* Ref.make(0)
 		const run: Effect.Effect<void> = values.pipe(
 			Stream.runForEach(ready),
-			Effect.catch((error) =>
-				Effect.flatMap(Ref.get(standing), (was) =>
-					was.kind === "opening" &&
-					error.kind === "unavailable" &&
-					error.reason.kind === "slotAbsent"
-						? Effect.andThen(
-								Ref.update(refused, (n) => n + 1),
-								run
-							)
-						: Ref.set(standing, { kind: "ended", error })
-				)
-			)
+			Effect.catch((error) => Ref.set(standing, { kind: "ended", error }))
 		)
 		const fiber = yield* Effect.forkScoped(run)
 		return {
 			checkpoints: Ref.get(checkpoints),
 			standing: Ref.get(standing),
-			refused: Ref.get(refused),
 			drop: Fiber.interrupt(fiber)
 		}
 	})

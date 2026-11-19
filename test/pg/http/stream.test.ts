@@ -133,7 +133,6 @@ type Feature =
 	| "a write unchanged"
 	| "a live change reaching both answers"
 	| "a disconnect while live"
-	| "a read called again once the slot stood"
 
 const ids = Object.freeze(Arr.range(1, 12))
 
@@ -442,9 +441,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 								const body = bodyOf(call)
 								if (calls.shape === "set" || calls.shape === "list") {
 									const live = calls
-									if ((yield* standing(() => live.watch(body))) > 0) {
-										notes.note("a read called again once the slot stood")
-									}
+									yield* standing(live.watch(body))
 								}
 								const handled = answers(
 									new Request(`${origin}/${login.name}/${role.role}/${call.member}`, {

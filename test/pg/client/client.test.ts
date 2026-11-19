@@ -120,7 +120,6 @@ type Feature =
 	| "a write accepted"
 	| "a write unchanged"
 	| "a live change reaching the client"
-	| "a watch called again once the slot stood"
 
 const ids = Object.freeze(Arr.range(1, 10))
 
@@ -405,9 +404,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 												call.member === "atLeast"
 													? { params: { floor: call.floor }, facts: {} }
 													: { params: { id: call.id }, facts: {} }
-											if ((yield* standing(() => here.watch(input))) > 0) {
-												notes.note("a watch called again once the slot stood")
-											}
+											yield* standing(here.watch(input))
 											const remoteOnce =
 												call.member === "atLeast"
 													? yield* overHttp(
@@ -464,9 +461,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 												facts: {},
 												window: { anchor: { kind: call.from }, size: call.size }
 											}
-											if ((yield* standing(() => here.watch(input))) > 0) {
-												notes.note("a watch called again once the slot stood")
-											}
+											yield* standing(here.watch(input))
 											const remoteOnce = yield* overHttp(client.app.ranked.once(input))
 											const localOnce = yield* here.once(input)
 											const remoteRows: ReadonlyArray<object> = [...remoteOnce]

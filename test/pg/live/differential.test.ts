@@ -9,8 +9,8 @@
  * domains and its live source among its objects (test/support/install-migrate.ts installGenerated); its facts are
  * stored by a direct SQL writer of the role at SERIALIZABLE, each value in its drawn spelling, and the login is served
  * from the file generate wrote, over its DbLayer and its live source, which is made to stand before the first read, as
- * a fresh installation's caller does: an HTTP once is its watch's first value, refused until the leader makes the slot
- * (test/support/live/standing.ts standingOn).
+ * a fresh installation's caller does: an HTTP once is its watch's first value, which answers once the leader has made
+ * the slot (test/support/live/standing.ts standingOn).
  *
  * Properties, for every query read with its drawn parameters:
  *

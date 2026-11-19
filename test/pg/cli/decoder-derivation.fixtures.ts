@@ -362,7 +362,7 @@ export const earlierCase = (e: Earlier, c: Case<EarlierFeature>) =>
 					const old = yield* oneOf(read.once({ params: { id: idOf(1) }, facts: {} }))
 					assert.ok(Option.isSome(old), "the customer written before the migration is read")
 					const input = { params: { id: idOf(2) }, facts: {} }
-					yield* standing(() => read.watch(input))
+					yield* standing(read.watch(input))
 					const events = yield* Queue.unbounded<SetEvent<object>>()
 					yield* Effect.forkScoped(
 						Stream.runForEach(read.watch(input), (ev) => Queue.offer(events, ev))
