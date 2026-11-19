@@ -1,7 +1,8 @@
 import { appendAll } from "#compiler/core/array.ts"
+import { postorder, stronglyConnected } from "#compiler/core/graph.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Dependency, type Implication, implication } from "#compiler/ir/keys.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import {
@@ -477,51 +478,22 @@ interface Part {
 }
 
 /**
- * The strongly connected sets of `columns` under `next` (Tarjan), ordered so that each set comes after every set that
- * reaches it, and otherwise in the order of its first position: each position's set in turn, after the sets it leans on
- * that have not come yet.
+ * The strongly connected sets of `columns` under `next` (core/graph.ts stronglyConnected), each its root first,
+ * ordered so that each set comes after every set that reaches it, and otherwise in the order of its first position:
+ * each position's set in turn, after the sets it leans on that have not come yet (core/graph.ts postorder).
  */
-const stronglyConnected = (
+const connectedSets = (
 	columns: ReadonlyArray<number>,
 	next: (column: number) => ReadonlyArray<number>
 ): ReadonlyArray<NonEmptyReadonlyArray<number>> => {
-	const index = new Map<number, number>()
-	const stack: Array<number> = []
-	const onStack = new Set<number>()
 	const partOf = new Map<number, Part>()
-	const visit = (c: number): number => {
-		const at = index.size
-		index.set(c, at)
-		let least = at
-		stack.push(c)
-		onStack.add(c)
-		for (const d of next(c)) {
-			const seen = index.get(d)
-			if (seen === undefined) {
-				least = Math.min(least, visit(d))
-			} else if (onStack.has(d)) {
-				least = Math.min(least, seen)
-			}
+	for (const members of stronglyConnected(columns, next)) {
+		const part: Part = {
+			columns: [lastNonEmpty(members), ...members.slice(0, -1)],
+			leansOn: new Set()
 		}
-		if (least === at) {
-			const set: Array<number> = []
-			for (let top = stack.pop(); top !== undefined; top = stack.pop()) {
-				onStack.delete(top)
-				set.push(top)
-				if (top === c) {
-					break
-				}
-			}
-			const part: Part = { columns: [c, ...set.filter((m) => m !== c)], leansOn: new Set() }
-			for (const m of part.columns) {
-				partOf.set(m, part)
-			}
-		}
-		return least
-	}
-	for (const c of columns) {
-		if (!index.has(c)) {
-			visit(c)
+		for (const m of part.columns) {
+			partOf.set(m, part)
 		}
 	}
 	for (const [c, part] of partOf) {
@@ -532,23 +504,10 @@ const stronglyConnected = (
 			}
 		}
 	}
-	const out: Array<NonEmptyReadonlyArray<number>> = []
-	const placed = new Set<Part>()
-	const place = (part: Part): void => {
-		if (placed.has(part)) {
-			return
-		}
-		placed.add(part)
-		part.leansOn.forEach(place)
-		out.push(part.columns)
-	}
-	for (const c of columns) {
-		const part = partOf.get(c)
-		if (part !== undefined) {
-			place(part)
-		}
-	}
-	return out
+	return postorder(
+		columns.map((c) => defined(partOf.get(c), `the strongly connected set of position ${c}`)),
+		(part) => [...part.leansOn]
+	).map((part) => part.columns)
 }
 
 /**
@@ -588,7 +547,7 @@ export const independentFactors = (
 		nexts.set(c, out)
 		return out
 	}
-	for (const set of stronglyConnected(positions(columns), next)) {
+	for (const set of connectedSets(positions(columns), next)) {
 		if (isNonEmpty(set) && !set.every((c) => holdsAt(before.known, c))) {
 			const factor = emptyLike(columns)
 			for (const c of set) {

@@ -1,9 +1,10 @@
 import { Array as Arr, Option } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
+import { postorder } from "#compiler/core/graph.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ExprId, NodeId, OccurrenceId } from "#compiler/core/ids.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { type NodeScope, nodeScopes, nodesByLabel, postorder } from "#compiler/ir/dag.ts"
+import { type NodeScope, nodeScopes, nodesByLabel } from "#compiler/ir/dag.ts"
 import {
 	type EvidenceContext,
 	type Premise,

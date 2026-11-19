@@ -1,7 +1,7 @@
+import { postorder } from "#compiler/core/graph.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { extendNonEmpty, isNonEmpty } from "#compiler/core/nonempty.ts"
-import { postorder } from "#compiler/ir/dag.ts"
 import { edgesOf, type NodeOf, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
 import { antiJoinLowering } from "#compiler/lower/conservative/anti-join/index.ts"
 import { attachLowering } from "#compiler/lower/conservative/attach/index.ts"

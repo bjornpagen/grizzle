@@ -753,9 +753,9 @@ export const unboundedComputedStateRefusesACycleOfComputedColumnsEachComputedFro
 				{
 					file: "packages/engine/src/check/recursion/termination.ts",
 					original:
-						'\t\t\t\tif (form.value.kind === "computed" && reads.some((r) => r.state.kind === "open")) {',
+						'\t\t\t\tif (form.value.kind === "computed" && formReads(form).some((r) => own.has(r))) {',
 					replacement:
-						'\t\t\t\tif (form.value.kind === "computed" && reads.some((r) => r === m)) {',
+						'\t\t\t\tif (form.value.kind === "computed" && formReads(form).some((r) => r === m)) {',
 					why: "A cycle of computed columns admitted, only a column computed from its own value refused; the computed-cycle search fails."
 				}
 			]

@@ -1,5 +1,5 @@
+import { postorder } from "#compiler/core/graph.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { postorder } from "#compiler/ir/dag.ts"
 import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
 
 /**

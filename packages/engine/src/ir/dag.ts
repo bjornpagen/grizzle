@@ -3,6 +3,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, omitSourceLocs, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
+import { postorder } from "#compiler/core/graph.ts"
 import {
 	allocatedKinds,
 	ExprId,
@@ -170,43 +171,6 @@ export const unchangedEdges = (
 	const before = edgesOf(node)
 	const after = edgesOf(rebuilt)
 	return before.length === after.length && before.every((edge, i) => after[i] === edge)
-}
-
-/**
- * The vertices `roots` reach through `inputs`, in topological order: every vertex after its inputs, depth-first from
- * each root in order and through each vertex's inputs in their order, each vertex once (a vertex met again, on a path
- * or off it, is not entered again, so the walk ends over any graph). Its frames are on the heap: a chain of any depth
- * walks.
- */
-export const postorder = <V>(
-	roots: ReadonlyArray<V>,
-	inputs: (vertex: V) => ReadonlyArray<V>
-): ReadonlyArray<V> => {
-	const order: Array<V> = []
-	const seen = new Set<V>()
-	for (const root of roots) {
-		if (seen.has(root)) {
-			continue
-		}
-		seen.add(root)
-		const stack: Array<{ readonly vertex: V; readonly inputs: ReadonlyArray<V>; next: number }> = [
-			{ vertex: root, inputs: inputs(root), next: 0 }
-		]
-		for (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {
-			const input = frame.inputs[frame.next]
-			if (input === undefined) {
-				stack.pop()
-				order.push(frame.vertex)
-				continue
-			}
-			frame.next++
-			if (!seen.has(input)) {
-				seen.add(input)
-				stack.push({ vertex: input, inputs: inputs(input), next: 0 })
-			}
-		}
-	}
-	return order
 }
 
 /**

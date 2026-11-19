@@ -2,6 +2,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf, catchRefusal, Refusal, sameText } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { postorder } from "#compiler/core/graph.ts"
 import {
 	type Identity,
 	identifierOf,
@@ -9,11 +10,9 @@ import {
 	type TemporaryCensus,
 	type TemporaryKind
 } from "#compiler/core/identity.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
-	appendNonEmpty,
-	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray,
@@ -343,26 +342,16 @@ const heldBefore = (was: SnapshotLaw | undefined, check: RuleCheck): boolean => 
  * the steps of one kind over objects that read each other so, whatever their install order: a drop after the drops
  * of what reads it, a materialized view's (dropViews) or a removed field's (planKept), since PostgreSQL drops nothing
  * another object still reads (2BP01); and an added column after the columns its generation reads (alterationDraft),
- * since an ALTER TABLE adds its columns one by one, each generation read when its column is added (42703). An item
- * reached again while its predecessors are placed closes a cycle, which no schema's columns or views form.
+ * since an ALTER TABLE adds its columns one by one, each generation read when its column is added (42703). It is the
+ * postorder of the items under `after` (core/graph.ts postorder), so an item reached again while its predecessors are
+ * placed, which closes a cycle no schema's columns or views form, is not entered again.
  */
 const dependencyOrder = <A>(
 	items: NonEmptyReadonlyArray<A>,
 	after: (item: A, other: A) => boolean
 ): NonEmptyReadonlyArray<A> => {
-	const seen = new Set<A>()
-	const place = (item: A): NonEmptyReadonlyArray<A> => {
-		seen.add(item)
-		return appendNonEmpty(
-			items.flatMap((other) => (!seen.has(other) && after(item, other) ? place(other) : [])),
-			item
-		)
-	}
-	const [head, ...tail] = items
-	return extendNonEmpty(
-		place(head),
-		tail.flatMap((item) => (seen.has(item) ? [] : place(item)))
-	)
+	const [first, ...rest] = postorder(items, (item) => items.filter((other) => after(item, other)))
+	return [defined(first, "a walk from its first item, which it places"), ...rest]
 }
 
 /** A drop drafted with its kind's place in the drop order. */

@@ -25,6 +25,7 @@ import {
 } from "#compiler/analysis/theory/theory.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, prose } from "#compiler/core/errors.ts"
+import { stronglyConnected } from "#compiler/core/graph.ts"
 import {
 	type Identity,
 	identifierOf,
@@ -42,7 +43,7 @@ import {
 	type NodeId,
 	type RelationIdent
 } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -610,8 +611,8 @@ export const domainCheck = (info: ContractInfo): DomainCheck => {
  */
 export type FkCycles = ReadonlyArray<NonEmptyReadonlyArray<string>>
 
-/** The cycles of the foreign key graph of `edges` (FkCycles): its strongly connected components (iterative Tarjan) of
- * more than one relation. */
+/** The cycles of the foreign key graph of `edges` (FkCycles): its strongly connected components (core/graph.ts
+ * stronglyConnected) of more than one relation. */
 const fkCyclesOf = (edges: ReadonlyArray<readonly [string, string]>): FkCycles => {
 	const next = new Map<string, Array<string>>()
 	for (const [a, b] of edges) {
@@ -620,77 +621,9 @@ const fkCyclesOf = (edges: ReadonlyArray<readonly [string, string]>): FkCycles =
 			next.set(b, [])
 		}
 	}
-	/** Each visited node's discovery index and low link. */
-	const visited = new Map<string, { readonly index: number; low: number }>()
-	const component = new Map<string, number>()
-	const stack: Array<string> = []
-	const onStack = new Set<string>()
-	let counter = 0
-	let components = 0
-	const visit = (node: string) => {
-		const link = { index: counter, low: counter }
-		visited.set(node, link)
-		counter++
-		stack.push(node)
-		onStack.add(node)
-		return link
-	}
-	/** Pops the component rooted at `node` off the stack. */
-	const popComponent = (node: string): void => {
-		for (let popped = stack.pop(); popped !== undefined; popped = stack.pop()) {
-			onStack.delete(popped)
-			component.set(popped, components)
-			if (popped === node) {
-				break
-			}
-		}
-		components++
-	}
-	/** Every component reachable from `root`, walked depth first on a work stack of frames, each a node, its next
-	 * successor's position and its link. */
-	const strongConnect = (root: string): void => {
-		const work: Array<{
-			readonly node: string
-			i: number
-			readonly link: { readonly index: number; low: number }
-		}> = [{ node: root, i: 0, link: visit(root) }]
-		/** A successor's step: one not yet visited is pushed and lowers nothing yet; one on the stack lowers its
-		 * predecessor's link to its index; one in a finished component lowers nothing. */
-		const stepTo = (w: string): number | undefined => {
-			const seen = visited.get(w)
-			if (seen === undefined) {
-				work.push({ node: w, i: 0, link: visit(w) })
-				return undefined
-			}
-			return onStack.has(w) ? seen.index : undefined
-		}
-		for (let frame = work.at(-1); frame !== undefined; frame = work.at(-1)) {
-			const w = next.get(frame.node)?.[frame.i]
-			if (w !== undefined) {
-				frame.i++
-				const lowered = stepTo(w)
-				if (lowered !== undefined) {
-					frame.link.low = Math.min(frame.link.low, lowered)
-				}
-				continue
-			}
-			work.pop()
-			const parent = work.at(-1)
-			if (parent !== undefined) {
-				parent.link.low = Math.min(parent.link.low, frame.link.low)
-			}
-			if (frame.link.low === frame.link.index) {
-				popComponent(frame.node)
-			}
-		}
-	}
-	for (const root of next.keys()) {
-		if (!visited.has(root)) {
-			strongConnect(root)
-		}
-	}
-	const members = Map.groupBy(component.keys(), (relation) => component.get(relation))
-	return [...members.values()]
+	return stronglyConnected([...next.keys()], (relation) =>
+		defined(next.get(relation), `the references of ${relation}, a relation of the graph`)
+	)
 		.flatMap((relations) => {
 			const sorted = relations.toSorted(compareStrings)
 			return isNonEmpty(sorted) && sorted.length > 1 ? [sorted] : []

@@ -11,7 +11,10 @@ import type { Arm, RecArm } from "#compiler/check/recursion/scan.ts"
 import type { StateType } from "#compiler/check/recursion/state.ts"
 import { entries } from "#compiler/check/scan.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
+import { stronglyConnected } from "#compiler/core/graph.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { exprChildren, headTerms, type LiteralDesc } from "#compiler/ir/desc.ts"
@@ -509,19 +512,6 @@ interface PlacedForm {
 	readonly reads: ReadonlyArray<Read>
 }
 
-/**
- * A state column of the component graph, the handle Tarjan's walk visits once: its index, its low link, which its walk
- * lowers, its forms, each read resolved to the column it reads, and its state: open while its component is on the walk's
- * stack, closed with its factor once its component is counted.
- */
-interface Visit {
-	readonly column: string
-	readonly index: number
-	low: number
-	readonly forms: Array<{ readonly form: Form; readonly reads: ReadonlyArray<Visit> }>
-	state: { readonly kind: "open" } | { readonly kind: "closed"; readonly factor: bigint }
-}
-
 /** A computed term reading a column of its own component: its column, its place in the row and among the column's
  * forms, and what it reads. */
 interface Cyclic {
@@ -711,23 +701,34 @@ export const terminationVerdict = (input: {
 	const cyclic: Array<Cyclic> = []
 	const factors: Array<bigint> = []
 	const intervals = new Map<string, readonly [bigint, bigint]>()
-	/** Counts a closed component, `members` last pushed first: every read of an open column is of the component
-	 * itself. */
-	const close = (members: ReadonlyArray<Visit>): void => {
-		const all = members.flatMap((m) =>
-			m.forms.map(({ form, reads }): PlacedForm => ({
+	/** Each column of a counted component, with its factor. */
+	const counted = new Map<string, bigint>()
+	/**
+	 * Counts a component of the graph of the columns' dependency edges (a column depends on the columns its copies and
+	 * computed terms read), `members` as core/graph.ts stronglyConnected closes them, each component after every
+	 * component it reads: every column it reads outside itself is of a component counted before it, with its factor.
+	 */
+	const close = (members: NonEmptyReadonlyArray<string>): void => {
+		const own = new Set(members)
+		const placed = (column: string): ReadonlyArray<PlacedForm> =>
+			forms(column).map((form) => ({
 				form,
-				reads: reads.map((r): Read =>
-					r.state.kind === "open" ? { kind: "own" } : { kind: "earlier", factor: r.state.factor }
+				reads: formReads(form).map((r): Read =>
+					own.has(r)
+						? { kind: "own" }
+						: {
+								kind: "earlier",
+								factor: defined(counted.get(r), `the factor of ${r}, read by ${column}`)
+							}
 				)
 			}))
-		)
+		const all = members.flatMap(placed)
 		for (const m of members) {
-			for (const [order, { form, reads }] of m.forms.entries()) {
-				if (form.value.kind === "computed" && reads.some((r) => r.state.kind === "open")) {
+			for (const [order, form] of forms(m).entries()) {
+				if (form.value.kind === "computed" && formReads(form).some((r) => own.has(r))) {
 					cyclic.push({
-						column: m.column,
-						rank: columns.indexOf(m.column),
+						column: m,
+						rank: columns.indexOf(m),
 						order,
 						loc: form.loc,
 						reads: form.value.reads
@@ -738,62 +739,27 @@ export const terminationVerdict = (input: {
 		const steps = all.flatMap(({ form }) => (form.value.kind === "counter" ? [form.value] : []))
 		/** The component's counter, where one of its columns counts: the first column's first counter form. */
 		const [counter] = members.flatMap((m) =>
-			m.forms.flatMap(({ form }) => (form.value.kind === "counter" ? [form.value] : []))
+			forms(m).flatMap((form) => (form.value.kind === "counter" ? [form.value] : []))
 		)
 		const range = counter === undefined ? undefined : counterRange(counter.range, all, steps)
 		const count = range === undefined ? valueCount(all) : range[1] - range[0] + 1n
 		for (const m of members) {
-			const deltas = m.forms.flatMap(({ form }) =>
+			const deltas = forms(m).flatMap((form) =>
 				form.value.kind === "counter" ? [form.value.delta] : []
 			)
 			if (range !== undefined && deltas.length > 0) {
-				intervals.set(m.column, [range[0] + least(0n, deltas), range[1] + greatest(0n, deltas)])
+				intervals.set(m, [range[0] + least(0n, deltas), range[1] + greatest(0n, deltas)])
 			}
-			const type = row.get(m.column)
+			const type = row.get(m)
 			const factor = type === undefined ? count : cappedByDomain(type, count)
-			m.state = { kind: "closed", factor }
+			counted.set(m, factor)
 			if (type !== undefined) {
 				factors.push(factor)
 			}
 		}
 	}
-	/**
-	 * The component graph, Tarjan's walk over the columns' dependency edges (a column depends on the columns its copies
-	 * and computed terms read), its depth the number of state columns. A component closes after every component it reads
-	 * has, so each read is of its own component, still open, or of a closed one, with its factor.
-	 */
-	let index = 0
-	const visits = new Map<string, Visit>()
-	const stack: Array<Visit> = []
-	const visit = (column: string): Visit => {
-		const at: Visit = { column, index, low: index, forms: [], state: { kind: "open" } }
-		visits.set(column, at)
-		index++
-		stack.push(at)
-		for (const form of forms(column)) {
-			const reads = formReads(form).map((d) => {
-				const seen = visits.get(d)
-				if (seen === undefined) {
-					const w = visit(d)
-					at.low = Math.min(at.low, w.low)
-					return w
-				}
-				if (seen.state.kind === "open") {
-					at.low = Math.min(at.low, seen.index)
-				}
-				return seen
-			})
-			at.forms.push({ form, reads })
-		}
-		if (at.low === at.index) {
-			close(stack.splice(stack.indexOf(at)).toReversed())
-		}
-		return at
-	}
-	for (const c of columns) {
-		if (!visits.has(c)) {
-			visit(c)
-		}
+	for (const members of stronglyConnected(columns, (c) => forms(c).flatMap(formReads))) {
+		close(members)
 	}
 	const [firstCyclic] = cyclic.toSorted((x, y) => x.rank - y.rank || x.order - y.order)
 	if (firstCyclic !== undefined) {

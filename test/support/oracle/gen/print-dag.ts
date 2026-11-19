@@ -1,7 +1,8 @@
 import { Array as Arr, Formatter } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
+import { postorder } from "#compiler/core/graph.ts"
 import type { VarId } from "#compiler/core/ids.ts"
-import { freeVars, nodeScopes, nodesByLabel, postorder, topoOrder } from "#compiler/ir/dag.ts"
+import { freeVars, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import { describeOp, exprClosure, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import {
