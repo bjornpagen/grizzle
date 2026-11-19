@@ -39,9 +39,8 @@ const heldColumn = (held: Extract<DeltaHeld, { readonly kind: "cte" }>, field: s
 	).column
 
 /** The delta source of `relation` from what `heldOf` holds of the relation the ChangeSet writes: the relation it holds
- * whole, or, for a query entry, its target's with the entry's head columns, position by position in the entry's
- * heading, which is its head fields in compareText order, as the checker sorts a world relation's Delta heading and
- * `WritableEntry.head` is sorted; the empty relation for an empty delta. */
+ * whole, each field in its column, or, for a query entry, its target's, each head field of the entry in the column of
+ * the target's field it names; the empty relation for an empty delta. */
 export const deltaSourceIn = (
 	relation: string,
 	entries: ReadonlyMap<string, CheckedEntry>,
@@ -57,8 +56,11 @@ export const deltaSourceIn = (
 	}
 	const columns =
 		entry === undefined
-			? held.heading.map((c) => c.column)
-			: [...entry.head].map(([, { field }]) => heldColumn(held, field.name))
+			? held.heading.map((c) => ({ field: c.name, column: c.column }))
+			: [...entry.head].map(([head, { field }]) => ({
+					field: head,
+					column: heldColumn(held, field.name)
+				}))
 	return { kind: "cte", cte: held.cte, columns }
 }
 

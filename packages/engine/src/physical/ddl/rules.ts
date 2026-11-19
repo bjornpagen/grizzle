@@ -810,7 +810,10 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 	const requests: Array<IndexRequest> = []
 	const tableOf = (relation: string): JudgedTable | undefined =>
 		tables.find((t) => t.relation.name === relation)
-	/** The session's delta of `t`'s side `side` as a Delta node reads it, none of the facts a write met. */
+	/**
+	 * The session's delta of `t`'s side `side` as a Delta node reads it, each field of its relation's heading in the
+	 * column of its own name, the delta's (`judgedTables`); none of the facts a write met.
+	 */
 	const sessionDelta = (t: JudgedTable, side: DeltaSide): DeltaRelation | undefined => {
 		const delta = side === "met" ? undefined : deltaOf(t, side)
 		return delta === undefined
@@ -818,7 +821,7 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 			: {
 					kind: "session",
 					table: sessionTable(delta.name),
-					columns: delta.columns.map((c) => c.name)
+					columns: t.relation.heading.map((f) => ({ field: f.name, column: f.column }))
 				}
 	}
 	/**

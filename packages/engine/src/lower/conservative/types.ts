@@ -27,25 +27,32 @@ import type {
 } from "#compiler/sql/ast.ts"
 import type { CarrierName, NameSupply, NameSupplyStart } from "#compiler/sql/naming.ts"
 
+/** One field of a delta's heading and the column of its relation (DeltaRelation) that holds it. */
+export interface DeltaColumn {
+	readonly field: string
+	readonly column: string
+}
+
 /**
- * The relation a Delta node reads, each column of the delta's heading position by position. In a read-back: a CTE of
- * the statement the read-back rides, over the rows that statement's RETURNING returns (write/readback/deltas.ts
+ * The relation a Delta node reads, each field of its relation's delta heading with the column that holds it, so a Delta
+ * node reads the fields it delivers, whichever of them pruning leaves it (lower/optimize/prune). In a read-back: a CTE
+ * of the statement the read-back rides, over the rows that statement's RETURNING returns (write/readback/deltas.ts
  * deltaCte); a carrier, which only the write oracle's conservative realization fills, by comparing the states before
  * and after the change (test/support/oracle/write/realize.ts); or the empty relation, a side of a delta no statement
  * makes. In a rule probe over its region: the session's delta table of the relation's side (physical/ddl/rules.ts
  * judged), a table of pg_temp that the relation's rule captures fill.
  */
 export type DeltaRelation =
-	| { readonly kind: "cte"; readonly cte: string; readonly columns: ReadonlyArray<string> }
+	| { readonly kind: "cte"; readonly cte: string; readonly columns: ReadonlyArray<DeltaColumn> }
 	| {
 			readonly kind: "carrier"
 			readonly carrier: CarrierName
-			readonly columns: ReadonlyArray<string>
+			readonly columns: ReadonlyArray<DeltaColumn>
 	  }
 	| {
 			readonly kind: "session"
 			readonly table: ObjectName
-			readonly columns: ReadonlyArray<string>
+			readonly columns: ReadonlyArray<DeltaColumn>
 	  }
 	| { readonly kind: "empty" }
 

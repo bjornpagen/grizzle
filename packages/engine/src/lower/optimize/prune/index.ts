@@ -2,7 +2,7 @@ import { analyzeDemand } from "#compiler/analysis/demand/demand.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { localCertificate } from "#compiler/ir/certificate.ts"
-import type { Cell, EditNode, Heading } from "#compiler/ir/rel.ts"
+import type { Cell, EditNode, EditRefs, Heading, KindOver } from "#compiler/ir/rel.ts"
 import { DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellDemand,
@@ -49,10 +49,56 @@ const restrict = (heading: Heading, keep: (name: string) => boolean): Heading =>
 	heading.filter((c) => keep(c.name))
 
 /**
+ * Which nodes a prune narrows: every node but the sources, while a rewrite that reads two scans of one relation by
+ * their whole headings is still to run (R03's key join folds two scans of a key into the first, which then binds what
+ * both bind; the catalog's shapes take two scans for one source where their headings agree, catalog/context.ts
+ * sameSource); and, once none is (`sourcePrunePass`), every node, the sources too.
+ */
+type Reach = "aboveSources" | "withSources"
+
+/**
+ * A scan of a stored relation narrowed to the columns its readers demand and its primary key, so each row it delivers
+ * is still one stored row, keyed as it was, and no reader's multiplicity or deduplication changes; it keeps each other
+ * declared key whose columns it keeps. A view's scan, a derived relation's or a world relation's, delivers its whole
+ * heading: the keys it carries (ir/rel.ts ViewBase) are proved over the view's columns and their classes together.
+ */
+const narrowedBase = (
+	node: KindOver<"Base", EditRefs>,
+	demanded: ReadonlySet<string>
+): EditNode | undefined => {
+	if (node.relationKind !== "relation") {
+		return undefined
+	}
+	const keep = (n: string) => demanded.has(n) || node.primaryKey.includes(n)
+	const heading = restrict(node.heading, keep)
+	return heading.length === node.heading.length
+		? undefined
+		: { ...node, heading, keys: node.keys.filter((k) => k.every(keep)) }
+}
+
+/**
+ * A delta narrowed to the columns its readers demand and its relation's primary key, the first of its keys, so a delta
+ * keyed by its relation stays keyed and one its relation does not key (a rule's region, a world relation's) delivers a
+ * row for each it delivered before; it keeps each other key whose columns it keeps. The relation it reads names each
+ * field's column (lower/conservative/types.ts DeltaRelation), so it reads the fields it keeps.
+ */
+const narrowedDelta = (
+	node: KindOver<"Delta", EditRefs>,
+	demanded: ReadonlySet<string>
+): EditNode | undefined => {
+	const [primary] = node.keys
+	const keep = (n: string) => demanded.has(n) || primary?.includes(n) === true
+	const heading = restrict(node.heading, keep)
+	return heading.length === node.heading.length
+		? undefined
+		: { ...node, heading, keys: node.keys.filter((k) => k.every(keep)) }
+}
+
+/**
  * A root delivers its heading; a node on a recursive step, or read by one, is the recursion's. Such a node keeps
  * its form: a pinned region's source loses only columns the region leaves unbound, its witnesses.
  */
-const step = (cx: RewriteCx): void => {
+const step = (cx: RewriteCx, reach: Reach): void => {
 	const ed = cx.editor
 	const pinnedNodes = prunePinned(cx)
 	const d = pruneDemand(cx, pinnedNodes)
@@ -144,10 +190,12 @@ const step = (cx: RewriteCx): void => {
 				}
 			}
 			case "Base":
+				return reach === "withSources" ? narrowedBase(node, demanded) : undefined
+			case "Delta":
+				return reach === "withSources" ? narrowedDelta(node, demanded) : undefined
 			case "Closed":
 			case "Context":
 			case "InputSet":
-			case "Delta":
 			case "Intersect":
 			case "Difference":
 			case "Take":
@@ -205,16 +253,25 @@ const step = (cx: RewriteCx): void => {
  *   its whole bound tuple B are its contribution identity, which demand analysis keeps demanded;
  * - a filter, semi-join or anti-join takes its (left) input's narrowed heading;
  * - a single-heading union's arms are narrowed to its demanded columns and its literal discriminant; an arm that keeps
- *   wider columns for another reader is read through a projection onto exactly those.
+ *   wider columns for another reader is read through a projection onto exactly those;
+ * - in the last prune (`sourcePrunePass`), a scan of a stored relation and a delta are narrowed to the columns their
+ *   readers demand and their primary key (`narrowedBase`, `narrowedDelta`), so no statement reads a relation's
+ *   columns that nothing reads: a rule's probe reads a qti node's columns its matches bind, never all forty.
  *
  * A node's readers depend only on its demanded columns, so each reader's set is unchanged; where a projection now
- * collapses rows the dedup placement decides again, on the narrower heading. Nothing on a recursive step, no root, and
- * no source relation changes. Such a pinned node keeps its form, so the demand this pass narrows by treats it as
- * delivering its whole heading and, for a region, binding every variable: its inputs
+ * collapses rows the dedup placement decides again, on the narrower heading. Nothing on a recursive step, and no root,
+ * changes, and no source does before the last prune (Reach). Such a pinned node keeps its form, so the demand this
+ * pass narrows by treats it as delivering its whole heading and, for a region, binding every variable: its inputs
  * keep every column its unchanged body reads, a pinned projection's undemanded outputs and a pinned region's dead
  * bindings included. Logical keys are kept where their columns survive, since a key of a set is a key of
  * every projection that retains it.
  *
  * The pass is one traversal, so it terminates.
  */
-export const prunePass = traversalPass({ name: "prune", step })
+export const prunePass = traversalPass({ name: "prune", step: (cx) => step(cx, "aboveSources") })
+
+/** The last prune, after every rewrite that reads two scans of one relation by their whole headings (Reach). */
+export const sourcePrunePass = traversalPass({
+	name: "prune.sources",
+	step: (cx) => step(cx, "withSources")
+})

@@ -16,13 +16,14 @@ import { col, cteRefAs, target, unitTargets } from "#compiler/sql/build.ts"
  *
  *   SELECT DISTINCT r12.c4, r12.c5 FROM r9 AS r12
  *
- * A delta is the write program's: the write compiler hands the lowering the relation that holds it, whose columns are
- * the delta's heading position by position (DeltaRelation). A read-back over a delta a statement makes rides that
- * statement, and the delta is a CTE of it over the rows its RETURNING returns; the conservative realization's, computed
- * by comparing the states before and after the change, is a carrier. A side of a delta no statement makes is the empty
- * relation, as an empty closed relation lowers. A rule probe over its region reads the session's delta table of its
- * relation's side (physical/ddl/rules.ts judged). Anywhere else there is no delta, and the node is
- * UnsupportedOperation.
+ * A delta is the write program's: the write compiler hands the lowering the relation that holds it, each field of the
+ * delta's heading with its column (DeltaRelation), and the node reads the column of each field it delivers, every field
+ * of its relation's heading as the checker builds it or those pruning leaves it (lower/optimize/prune). A read-back
+ * over a delta a statement makes rides that statement, and the delta is a CTE of it over the rows its RETURNING
+ * returns; the conservative realization's, computed by comparing the states before and after the change, is a
+ * carrier. A side of a delta no statement makes is the empty relation, as an empty closed relation lowers. A rule
+ * probe over its region reads the session's delta table of its relation's side (physical/ddl/rules.ts judged).
+ * Anywhere else there is no delta, and the node is UnsupportedOperation.
  */
 const lowerDelta: NodeLowerer<"Delta"> = (node, cx) => {
 	const at = nodeLabel(node)
@@ -41,16 +42,12 @@ const lowerDelta: NodeLowerer<"Delta"> = (node, cx) => {
 	if (source.kind === "empty") {
 		return emptyRelation(cx, node.heading, node.id)
 	}
-	if (source.columns.length !== node.heading.length) {
-		return refuse(
-			"MalformedDescription",
-			at,
-			`a delta relation of ${node.heading.length} columns for the heading, not ${source.columns.length}`
-		)
-	}
 	const alias = cx.relationAlias({ kind: "node", node: node.id })
-	const targets = isNonEmpty(source.columns)
-		? mapNonEmpty(source.columns, (c) => target(col(alias, c)))
+	const columnOf = (field: string): string =>
+		source.columns.find((c) => c.field === field)?.column ??
+		refuse("MalformedDescription", at, `a delta relation that holds the field ${field}`)
+	const targets = isNonEmpty(node.heading)
+		? mapNonEmpty(node.heading, (c) => target(col(alias, columnOf(c.name))))
 		: unitTargets
 	const from: FromSource = deltaFrom(source, alias)
 	return distinctSelect(targets, [from], [])

@@ -23,7 +23,6 @@ import { freshNames } from "#compiler/sql/naming.ts"
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
-	carrierColumns,
 	carrierField,
 	type WriteCarrier,
 	CarrierSupply,
@@ -340,8 +339,9 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	}
 
 	/** 4. The read-backs over the post-change state, each delta read from its state-comparison carrier: the relation's
-	 * own, or, for a query entry, its target's with the entry's head columns, position by position in the entry's
-	 * heading, as the optimized artifact reads its delta CTE (write/readback/lower.ts deltaSourceIn). */
+	 * own, each field in its column, or, for a query entry, its target's, each head field of the entry in the column of
+	 * the target's field it names, as the optimized artifact reads its delta CTE (write/readback/lower.ts
+	 * deltaSourceIn). */
 	const deltaSource = (relation: string, side: DeltaSide): DeltaRelation | undefined => {
 		const entry = frontend.deltaEntries.get(relation)
 		const d = deltas[entry === undefined ? relation : entry.target.name]
@@ -354,8 +354,11 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			carrier: carrier.name,
 			columns:
 				entry === undefined
-					? carrierColumns(carrier)
-					: Arr.map([...entry.head], ([, { field }]) => carrierField(carrier, field.name).column)
+					? Arr.map(carrier.heading, (c) => ({ field: c.name, column: c.column }))
+					: Arr.map([...entry.head], ([head, { field }]) => ({
+							field: head,
+							column: carrierField(carrier, field.name).column
+						}))
 		}
 	}
 	for (const read of ir.reads) {
