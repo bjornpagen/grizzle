@@ -18,6 +18,7 @@ import {
 import type { FromItem, FromSource, OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { judgeBodiesOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
 
@@ -49,7 +50,8 @@ export type Reached =
 /**
  * T and S, each keyed by its document first, and each with a field no rule reads, `pay` and `note`; D, T's facts by
  * document and place with their `b`, selected by `a` where the shape selects, `a` an unread witness elsewhere. The rule
- * judges D: S's references into its places, its `b` at least 0, or its `b` once per document.
+ * judges D: S's references among its `b`s by document, which no key of T holds, so the judge holds it and no foreign key
+ * does, its `b` at least 0, or its `b` once per document.
  */
 const schemaOf = (shape: Shape) => {
 	const T = relation(
@@ -76,7 +78,7 @@ const schemaOf = (shape: Shape) => {
 	const law = (() => {
 		switch (shape.law) {
 			case "contained":
-				return contained(on(S, "doc", "ref"), on(D, "doc", "at"))
+				return contained(on(S, "doc", "ref"), on(D, "doc", "b"))
 			case "check":
 				return check("Positive", D, (d) => d.ge(d.b, 0))
 			case "key":
@@ -236,19 +238,15 @@ const judgedStatements = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Opera
 	)
 
 /**
- * Judges the scans of each statement of the judge of `shape`'s installation: each reads only fields its rule binds of
- * its relation (`readFields`), and delivers each column it reads to some reference of the statement but a stored
- * table's key, which its scan keeps.
+ * Judges the scans of each statement of the judge of `shape`'s installation, the judge's and its parts', where its rules
+ * stand (support/judge.ts judgeBodiesOf): each reads only fields its rule binds of its relation (`readFields`), and
+ * delivers each column it reads to some reference of the statement but a stored table's key, which its scan keeps.
  */
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned, owner)))
 	const read = readFields(shape)
-	const statements = Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createFunction" && s.language === "plpgsql" && Str.endsWith("__judge")(s.name.name)
-			? judgedStatements(s.body.body)
-			: []
-	)
+	const statements = judgedStatements(judgeBodiesOf(installation))
 	for (const statement of statements) {
 		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")
 		const references = referencesOf(statement)
