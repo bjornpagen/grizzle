@@ -1578,7 +1578,7 @@ export interface DropIndex {
 	readonly ifExists: boolean
 }
 
-/** Always WITH NO DATA; db.refresh populates it. */
+/** Always WITH NO DATA; the migration that creates it populates it (deploy/diff/diff.ts view), and db.refresh after. */
 export interface CreateMaterializedView {
 	readonly kind: "createMaterializedView"
 	readonly name: ObjectName

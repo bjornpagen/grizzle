@@ -86,7 +86,9 @@ interface SnapshotHeading {
 
 /**
  * A relation of the snapshot's theory, by kind: a stored relation with its heading; a roster, by its domain, with its
- * codes; a derived relation, whose fields are its view's columns, which its materialized view object records.
+ * codes; a derived relation, whose fields are its view's columns, which its materialized view object records, with
+ * its meaning (physical/derived/meaning.ts definitionMeanings), by which a draft creates its view again exactly when what it
+ * means changes (deploy/diff/diff.ts viewDropsOf).
  *
  * A roster's codes are code c at position c, each the live handle it names or the hole a removed handle left, and their
  * length is the next code, so no separate counter can disagree with them. A closed relation of any other arity has no
@@ -96,7 +98,7 @@ interface SnapshotHeading {
 export type SnapshotRelation =
 	| (SnapshotRelationOf<"relation"> & SnapshotHeading)
 	| (SnapshotRelationOf<"closed"> & { readonly codes: RosterCodes })
-	| SnapshotRelationOf<"derived">
+	| (SnapshotRelationOf<"derived"> & { readonly meaning: string })
 
 /** A law of the snapshot's theory by how it is enforced: natively, by its shape alone; a law that reads closed
  * relations only, once by the migration that installs them, with the digest of the violation query that migration

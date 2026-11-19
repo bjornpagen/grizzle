@@ -39,7 +39,8 @@ import {
 	finishSnapshot,
 	rosterFates,
 	targetState,
-	withAttnums
+	withAttnums,
+	withInstalledViews
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot, SnapshotDerived } from "#compiler/deploy/snapshot/types.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
@@ -209,7 +210,9 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 		/** The target's content, its attribute numbers continuing the previous snapshot's, fingerprinted: the new
 		 * snapshot where its fingerprint is another than the previous one's, the previous snapshot itself, as the
 		 * schemas compile it, where it is the same, since the fingerprint digests the whole content. */
-		const content = unwrap(withAttnums(state, applied.previous, plan, tableMaxColumns))
+		const content = unwrap(
+			withAttnums(withInstalledViews(state, plan), applied.previous, plan, tableMaxColumns)
+		)
 		const snapshot = unwrap(finishSnapshot(content))
 		const changed = plan.steps.length > 0 || snapshot.fingerprint !== previous.fingerprint
 		const drafted = changed ? planFiles(plan) : []

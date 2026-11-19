@@ -198,8 +198,9 @@ export const writeCallsGen = array(
 export type RefreshFeature = "a refresh of an unpopulated view" | "a refresh of a populated view"
 
 /**
- * A drawn program of refreshes, each run on the view as the last left it or emptied first, `WITH NO DATA`, the
- * unpopulated state a migration that recreates the view leaves.
+ * A drawn program of refreshes, each run on the view as the last left it, populated by the migration that created it
+ * or by the last refresh, or emptied first, `WITH NO DATA`, the unpopulated state a view created before migrations
+ * populated what they create holds until its first refresh.
  */
 export const refreshesGen = array(boolean, { min: 1, max: 4 })
 

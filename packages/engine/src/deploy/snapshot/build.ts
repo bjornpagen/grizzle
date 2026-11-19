@@ -90,6 +90,7 @@ import { type LivePlan, type LiveSource, noLive } from "#compiler/live/notify.ts
 import type { ClosedNames, NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import { storedTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
+import { definitionMeanings } from "#compiler/physical/derived/meaning.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -301,6 +302,7 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 	 * A materialized derived relation's or a roster's record, from its ownership; a stored relation's is its theory
 	 * handle's. A live derived relation installs nothing and holds no row, so the snapshot records none.
 	 */
+	const meanings = definitionMeanings(installation)
 	const ownedRecord = (
 		o: (typeof owned.relations)[string]
 	): ReadonlyArray<readonly [string, SnapshotRelation]> => {
@@ -311,7 +313,16 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 					: [
 							[
 								o.name,
-								{ kind: "derived", ident: o.view.ident, mutable: o.mutable, level: o.desc.level }
+								{
+									kind: "derived",
+									ident: o.view.ident,
+									mutable: o.mutable,
+									level: o.desc.level,
+									meaning: defined(
+										meanings.get(o.name),
+										"every materialized derived relation's meaning"
+									)
+								}
 							]
 						]
 			case "closed":
@@ -435,6 +446,30 @@ export const withAttnums = <S extends Pick<SnapshotContent, "theory" | "schemaNa
 		relations[name] = { ...r, attnums }
 	}
 	return Result.ok({ ...state, theory: { ...state.theory, relations } })
+}
+
+/**
+ * The target state with each materialized view the migration keeps recorded as it was installed (MigrationPlan
+ * keptViews): its CREATE MATERIALIZED VIEW the previous installation's, which reads, under the names it was installed
+ * with, only what the target holds as it was (diff.ts viewDropsOf). So a snapshot records what is installed, a change of
+ * how grizzle lowers a definition alone changes no snapshot, and the drift check replays each view as PostgreSQL holds
+ * it.
+ */
+export const withInstalledViews = <S extends Pick<SnapshotContent, "manifest">>(
+	state: S,
+	plan: MigrationPlan
+): S => {
+	const kept = new Map(plan.keptViews.map((k) => [k.ident, k.create] as const))
+	return {
+		...state,
+		manifest: {
+			...state.manifest,
+			objects: state.manifest.objects.map((o) => {
+				const create = kept.get(o.ident)
+				return create === undefined ? o : { ...o, ddl: [create, ...o.ddl.slice(1)] }
+			})
+		}
+	}
 }
 
 /**
@@ -1053,7 +1088,7 @@ const relationForm = (r: SnapshotRelation): SnapshotForm => {
 	const of = relationHead(r)
 	switch (r.kind) {
 		case "derived":
-			return of
+			return { ...of, meaning: r.meaning }
 		case "relation":
 			return {
 				...of,

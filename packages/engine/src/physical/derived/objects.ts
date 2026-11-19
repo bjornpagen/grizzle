@@ -246,8 +246,8 @@ const textColumnUses = (analysis: DerivedAnalysis): ReadonlyArray<TextColumnUse>
  *   of the query (`lowerDefinition`), then `REVOKE ALL ON TABLE <view> FROM PUBLIC` at once, so PUBLIC never holds a
  *   privilege on it. It is created after the tables, roster domains, constants and lower views its definition reads
  *   and after the domains its columns are typed by; a lower view joins the graph with this extension's
- *   contribution. WITH NO DATA makes creation cost nothing; the view is
- *   unpopulated, and unreadable, until its first refresh member's call;
+ *   contribution. WITH NO DATA makes creation cost nothing; the migration
+ *   that creates the view populates it in Structure, once every row it reads is written (deploy/diff/diff.ts view);
  * - one unique index per inherited key, in Structure beside its view: `CREATE UNIQUE INDEX <key> ON <schema>.<view>
  *   USING btree (<cols>)`, plain columns, no expression and no predicate, the index REFRESH MATERIALIZED VIEW
  *   CONCURRENTLY requires, over the full heading when no narrower key is proven, named at the naming door

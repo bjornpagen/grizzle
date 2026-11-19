@@ -152,11 +152,20 @@ export const installDerived = (
 		if (!statements.ok) {
 			return yield* Effect.fail(statements.error)
 		}
-		yield* transaction(s.admin, statements.value)
 		const qualified = (relation: string) => {
 			const name = installed.names.relation(relation)
 			return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 		}
+		/** Every view emptied, as no refresh has read the facts: the migration that created each view populated it over
+		 * the empty tables it left (deploy/diff/diff.ts view). */
+		const emptied = Arr.flatMap(
+			Rec.toEntries(installed.snapshot.theory.relations),
+			([relation, r]) =>
+				r.kind === "derived"
+					? [`REFRESH MATERIALIZED VIEW ${qualified(relation)} WITH NO DATA`]
+					: []
+		)
+		yield* transaction(s.admin, [...statements.value, ...emptied])
 		/** A relation name the fixture does not declare is a defect of the test that names it. */
 		const heading = (relation: string) => {
 			const r = analysis.relations[relation]

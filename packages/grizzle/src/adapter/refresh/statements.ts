@@ -26,14 +26,16 @@ import type { ServedRefresh, ServedRefreshTarget } from "#compiler/plan/serve.ts
  * "The first refresh of a view after its creation is a plain REFRESH MATERIALIZED VIEW, because the concurrent form
  * needs a populated view. Every later one is REFRESH MATERIALIZED VIEW CONCURRENTLY". Whether a view has
  * been populated is PostgreSQL's own record of it, `pg_class.relispopulated`: false from
- * `CREATE MATERIALIZED VIEW ... WITH NO DATA` until the first REFRESH commits, and false again after a migration drops
- * and recreates the view. There is no host-side memory of it, which would be wrong across instances and
- * across migrations.
+ * `CREATE MATERIALIZED VIEW ... WITH NO DATA` until the first REFRESH commits, which the migration that creates the view
+ * runs in its own transaction (deploy/diff/diff.ts view), and false again only after a `REFRESH ... WITH NO DATA`, or
+ * for a view a migration created before migrations populated what they create. There is no host-side memory of it,
+ * which would be wrong across instances and across migrations.
  *
  * The refresh transaction reads it for every view it names in one statement per schema, its first, so in the
  * transaction's own SERIALIZABLE snapshot, before any refresh statement runs. A view the snapshot
- * shows populated stays populated, because only a migration, which recreates the view, makes it unpopulated again, and
- * another refresher's commit after the snapshot meets its CONCURRENTLY diff as 40001 (run.ts). A view the catalog does
+ * shows populated stays populated, because no grizzle statement empties a view, a migration recreating one populates it
+ * in the transaction that drops it, and another refresher's commit after the snapshot meets its CONCURRENTLY diff as
+ * 40001 (run.ts). A view the catalog does
  * not hold fails its rewrite check with PostgreSQL's own refusal (42P01), as the plain refresh statement would.
  *
  * A view the snapshot shows unpopulated takes the plain form, and there another refresher's commit after the snapshot

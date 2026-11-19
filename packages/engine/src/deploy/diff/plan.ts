@@ -6,6 +6,7 @@ import type {
 	AlterTable,
 	AlterTableAction,
 	ColumnDef,
+	CreateMaterializedView,
 	ObjectName,
 	Select,
 	SqlStatement
@@ -59,9 +60,10 @@ export interface Declarations {
  *
  * - setup.drop, setup: the holders set aside (`asidesOf`), then the checks of the laws over closed relations alone,
  *   then extensions, new constants and new domains;
- * - structure.drop, structure, structure.backfill, structure.constraints, structure.worlds: the roles' views, world
- *   functions and policies the migration changes or removes, then recreated materialized views dropped top-down and
- *   what is built over a column converted in place dropped before its conversion, then new tables, each table's one
+ * - structure.drop, structure, structure.backfill, structure.refresh, structure.constraints, structure.worlds: the
+ *   roles' views, world functions and policies the migration changes or removes, then recreated materialized views
+ *   dropped top-down and what is built over a column converted in place dropped before its conversion, then new
+ *   tables, each table's one
  *   alteration (its new columns, conversions by cast, set-aside columns, identities and law columns, and a new table's
  *   own constraints); then, when Structure holds a data step, SET CONSTRAINTS ALL IMMEDIATE, after which every data
  *   step runs (diff.ts checkedAtOnce): the reviewer's UPDATE a placeholder column invites, written right after it, then
@@ -70,12 +72,15 @@ export interface Declarations {
  *   set-aside fields settled (structure.settle: the old columns dropped, the set-aside ones renamed, their NOT NULL
  *   set); then new or recreated materialized views WITH NO DATA with their unique indexes, which
  *   read the fields as the fills leave them; then the backfill of the families new to stored rows (backfill.ts) and the
- *   DROP DEFAULT of each column it drew; then each table's one alteration adding the
+ *   DROP DEFAULT of each column it drew; then each of those views populated (structure.refresh), bottom-up in install
+ *   order, once every row it reads is written, so no committed state holds a view the target declares unpopulated;
+ *   then each table's one alteration adding the
  *   constraints of tables that may hold rows, NOT VALID, after every value they read is drawn; and last the roles' changed
  *   views, world functions and policies created again with their grants, each whose role stands before the migration:
  *   in the one transaction that dropped them, so no committed state lacks one an existing role relies on;
- * - indexes: ordinary CREATE INDEX on relations this migration creates, which are empty, and CREATE STATISTICS, which
- *   no ANALYZE follows: a migration runs no ANALYZE, which the operator's runbook runs after a first package;
+ * - indexes: ordinary CREATE INDEX on relations this migration creates, which hold no row but a new view's, which only
+ *   a refresh writes and the build blocks no read of, and CREATE STATISTICS, which no ANALYZE follows: a migration
+ *   runs no ANALYZE, which the operator's runbook runs after a first package;
  * - indexes.concurrent: CREATE INDEX CONCURRENTLY on relations that may hold rows, each after dropping an invalid
  *   index a failed build left;
  * - validate, validate.retrigger: VALIDATE CONSTRAINT of the constraints Structure added NOT VALID, the rule judge's
@@ -111,6 +116,7 @@ export const slots = [
 	"structure.settle",
 	"structure.views",
 	"structure.backfill",
+	"structure.refresh",
 	"structure.constraints",
 	"structure.worlds",
 	"indexes",
@@ -173,6 +179,7 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	"structure.settle": structureFile,
 	"structure.views": structureFile,
 	"structure.backfill": structureFile,
+	"structure.refresh": structureFile,
 	"structure.constraints": structureFile,
 	"structure.worlds": structureFile,
 	indexes: indexesFile,
@@ -381,9 +388,17 @@ export interface Swap {
 	readonly of: string
 }
 
-/** A migration plan: what the diff of two snapshots drafts, slot by slot, before the phases group it into files, and
- * every index it builds under a temporary name, in the order the diff mints their names. */
+/** A migration plan: what the diff of two snapshots drafts, slot by slot, before the phases group it into files; every
+ * index it builds under a temporary name, in the order the diff mints their names; and the views it keeps. */
 export interface MigrationPlan {
 	readonly steps: ReadonlyArray<Step>
 	readonly swaps: ReadonlyArray<Swap>
+	readonly keptViews: ReadonlyArray<KeptView>
+}
+
+/** A materialized view a migration keeps, by its object's identity, with the definition it was installed with
+ * (diff.ts keptViews). */
+export interface KeptView {
+	readonly ident: string
+	readonly create: CreateMaterializedView
 }

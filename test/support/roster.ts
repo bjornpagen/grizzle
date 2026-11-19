@@ -131,6 +131,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/migrate/redraft.test.ts",
 	"test/pg/migrate/renames.test.ts",
 	"test/pg/migrate/rewrites.test.ts",
+	"test/pg/migrate/views-populated.test.ts",
 	"test/pg/migrate/worlds.test.ts",
 	"test/pg/nearest/**/*.test.ts",
 	"test/pg/null/operators.test.ts",

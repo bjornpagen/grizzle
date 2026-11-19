@@ -960,16 +960,33 @@ export const dagDigest = (dag: RelDag, domain: string): Result.Result<DagDigest,
  * (rel.ts conservativeMeta), since an improvement of the analysis changes them and not what the DAG asks; its
  * structural fields, which its own fields and its inputs' make (dag.ts relNode), kept.
  */
-const statedForm = (normal: DagTable): unknown => ({
+const statedForm = (normal: DagTable, fields: (node: TableNode) => object): unknown => ({
 	roots: normal.roots,
 	nodes: Object.fromEntries(
 		Object.entries(normal.nodes).map(([id, node]) => [
 			id,
-			digestedFields({ ...node, meta: { ...node.meta, ...conservativeMeta } })
+			fields({ ...node, meta: { ...node.meta, ...conservativeMeta } })
 		])
 	),
 	exprs: normal.exprs
 })
+
+/**
+ * A node as the rows it yields read it (rowsDigestWithin): a stored relation's scan without the keys its relation's laws
+ * declare beside its primary key, and a view's scan without the keys it is read by, which its definition's keys restate.
+ * A key is a law its relation's rows obey, never a row they hold, so a key a relation gains or loses yields no other row.
+ */
+const rowsFields = (node: TableNode): object => {
+	if (node.kind !== "Base") {
+		return digestedFields(node)
+	}
+	if (node.relationKind === "relation") {
+		const { keys: _keys, ...rows } = node
+		return rows
+	}
+	const { keys: _keys, view: _views, primaryKey: _primaryKey, ...rows } = node
+	return rows
+}
 
 /**
  * The digest of what the DAG `roots` reach within `context` asks of the rows it reads (statedForm), allocation, source
@@ -982,5 +999,23 @@ export const meaningDigestWithin = (
 	domain: string
 ): Result.Result<DagDigest, CompileError> =>
 	Result.flatMap(normalizeWithin(context, roots), (normal) =>
-		Result.map(digest(domain, statedForm(normal), { omit: omitSourceLocs }), DagDigest)
+		Result.map(
+			digest(domain, statedForm(normal, digestedFields), { omit: omitSourceLocs }),
+			DagDigest
+		)
+	)
+
+/**
+ * The digest of the rows the DAG `roots` reach within `context` yields (meaningDigestWithin, every scan's keys erased,
+ * rowsFields): one materialized view's whatever lowers it and whatever keys the relations it reads declare, the
+ * identity of a derived relation's view (physical/derived/meaning.ts definitionMeanings), whose keys are indexes of
+ * their own.
+ */
+export const rowsDigestWithin = (
+	context: RelDag,
+	roots: Roots,
+	domain: string
+): Result.Result<DagDigest, CompileError> =>
+	Result.flatMap(normalizeWithin(context, roots), (normal) =>
+		Result.map(digest(domain, statedForm(normal, rowsFields), { omit: omitSourceLocs }), DagDigest)
 	)

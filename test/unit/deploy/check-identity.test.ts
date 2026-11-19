@@ -128,8 +128,8 @@ export const aChangeOfALawsMeaningChecksThatLawAgainAndNoOther = property.exhaus
 		kills: [
 			{
 				file: "packages/engine/src/ir/dag.ts",
-				original: "\texprs: normal.exprs\n})\n\n/**\n * The digest of what the DAG",
-				replacement: "\texprs: {}\n})\n\n/**\n * The digest of what the DAG",
+				original: "\texprs: normal.exprs\n})\n\n/**\n * A node as the rows it yields",
+				replacement: "\texprs: {}\n})\n\n/**\n * A node as the rows it yields",
 				why: "A check's identity reads no expression of its law, so Positive's new bound keeps its identity and the draft never checks the rows against it."
 			}
 		]

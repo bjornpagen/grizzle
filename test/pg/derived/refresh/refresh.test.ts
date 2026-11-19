@@ -59,6 +59,18 @@ export const aRefreshMemberIsRefusedWhereItIsBuiltOrCompiledUnlessItNamesInScope
 							logins: [declared.server]
 						})
 						const f = build(installed.declared)
+						/** Every view unpopulated, as one created before a migration populated what it creates is until its
+						 * first refresh: the plain form's case. */
+						const emptied = Effect.forEach(
+							["StudentWeekly", "WeekBusy", "WeekSittings"] as const,
+							(name) =>
+								s.admin.query(
+									`REFRESH MATERIALIZED VIEW ${printObjectName(installed.names.relation(name))} WITH NO DATA`,
+									[]
+								),
+							{ discard: true }
+						)
+						yield* emptied
 						/** pg_class.relispopulated of each view, read as the owner. */
 						const populated = Effect.forEach(
 							["StudentWeekly", "WeekBusy", "WeekSittings"] as const,

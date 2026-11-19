@@ -1,0 +1,47 @@
+import { derivedAnalysis } from "#compiler/analysis/schema.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
+import { rooted, rowsDigestWithin } from "#compiler/ir/dag.ts"
+import { makePassContext } from "#compiler/ir/pass.ts"
+import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { conservativeInput } from "#compiler/lower/conservative/types.ts"
+import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+
+/**
+ * A materialized derived relation is identified by what it means, never by its SQL: the digest of the rows its admitted
+ * definition's DAG yields of the rows it reads, as it reads them (ir/dag.ts rowsDigestWithin), the definition pruned
+ * by the prune that narrows the sources (lower/optimize/prune sourcePrunePass), so it reads of each relation the columns
+ * it binds and the relation's primary key, as a law's check is identified (snapshot/violation.ts checkOf), but with no
+ * key a law declares: a key the relations it reads gain or lose yields no other row, and the view's own keys are
+ * unique indexes beside it, which a draft adds or drops alone. A change of the definition, of a relation it reads or
+ * of a column it reads is a new meaning, and a change of how grizzle lowers, rewrites or analyzes it, or of a key, is
+ * none. The snapshot records each view's meaning (deploy/snapshot/types.ts SnapshotRelation), by which a
+ * draft creates the view again exactly when its meaning changes (deploy/diff/diff.ts viewDropsOf), and records a view
+ * it keeps as it was installed, an earlier lowering's SQL (deploy/snapshot/build.ts withInstalledViews).
+ *
+ * Each view's meaning, by its derived relation's declared name, in the installation's order of its derived relations.
+ */
+export const definitionMeanings = (installation: Installation): ReadonlyMap<string, string> => {
+	const analysis = derivedAnalysis(installation.checked)
+	const catalog = evidenceCatalog({
+		laws: installation.laws,
+		views: derivedKeyConstraints(analysis)
+	})
+	return new Map(
+		analysis.order.map((a) => {
+			const pruned = sourcePrunePass.run(
+				{ dag: rooted([a.query.dag.roots[0]]), params: [] },
+				makePassContext({ evidenceContext: "transaction", catalog })
+			)
+			if (!pruned.ok) {
+				throw new Refusal(pruned.error)
+			}
+			const reads = conservativeInput(pruned.value)
+			const meaning = rowsDigestWithin(reads.dag, [reads.root], "derived-definition")
+			if (!meaning.ok) {
+				throw new Refusal(meaning.error)
+			}
+			return [a.name, meaning.value] as const
+		})
+	)
+}

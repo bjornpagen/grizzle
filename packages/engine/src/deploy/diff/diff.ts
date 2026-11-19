@@ -51,6 +51,7 @@ import {
 	type ColumnConversion,
 	type Draft,
 	isTableSlot,
+	type KeptView,
 	type MigrationPlan,
 	type RetypeReason,
 	type SetAside,
@@ -104,6 +105,7 @@ import { keptRosters, type PreviousRoster, type RosterFate } from "#compiler/ir/
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
+import { refreshStatement } from "#compiler/physical/derived/objects.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent, parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -116,6 +118,7 @@ import {
 	type ColumnDef,
 	type CreateDomain,
 	type CreateIndex,
+	type CreateMaterializedView,
 	type CreateTable,
 	type Expr,
 	type ForeignKey,
@@ -1411,7 +1414,7 @@ class Differ {
 		this.defaults()
 		this.draftRemovals()
 		this.comments()
-		return { steps: this.orderedSteps(), swaps: this.swaps }
+		return { steps: this.orderedSteps(), swaps: this.swaps, keptViews: this.keptViews() }
 	}
 
 	orderedSteps(): ReadonlyArray<Step> {
@@ -1446,17 +1449,36 @@ class Differ {
 		}
 	}
 
-	/** The materialized views this migration drops first, decided once from the two manifests: each view whose
-	 * definition changes, and every installed view above one of them or above a table whose column this migration
-	 * converts in place, which PostgreSQL refuses to convert under a view that reads it. PostgreSQL refuses to drop a
-	 * relation a view reads, so they go top-down (dropViews): one the target keeps is created again WITH NO DATA, and
-	 * one it no longer has cannot outlive what it reads and is dropped with them. */
+	/** The materialized views this migration drops first, decided once from the two snapshots: each view whose meaning
+	 * changes (physical/derived/meaning.ts definitionMeanings), never its SQL alone, so a change of how grizzle lowers a
+	 * definition keeps the view its earlier lowering installed, and a change of a field it reads, dropped or renamed, is
+	 * a change of its meaning; each one whose installed definition names what the target no longer holds (readsGone);
+	 * and every installed view above one of them or above a table whose column this migration converts or rewrites in
+	 * place, which PostgreSQL refuses under a view that reads it. So a view the migration keeps reads, under the names it
+	 * was installed with, only what the target holds as it was, and the target's snapshot records it as installed
+	 * (keptViews). PostgreSQL refuses to drop a relation a view reads, so they go top-down
+	 * (dropViews): one the target keeps is created again WITH NO DATA, and one it no longer has cannot outlive what it
+	 * reads and is dropped with them. */
 	viewDropsOf(): ReadonlyArray<ViewDrop> {
+		const was = viewMeanings(this.input.previous)
+		const now = viewMeanings(this.input.target)
+		const held = qualifiedNames(
+			this.input.target.manifest.objects.map((o) => o.ddl),
+			this.levelSchemas
+		)
 		const seeds = new Set<string>()
 		for (const o of this.input.target.manifest.objects) {
 			const v = installed(o)
 			const before = this.prev.get(o.ident)
-			if (v.kind === "materializedView" && before !== undefined && !sameRecord(before, o)) {
+			if (v.kind !== "materializedView" || before === undefined) {
+				continue
+			}
+			const ran = installed(before)
+			if (
+				ran.kind !== "materializedView" ||
+				was.get(ran.create.name.name) !== now.get(v.create.name.name) ||
+				this.readsGone(ran.create, held)
+			) {
 				seeds.add(relationKey(v))
 			}
 		}
@@ -1479,6 +1501,35 @@ class Differ {
 						}
 					]
 				: []
+		})
+	}
+
+	/**
+	 * Whether the installed definition `create` names a relation, type or function of the installation's schemas that no
+	 * statement of the target names (`held`): one an earlier lowering read and the target's does without, or one the
+	 * migration renames, which PostgreSQL refuses to drop under the view, and which a replay of the definition as
+	 * installed would not find. A declared rename of a field the view reads changes its meaning (viewDropsOf).
+	 */
+	readsGone(create: CreateMaterializedView, held: ReadonlySet<string>): boolean {
+		return [...qualifiedNames(create.query, this.levelSchemas)].some((name) => !held.has(name))
+	}
+
+	/** The materialized views this migration keeps, each as it was installed: every view of the target the previous
+	 * installation holds and no view drop takes away (viewDropsOf), by the definition the previous installation
+	 * records, which the target's snapshot records in place of the target's own (render/generate.ts). */
+	keptViews(): ReadonlyArray<KeptView> {
+		return this.input.target.manifest.objects.flatMap((o) => {
+			const v = installed(o)
+			const before = this.prev.get(o.ident)
+			if (
+				v.kind !== "materializedView" ||
+				before === undefined ||
+				this.recreatedViews.has(relationKey(v))
+			) {
+				return []
+			}
+			const ran = installed(before)
+			return ran.kind === "materializedView" ? [{ ident: o.ident, create: ran.create }] : []
 		})
 	}
 
@@ -2698,15 +2749,18 @@ class Differ {
 	}
 
 	/** A materialized view, created WITH NO DATA when it follows no previous view (Arrival): new, or dropped at the start
-	 * of Structure (viewDropsOf). One that stands has the target's definition, since a changed one is dropped. It is
-	 * created in structure.views, after every table's fill, so it reads each set-aside field under its name, as the fill
-	 * leaves it, never the column the fill drops. */
+	 * of Structure (viewDropsOf). One that stands means what the target's definition means, since one whose meaning
+	 * changed is dropped. It is created in structure.views, after every table's fill, so it reads each set-aside field
+	 * under its name, as the fill leaves it, never the column the fill drops, and populated in structure.refresh, after
+	 * the backfill writes the last row it reads and after every view below it, which install order visits first, so the
+	 * migration that creates a view leaves it populated. */
 	view(
 		v: Installed & { readonly kind: "materializedView" },
 		before: RecordedObject | undefined
 	): void {
 		if (before === undefined) {
 			this.sql("structure.views", v.object.ddl)
+			this.sql("structure.refresh", [refreshStatement(v.create.name, false)])
 		}
 	}
 
@@ -3860,6 +3914,14 @@ const relationKey = (
 	v: Installed<AnyObject> & { readonly kind: "table" | "materializedView" }
 ): NameKey => nameKey(v.kind === "table" ? v.create.table : v.create.name)
 
+/** Each materialized view's meaning a snapshot records, by the view's identifier (types.ts SnapshotRelation). */
+const viewMeanings = (snapshot: DeploySnapshot | SnapshotContent): ReadonlyMap<string, string> =>
+	new Map(
+		Object.values(snapshot.theory.relations).flatMap((r) =>
+			r.kind === "derived" ? [[r.ident, r.meaning] as const] : []
+		)
+	)
+
 /** The keys of every name qualified by one of the installation's level schemas `schemas` that a value holds:
  * relations, types, sequences and functions. */
 const qualifiedNames = (value: unknown, schemas: ReadonlySet<string>): ReadonlySet<NameKey> => {
@@ -4274,9 +4336,10 @@ const advance = (
  *   are new or changed, as a pattern change changes the domain they cast to, or when a domain they cast to takes a new
  *   constraint, as a contract's predicate change does, so either validates the closed facts as well as the existing
  *   rows; removing them drops nothing.
- * - Adding a derived relation: its view WITH NO DATA and its unique indexes (structure). Changing a definition drops
- *   and recreates the view and every view above it that reads it, directly or through another, WITH NO DATA, with
- *   their indexes and statistics, and grants their privileges again. A view the target no longer has that reads a
+ * - Adding a derived relation: its view WITH NO DATA and its unique indexes (structure), populated by a REFRESH once
+ *   every row it reads is written (structure.refresh). Changing what a definition means drops and recreates the view
+ *   and every view above it that reads it, directly or through another, WITH NO DATA, with their indexes and
+ *   statistics, refreshes each bottom-up, and grants their privileges again. A view the target no longer has that reads a
  *   recreated one cannot outlive it, so it is dropped first, here.
  * - Workload changes add indexes and statistics (indexes); an index no law or program justifies any longer is dropped.
  * - World changes: a login's or role's PostgreSQL role created, its grants replaced and its memberships granted or
