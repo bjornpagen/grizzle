@@ -31,11 +31,11 @@
  *   skips by DO NOTHING with no target or over columns among its key; else negated where not positive; else counted
  *   where counted; else positive. A probe reads its table bound by its own equalities, the row met by its key bound to
  *   its met rows' column, alone; a probe is a row source of its core, the row met none, and met rows read their query
- *   CTE where they stand. Compiled for READ COMMITTED, the row met is `?met:schema.name` and an ON CONFLICT with no
- *   target `?every:schema.name`, each negated, in place of their reads.
- * - A carrier read is the call's own, of no group; a table no relation names is `?schema.name`, a schema function the
- *   names do not clear `?function:schema.name`, negated, a REFRESH `?refresh:schema.name` and a statement no member
- *   sends `?statement:<kind>`.
+ *   CTE where they stand. Compiled for READ COMMITTED, the row met is `?met:"schema"."name"` and an ON CONFLICT with no
+ *   target `?every:"schema"."name"`, each negated, in place of their reads.
+ * - A carrier read is the call's own, of no group; a table no relation names is `?"schema"."name"`, a schema function
+ *   the names do not clear `?function:"schema"."name"`, negated, a REFRESH `?refresh:"schema"."name"` and a statement
+ *   no member sends `?statement:<kind>`, each object named as SQL quotes it, which no two names share.
  * - A table's group is the fields of its columns its core's conditions (its WHERE and every ON of its FROM; a MERGE's
  *   ON and its clause's condition as the clause reads it) equate with a placeholder or a column of an own source in
  *   scope, its core's or an enclosing core's (a non-LATERAL derived table and a CTE see none of their reader's), the
@@ -287,6 +287,12 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/program/isolation/extract.ts",
+				original: `\t\t\t\tthis.#opaque(\`?every:\${printObjectName(table)}\`, c)`,
+				replacement: `\t\t\t\tthis.#opaque(\`?every:\${table.schema}.\${table.name}\`, c)`,
+				why: 'An ON CONFLICT with no target read at READ COMMITTED named by its table\'s dotted text, `?every:<schema>.<name>`, as extract.ts spelled it, which "a.b"."c" and "a"."b.c" share; the read is not the one the contract names.'
+			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
 				original: "\t\t\tif (retired !== undefined) {",

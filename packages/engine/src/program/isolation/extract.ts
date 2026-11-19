@@ -41,6 +41,7 @@ import type {
 	With
 } from "#compiler/sql/ast.ts"
 import { col, eq } from "#compiler/sql/build.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 
 /**
  * How the extractor reads one role's statements back:
@@ -687,7 +688,7 @@ class Walk<Top extends Arrival> {
 			return
 		}
 		this.#opaque(
-			s.kind === "refresh" ? `?refresh:${s.view.schema}.${s.view.name}` : `?statement:${s.kind}`,
+			s.kind === "refresh" ? `?refresh:${printObjectName(s.view)}` : `?statement:${s.kind}`,
 			top
 		)
 	}
@@ -810,7 +811,7 @@ class Walk<Top extends Arrival> {
 		if (conflict !== undefined && typeof s.table !== "string") {
 			const table = s.table
 			if (conflict.kind === "every" && this.#statement.level === "readCommitted") {
-				this.#opaque(`?every:${table.schema}.${table.name}`, c)
+				this.#opaque(`?every:${printObjectName(table)}`, c)
 			} else {
 				const values = insertValues(s, inner.ctes, this.#statement.paramOf)
 				const relation = this.#statement.names.relationOf(table)
@@ -1104,7 +1105,7 @@ class Walk<Top extends Arrival> {
 				]
 			case "met":
 				if (this.#statement.level === "readCommitted") {
-					this.#opaque(`?met:${source.table.schema}.${source.table.name}`, here)
+					this.#opaque(`?met:${printObjectName(source.table)}`, here)
 				} else {
 					this.#probed(
 						source.table,
@@ -1254,7 +1255,7 @@ class Walk<Top extends Arrival> {
 					}
 				}
 			} else if (!this.#statement.names.readsNoTable(e.fn)) {
-				this.#opaque(`?function:${e.fn.schema}.${e.fn.name}`, c)
+				this.#opaque(`?function:${printObjectName(e.fn)}`, c)
 			}
 		}
 		const next = this.#operandContext(e, c)
@@ -1521,7 +1522,7 @@ const statementFacts = (
 	const statement = new Statement(names, paramOf, level)
 	const walk = new Walk<undefined>(statement, [])
 	walk.statement(s)
-	const relation = (t: ObjectName): string => names.relationOf(t) ?? `?${t.schema}.${t.name}`
+	const relation = (t: ObjectName): string => names.relationOf(t) ?? `?${printObjectName(t)}`
 	const fields = (rel: string, bound: ReadonlyArray<Bound>): ReadonlyArray<Bound> =>
 		bound.flatMap((b): ReadonlyArray<Bound> => {
 			const field = names.fieldOf(rel, b.column)
@@ -1644,12 +1645,14 @@ const statementFacts = (
  *   they stand.
  * - An ON CONFLICT with no target arbitrates every object `arbitersOf` names, one arbitration each. It and a `met`
  *   source appear only in a statement compiled for SERIALIZABLE (`level`), whose transaction snapshot the met row's
- *   seal rests on: in a READ COMMITTED one each is a read no names clear, `?every:schema.name` or `?met:schema.name`,
- *   which the certifier refuses.
- * - A carrier's read is the call's own, named `carrier:<name>`. A table no relation is read as `?schema.name`, a schema
- *   function no names clear as `?function:schema.name`, and a statement that is no DML, carrier, ANALYZE or
- *   transaction control as `?refresh:schema.name` or `?statement:<kind>`: the certifier refuses each as a relation it
- *   states no fact of.
+ *   seal rests on: in a READ COMMITTED one each is a read no names clear, `?every:"schema"."name"` or
+ *   `?met:"schema"."name"`, which the certifier refuses.
+ * - A carrier's read is the call's own, named `carrier:<name>`. A table no relation is read as `?"schema"."name"`, a
+ *   schema function no names clear as `?function:"schema"."name"`, and a statement that is no DML, carrier, ANALYZE or
+ *   transaction control as `?refresh:"schema"."name"` or `?statement:<kind>`: the certifier refuses each as a relation
+ *   it states no fact of. Each object is named as the printer quotes it (sql/print.ts printObjectName), so two names are
+ *   one text only where they are one name, as `?every:schema.name` was for `"a.b"."c"` and `"a"."b.c"`, and the
+ *   refusal shows it as SQL spells it.
  * - A table read's group is the fields its core's conditions bind to a parameter or to a column of a source in scope,
  *   the enclosing cores' included, that is the call's own: one value for the call where each is a parameter or the
  *   session's context's, else one group per own row. An ON CONFLICT's is its conflict columns', each bound to

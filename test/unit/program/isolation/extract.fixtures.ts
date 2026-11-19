@@ -84,7 +84,7 @@ const TABLES: Readonly<Record<Rel, ObjectName>> = {
 }
 
 /** The relation a read or a write of `rel` names: its own, or `?schema.name` for X. */
-const relationOf = (rel: Rel): string => (rel === "X" ? "?app.x" : rel)
+const relationOf = (rel: Rel): string => (rel === "X" ? '?"app"."x"' : rel)
 
 /** The columns of every table: three fields' and a law column's, which no field is. */
 const COLUMNS = ["c_id", "c_a", "c_b", "c_hidden"] as const
@@ -2062,7 +2062,7 @@ class Expect {
 				case "met": {
 					if (this.level === "readCommitted") {
 						this.shapes.add("the row an arbitration met, refused at READ COMMITTED")
-						this.opaque(`?met:app.${TABLES[s.rel].name}`, here)
+						this.opaque(`?met:"app"."${TABLES[s.rel].name}"`, here)
 						break
 					}
 					const alias = metRowsAlias(s, owns, place.scope)
@@ -2220,7 +2220,7 @@ class Expect {
 						return
 					case "readsTables":
 						this.shapes.add("a function that may read tables")
-						this.opaque(`?function:app.${READS_TABLES}`, place)
+						this.opaque(`?function:"app"."${READS_TABLES}"`, place)
 						return
 					case "retirement":
 						this.shapes.add("a retirement")
@@ -2261,7 +2261,7 @@ class Expect {
 					d.target.kind === "table"
 				) {
 					this.shapes.add("an ON CONFLICT with no target, refused at READ COMMITTED")
-					this.opaque(`?every:app.${TABLES[d.target.rel].name}`, topPlace)
+					this.opaque(`?every:"app"."${TABLES[d.target.rel].name}"`, topPlace)
 				} else if (conflict.kind !== "none" && target !== undefined && d.target.kind === "table") {
 					const rel = d.target.rel
 					const stated = proposal === undefined && d.source === undefined && d.params
@@ -2471,7 +2471,7 @@ export const expected = (s: StatementSpec, level: Isolation): Expect => {
 			return x
 		case "refresh":
 			x.shapes.add("a statement no member sends")
-			x.opaque("?refresh:app.v", topPlace)
+			x.opaque('?refresh:"app"."v"', topPlace)
 			return x
 		case "schema":
 			x.shapes.add("a statement no member sends")

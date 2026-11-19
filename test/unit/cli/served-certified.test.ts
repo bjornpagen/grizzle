@@ -14,7 +14,7 @@
  * Properties, over the draft's own plan as generate and check compile it (draftSchema, then servedFiles):
  *
  * - Names: every reason any certificate gives names a relation of Work, never a table, a function or a statement the
- *   names grizzle installs leave unresolved (`?schema.name`, `?function:...`, `?statement:...`), so every object a
+ *   names grizzle installs leave unresolved (`?"schema"."name"`, `?function:...`, `?statement:...`), so every object a
  *   compiled write of a whole entry reaches is one the certifier reads facts of.
  * - Levels: each role's level as its served login reads it, the isolation of its role token (served(...).roles[r]
  *   isolation, the public reading an application and a test of it take, never the file's encoding), is its
