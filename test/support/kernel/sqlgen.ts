@@ -2125,7 +2125,8 @@ export const columnSetOperationGen =
  * the window turned on at full weight and the frame off, the rest of the swarm as it came. Where frames are on, a
  * window over a type with a framed call is always framed (windowOf), so a ranking function, `row_number` among them,
  * stands only under a swarm whose frames are off, which `statementGen` draws seldom enough that a shift of the draws
- * before it (5bdae3758's IN list of two) left the audit property's `window row_number` unreached.
+ * before it (5bdae3758's IN list of two) left the audit property's `window row_number` unreached: its aim
+ * (test/unit/kernel/sql.test.ts).
  */
 export const unframedWindowGen =
 	(catalog: SqlCatalog): Gen<SqlStatement> =>

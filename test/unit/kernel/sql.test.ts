@@ -14,10 +14,12 @@
  * relation alias renamed; each statement kind the root hole sees.
  */
 import { type Reached } from "@bjornpagen/testing/features"
-import { weighted } from "@bjornpagen/testing/gen"
+import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
+import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
+import { aimedSteered } from "#test/support/aims.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import {
 	featureCount,
@@ -119,10 +121,10 @@ export const generatedQueriesKeepTheirShapeUnderARenamingOfEveryAlias = property
  */
 export const generatedStatementsPassBothAuditsAndReachEveryStatementKindAndEveryConstructAnAuditRuleWatches =
 	property.explore(
-		weighted([
-			[3, statementGen(statementCatalog)],
-			[1, unframedWindowGen(statementCatalog)]
-		]),
+		aimedSteered(
+			steered<SqlStatement, AuditedStatementFeature>(() => statementGen(statementCatalog)),
+			[["window row_number", unframedWindowGen(statementCatalog)]]
+		),
 		{
 			needs: {},
 			situations: requiredStatementFeatures,
