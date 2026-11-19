@@ -1,5 +1,4 @@
 import { Array as Arr, Brand, Effect } from "effect"
-import { quoteIdent } from "#compiler/core/text.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -47,28 +46,6 @@ export const noTables: ResetGroup = ResetGroup({ tables: [], emptying: "whole" }
 /** Every table a fixture's own DDL creates, which a test builds by hand rather than installs. */
 export const fixtureGroup = (tables: Arr.NonEmptyReadonlyArray<string>): ResetGroup =>
 	ResetGroup({ tables, emptying: "whole" })
-
-/**
- * Every table of a schema a test owns whole, read off the catalog once the schema's hand-written DDL is installed: the
- * group of a substrate proof's seat (test/pg/substrate), whose schema holds no table but the proof's, so no table its
- * DDL creates is left out. A partitioned table is one, beside each of its partitions; a view, a sequence or any other
- * relation is none. A schema that does not exist is refused (3F000).
- */
-export const schemaGroup = (
-	admin: PgConnection,
-	schema: string
-): Effect.Effect<ResetGroup, SqlError> =>
-	Effect.map(
-		admin.queryValues(
-			"SELECT c.relname::text FROM pg_catalog.pg_class AS c WHERE c.relnamespace = $1::text::regnamespace AND c.relkind IN ('r', 'p') ORDER BY 1",
-			[quoteIdent(schema)]
-		),
-		(rows) =>
-			ResetGroup({
-				tables: Arr.map(rows, ([table]) => `${quoteIdent(schema)}.${quoteIdent(String(table))}`),
-				emptying: "whole"
-			})
-	)
 
 /**
  * The deletion of every row of `tables` (Emptying rows): its own READ COMMITTED transaction, under the replica role, so

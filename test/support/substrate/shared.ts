@@ -1,8 +1,7 @@
 import { waitingOn } from "@bjornpagen/testing/live"
 import type { PgMember } from "@bjornpagen/testing/pg"
-import { testWorkers } from "@bjornpagen/testing/workers"
 import { regex } from "arkregex"
-import { Array as Arr, Config, Effect, Exit, Option, Scope, String as Str } from "effect"
+import { Array as Arr, Effect, Exit, Option, Scope, String as Str } from "effect"
 import { Client } from "pg"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -34,12 +33,6 @@ import { upTo } from "#test/support/up-to.ts"
 
 const claimKey = 1735289960
 const claimStatement = "SELECT pg_catalog.pg_try_advisory_lock($1::int4, $2::int4)"
-
-/** The positive decimal integer an environment variable names, read through Config; none when unset or anything else. */
-const positiveEnv = (name: string): Option.Option<number> =>
-	Option.flatMap(Effect.runSync(Effect.orDie(Config.option(Config.String(name)))), (value) =>
-		regex("^[1-9][0-9]*$").test(value) ? Option.some(Number(value)) : Option.none()
-	)
 
 const sharedDatabase = (index: number): string => `gz_shared_${index}`
 
@@ -397,53 +390,6 @@ export const lend = (
 		[lentVariable]: `${place.cluster.port}:${width}:${place.database}`
 	})
 
-export interface SharedClaim {
-	readonly database: string
-	/** An owner connection to the database. */
-	readonly admin: PgConnection
-	/** The backend of the session that holds the claim, which runs every statement in a transaction of its own. */
-	readonly claimant: number
-}
-
-/**
- * An owner connection to a shared database in a child scope, which `disconnect` closes, and whether the database was
- * already there or the connection cloned it from the template first (3D000).
- */
-interface SharedConnection {
-	readonly admin: PgConnection
-	readonly disconnect: Effect.Effect<void>
-	readonly origin: "existing" | "cloned"
-}
-
-const connectShared = (
-	cluster: BudgetedCluster,
-	scope: Scope.Scope,
-	database: string
-): Effect.Effect<SharedConnection, SqlError> =>
-	Effect.gen(function* () {
-		const child = yield* Scope.fork(scope)
-		const open = connect(cluster, {
-			database,
-			credentials: ownerCredentials(cluster),
-			label: "admin"
-		})
-		const opened = yield* Scope.provide(
-			open.pipe(
-				Effect.map((admin) => ({ admin, origin: "existing" as const })),
-				Effect.catchIf(
-					(error) => pgErrorFields(error)?.code === "3D000",
-					() =>
-						Effect.andThen(
-							ensureDatabase(cluster, database),
-							Effect.map(open, (admin) => ({ admin, origin: "cloned" as const }))
-						)
-				)
-			),
-			child
-		)
-		return { ...opened, disconnect: Scope.close(child, Exit.void) }
-	})
-
 /**
  * The initialised cluster with a budget of the connections no lease covers (unleasedConnections), for work no test file
  * runs: the global setup's, and the sweep's.
@@ -472,78 +418,6 @@ export const ensureSharedDatabase = (
 			}
 		})
 	)
-
-/**
- * The shared test databases, and the sweep that removes what crashed runs left on the cluster.
- *
- * Cloning the template copies about 300 files and dropping the clone unlinks them, so test files do not clone a
- * database each. The cluster keeps a long-lived database per worker, `gz_shared_1`, `gz_shared_2`, ..., each cloned from
- * the template once and reused by file after file, across runs (Tests and gates).
- * Files stay apart through unique schema and role names (names.ts), whose finalizers drop them. A file that needs a
- * pristine database of its own builds Substrate.isolatedLayer instead.
- *
- * Vitest runs each file in a process of its own, at most W at once (vitest.network.config.ts maxWorkers, W the
- * testing library's testWorkers, one per core), and numbers the workers running them 1 to W in VITEST_POOL_ID; the
- * run's global setup clones `gz_shared_1` to `gz_shared_W` once. So a file uses the database of its worker,
- * `gz_shared_<VITEST_POOL_ID>`.
- * A claim still takes the session-level advisory lock (claimKey, n) on a connection to the owner's own database, held
- * for the file's life, as a safety net: when another claim holds the worker's database (a second substrate in the same
- * file, or another run on the cluster) it takes the smallest n above W no other claim holds, cloning the database when
- * it does not exist yet. Two runs on one cluster never share a database at once, and a process outside a Vitest worker
- * (a bench) has no worker and claims above W. The claimed database must be clean, as `leftovers` defines it: a dirty
- * one is passed over for the next index and left for the sweep, the one place a database is dropped, and a file that
- * leaves anything behind fails when its substrate is released.
- *
- * Claims a clean shared database for the current scope: the worker's, else the smallest index above W, the worker's
- * excepted, whose claim is free and whose database is clean, cloned when it does not exist. A dirty database, which a
- * file that crashed or failed its release left something in, is never handed out and never dropped here: the claim
- * lets it go and tries the next index, and the sweep drops it once no file runs. A fresh clone that is not clean means
- * the template differs from what `leftovers` expects, a defect of this file, not of a test.
- *
- * Every connection the claim opens draws from `cluster`'s budget, its lease's: the claim's session, and each candidate
- * database's owner connection.
- */
-export const claimSharedDatabase = (
-	cluster: BudgetedCluster
-): Effect.Effect<SharedClaim, SqlError, Scope.Scope> =>
-	Effect.gen(function* () {
-		const scope = yield* Effect.scope
-		const lock = yield* devSession(cluster, Option.some("grizzle-substrate claim"))
-		const worker = positiveEnv("VITEST_POOL_ID")
-		const above = testWorkers + 1
-		/** The n-th index a claim tries: the worker's, then every index above W. */
-		const tried = (n: number): number =>
-			Option.match(worker, {
-				onNone: () => above + n,
-				onSome: (w) => (n === 0 ? w : above + n - 1)
-			})
-		for (let n = 0; ; n++) {
-			const index = tried(n)
-			if (n > 0 && Option.contains(worker, index)) {
-				continue
-			}
-			const [[claimed] = []] = yield* lock.queryValues(claimStatement, [claimKey, index])
-			if (claimed !== true) {
-				continue
-			}
-			const database = sharedDatabase(index)
-			const connection = yield* connectShared(cluster, scope, database)
-			const dirty = yield* leftovers(connection.admin)
-			if (dirty.length === 0) {
-				return { database, admin: connection.admin, claimant: lock.processId }
-			}
-			if (connection.origin === "cloned") {
-				return yield* Effect.die(
-					new Error(`a fresh clone of the template is not clean: ${Arr.join(dirty, "; ")}`)
-				)
-			}
-			yield* connection.disconnect
-			yield* lock.queryValues("SELECT pg_catalog.pg_advisory_unlock($1::int4, $2::int4)", [
-				claimKey,
-				index
-			])
-		}
-	})
 
 /** Whether process `pid` is running on this machine; a process of another user counts as running. */
 const running = (pid: number): boolean => {

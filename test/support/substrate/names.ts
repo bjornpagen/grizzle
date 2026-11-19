@@ -98,17 +98,20 @@ export const templateSchemaName = (digest: string, label: string): string => {
 
 /**
  * The names a template's installation is made under and every worker derives from its digest (templateSchemaName): the
- * installation's schema, labelled `install`, and its owner login's role, `<owner allocation>__login`, which a template
- * build's substrate gives its one owner login (substrate.ts templateAllocations).
+ * installation's schema, labelled `install`, every other schema its install allocates by a label of its own (`labelled`,
+ * as the build's substrate allocates it, substrate.ts templateAllocations), for an installation of several schemas,
+ * and its owner login's role, `<owner allocation>__login`, which a template build's substrate gives its one owner login.
  */
 export interface TemplateNames {
 	readonly schema: string
+	readonly labelled: (label: string) => string
 	readonly ownerLogin: string
 }
 
 /** The names of the template of digest `digest` (TemplateNames). */
 export const templateNames = (digest: string): TemplateNames => ({
 	schema: templateSchemaName(digest, "install"),
+	labelled: (label) => templateSchemaName(digest, label),
 	ownerLogin: roleName(templateSchemaName(digest, "owner"), "login")
 })
 

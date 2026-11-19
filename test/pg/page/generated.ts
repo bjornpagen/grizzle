@@ -1,26 +1,22 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import { assert } from "@bjornpagen/testing/assert"
-import { type Case, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+import { type Reached } from "@bjornpagen/testing/features"
 import {
-	Array as Arr,
-	Data,
-	Effect,
-	Formatter,
-	Function,
-	Option,
-	Order,
-	Record as Rec,
-	Result
-} from "effect"
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	map,
+	recorded,
+	type Steered,
+	steered,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { type Case, type Kept } from "@bjornpagen/testing/property"
+import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { DatabaseError } from "pg"
-import type { TestContext } from "vitest"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { ConnectionLost } from "#adapter/errors/failures.ts"
 import { windowIntake, windowStatement } from "#adapter/page/execute.ts"
@@ -108,15 +104,15 @@ import {
 import {
 	factSet,
 	inputText,
-	oracleCheck,
+	oracleProperty,
 	PropertyFailed,
 	sentRows
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { loweringViolations } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { everyColumnCarried } from "#test/support/spine.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
 import { Q } from "#test/unit/lower/conservative/fixtures.ts"
 import { withinOneParentCase } from "#test/unit/lower/dedup/cases.ts"
@@ -175,7 +171,7 @@ type PageFeature =
 	| `skipped: ${PageSkip}`
 
 /** What the population must reach. */
-const situations: Arr.NonEmptyReadonlyArray<PageFeature> = [
+const situations: ReadonlyArray<Reached<PageFeature>> = [
 	"Group",
 	"Recursive",
 	"Take",
@@ -481,14 +477,19 @@ const longOrderedCaseGen: Gen<OrderedCase> = map(
 
 /**
  * The cases a witness pages: drawn ones (orderedCaseGen), or, while its steering leaves a walk of 200 windows pending
- * (Pending `has`), a long walk (longOrderedCaseGen), which no drawn population of this size reaches by itself.
+ * (Pending `has`), a long walk (longOrderedCaseGen), which no drawn population of this size reaches by itself; and
+ * beside either, the recorded counterexample (recordedPageCases).
  */
-const steeredOrderedCases: Steered<OrderedCase, PageFeature> = (steering) =>
-	Option.exists(steering, (pending) =>
-		pending.has("a walk of at least 200 windows in one direction")
+const steeredOrderedCases: Steered<OrderedCase, PageFeature> = steered((steering) =>
+	recorded(
+		Option.exists(steering, (pending) =>
+			pending.has("a walk of at least 200 windows in one direction")
+		)
+			? longOrderedCaseGen
+			: orderedCaseGen,
+		recordedPageCases
 	)
-		? longOrderedCaseGen
-		: orderedCaseGen
+)
 
 const printCase = (o: OrderedCase): string =>
 	`order: rotate ${o.rotate}, stated ${o.stated}, ${Arr.join(
@@ -1292,50 +1293,50 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  * population must reach every required feature, among them a per-execution form, a relation parameter holding a
  * float -0, which the runtime passes as the caller's one zero, a walk of at least 200 windows, and a correlated
  * child under a nested attachment, the shape where a key within one parent must not stand for a key across parents
- * (lower/conservative/keys.ts). Its escaped counterexample is kept (pageKept) and replays before its streams.
+ * (lower/conservative/keys.ts). Its escaped counterexample is recorded (recordedPageCases) and replays by its token
+ * before its streams.
  *
- * A case whose walks at its drawn sizes would read more windows than the request bound is skipped, its D, sizes and
- * window count logged.
+ * A case whose walks at its drawn sizes would read more windows than the request bound is skipped, noted as its skip.
  */
 /** The artifact a run of the suite pages through: the page compiler's, or the page oracle's baseline. */
 type PageArtifactName = "optimized" | "conservative"
 
 /**
- * The suite's escaped counterexample, kept: page/generated-optimized at TEST_SEED=28094260 (its rotating stream's case
- * 872, test/unit/lower/dedup/cases.ts withinOneParentCase), ordered by its one column and paged two rows at a time, so a
+ * The suite's escaped counterexample, recorded beside its space (gen.ts recorded), which no search of toolchain-test
+ * keep reached: page/generated-optimized at TEST_SEED=28094260 (its rotating stream's case 872,
+ * test/unit/lower/dedup/cases.ts withinOneParentCase), ordered by its one column and paged two rows at a time, so a
  * page delivers both parents whose children, a take of one row each, share the key a = 0 of the attachment nested below
  * them. The optimized artifact read that attachment's key set without DISTINCT, as if a key within one parent held
- * across parents, and its statement delivered each child of 0 twice, rows the reader refused.
+ * across parents, and its statement delivered each child of 0 twice, rows the reader refused. Each artifact's property
+ * keeps it by its token, `:-:1`.
  */
-const pageKept: ReadonlyArray<Kept<OrderedCase, PageFeature>> = [
+const recordedPageCases: Arr.NonEmptyReadonlyArray<OrderedCase> = [
 	{
-		note: "page/generated-optimized, TEST_SEED=28094260: a nested key set over children keyed within one parent only",
-		sketch: {
-			c: withinOneParentCase(),
-			rotate: 0,
-			dirs: Arr.makeBy(8, () => false),
-			stated: 0,
-			size: { forward: 2, backward: 2 },
-			negativeZero: false
-		},
-		draws: "",
-		reaches: ["attachments", "a correlated child under a nested attachment"]
+		c: withinOneParentCase(),
+		rotate: 0,
+		dirs: Arr.makeBy(8, () => false),
+		stated: 0,
+		size: { forward: 2, backward: 2 },
+		negativeZero: false
 	}
 ]
 
-export const generatedSuite = (artifact: PageArtifactName): void => {
+export const generatedProperty = (artifact: PageArtifactName, kept: ReadonlyArray<Kept>) => {
 	/**
 	 * The order refusal is located at the caller's orderBy, never at the node the order completes over.
 	 *
-	 * A ROLLBACK that fails leaves the pinned session in a transaction: a defect of the case, never ignored.
+	 * The case installs, loads and reads under one savepoint of its transaction (OracleSeat's reading), rolled back to
+	 * after it: a rollback that fails leaves the transaction unlike the case found it, a defect of the case, never
+	 * ignored.
 	 *
 	 * This file's artifact only: its sibling file runs the other on the same cases.
 	 *
 	 * Noted only once the case pages: a skipped case never read its -0.
 	 */
-	const runCase = (o: OrderedCase, schema: string, c: Case<PageFeature>, ctx: TestContext) =>
+	const runCase = (o: OrderedCase, c: Case<PageFeature>) =>
 		Effect.gen(function* () {
-			const s = yield* Substrate
+			const seat = yield* OracleSeat
+			const schema = yield* seat.schema("page_rt")
 			const ordered = orderedQuery(o)
 			if (ordered === undefined) {
 				c.note("skipped: unordered column")
@@ -1359,11 +1360,6 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 			}
 			const answer = answerBound(query.dag, stored.facts, o.c.query.params)
 			if (!(answer <= requestBound)) {
-				yield* Effect.promise(() =>
-					ctx.annotate(
-						`skipped over the request bound ${requestBound}: an answer of at most ${answer} rows by structure`
-					)
-				)
 				c.note("skipped: answer over the request bound")
 				return
 			}
@@ -1452,10 +1448,13 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 			const params = hostParams(o, codes)
 			yield* Effect.scoped(
 				Effect.gen(function* () {
-					const session = yield* s.admin.pin
-					yield* session.query("BEGIN", [])
-					yield* Effect.addFinalizer(() => Effect.orDie(session.query("ROLLBACK", [])))
-					for (const sql of filledSql(plan.drafted, s.database)) {
+					const reading = yield* seat.reading
+					const session = reading.connection
+					for (const sql of reading.open) {
+						yield* session.query(sql, [])
+					}
+					yield* Effect.addFinalizer(() => Effect.orDie(session.pipeline(reading.close)))
+					for (const sql of filledSql(plan.drafted, seat.database)) {
 						yield* session.query(sql, [])
 					}
 					for (const sql of facts.value) {
@@ -1499,11 +1498,6 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						Math.ceil(full.rows.length / sizes.backward) +
 						1
 					if (cost > requestBound) {
-						yield* Effect.promise(() =>
-							ctx.annotate(
-								`skipped over the request bound ${requestBound}: |D| ${full.rows.length}, sizes ${sizes.forward} forward and ${sizes.backward} backward, ${cost} windows`
-							)
-						)
 						c.note("skipped: walk over the request bound")
 						return
 					}
@@ -1535,37 +1529,17 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 			)
 		)
 
-	layer(Substrate.layer)(
-		`the page runtime on generated ordered queries, ${artifact} artifact`,
-		(it) => {
-			it.effect(
-				"cuts generated ordered queries into windows through the runtime at a drawn size per direction",
-				(ctx) =>
-					searched(
-						ctx,
-						Effect.gen(function* () {
-							const s = yield* Substrate
-							const schema = yield* s.schema({ create: false, label: "page_rt" })
-							return yield* oracleCheck(
-								steered(steeredOrderedCases, Function.identity),
-								{
-									suite: `page/generated-${artifact}`,
-									oracle: {
-										kind: "second-implementation",
-										name: "the baseline lowering's ordered answer, cut into windows by the window contract"
-									},
-									literal: Formatter.format,
-									coverage: required<PageFeature>(situations, { cases: 2_000, sense: notesOnly }),
-									kept: pageKept,
-									runs: 2_000,
-									shrink: completeShrink,
-									perturb: "all"
-								},
-								(o, c) => runCase(o, schema, c, ctx)
-							)
-						})
-					)
-			)
-		}
-	)
+	return oracleProperty(steeredOrderedCases, {
+		situations,
+		perturb: "all",
+		oracle: {
+			kind: "second-implementation",
+			name: "the baseline lowering's ordered answer, cut into windows by the window contract"
+		},
+		budget: { runs: 2_000, steered: 2_000 },
+		kept,
+		kills: [],
+		show: Formatter.format,
+		check: (c: Case<PageFeature>) => (o) => runCase(o, c)
+	})
 }

@@ -55,7 +55,7 @@ import {
 	sharedRaces,
 	strategyOf
 } from "#test/pg/isolation/arbiter.fixtures.ts"
-import { generatedShapeIn, runIsolationRace } from "#test/pg/isolation/support/race.ts"
+import { raceOn, seatedCertified, seatedGenerated } from "#test/pg/isolation/support/race.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -161,11 +161,8 @@ export const theInsertProtocolsArbitrationsEveryRaceOverSharedKeysIsSerialAtGene
 					const generatedSeat = yield* generated
 					const serSeat = yield* serializable
 					const shapes = [
-						{
-							shape: yield* generatedShapeIn(generatedSeat, importShape),
-							seat: generatedSeat.substrate
-						},
-						{ shape: serSeat.value, seat: serSeat.substrate }
+						yield* seatedGenerated(importShape)(generatedSeat),
+						seatedCertified(serSeat)
 					]
 					return yield* Effect.suspend(() => {
 						if (race.initial === "doc") {
@@ -183,14 +180,7 @@ export const theInsertProtocolsArbitrationsEveryRaceOverSharedKeysIsSerialAtGene
 						}
 						return Effect.forEach(
 							shapes,
-							({ shape, seat }) =>
-								Effect.provideService(
-									Effect.scoped(
-										runIsolationRace(shape, raceOf(race), strategyOf(c), () => undefined)
-									),
-									Substrate,
-									seat
-								),
+							(seated) => raceOn(seated, raceOf(race), strategyOf(c), () => undefined),
 							{ discard: true }
 						)
 					})

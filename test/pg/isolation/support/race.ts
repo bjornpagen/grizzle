@@ -87,6 +87,7 @@ import {
 	installTemplate,
 	Substrate,
 	type SubstrateCase,
+	type SubstrateShape,
 	type SubstrateTemplate
 } from "#test/support/substrate/substrate.ts"
 
@@ -478,6 +479,37 @@ export const certifiedShapeTemplate = (
 			shapeOf(plan, templateInstalled(names, plan.history, ordinarySession, new Map(), binding)),
 		reset: (shape) => installationGroup(shape.names)
 	})
+
+/** A shape a case races, and the substrate of the seat it is installed in, where its race runs (raceOn). */
+export interface SeatedShape {
+	readonly shape: InstalledShape
+	readonly seat: SubstrateShape
+}
+
+/** A case's seat of a generated shape's template (generatedShapeTemplate) as the shape it races. */
+export const seatedGenerated =
+	(build: (name: string) => Shape) =>
+	(taken: SubstrateCase<Generated>): Effect.Effect<SeatedShape, CompileError | OpenError> =>
+		Effect.map(generatedShapeIn(taken, build), (shape) => ({ shape, seat: taken.substrate }))
+
+/** A case's seat of a certified shape's template (certifiedShapeTemplate) as the shape it races. */
+export const seatedCertified = (taken: SubstrateCase<InstalledShape>): SeatedShape => ({
+	shape: taken.value,
+	seat: taken.substrate
+})
+
+/** runIsolationRace over a seated shape, on its seat's substrate, the race's sessions closed after it. */
+export const raceOn = (
+	seated: SeatedShape,
+	race: IsolationRace,
+	strategy: (txns: ReadonlyArray<RaceTxn<never>>) => Strategy,
+	noteRun: (explained: Explained<never>) => void
+) =>
+	Effect.provideService(
+		Effect.scoped(runIsolationRace(seated.shape, race, strategy, noteRun)),
+		Substrate,
+		seated.seat
+	)
 
 /** A SQL text literal of `text`: in quotes, its quotes doubled. */
 const quoted = (text: string): string => `'${Str.replaceAll("'", "''")(text)}'`

@@ -1,19 +1,15 @@
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
-import {
-	type Case,
-	type Draw,
-	type Explored,
-	explore,
-	type Kept,
-	type Oracle,
-	type Run as SearchRun,
-	type SearchFailure,
-	steered
-} from "@bjornpagen/testing/explore"
 import { failureText } from "@bjornpagen/testing/failure"
-import type { Coverage } from "@bjornpagen/testing/features"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Aimed, aimed, constant, type Gen, type Space } from "@bjornpagen/testing/gen"
+import {
+	type Aimed,
+	aimed,
+	constant,
+	type Gen,
+	type Space,
+	type Steered,
+	steered
+} from "@bjornpagen/testing/gen"
 import { inlineRun, searchInline } from "@bjornpagen/testing/inline"
 import {
 	type Case as PropertyCase,
@@ -21,11 +17,11 @@ import {
 	type Kept as KeptToken,
 	type Budget,
 	type Kill,
+	type Oracle,
 	property
 } from "@bjornpagen/testing/property"
 import { fnv1a32 } from "@bjornpagen/testing/random"
 import type { PgCluster } from "@bjornpagen/testing/resources"
-import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
 import {
 	Array as Arr,
 	Cause,
@@ -75,7 +71,6 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
 import { filledSql } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
 	type Comparison,
@@ -94,7 +89,6 @@ import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import {
 	CurrentRestorage,
-	onceRotated,
 	permuted,
 	type Restorage,
 	restorageGen,
@@ -941,12 +935,9 @@ const inRolledBackTransaction = <A, E>(
  * statement does not terminate is a hang, which the case's hang guard reports, and the mutation tester's own timeout
  * counts.
  *
- * oracleCheck explores a property over a suite's draw with the library's exploration (@bjornpagen/testing/explore), so a
- * failing case shrinks and is reported in its printable form (the suite's literal) with the comparison that failed. A
- * suite names itself to oracleCheck: its kept sketches replay first, then its floor stream, seeded from the suite's
- * label, and the run's rotating stream, every case under a plan perturbation drawn with it (perturb.ts), which
+ * An oracle property (oracleProperty) draws every case under a plan perturbation drawn with it (perturb.ts), which
  * runOracle applies: the facts repeated under fresh keys, and a subset of planner settings set for the case's
- * statements. A kept sketch replays unperturbed.
+ * statements.
  *
  * Runs one case and compares its two sides (left is the baseline; the reference may only be the right side).
  */
@@ -1210,23 +1201,8 @@ class ComparisonFailed extends Data.TaggedError("ComparisonFailed")<{
 export const comparisonFailed = (outcome: OracleOutcome): ComparisonFailed =>
 	new ComparisonFailed({ report: printOutcome(outcome), outcome })
 
-/**
- * What one exploration of oracleCheck is: the library's exploration minus its draw (oracleCheck's first argument), its
- * concurrency, its steering cadence and its hang guard (the tiers' caseHang), plus the plan perturbation each case
- * draws. Oracle cases share their substrate's database and schema, so they run one at a time.
- */
-export interface CheckOptions<S, F extends string> {
-	readonly suite: string
-	/** What the property is checked against, which the search's report prints. */
-	readonly oracle: Oracle
-	readonly literal: (sketch: S) => string
-	readonly coverage: Coverage<F>
-	readonly kept: ReadonlyArray<Kept<S, F>>
-	readonly runs: number
-	readonly shrink: ShrinkBudget
-	/** The plan perturbation each case draws: the facts repeated and planner settings, the settings alone, or none. */
-	readonly perturb: "all" | "planner" | "none"
-}
+/** The plan perturbation each case draws: the facts repeated and planner settings, the settings alone, or none. */
+export type Perturb = "all" | "planner" | "none"
 
 /**
  * The property of one case under its perturbation, failing with the report of why, the perturbation appended. A case
@@ -1261,8 +1237,8 @@ const underPerturbation = <E, R>(
 	)
 }
 
-/** The perturbations a case of a check draws. */
-const perturbations = (perturb: CheckOptions<unknown, string>["perturb"]): Gen<Perturbation> => {
+/** The perturbations a case of an oracle property draws. */
+const perturbations = (perturb: Perturb): Gen<Perturbation> => {
 	switch (perturb) {
 		case "all":
 			return perturbationGen
@@ -1274,59 +1250,6 @@ const perturbations = (perturb: CheckOptions<unknown, string>["perturb"]): Gen<P
 }
 
 /**
- * The exploration of a check: the suite's draw, under the case's steering, with each case's perturbation drawn after
- * its sketch, so the two shrink together; a kept sketch replays unperturbed, and a sketch prints as the suite prints
- * it, ready to keep.
- */
-const checked = <S, T, F extends string, E, R>(
-	draw: Draw<S, T, F>,
-	options: CheckOptions<S, F>,
-	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>
-): Effect.Effect<Explored, SearchFailure, SearchRun | Exclude<R, Scope.Scope>> =>
-	explore(
-		{
-			oracle: options.oracle,
-			suite: options.suite,
-			draw: steered(
-				(steering) =>
-					(source): readonly [S, Conditions] => [
-						source.draw(draw.generator(steering)),
-						{
-							perturbation: source.draw(perturbations(options.perturb)),
-							restorage: source.draw(restorageGen)
-						}
-					],
-				([sketch, conditions]): readonly [T, Conditions] => [draw.resolve(sketch), conditions]
-			),
-			literal: ([sketch]) => options.literal(sketch),
-			coverage: options.coverage,
-			kept: Arr.map(options.kept, (k): Kept<readonly [S, Conditions], F> => ({
-				...k,
-				sketch: [k.sketch, { perturbation: unperturbed, restorage: onceRotated }]
-			})),
-			runs: options.runs,
-			shrink: options.shrink,
-			steerEvery: 16,
-			caseHang
-		},
-		([value, conditions], c) => underPerturbation(property(value, c), conditions)
-	)
-
-/**
- * Explores `property` over the suite's draw with the library's exploration, each case under a plan perturbation drawn
- * with it. A case fails when the property fails or dies; the exploration then shrinks it and fails with the shrunk
- * case's report, its perturbation appended. Plain suites pass `drawn(gen)`; a suite with kept sketches passes
- * `sketched(gen, resolve)` and its kept sketches, which replay unperturbed; a suite whose generator aims at what is
- * pending passes `aimed(gen, aims)` or `steered(generator, resolve)`, drawn under each case's steering.
- */
-export const oracleCheck = <S, T, F extends string, E, R>(
-	draw: Draw<S, T, F>,
-	options: CheckOptions<S, F>,
-	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>
-): Effect.Effect<Explored, SearchFailure, SearchRun | Exclude<R, Scope.Scope>> =>
-	checked(draw, options, property)
-
-/**
  * What an oracle property states (oracleProperty): its space, its required situations, the perturbation its cases draw
  * ("all": the facts repeated and planner settings; "planner": the settings alone; "none"), the oracle it is checked
  * against, its kept tokens and kills, how a case prints (its value alone, as the old suites' literal printed it), and
@@ -1335,7 +1258,7 @@ export const oracleCheck = <S, T, F extends string, E, R>(
  */
 export interface OracleSpec<S, F extends string, E> {
 	readonly situations: ReadonlyArray<Reached<F>>
-	readonly perturb: CheckOptions<S, F>["perturb"]
+	readonly perturb: Perturb
 	readonly oracle: Oracle
 	readonly kept: ReadonlyArray<KeptToken>
 	readonly kills: ReadonlyArray<Kill>
@@ -1347,28 +1270,35 @@ export interface OracleSpec<S, F extends string, E> {
 	) => (value: S) => Effect.Effect<void, E, OracleSeat | Scope.Scope>
 }
 
+/** What an oracle property draws its cases from: a space, aimed at its situations or read of its case's steering. */
+type OracleSpace<S, F extends string> = Space<S> | Aimed<S, F> | Steered<S, F>
+
 /** A space's values, each drawn with the conditions it runs under after it, so the two shrink together. */
 const conditioned =
-	<S>(
-		space: Space<S>,
-		perturb: CheckOptions<S, string>["perturb"]
-	): Space<readonly [S, Conditions]> =>
+	<S>(space: Space<S>, perturb: Perturb): Space<readonly [S, Conditions]> =>
 	(source) => [
 		source.draw(space),
 		{ perturbation: source.draw(perturbations(perturb)), restorage: source.draw(restorageGen) }
 	]
 
-/** An aimed space conditioned (conditioned), its every aim too, so a case aimed at a situation runs perturbed alike. */
-const conditionedAimed = <S, F extends string>(
-	space: Space<S> | Aimed<S, F>,
-	perturb: CheckOptions<S, string>["perturb"]
-): Space<readonly [S, Conditions]> | Aimed<readonly [S, Conditions], F> =>
+/**
+ * A property's space conditioned (conditioned): an aimed space's every aim too, so a case aimed at a situation runs
+ * perturbed alike, and a steered space under every steering.
+ */
+const conditionedSpace = <S, F extends string>(
+	space: OracleSpace<S, F>,
+	perturb: Perturb
+): OracleSpace<readonly [S, Conditions], F> =>
 	"aims" in space
 		? aimed(
 				conditioned(space.space, perturb),
 				Arr.map(space.aims, ([situation, aim]) => [situation, conditioned(aim, perturb)] as const)
 			)
-		: conditioned(space, perturb)
+		: "under" in space
+			? steered<readonly [S, Conditions], F>((steering) =>
+					conditioned(space.under(steering), perturb)
+				)
+			: conditioned(space, perturb)
 
 /**
  * An oracle property (the runner's, replacing oracleCheck): `space`'s values, each drawn with its plan perturbation and
@@ -1377,10 +1307,10 @@ const conditionedAimed = <S, F extends string>(
  * under its perturbation (underPerturbation), a failure's report the perturbation appended.
  */
 export const oracleProperty = <S, const F extends string, E>(
-	space: Space<S> | Aimed<S, F>,
+	space: OracleSpace<S, F>,
 	spec: OracleSpec<S, F, E>
 ) =>
-	property.explore(conditionedAimed(space, spec.perturb), {
+	property.explore(conditionedSpace(space, spec.perturb), {
 		needs: { tx: Substrate.transaction },
 		situations: spec.situations,
 		check:
@@ -1419,10 +1349,10 @@ export interface InstallingOracleSpec<S, F extends string, E> extends Omit<
  * the Substrate service, under its perturbation, its allocations released after it.
  */
 export const installingOracleProperty = <S, const F extends string, E>(
-	space: Space<S> | Aimed<S, F>,
+	space: OracleSpace<S, F>,
 	spec: InstallingOracleSpec<S, F, E>
 ) =>
-	property.explore(conditionedAimed(space, spec.perturb), {
+	property.explore(conditionedSpace(space, spec.perturb), {
 		needs: { substrate: Substrate.installing },
 		situations: spec.situations,
 		check:
@@ -1463,10 +1393,10 @@ export interface SeatedOracleSpec<S, T, F extends string, E> extends Omit<
 export const seatedOracleProperty = <K extends string, T, S, const F extends string, E>(
 	templates: Readonly<Record<K, SubstrateTemplate<T>>>,
 	seatOf: (value: S) => K,
-	space: Space<S> | Aimed<S, F>,
+	space: OracleSpace<S, F>,
 	spec: SeatedOracleSpec<S, T, F, E>
 ) =>
-	property.explore(conditionedAimed(space, spec.perturb), {
+	property.explore(conditionedSpace(space, spec.perturb), {
 		needs: Substrate.oneOf(templates, Substrate.seat),
 		situations: spec.situations,
 		check:
@@ -1509,10 +1439,10 @@ export interface InstalledOracleSpec<S, T, F extends string, E> extends Omit<
  */
 export const installedOracleProperty = <S, T, const F extends string, E>(
 	template: SubstrateTemplate<T>,
-	space: Space<S> | Aimed<S, F>,
+	space: OracleSpace<S, F>,
 	spec: InstalledOracleSpec<S, T, F, E>
 ) =>
-	property.explore(conditionedAimed(space, spec.perturb), {
+	property.explore(conditionedSpace(space, spec.perturb), {
 		needs: { installed: Substrate.rolledBack(template) },
 		situations: spec.situations,
 		check:

@@ -60,23 +60,13 @@ import {
 	writerOf
 } from "#test/pg/isolation/monotone.fixtures.ts"
 import {
-	generatedShapeIn,
-	type InstalledShape,
-	runIsolationRace
+	raceOn,
+	type SeatedShape,
+	seatedCertified,
+	seatedGenerated
 } from "#test/pg/isolation/support/race.ts"
-import type { Generated } from "#test/support/install-migrate.ts"
 import { every, type Strategy } from "#test/support/schedules/interleave.ts"
-import {
-	Substrate,
-	type SubstrateCase,
-	type SubstrateShape
-} from "#test/support/substrate/substrate.ts"
-
-/** A shape a case races, and the substrate of the seat it is installed in. */
-interface SeatedShape {
-	readonly shape: InstalledShape
-	readonly seat: SubstrateShape
-}
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Rules over queries monotone in a READ COMMITTED writer, on PostgreSQL 19 the monotone writer runs READ COMMITTED and every race is serial; each neighbour stays SERIALIZABLE, and forced READ COMMITTED is caught.
@@ -105,45 +95,30 @@ export const rulesOverQueriesMonotoneInAREADCOMMITTEDWriterOnPostgreSQL19TheMono
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (needs, c: Case<Feature>) => (x) =>
 			Effect.gen(function* () {
-				const generatedOf = (variant: Variant, taken: SubstrateCase<Generated>) =>
-					Effect.map(generatedShapeIn(taken, monotoneShape(variant)), (shape) => ({
-						shape,
-						seat: taken.substrate
-					}))
-				const forcedOf = (taken: SubstrateCase<InstalledShape>) => ({
-					shape: taken.value,
-					seat: taken.substrate
-				})
 				const installed: Readonly<Record<Variant, SeatedShape>> = {
-					writer: yield* Effect.flatMap(needs.writer, (taken) => generatedOf("writer", taken)),
-					deleted: yield* Effect.flatMap(needs.deleted, (taken) => generatedOf("deleted", taken)),
-					pair: yield* Effect.flatMap(needs.pair, (taken) => generatedOf("pair", taken)),
-					gated: yield* Effect.flatMap(needs.gated, (taken) => generatedOf("gated", taken)),
-					retired: yield* Effect.flatMap(needs.retired, (taken) => generatedOf("retired", taken))
+					writer: yield* Effect.flatMap(needs.writer, seatedGenerated(monotoneShape("writer"))),
+					deleted: yield* Effect.flatMap(needs.deleted, seatedGenerated(monotoneShape("deleted"))),
+					pair: yield* Effect.flatMap(needs.pair, seatedGenerated(monotoneShape("pair"))),
+					gated: yield* Effect.flatMap(needs.gated, seatedGenerated(monotoneShape("gated"))),
+					retired: yield* Effect.flatMap(needs.retired, seatedGenerated(monotoneShape("retired")))
 				}
 				const forced: Readonly<Record<Counter, SeatedShape>> = {
-					deleted: yield* Effect.map(needs.forcedDeleted, forcedOf),
-					pair: yield* Effect.map(needs.forcedPair, forcedOf),
-					gated: yield* Effect.map(needs.forcedGated, forcedOf),
-					retired: yield* Effect.map(needs.forcedRetired, forcedOf)
+					deleted: yield* Effect.map(needs.forcedDeleted, seatedCertified),
+					pair: yield* Effect.map(needs.forcedPair, seatedCertified),
+					gated: yield* Effect.map(needs.forcedGated, seatedCertified),
+					retired: yield* Effect.map(needs.forcedRetired, seatedCertified)
 				}
 				const strategy = (pinned: boolean) => (pinned ? pinnedStrategy(c) : (): Strategy => every)
 				const variants: Arr.NonEmptyReadonlyArray<Variant> = ["writer", ...counters]
 				for (const variant of variants) {
 					const { race, pinned } = raceFor(variant, x)
-					yield* Effect.provideService(
-						Effect.scoped(
-							runIsolationRace(installed[variant].shape, race, strategy(pinned), (e) => {
-								if (variant === "writer") {
-									for (const f of writerFeatures(e)) {
-										c.note(f)
-									}
-								}
-							})
-						),
-						Substrate,
-						installed[variant].seat
-					)
+					yield* raceOn(installed[variant], race, strategy(pinned), (e) => {
+						if (variant === "writer") {
+							for (const f of writerFeatures(e)) {
+								c.note(f)
+							}
+						}
+					})
 				}
 				const level = (variant: Variant) =>
 					installed[variant].shape.generated.get(writerOf(variant))
@@ -156,13 +131,7 @@ export const rulesOverQueriesMonotoneInAREADCOMMITTEDWriterOnPostgreSQL19TheMono
 				for (const counter of counters) {
 					const { race, pinned } = raceFor(counter, x)
 					const result = yield* Effect.result(
-						Effect.provideService(
-							Effect.scoped(
-								runIsolationRace(forced[counter].shape, race, strategy(pinned), () => undefined)
-							),
-							Substrate,
-							forced[counter].seat
-						)
+						raceOn(forced[counter], race, strategy(pinned), () => undefined)
 					)
 					if (result._tag === "Failure" && result.failure._tag === "NoSerialOrder") {
 						c.note(`the ${counter} caught forced READ COMMITTED`)

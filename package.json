@@ -65,7 +65,6 @@
 		"@clerk/backend": "catalog:",
 		"@effect/language-service": "catalog:",
 		"@effect/tsgo": "catalog:",
-		"@effect/vitest": "catalog:",
 		"@hyperjump/json-schema": "catalog:",
 		"@types/node": "catalog:",
 		"@types/pg": "catalog:",

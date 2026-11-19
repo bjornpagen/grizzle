@@ -92,10 +92,8 @@ import {
 
 import {
 	type Check,
-	claimSharedDatabase,
 	type Lease,
 	leaseConnections,
-	leftovers,
 	leftoversCheck,
 	superuserClient,
 	undoInstallEffects
@@ -211,8 +209,7 @@ export interface SubstrateShape {
 	readonly database: string
 	/**
 	 * The backends that hold the substrate's place on the cluster for its life: its lease's (shared.ts leaseConnections)
-	 * and, in a shared database, its claim's (claimSharedDatabase), which draws from the lease's budget. Neither holds a
-	 * transaction id or a snapshot.
+	 * which holds no transaction id or snapshot.
 	 */
 	readonly held: ReadonlyArray<number>
 	/** The migration identity and database owner, with the cluster's password for it. */
@@ -783,51 +780,6 @@ const hangGuarded = <A, E, R>(what: string, step: Effect.Effect<A, E, R>): Effec
 		orElse: () =>
 			Effect.die(new Error(`${what} hung: it did not end within the hang limit of ${hangLimit} ms`))
 	})
-
-/**
- * The substrate in a shared database (shared.ts). When the scope closes the database stays: the release undoes the
- * database-wide effects installs have by design, and anything else the file left fails the release. The database
- * stays as the file left it: no later claim takes a dirty database, and the sweep drops it once no file runs.
- */
-const makeSubstrate: Effect.Effect<
-	SubstrateShape,
-	SqlError,
-	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
-> = Effect.gen(function* () {
-	const lease = yield* leaseConnections
-	return yield* hangGuarded(
-		"the substrate's build in a shared database",
-		Effect.gen(function* () {
-			const claim = yield* claimSharedDatabase(lease.cluster)
-			yield* Effect.addFinalizer(() =>
-				Effect.orDie(
-					hangGuarded(
-						`the release of the shared database ${claim.database}`,
-						Effect.gen(function* () {
-							yield* undoInstallEffects(claim.admin)
-							const left = yield* leftovers(claim.admin)
-							if (left.length === 0) {
-								return
-							}
-							return yield* Effect.die(
-								new Error(
-									`the test file left ${Arr.join(left, ", ")} in the shared database ${claim.database}`
-								)
-							)
-						})
-					)
-				)
-			)
-			return yield* build(
-				lease.cluster,
-				claim.database,
-				claim.admin,
-				[...lease.held, claim.claimant],
-				processAllocations
-			)
-		})
-	)
-})
 
 /**
  * The substrate in a fresh database of its own, cloned from the template (test/support/pg.ts freshDatabase) and left
@@ -1467,12 +1419,10 @@ const rolledBackCases = <T>(
 /**
  * The per-file PostgreSQL substrate: a database, unique schemas and roles, sessions, psql writers, a barrier.
  *
- * A test file runs in a shared database, cloned from the template once and reused (shared.ts), and because logins and
- * world roles are cluster-wide, each test uses a unique schema name. A test file builds Substrate.layer once
- * (`layer(Substrate.layer)(...)` from @effect/vitest);
- * schemas, roles, sessions and psql writers are allocated in each test's own scope and released when it closes, and
- * the file must return the database as it found it. A file that needs a whole database of its own, because it checks
- * the entire catalog or changes the database itself, builds Substrate.isolatedLayer and says why in a comment.
+ A property's case takes its substrate through a need (Substrate.fresh, freshOf, seat, rolledBack, transaction,
+ * installing), each over a clone of a template, and because logins and world roles are cluster-wide, each case uses
+ * unique schema and role names; schemas, roles, sessions and psql writers are allocated in the case's own scope and
+ * released when it closes. A bench builds Substrate.isolatedLayer, a database of its own.
  *
  * Every connection reaches PostgreSQL itself, directly. A substrate first takes a cluster-wide connection lease for its
  * own life (shared.ts leaseConnections), so a process holds none once its substrates are released.
@@ -1580,10 +1530,6 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		form: (template: SubstrateTemplate<T>) => TemplateNeed<A>
 	): Readonly<Record<K, TemplateNeed<A>>> =>
 		Rec.map(templates, (template) => Database.chosen(form(template)))
-	/** A shared database: build this layer once per file. It reads the initialised cluster once, as it builds. */
-	static readonly layer = Layer.effect(Substrate, makeSubstrate).pipe(
-		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))
-	)
 	/**
 	 * A fresh database of the file's own, for a file that checks the whole catalog or changes the database itself, and
 	 * for a bench. It reads the initialised cluster once, as it builds.

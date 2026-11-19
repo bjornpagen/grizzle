@@ -28,10 +28,10 @@ export const restorageGen: Gen<Restorage> = (source) => ({
 })
 
 /**
- * The restorage of a case no exploration draws one for, a kept case's among them: each relation's facts rotated once
+ * The restorage of a reading outside every oracle property's case, which draws one: each relation's facts rotated once
  * and reversed, and its first twinned value respelled.
  */
-export const onceRotated: Restorage = { shift: 1, respell: 0 }
+const onceRotated: Restorage = { shift: 1, respell: 0 }
 
 /**
  * The restorage of the case running now, under which a case's second reading stores its facts: provided per explored
