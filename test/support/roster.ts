@@ -195,6 +195,8 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/serverless/acquire.test.ts",
 	"test/pg/serverless/logins.test.ts",
 	"test/pg/serverless/pool.test.ts",
+	"test/pg/spans/allen/classifications.test.ts",
+	"test/pg/spans/allen/endpoints.test.ts",
 	"test/pg/spans/allen/gist.test.ts",
 	"test/pg/spans/allen/oracle.test.ts",
 	"test/pg/spans/laws/selected-coverage.test.ts",
