@@ -118,6 +118,7 @@ export type Shape =
 	| "date invalid"
 	| "double text finite"
 	| "double text special"
+	| "double text no special"
 	| "decimal text"
 	| "decimal text past bytes"
 	| "corrupted"
@@ -135,6 +136,7 @@ export const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
 	"date invalid",
 	"double text finite",
 	"double text special",
+	"double text no special",
 	"decimal text",
 	"decimal text past bytes",
 	"corrupted"
@@ -482,12 +484,12 @@ const spelledGen =
 	}
 
 /**
- * A decimal text of a double, every one a member of its form: a special spelling (`INF`, `+INF`, `-INF`, `NaN`), or a
+ * A decimal text of a double, every one a member of its form: a special spelling (`INF`, `-INF`, `NaN`), or a
  * decimal at or beside a point binary64's rounding turns on, digits at an exponent near either threshold or far past
  * both, or zero, of either sign, spelled every way the form admits.
  */
 export const doubleTextGen: Gen<string> = weighted([
-	[1, element(["INF", "+INF", "-INF", "NaN"])],
+	[1, element(["INF", "-INF", "NaN"])],
 	[9, (source) => source.draw(spelledGen(source.draw(boolean), source.draw(doubleDecimalGen)))]
 ])
 
@@ -623,14 +625,31 @@ const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
 		case "date":
 			return dateGen
 		case "doubleText":
-			return map(doubleTextGen, (text) => ({
-				target,
-				text,
-				member: true,
-				value: referenceDouble(text),
-				shape:
-					text === "NaN" || Str.endsWith("INF")(text) ? "double text special" : "double text finite"
-			}))
+			return weighted<Candidate>([
+				[
+					9,
+					map(doubleTextGen, (text) => ({
+						target,
+						text,
+						member: true,
+						value: referenceDouble(text),
+						shape:
+							text === "NaN" || Str.endsWith("INF")(text)
+								? "double text special"
+								: "double text finite"
+					}))
+				],
+				[
+					1,
+					map(element(["+INF", "inf", "Infinity", "nan", "-NaN"]), (text) => ({
+						target,
+						text,
+						member: false,
+						value: undefined,
+						shape: "double text no special"
+					}))
+				]
+			])
 		case "decimalText":
 			return map(
 				weighted([

@@ -145,8 +145,9 @@ const doubleExponentMax = binary64Digits - 1 - doubleMantissaDigits
  * - date: xs:date's `YYYY-MM-DD` without a timezone, years 0001 to 9999.
  *
  * And one target no type names, the parse Compute.parseDouble reads (`doubleText`): every decimal text of a double,
- * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` of any digits and any exponent, and `INF`, `+INF`, `-INF` and
- * `NaN` (the grammar of XML Schema 1.1's xs:double lexical space), each member the double IEEE 754-2019's conversion
+ * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` of any digits and any exponent, and `INF`, `-INF` and `NaN`
+ * (XML Schema 1.0's xs:double lexical space, which has no `+INF`, the double form's language unbounded), each member
+ * the double IEEE 754-2019's conversion
  * from decimal character sequences gives it: its exact value rounded to the nearest double, ties to even, ±Infinity
  * past the greatest finite double, and a zero of the mantissa's sign below half the least subnormal.
  *
@@ -315,10 +316,12 @@ const doubleForm = (): string => {
 
 /**
  * Every decimal text of a double: a mantissa of any digits with an optional exponent of any digits, or one of the
- * special spellings `INF`, `+INF`, `-INF` and `NaN`, the grammar of XML Schema 1.1's xs:double lexical space.
+ * special spellings `INF`, `-INF` and `NaN`, XML Schema 1.0's xs:double lexical space (Part 2, §3.2.5.1: "The special
+ * values positive and negative infinity and not-a-number have lexical representations INF, -INF and NaN"), which
+ * QTI 3.0.1's XSD reads, the double form's language with its digits and exponent unbounded.
  */
 const doubleTextForm = (): string =>
-	"[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[+-]?INF|NaN"
+	"[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|-?INF|NaN"
 
 /**
  * Every decimal text: a sign and digits on either side of a point, of any digits, the grammar of XML Schema 1.1's
@@ -524,15 +527,14 @@ const isExponent = (text: string): boolean => {
 }
 
 /**
- * Whether a text is a decimal text of a double (doubleTextForm), decided by a scan: `NaN`, an optionally signed `INF`,
- * or a numeral with an optional exponent.
+ * Whether a text is a decimal text of a double (doubleTextForm), decided by a scan: `NaN`, `INF` or `-INF`, or a
+ * numeral with an optional exponent.
  */
 const isDoubleText = (text: string): boolean => {
 	const e = Math.max(text.indexOf("e"), text.indexOf("E"))
 	return (
 		text === "NaN" ||
 		text === "INF" ||
-		text === "+INF" ||
 		text === "-INF" ||
 		(numeralOf(e < 0 ? text : text.slice(0, e)) !== undefined &&
 			(e < 0 || isExponent(text.slice(e + 1))))

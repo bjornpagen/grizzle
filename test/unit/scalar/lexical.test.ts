@@ -107,6 +107,12 @@ export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemb
 					`${label}: pattern and bytes`
 				)
 				assert.equal(scanned !== undefined, c.member, `${label}: scan`)
+				if (c.target.kind === "double" && c.member) {
+					assert.ok(
+						Matcher.of(nfaOf(formSource({ kind: "doubleText" }))).matches(c.text),
+						`${label}: the bounded double form lies inside doubleText`
+					)
+				}
 				if (c.member) {
 					assert.ok(sameValue(scanned, c.value), `${label}: value ${Formatter.format(scanned)}`)
 				}
@@ -131,6 +137,18 @@ export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemb
 				original: '\t\t\t\treturn "true|false|1|0"',
 				replacement: '\t\t\t\treturn "true|false|1|0|yes"',
 				why: 'The boolean form\'s pattern admits "yes", which its scan does not; the second-definition property fails.'
+			},
+			{
+				file: "packages/engine/src/scalar/lexical.ts",
+				original: '(?:[eE][+-]?[0-9]+)?|-?INF|NaN"',
+				replacement: '(?:[eE][+-]?[0-9]+)?|[+-]?INF|NaN"',
+				why: 'doubleText\'s pattern admits "+INF", which XML Schema 1.0\'s xs:double lexical space does not hold; the "+INF" candidate fails.'
+			},
+			{
+				file: "packages/engine/src/scalar/lexical.ts",
+				original: '\t\ttext === "INF" ||\n\t\ttext === "-INF" ||',
+				replacement: '\t\ttext === "INF" ||\n\t\ttext === "+INF" ||\n\t\ttext === "-INF" ||',
+				why: 'doubleText\'s scan reads "+INF" as Infinity, which XML Schema 1.0 does not; the "+INF" candidate fails.'
 			}
 		]
 	})

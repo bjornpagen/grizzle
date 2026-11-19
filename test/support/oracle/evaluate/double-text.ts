@@ -5,8 +5,8 @@
  * with an unbounded exponent reaches 2^1024, and a zero of the text's sign where it reaches zero. The result is the
  * value's encoding, 64 bits, so -0 and +0 are two answers and every NaN is the one quiet NaN.
  *
- * The text is read by its own scan of the grammar of every decimal text of a double, the grammar of XML Schema 1.1's
- * xs:double lexical space: `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?`, `INF`, `+INF`, `-INF`, `NaN`.
+ * The text is read by its own scan of the grammar of every decimal text of a double, XML Schema 1.0's xs:double lexical
+ * space: `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?`, `INF`, `-INF`, `NaN`, and no `+INF` (Part 2, §3.2.5.1).
  */
 
 import { String as Str } from "effect"
@@ -62,7 +62,7 @@ export const decimalTextOf = (text: string): DecimalText | undefined => {
 	if (text === "NaN") {
 		return { kind: "nan" }
 	}
-	if (text === "INF" || text === "+INF" || text === "-INF") {
+	if (text === "INF" || text === "-INF") {
 		return { kind: "infinity", negative: text === "-INF" }
 	}
 	const negative = Str.startsWith("-")(text)

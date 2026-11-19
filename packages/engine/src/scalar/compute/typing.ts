@@ -2508,9 +2508,9 @@ class Typing<R extends Refs> {
 	/**
 	 * Compute.parseDouble(x): the double x's decimal text names, IEEE 754-2019's conversion from decimal character
 	 * sequences, rounded to the nearest, ties to even, ±Infinity past the greatest finite double and a zero of the
-	 * mantissa's sign below half the least subnormal; `INF`, `+INF`, `-INF` and `NaN` their own. The registry's one
-	 * overload, text to double precision, admits its operand, and it is defined where x is a member of every double's
-	 * text, the grammar of XML Schema 1.1's xs:double lexical space, its digits and exponent of any length (the lexical
+	 * mantissa's sign below half the least subnormal; `INF`, `-INF` and `NaN` their own. The registry's one overload,
+	 * text to double precision, admits its operand, and it is defined where x is a member of every double's text, XML
+	 * Schema 1.0's xs:double lexical space, its digits and exponent of any length (the lexical
 	 * precondition over `doubleText`, which the lowering proves). Its SQL reads no regex and allocates nothing past x's
 	 * own size, so it stands in a query over any text as in a check or a generated field.
 	 */

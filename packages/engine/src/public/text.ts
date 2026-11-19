@@ -58,7 +58,7 @@ export type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 /**
  * doubleText: the Pattern of every decimal text of a double, Compute.parseDouble's operand, under flags "u": a mantissa
  * `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` of any digits with an optional exponent `[eE][+-]?[0-9]+` of any digits, or `INF`,
- * `+INF`, `-INF` or `NaN`, the grammar of XML Schema 1.1's xs:double lexical space. A text of its language, or of a
+ * `-INF` or `NaN`, XML Schema 1.0's xs:double lexical space, which has no `+INF`. A text of its language, or of a
  * language inside it, parses into a double total.
  */
 export const doubleText: Pattern = Pattern.ofForm({ kind: "doubleText" })

@@ -1146,8 +1146,8 @@ export interface ComputeApi {
 	/**
 	 * The double a decimal text names, IEEE 754-2019's conversion from decimal character sequences: the text's exact
 	 * value rounded to the nearest double, ties to even, ±Infinity past the greatest finite double and a zero of the
-	 * mantissa's sign below half the least subnormal; `INF`, `+INF`, `-INF` and `NaN` name themselves. Its text is
-	 * `doubleText`, the grammar of XML Schema 1.1's xs:double lexical space, of any digits and any exponent:
+	 * mantissa's sign below half the least subnormal; `INF`, `-INF` and `NaN` name themselves. Its text is
+	 * `doubleText`, XML Schema 1.0's xs:double lexical space, of any digits and any exponent:
 	 * compilation proves the operand's pattern lies inside it, or refuses the parse as PartialOperation (`lexical`),
 	 * remedied by `Compute.when(Compute.matches(x, doubleText), (x) => Compute.parseDouble(x), otherwise)`. Admitted
 	 * in contract predicates, row checks, generated fields and queries.
