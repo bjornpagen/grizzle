@@ -16,14 +16,14 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
-import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
+import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { objectName } from "#compiler/sql/build.ts"
 import { printTableName, quoteString } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
-import { judgeBodiesOf } from "#test/support/judge.ts"
+import { judgedStatementsOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -252,30 +252,9 @@ const tablesRead = (statement: OperandSelect): RuleStatement => {
 	return { deltas: [...deltas], stored: [...stored] }
 }
 
-/** The rule statements of a judge's body (`RuleStatement`). */
-const ruleStatementsIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<RuleStatement> =>
-	Arr.flatMap(body, (s) =>
-		s.kind === "if"
-			? [
-					...Arr.flatMap(s.branches, (b) => {
-						const [first] = b.body
-						const own: ReadonlyArray<RuleStatement> =
-							b.condition.kind === "exists" &&
-							!b.condition.not &&
-							first?.kind === "raise" &&
-							first.message === "a write breaks a rule over a query"
-								? [tablesRead(b.condition.query)]
-								: []
-						return [...own, ...ruleStatementsIn(b.body)]
-					}),
-					...ruleStatementsIn(s.else)
-				]
-			: []
-	)
-
-/** The judge's rule statements of `installed`, in its parts. */
+/** The judge's rule statements of `installed`, in its parts (`RuleStatement`). */
 const ruleStatementsOf = (installed: Installed): ReadonlyArray<RuleStatement> =>
-	ruleStatementsIn(judgeBodiesOf(installed.installation))
+	Arr.map(judgedStatementsOf(installed.installation), (s) => tablesRead(s.query))
 
 /** The sorted text of a set of names, for a report. */
 const listed = (names: Iterable<string>): string =>

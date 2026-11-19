@@ -8,13 +8,10 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
-import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
-import { exists } from "#compiler/sql/build.ts"
-import { printExpr } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
-import { judgeBodiesOf } from "#test/support/judge.ts"
+import { judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -103,34 +100,14 @@ export const repeatsGen: Gen<Repeats> = (s) => ({
 export type RepeatsFeature = "a probed rule's region" | "a whole rule's region"
 
 /**
- * Every statement the judge tests by EXISTS to raise, at any depth of its body: each whole rule's, and each probe's
- * inside the guard of the delta it reads.
- */
-const judgedStatements = (body: ReadonlyArray<PlStatement>): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(body, (s) =>
-		s.kind === "if"
-			? Arr.flatMap(s.branches, (b) => [
-					...(b.condition.kind === "exists" && b.body[0]?.kind === "raise"
-						? [b.condition.query]
-						: []),
-					...judgedStatements(b.body)
-				])
-			: []
-	)
-
-/** The judge's statements of `installed` (judgedStatements), in its parts. */
-const statementsOf = (installed: Installed): ReadonlyArray<OperandSelect> =>
-	judgedStatements(judgeBodiesOf(installed.installation))
-
-/**
  * The rows each judged statement handles at every node of its plan, over all of its loops (rowsTouched), on
  * `connection`: its work.
  */
 const workOf = (installed: Installed, connection: PgConnection) =>
-	Effect.forEach(statementsOf(installed), (statement) =>
+	Effect.forEach(judgedStatementsOf(installed.installation), (statement) =>
 		Effect.map(
 			connection.queryValues(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) SELECT ${printExpr(exists(statement))}`,
+				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(statement)}`,
 				[]
 			),
 			(explained) => rowsTouched(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan)

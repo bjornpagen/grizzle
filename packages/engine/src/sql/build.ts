@@ -838,17 +838,4 @@ export const provedSelect = (
 export const whenFound = (
 	query: OperandSelect,
 	body: NonEmptyReadonlyArray<PlStatement>
-): PlStatement => ({
-	kind: "whenFound",
-	probe: {
-		body: core(
-			[target(lit.int(1, types.integer))],
-			[derived(query, "found", [], false)],
-			undefined
-		),
-		orderBy: [],
-		limit: undefined,
-		offset: undefined
-	},
-	body
-})
+): PlStatement => ({ kind: "whenFound", query, body })

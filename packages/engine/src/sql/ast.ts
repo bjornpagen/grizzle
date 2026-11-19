@@ -1958,8 +1958,10 @@ export type PlStatement =
 	| { readonly kind: "perform"; readonly query: PerformQuery }
 	| {
 			/**
-			 * PERFORM <probe>; IF FOUND THEN <body> END IF: the probe and what a row of it obliges, one statement, so FOUND
-			 * is read only right after the probe that set it (sql/build.ts whenFound). PostgreSQL plans a PERFORM for every
+			 * PERFORM 1 FROM (<query>) AS "found"; IF FOUND THEN <body> END IF: the query read whole and what a row of it
+			 * obliges, one statement, so FOUND is read only right after the probe that set it (sql/build.ts whenFound). The
+			 * PERFORM around the query is the printer's spelling, so any query stands in it, its WITH and its set operations
+			 * included, and every walk of the statement meets the query itself. PostgreSQL plans a PERFORM for every
 			 * row of its query (PostgreSQL 19rc2, src/pl/plpgsql/src/pl_exec.c exec_run_select at 5929-5935, no
 			 * CURSOR_OPT_FAST_PLAN; src/backend/optimizer/plan/planner.c at 485-488, tuple_fraction 0) and an EXISTS
 			 * sublink for its first (src/backend/optimizer/plan/subselect.c make_subplan at 215-216, "just like a LIMIT
@@ -1967,7 +1969,7 @@ export type PlStatement =
 			 * wherever the law holds, so a first-row plan of it runs to its end.
 			 */
 			readonly kind: "whenFound"
-			readonly probe: PerformQuery
+			readonly query: OperandSelect
 			readonly body: NonEmptyReadonlyArray<PlStatement>
 	  }
 	| {

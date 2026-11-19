@@ -15,13 +15,12 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
-import { exists } from "#compiler/sql/build.ts"
-import { printExpr, printStatement, quoteIdent } from "#compiler/sql/print.ts"
+import type { PlStatement } from "#compiler/sql/ast.ts"
+import { printStatement, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
-import { judgeBodiesOf } from "#test/support/judge.ts"
+import { type JudgedStatement, judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -129,20 +128,6 @@ const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlState
 			: []
 	)
 
-/** The probes of a judge's body: the query of each EXISTS its IFs test, at any depth. */
-const probesIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(body, (s) =>
-		s.kind === "if"
-			? [
-					...Arr.flatMap(s.branches, (b) => [
-						...(b.condition.kind === "exists" ? [b.condition.query] : []),
-						...probesIn(b.body)
-					]),
-					...probesIn(s.else)
-				]
-			: []
-	)
-
 /** The session tables a capture's body creates, at any depth, by name and columns: its deltas. */
 const deltasIn = (
 	body: ReadonlyArray<PlStatement>
@@ -156,18 +141,18 @@ const deltasIn = (
 	)
 
 /**
- * The probes of the facts the rows written of A add: each EXISTS of the judge's body that reads A's side of news, the
- * delta A's capture creates with a count of each image (physical/ddl/rules.ts addRules).
+ * The probes of the facts the rows written of A add: each statement the judge tests a rule by that reads A's side of
+ * news, the delta A's capture creates with a count of each image (physical/ddl/rules.ts addRules).
  */
-const newsProbesOfA = (installation: Installation): ReadonlyArray<OperandSelect> => {
+const newsProbesOfA = (installation: Installation): ReadonlyArray<JudgedStatement> => {
 	const news = defined(
 		Arr.findFirst(deltasIn(bodyOf(installation, identifierOf(identity.ruleCapture("A")))), (d) =>
 			Arr.contains(d.columns, countColumn)
 		).pipe(Option.getOrUndefined),
 		"A's side of news"
 	)
-	return Arr.filter(probesIn(judgeBodiesOf(installation)), (probe) =>
-		Str.includes(`"pg_temp".${quoteIdent(news.name)}`)(printExpr(exists(probe)))
+	return Arr.filter(judgedStatementsOf(installation), (probe) =>
+		Str.includes(`"pg_temp".${quoteIdent(news.name)}`)(plannedQueryOf(probe))
 	)
 }
 
@@ -747,7 +732,7 @@ const readsOf = (installed: Installed, connection: PgConnection) =>
 	Effect.forEach(newsProbesOfA(installed.installation), (probe) =>
 		Effect.map(
 			connection.queryValues(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) SELECT ${printExpr(exists(probe))}`,
+				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(probe)}`,
 				[]
 			),
 			(explained) => rowsRead(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan)

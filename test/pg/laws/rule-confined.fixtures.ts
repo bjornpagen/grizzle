@@ -9,12 +9,12 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { exists } from "#compiler/sql/build.ts"
-import { printExpr, quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import { wholeStatementsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -167,7 +167,7 @@ export const runConfined = (
 		assert.ok(statements.length > 0, "the judge holds the whole rule's statement")
 		for (const statement of statements) {
 			const explained = yield* connection.queryValues(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) SELECT ${printExpr(exists(statement))}`,
+				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(statement)}`,
 				[]
 			)
 			const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan

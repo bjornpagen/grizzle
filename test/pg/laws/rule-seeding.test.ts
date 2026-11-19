@@ -87,14 +87,13 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
-import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
-import { exists } from "#compiler/sql/build.ts"
-import { printExpr, printStatement, quoteIdent } from "#compiler/sql/print.ts"
+import type { PlStatement } from "#compiler/sql/ast.ts"
+import { printStatement, quoteIdent } from "#compiler/sql/print.ts"
 import { cleared, type Seat, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
-import { judgeBodiesOf } from "#test/support/judge.ts"
+import { type JudgedStatement, judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -847,20 +846,6 @@ const touchedOf = (seat: Seat, k: number): ReadonlyArray<Touched> => {
 	)
 }
 
-/** The probes of the judge's body: the query of each EXISTS its IFs test, at any depth. */
-const probesIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(body, (s) =>
-		s.kind === "if"
-			? [
-					...Arr.flatMap(s.branches, (b) => [
-						...(b.condition.kind === "exists" ? [b.condition.query] : []),
-						...probesIn(b.body)
-					]),
-					...probesIn(s.else)
-				]
-			: []
-	)
-
 /** A delta a capture writes: its table of pg_temp and its columns, the relation's columns by name. */
 interface Delta {
 	readonly name: string
@@ -893,13 +878,13 @@ const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlState
 	)
 
 /**
- * Every probe of the judge over `table`'s rows, as the installation creates them: each EXISTS of the judge's body
- * that reads a delta `table`'s capture writes (physical/ddl/rules.ts addRules).
+ * Every probe of the judge over `table`'s rows, as the installation creates them: each statement the judge tests a rule
+ * by that reads a delta `table`'s capture writes (physical/ddl/rules.ts addRules).
  */
-const probesOn = (seat: Seat, table: Table): ReadonlyArray<OperandSelect> => {
+const probesOn = (seat: Seat, table: Table): ReadonlyArray<JudgedStatement> => {
 	const deltas = deltasOf(seat, table)
-	return Arr.filter(probesIn(judgeBodiesOf(seat.installed.installation)), (probe) => {
-		const text = printExpr(exists(probe))
+	return Arr.filter(judgedStatementsOf(seat.installed.installation), (probe) => {
+		const text = plannedQueryOf(probe)
 		return Arr.some(deltas, (d) => Str.includes(`"pg_temp".${quoteIdent(d.name)}`)(text))
 	})
 }
@@ -1009,7 +994,7 @@ const footprintOf = (seat: Seat, touched: Touched) =>
 				const rows: Array<number> = []
 				for (const probe of probesOn(seat, table)) {
 					const explained = yield* session.values(
-						`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) SELECT ${printExpr(exists(probe))}`,
+						`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(probe)}`,
 						[]
 					)
 					rows.push(rowsRead(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan))

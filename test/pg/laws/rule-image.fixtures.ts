@@ -6,21 +6,21 @@ import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { parsePlan, type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
-import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
-import { exists } from "#compiler/sql/build.ts"
-import { printExpr, quoteIdent } from "#compiler/sql/print.ts"
+import type { OperandSelect } from "#compiler/sql/ast.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -169,25 +169,6 @@ const valueSql = (x: string, length: number): string =>
 /** The document whose identifier is the empty text, a value as any other. */
 const emptyDocument = 2
 
-/** Every EXISTS a PL/pgSQL body tests to raise, at any depth of the branches around it. */
-const raisedQueries = (body: ReadonlyArray<PlStatement>): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(body, (s) =>
-		s.kind === "if"
-			? Arr.flatMap(s.branches, (b) => [
-					...(b.condition.kind === "exists" && b.body[0]?.kind === "raise"
-						? [b.condition.query]
-						: []),
-					...raisedQueries(b.body)
-				])
-			: []
-	)
-
-/** The queries every rule function of the installation tests by EXISTS before it raises (`raisedQueries`). */
-const judgedQueries = (installation: Installation): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createFunction" && s.language === "plpgsql" ? raisedQueries(s.body.body) : []
-	)
-
 /** The session's tables a query reads, its deltas: every table of pg_temp a FROM of it names. */
 const sessionTablesOf = (query: OperandSelect): ReadonlyArray<string> => {
 	const named: Array<string> = []
@@ -333,8 +314,8 @@ export const runImaged = (
 			[]
 		)
 		const standing = new Set(Arr.map(temporary, (row) => String(row[0])))
-		const queries = Arr.filter(judgedQueries(installed.installation), (q) =>
-			Arr.every(sessionTablesOf(q), (t) => standing.has(t))
+		const queries = Arr.filter(judgedStatementsOf(installed.installation), (q) =>
+			Arr.every(sessionTablesOf(q.query), (t) => standing.has(t))
 		)
 		assert.ok(queries.length > 0, "the judge ran a query it raises on")
 		/**
@@ -375,7 +356,7 @@ export const runImaged = (
 				return read
 			})
 		for (const judged of queries) {
-			yield* within(`SELECT ${printExpr(exists(judged))}`, "the judge's query")
+			yield* within(plannedQueryOf(judged), "the judge's query")
 		}
 		/** The reader's read through its query entry of the documents of package 2 that hold document 5's identifier. */
 		const [stored5] = yield* connection.queryValues(

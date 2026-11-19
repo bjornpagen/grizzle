@@ -2323,8 +2323,8 @@ class StatementAuditor {
 				this.objectName(statement.function, "function", "function")
 				return
 			case "whenFound":
-				this.at("probe", () => {
-					embeddedSelect({ kind: "select", with: undefined, ...statement.probe })
+				this.at("query", () => {
+					embeddedSelect(statement.query)
 				})
 				this.at("body", () => {
 					this.plStatements(statement.body, vars)

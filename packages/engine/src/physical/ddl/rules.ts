@@ -90,6 +90,7 @@ import {
 	simpleSelect,
 	targetAs,
 	types,
+	whenFound,
 	windowOf
 } from "#compiler/sql/build.ts"
 import { type ImagedColumns, imagedColumns } from "#compiler/sql/image.ts"
@@ -1005,8 +1006,10 @@ const partBody = (
  *   holds one to delta.added first (`netted`), the images the transaction leaves that it did not find; then, for each
  *   rule in trigger-name order, each table it reads and each side it reads there, where that side's delta holds a row,
  *   it runs each probe of the side over its region (`compileProbe`), the session's delta, and a whole rule's violation
- *   over its units where any delta its region reads holds one (`partBody`), and raises where one returns a row: SQLSTATE
- *   23503 for a containment, 23505 for a key and 23514 for a check, naming the rule's trigger name as its constraint and
+ *   over its units where any delta its region reads holds one (`partBody`), each read whole as a PERFORM and raised
+ *   where it found a row (sql/build.ts whenFound, as a migration's check of the law is), never as IF EXISTS, which
+ *   PostgreSQL plans for a first row a holding rule never returns: SQLSTATE 23503 for a containment, 23505 for a key and
+ *   23514 for a check, naming the rule's trigger name as its constraint and
  *   the rule's table, with no DETAIL, since the writer may not see the rows. Over deltas that hold no row a rule's region
  *   is empty, so a transaction runs exactly the rules over the relations it wrote. The deltas keep their rows until
  *   COMMIT deletes them: a probe that reads a row again after SET CONSTRAINTS ALL IMMEDIATE judges it on the state as it
@@ -1099,11 +1102,7 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 							rule,
 							order: identifierOf(rule.named),
 							reads: [delta],
-							body: mapNonEmpty(statements, (statement): PlStatement => ({
-								kind: "if",
-								branches: [{ condition: exists(statement), body: [raise] }],
-								else: []
-							}))
+							body: mapNonEmpty(statements, (statement) => whenFound(statement, [raise]))
 						}
 					]
 		}
@@ -1140,15 +1139,7 @@ export const addRules = (b: InstallBuilder): ReadonlyArray<IndexRequest> => {
 				defined(first, `a delta of a side ${rule.law.named.display} reads, which its touches name`),
 				...rest
 			],
-			body: [
-				{
-					kind: "if",
-					branches: [
-						{ condition: exists(lowered.statement), body: [raiseOf(b, rule, holder.relation)] }
-					],
-					else: []
-				}
-			]
+			body: [whenFound(lowered.statement, [raiseOf(b, rule, holder.relation)])]
 		}
 	}
 	/** The judge's blocks that hold `rule`, by the one strategy its kind states. */

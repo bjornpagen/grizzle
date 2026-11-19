@@ -32,6 +32,7 @@ import {
 	eq,
 	lit,
 	objectName,
+	operandSelect,
 	provedSelect,
 	table,
 	target,
@@ -180,7 +181,7 @@ const statementAt = (depth: number): Gen<PlStatement> =>
 					1,
 					(s) => ({
 						kind: "whenFound",
-						probe: s.draw(performQuery),
+						query: operandSelect(s.draw(scan)),
 						body: s.draw(nonEmptyStatements(depth - 1))
 					})
 				],

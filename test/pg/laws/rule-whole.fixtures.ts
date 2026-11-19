@@ -23,13 +23,16 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
-import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
-import { exists } from "#compiler/sql/build.ts"
-import { printExpr, printStatement } from "#compiler/sql/print.ts"
+import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
-import { judgeBodiesOf } from "#test/support/judge.ts"
+import {
+	type JudgedStatement,
+	judgedStatementsOf,
+	plannedQueryOf,
+	raisedRule
+} from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -905,45 +908,17 @@ export const runEquivalence = (
 		}
 	})
 
-/** The queries `body` tests by EXISTS to raise a rule named among `rules`, at any depth. */
-const raisedIn = (
-	body: ReadonlyArray<PlStatement>,
-	rules: ReadonlySet<string>
-): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(body, (s) =>
-		s.kind === "if"
-			? Arr.flatMap(s.branches, (b) => {
-					const [first] = b.body
-					const named =
-						first?.kind === "raise"
-							? Arr.findFirst(first.using, (o) => o.option === "CONSTRAINT").pipe(
-									Option.map((o) => o.value),
-									Option.getOrUndefined
-								)
-							: undefined
-					return [
-						...(b.condition.kind === "exists" &&
-						named?.kind === "literal" &&
-						named.value.kind === "text" &&
-						rules.has(named.value.value)
-							? [b.condition.query]
-							: []),
-						...raisedIn(b.body, rules)
-					]
-				})
-			: []
-	)
-
-/** The queries the judge's parts test by EXISTS to raise a whole rule: each whole rule's statement. */
-export const wholeStatementsOf = (installation: Installation): ReadonlyArray<OperandSelect> =>
-	raisedIn(
-		judgeBodiesOf(installation),
-		new Set(
-			Arr.flatMap(installation.laws.rules, (rule) =>
-				rule.rule.kind === "whole" ? [identifierOf(rule.named)] : []
-			)
+/** The statements the judge's parts test a whole rule by: each whole rule's statement. */
+export const wholeStatementsOf = (installation: Installation): ReadonlyArray<JudgedStatement> => {
+	const whole = new Set<string>(
+		Arr.flatMap(installation.laws.rules, (rule) =>
+			rule.rule.kind === "whole" ? [identifierOf(rule.named)] : []
 		)
 	)
+	return Arr.filter(judgedStatementsOf(installation), (s) =>
+		Option.exists(raisedRule(s), (rule) => whole.has(rule))
+	)
+}
 
 /**
  * A case of the locality: its judge's shape, the documents stored beside the written one, then as many again, and the
@@ -989,7 +964,7 @@ const plansOf = (installed: Installed, connection: PgConnection) =>
 	Effect.forEach(wholeStatementsOf(installed.installation), (statement) =>
 		Effect.map(
 			connection.queryValues(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) SELECT ${printExpr(exists(statement))}`,
+				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(statement)}`,
 				[]
 			),
 			(explained) => succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan

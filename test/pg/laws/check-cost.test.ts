@@ -51,8 +51,7 @@ export const aLawsFullCheckReadsEachRowItChecksABoundedNumberOfTimesAndRefusesAV
 		kills: [
 			{
 				file: "packages/engine/src/sql/build.ts",
-				original:
-					'): PlStatement => ({\n\tkind: "whenFound",\n\tprobe: {\n\t\tbody: core(\n\t\t\t[target(lit.int(1, types.integer))],\n\t\t\t[derived(query, "found", [], false)],\n\t\t\tundefined\n\t\t),\n\t\torderBy: [],\n\t\tlimit: undefined,\n\t\toffset: undefined\n\t},\n\tbody\n})',
+				original: '): PlStatement => ({ kind: "whenFound", query, body })',
 				replacement:
 					'): PlStatement => ({ kind: "if", branches: [{ condition: exists(query), body }], else: [] })',
 				why: "A check asks IF EXISTS of its violation query, which PostgreSQL plans for its first row: a nested loop over the target's materialized rows for each source row, run to its end where the law holds."

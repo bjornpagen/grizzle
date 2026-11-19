@@ -11,7 +11,7 @@ import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
-import { judgeBodiesOf } from "#test/support/judge.ts"
+import { judgeBodiesOf, judgedStatementsIn, plannedQueryOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 import { probedRule } from "#test/support/probed.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
@@ -70,9 +70,7 @@ const blocksOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Block> =>
 		s.kind === "if"
 			? Arr.map(s.branches, (b): Block => ({
 					olds: Str.includes("__delta_olds_")(printExpr(b.condition)),
-					statements: Arr.flatMap(b.body, (p) =>
-						p.kind === "if" ? Arr.map(p.branches, (inner) => printExpr(inner.condition)) : []
-					)
+					statements: Arr.map(judgedStatementsIn(b.body), plannedQueryOf)
 				}))
 			: []
 	)

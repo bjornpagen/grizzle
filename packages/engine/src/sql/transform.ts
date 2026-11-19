@@ -1127,9 +1127,9 @@ export class Transform {
 				return fn === s.function ? s : { ...s, function: fn }
 			}
 			case "whenFound": {
-				const probe = this.performQuery(s.probe)
+				const query = this.select(s.query)
 				const body = mapNonEmptyKept(s.body, (b) => this.plStatement(b))
-				return probe === s.probe && body === s.body ? s : { ...s, probe, body }
+				return query === s.query && body === s.body ? s : { ...s, query, body }
 			}
 			case "case": {
 				const operand = this.expr(s.operand)

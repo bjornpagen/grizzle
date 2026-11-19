@@ -15,10 +15,10 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import type { FromItem, FromSource, OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
+import type { FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { judgeBodiesOf } from "#test/support/judge.ts"
+import { judgedStatementsOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
 
@@ -224,30 +224,16 @@ const referencesOf = (statement: OperandSelect): ReadonlySet<string> => {
 	return out
 }
 
-/** Every statement the judge tests by EXISTS to raise, at any depth of its body, whatever guards it stands under. */
-const judgedStatements = (body: ReadonlyArray<PlStatement>): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(body, (s) =>
-		s.kind === "if"
-			? Arr.flatMap(s.branches, (b) => [
-					...(b.condition.kind === "exists" && b.body[0]?.kind === "raise"
-						? [b.condition.query]
-						: []),
-					...judgedStatements(b.body)
-				])
-			: []
-	)
-
 /**
  * Judges the scans of each statement of the judge of `shape`'s installation, the judge's and its parts', where its rules
- * stand (support/judge.ts judgeBodiesOf): each reads only fields its rule binds of its relation (`readFields`), and
+ * stand (support/judge.ts judgedStatementsOf): each reads only fields its rule binds of its relation (`readFields`), and
  * delivers each column it reads to some reference of the statement but a stored table's key, which its scan keeps.
  */
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned, owner)))
 	const read = readFields(shape)
-	const statements = judgedStatements(judgeBodiesOf(installation))
-	for (const statement of statements) {
+	for (const { query: statement } of judgedStatementsOf(installation)) {
 		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")
 		const references = referencesOf(statement)
 		for (const scan of scansOf(statement)) {
