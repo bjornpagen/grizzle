@@ -35,16 +35,7 @@
 			]
 		},
 		"typecheck": {
-			"description": "Incremental, for pnpm types after every edit and before every commit: each tsconfig keeps its .tsbuildinfo under its own node_modules/.cache. The dev tools' tsconfig bases, which the root tsconfig and every Effect-free package extend, are inputs too.",
-			"dependsOn": ["^surface"],
-			"inputs": [
-				"$TURBO_DEFAULT$",
-				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.base.json",
-				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.effect-free.json"
-			]
-		},
-		"typecheck:full": {
-			"description": "The gate's typecheck, run in full (--incremental false), so no stale .tsbuildinfo can pass it. The dev tools' tsconfig bases are inputs too.",
+			"description": "Incremental, for pnpm types after every edit and before every commit: each tsconfig keeps its .tsbuildinfo under its own node_modules/.cache. pnpm check:full runs this same task from scratch, with --incremental false passed through, which turbo hashes, so it never replays an incremental pass. The dev tools' tsconfig bases, which the root tsconfig and every Effect-free package extend, are inputs too.",
 			"dependsOn": ["^surface"],
 			"inputs": [
 				"$TURBO_DEFAULT$",
@@ -71,7 +62,6 @@
 			"dependsOn": ["^surface"]
 		},
 		"//#typecheck": {},
-		"//#typecheck:full": {},
 		"//#oxlint": {},
 		"//#format": {},
 		"//#dead-code": {},

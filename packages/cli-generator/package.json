@@ -18,7 +18,7 @@
 	"scripts": {
 		"prepare": "effect-tsgo patch",
 		"check": "turbo run typecheck runtime-gate benchmark oxlint format dead-code architecture dedupe workspace-gate --filter=./packages/* --filter=// --continue=dependencies-successful",
-		"check:full": "turbo run typecheck:full runtime-gate benchmark oxlint format dead-code architecture dedupe workspace-gate --filter=./packages/* --filter=// --continue=dependencies-successful --force",
+		"check:full": "turbo run typecheck --filter=./packages/* --filter=// --continue=dependencies-successful --force -- --incremental false; typecheck=$?; turbo run runtime-gate benchmark oxlint format dead-code architecture dedupe workspace-gate --filter=./packages/* --filter=// --continue=dependencies-successful --force && exit $typecheck",
 		"types": "turbo run typecheck --filter=./packages/* --filter=//",
 		"lint": "turbo run oxlint dead-code architecture workspace-gate --filter=./packages/* --filter=//",
 		"test": "turbo run test --filter=./packages/*",
@@ -27,7 +27,6 @@
 		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
 		"format:write": "oxfmt . && turbo run oxlint --filter=./packages/* --filter=// -- --fix && oxfmt .",
 		"typecheck": "toolchain-typecheck",
-		"typecheck:full": "toolchain-typecheck --incremental false",
 		"workspace-gate": "workspace-gate",
 		"oxlint": "toolchain-oxlint-root",
 		"format": "oxfmt --check .",

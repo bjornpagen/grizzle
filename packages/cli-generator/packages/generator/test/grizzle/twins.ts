@@ -1,10 +1,11 @@
 /**
- * The grizzle tier's installations (once.test.ts): the login of world.ts installed twice on grizzle's cluster, as an
+ * The grizzle tier's installations (once.test.ts): the login of world.ts installed twice on the generator's local
+ * cluster (pg.config.ts, made by the testing library at grizzle's pinned build), as an
  * application installs it, and a CLI the generator built from the login's OpenAPI document, as a need of the runner's.
  *
  * Each worker that runs the tier drafts the login once with `grizzle generate` (grizzle.config.ts) into a scratch
  * directory of its own, and installs it twice, each twin with `grizzle migrate` into a database of its own (a clone of
- * the empty template, cluster.ts) under a role prefix of its own, the clone's own name, so each twin's live source
+ * the empty template, emptyDatabase) under a role prefix of its own, the clone's own name, so each twin's live source
  * claims a replication slot no other installation names. Each twin is served by grizzle's own HTTP handler
  * (`@bjornpagen/grizzle/http`) over its login's layers (`served`, `DbLayer.make`, `LiveSource.layer`): twin A on
  * a Node HTTP server at 127.0.0.1, a port the system chooses, for the CLI to call; twin B in process, through grizzle's
@@ -25,8 +26,9 @@ import {
 	type ServedLogin,
 	served
 } from "@bjornpagen/grizzle/runtime"
+import { pgOwnerSession } from "@bjornpagen/testing/pg-session"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
-import type { Database } from "@bjornpagen/testing/resources"
+import { type Database, Template } from "@bjornpagen/testing/resources"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import { jsonTextOf } from "@superstarter/json"
@@ -49,7 +51,6 @@ import {
 import { Digest } from "effect/crypto"
 import { HttpBody, type HttpClient, HttpClientRequest, HttpEffect, HttpServer } from "effect/http"
 import { ChildProcess } from "effect/process"
-import { databasePrefix, emptyDatabase, ownerClient, ownerRole } from "#test/grizzle/cluster.ts"
 import { type Cluster, connectionTo, unboundedMillis } from "#test/grizzle/connection.ts"
 import type { Server } from "#test/grizzle/world.ts"
 import { buildPackage, type BuiltPackage, generateFixture } from "#test/support/cli-package.ts"
@@ -153,13 +154,22 @@ const grizzle = (bin: string, command: string, env: Readonly<Record<string, stri
 const passwordOf = (cluster: Cluster, role: string): Redacted.Redacted =>
 	Redacted.make(`${Redacted.value(cluster.password)}:${role}`)
 
-/** Runs `statement` as the cluster's owner in its own database. */
-const asOwner = (cluster: Cluster, statement: string) =>
+/** Runs `statement` as the cluster's owner in its own database on `member`. */
+const asOwner = (member: Database["member"], statement: string) =>
 	Effect.scoped(
-		Effect.flatMap(ownerClient(cluster, ownerRole, statement), (client) =>
-			Effect.tryPromise({ try: () => client.query(statement), catch: setupFailed(statement) })
+		Effect.flatMap(pgOwnerSession("eocg grizzle tier owner")(member, member.owner), (session) =>
+			session.query(statement, [])
 		)
 	)
+
+/** An empty database, a clone of the cluster's template, as a template: what each twin installs the login into itself. */
+const emptyDatabase = Template.database({
+	declaredIn: import.meta,
+	name: "eocg grizzle empty",
+	content: {},
+	from: Template.cluster,
+	build: () => Effect.void
+})
 
 /** What `grizzle generate` wrote for the login: its served file's value and its OpenAPI document's text. */
 type Drafted = Readonly<{ migrations: string; file: unknown; document: string }>
@@ -212,8 +222,8 @@ const twinOf = (
 ) =>
 	Effect.gen(function* () {
 		const database = yield* clone
-		const cluster = database.member.cluster
-		const rolePrefix = Str.slice(databasePrefix.length)(database.name)
+		const cluster: Cluster = database.member
+		const rolePrefix = database.name
 		const login = yield* Effect.try({
 			try: (): ServedLogin<typeof Server> => served<typeof Server>(draft.file, loginName),
 			catch: setupFailed("reading the login's served file")
@@ -222,7 +232,7 @@ const twinOf = (
 			EOCG_GRIZZLE_MIGRATIONS: draft.migrations,
 			EOCG_GRIZZLE_PORT: String(cluster.port),
 			EOCG_GRIZZLE_CA: cluster.ca,
-			EOCG_GRIZZLE_ROLE: ownerRole,
+			EOCG_GRIZZLE_ROLE: database.member.owner,
 			EOCG_GRIZZLE_PASSWORD: Redacted.value(cluster.password),
 			EOCG_GRIZZLE_DATABASE: database.name,
 			EOCG_GRIZZLE_ROLE_PREFIX: rolePrefix
@@ -233,11 +243,11 @@ const twinOf = (
 			Effect.gen(function* () {
 				yield* grizzle(bin, "migrate", env)
 				yield* asOwner(
-					cluster,
+					database.member,
 					`ALTER ROLE "${server}" PASSWORD '${Redacted.value(passwordOf(cluster, server))}'`
 				)
 				yield* asOwner(
-					cluster,
+					database.member,
 					`ALTER ROLE "${decoder}" PASSWORD '${Redacted.value(passwordOf(cluster, decoder))}'`
 				)
 			}),

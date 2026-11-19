@@ -9,7 +9,6 @@
 	},
 	"scripts": {
 		"typecheck": "toolchain-typecheck",
-		"typecheck:full": "toolchain-typecheck --incremental false",
 		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {

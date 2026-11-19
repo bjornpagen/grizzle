@@ -1,7 +1,7 @@
 /**
  * A generated CLI calling a live grizzle server over HTTP answers what grizzle's own HTTP door answers the same call.
  *
- * The tier's twins (twins.ts) are one login (world.ts) installed twice on grizzle's local cluster through grizzle's
+ * The tier's twins (twins.ts) are one login (world.ts) installed twice on the generator's local cluster through grizzle's
  * command line, as an application installs it: twin A served over HTTP by grizzle's handler, twin B by the same handler
  * in process. The generator builds the CLI from the login's OpenAPI document as `grizzle generate` writes it, its
  * author config binding A's origin. Each case stores drawn items in both twins, then makes one to four drawn calls, each

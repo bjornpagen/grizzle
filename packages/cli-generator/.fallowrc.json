@@ -21,6 +21,7 @@
 				"name": "generator-suites",
 				"patterns": [
 					"packages/generator/test/**",
+					"packages/generator/pg.config.ts",
 					"packages/generator/test.config.ts",
 					"packages/generator/vitest.config.ts"
 				]

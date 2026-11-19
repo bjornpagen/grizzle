@@ -1,5 +1,5 @@
 /**
- * How the grizzle tier connects to its cluster (cluster.ts): what it reaches the cluster by, and a connection as grizzle
+ * How the grizzle tier connects to its cluster (pg.config.ts): what it reaches a member by, and a connection as grizzle
  * takes one, for a twin's layers and for grizzle's command line (grizzle.config.ts), which imports nothing more.
  */
 import net from "node:net"
@@ -7,7 +7,10 @@ import type { DbConnection } from "@bjornpagen/grizzle/runtime"
 import type { Redacted } from "effect"
 import pg from "pg"
 
-/** What the tier reaches the cluster by: its port, the CA its server certificate chains to, its owner's password. */
+/**
+ * What the tier reaches a member of the cluster by: its port, the CA its server certificate chains to, its owner's
+ * password, which the testing library's member of the cluster (PgMember) carries.
+ */
 export interface Cluster {
 	readonly port: number
 	readonly ca: string
