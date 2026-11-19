@@ -53,6 +53,7 @@ import { str } from "#compiler/public/text.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import {
 	bareEnv,
@@ -67,7 +68,13 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
-import { admittedClosedId } from "#compiler/schema/relation.ts"
+import {
+	accumulatedField,
+	admittedClosedId,
+	drawnField,
+	placeField,
+	retirementField
+} from "#compiler/schema/relation.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
@@ -894,13 +901,14 @@ export const literalOperandSpace = aimed<LiteralOperand, LiteralFeature>(
 /**
  * The descriptor boundary: describeField reads a descriptor a builder made, span takes one as its endpoint, and closedId
  * takes a closed relation. A copy of a descriptor's members (a look-alike), pg.numeric itself, the builder whose
- * precision and scale a caller left undeclared, and any wild value are no descriptor: MalformedDescription at
- * describeField and span; any wild value is no closed relation: MalformedDescription at closedId. A live descriptor is
+ * precision and scale a caller left undeclared, a field of a writing of its own (drawn, accumulated, retirement or a
+ * place), whose value no caller states, and any wild value are no descriptor: MalformedDescription at describeField
+ * and span, a written field's naming its writing; any wild value is no closed relation: MalformedDescription at closedId. A live descriptor is
  * read; span builds over integer, bigint and contracts over them, and refuses any other endpoint by its capability;
  * closedId builds the closed relation's handle descriptor.
  */
 type Boundary = "describeField" | "span" | "closedId"
-type NoDescriptor = "look-alike" | "numeric builder"
+type NoDescriptor = "look-alike" | "numeric builder" | "written field"
 
 /** What a boundary was handed and which boundary it was. */
 export type DescribeFeature = DrawnFeature<NoDescriptor> | `boundary ${Boundary}`
@@ -932,6 +940,20 @@ const descriptors: Arr.NonEmptyReadonlyArray<object> = [
 	str.regex("^a$")
 ]
 
+/** A field of each writing of its own a caller may pass where a descriptor is asked: its value no caller states. */
+const writtenFields: Arr.NonEmptyReadonlyArray<object> = [
+	drawnField(naturalDescriptor, []),
+	placeField({ by: "stage" }, []),
+	retirementField(pgDescriptors.boolean),
+	accumulatedField(pgDescriptors.integer, 0, [])
+]
+
+/** The writing a written field states (writtenFields), which its refusal names. */
+export const statedWriting = (value: object): string => {
+	const writing = "writing" in value ? value.writing : undefined
+	return typeof writing === "string" ? writing : "none"
+}
+
 /**
  * A descriptor (live, a look-alike or wild) for describeField and span, or a closed relation (live Kind, or wild) for
  * closedId.
@@ -959,6 +981,13 @@ const boundaryCaseGen: Gen<readonly [Drawn<object, NoDescriptor>, Boundary]> = w
 										value: pgDescriptors.numeric,
 										from: "numeric builder"
 									})
+								],
+								[
+									1,
+									map(element(writtenFields), (field): Stale<object, NoDescriptor> => ({
+										value: field,
+										from: "written field"
+									}))
 								]
 							])
 						),

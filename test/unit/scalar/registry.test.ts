@@ -24,7 +24,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, String as Str } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
@@ -81,7 +81,8 @@ import {
 	registryBuild,
 	rostersOfSketch,
 	scalarOf,
-	someFault
+	someFault,
+	statedWriting
 } from "#test/unit/scalar/registry.fixtures.ts"
 import { type DescriptorSketch, descriptorGen, descriptorOf } from "#test/unit/scalar/support.ts"
 
@@ -447,6 +448,7 @@ export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeTh
 			"live",
 			"stale look-alike",
 			"stale numeric builder",
+			"stale written field",
 			...Arr.map(WILD_KINDS, (kind): DescribeFeature => `wild ${kind}`),
 			"boundary describeField",
 			"boundary span",
@@ -464,8 +466,20 @@ export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeTh
 							const result = describeField(x, SourceLoc("a drawn descriptor", []))
 							if (d.kind === "live") {
 								assert.equal(result.ok, true)
-							} else {
-								refused(result, "MalformedDescription")
+								return
+							}
+							const reason = refused(result, "MalformedDescription").reason
+							if (
+								d.kind === "stale" &&
+								d.from === "written field" &&
+								reason._tag === "MalformedDescription"
+							) {
+								assert.ok(
+									Str.includes(`a field of a writing of its own (${statedWriting(d.value)})`)(
+										reason.what
+									),
+									`a written field is refused as one, naming its writing: ${reason.what}`
+								)
 							}
 							return
 						}
@@ -500,6 +514,13 @@ export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeTh
 		budget: { runs: 1000, steered: 0 },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/scalar/registry.ts",
+				original:
+					'\treturn typeof writing === "string" ? { kind: "written", writing } : { kind: "copy" }\n',
+				replacement: '\treturn { kind: "copy" }\n',
+				why: "A field of a writing of its own is refused as a copy of a descriptor, an object spread, which names nothing of what it is: the case of a place passed where a descriptor is asked fails."
+			},
 			{
 				file: "packages/engine/src/scalar/registry.ts",
 				original: '\t\treturn Result.err(malformedDescription(loc, "a field descriptor"))',

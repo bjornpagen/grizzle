@@ -403,24 +403,46 @@ export const refusedField = (
 	 * Testing for the brand reads the caller's value, which can run its code (`in` runs a proxy's `has` trap) and throw:
 	 * it is read once through hostRead, so a value whose reading throws is refused, never escaping as a defect.
 	 */
-	const copy = hostRead(
+	const branded = hostRead(
 		() =>
 			malformedDescription(
 				loc,
 				"a field descriptor a builder made, whose properties can be read: no refusing proxy"
 			),
-		() => Result.ok(isDescriptorCopy(value))
+		() => Result.ok(brandedOf(value))
 	)
-	return Result.flatMap(copy, (isCopy) =>
-		Result.err(
-			malformedDescription(
-				loc,
-				isCopy
-					? "a field descriptor a builder made: a copy of one (an object spread) is none, because a descriptor's host type is its builder's"
-					: "a field descriptor a builder made: pg.*, uuid, bytes, str.regex, contract, span, closedId or pg.vector"
-			)
-		)
-	)
+	return Result.flatMap(branded, (b) => Result.err(malformedDescription(loc, brandedText(b))))
+}
+
+/**
+ * What a branded value that no builder registered as a descriptor is (isDescriptorCopy): a field of a writing of its own,
+ * by the tag it states (`writing`), drawn(…), accumulated(…), generated(…), retirement or place(…), whose value no
+ * caller states; a copy of a descriptor, an object spread; or no branded value at all.
+ */
+type Branded =
+	| { readonly kind: "written"; readonly writing: string }
+	| { readonly kind: "copy" }
+	| { readonly kind: "unbranded" }
+
+/** What `value` is, as Branded reads it: a branded value's own `writing`, where it states one. */
+const brandedOf = (value: unknown): Branded => {
+	if (!isDescriptorCopy(value)) {
+		return { kind: "unbranded" }
+	}
+	const writing = hasProperties(value) ? value["writing"] : undefined
+	return typeof writing === "string" ? { kind: "written", writing } : { kind: "copy" }
+}
+
+/** The refusal's text of a value no builder registered as a descriptor, by what it is (Branded). */
+const brandedText = (b: Branded): string => {
+	switch (b.kind) {
+		case "written":
+			return `a field descriptor of a value type, which a caller states: a field of a writing of its own (${b.writing}) is none, since grizzle or PostgreSQL writes its value; take its type, the descriptor it is declared over, such as natural`
+		case "copy":
+			return "a field descriptor a builder made: a copy of one (an object spread) is none, because a descriptor's host type is its builder's"
+		case "unbranded":
+			return "a field descriptor a builder made: pg.*, uuid, bytes, str.regex, contract, span, closedId or pg.vector"
+	}
 }
 
 /** The throwing form, for builders. */
