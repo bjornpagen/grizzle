@@ -22,9 +22,9 @@
  *
  * Each of the RFC's choices is necessary or chosen, and the boxes say which. The closure restricted to indices below the
  * copy: unrestricted, a covers lowering refuses a state whose covers lemma holds, a gap above n, which the box of
- * states commits (its kill unrestrictedClosure); under mirrors the bound refuses that state anyway, so mirrors holds its
+ * states commits, a kill of the box of states; under mirrors the bound refuses that state anyway, so mirrors holds its
  * lemma exactly either way. The last slot deferred: checked at its statement, no owner of a non-empty family can be
- * written at all, its rows inserted after it (its kill lastSlotImmediate). The copy immediate: deferred too, every state
+ * written at all, its rows inserted after it, the box's other kill. The copy immediate: deferred too, every state
  * and single mutation the box holds commits exactly as under the RFC's, the one difference that an owner dropped before
  * its rows commits, where the immediate copy refuses it, so deferring it buys nothing a write grizzle sends needs.
  */
@@ -36,7 +36,6 @@ import {
 	cycleCase,
 	type CycleFeature,
 	cycleGen,
-	lastSlotImmediate,
 	mirrorsTemplate,
 	mutationCase,
 	type MutationFeature,
@@ -63,8 +62,7 @@ import {
 	stateCase,
 	type StateFeature,
 	stateGen,
-	stateSituations,
-	unrestrictedClosure
+	stateSituations
 } from "#test/pg/substrate/fin.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -92,7 +90,20 @@ export const acceptExactlyTheStatesOfTheBoxWhereTheLoweredDirectionsLemmaHolds =
 		box: "every state of two owners, each absent or counting 0 to 3 rows, with at most four rows at indices 0 to 4, under each direction's lowering",
 		show: Formatter.format,
 		kept: [],
-		kills: [unrestrictedClosure, lastSlotImmediate]
+		kills: [
+			{
+				file: "test/pg/substrate/fin.fixtures.ts",
+				original: 'restriction: "restricted"',
+				replacement: 'restriction: "unrestricted"',
+				why: "the RFC's closure unrestricted (CASE WHEN at > 0 THEN at - 1 END): a covers lowering refuses a covered state, a gap above n the lemma allows"
+			},
+			{
+				file: "test/pg/substrate/fin.fixtures.ts",
+				original: 'last: "commit"',
+				replacement: 'last: "statement"',
+				why: "the owner's last slot checked at its statement: no owner of a non-empty family can be written before its rows, though its state's lemma holds"
+			}
+		]
 	}
 )
 

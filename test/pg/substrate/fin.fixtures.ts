@@ -16,7 +16,7 @@ import {
 	type Verdict as StepVerdict
 } from "@bjornpagen/testing/commands"
 import { element, type Gen, int, shuffled, boolean } from "@bjornpagen/testing/gen"
-import { type Case, type Kill } from "@bjornpagen/testing/property"
+import { type Case } from "@bjornpagen/testing/property"
 import type { Swarm } from "@bjornpagen/testing/swarm"
 import {
 	Array as Arr,
@@ -1165,25 +1165,3 @@ export const programCase = (
 			c.note(`${p.shape} ${form} ${Str.endsWith(" accepted")(feature) ? "committed" : "refused"}`)
 		}
 	})
-
-/**
- * The RFC's closure unrestricted (`CASE WHEN at > 0 THEN at − 1 END`), the variant §5.2 says also forbids gaps above
- * n: a covers lowering refuses a state of the box whose covers lemma holds, which the box of states commits.
- */
-export const unrestrictedClosure: Kill = {
-	file: "test/pg/substrate/fin.fixtures.ts",
-	original: 'restriction: "restricted"',
-	replacement: 'restriction: "unrestricted"',
-	why: "an unrestricted closure refuses a covered state, a gap above n the lemma allows"
-}
-
-/**
- * The owner's last slot checked at its statement, nothing deferred: the owner ↔ family cycle is unwritable, a state of
- * the box with a non-empty family refused when its owner is written before its rows, though its lemma holds.
- */
-export const lastSlotImmediate: Kill = {
-	file: "test/pg/substrate/fin.fixtures.ts",
-	original: 'last: "commit"',
-	replacement: 'last: "statement"',
-	why: "with the last slot immediate no owner of a non-empty family can be written, though its state's lemma holds"
-}
