@@ -6,6 +6,7 @@ import { identifierOf, roleIdentity } from "#compiler/core/identity.ts"
 import type { RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
+import { ledgerTableName, proofsTableName } from "#compiler/physical/ddl/ledger.ts"
 import { roleView } from "#compiler/physical/ddl/names.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -297,10 +298,19 @@ export const installedScope = (
 		name: (s: RecordedStatement) => Option.Option<string>,
 		what: InstalledTrigger
 	) => Arr.map([...created(snapshot, kind, name)], (trigger) => [trigger, what] as const)
-	const ledger = Option.getOrThrowWith(
-		Arr.head([...created(snapshot, "ledger", tableOf)]),
-		() => new Error("the snapshot's manifest holds no migrations ledger")
-	)
+	/**
+	 * The deployment's own tables, the manifest's ledger objects: the migrations ledger and the drift check's proofs,
+	 * each by the name the engine gives it.
+	 */
+	const ledgerTables = created(snapshot, "ledger", tableOf)
+	const ledgerTable = (name: string, what: string): string => {
+		if (!ledgerTables.has(name)) {
+			throw new Error(`the snapshot's manifest holds no ${what}`)
+		}
+		return name
+	}
+	const ledger = ledgerTable(ledgerTableName, "migrations ledger")
+	const proofs = ledgerTable(proofsTableName, "drift check's proofs")
 	const scoped = Arr.flatMap(installation.settings.logins, (login) =>
 		Arr.map(login.roles, (r) => {
 			const installedRole = Option.getOrThrowWith(
@@ -349,6 +359,7 @@ export const installedScope = (
 			),
 			views: created(snapshot, "materializedView", viewOf),
 			ledger,
+			proofs,
 			guarded: created(snapshot, "isolationTrigger", guardedTableOf),
 			functions: new Map<string, InstalledFunction>([
 				...functionsOf("refusalFunction", { kind: "refusal" }),

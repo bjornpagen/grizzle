@@ -107,7 +107,12 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 			)
 		),
 		ledger: identifierOf(identity.ledger()),
-		guarded: new Set([...tables((r) => r.kind === "relation"), identifierOf(identity.ledger())]),
+		proofs: identifierOf(identity.proofs()),
+		guarded: new Set([
+			...tables((r) => r.kind === "relation"),
+			identifierOf(identity.ledger()),
+			identifierOf(identity.proofs())
+		]),
 		functions: new Map<string, InstalledFunction>([
 			[identifierOf(identity.refusal()), { kind: "refusal" }],
 			[identifierOf(identity.isolationGuard()), { kind: "isolationGuard" }],

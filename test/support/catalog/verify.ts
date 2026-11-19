@@ -65,8 +65,13 @@ export interface ErasureExpectation {
 	readonly mutable: ReadonlySet<string>
 	/** The materialized views of the derived relations. */
 	readonly views: ReadonlySet<string>
-	/** The migrations ledger's table: the one table beside the authored ones, which every login reads. */
+	/** The migrations ledger's table: a table beside the authored ones, which every login reads. */
 	readonly ledger: string
+	/**
+	 * The drift check's proofs' table (deploy/ledger/ledger.ts proofsTable): the other table beside the authored ones,
+	 * which no login reads and no publication publishes, guarded as the ledger is.
+	 */
+	readonly proofs: string
 	/**
 	 * The tables carrying the isolation guard: the ledger's, and each authored table some role writes at SERIALIZABLE or
 	 * no role writes (physical/ddl/isolation.ts addIsolationTrigger); a table whose every writer is certified READ
@@ -463,8 +468,8 @@ const loginLacks = (
 
 /**
  * What one catalog relation is to the installation: the materialized view of a declared derived relation or of none, a
- * table it expects (an authored relation's or the migrations ledger, carrying exactly one isolation guard when it is
- * guarded and none otherwise) or one it does not, or a relation of a kind grizzle never installs.
+ * table it expects (an authored relation's, the migrations ledger or the drift check's proofs, carrying exactly one
+ * isolation guard when it is guarded and none otherwise) or one it does not, or a relation of a kind grizzle never installs.
  */
 const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
 	if (t.kind === "m") {
@@ -473,7 +478,12 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 	if (t.kind !== "r") {
 		return [{ kind: "foreignRelation", relation: t.name, relkind: t.kind }]
 	}
-	if (!j.expect.tables.has(t.name) && t.name !== j.expect.ledger && !isSecret(j, t)) {
+	if (
+		!j.expect.tables.has(t.name) &&
+		t.name !== j.expect.ledger &&
+		t.name !== j.expect.proofs &&
+		!isSecret(j, t)
+	) {
 		return [{ kind: "unexpectedTable", table: t.name }]
 	}
 	const count = Arr.filter(
