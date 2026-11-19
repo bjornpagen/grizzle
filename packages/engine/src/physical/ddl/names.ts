@@ -90,7 +90,7 @@ export interface InstallNames extends PhysicalNames {
 /**
  * What a contract's domain is defined from: its base and its CHECK, the law model's domain native's for a base
  * contract and a context contract's own, from which `define` spells the domain's definition over the installation's
- * names (physical/ddl/domains.ts contractDomainDdl), whose digest names the domain.
+ * names (physical/ddl/domains.ts contractDefinition), whose digest names the domain.
  */
 export interface ContractSource {
 	readonly base: ScalarType

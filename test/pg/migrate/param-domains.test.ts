@@ -228,9 +228,8 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 		{
 			file: "packages/engine/src/physical/ddl/domains.ts",
 			original:
-				'\t\tdefinitionDigest(paramDomainDdl(textDomainIdentity(regex), { schema: digestedTypes, name: "" }))',
-			replacement:
-				'\t\tdefinitionDigest(textDomainDdl(regex.check, { schema: digestedTypes, name: "", constraint: "" }))',
+				"\t\tdefinitionDigest(paramDomainDefinition(textDomainIdentity(regex), digestedTypes))",
+			replacement: "\t\tdefinitionDigest(textDomainDefinition(regex.check))",
 			why: "A parameter's domain named by its place and its pattern's definition alone, as the first version was named, so `slug`'s domain keeps its name across the change of its base, and the draft is refused as UnsupportedOperation, changing the base type of a domain."
 		}
 	]

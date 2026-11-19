@@ -35,7 +35,7 @@ import { canonicalText, type LiveNode, type RegexNode } from "#compiler/scalar/r
 import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
-import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"
+import type { Collation, Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { and, binary, call, cUtf8Collation, le, lit, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { structuralBounds } from "#compiler/text/bounds.ts"
@@ -463,17 +463,14 @@ const predicateBytes = (check: PatternCheck): number =>
 	utf8Length(printExpr(and(patternTerms(check, domainValue))))
 
 /**
- * The compiler-owned structural domain of a nontrivial refinement:
- * `CREATE DOMAIN <schema>.__text_<slug> AS text COLLATE pg_catalog.pg_c_utf8 CONSTRAINT __text_<slug>__check
- * CHECK (VALUE IS NULL OR (...) IS TRUE)`, with no NOT NULL.
+ * The definition of the compiler-owned structural domain of a nontrivial refinement (physical/ddl/domains.ts
+ * DomainDefinition), created as `CREATE DOMAIN <schema>.__text_<slug> AS text COLLATE pg_catalog.pg_c_utf8 CONSTRAINT __text_<slug>__check
+ * CHECK (VALUE IS NULL OR (...) IS TRUE)`, with no NOT NULL: text in pg_c_utf8 under the pattern's membership.
  */
-export const textDomainDdl = (
-	check: RegexCheck,
-	target: { readonly schema: string; readonly name: string; readonly constraint: string }
-): CreateDomain => ({
-	kind: "createDomain",
-	name: { schema: target.schema, name: target.name },
+export const textDomainDefinition = (
+	check: RegexCheck
+): { readonly base: TypeRef; readonly collation: Collation; readonly check: Expr } => ({
 	base: types.text,
 	collation: cUtf8Collation,
-	constraints: [{ name: target.constraint, predicate: membership(check, domainValue) }]
+	check: membership(check, domainValue)
 })

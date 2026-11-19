@@ -20,6 +20,7 @@ import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { createDomain } from "#compiler/physical/ddl/domains.ts"
 import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
@@ -28,7 +29,11 @@ import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { analyzeText, type TextRefinement, textDomainDdl } from "#compiler/text/refinement.ts"
+import {
+	analyzeText,
+	type TextRefinement,
+	textDomainDefinition
+} from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { pickGen } from "#test/support/pick.ts"
@@ -421,11 +426,11 @@ const agreeOn = (
 			const name = named.identifier
 			let domainType = "text"
 			if (r.check.kind !== "tautology") {
-				const statement = textDomainDdl(r.check, {
-					schema,
-					name,
-					constraint: identity.domainCheck(named).identifier
-				})
+				const statement = createDomain(
+					textDomainDefinition(r.check),
+					{ schema, name },
+					() => identity.domainCheck(named).identifier
+				)
 				const ddl = succeeded(emit(statement, emptyNameMap)).text
 				yield* db.query(ddl, [])
 				domainType = `${quoteIdent(schema)}.${quoteIdent(name)}`

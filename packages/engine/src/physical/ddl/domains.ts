@@ -47,9 +47,16 @@ import {
 } from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
-import type { CreateDomain, Expr, ObjectName, TypeSchema } from "#compiler/sql/ast.ts"
+import type {
+	Collation,
+	CreateDomain,
+	Expr,
+	ObjectName,
+	TypeRef,
+	TypeSchema
+} from "#compiler/sql/ast.ts"
 import { and } from "#compiler/sql/build.ts"
-import { domainValue, membershipTerms, textDomainDdl } from "#compiler/text/refinement.ts"
+import { domainValue, membershipTerms, textDomainDefinition } from "#compiler/text/refinement.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
@@ -227,55 +234,74 @@ const compareUses = (a: TextDomainUse, b: TextDomainUse): number =>
 
 /**
  * A domain's physical definition, its CREATE DOMAIN but for the names it is created and checked under: its base type,
- * its collation and its CHECKs' predicates. Its digest is what the domain is named by, so two contracts or
- * refinements of one definition share one domain, and a changed definition is a new domain.
+ * its collation and its CHECK's predicate, where it has one. Its digest is what the domain is named by
+ * (definitionDigest), so two contracts or refinements of one definition share one domain, and a changed definition is
+ * a new domain.
  */
-export const definitionDigest = (
-	ddl: Pick<CreateDomain, "base" | "collation" | "constraints">
-): DomainDigest =>
+export interface DomainDefinition {
+	readonly base: TypeRef
+	readonly collation: Collation | undefined
+	readonly check: Expr | undefined
+}
+
+/** The digest of a domain's definition, which names it: its base, its collation and its CHECKs' predicates. */
+export const definitionDigest = (definition: DomainDefinition): DomainDigest =>
 	domainDigest(
 		{
-			base: ddl.base,
-			collation: ddl.collation,
-			checks: ddl.constraints.map((c) => c.predicate)
+			base: definition.base,
+			collation: definition.collation,
+			checks: definition.check === undefined ? [] : [definition.check]
 		},
 		everyProperty
 	)
 
+/**
+ * A domain's CREATE DOMAIN: its definition under its name, and its CHECK, where it has one, under the name `constraint`
+ * gives it, which no domain of no CHECK is asked for. No domain carries NOT NULL; every column does.
+ */
+export const createDomain = (
+	definition: DomainDefinition,
+	name: ObjectName,
+	constraint: () => string
+): CreateDomain => ({
+	kind: "createDomain",
+	name,
+	base: definition.base,
+	collation: definition.collation,
+	constraints:
+		definition.check === undefined ? [] : [{ name: constraint(), predicate: definition.check }]
+})
+
 /** The identity of the structural text domain of `regex`: the digest of its definition, text in pg_c_utf8 under the
  * pattern's membership, so every pattern that compiles to one membership shares one domain. */
 export const textDomainIdentity = (regex: RegexRef): Identity<"textDomain"> =>
-	identity.textDomain(
-		definitionDigest(textDomainDdl(regex.check, { schema: "", name: "", constraint: "" }))
-	)
+	identity.textDomain(definitionDigest(textDomainDefinition(regex.check)))
 
 /**
- * A parameter's pattern domain's CREATE DOMAIN under `target`'s names: a domain over its pattern's structural text
- * domain `structural` in the same schema, with no CHECK of its own, so its check is that domain's. Read with a
- * placeholder schema and name, it is the domain's whole definition, base included, which its name digests
+ * A parameter's pattern domain's definition in the schema `types`: over its pattern's structural text domain
+ * `structural` in that schema, with no CHECK of its own, so its check is that domain's. Read in no schema
+ * (digestedTypes), it is the domain's whole definition, base included, which its name digests in every installation
  * (paramDomainIdentity).
  */
-const paramDomainDdl = (
+const paramDomainDefinition = (
 	structural: Identity<"textDomain">,
-	target: { readonly schema: TypeSchema; readonly name: string }
-): CreateDomain => ({
-	kind: "createDomain",
-	name: { schema: target.schema, name: target.name },
-	base: qualifiedType({ schema: target.schema, name: identifierOf(structural) }),
+	types: TypeSchema
+): DomainDefinition => ({
+	base: qualifiedType({ schema: types, name: identifierOf(structural) }),
 	collation: undefined,
-	constraints: []
+	check: undefined
 })
 
 /**
  * The pattern domain of a declared parameter's place over `regex`: named by the place and the digest of its whole
- * definition (paramDomainDdl), a domain over the pattern's structural text domain, which is itself named by the digest
+ * definition (paramDomainDefinition), a domain over the pattern's structural text domain, which is itself named by the digest
  * of its own. A refusal by it names the parameter alone, whatever stored field shares the pattern; a domain of one name
  * has one definition, so a migration never changes one in place: a changed definition is another domain.
  */
 export const paramDomainIdentity = (place: ParamPlace, regex: RegexRef): Identity<"paramDomain"> =>
 	identity.paramDomain(
 		place,
-		definitionDigest(paramDomainDdl(textDomainIdentity(regex), { schema: digestedTypes, name: "" }))
+		definitionDigest(paramDomainDefinition(textDomainIdentity(regex), digestedTypes))
 	)
 
 /** A pattern a served workload's parameter names, at its place: what the installation creates its domain for. */
@@ -399,7 +425,7 @@ export const paramDomainsOf = (
  * The pattern domains of `uses` as objects in Setup, each identity once. Every placeholder of the parameter is cast to
  * its own (ir/physical.ts paramDomain), so PostgreSQL checks the value as it binds it, and a refusal by it is the
  * parameter's (adapter ParamRejected): PostgreSQL reports the domain the value is cast to, never an ancestor of it.
- * Each is `CREATE DOMAIN <schema>.<domain> AS <schema>.<text domain>` with no CHECK of its own (paramDomainDdl), after
+ * Each is `CREATE DOMAIN <schema>.<domain> AS <schema>.<text domain>` with no CHECK of its own (paramDomainDefinition), after
  * its pattern's structural text domain: the installation's own where a column it types holds the pattern, otherwise
  * one created here for the parameters, after the schema, as addTextDomains creates one. So no two domains of the
  * installation hold one CHECK body, and a parameter's domain has one definition wherever the pattern is stored, so its
@@ -422,11 +448,11 @@ export const addParamDomains = (
 		const created =
 			known === undefined
 				? [
-						textDomainDdl(regex.check, {
-							schema: b.names.types,
-							name: b.name(structural),
-							constraint: b.name(identity.domainCheck(structural))
-						})
+						createDomain(
+							textDomainDefinition(regex.check),
+							{ schema: b.names.types, name: b.name(structural) },
+							() => b.name(identity.domainCheck(structural))
+						)
 					]
 				: []
 		const textNode =
@@ -441,7 +467,11 @@ export const addParamDomains = (
 				},
 				[b.schemaNode]
 			)
-		const ddl = paramDomainDdl(structural, { schema: b.names.types, name: b.name(named) })
+		const ddl = createDomain(
+			paramDomainDefinition(structural, b.names.types),
+			{ schema: b.names.types, name: b.name(named) },
+			() => b.name(identity.domainCheck(named))
+		)
 		b.addType(
 			"domain",
 			b.names.installation,
@@ -573,9 +603,7 @@ export const planTextDomains = (
 			return {
 				key: regex.key,
 				domain: {
-					digest: definitionDigest(
-						textDomainDdl(regex.check, { schema: "", name: "", constraint: "" })
-					),
+					digest: definitionDigest(textDomainDefinition(regex.check)),
 					named,
 					check,
 					name: identifierOf(named),
@@ -617,26 +645,24 @@ export const addTextDomains = (
 			b.graph.addReasons(known, reasons)
 			return []
 		}
-		const ddl = textDomainDdl(regex.check, {
-			schema: b.schema,
-			name: b.name(domain.named),
-			constraint: b.name(domain.check)
-		})
+		const ddl = createDomain(
+			textDomainDefinition(regex.check),
+			{ schema: b.schema, name: b.name(domain.named) },
+			() => b.name(domain.check)
+		)
 		b.addType("domain", b.names.installation, domain.named, { ddl: [ddl], reasons }, [b.schemaNode])
 		return [ddl.name]
 	})
 
 /**
- * A contract's domain's CREATE DOMAIN, under `target`'s names: over the domain of the contract its base is, a closed
- * id's roster domain, or the unrefined base type, with its CHECK, the pattern test and the predicate as one conjunction,
- * or none. Read with placeholder names, it is the contract's definition (`definitionDigest`), which its domain is named
- * by, so the one statement both names and installs it.
+ * A contract's domain's definition: over the domain of the contract its base is, a closed id's roster domain, or the
+ * unrefined base type, with its CHECK, the pattern test and the predicate as one conjunction, or none. Its digest names
+ * the contract's domain (contractDigest), so the one definition both names and installs it.
  */
-const contractDomainDdl = (
+const contractDefinition = (
 	names: PhysicalNames,
-	contract: { readonly name: string; readonly base: ScalarType; readonly check: DomainCheck },
-	target: { readonly schema: string; readonly name: string; readonly constraint: string }
-): CreateDomain => {
+	contract: { readonly name: string; readonly base: ScalarType; readonly check: DomainCheck }
+): DomainDefinition => {
 	const terms = (t: DomainCheckTerm): NonEmptyReadonlyArray<Expr> => {
 		switch (t.kind) {
 			case "pattern":
@@ -654,14 +680,9 @@ const contractDomainDdl = (
 	const { type, collation } = domainBase(names, contract.base)
 	const check = contract.check
 	return {
-		kind: "createDomain",
-		name: { schema: target.schema, name: target.name },
 		base: type,
 		collation,
-		constraints:
-			check.kind === "unchecked"
-				? []
-				: [{ name: target.constraint, predicate: and(flatMapNonEmpty(check.terms, terms)) }]
+		check: check.kind === "unchecked" ? undefined : and(flatMapNonEmpty(check.terms, terms))
 	}
 }
 
@@ -680,11 +701,11 @@ const addContractDomain = (
 		b.graph.addReasons(known, reasons)
 		return name
 	}
-	const ddl = contractDomainDdl(b.names, contract, {
-		schema: b.schema,
-		name: b.name(named),
-		constraint: contract.check.kind === "unchecked" ? "" : b.name(identity.domainCheck(named))
-	})
+	const ddl = createDomain(
+		contractDefinition(b.names, contract),
+		{ schema: b.schema, name: b.name(named) },
+		() => b.name(identity.domainCheck(named))
+	)
 	const baseNode = b.typeNode(ddl.base)
 	b.addType("domain", b.names.installation, named, { ddl: [ddl], reasons }, [
 		b.schemaNode,
@@ -755,11 +776,7 @@ export const contractDigest = (
 	source: ContractSource
 ): DomainDigest =>
 	definitionDigest(
-		contractDomainDdl(
-			names,
-			{ name: contract, base: source.base, check: source.check },
-			{ schema: "", name: "", constraint: "" }
-		)
+		contractDefinition(names, { name: contract, base: source.base, check: source.check })
 	)
 
 type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>

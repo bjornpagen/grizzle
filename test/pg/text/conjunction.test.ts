@@ -22,11 +22,12 @@ import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { createDomain } from "#compiler/physical/ddl/domains.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { analyzeText, textDomainDdl } from "#compiler/text/refinement.ts"
+import { analyzeText, textDomainDefinition } from "#compiler/text/refinement.ts"
 import {
 	caseGen,
 	type ConjunctionFeature,
@@ -98,11 +99,11 @@ export const aConjunctionOfPatternsECMAScriptHostProductDFAAndPostgreSQLsCHECKAg
 							? "text"
 							: `${quoteIdent(schema)}.${quoteIdent(named.identifier)}`
 					if (r.check.kind !== "tautology") {
-						const ddl = textDomainDdl(r.check, {
-							schema,
-							name: named.identifier,
-							constraint: identity.domainCheck(named).identifier
-						})
+						const ddl = createDomain(
+							textDomainDefinition(r.check),
+							{ schema, name: named.identifier },
+							() => identity.domainCheck(named).identifier
+						)
 						yield* db.query(succeeded(emit(ddl, emptyNameMap)).text, [])
 					}
 					const all = ["", ...texts]

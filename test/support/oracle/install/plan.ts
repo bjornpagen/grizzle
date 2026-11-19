@@ -207,10 +207,10 @@ const contractDigest = (
 	return definitionDigest({
 		base: base.sql,
 		collation: base.sql.kind === "builtin" && base.sql.name === "text" ? cUtf8Collation : undefined,
-		constraints:
+		check:
 			pattern === undefined || pattern.kind === "tautology"
-				? []
-				: [{ name: "", predicate: membership(pattern, domainValue) }]
+				? undefined
+				: membership(pattern, domainValue)
 	})
 }
 

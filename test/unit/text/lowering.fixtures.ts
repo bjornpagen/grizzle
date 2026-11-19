@@ -7,10 +7,15 @@ import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { RegexCheck } from "#compiler/ir/scalar.ts"
+import { createDomain } from "#compiler/physical/ddl/domains.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { analyzeText, textDomainDdl, type TextRefinement } from "#compiler/text/refinement.ts"
+import {
+	analyzeText,
+	textDomainDefinition,
+	type TextRefinement
+} from "#compiler/text/refinement.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { refinementBounds } from "#test/support/text.ts"
 import {
@@ -246,11 +251,11 @@ export const domainBytes = (check: RegexCheck): number =>
 	utf8Bytes(
 		succeeded(
 			emit(
-				textDomainDdl(check, {
-					schema: "text",
-					name: formDomain.identifier,
-					constraint: identity.domainCheck(formDomain).identifier
-				}),
+				createDomain(
+					textDomainDefinition(check),
+					{ schema: "text", name: formDomain.identifier },
+					() => identity.domainCheck(formDomain).identifier
+				),
 				emptyNameMap
 			),
 			"a text domain prints"

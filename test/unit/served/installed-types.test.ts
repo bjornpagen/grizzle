@@ -108,10 +108,9 @@ export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsI
 			},
 			{
 				file: "packages/engine/src/physical/ddl/domains.ts",
-				original:
-					"\t\tconst ddl = paramDomainDdl(structural, { schema: b.names.types, name: b.name(named) })",
+				original: "\t\t\tparamDomainDefinition(structural, b.names.types),",
 				replacement:
-					"\t\tconst ddl = {\n\t\t\t...paramDomainDdl(structural, { schema: b.names.types, name: b.name(named) }),\n\t\t\tconstraints: textDomainDdl(regex.check, {\n\t\t\t\tschema: b.names.types,\n\t\t\t\tname: b.name(named),\n\t\t\t\tconstraint: b.name(identity.domainCheck(structural))\n\t\t\t}).constraints\n\t\t}",
+					"\t\t\t{ ...paramDomainDefinition(structural, b.names.types), check: textDomainDefinition(regex.check).check },",
 				why: "Every parameter's pattern domain gets its own CHECK, a second copy of its structural domain's; the property fails, no case reaching a parameter's pattern domain over a field's structural domain with no CHECK of its own."
 			},
 			{
