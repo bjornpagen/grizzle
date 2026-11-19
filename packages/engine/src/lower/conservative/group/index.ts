@@ -1,5 +1,5 @@
 import { appendNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
@@ -122,11 +122,7 @@ export const aggregateExpr = (
 
 /** The overload of a Group's aggregate over its arguments' types, refused where PostgreSQL defines none. */
 export const groupAggregateOverload = (agg: Aggregate, at: string): AggregateOverload => {
-	const overload = callOverload(agg, SourceLoc(at, []))
-	if (!overload.ok) {
-		throw new Refusal(overload.error)
-	}
-	return overload.value
+	return unwrap(callOverload(agg, SourceLoc(at, [])))
 }
 
 const aggregateCall = (cx: LowerContext, agg: Aggregate, scope: Env, at: string): Expr =>

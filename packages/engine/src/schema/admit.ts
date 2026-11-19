@@ -1,5 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { childLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -58,12 +58,9 @@ const admitted = (r: ClosedRelationOf, env: ScalarEnv): AdmittedClosedRelation =
 		{ readonly name: string; readonly handles: ReadonlySet<string> }
 	>()
 	for (const [field, desc] of Object.entries(r.fields)) {
-		const typed = scalarTypeOf(desc, env, childLoc(r.loc, "fields", field))
-		if (!typed.ok) {
-			throw new Refusal(typed.error)
-		}
-		types.set(field, typed.value)
-		const base = baseOf(typed.value)
+		const typed = unwrap(scalarTypeOf(desc, env, childLoc(r.loc, "fields", field)))
+		types.set(field, typed)
+		const base = baseOf(typed)
 		if (base.carrier === "code") {
 			rosters.set(field, { name: base.roster.closed, handles: new Set(base.roster.handles) })
 		}

@@ -1,6 +1,6 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { appendNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import { localCertificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import { integerLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { AggregateSpec, NodeOf } from "#compiler/ir/rel.ts"
@@ -116,13 +116,12 @@ const castTo = (e: Expr, from: TypeRef, to: TypeRef): Expr =>
 	sameTypeRef(from, to) ? e : cast(e, to)
 
 const certifyConditional = (facts: ShapeFacts, node: NodeOf<"Group">, agg: AggregateSpec): void => {
-	const cert = makeCertificate(
-		localCertificate("R24.conditionalCount", [node.input.id], [node.id], [node.id], [agg.name])
+	const cert = unwrap(
+		makeCertificate(
+			localCertificate("R24.conditionalCount", [node.input.id], [node.id], [node.id], [agg.name])
+		)
 	)
-	if (!cert.ok) {
-		throw new Refusal(cert.error)
-	}
-	facts.certify(cert.value)
+	facts.certify(cert)
 }
 
 /**

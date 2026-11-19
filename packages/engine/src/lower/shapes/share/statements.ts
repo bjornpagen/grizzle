@@ -1,7 +1,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
@@ -119,11 +119,7 @@ export class ShareIndex {
 
 	/** The share key of an eligible node; a DAG it cannot key is refused. */
 	#shareKey(node: RelNode): string {
-		const key = shareKey(this.dag, node)
-		if (!key.ok) {
-			throw new Refusal(key.error)
-		}
-		return key.value
+		return unwrap(shareKey(this.dag, node))
 	}
 }
 

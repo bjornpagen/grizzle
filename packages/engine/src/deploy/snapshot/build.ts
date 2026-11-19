@@ -13,7 +13,6 @@ import {
 	encode,
 	everyProperty,
 	type Json,
-	Refusal,
 	toJson,
 	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
@@ -176,11 +175,7 @@ export const isEmptySnapshot = (s: DeploySnapshot): boolean =>
 
 /** A digest the snapshot records, of a value the compiler built: its failure is a kernel refusal. */
 const recordedDigest = (domain: string, value: unknown, options: EncodeOptions): string => {
-	const d = digest(domain, value, options)
-	if (!d.ok) {
-		throw new Refusal(d.error)
-	}
-	return d.value
+	return unwrap(digest(domain, value, options))
 }
 
 /** What fills a drawn or accumulated field, as its record digests it: its role and its laws, each by its identifier. */

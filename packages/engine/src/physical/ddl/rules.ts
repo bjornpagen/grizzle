@@ -20,7 +20,7 @@ import {
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
-import { canonicalEquals, canonicalTextOf, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, canonicalTextOf, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -203,23 +203,21 @@ const judgedStatement = (
 	loc: SourceLoc,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
 ): Compiled => {
-	const checked = checkQuery(b.checked, navigateQuery(query, loc), { read: "region", label })
-	if (!checked.ok) {
-		throw new Refusal(checked.error)
-	}
-	const requests = requestsOf(b, rule, checked.value.dag.roots[0])
-	const lowered = Result.flatMap(optimizedInput(checked.value, queryEvidence), (annotated) =>
-		lowerOptimized(annotated, {
-			names: { ...b.names, imaged: imagedBy(b, requests) },
-			subject: { kind: "ruleRegion", deltas },
-			context: "transaction",
-			catalog
-		})
+	const checked = unwrap(
+		checkQuery(b.checked, navigateQuery(query, loc), { read: "region", label })
 	)
-	if (!lowered.ok) {
-		throw new Refusal(lowered.error)
-	}
-	const program = lowered.value
+	const requests = requestsOf(b, rule, checked.dag.roots[0])
+	const lowered = unwrap(
+		Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
+			lowerOptimized(annotated, {
+				names: { ...b.names, imaged: imagedBy(b, requests) },
+				subject: { kind: "ruleRegion", deltas },
+				context: "transaction",
+				catalog
+			})
+		)
+	)
+	const program = lowered
 	const parts = program.parts
 	if (
 		parts.kind !== "one" ||

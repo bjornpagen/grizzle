@@ -115,9 +115,9 @@ export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsI
 			},
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
-				original: "\t\tconst outside = outsideContracts(owned, fields.value, planned.contracts)",
+				original: "\t\tconst outside = unwrap(outsideContracts(owned, fields, planned.contracts))",
 				replacement:
-					"\t\tconst outside = outsideContracts(owned, fields.value, planned.contracts.slice(0, 0))",
+					"\t\tconst outside = unwrap(outsideContracts(owned, fields, planned.contracts.slice(0, 0)))",
 				why: "The contracts outside the base a served parameter is typed by are left out of the installation's outside contracts (physical/install/plan.ts planInstallation), so no domain of them is installed or recorded; the own-workload property fails, a login refused as UninstalledDomain under its own snapshot."
 			}
 		]

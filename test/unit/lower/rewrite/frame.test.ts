@@ -121,9 +121,9 @@ export const aDAGsRootsARootStaysAtItsPositionAmongTheDAGsRootsWhenARewriteRepla
 				{
 					file: "packages/engine/src/lower/optimize/demand/editor.ts",
 					original:
-						"\t\tconst done = finishCells(this.base.roots, (root) => this.#rootCell(root), this.#folded)",
+						"\t\tconst done = unwrap(finishCells(this.base.roots, (root) => this.#rootCell(root), this.#folded))",
 					replacement:
-						"\t\tconst done = finishCells([...this.base.roots].reverse(), (root) => this.#rootCell(root), this.#folded)",
+						"\t\tconst done = unwrap(finishCells([...this.base.roots].reverse(), (root) => this.#rootCell(root), this.#folded))",
 					why: "The editor finishes a DAG with its roots reversed; the frame-root-position search fails."
 				}
 			]
@@ -404,7 +404,7 @@ export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFolds
 			},
 			{
 				file: "packages/engine/src/lower/optimize/demand/editor.ts",
-				original: "\t\tthis.#folded = done.value.folded\n",
+				original: "\t\tthis.#folded = done.folded\n",
 				replacement: "",
 				why: "The editor forgets what its last finish folded; a cell the edit left loses its node."
 			}

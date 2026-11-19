@@ -211,10 +211,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 		const drafted = changed ? planFiles(plan) : []
 		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(f)) }))
 		const recorded = drafted.map((f) => unwrap(recordFile(f)))
-		const record = decisionRecord(recorded)
-		if (!record.ok) {
-			throw new Refusal(recordRefusal(record.error))
-		}
+		const record = unwrap(Result.mapError(decisionRecord(recorded), recordRefusal))
 		const meta: DraftedMeta = {
 			kind: "drafted",
 			schemaName: snapshot.schemaName,
@@ -230,7 +227,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 		return {
 			change,
 			folder: { meta, metaText: unwrap(writeMeta(meta)), files },
-			record: record.value,
+			record,
 			snapshot,
 			derived,
 			plan

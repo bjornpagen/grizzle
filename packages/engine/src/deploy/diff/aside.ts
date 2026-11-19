@@ -1,5 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import { identity, type TemporaryCensus } from "#compiler/core/identity.ts"
 import {
 	inConstraints,
@@ -76,11 +76,7 @@ const heldName = (
 
 /** The name the naming door sets an object aside under (identity.aside), as the migration's census admits it. */
 export const asideName = (temporaries: TemporaryCensus, name: string): string => {
-	const named = temporaries.admit(identity.aside(name))
-	if (!named.ok) {
-		throw new Refusal(named.error)
-	}
-	return named.value
+	return unwrap(temporaries.admit(identity.aside(name)))
 }
 
 /**
@@ -88,11 +84,7 @@ export const asideName = (temporaries: TemporaryCensus, name: string): string =>
  * admits it: one any role prefix the installation may have leads within PostgreSQL's longest identifier.
  */
 export const roleAsideName = (temporaries: TemporaryCensus, role: string): string => {
-	const named = temporaries.admit(identity.roleAside(role))
-	if (!named.ok) {
-		throw new Refusal(named.error)
-	}
-	return named.value
+	return unwrap(temporaries.admit(identity.roleAside(role)))
 }
 
 /** A key: a constraint with an index of its own, which takes the constraint's name: a primary key, a candidate key or

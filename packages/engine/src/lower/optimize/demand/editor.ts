@@ -1,5 +1,5 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, OccurrenceId, type ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import {
 	cellOrder,
@@ -574,12 +574,9 @@ export class DagEditor<R extends Roots = Roots> {
 	 * field computed from what the edits left. A cycle a rewrite made through the cells is that rewrite's refusal.
 	 */
 	finished(): FinishedCells<R> {
-		const done = finishCells(this.base.roots, (root) => this.#rootCell(root), this.#folded)
-		if (!done.ok) {
-			throw new Refusal(done.error)
-		}
-		this.#folded = done.value.folded
-		return done.value
+		const done = unwrap(finishCells(this.base.roots, (root) => this.#rootCell(root), this.#folded))
+		this.#folded = done.folded
+		return done
 	}
 
 	/** The DAG the cells the roots reach hold now (finished). */

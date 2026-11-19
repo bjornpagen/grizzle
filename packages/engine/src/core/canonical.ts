@@ -1558,11 +1558,7 @@ class Revive {
 		if (revive === undefined) {
 			return refuseText(this.#path, `a reviver for canonical tag "${tag}"`)
 		}
-		const revived = revive(payload)
-		if (!revived.ok) {
-			throw new Refusal(revived.error)
-		}
-		return revived.value
+		return unwrap(revive(payload))
 	}
 
 	#object(value: object | null, key: string): void {
@@ -1630,11 +1626,8 @@ export const canonicalSortKeyed = <A>(
 ): Result.Result<ReadonlyArray<{ readonly item: A; readonly text: string }>, CompileError> =>
 	catchRefusal(() => {
 		const keyed = items.map((item, i) => {
-			const text = encode(item, options)
-			if (!text.ok) {
-				throw new Refusal(within(text.error, [i]))
-			}
-			return { item, text: text.value }
+			const text = unwrap(Result.mapError(encode(item, options), (error) => within(error, [i])))
+			return { item, text }
 		})
 		keyed.sort((x, y) => (x.text < y.text ? -1 : x.text > y.text ? 1 : 0))
 		return keyed

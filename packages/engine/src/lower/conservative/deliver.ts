@@ -4,7 +4,7 @@ import {
 	lastNonEmpty,
 	mapNonEmpty
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { type DeliverySpine, deliverySpine } from "#compiler/ir/dag.ts"
 import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
@@ -89,15 +89,9 @@ export const printedStatement = (
 	names: ReadonlyArray<string>,
 	supply: NameSupply
 ): { readonly ast: Select; readonly sql: EmittedSql } => {
-	const renamed = renameToPublicHeading(bindLaterally(query, supply), names)
-	if (!renamed.ok) {
-		throw new Refusal(renamed.error)
-	}
-	const printed = emit(renamed.value, supply.map())
-	if (!printed.ok) {
-		throw new Refusal(printed.error)
-	}
-	return { ast: renamed.value, sql: printed.value }
+	const renamed = unwrap(renameToPublicHeading(bindLaterally(query, supply), names))
+	const printed = unwrap(emit(renamed, supply.map()))
+	return { ast: renamed, sql: printed }
 }
 
 const sameOrder = (a: CompletedOrder, b: CompletedOrder): boolean =>

@@ -13,7 +13,8 @@ import {
 	canonicalEquals,
 	canonicalTextOf,
 	catchRefusal,
-	Refusal
+	Refusal,
+	unwrap
 } from "#compiler/core/canonical.ts"
 import { CompileError, unsupported } from "#compiler/core/errors.ts"
 import {
@@ -1359,11 +1360,7 @@ class Differ {
 	 * never a name an object standing while the migration runs has, nor another temporary's, so no statement under it
 	 * creates, renames or drops an object that stands; a collision is refused as DigestCollision. */
 	temporary<K extends TemporaryKind>(t: Identity<K>): string {
-		const named = this.input.temporaries.admit(t)
-		if (!named.ok) {
-			throw new Refusal(named.error)
-		}
-		return named.value
+		return unwrap(this.input.temporaries.admit(t))
 	}
 
 	/** The temporary name an index, or a key's index, is built under on `table` before it is swapped in for `name`: the

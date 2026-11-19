@@ -14,7 +14,7 @@ import {
 	type QueryVector,
 	traceApproximate
 } from "#compiler/check/approximate/trace.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { type CertificateRule, makeCertificate } from "#compiler/ir/certificate.ts"
 import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
@@ -118,21 +118,20 @@ const certify = (
 	node: NodeOf<"ApproximateNearest">,
 	shape: ApproximateShape
 ): void => {
-	const cert = makeCertificate({
-		rule: approximateRule(shape),
-		inputs: [node.source.id],
-		outputs: [node.id],
-		premises: [{ kind: "node", node: node.id }],
-		context: "queryLocal",
-		preservedHeading: node.heading.map((c) => c.name),
-		equality: [],
-		coercion: [`index:${hnswPolicy.method}`, `opclass:${hnswPolicy.opclass}`],
-		params: undefined
-	})
-	if (!cert.ok) {
-		throw new Refusal(cert.error)
-	}
-	facts.certify(cert.value)
+	const cert = unwrap(
+		makeCertificate({
+			rule: approximateRule(shape),
+			inputs: [node.source.id],
+			outputs: [node.id],
+			premises: [{ kind: "node", node: node.id }],
+			context: "queryLocal",
+			preservedHeading: node.heading.map((c) => c.name),
+			equality: [],
+			coercion: [`index:${hnswPolicy.method}`, `opclass:${hnswPolicy.opclass}`],
+			params: undefined
+		})
+	)
+	facts.certify(cert)
 }
 
 /**

@@ -91,9 +91,9 @@ export const oneSchemaInstalledInTwoPostgreSQLSchemasChecksEachLawUnderOneIdenti
 			{
 				file: "packages/engine/src/deploy/snapshot/violation.ts",
 				original:
-					'\tconst identity = meaningDigestWithin(\n\t\treads.dag,\n\t\t[reads.root],\n\t\t"law-check",\n\t\tinstallation.checked.closed\n\t)',
+					'\tconst identity = unwrap(\n\t\tmeaningDigestWithin(reads.dag, [reads.root], "law-check", installation.checked.closed)\n\t)',
 				replacement:
-					"\tconst identity = { ok: true, value: JSON.stringify(violationQuery(installation, law, reads), (_, x) => (typeof x === 'bigint' ? String(x) : x)) }",
+					"\tconst identity = JSON.stringify(violationQuery(installation, law, reads), (_, x) => (typeof x === 'bigint' ? String(x) : x))",
 				why: "A check is keyed by its SQL again, which names its installation's tables, so one law holds two identities, and every change of the lowering checks every law again."
 			}
 		]

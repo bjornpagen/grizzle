@@ -1,6 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import { allocatedKinds, ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import {
 	cellTable,
@@ -195,12 +195,9 @@ export class CatalogEditor<R extends Roots = Roots> {
 	 * structural field computed. A cycle a rewrite made through the cells is that rewrite's refusal.
 	 */
 	finished(): FinishedCells<R> {
-		const done = finishCells(this.base.roots, (root) => this.cellOf(root), this.#folded)
-		if (!done.ok) {
-			throw new Refusal(done.error)
-		}
-		this.#folded = done.value.folded
-		return done.value
+		const done = unwrap(finishCells(this.base.roots, (root) => this.cellOf(root), this.#folded))
+		this.#folded = done.folded
+		return done
 	}
 
 	/** The DAG the cells the roots reach hold now (finished). */

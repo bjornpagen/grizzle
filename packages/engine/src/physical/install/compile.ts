@@ -2,7 +2,7 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import {
@@ -375,12 +375,9 @@ const servedParams = (
 		const domains: Array<ParamDomainUse> = []
 		const contracts: Array<ParamContract> = []
 		for (const extension of new Set(extensions)) {
-			const types = extension.params(checked)
-			if (!types.ok) {
-				throw new Refusal(types.error)
-			}
-			appendAll(domains, types.value.domains)
-			appendAll(contracts, types.value.contracts)
+			const types = unwrap(extension.params(checked))
+			appendAll(domains, types.domains)
+			appendAll(contracts, types.contracts)
 		}
 		return { kind: "planned", types: { domains, contracts } }
 	})
@@ -455,11 +452,8 @@ export const installationOver = (
 				const extensionRequests: Array<IndexRequest> = []
 				const statisticsRequests: Array<StatisticsRequest> = []
 				for (const extension of new Set([refinedConstantsExtension, ...options.extensions])) {
-					const contribution = extension.contribute(b)
-					if (!contribution.ok) {
-						throw new Refusal(contribution.error)
-					}
-					const c = contribution.value
+					const contribution = unwrap(extension.contribute(b))
+					const c = contribution
 					appendAll(extensionRequests, c.indexRequests)
 					appendAll(statisticsRequests, c.statisticsRequests)
 					for (const d of c.derivedRelations) {
@@ -469,10 +463,7 @@ export const installationOver = (
 				const paramDomains = addParamDomains(b, plan.paramDomains)
 
 				const requests = [...reverseRequests(b), ...ruleRequests, ...extensionRequests]
-				const indexes = planIndexes(b, keyIndexes, requests)
-				if (!indexes.ok) {
-					throw new Refusal(indexes.error)
-				}
+				const indexes = unwrap(planIndexes(b, keyIndexes, requests))
 				planStatistics(b, statisticsRequests)
 
 				const live = liveOf(options.extensions)
@@ -495,16 +486,13 @@ export const installationOver = (
 				)
 				addLiveSource(b, live)
 				const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
-				const census = censusOf(identities)
-				if (!census.ok) {
-					throw new Refusal(census.error)
-				}
+				const census = unwrap(censusOf(identities))
 				const ordered = b.graph.manifest({
 					roleDefaults: worlds.roleDefaults,
 					publicRevokes: worlds.publicRevokes
 				})
 				const created = ordered.objects.flatMap((o) => o.ddl)
-				const comments = commentsOf(created, census.value)
+				const comments = commentsOf(created, census)
 				const manifest = { ...ordered, comments }
 				const statements = [
 					...created,
@@ -521,7 +509,7 @@ export const installationOver = (
 					manifest,
 					statements,
 					textDomains: plan.textPlans.map((p) => p.domain),
-					indexes: indexes.value,
+					indexes,
 					worlds: worlds.worlds,
 					identities,
 					deferred: {

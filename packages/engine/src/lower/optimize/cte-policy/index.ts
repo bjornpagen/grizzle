@@ -1,5 +1,5 @@
 import { analyzeDemand, noPins } from "#compiler/analysis/demand/demand.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import {
 	type CertificateRule,
@@ -319,19 +319,18 @@ export const ctePolicyPass = (reads: CteSubject): Pass<LogicalQuery, CtePlannedQ
 				if (decision.strategy === "inline") {
 					continue
 				}
-				const cert = makeCertificate(
-					localCertificate(
-						cteRule(decision.strategy),
-						[decision.node],
-						[decision.node],
-						[decision.node],
-						node.heading.map((c) => c.name)
+				const cert = unwrap(
+					makeCertificate(
+						localCertificate(
+							cteRule(decision.strategy),
+							[decision.node],
+							[decision.node],
+							[decision.node],
+							node.heading.map((c) => c.name)
+						)
 					)
 				)
-				if (!cert.ok) {
-					throw new Refusal(cert.error)
-				}
-				ctx.certificates.record(cert.value)
+				ctx.certificates.record(cert)
 			}
 			return { ...query, cte: { decisions } }
 		})

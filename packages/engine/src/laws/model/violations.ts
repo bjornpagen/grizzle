@@ -3,7 +3,7 @@ import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { lawViolation } from "#compiler/analysis/theory/laws.ts"
 import { lawSides, ruleViolation, type Theory } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -57,11 +57,8 @@ export const theoryViolations = (
 					forbid: vb.forbid(law.id, lawViolation(vb, sides, theory.families, statements, law, d))
 				}
 			}
-			const admitted = ruleViolation(checked, law, d.violation)
-			if (!admitted.ok) {
-				throw new Refusal(admitted.error)
-			}
-			return { kind: "query", id: law.id, query: admitted.value.dag, root: admitted.value.root }
+			const admitted = unwrap(ruleViolation(checked, law, d.violation))
+			return { kind: "query", id: law.id, query: admitted.dag, root: admitted.root }
 		})
 		const supply = new LabelSupply(
 			vb.b.build(written.flatMap((w) => (w.kind === "built" ? [w.forbid] : [])))

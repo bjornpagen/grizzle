@@ -9,7 +9,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { contractLaw, lawDescription } from "#compiler/analysis/theory/description.ts"
 import { contractLawIdentity } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	type DeclaredName,
@@ -489,43 +489,30 @@ export const planInstallation = (
 		const checked = model.checked
 		const extraUses: Array<TextColumnUse> = []
 		for (const extension of new Set(extensions)) {
-			const uses = extension.textDomainUses(checked)
-			if (!uses.ok) {
-				throw new Refusal(uses.error)
-			}
-			appendAll(extraUses, uses.value)
+			const uses = unwrap(extension.textDomainUses(checked))
+			appendAll(extraUses, uses)
 		}
 		const planned = params.kind === "planned" ? params.types : noParamTypes
 		const paramDomains = distinctDomains(planned.domains)
-		const fields = contextFieldsOf(checked, roles)
-		if (!fields.ok) {
-			throw new Refusal(fields.error)
-		}
+		const fields = unwrap(contextFieldsOf(checked, roles))
 		const logins = settings.logins.map((login): CheckedLogin => ({
 			login,
 			roles: login.roles.map((role) => {
-				const read = Result.flatMap(namedRole(role, settings.levels), (named) =>
-					checkedRole(checked, named)
+				return unwrap(
+					Result.flatMap(namedRole(role, settings.levels), (named) => checkedRole(checked, named))
 				)
-				if (!read.ok) {
-					throw new Refusal(read.error)
-				}
-				return read.value
 			})
 		}))
 		appendAll(
 			extraUses,
 			worldTextDomainUses(
-				fields.value,
+				fields,
 				logins.flatMap((l) => l.roles)
 			)
 		)
 		const textPlans = planTextDomains(owned, model.theory, extraUses)
-		const outside = outsideContracts(owned, fields.value, planned.contracts)
-		if (!outside.ok) {
-			throw new Refusal(outside.error)
-		}
-		const contracts = contractSources(model, outside.value)
+		const outside = unwrap(outsideContracts(owned, fields, planned.contracts))
+		const contracts = contractSources(model, outside)
 		const library = libraryCalls(model)
 		const recorded = params.kind === "recorded" ? params.installed.contracts : []
 		const names = installNames({
@@ -550,16 +537,13 @@ export const planInstallation = (
 			selectionKeys: selectionKeysOf(model.natives),
 			library
 		})
-		const defined = paramContractsDefined(names, owned, outside.value.context, planned.contracts)
-		if (!defined.ok) {
-			throw new Refusal(defined.error)
-		}
+		unwrap(paramContractsDefined(names, owned, outside.context, planned.contracts))
 		const installedParams: InstalledParams =
 			params.kind === "recorded"
 				? params.installed
 				: {
 						domains: domainIdentifiers(paramDomains),
-						contracts: outside.value.params.map((c) => ({
+						contracts: outside.params.map((c) => ({
 							name: c.name,
 							digest: contractDigest(names, c.name, { base: c.contract.base, check: c.check }),
 							checked: c.check.kind === "checked"
@@ -593,7 +577,7 @@ export const planInstallation = (
 			closed,
 			library,
 			textPlans,
-			outsideContracts: outside.value,
+			outsideContracts: outside,
 			paramDomains,
 			installedParams,
 			logins,

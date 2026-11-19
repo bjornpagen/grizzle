@@ -1,5 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { type CatalogRule, type Certificate, makeCertificate } from "#compiler/ir/certificate.ts"
@@ -130,11 +130,8 @@ const families: ReadonlyArray<{
  * as every other node is.
  */
 const annotated = <R extends Roots>(dag: ValidDag<R>): ValidDag<R> => {
-	const analysis = analyzeLogical(dag, queryEvidence)
-	if (!analysis.ok) {
-		throw new Refusal(analysis.error)
-	}
-	return analysis.value.dag
+	const analysis = unwrap(analyzeLogical(dag, queryEvidence))
+	return analysis.dag
 }
 
 /** Which rules an entry applied at a node, or why it was not applied: the inspectable record of the pass. */
@@ -220,21 +217,20 @@ export const rewriteCatalog = <R extends Roots>(
 				}
 				const applied = found.value
 				for (const rule of applied.rules) {
-					const certificate = makeCertificate({
-						rule,
-						inputs: applied.inputs,
-						outputs: applied.outputs,
-						premises: applied.premises,
-						context: applied.context,
-						preservedHeading: node.heading.map((h) => h.name),
-						equality: applied.equality,
-						coercion: [],
-						params: undefined
-					})
-					if (!certificate.ok) {
-						throw new Refusal(certificate.error)
-					}
-					certificates.push(certificate.value)
+					const certificate = unwrap(
+						makeCertificate({
+							rule,
+							inputs: applied.inputs,
+							outputs: applied.outputs,
+							premises: applied.premises,
+							context: applied.context,
+							preservedHeading: node.heading.map((h) => h.name),
+							equality: applied.equality,
+							coercion: [],
+							params: undefined
+						})
+					)
+					certificates.push(certificate)
 				}
 				decisions.push({ node: cell.id, entry: family.name, applied: applied.rules })
 				cx.invalidate()

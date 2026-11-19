@@ -5,7 +5,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
@@ -321,11 +321,7 @@ export const ledgerPublished = (
 })
 
 const emitted = (statement: SqlStatement): EmittedSql => {
-	const e = emit(statement, emptyNameMap)
-	if (!e.ok) {
-		throw new Refusal(e.error)
-	}
-	return e.value
+	return unwrap(emit(statement, emptyNameMap))
 }
 
 /** The INSERT of a ledger row: a folder's row (ordinal 0, file meta.json), if absent; or a file's. */

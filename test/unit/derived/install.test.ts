@@ -103,8 +103,8 @@ export const derivedRelationViewColumnsRefuseTwoHeadNamesConvertingToOneColumnId
 		kills: [
 			{
 				file: "packages/engine/src/analysis/derived/analyze.ts",
-				original: `\t\tconst columns = DeclaredNamespace.columns(\`relation \${relation}'s field\`)\n\t\treturn mapNonEmpty(heading, (c): DeclaredColumn => {\n\t\t\tconst name = columns.declare(`,
-				replacement: `\t\treturn mapNonEmpty(heading, (c): DeclaredColumn => {\n\t\t\tconst columns = DeclaredNamespace.columns(\`relation \${relation}'s field\`)\n\t\t\tconst name = columns.declare(\n`,
+				original: `\t\tconst columns = DeclaredNamespace.columns(\`relation \${relation}'s field\`)\n\t\treturn mapNonEmpty(heading, (c): DeclaredColumn => {\n\t\t\tconst name = unwrap(\n`,
+				replacement: `\t\treturn mapNonEmpty(heading, (c): DeclaredColumn => {\n\t\t\tconst columns = DeclaredNamespace.columns(\`relation \${relation}'s field\`)\n\t\t\tconst name = unwrap(\n`,
 				why: "analysis/derived/analyze.ts declaredHeading declares each head column in a namespace of its own, so no two ever collide; a collision installs as two columns."
 			}
 		]

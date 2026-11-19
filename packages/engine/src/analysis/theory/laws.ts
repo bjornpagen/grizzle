@@ -65,7 +65,6 @@ import {
 	canonicalEquals,
 	catchRefusal,
 	ownedText,
-	Refusal,
 	unwrap,
 	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
@@ -749,11 +748,7 @@ export class LawSides {
 
 	/** The scalar type of a declared field type, at `loc`, or its refusal thrown. */
 	type(desc: FieldDesc, loc: SourceLoc): ScalarType {
-		const t = this.env.lowerEnv.fieldType(desc, loc)
-		if (!t.ok) {
-			throw new Refusal(t.error)
-		}
-		return t.value
+		return unwrap(this.env.lowerEnv.fieldType(desc, loc))
 	}
 
 	relation(name: string, loc: SourceLoc): TheoryRelation {

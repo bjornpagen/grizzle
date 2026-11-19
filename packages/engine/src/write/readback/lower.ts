@@ -1,7 +1,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { admitQuery } from "#compiler/check/index.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -97,28 +97,25 @@ export const lowerReadBack = (
 	start: NameSupplyStart,
 	options: ReadBackOptions
 ): OptimizedProgram => {
-	const admitted = admitQuery(
-		{ dag: rooted([read.node]), params: options.params },
-		SourceLoc(`read ${read.name}`, [])
+	const admitted = unwrap(
+		admitQuery(
+			{ dag: rooted([read.node]), params: options.params },
+			SourceLoc(`read ${read.name}`, [])
+		)
 	)
-	if (!admitted.ok) {
-		throw new Refusal(admitted.error)
-	}
-	const program = lowerOptimized(admitted.value, {
-		names: options.reads,
-		/** Its conservative artifact is realized with its write, which the write oracle compares. */
-		subject: {
-			kind: "readBack",
-			deltas,
-			breach: breachGuard(options.names.schema),
-			start
-		},
-		/** A read-back runs in its write's transaction and records no constraint premise. */
-		catalog: evidenceCatalog(options.schema),
-		context: "transaction"
-	})
-	if (!program.ok) {
-		throw new Refusal(program.error)
-	}
-	return program.value
+	return unwrap(
+		lowerOptimized(admitted, {
+			names: options.reads,
+			/** Its conservative artifact is realized with its write, which the write oracle compares. */
+			subject: {
+				kind: "readBack",
+				deltas,
+				breach: breachGuard(options.names.schema),
+				start
+			},
+			/** A read-back runs in its write's transaction and records no constraint premise. */
+			catalog: evidenceCatalog(options.schema),
+			context: "transaction"
+		})
+	)
 }

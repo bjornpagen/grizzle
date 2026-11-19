@@ -1,6 +1,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { CheckedEntry, CheckedSchema } from "#compiler/analysis/schema.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import type { EntryName, LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
@@ -118,16 +118,14 @@ const membershipOf = (
 ): Expr => {
 	const { entry } = check
 	if (!filterReadsOther(entry)) {
-		const rendered = renderMembership(entry, {
-			schema: check.base,
-			names: w.names,
-			catalog: check.catalog,
-			row: value
-		})
-		if (!rendered.ok) {
-			throw new Refusal(rendered.error)
-		}
-		return rendered.value
+		return unwrap(
+			renderMembership(entry, {
+				schema: check.base,
+				names: w.names,
+				catalog: check.catalog,
+				row: value
+			})
+		)
 	}
 	const fields = filterFields(entry)
 	const fn = check.world.filterFunction(

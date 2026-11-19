@@ -14,7 +14,7 @@ import {
 import { inheritedKeys } from "#compiler/analysis/logical/derived.ts"
 import { type AdmittedQuery, checkDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, derivedRefused, ruleRefused } from "#compiler/core/errors.ts"
 import {
 	type DeclaredName,
@@ -167,15 +167,14 @@ const declaredHeading = (
 	catchRefusal(() => {
 		const columns = DeclaredNamespace.columns(`relation ${relation}'s field`)
 		return mapNonEmpty(heading, (c): DeclaredColumn => {
-			const name = columns.declare(
-				c.name,
-				"field",
-				labeledChildLoc(loc, c.name, `field ${relation}.${c.name}`)
+			const name = unwrap(
+				columns.declare(
+					c.name,
+					"field",
+					labeledChildLoc(loc, c.name, `field ${relation}.${c.name}`)
+				)
 			)
-			if (!name.ok) {
-				throw new Refusal(name.error)
-			}
-			return { ...c, name: name.value }
+			return { ...c, name }
 		})
 	})
 

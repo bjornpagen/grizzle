@@ -1,4 +1,4 @@
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Direction } from "#compiler/core/order.ts"
@@ -93,11 +93,7 @@ const windowOverload = (
 	if (arg === undefined) {
 		return refuse("MalformedDescription", at, `${fn} over one argument`)
 	}
-	const overload = unaryOverload(fn === "avg" ? "mean" : fn, arg.type, SourceLoc(at, []))
-	if (!overload.ok) {
-		throw new Refusal(overload.error)
-	}
-	return overload.value
+	return unwrap(unaryOverload(fn === "avg" ? "mean" : fn, arg.type, SourceLoc(at, [])))
 }
 
 /**

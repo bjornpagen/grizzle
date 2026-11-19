@@ -1,5 +1,5 @@
 import { contractLaw } from "#compiler/analysis/theory/description.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import {
 	type DeclaredName,
 	type Identity,
@@ -182,12 +182,9 @@ const spanEndpointPredicate = (
 	carrier: SpanColumnInfo["carrier"]
 ): Expr => {
 	const column = b.names.column(relation, field)
-	const predicate = predicateTree(contract.predicate)
-	if (!predicate.ok) {
-		throw new Refusal(predicate.error)
-	}
+	const predicate = unwrap(predicateTree(contract.predicate))
 	const side = (bound: "lower" | "upper"): Expr => {
-		const substituted = substituteEndpoint(predicate.value, bound, field, spanType, carrier)
+		const substituted = substituteEndpoint(predicate, bound, field, spanType, carrier)
 		return lowerPersistent(b.names, substituted, {
 			reads: { kind: "row", column: (ref) => (ref.name === field ? tableCol(column) : undefined) },
 			closed: persistentClosed(b.checked),

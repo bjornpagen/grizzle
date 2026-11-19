@@ -1,5 +1,5 @@
 import { keyEvidence } from "#compiler/analysis/physical/evidence.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { assembledDag } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, Grounds } from "#compiler/ir/evidence.ts"
@@ -130,14 +130,13 @@ export class CatalogContext {
 	propsOf(cell: Cell): Props {
 		const finished = this.ed.finished()
 		const node = finished.node(cell)
-		const analysis = analyzeLogical(
-			this.ed.reachable().has(cell) ? finished.dag : assembledDag([node] as const),
-			queryEvidence
+		const analysis = unwrap(
+			analyzeLogical(
+				this.ed.reachable().has(cell) ? finished.dag : assembledDag([node] as const),
+				queryEvidence
+			)
 		)
-		if (!analysis.ok) {
-			throw new Refusal(analysis.error)
-		}
-		return analysis.value.of(node).props
+		return analysis.of(node).props
 	}
 
 	/**

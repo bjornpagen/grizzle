@@ -4,7 +4,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { maxStringLength } from "#compiler/core/canonical.ts"
+import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
@@ -2658,11 +2658,7 @@ const terminated = (out: Lines, write: (out: Lines) => void): void => {
 
 /** The SQL text `write` writes, refused (ResourceBound, stringLength) past V8's longest string. */
 export const sqlText = (at: SourceLoc, write: (out: Lines) => void): string => {
-	const text = textOf(maxStringLength, sqlUnit, at, write)
-	if (!text.ok) {
-		throw new Refusal(text.error)
-	}
-	return text.value
+	return unwrap(textOf(maxStringLength, sqlUnit, at, write))
 }
 
 /**

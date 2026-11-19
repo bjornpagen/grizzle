@@ -30,7 +30,7 @@ import {
 	spelledSlots
 } from "#compiler/analysis/theory/spelling.ts"
 import { checkDefinition, checkQuery } from "#compiler/check/index.ts"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import {
 	type Identity,
@@ -504,13 +504,8 @@ class Builder {
 		query: InferredQuery,
 		loc: SourceLoc
 	): (column: string) => InferredFieldDesc {
-		const admitted = checkDefinition(this.checked, `derived ${relation}`, query)
-		if (!admitted.ok) {
-			throw new Refusal(admitted.error)
-		}
-		const heading = new Map(
-			admitted.value.dag.roots[0].heading.map((c) => [c.name, c.type] as const)
-		)
+		const admitted = unwrap(checkDefinition(this.checked, `derived ${relation}`, query))
+		const heading = new Map(admitted.dag.roots[0].heading.map((c) => [c.name, c.type] as const))
 		return (column) => {
 			const type = heading.get(column)
 			if (type === undefined) {
@@ -585,15 +580,9 @@ class Builder {
 		const kept = normalizer.laws
 		const classes = this.#classes(kept, normalizer.familyPairings())
 		const { laws, primaryKeys, dag, families } = this.#written(normalizer, kept)
-		const fill = fillOrder(families, laws)
-		if (!fill.ok) {
-			throw new Refusal(fill.error)
-		}
+		const fill = unwrap(fillOrder(families, laws))
 		const relations = Object.freeze(Object.fromEntries(this.relations))
-		const instants = instantRoles(relations, laws)
-		if (!instants.ok) {
-			throw new Refusal(instants.error)
-		}
+		const instants = unwrap(instantRoles(relations, laws))
 		return Object.freeze({
 			schema: this.owned.fingerprint,
 			name: this.owned.name,
@@ -605,9 +594,9 @@ class Builder {
 			dependencies: this.#dependencies(laws),
 			capabilities: this.#capabilities(laws),
 			families,
-			fill: fill.value,
+			fill,
 			regionFacts: this.regionFacts,
-			instants: instants.value
+			instants
 		})
 	}
 

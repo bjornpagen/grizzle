@@ -6,8 +6,9 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, IdentityKind, LawId } from "#compiler/core/ids.ts"
@@ -248,19 +249,18 @@ const setUniqueBound = (
 		}
 		return { name, datum, nullable: column.kind === "law" }
 	})
-	const entry = btreeEntry(entryColumns)
-	if (!entry.ok) {
-		const key = columns.map((c) => (c.kind === "field" ? c.field.name : c.column))
-		throw new Refusal(
-			CompileError.make({
+	unwrap(
+		Result.mapError(btreeEntry(entryColumns), (fault) => {
+			const key = columns.map((c) => (c.kind === "field" ? c.field.name : c.column))
+			return CompileError.make({
 				_tag: "UnrepresentableKey",
 				at: SourceLoc(relation, []),
 				subject: `the UNIQUE (${key.join(", ")}) of ${relation}, over a set its roster's codes size`,
 				key,
-				fault: entry.error
+				fault
 			})
-		)
-	}
+		})
+	)
 }
 
 /** A field as a native column. */

@@ -8,7 +8,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { searchInRows } from "#compiler/check/approximate/attach.ts"
-import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
@@ -809,11 +809,7 @@ interface HeldPairs extends HeldRows {
 
 /** The text of the statement `ast` under the names `nameMap`, which a statement the lowering built always prints. */
 const emitted = (ast: Select, nameMap: NameMap): EmittedSql => {
-	const printed = emit(ast, nameMap)
-	if (!printed.ok) {
-		throw new Refusal(printed.error)
-	}
-	return printed.value
+	return unwrap(emit(ast, nameMap))
 }
 
 /**
@@ -1358,11 +1354,7 @@ export class OptimizedDelivery<
 
 	/** The share key of `child` within the delivery's DAG; a DAG it cannot key is refused. */
 	#shareKey(child: RelNode): string {
-		const key = shareKey(this.cx.dag, child)
-		if (!key.ok) {
-			throw new Refusal(key.error)
-		}
-		return key.value
+		return unwrap(shareKey(this.cx.dag, child))
 	}
 
 	/**

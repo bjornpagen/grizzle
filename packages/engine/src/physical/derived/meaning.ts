@@ -1,5 +1,5 @@
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import { rooted, rowsDigestWithin } from "#compiler/ir/dag.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
@@ -29,24 +29,17 @@ export const definitionMeanings = (installation: Installation): ReadonlyMap<stri
 	})
 	return new Map(
 		analysis.order.map((a) => {
-			const pruned = sourcePrunePass.run(
-				{ dag: rooted([a.query.dag.roots[0]]), params: [] },
-				makePassContext({ evidenceContext: "transaction", catalog })
+			const pruned = unwrap(
+				sourcePrunePass.run(
+					{ dag: rooted([a.query.dag.roots[0]]), params: [] },
+					makePassContext({ evidenceContext: "transaction", catalog })
+				)
 			)
-			if (!pruned.ok) {
-				throw new Refusal(pruned.error)
-			}
-			const reads = conservativeInput(pruned.value)
-			const meaning = rowsDigestWithin(
-				reads.dag,
-				[reads.root],
-				"derived-definition",
-				installation.checked.closed
+			const reads = conservativeInput(pruned)
+			const meaning = unwrap(
+				rowsDigestWithin(reads.dag, [reads.root], "derived-definition", installation.checked.closed)
 			)
-			if (!meaning.ok) {
-				throw new Refusal(meaning.error)
-			}
-			return [a.name, meaning.value] as const
+			return [a.name, meaning] as const
 		})
 	)
 }

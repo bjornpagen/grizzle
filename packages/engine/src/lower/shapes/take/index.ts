@@ -1,5 +1,5 @@
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { atMost } from "#compiler/ir/cardinality.ts"
 import { localCertificate, makeCertificate } from "#compiler/ir/certificate.ts"
@@ -542,19 +542,18 @@ const certify = (facts: ShapeFacts, take: NodeOf<"Take">, shape: TakeShape): voi
 	if (shape === "limit") {
 		return
 	}
-	const cert = makeCertificate(
-		localCertificate(
-			`R20.${shape}`,
-			[take.input.id],
-			[take.id],
-			[take.id],
-			take.heading.map((c) => c.name)
+	const cert = unwrap(
+		makeCertificate(
+			localCertificate(
+				`R20.${shape}`,
+				[take.input.id],
+				[take.id],
+				[take.id],
+				take.heading.map((c) => c.name)
+			)
 		)
 	)
-	if (!cert.ok) {
-		throw new Refusal(cert.error)
-	}
-	facts.certify(cert.value)
+	facts.certify(cert)
 }
 
 /** The input of a take read as a derived table, with the scope its expressions see. */

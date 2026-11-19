@@ -6,7 +6,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
-import { canonicalEquals, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalEquals, catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, reportedAt } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
@@ -780,17 +780,14 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 				"a page template whose stated order begins its query's completed order"
 			)
 		}
-		const completed =
+		const order = unwrap(
 			conservativeShape.kind === "rows"
 				? pageOrderOf(input.checked, conservativeShape.rows, input.stated, queryEvidence)
 				: Result.map(
 						pageOrderOf(input.checked, conservativeShape.plan.union, input.stated, queryEvidence),
 						(o) => unionPageOrder(o, conservativeShape.plan.union.discriminant)
 					)
-		if (!completed.ok) {
-			throw new Refusal(completed.error)
-		}
-		const order = completed.value
+		)
 		const comparators = pageComparators(order, conservativeShape.heading)
 		return {
 			order,

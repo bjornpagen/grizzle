@@ -1,5 +1,5 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
 import { meaningDigestWithin, rooted, topoOrder } from "#compiler/ir/dag.ts"
@@ -20,17 +20,16 @@ import { nameKey, type Select, type StoredColumnKey, storedColumnKey } from "#co
  * its check's identity, as they were. Each law's is pruned alone: one law's reads never widen another's.
  */
 const readsOf = (installation: Installation, violation: RelNode): ConservativeInput => {
-	const pruned = sourcePrunePass.run(
-		{ dag: rooted([violation]), params: [] },
-		makePassContext({
-			evidenceContext: "transaction",
-			catalog: evidenceCatalog({ laws: installation.laws, views: [] })
-		})
+	const pruned = unwrap(
+		sourcePrunePass.run(
+			{ dag: rooted([violation]), params: [] },
+			makePassContext({
+				evidenceContext: "transaction",
+				catalog: evidenceCatalog({ laws: installation.laws, views: [] })
+			})
+		)
 	)
-	if (!pruned.ok) {
-		throw new Refusal(pruned.error)
-	}
-	return conservativeInput(pruned.value)
+	return conservativeInput(pruned)
 }
 
 /**
@@ -44,15 +43,14 @@ const violationQuery = (
 	law: LawId,
 	reads: ConservativeInput
 ): Select => {
-	const lowered = lowerConservative(reads, {
-		names: installation.names,
-		params: [],
-		subject: { kind: "violationProbe" }
-	})
-	if (!lowered.ok) {
-		throw new Refusal(lowered.error)
-	}
-	const [root, ...rest] = lowered.value.roots
+	const lowered = unwrap(
+		lowerConservative(reads, {
+			names: installation.names,
+			params: [],
+			subject: { kind: "violationProbe" }
+		})
+	)
+	const [root, ...rest] = lowered.roots
 	const main = root.statement
 	if (
 		rest.length > 0 ||
@@ -114,19 +112,13 @@ const checkOf = (
 		throw defect(`the violation queries hold the law ${law} of the theory`)
 	}
 	const reads = readsOf(installation, violation)
-	const identity = meaningDigestWithin(
-		reads.dag,
-		[reads.root],
-		"law-check",
-		installation.checked.closed
+	const identity = unwrap(
+		meaningDigestWithin(reads.dag, [reads.root], "law-check", installation.checked.closed)
 	)
-	if (!identity.ok) {
-		throw new Refusal(identity.error)
-	}
 	return {
 		law,
 		query: violationQuery(installation, law, reads),
-		digest: identity.value,
+		digest: identity,
 		reads: storedColumnsRead(installation, reads)
 	}
 }
@@ -157,16 +149,13 @@ export interface LawChecks {
  * the law, of the rows it reads or of a definition a rule reads is a new check, and a change of its lowering is none.
  */
 export const lawChecks = (installation: Installation): LawChecks => {
-	const violations = theoryViolations(installation.laws.checked, installation.laws.theory)
-	if (!violations.ok) {
-		throw new Refusal(violations.error)
-	}
+	const violations = unwrap(theoryViolations(installation.laws.checked, installation.laws.theory))
 	return {
 		migrations: installation.laws.migrationLaws.map((law) =>
-			checkOf(installation, violations.value, law)
+			checkOf(installation, violations, law)
 		),
 		rules: installation.laws.rules.map((r): RuleCheck => ({
-			...checkOf(installation, violations.value, r.law.id),
+			...checkOf(installation, violations, r.law.id),
 			meaning: r.law.detail.kind === "containment" ? "stated" : "defined"
 		}))
 	}
