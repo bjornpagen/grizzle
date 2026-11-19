@@ -1,3 +1,4 @@
+import { assertInstanceOf } from "@bjornpagen/testing/assert"
 /**
  * Explain on PostgreSQL 19: a served member's explain (adapter/served/explain.ts, through its handle's operations,
  * adapter/db/handles.ts memberExplains) plans exactly the named prepared statements the call it explains would send,
@@ -44,922 +45,400 @@
  * analyzed read runs READ ONLY, so no state here witnesses it: test/pg/adapter/round-trips.test.ts, which reads each
  * explain's transaction off the wire, catches it.
  */
-import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
-import { set } from "@bjornpagen/testing/oracle"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { assertInstanceOf } from "@effect/vitest/utils"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	Result as EffectResult
-} from "effect"
-import { type MemberExplains, onceCalls, memberExplains, variantOf } from "#adapter/db/handles.ts"
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, Result as EffectResult } from "effect"
+import { memberExplains, onceCalls, variantOf } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import type { ExecutedPlan, Plan, PlanTarget, StatementPlan } from "#adapter/types/db.ts"
-import type { Prologue } from "#adapter/wire/batch.ts"
-import type { Session, SessionPool } from "#adapter/wire/session.ts"
-import type { ParamMap } from "#compiler/plan/common.ts"
-import { queryInput } from "#compiler/program/compile.ts"
+import { type ParamMap } from "#compiler/plan/common.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, drawn as drawnField, natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
-import { queryUses } from "#compiler/schema/walk.ts"
-import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
-import { Item, Seat, Shop, Stock, uuidOf } from "#test/pg/reads/shop.ts"
-import { installed } from "#test/pg/reads/support.ts"
 import {
-	assert,
-	assertVariant,
-	defined,
-	nonEmpty,
-	throwsRefused,
-	unorderedEqual
-} from "#test/support/assert.ts"
+	analyzing,
+	boundCases,
+	type BoundFeature,
+	boundFeatureOf,
+	boundPool,
+	boundWhole,
+	Box,
+	Boxes,
+	catalogIndexes,
+	changeCaseGen,
+	type ChangeFeature,
+	Elsewhere,
+	estimateOnly,
+	estimating,
+	executedShape,
+	explainBoxesInstall,
+	explainBoxesTemplate,
+	explainShopInstall,
+	explainShopTemplate,
+	footprintOf,
+	labels,
+	laterStratum,
+	nodes,
+	observe,
+	ofTheServed,
+	plannedStatements,
+	queryCaseGen,
+	type QueryFeature,
+	queryFeatures,
+	readExplains,
+	readsWithin,
+	refusalCaseGen,
+	type RefusalFeature,
+	refusalOf,
+	tappedPool,
+	workPrograms,
+	workReads,
+	notesUnchanged
+} from "#test/pg/reads/explain.fixtures.ts"
+import { Item, Seat, Shop, Stock, uuidOf } from "#test/pg/reads/shop.ts"
+import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
+import { assert, assertVariant, defined, throwsRefused } from "#test/support/assert.ts"
 import { answered, readOnce } from "#test/support/calls.ts"
-import { exactValue, valueHash } from "#test/support/equivalence.ts"
+import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
-import { a1, a2, t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
-import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
-import { member, withServedDb } from "#test/support/served-db.ts"
+import { t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
+import { member, openServedDb } from "#test/support/served-db.ts"
 import { flightSlotCarriers, textsNaming } from "#test/support/slot-carriers.ts"
 import { explainedTextBound } from "#test/support/staged.ts"
-import type { Credentials } from "#test/support/substrate/session.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { makeTap, type Tap, type WireWindow } from "#test/support/wire-tap.ts"
-
-import { regex } from "arkregex"
-import { Id } from "#test/support/ids.ts"
-/**
- * A schema no Db of the suite opens, holding Work's TaskNote: a ChangeSet over it is over no level of any role here.
- */
-const Elsewhere = schema("Elsewhere", [W.TaskNote], [])
-
-/** Every node of a plan tree, depth first. */
-const nodes = <N extends { readonly children: ReadonlyArray<N> }>(plan: N): ReadonlyArray<N> => [
-	plan,
-	...Arr.flatMap(plan.children, (child) => nodes(child))
-]
-
-/** The members a node's target holds by its kind, so a target holds exactly its kind's. */
-const targetKeys: { readonly [K in PlanTarget["kind"]]: ReadonlyArray<string> } = {
-	none: ["kind"],
-	relation: ["kind", "relation"],
-	index: ["index", "kind", "relation"],
-	carrier: ["kind"]
-}
-
-/** A Plan node carries exactly its public fields, each estimate a finite number, and a target of its kind's members. */
-const planShape = (plan: Plan, keys: ReadonlyArray<string>, extra: ReadonlyArray<string>): void => {
-	const target: Readonly<Record<string, unknown>> = plan.on
-	const targetHeld: ReadonlyArray<string> = Rec.keys(target)
-	unorderedEqual(keys, [
-		"children",
-		"node",
-		"on",
-		"rows",
-		"startupCost",
-		"totalCost",
-		"width",
-		...extra
-	])
-	assert.equal(typeof plan.node, "string")
-	unorderedEqual(targetHeld, targetKeys[plan.on.kind])
-	assert.deepEqual(
-		Arr.filter(
-			[plan.startupCost, plan.totalCost, plan.rows, plan.width],
-			(n) => !Number.isFinite(n)
-		),
-		[]
-	)
-}
-
-/** An estimate-only Plan: every node of exactly a Plan's fields (planShape). */
-const estimateOnly = (plan: Plan): void => {
-	for (const node of nodes(plan)) {
-		planShape(node, Rec.keys(node), [])
-	}
-}
-
-/** An executed plan: every node a Plan's fields and its actuals and buffers, each a finite number. */
-const executedShape = (plan: ExecutedPlan): void => {
-	for (const node of nodes(plan)) {
-		planShape({ ...node, children: [] }, Rec.keys(node), ["actual", "buffers"])
-		assert.deepEqual(
-			Arr.filter(
-				[
-					node.actual.startupMs,
-					node.actual.totalMs,
-					node.actual.rows,
-					node.actual.loops,
-					node.buffers.sharedHit,
-					node.buffers.sharedRead
-				],
-				(n) => !Number.isFinite(n)
-			),
-			[]
-		)
-	}
-}
-
-/** A catalog index's place: its table's schema and name, and its own name. */
-const indexKey = (schema: string, table: string, index: string): string =>
-	`${schema}\u0000${table}\u0000${index}`
-
-/** Every index the database holds, by indexKey: the catalog, read apart from the served file. */
-const catalogIndexes = Effect.gen(function* () {
-	const s = yield* Substrate
-	const rows = yield* s.admin.queryValues(
-		`SELECT n.nspname, t.relname, i.relname
-		   FROM pg_catalog.pg_index x
-		   JOIN pg_catalog.pg_class i ON i.oid = x.indexrelid
-		   JOIN pg_catalog.pg_class t ON t.oid = x.indrelid
-		   JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace`,
-		[]
-	)
-	return new Set(Arr.map(rows, (row) => indexKey(String(row[0]), String(row[1]), String(row[2]))))
-})
 
 /**
- * Every node of `plan` reads within `footprint`, the relations the member's program names, and each index node an index
- * the catalog holds on its relation's table, the table the installation's names give that relation.
+ * Explains and analyzes a drawn read: its execute's statements, by name and text, read within its footprint, each case
+ * on the worker's seat of Work with its facts loaded, opening its own tapped Db.
+ *
+ * Its pre-conversion budget: runs 20, coverage cases 20 (test/pg/reads/explain.test.ts at d1a6ae9ac).
  */
-const readsWithin = (
-	plan: Plan,
-	footprint: ReadonlySet<string>,
-	tableOf: (relation: string) => { readonly schema: string; readonly name: string },
-	indexes: ReadonlySet<string>
-): void => {
-	for (const node of nodes(plan)) {
-		const on = node.on
-		if (on.kind === "relation" || on.kind === "index") {
-			assert.ok(footprint.has(on.relation), `${on.relation}, a relation of the footprint`)
-		}
-		if (on.kind === "index") {
-			const table = tableOf(on.relation)
-			assert.ok(
-				indexes.has(indexKey(table.schema, table.name, on.index.name)),
-				`the index ${on.index.name} on ${on.relation}'s table ${table.schema}.${table.name}`
-			)
-		}
-	}
-}
-
-/** The relations a read program names: its query's, through each of its attachments (schema/walk.ts queryUses). */
-const footprintOf = (program: unknown): ReadonlySet<string> => {
-	const input = queryInput(program)
-	return input.ok ? queryUses(input.value.desc).relations : assert.fail("a read member's query")
-}
-
-/** A read member's explains: a read's two (types/db ReadExplain). */
-const readExplains = (explains: MemberExplains) =>
-	explains.kind === "read" ? explains : assert.fail("a read member explains as a read")
-
-/**
- * Each plan is of the statement the call sent at its place, under that statement's name, and explain sent an EXPLAIN of
- * exactly that statement's served text.
- */
-const ofTheServed = (
-	plans: ReadonlyArray<Pick<StatementPlan, "statement">>,
-	sent: ReadonlyArray<Executed>,
-	explained: ReadonlyArray<Executed>,
-	planning: (text: string) => string
-): void => {
-	assert.deepEqual(
-		Arr.map(plans, (p) => p.statement),
-		Arr.map(sent, (e) => e.name),
-		"one plan per statement, under its served name"
-	)
-	assert.deepEqual(
-		Arr.map(explained, (e) => e.text),
-		Arr.map(sent, (e) => planning(e.text)),
-		"an EXPLAIN of each served statement's text"
-	)
-}
-
-/** A tapped pool of one session for `credentials`, warmed so a window holds one call's traffic. */
-const tappedPool = (credentials: Credentials) =>
-	Effect.gen(function* () {
-		const { cluster } = yield* Substrate
-		const tap = makeTap(cluster)
-		const pool = yield* poolFor(credentials, {
-			...defaultPool,
-			transport: { kind: "given", transport: tap.transport },
-			pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 1 }
-		})
-		yield* Effect.scoped(
-			Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
-		)
-		return { pool, tap }
-	})
-
-/** The EXPLAIN of a served statement's text, as explain sends it: estimates alone, in JSON, naming each relation's schema. */
-const estimating = (text: string): string => `EXPLAIN (FORMAT JSON, VERBOSE) ${text}`
-
-/** The EXPLAIN ANALYZE of a served statement's text, as explainAnalyze sends it. */
-const analyzing = (text: string): string => `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) ${text}`
-
-/** A statement a window executed: the name it was bound by, and its text. */
-interface Executed {
-	readonly name: string
-	readonly text: string
-}
-
-/**
- * The statements with a plan a window sent, in order: every Execute but a utility statement's and the prologue's two,
- * which fence and enter the Db's role and are no statements of the call's, each Execute naming its statement by its
- * Bind, whose text is the Parse of that name the session last sent, in this window or an earlier one.
- */
-const plannedStatements = (
-	tap: Tap,
-	window: WireWindow,
-	prologue: Prologue
-): ReadonlyArray<Executed> => {
-	const parsed = new Map<string, string>()
-	for (const message of tap.since(0).frontend) {
-		if (message.type === "P") {
-			parsed.set(message.name, message.text)
-		}
-	}
-	let bound = ""
-	const out: Array<Executed> = []
-	for (const message of window.frontend) {
-		if (message.type === "P") {
-			parsed.set(message.name, message.text)
-		}
-		if (message.type === "B") {
-			bound = message.name
-		}
-		if (message.type !== "E") {
-			continue
-		}
-		const text = defined(parsed.get(bound), "a parsed statement")
-		if (
-			text !== prologue.fence.text.sql &&
-			text !== prologue.enter.text.sql &&
-			!regex("^\\s*CREATE\\b", "i").test(text) &&
-			!regex("^\\s*ANALYZE\\b", "i").test(text)
-		) {
-			out.push({ name: bound, text })
-		}
-	}
-	return out
-}
-
-/** The traffic of `effect`, and its value. */
-const observe = <A, E, R>(tap: Tap, effect: Effect.Effect<A, E, R>) =>
-	Effect.gen(function* () {
-		const mark = tap.mark()
-		const value = yield* effect
-		return { value, window: tap.since(mark) }
-	})
-
-type QueryFeature =
-	| "a plain read"
-	| "a union"
-	| "fused attachments"
-	| "nested attachments"
-	| "a relation parameter"
-
-const queryFeatures: Arr.NonEmptyReadonlyArray<QueryFeature> = [
-	"a plain read",
-	"a union",
-	"fused attachments",
-	"nested attachments",
-	"a relation parameter"
-]
-
-interface QueryCase {
-	readonly read: QueryFeature
-	readonly pick: number
-}
-
-const queryCaseGen: Gen<QueryCase> = (source) => ({
-	read: source.draw(element(queryFeatures)),
-	pick: source.draw(int(0, 7))
-})
-
-type ChangeFeature =
-	| "a seat inserted"
-	| "an insert"
-	| "a put"
-	| "a delete"
-	| "two strata"
-	| "a read-back"
-	| "a read-back joining a stored relation"
-	| "a refused apply"
-
-/** One ChangeSet stratum's operations over Shop, drawn. */
-type ShopOp =
-	| { readonly kind: "seat"; readonly id: number; readonly label: number }
-	| { readonly kind: "item"; readonly id: number; readonly qty: number }
-	| {
-			readonly kind: "put stock"
-			readonly id: number
-			readonly label: number
-			readonly qty: number
-	  }
-	| { readonly kind: "delete stock"; readonly id: number }
-
-const labels = ["old", "new", "aisle", "bin"] as const
-
-const label = int(0, labels.length - 1)
-
-/** Where a stratum's operation goes: an operation of a kind at a key. */
-interface OpSlot {
-	readonly kind: "seat" | "item" | "put stock" | "delete stock"
-	readonly id: number
-}
-
-/**
- * Every slot of a stratum: each kind at each key 1 to 3, so a stratum drawn as distinct slots holds one fact per key
- * of each kind by construction (a same-key pair is the refusal property's below).
- */
-const opSlots: ReadonlyArray<OpSlot> = Arr.flatMap(
-	["seat", "item", "put stock", "delete stock"] as const,
-	(kind) => Arr.map([1, 2, 3], (id): OpSlot => ({ kind, id }))
-)
-
-/** The operation at a slot, its payload drawn. */
-const opAt =
-	(slot: OpSlot): Gen<ShopOp> =>
-	(source) => {
-		switch (slot.kind) {
-			case "seat":
-				return { kind: "seat", id: slot.id, label: source.draw(label) }
-			case "item":
-				return { kind: "item", id: slot.id, qty: source.draw(int(0, 9)) }
-			case "put stock":
-				return {
-					kind: "put stock",
-					id: slot.id,
-					label: source.draw(label),
-					qty: source.draw(int(0, 9))
-				}
-			case "delete stock":
-				return { kind: "delete stock", id: slot.id }
-		}
-	}
-
-/** One stratum: one to three operations at distinct slots. */
-const stratumGen: Gen<ReadonlyArray<ShopOp>> = (source) =>
-	Arr.map(source.draw(shuffled(opSlots, { min: 1, max: 3 })), (slot) => source.draw(opAt(slot)))
-
-/**
- * A drawn ChangeSet: one or two strata of operations, and what it reads back: nothing, both sides of Item's delta, or
- * Item's added facts joined with Stock. Every stratum writes Seat, Item and Stock, so a delta of one is made by one
- * statement only where there is one stratum, and a ChangeSet of two reads nothing back (write/schedule/plan.ts
- * placeReadBacks refuses a delta two statements make). Nothing reads Seat's delta back.
- */
-interface ChangeCase {
-	readonly strata: ReadonlyArray<ReadonlyArray<ShopOp>>
-	readonly readBack: "none" | "items" | "items joined"
-}
-
-const changeCaseGen: Gen<ChangeCase> = (source) => {
-	const strata = source.draw(array(stratumGen, { min: 1, max: 2 }))
-	return {
-		strata,
-		readBack:
-			strata.length === 1
-				? source.draw(element(["none", "items", "items joined"] as const))
-				: "none"
-	}
-}
-
-/**
- * A drawn ChangeSet of note inserts, up to four over three tasks and three texts, over Work or over a schema no role of
- * the Db holds.
- */
-interface RefusalCase {
-	readonly foreign: boolean
-	readonly notes: ReadonlyArray<{ readonly task: number; readonly text: number }>
-}
-
-const refusalCaseGen: Gen<RefusalCase> = (source) => ({
-	foreign: source.draw(boolean),
-	notes: source.draw(
-		array((note) => ({ task: note.draw(int(0, 2)), text: note.draw(int(0, 2)) }), {
-			min: 1,
-			max: 4
-		})
-	)
-})
-
-type RefusalFeature = "compile" | "encode" | "explained"
-
-/**
- * What explain makes of a refusal case: a ChangeSet over no level of the Db's role does not compile; one whose notes
- * share a task with different texts is a same-key pair host normalization refuses; any other is explained.
- */
-const refusalOf = (c: RefusalCase): RefusalFeature =>
-	c.foreign
-		? "compile"
-		: Arr.some(c.notes, (a) => Arr.some(c.notes, (b) => a.task === b.task && a.text !== b.text))
-			? "encode"
-			: "explained"
-
-/** A box, the owner of an ordered family of parts whose bodies are bytes, as pantry's import nests its entries. */
-const Box = relation("Box", { id: Id, parts: drawnField(natural) }, ["id"])
-const Part = relation("Part", { box: Id, at: drawnField(natural), body: bytes }, ["box", "at"])
-/**
- * A later stratum's members, each a query member over a relation parameter of the call, since a call's facts name one
- * array member per op and relation: the first stratum's.
- */
-const seatsFrom = query(Shop).rule((r) => {
-	const rows = r.relation("seats", { no: Seat.fields.no, label: Seat.fields.label })
-	const { no, label } = v(Seat, "seat")
-	return r.match(rows, { no, label }).find({ no, label })
-})
-const itemsFrom = query(Shop).rule((r) => {
-	const rows = r.relation("items", {
-		id: Item.fields.id,
-		label: Item.fields.label,
-		qty: Item.fields.qty
-	})
-	const { id, label, qty } = v(Item, "item")
-	return r.match(rows, { id, label, qty }).find({ id, label, qty })
-})
-const stockFrom = (name: "puts" | "deletes") =>
-	query(Shop).rule((r) => {
-		const rows = r.relation(name, {
-			id: Stock.fields.id,
-			label: Stock.fields.label,
-			qty: Stock.fields.qty
-		})
-		const { id, label, qty } = v(Stock, "stock")
-		return r.match(rows, { id, label, qty }).find({ id, label, qty })
-	})
-
-/**
- * A drawn ChangeSet's later stratum, which the installation's login serves, so it installs the pattern domain of each
- * relation parameter's label (seats, items, puts, deletes): the only types a drawn ChangeSet, served under the
- * installation's snapshot, may cast a parameter to.
- */
-const laterStratum = ChangeSet.empty(Shop)
-	.insert(Seat, seatsFrom)
-	.insert(Item, itemsFrom)
-	.put(Stock, stockFrom("puts"))
-	.delete(Stock, stockFrom("deletes"))
-
-const Boxes = schema("Boxes", [Box, Part], [ordered(on(Part, "box", "at"), fin(Box, "parts"))])
-
-/** A pool whose sessions hold the message bound `limit`, as a server whose bound is below the protocol's does. */
-const boundPool = (pool: SessionPool, limit: number): SessionPool => ({
-	...pool,
-	lease: Effect.map(pool.lease, (session): Session => ({ ...session, messageMaxBytes: limit }))
-})
-
-/** A part body's length as a share of the session's bound, in thousandths of `boundWhole`. */
-const boundWhole = 1_000
-
-/**
- * Where a box's bodies stand against the session's bound: a body past it, which neither the application nor explain
- * sends; every body within it and all of them within it together; or every body within it and together past it, so the
- * application cuts the write into several executions, each under the bound.
- */
-type BoundFeature =
-	| "a body past the bound"
-	| "bodies within the bound together"
-	| "bodies within the bound, together past it"
-
-/** The situation of a box whose bodies are `shares` of the bound (BoundFeature). */
-const boundFeatureOf = (shares: ReadonlyArray<number>): BoundFeature =>
-	Arr.some(shares, (share) => share > boundWhole)
-		? "a body past the bound"
-		: Arr.reduce(shares, 0, (sum, share) => sum + share) > boundWhole
-			? "bodies within the bound, together past it"
-			: "bodies within the bound together"
-
-/** A box's parts, each body's length a share of the session's bound: within it, or past it by up to the bound again. */
-interface BoundCase {
-	readonly shares: Arr.NonEmptyReadonlyArray<number>
-}
-
-const boundCaseGen: Gen<BoundCase> = (source) => ({
-	shares: nonEmpty(
-		source.draw(array(int(1, 2 * boundWhole), { min: 1, max: 4 })),
-		"a box holds a part"
-	)
-})
-
-/** Two to four bodies each past half the bound and within it, so they are within it alone and past it together. */
-const togetherPastGen: Gen<BoundCase> = (source) => ({
-	shares: nonEmpty(
-		source.draw(array(int(boundWhole / 2 + 1, boundWhole), { min: 2, max: 4 })),
-		"a box holds a part"
-	)
-})
-
-/** The shares a case whose turn aims at bodies together past the bound draws (aimed): togetherPastGen's. */
-const boundAims: ReadonlyArray<readonly [BoundFeature, Gen<BoundCase>]> = [
-	["bodies within the bound, together past it", togetherPastGen]
-]
-
-/** Each search's budget beside its suite, draw and features. */
-const budget = {
-	literal: Formatter.format,
-	shrink: completeShrink,
-	steerEvery: 16,
-	caseHang
-} as const
-
-layer(Substrate.layer)("workload explain", (it) => {
-	it.effect(
-		"explains and analyzes a drawn read: its execute's statements, by name and text, read within its footprint",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const o = yield* installed(W.Work, workFacts, {
-						label: "real",
-						programs: {}
-					})
-					const accountTasks = query(W.Work)
-						.rule((r) => {
-							const { id, name } = v(W.Account, "account")
-							return r
-								.match(W.Account, { id, name })
-								.where(r.eq(id, r.param("account", Id)))
-								.find({ id, name })
-						})
-						.attach(
-							"tasks",
-							(a) =>
-								query(W.Work)
-									.rule((r) => {
-										const { id, kind } = v(W.Task, "task")
-										return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
-									})
-									.attach(
-										"note",
-										(t) =>
-											query(W.Work).rule((r) => {
-												const { note } = v(W.TaskNote, "taskNote")
-												return r.match(W.TaskNote, { task: t.id, note }).find({ note })
-											}),
-										"option"
-									),
-							"array"
-						)
-					const indexes = yield* catalogIndexes
-					const tableOf = (relation: string) => o.installed.installation.names.relation(relation)
-					return yield* withServedDb(
-						o.installed,
-						o.server.roles.app,
-						{},
-						({ ctx, loadWithTables }) =>
+export const explainsAndAnalyzesADrawnReadItsExecutesStatementsByNameAndTextReadWithinItsFootprint =
+	property.explore(queryCaseGen, {
+		needs: { seated: Substrate.seat(workSeatTemplate) },
+		situations: queryFeatures satisfies ReadonlyArray<Reached<QueryFeature>>,
+		check:
+			({ seated }, notes: Case<QueryFeature>) =>
+			(c) =>
+				Effect.scoped(
+					Effect.flatMap(seated, (taken) =>
+						Effect.provideService(
 							Effect.gen(function* () {
+								const o = yield* openedIn(W.Work, workFacts, workSeatInstall, taken)
+								const indexes = yield* catalogIndexes
+								const tableOf = (relation: string) =>
+									o.installed.installation.names.relation(relation)
+								const { ctx, loadWithTables } = yield* openServedDb(
+									o.installed,
+									o.server.roles.app,
+									{}
+								)
 								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
 								const context = { ...ctx, pool }
-								const programs = {
-									plainRead: W.automaticBudget,
-									union: W.taskPayloads,
-									fused: W.taskCards,
-									nested: accountTasks,
-									relationParameter: W.tasksById
+								const { members, tables } = yield* loadWithTables(workPrograms)
+								const read = workReads[c.read]
+								const params = read.params(c.pick)
+								const program = member(members, read.member)
+								const explains = readExplains(memberExplains(context, tables, program))
+								const plans = yield* observe(tap, explains.explain({ params, facts: {} }))
+								const analyzed = yield* observe(tap, explains.explainAnalyze({ params, facts: {} }))
+								const executed = yield* observe(
+									tap,
+									readOnce(onceCalls(context, program))({ params, facts: {} })
+								)
+								const sent = plannedStatements(tap, executed.window, context.prologue)
+								ofTheServed(
+									plans.value,
+									sent,
+									plannedStatements(tap, plans.window, context.prologue),
+									estimating
+								)
+								ofTheServed(
+									analyzed.value,
+									sent,
+									plannedStatements(tap, analyzed.window, context.prologue),
+									analyzing
+								)
+								const footprint = footprintOf(workPrograms[read.member])
+								for (const plan of plans.value) {
+									estimateOnly(plan.plan)
+									readsWithin(plan.plan, footprint, tableOf, indexes)
 								}
-								const { members, tables } = yield* loadWithTables(programs)
-								const reads = {
-									"a plain read": { member: "plainRead", params: () => ({}) },
-									"a union": { member: "union", params: () => ({}) },
-									"fused attachments": {
-										member: "fused",
-										params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
-									},
-									"nested attachments": {
-										member: "nested",
-										params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
-									},
-									"a relation parameter": {
-										member: "relationParameter",
-										params: (pick: number) => ({
-											ids: Arr.map([t2, t4, tMissing].slice(0, pick % 4), (id) => ({ id }))
-										})
-									}
-								} as const
-								return yield* explore(
-									{
-										oracle: {
-											kind: "second-implementation",
-											name: "the execution of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text; and the catalog's indexes of the footprint's tables"
-										},
-										...budget,
-										suite: "reads/explain queries",
-										draw: drawn(queryCaseGen),
-										kept: [],
-										runs: 20,
-										coverage: required<QueryFeature>(queryFeatures, { cases: 20, sense: notesOnly })
-									},
-									(c, notes) =>
-										Effect.gen(function* () {
-											const read = reads[c.read]
-											const params = read.params(c.pick)
-											const program = member(members, read.member)
-											const explains = readExplains(memberExplains(context, tables, program))
-											const plans = yield* observe(tap, explains.explain({ params, facts: {} }))
-											const analyzed = yield* observe(
-												tap,
-												explains.explainAnalyze({ params, facts: {} })
-											)
-											const executed = yield* observe(
-												tap,
-												readOnce(onceCalls(context, program))({ params, facts: {} })
-											)
-											const sent = plannedStatements(tap, executed.window, context.prologue)
-											ofTheServed(
-												plans.value,
-												sent,
-												plannedStatements(tap, plans.window, context.prologue),
-												estimating
-											)
-											ofTheServed(
-												analyzed.value,
-												sent,
-												plannedStatements(tap, analyzed.window, context.prologue),
-												analyzing
-											)
-											const footprint = footprintOf(programs[read.member])
-											for (const plan of plans.value) {
-												estimateOnly(plan.plan)
-												readsWithin(plan.plan, footprint, tableOf, indexes)
-											}
-											for (const plan of analyzed.value) {
-												executedShape(plan.plan)
-												assert.ok(
-													Number.isFinite(plan.planningMs) && Number.isFinite(plan.executionMs),
-													"an analyzed statement's times"
-												)
-											}
-											notes.note(c.read)
-										})
-								)
-							})
+								for (const plan of analyzed.value) {
+									executedShape(plan.plan)
+									assert.ok(
+										Number.isFinite(plan.planningMs) && Number.isFinite(plan.executionMs),
+										"an analyzed statement's times"
+									)
+								}
+								notes.note(c.read)
+							}),
+							Substrate,
+							taken.substrate
+						)
 					)
-				}).pipe(Effect.scoped)
-			)
-	)
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the execution of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text; and the catalog's indexes of the footprint's tables"
+		},
+		show: Formatter.format,
+		budget: { runs: 20, steered: 20 },
+		kept: [],
+		kills: []
+	})
 
-	it.effect(
-		"explains a drawn ChangeSet: its apply's plannable statements, by name and text, within its footprint, executing nothing",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const o = yield* installed(Shop, {}, { label: "real", programs: { later: laterStratum } })
-					const state = () =>
-						Effect.all([
-							tableState(o.installed, Seat),
-							tableState(o.installed, Stock),
-							tableState(o.installed, Item)
-						])
-					const indexes = yield* catalogIndexes
-					const tableOf = (relation: string) => o.installed.installation.names.relation(relation)
-					/** The relations every drawn ChangeSet writes and reads back. */
-					const footprint: ReadonlySet<string> = new Set(["Seat", "Item", "Stock"])
-					return yield* withServedDb(
-						o.installed,
-						o.server.roles.app,
-						{},
-						({ ctx, loadWithTables }) =>
+/**
+ * Explains a drawn ChangeSet: its apply's plannable statements, by name and text, within its footprint, executing
+ * nothing, each case on the worker's seat of the Shop fixture, opening its own tapped Db, its apply's rows emptied after
+ * it.
+ *
+ * Its pre-conversion budget: runs 40, coverage cases 40 (test/pg/reads/explain.test.ts at d1a6ae9ac).
+ */
+export const explainsADrawnChangeSetItsApplysPlannableStatementsByNameAndTextWithinItsFootprintExecutingNothing =
+	property.explore(changeCaseGen, {
+		needs: { shop: Substrate.seat(explainShopTemplate) },
+		situations: [
+			"a seat inserted",
+			"an insert",
+			"a put",
+			"a delete",
+			"two strata",
+			"a read-back",
+			"a read-back joining a stored relation"
+		] satisfies ReadonlyArray<Reached<ChangeFeature>>,
+		check:
+			({ shop }, notes: Case<ChangeFeature>) =>
+			(c) =>
+				Effect.scoped(
+					Effect.flatMap(shop, (taken) =>
+						Effect.provideService(
 							Effect.gen(function* () {
+								const o = yield* openedIn(Shop, {}, explainShopInstall, taken)
+								const state = () =>
+									Effect.all([
+										tableState(o.installed, Seat),
+										tableState(o.installed, Stock),
+										tableState(o.installed, Item)
+									])
+								const indexes = yield* catalogIndexes
+								const tableOf = (relation: string) =>
+									o.installed.installation.names.relation(relation)
+								/** The relations every drawn ChangeSet writes and reads back. */
+								const footprint: ReadonlySet<string> = new Set(["Seat", "Item", "Stock"])
+								const { ctx, loadWithTables } = yield* openServedDb(
+									o.installed,
+									o.server.roles.app,
+									{}
+								)
 								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
 								const context = { ...ctx, pool }
-								return yield* explore(
-									{
-										oracle: {
-											kind: "second-implementation",
-											name: "the application of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text, and the state before it unchanged by the explain; and the catalog's indexes of the footprint's tables"
-										},
-										...budget,
-										/** Nothing executed: no fact written. */
-										suite: "reads/explain changesets",
-										draw: drawn(changeCaseGen),
-										kept: [],
-										runs: 40,
-										coverage: required<ChangeFeature>(
-											[
-												"a seat inserted",
-												"an insert",
-												"a put",
-												"a delete",
-												"two strata",
-												"a read-back",
-												"a read-back joining a stored relation"
-											],
-											{ cases: 40, sense: notesOnly }
-										)
-									},
-									(c, notes) =>
-										Effect.gen(function* () {
-											/** A stratum's operations, each kind's facts together. */
-											const strata = Arr.map(c.strata, (ops) => {
-												const seats = Arr.flatMap(ops, (op) =>
-													op.kind === "seat"
-														? [{ no: BigInt(op.id), label: defined(labels[op.label]) }]
-														: []
+								/** A stratum's operations, each kind's facts together. */
+								const strata = Arr.map(c.strata, (ops) => {
+									const seats = Arr.flatMap(ops, (op) =>
+										op.kind === "seat"
+											? [{ no: BigInt(op.id), label: defined(labels[op.label]) }]
+											: []
+									)
+									const items = Arr.flatMap(ops, (op) =>
+										op.kind === "item"
+											? [{ id: uuidOf(op.id), label: "bin", qty: BigInt(op.qty) }]
+											: []
+									)
+									const puts = Arr.flatMap(ops, (op) =>
+										op.kind === "put stock"
+											? [
+													{
+														id: uuidOf(op.id),
+														label: defined(labels[op.label]),
+														qty: BigInt(op.qty)
+													}
+												]
+											: []
+									)
+									const deletes = Arr.flatMap(ops, (op) =>
+										op.kind === "delete stock" ? [{ id: uuidOf(op.id), label: "old", qty: 0n }] : []
+									)
+									if (seats.length > 0) {
+										notes.note("a seat inserted")
+									}
+									if (items.length > 0) {
+										notes.note("an insert")
+									}
+									if (puts.length > 0) {
+										notes.note("a put")
+									}
+									if (deletes.length > 0) {
+										notes.note("a delete")
+									}
+									return { seats, items, puts, deletes }
+								})
+								const [first, second] = strata
+								const written = defined(first, "a first stratum")
+								/** The first stratum's array members, each a call's facts. */
+								const firstStratum = ChangeSet.empty(Shop)
+									.insert(Seat, [])
+									.insert(Item, [])
+									.put(Stock, [])
+									.delete(Stock, [])
+								const sequenced =
+									second === undefined
+										? firstStratum
+										: ChangeSet.sequence(firstStratum, laterStratum)
+								if (second !== undefined) {
+									notes.note("two strata")
+								}
+								const changes =
+									c.readBack === "none"
+										? sequenced
+										: c.readBack === "items joined"
+											? sequenced.read("items", (d) =>
+													query(Shop).rule((r) => {
+														const { id, label, qty } = v(Stock, "stock")
+														return r
+															.match(d.added(Item), { id })
+															.match(Stock, { id, label, qty })
+															.find({ id, label, qty })
+													})
 												)
-												const items = Arr.flatMap(ops, (op) =>
-													op.kind === "item"
-														? [{ id: uuidOf(op.id), label: "bin", qty: BigInt(op.qty) }]
-														: []
+											: sequenced.read("items", (d) =>
+													query(Shop)
+														.rule((r) => {
+															const { id, label, qty } = v(Item, "item")
+															return r
+																.match(d.added(Item), { id, label, qty })
+																.find({ side: "added", id, label, qty })
+														})
+														.rule((r) => {
+															const { id, label, qty } = v(Item, "item")
+															return r
+																.match(d.removed(Item), { id, label, qty })
+																.find({ side: "removed", id, label, qty })
+														})
 												)
-												const puts = Arr.flatMap(ops, (op) =>
-													op.kind === "put stock"
-														? [
-																{
-																	id: uuidOf(op.id),
-																	label: defined(labels[op.label]),
-																	qty: BigInt(op.qty)
-																}
-															]
-														: []
-												)
-												const deletes = Arr.flatMap(ops, (op) =>
-													op.kind === "delete stock"
-														? [{ id: uuidOf(op.id), label: "old", qty: 0n }]
-														: []
-												)
-												if (seats.length > 0) {
-													notes.note("a seat inserted")
-												}
-												if (items.length > 0) {
-													notes.note("an insert")
-												}
-												if (puts.length > 0) {
-													notes.note("a put")
-												}
-												if (deletes.length > 0) {
-													notes.note("a delete")
-												}
-												return { seats, items, puts, deletes }
-											})
-											const [first, second] = strata
-											const written = defined(first, "a first stratum")
-											/** The first stratum's array members, each a call's facts. */
-											const firstStratum = ChangeSet.empty(Shop)
-												.insert(Seat, [])
-												.insert(Item, [])
-												.put(Stock, [])
-												.delete(Stock, [])
-											const sequenced =
-												second === undefined
-													? firstStratum
-													: ChangeSet.sequence(firstStratum, laterStratum)
-											if (second !== undefined) {
-												notes.note("two strata")
+								const facts = {
+									insert: { Seat: written.seats, Item: written.items },
+									put: { Stock: written.puts },
+									delete: { Stock: written.deletes }
+								}
+								const params: ParamMap =
+									second === undefined
+										? {}
+										: {
+												seats: second.seats,
+												items: second.items,
+												puts: second.puts,
+												deletes: second.deletes
 											}
-											const changes =
-												c.readBack === "none"
-													? sequenced
-													: c.readBack === "items joined"
-														? sequenced.read("items", (d) =>
-																query(Shop).rule((r) => {
-																	const { id, label, qty } = v(Stock, "stock")
-																	return r
-																		.match(d.added(Item), { id })
-																		.match(Stock, { id, label, qty })
-																		.find({ id, label, qty })
-																})
-															)
-														: sequenced.read("items", (d) =>
-																query(Shop)
-																	.rule((r) => {
-																		const { id, label, qty } = v(Item, "item")
-																		return r
-																			.match(d.added(Item), { id, label, qty })
-																			.find({ side: "added", id, label, qty })
-																	})
-																	.rule((r) => {
-																		const { id, label, qty } = v(Item, "item")
-																		return r
-																			.match(d.removed(Item), { id, label, qty })
-																			.find({ side: "removed", id, label, qty })
-																	})
-															)
-											const facts = {
-												insert: { Seat: written.seats, Item: written.items },
-												put: { Stock: written.puts },
-												delete: { Stock: written.deletes }
-											}
-											const params: ParamMap =
-												second === undefined
-													? {}
-													: {
-															seats: second.seats,
-															items: second.items,
-															puts: second.puts,
-															deletes: second.deletes
-														}
-											const loaded = yield* loadWithTables({ changes })
-											const change = member(loaded.members, "changes")
-											const explains = memberExplains(context, loaded.tables, change)
-											assertVariant(
-												explains,
-												"kind",
-												"change",
-												"a ChangeSet of array members explains with its call's facts"
-											)
-											const before = yield* state()
-											const plans = yield* observe(tap, explains.explain({ params, facts }))
-											const after = yield* state()
-											assert.deepEqual(
-												exactValue(after, before),
-												Option.none(),
-												"explain executes nothing"
-											)
-											for (const plan of plans.value) {
-												estimateOnly(plan.plan)
-												readsWithin(plan.plan, footprint, tableOf, indexes)
-											}
-											const calls = onceCalls(context, change)
-											assertVariant(
-												calls,
-												"shape",
-												"write",
-												"a ChangeSet of array members takes its call's facts"
-											)
-											const applied = yield* observe(
-												tap,
-												Effect.result(answered(calls.once({ params, facts })))
-											)
-											ofTheServed(
-												plans.value,
-												plannedStatements(tap, applied.window, context.prologue),
-												plannedStatements(tap, plans.window, context.prologue),
-												estimating
-											)
-											if (applied.value._tag === "Failure") {
-												notes.note("a refused apply")
-											}
-											if (c.readBack !== "none") {
-												assertVariant(
-													change,
-													"kind",
-													"change",
-													"the changes member is a ChangeSet's"
-												)
-												const flight = variantOf(context, change.variants).entry.program
-												const staged = flightSlotCarriers(flight)
-												assert.deepEqual(
-													Arr.filter(
-														flight.statements,
-														(s) => s.step.kind === "carrier" && !staged.has(s.step.carrier)
-													),
-													[],
-													"a read-back rides the statement that makes its delta: every carrier the flight creates is a staged member slot's"
-												)
-												const naming = textsNaming(flight, staged)
-												assert.deepEqual(
-													Arr.filter(
-														Arr.flatMap(plans.value, (p) =>
-															naming.has(p.statement) ? [] : nodes(p.plan)
-														),
-														(n) => n.on.kind === "carrier"
-													),
-													[],
-													"a read-back rides the statement that makes its delta: no plan reads a carrier but a staged member slot's statements"
-												)
-												notes.note("a read-back")
-											}
-											if (c.readBack === "items joined") {
-												notes.note("a read-back joining a stored relation")
-											}
-										})
+								const loaded = yield* loadWithTables({ changes })
+								const change = member(loaded.members, "changes")
+								const explains = memberExplains(context, loaded.tables, change)
+								assertVariant(
+									explains,
+									"kind",
+									"change",
+									"a ChangeSet of array members explains with its call's facts"
 								)
-							})
+								const before = yield* state()
+								const plans = yield* observe(tap, explains.explain({ params, facts }))
+								const after = yield* state()
+								assert.deepEqual(
+									exactValue(after, before),
+									Option.none(),
+									"explain executes nothing"
+								)
+								for (const plan of plans.value) {
+									estimateOnly(plan.plan)
+									readsWithin(plan.plan, footprint, tableOf, indexes)
+								}
+								const calls = onceCalls(context, change)
+								assertVariant(
+									calls,
+									"shape",
+									"write",
+									"a ChangeSet of array members takes its call's facts"
+								)
+								const applied = yield* observe(
+									tap,
+									Effect.result(answered(calls.once({ params, facts })))
+								)
+								ofTheServed(
+									plans.value,
+									plannedStatements(tap, applied.window, context.prologue),
+									plannedStatements(tap, plans.window, context.prologue),
+									estimating
+								)
+								if (applied.value._tag === "Failure") {
+									notes.note("a refused apply")
+								}
+								if (c.readBack !== "none") {
+									assertVariant(change, "kind", "change", "the changes member is a ChangeSet's")
+									const flight = variantOf(context, change.variants).entry.program
+									const staged = flightSlotCarriers(flight)
+									assert.deepEqual(
+										Arr.filter(
+											flight.statements,
+											(s) => s.step.kind === "carrier" && !staged.has(s.step.carrier)
+										),
+										[],
+										"a read-back rides the statement that makes its delta: every carrier the flight creates is a staged member slot's"
+									)
+									const naming = textsNaming(flight, staged)
+									assert.deepEqual(
+										Arr.filter(
+											Arr.flatMap(plans.value, (p) =>
+												naming.has(p.statement) ? [] : nodes(p.plan)
+											),
+											(n) => n.on.kind === "carrier"
+										),
+										[],
+										"a read-back rides the statement that makes its delta: no plan reads a carrier but a staged member slot's statements"
+									)
+									notes.note("a read-back")
+								}
+								if (c.readBack === "items joined") {
+									notes.note("a read-back joining a stored relation")
+								}
+							}),
+							Substrate,
+							taken.substrate
+						)
 					)
-				}).pipe(Effect.scoped)
-			)
-	)
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the application of the same call on a tapped session: one plan per plannable statement it sent, under its name, over its text, and the state before it unchanged by the explain; and the catalog's indexes of the footprint's tables"
+		},
+		show: Formatter.format,
+		budget: { runs: 40, steered: 40 },
+		kept: [],
+		kills: []
+	})
 
-	it.effect(
-		"refuses a drawn ChangeSet at compile or encode before any session as its model says, and explains every other, executing nothing",
-		(test) =>
-			searched(
-				test,
-				Effect.gen(function* () {
-					const o = yield* installed(W.Work, workFacts, {
-						label: "real",
-						programs: {}
-					})
-					const before = yield* tableState(o.installed, W.TaskNote)
-					const explored = yield* withServedDb(
-						o.installed,
-						o.server.roles.app,
-						{},
-						({ ctx, loadWithTables }) =>
+/**
+ * Refuses a drawn ChangeSet at compile or encode before any session as its model says, and explains every other,
+ * executing nothing: the notes table as each case found it, each case on the worker's seat of Work with its facts loaded.
+ *
+ * Its pre-conversion budget: runs 20, coverage cases 20 (test/pg/reads/explain.test.ts at d1a6ae9ac), whose one check of
+ * the notes table after every case is each case's own.
+ */
+export const refusesADrawnChangeSetAtCompileOrEncodeBeforeAnySessionAsItsModelSaysAndExplainsEveryOther =
+	property.explore(refusalCaseGen, {
+		needs: { seated: Substrate.seat(workSeatTemplate) },
+		situations: ["compile", "encode", "explained"] satisfies ReadonlyArray<Reached<RefusalFeature>>,
+		check:
+			({ seated }, notes: Case<RefusalFeature>) =>
+			(c) =>
+				Effect.scoped(
+					Effect.flatMap(seated, (taken) =>
+						Effect.provideService(
 							Effect.gen(function* () {
+								const o = yield* openedIn(W.Work, workFacts, workSeatInstall, taken)
+								const { ctx, loadWithTables } = yield* openServedDb(
+									o.installed,
+									o.server.roles.app,
+									{}
+								)
 								/** The notes member, each call's facts; a ChangeSet over Elsewhere is refused where its workload is built. */
 								const loaded = yield* loadWithTables({
 									notes: ChangeSet.empty(o.schema).insert(W.TaskNote, [])
@@ -982,120 +461,121 @@ layer(Substrate.layer)("workload explain", (it) => {
 									return assert.fail("a ChangeSet of array members explains with its call's facts")
 								}
 								const tasks = [t2, t4, tMissing] as const
-								return yield* explore(
-									{
-										...budget,
-										suite: "reads/explain refusals",
-										draw: drawn(refusalCaseGen),
-										kept: [],
-										runs: 20,
-										coverage: required<RefusalFeature>(["compile", "encode", "explained"], {
-											cases: 20,
-											sense: notesOnly
-										}),
-										oracle: {
-											kind: "specification",
-											name: "host normalization's same-key refusal and the write scope's, both before any session"
+								yield* notesUnchanged(
+									o.installed,
+									Effect.gen(function* () {
+										const facts = Arr.map(c.notes, (n) => ({
+											task: defined(tasks[n.task]),
+											note: `note ${n.text}`
+										}))
+										const leased = leases.count
+										const expected = refusalOf(c)
+										if (expected === "compile") {
+											throwsRefused(
+												() =>
+													workload(o.server.roles.app.role, {
+														foreign: ChangeSet.empty(Elsewhere).insert(
+															Elsewhere.relations.TaskNote,
+															[]
+														)
+													}),
+												"MalformedDescription",
+												"a ChangeSet over Elsewhere, no level of the role's schema"
+											)
+											assert.equal(leases.count, leased, "no session leased")
+											notes.note(expected)
+											return
 										}
-									},
-									(c, notes) =>
-										Effect.gen(function* () {
-											const facts = Arr.map(c.notes, (n) => ({
-												task: defined(tasks[n.task]),
-												note: `note ${n.text}`
-											}))
-											const leased = leases.count
-											const expected = refusalOf(c)
-											if (expected === "compile") {
-												throwsRefused(
-													() =>
-														workload(o.server.roles.app.role, {
-															foreign: ChangeSet.empty(Elsewhere).insert(
-																Elsewhere.relations.TaskNote,
-																[]
-															)
-														}),
-													"MalformedDescription",
-													"a ChangeSet over Elsewhere, no level of the role's schema"
+										const explained = yield* Effect.result(
+											notesExplains.explain({
+												params: {},
+												facts: { insert: { TaskNote: facts } }
+											})
+										)
+										switch (expected) {
+											case "explained": {
+												assertVariant(explained, "_tag", "Success", "a ChangeSet the host admits")
+												for (const plan of explained.success) {
+													estimateOnly(plan.plan)
+												}
+												break
+											}
+											case "encode": {
+												assertVariant(explained, "_tag", "Failure", "a ChangeSet the host refuses")
+												const refusal = explained.failure
+												assertInstanceOf(refusal, ReadFailure)
+												assert.equal(refusal.stage, expected)
+												assertVariant(
+													refusal.reason,
+													"_tag",
+													"InputRejected",
+													"host normalization's same-key refusal"
+												)
+												const witness = refusal.reason.witness
+												assertVariant(witness, "kind", "key", "the key the call states twice")
+												assert.equal(witness.relation, "TaskNote")
+												assert.ok(
+													Arr.some(c.notes, (a) =>
+														Arr.some(
+															c.notes,
+															(b) =>
+																a.task === b.task &&
+																a.text !== b.text &&
+																witness.values["task"] === tasks[a.task]
+														)
+													),
+													`the witness ${Formatter.format(witness)} names a task stated with two notes`
 												)
 												assert.equal(leases.count, leased, "no session leased")
-												notes.note(expected)
-												return
+												break
 											}
-											const explained = yield* Effect.result(
-												notesExplains.explain({
-													params: {},
-													facts: { insert: { TaskNote: facts } }
-												})
-											)
-											switch (expected) {
-												case "explained": {
-													assertVariant(explained, "_tag", "Success", "a ChangeSet the host admits")
-													for (const plan of explained.success) {
-														estimateOnly(plan.plan)
-													}
-													break
-												}
-												case "encode": {
-													assertVariant(
-														explained,
-														"_tag",
-														"Failure",
-														"a ChangeSet the host refuses"
-													)
-													const refusal = explained.failure
-													assertInstanceOf(refusal, ReadFailure)
-													assert.equal(refusal.stage, expected)
-													assertVariant(
-														refusal.reason,
-														"_tag",
-														"InputRejected",
-														"host normalization's same-key refusal"
-													)
-													const witness = refusal.reason.witness
-													assertVariant(witness, "kind", "key", "the key the call states twice")
-													assert.equal(witness.relation, "TaskNote")
-													assert.ok(
-														Arr.some(c.notes, (a) =>
-															Arr.some(
-																c.notes,
-																(b) =>
-																	a.task === b.task &&
-																	a.text !== b.text &&
-																	witness.values["task"] === tasks[a.task]
-															)
-														),
-														`the witness ${Formatter.format(witness)} names a task stated with two notes`
-													)
-													assert.equal(leases.count, leased, "no session leased")
-													break
-												}
-											}
-											notes.note(expected)
-										})
+										}
+										notes.note(expected)
+									})
 								)
-							})
+							}),
+							Substrate,
+							taken.substrate
+						)
 					)
-					const after = yield* tableState(o.installed, W.TaskNote)
-					assert.deepEqual(set(valueHash, exactValue)(after, before), Option.none())
-					return explored
-				}).pipe(Effect.scoped)
-			)
-	)
+				),
+		oracle: {
+			kind: "specification",
+			name: "host normalization's same-key refusal and the write scope's, both before any session"
+		},
+		show: Formatter.format,
+		budget: { runs: 20, steered: 20 },
+		kept: [],
+		kills: []
+	})
 
-	it.effect(
-		"explains a served ChangeSet under its session's message bound, as its application cuts it",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const o = yield* installed(Boxes, {}, { label: "boxes", programs: {} })
-					return yield* withServedDb(
-						o.installed,
-						o.server.roles.app,
-						{},
-						({ ctx: served, loadWithTables }) =>
+/**
+ * Explains a served ChangeSet under its session's message bound, as its application cuts it, each case on the worker's
+ * seat of the Boxes fixture, its box emptied after it.
+ *
+ * Its pre-conversion budget: runs 12, coverage cases 12 (test/pg/reads/explain.test.ts at d1a6ae9ac).
+ */
+export const explainsAServedChangeSetUnderItsSessionsMessageBoundAsItsApplicationCutsIt =
+	property.explore(boundCases, {
+		needs: { boxes: Substrate.seat(explainBoxesTemplate) },
+		situations: [
+			"a body past the bound",
+			"bodies within the bound together",
+			"bodies within the bound, together past it"
+		] satisfies ReadonlyArray<Reached<BoundFeature>>,
+		check:
+			({ boxes: seat }, notes: Case<BoundFeature>) =>
+			(c) =>
+				Effect.scoped(
+					Effect.flatMap(seat, (taken) =>
+						Effect.provideService(
 							Effect.gen(function* () {
+								const o = yield* openedIn(Boxes, {}, explainBoxesInstall, taken)
+								const { ctx: served, loadWithTables } = yield* openServedDb(
+									o.installed,
+									o.server.roles.app,
+									{}
+								)
 								const loaded = yield* loadWithTables({
 									boxes: ChangeSet.empty(o.schema).insert(Box, [])
 								})
@@ -1115,65 +595,44 @@ layer(Substrate.layer)("workload explain", (it) => {
 										"a ChangeSet with array members explains with its call's facts"
 									)
 								}
-								let next = 0
-								return yield* explore(
-									{
-										oracle: {
-											kind: "second-implementation",
-											name: "the application of the same call on the same session, which cuts under its bound"
-										},
-										...budget,
-										suite: "reads/explain session bound",
-										draw: aimed(boundCaseGen, boundAims),
-										kept: [],
-										runs: 12,
-										coverage: required<BoundFeature>(
-											[
-												"a body past the bound",
-												"bodies within the bound together",
-												"bodies within the bound, together past it"
-											],
-											{ cases: 12, sense: notesOnly }
-										)
-									},
-									(c, notes) =>
-										Effect.gen(function* () {
-											next += 1
-											const lengths = Arr.map(c.shares, (share) =>
-												Math.floor((limit * share) / boundWhole)
-											)
-											notes.note(boundFeatureOf(c.shares))
-											const facts = {
-												insert: {
-													Box: [
-														{
-															id: uuidOf(next),
-															parts: Arr.map(lengths, (n) => ({ body: new Uint8Array(n) }))
-														}
-													]
-												}
-											}
-											const explained = yield* Effect.result(
-												explains.explain({ params: {}, facts })
-											)
-											const applied = yield* Effect.result(
-												answered(handle.once({ params: {}, facts }))
-											)
-											assert.equal(
-												EffectResult.isSuccess(explained),
-												EffectResult.isSuccess(applied),
-												`explain under a session bound of ${limit} bytes of bodies ${Formatter.format(lengths)} plans exactly where the application writes: ${Formatter.format(explained)} beside ${Formatter.format(applied)}`
-											)
-											if (EffectResult.isSuccess(explained)) {
-												for (const plan of explained.success) {
-													estimateOnly(plan.plan)
-												}
-											}
-										})
+								const lengths = Arr.map(c.shares, (share) =>
+									Math.floor((limit * share) / boundWhole)
 								)
-							})
+								notes.note(boundFeatureOf(c.shares))
+								const facts = {
+									insert: {
+										Box: [
+											{
+												id: uuidOf(1),
+												parts: Arr.map(lengths, (n) => ({ body: new Uint8Array(n) }))
+											}
+										]
+									}
+								}
+								const explained = yield* Effect.result(explains.explain({ params: {}, facts }))
+								const applied = yield* Effect.result(answered(handle.once({ params: {}, facts })))
+								assert.equal(
+									EffectResult.isSuccess(explained),
+									EffectResult.isSuccess(applied),
+									`explain under a session bound of ${limit} bytes of bodies ${Formatter.format(lengths)} plans exactly where the application writes: ${Formatter.format(explained)} beside ${Formatter.format(applied)}`
+								)
+								if (EffectResult.isSuccess(explained)) {
+									for (const plan of explained.success) {
+										estimateOnly(plan.plan)
+									}
+								}
+							}),
+							Substrate,
+							taken.substrate
+						)
 					)
-				}).pipe(Effect.scoped)
-			)
-	)
-})
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the application of the same call on the same session, which cuts under its bound"
+		},
+		show: Formatter.format,
+		budget: { runs: 12, steered: 12 },
+		kept: [],
+		kills: []
+	})
