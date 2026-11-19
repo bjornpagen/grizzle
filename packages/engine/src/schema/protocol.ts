@@ -155,31 +155,12 @@ export const predicateValue = (expr: OpenExpr): PredicateValue =>
 	registerPredicate(Object.freeze({ ...builtMark, predicate: true, expr }), expr)
 
 /**
- * What the builder registers of each query value it made (query/build/query.ts): the schema or role value it is over,
- * which role admission reads to refuse a query entry built over anything but its base or one of its levels, and its
- * Description as the value's `desc` yields it. A value the builder did not make carries none.
- */
-interface OwnedQuery {
-	readonly schema: object
-	readonly desc: () => QueryDesc
-}
-
-const ownedQueries = new WeakMap<object, OwnedQuery>()
-
-export const registerOwnedQuery = (query: object, schema: object, desc: () => QueryDesc): void => {
-	ownedQueries.set(query, { schema, desc })
-}
-
-export const querySchemaOf = (value: unknown): object | undefined =>
-	hasProperties(value) ? ownedQueries.get(value)?.schema : undefined
-
-/**
  * Queries: a query value carries its QueryDesc under `desc`, as every owned value does. A query value the builder made
  * yields the Description it registered, decoded where its parts were checked; any other value's `desc` is a
  * JavaScript caller's, decoded here.
  */
 export const queryDescOf = (value: unknown, label: string): QueryDesc => {
-	const owned = hasProperties(value) ? ownedQueries.get(value) : undefined
+	const owned = ownedEntry(value, "query")
 	if (owned !== undefined) {
 		return owned.desc()
 	}
@@ -198,21 +179,18 @@ export type HeadingTyping =
 	| { readonly kind: "untyped" }
 
 /**
- * Each query value's heading as the builder typed it, registered by the builder (query/build/state.ts registerQuery):
- * what a check's and a selection's row over a derived relation is typed by. A value the builder did not make carries
- * none.
+ * A query value's heading as the builder typed it (query/build/state.ts registerQuery): what a check's and a
+ * selection's row over a derived relation is typed by. A value the builder did not make carries none.
  */
-const queryHeadings = new WeakMap<object, ReadonlyMap<string, HeadingTyping>>()
-
-export const registerQueryHeading = (
-	query: object,
-	heading: ReadonlyMap<string, HeadingTyping>
-): void => {
-	queryHeadings.set(query, heading)
-}
-
 export const queryHeadingOf = (value: unknown): ReadonlyMap<string, HeadingTyping> | undefined =>
-	hasProperties(value) ? queryHeadings.get(value) : undefined
+	ownedEntry(value, "query")?.content.heading
+
+/**
+ * The schema or role a query value the builder made is over, which role admission reads to refuse a query entry built
+ * over anything but its base or one of its levels; none for any other value.
+ */
+export const querySchemaOf = (value: unknown): object | undefined =>
+	ownedEntry(value, "query")?.content.schema
 
 /**
  * Each kind of owned value: the value a builder returns, at the widest of its public type, the Description it carries,
@@ -293,6 +271,14 @@ interface OwnedKinds {
 		readonly desc: LoginDesc
 		readonly content: undefined
 	}
+	readonly query: {
+		readonly value: object
+		readonly desc: () => QueryDesc
+		readonly content: {
+			readonly schema: object
+			readonly heading: ReadonlyMap<string, HeadingTyping>
+		}
+	}
 }
 
 export type OwnedKind = keyof OwnedKinds
@@ -331,6 +317,19 @@ export const ownValue = <E extends AnyOwnedEntry>(entry: E): E["value"] => {
 	Object.freeze(entry.value)
 	owned.set(entry.value, entry)
 	return entry.value
+}
+
+/**
+ * Registers a query value the builder made (query/build/query.ts defineDesc): the schema or role it is over, its
+ * Description, read where it is asked for, and its heading as the builder typed it. The builder defines the value's
+ * `desc` and freezes it.
+ */
+export const ownQuery = (
+	query: object,
+	desc: () => QueryDesc,
+	content: { readonly schema: object; readonly heading: ReadonlyMap<string, HeadingTyping> }
+): void => {
+	owned.set(query, { kind: "query", value: query, desc, content })
 }
 
 /** The entry of an owned value, its kind among it; undefined for any value the builders did not make. */

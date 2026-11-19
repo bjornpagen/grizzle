@@ -30,8 +30,8 @@ import {
 	malformed,
 	type OwnedKind,
 	ownedKind,
-	queryDescOf,
-	registerQueryHeading
+	ownQuery,
+	queryDescOf
 } from "#compiler/schema/protocol.ts"
 import { emptyHeading } from "#compiler/schema/record.ts"
 import { derivedDraftOf, namedRelation, relationDescOf } from "#compiler/schema/relation.ts"
@@ -96,11 +96,19 @@ export interface QueryState<C extends Carriers = Carriers> {
 
 const queries = new WeakMap<object, QueryState>()
 
-export const registerQuery = <T extends object>(value: T, state: QueryState): T => {
+/**
+ * Registers a query value the builder made: its state, here, and in the owned registry (schema/protocol.ts ownQuery) the
+ * schema or role it is over, its Description, read where it is asked for, and its heading as the builder typed it.
+ */
+export const registerQuery = <T extends object>(
+	value: T,
+	state: QueryState,
+	desc: () => QueryDesc
+): T => {
 	queries.set(value, state)
-	registerQueryHeading(
-		value,
-		new Map(
+	ownQuery(value, desc, {
+		schema: state.schema.over.value,
+		heading: new Map(
 			[...state.heading.fields].map(([name, typing]): readonly [string, HeadingTyping] => {
 				const carrier = state.carriers.kind === "typed" ? state.carriers.carriers[name] : undefined
 				return [
@@ -111,7 +119,7 @@ export const registerQuery = <T extends object>(value: T, state: QueryState): T 
 				]
 			})
 		)
-	)
+	})
 	return value
 }
 

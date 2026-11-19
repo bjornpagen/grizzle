@@ -71,13 +71,7 @@ import { predicateExpr, termExpr } from "#compiler/scalar/compute/term.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { levelOf } from "#compiler/schema/level.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
-import {
-	fieldDescOf,
-	malformed,
-	ownedKind,
-	registerOwnedQuery,
-	requireName
-} from "#compiler/schema/protocol.ts"
+import { fieldDescOf, malformed, ownedKind, requireName } from "#compiler/schema/protocol.ts"
 
 import {
 	mint,
@@ -284,8 +278,7 @@ const defineDesc = <T extends object>(value: T, state: QueryState, label: string
 		enumerable: false,
 		configurable: false
 	})
-	registerOwnedQuery(value, state.schema.over.value, () => publicDesc(state, label))
-	return Object.freeze(registerQuery(value, state))
+	return Object.freeze(registerQuery(value, state, () => publicDesc(state, label)))
 }
 
 /**
