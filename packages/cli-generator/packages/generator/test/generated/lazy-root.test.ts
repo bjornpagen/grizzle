@@ -11,373 +11,117 @@
  * - `--describe` from any command prints what the root's prints, and `--completions bash` names every command path.
  * - A global flag before the group name sends the same request as after the command's own arguments.
  *
- * One package from `test/fixtures/lazy-root` (nested tags, an author command), with the eager oracle beside it.
+ * One package from `test/fixtures/lazy-root` (nested tags, an author command), with the eager oracle beside it, built
+ * once a worker; the differential is an exhaustion of the kinds of invocation, each case every invocation of its kind.
  */
-import { availableParallelism } from "node:os"
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { regex } from "arkregex"
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { Checkout } from "@bjornpagen/testing/checkout"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
 import {
-	Array as Arr,
-	Context,
-	Duration,
-	Effect,
-	FileSystem,
-	Formatter,
-	Layer,
-	Option,
-	Order,
-	Path,
-	Schema,
-	String as Str
-} from "effect"
-import {
-	type CaptureServer,
-	captureServer,
-	type ScriptedResponse
-} from "#test/support/capture-server.ts"
-import {
-	buildPackage,
-	type BuiltPackage,
-	generateFixture,
-	harnessLayer,
-	runBin
-} from "#test/support/cli-package.ts"
+	importsOf,
+	type InvocationFeature,
+	invocationKinds,
+	invocationsOf,
+	KEY,
+	lazyFixture,
+	listed,
+	type Loading,
+	type Placement,
+	type Printed,
+	printedBy,
+	requestCases,
+	type Requested,
+	type RequestFeature,
+	requestFeature,
+	theBuild,
+	topLevelGroups,
+	TS_SPECIFIER
+} from "#test/generated/lazy-root.fixtures.ts"
+import { runBin } from "#test/support/cli-package.ts"
 import { valuesOf } from "#test/support/http.ts"
 
-/** The eager oracle's groups module: every entry's real module loaded, the arguments ignored. */
-const EAGER_GROUPS = `import { Effect } from "effect";
-import type { Entry, Group } from "./groups.ts";
-
-export const root = <E, R, C>(
-  table: readonly Entry<E, R>[],
-  header: (groups: readonly Group<E, R>[]) => C,
-  _args: readonly string[],
-): Effect.Effect<C> =>
-  Effect.forEach(table, (entry) =>
-    Effect.promise(() => entry.load()).pipe(Effect.map((module) => module.group)),
-  ).pipe(Effect.map(header));
-`
-
-/** A generated module that does not hold exactly one occurrence of the text the oracle rewrites. */
-class OracleRewriteFailed extends Schema.TaggedError<
-	OracleRewriteFailed,
-	{ readonly brand: unique symbol }
->()("OracleRewriteFailed", { module: Schema.String, text: Schema.String }) {}
-
-/** The rewrites that make the eager oracle: each copies a generated module with one import pointed elsewhere. */
-const REWRITES: ReadonlyArray<Readonly<{ from: string; to: string; text: string; into: string }>> =
-	[
+/** The built root imports each top-level group by `import()` of its built module, and the oracle loads every group. */
+export const lazyLoading = property.exhaust(theBuild, {
+	box: "the lazy package's built root and its eager oracle's",
+	needs: { fixture: lazyFixture, checkout: Checkout.dir },
+	situations: [],
+	check:
+		({ fixture }) =>
+		() =>
+			Effect.gen(function* () {
+				const { lazy, commands } = yield* fixture
+				const fs = yield* FileSystem.FileSystem
+				const path = yield* Path.Path
+				const lazyRoot = yield* fs.readFileString(path.join(lazy.dir, "dist/src/cli/root.js"))
+				const eagerRoot = yield* fs.readFileString(
+					path.join(lazy.dir, "dist/src/cli/eager-root.js")
+				)
+				const eagerGroups = yield* fs.readFileString(
+					path.join(lazy.dir, "dist/src/runtime/eager-groups.js")
+				)
+				const groupModules = Arr.map(topLevelGroups(commands), (group) => `./${group}.js`)
+				deepStrictEqual<Loading>(
+					{
+						lazyImports: importsOf(lazyRoot),
+						lazyNamesTs: TS_SPECIFIER.test(lazyRoot),
+						eagerImports: importsOf(eagerRoot),
+						eagerLoadsEveryGroup:
+							Str.includes('from "../runtime/eager-groups.js"')(eagerRoot) &&
+							!Str.includes("stub")(eagerGroups) &&
+							!Str.includes("selected")(eagerGroups)
+					},
+					{
+						lazyImports: groupModules,
+						lazyNamesTs: false,
+						eagerImports: groupModules,
+						eagerLoadsEveryGroup: true
+					},
+					"the root imports each group's built module, and the oracle loads every group"
+				)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "design 4.1's lazy root: one import() of each top-level group's built .js module, and no .ts specifier"
+	},
+	kept: [],
+	kills: [
 		{
-			from: "src/cli/root.ts",
-			to: "src/cli/eager-root.ts",
-			text: 'import * as Groups from "../runtime/groups.ts";',
-			into: 'import * as Groups from "../runtime/eager-groups.ts";'
-		},
-		{
-			from: "src/main.ts",
-			to: "src/eager-main.ts",
-			text: '"./cli/root.ts"',
-			into: '"./cli/eager-root.ts"'
-		},
-		{ from: "src/bin.ts", to: "src/eager-bin.ts", text: '"./main.ts"', into: '"./eager-main.ts"' }
-	]
-
-/** The header key every request run carries. */
-const KEY = "lazy-root-key"
-
-/** An empty `200`. */
-const listed: ScriptedResponse = {
-	status: 200,
-	headers: [],
-	delay: Duration.zero,
-	body: { kind: "complete", bytes: new Uint8Array(0) }
-}
-
-/** The suite's fixture: the capture server, the lazy package, its eager oracle, and every generated command path. */
-class LazyFixture extends Context.Service<
-	LazyFixture,
-	Readonly<{
-		server: CaptureServer
-		lazy: BuiltPackage
-		eager: BuiltPackage
-		commands: Arr.NonEmptyReadonlyArray<ReadonlyArray<string>>
-		petsList: ReadonlyArray<string>
-	}>
->()("effect-openapi-cli-generator/test/generated/lazy-root.test/LazyFixture") {}
-
-const fixture = Layer.effect(
-	LazyFixture,
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		const source = path.join(import.meta.dirname, "..", "fixtures", "lazy-root")
-		const server = yield* captureServer
-		const generated = yield* generateFixture({
-			spec: {
-				path: "openapi.json",
-				text: yield* fs.readFileString(path.join(source, "openapi.json"))
-			},
-			config: {
-				path: "author-config.json",
-				text: yield* fs.readFileString(path.join(source, "author-config.json"))
-			},
-			authorFiles: [
-				{
-					path: "custom/commands.ts",
-					text: yield* fs.readFileString(path.join(source, "custom", "commands.ts"))
-				}
-			]
-		})
-		yield* fs.writeFileString(path.join(generated.dir, "src/runtime/eager-groups.ts"), EAGER_GROUPS)
-		yield* Effect.forEach(
-			REWRITES,
-			(rewrite) =>
-				Effect.gen(function* () {
-					const text = yield* fs.readFileString(path.join(generated.dir, rewrite.from))
-					const pieces = Str.split(rewrite.text)(text)
-					if (pieces.length !== 2) {
-						return yield* OracleRewriteFailed.make({ module: rewrite.from, text: rewrite.text })
-					}
-					yield* fs.writeFileString(
-						path.join(generated.dir, rewrite.to),
-						Arr.join(pieces, rewrite.into)
-					)
-				}),
-			{ discard: true }
-		)
-		const lazy = yield* buildPackage(generated)
-		const commands = yield* Effect.fromOption(
-			Arr.match(
-				Arr.map(generated.result.report.commandNames, (name) => name.path),
-				{
-					onEmpty: () => Option.none(),
-					onNonEmpty: (paths) => Option.some(paths)
-				}
-			)
-		)
-		const petsList = yield* Effect.fromOption(
-			Arr.findFirst(
-				generated.result.report.commandNames,
-				(name) => name.pointer === "/paths/~1pets/get"
-			)
-		)
-		return {
-			server,
-			lazy,
-			eager: { dir: lazy.dir, bin: path.join(lazy.dir, "dist", "src", "eager-bin.js") },
-			commands,
-			petsList: petsList.path
+			file: "packages/generator/src/emit/printer.ts",
+			original: `\t\tDynamicImport: (entry) => \`import(\${stringLiteral(entry.from)})\`,`,
+			replacement: `\t\tDynamicImport: (entry) => \`import(\${stringLiteral(entry.from)} + "")\`,`,
+			why: "A group's import() takes an expression, not a literal, which the build does not rewrite, so the built root imports ./<group>.ts, a module dist never holds; the property fails."
 		}
-	})
-).pipe(Layer.provideMerge(harnessLayer))
-
-/** What a run printed, as the differential compares it. */
-type Printed = Readonly<{ exitCode: number; stdout: string; stderr: string }>
-
-const utf8 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("utf8")
-
-/** Runs a build's bin with these arguments and no environment, and what it printed. */
-const printedBy = (built: BuiltPackage, args: ReadonlyArray<string>) =>
-	Effect.map(runBin(built, { args, env: {}, stdin: new Uint8Array(0) }), (run): Printed => ({
-		exitCode: run.exitCode,
-		stdout: utf8(run.stdout),
-		stderr: utf8(run.stderr)
-	}))
-
-/** A specifier the built root imports by `import()`. */
-const DYNAMIC_IMPORT = regex('import\\("([^"]+)"\\)', "gu")
-
-/** A specifier that still names a `.ts` module. */
-const TS_SPECIFIER = regex("\\.ts[\"']", "u")
-
-/** What the built roots show of their loading: each `import()` specifier, sorted, and any `.ts` specifier left. */
-type Loading = Readonly<{
-	lazyImports: ReadonlyArray<string>
-	lazyNamesTs: boolean
-	eagerImports: ReadonlyArray<string>
-	eagerLoadsEveryGroup: boolean
-}>
-
-const importsOf = (text: string): ReadonlyArray<string> =>
-	Arr.sort(
-		Arr.flatMap(Arr.fromIterable(Str.matchAll(DYNAMIC_IMPORT)(text)), ([, specifier]) =>
-			Option.toArray(Option.fromNullishOr(specifier))
-		),
-		Order.String
-	)
-
-/** The top-level groups: the first segment of every command path below a group, each once, sorted. */
-const topLevelGroups = (commands: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<string> =>
-	Arr.sort(
-		Arr.dedupe(
-			Arr.flatMap(commands, (command) =>
-				command.length > 1 ? Option.toArray(Arr.head(command)) : []
-			)
-		),
-		Order.String
-	)
-
-/** An invocation the differential runs, by what it names. */
-type Invocation = Readonly<{ kind: InvocationFeature; args: ReadonlyArray<string> }>
-
-/** What an invocation names. */
-type InvocationFeature =
-	| "the root's help"
-	| "no arguments"
-	| "--describe"
-	| "--completions bash"
-	| "an unknown group"
-	| "a group alone"
-	| "a group's help"
-	| "an unknown command in a group"
-	| "a command's help"
-
-/** The invocations at the root. */
-const ROOT_INVOCATIONS: Arr.NonEmptyReadonlyArray<Invocation> = [
-	{ kind: "the root's help", args: ["--help"] },
-	{ kind: "no arguments", args: [] },
-	{ kind: "--describe", args: ["--describe"] },
-	{ kind: "--completions bash", args: ["--completions", "bash"] },
-	{ kind: "an unknown group", args: ["nosuch"] }
-]
-
-/** Every invocation the differential runs: the root's, each top-level group's, and each command's help. */
-const invocationsOf = (
-	commands: ReadonlyArray<ReadonlyArray<string>>
-): Arr.NonEmptyReadonlyArray<Invocation> =>
-	Arr.appendAll(
-		ROOT_INVOCATIONS,
-		Arr.appendAll(
-			Arr.flatMap(topLevelGroups(commands), (group): ReadonlyArray<Invocation> => [
-				{ kind: "a group alone", args: [group] },
-				{ kind: "a group's help", args: [group, "--help"] },
-				{ kind: "an unknown command in a group", args: [group, "nosuch"] }
-			]),
-			Arr.map(commands, (command): Invocation => ({
-				kind: "a command's help",
-				args: Arr.append(command, "--help")
-			}))
-		)
-	)
-
-/**
- * How many invocations the differential runs at once. Each runs the lazy build's bin and then the eager oracle's, so it
- * holds one CLI process at a time, and no invocation reaches the capture server.
- *
- * @limitKind derived
- * @owner this suite's differential against the eager oracle
- * @unit CLI processes at once
- * @scope one exhaustion, in one Vitest worker; the run's other test files go on in workers of their own beside it, so
- * the run holds these processes on top of its workers while it lasts
- * @derivation availableParallelism(), the logical CPUs this process may use: one bin at a time a CPU, since each bin is
- * a Node process of one JavaScript thread
- */
-const INVOCATIONS_AT_ONCE = availableParallelism()
-
-/** Where a global flag goes: before the group name, or after the command's own arguments. */
-type Placement = "before the group" | "after the arguments"
-
-/** A request run: where each global flag goes, and the limit it lists. */
-type RequestCase = Readonly<{ baseUrl: Placement; allow: Placement; limit: number }>
-
-const PLACEMENT: Gen<Placement> = element<Placement>(["before the group", "after the arguments"])
-
-const requestCaseOf: Gen<RequestCase> = (source) => ({
-	baseUrl: PLACEMENT(source),
-	allow: PLACEMENT(source),
-	limit: int(1, 2)(source)
+	]
 })
 
-/** A situation a request run reaches. */
-type RequestFeature =
-	| "every global flag before the group"
-	| "every global flag after the arguments"
-	| "global flags on both sides"
-
-const requestFeature = (c: RequestCase): RequestFeature => {
-	if (c.baseUrl === c.allow) {
-		return c.baseUrl === "before the group"
-			? "every global flag before the group"
-			: "every global flag after the arguments"
-	}
-	return "global flags on both sides"
-}
-
-/** A request as the oracle compares it: the run's exit code, and each request's method, target and key. */
-type Requested = Readonly<{
-	exitCode: number
-	requests: ReadonlyArray<Readonly<{ method: string; target: string; key: ReadonlyArray<string> }>>
-}>
-
-layer(fixture, { excludeTestServices: true })("a generated CLI's lazy root", (it) => {
-	it.effect("loads each top-level group by import() of its built module", () =>
-		Effect.gen(function* () {
-			const { lazy, commands } = yield* LazyFixture
-			const fs = yield* FileSystem.FileSystem
-			const path = yield* Path.Path
-			const lazyRoot = yield* fs.readFileString(path.join(lazy.dir, "dist/src/cli/root.js"))
-			const eagerRoot = yield* fs.readFileString(path.join(lazy.dir, "dist/src/cli/eager-root.js"))
-			const eagerGroups = yield* fs.readFileString(
-				path.join(lazy.dir, "dist/src/runtime/eager-groups.js")
-			)
-			const groupModules = Arr.map(topLevelGroups(commands), (group) => `./${group}.js`)
-			deepStrictEqual<Loading>(
-				{
-					lazyImports: importsOf(lazyRoot),
-					lazyNamesTs: TS_SPECIFIER.test(lazyRoot),
-					eagerImports: importsOf(eagerRoot),
-					eagerLoadsEveryGroup:
-						Str.includes('from "../runtime/eager-groups.js"')(eagerRoot) &&
-						!Str.includes("stub")(eagerGroups) &&
-						!Str.includes("selected")(eagerGroups)
-				},
-				{
-					lazyImports: groupModules,
-					lazyNamesTs: false,
-					eagerImports: groupModules,
-					eagerLoadsEveryGroup: true
-				},
-				"the root imports each group's built module, and the oracle loads every group"
-			)
-		})
-	)
-
-	it.effect("prints what the eager build prints, for every invocation", (ctx) =>
-		searched(
-			ctx,
+/** Every invocation prints what the eager build prints, byte for byte, with the same exit code. */
+export const lazyDifferential = property.exhaust(invocationKinds, {
+	box: "every kind of help, unknown name, --describe and --completions bash invocation, each case every invocation of its kind the package's groups and commands make",
+	needs: { fixture: lazyFixture, checkout: Checkout.dir },
+	situations: [
+		"the root's help",
+		"no arguments",
+		"--describe",
+		"--completions bash",
+		"an unknown group",
+		"a group alone",
+		"a group's help",
+		"an unknown command in a group",
+		"a command's help"
+	],
+	check:
+		({ fixture }, k: Case<InvocationFeature>) =>
+		(kind) =>
 			Effect.gen(function* () {
-				const { lazy, eager, commands } = yield* LazyFixture
-				const invocations = invocationsOf(commands)
-				return yield* exhaust(
-					{
-						suite: "lazy root against the eager oracle",
-						oracle: {
-							kind: "second-implementation",
-							name: "an eager build of the same package: the same bytes and the same exit code"
-						},
-						box: "every help, unknown name, --describe and --completions bash invocation of the package's groups and commands",
-						concurrency: INVOCATIONS_AT_ONCE,
-						generator: element(invocations),
-						literal: Formatter.format,
-						coverage: requiredInSpace<InvocationFeature>([
-							"the root's help",
-							"no arguments",
-							"--describe",
-							"--completions bash",
-							"an unknown group",
-							"a group alone",
-							"a group's help",
-							"an unknown command in a group",
-							"a command's help"
-						]),
-						caseHang: Duration.seconds(60)
-					},
-					(invocation, k) =>
+				const { lazy, eager, commands } = yield* fixture
+				const invocations = Arr.filter(
+					invocationsOf(commands),
+					(invocation) => invocation.kind === kind
+				)
+				yield* Effect.forEach(
+					invocations,
+					(invocation) =>
 						Effect.gen(function* () {
 							k.note(invocation.kind)
 							const fromLazy = yield* printedBy(lazy, invocation.args)
@@ -385,114 +129,146 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's lazy root", (it
 							deepStrictEqual<Printed>(
 								fromLazy,
 								fromEager,
-								"the lazy root prints what the eager one prints"
+								`the lazy root prints what the eager one prints for ${Arr.join(invocation.args, " ")}`
 							)
-						})
+						}),
+					{ discard: true }
 				)
-			})
-		)
-	)
+			}),
+	oracle: {
+		kind: "second-implementation",
+		name: "an eager build of the same package: the same bytes and the same exit code"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/groups.ts",
+			original: "\tloadsAll(args) ||\n\tArr.some(",
+			replacement: "\tArr.some(",
+			why: "--describe and --completions load no group a name selects, so the lazy root describes and completes header-only stubs where the eager one walks every command; the property fails."
+		}
+	]
+})
 
-	it.effect("describes the whole tree from any command, and completes every command path", () =>
-		Effect.gen(function* () {
-			const { lazy, commands } = yield* LazyFixture
-			const fromRoot = yield* printedBy(lazy, ["--describe"])
-			const fromCommands = yield* Effect.forEach(commands, (command) =>
-				printedBy(lazy, Arr.append(command, "--describe"))
-			)
-			const completions = yield* printedBy(lazy, ["--completions", "bash"])
-			deepStrictEqual<
-				Readonly<{
-					describedExit: number
-					fromCommands: ReadonlyArray<Printed>
-					completionsExit: number
-					uncompleted: ReadonlyArray<ReadonlyArray<string>>
-				}>
-			>(
-				{
-					describedExit: fromRoot.exitCode,
-					fromCommands,
-					completionsExit: completions.exitCode,
-					uncompleted: Arr.filter(
-						commands,
-						(command) => !Str.includes(`_lazy_${Arr.join(command, "_")}()`)(completions.stdout)
-					)
-				},
-				{
-					describedExit: 0,
-					fromCommands: Arr.map(commands, () => fromRoot),
-					completionsExit: 0,
-					uncompleted: []
-				},
-				"every command's --describe is the root's, and completions name every command"
-			)
-		})
-	)
-
-	it.effect("sends the same request wherever the global flags go", (ctx) =>
-		searched(
-			ctx,
+/** `--describe` from any command prints the root's, and `--completions bash` names every command path. */
+export const lazyWholeTree = property.exhaust(theBuild, {
+	box: "the lazy package's --describe from the root and from each command, and its bash completions",
+	needs: { fixture: lazyFixture, checkout: Checkout.dir },
+	situations: [],
+	check:
+		({ fixture }) =>
+		() =>
 			Effect.gen(function* () {
-				const { server, lazy, petsList } = yield* LazyFixture
-				const origin = server.origins["127.0.0.1"]
-				return yield* exhaust(
-					{
-						suite: "lazy root global flag placement",
-						oracle: {
-							kind: "specification",
-							name: "one request, carrying the key, wherever the global flags go"
-						},
-						box: "each global flag before the group or after the arguments, under a limit of 1 or 2",
-						generator: requestCaseOf,
-						literal: Formatter.format,
-						coverage: requiredInSpace<RequestFeature>([
-							"every global flag before the group",
-							"every global flag after the arguments",
-							"global flags on both sides"
-						]),
-						caseHang: Duration.seconds(60)
-					},
-					(c, k) =>
-						Effect.gen(function* () {
-							k.note(requestFeature(c))
-							const flagsAt = (placement: Placement): ReadonlyArray<string> =>
-								Arr.flatten([
-									c.baseUrl === placement ? ["--base-url", origin] : [],
-									c.allow === placement ? ["--allow-credentials-for-base-url"] : []
-								])
-							const observed = yield* server.observe(
-								() => listed,
-								runBin(lazy, {
-									args: Arr.flatten([
-										flagsAt("before the group"),
-										petsList,
-										["--limit", String(c.limit)],
-										flagsAt("after the arguments")
-									]),
-									env: { LAZY_API_KEY: KEY },
-									stdin: new Uint8Array(0)
-								})
-							)
-							deepStrictEqual<Requested>(
-								{
-									exitCode: observed.result.exitCode,
-									requests: Arr.map(observed.requests, (request) => ({
-										method: request.method,
-										target: request.target,
-										key: valuesOf(request.headers, "x-api-key")
-									}))
-								},
-								{
-									exitCode: 0,
-									requests: [
-										{ method: "GET", target: `/pets?limit=${String(c.limit)}`, key: [KEY] }
-									]
-								},
-								"the request is the same wherever the global flags go"
-							)
-						})
+				const { lazy, commands } = yield* fixture
+				const fromRoot = yield* printedBy(lazy, ["--describe"])
+				const fromCommands = yield* Effect.forEach(commands, (command) =>
+					printedBy(lazy, Arr.append(command, "--describe"))
 				)
-			})
-		)
-	)
+				const completions = yield* printedBy(lazy, ["--completions", "bash"])
+				deepStrictEqual<
+					Readonly<{
+						describedExit: number
+						fromCommands: ReadonlyArray<Printed>
+						completionsExit: number
+						uncompleted: ReadonlyArray<ReadonlyArray<string>>
+					}>
+				>(
+					{
+						describedExit: fromRoot.exitCode,
+						fromCommands,
+						completionsExit: completions.exitCode,
+						uncompleted: Arr.filter(
+							commands,
+							(command) => !Str.includes(`_lazy_${Arr.join(command, "_")}()`)(completions.stdout)
+						)
+					},
+					{
+						describedExit: 0,
+						fromCommands: Arr.map(commands, () => fromRoot),
+						completionsExit: 0,
+						uncompleted: []
+					},
+					"every command's --describe is the root's, and completions name every command"
+				)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "design 4.1: the whole-tree flags load every group, so every command's --describe is the root's and completions name every command"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/groups.ts",
+			original: "\t[describeTrigger, completionsTrigger],",
+			replacement: "\t[describeTrigger],",
+			why: "--completions loads no group, so bash completions name only the root's own commands and no command below a group; the property fails."
+		}
+	]
+})
+
+/** A global flag before the group name sends the same request as after the command's own arguments. */
+export const lazyGlobalFlags = property.exhaust(requestCases, {
+	box: "each global flag before the group or after the arguments, under a limit of 1 or 2",
+	needs: { fixture: lazyFixture, checkout: Checkout.dir },
+	situations: [
+		"every global flag before the group",
+		"every global flag after the arguments",
+		"global flags on both sides"
+	],
+	check:
+		({ fixture }, k: Case<RequestFeature>) =>
+		(c) =>
+			Effect.gen(function* () {
+				const { server, lazy, petsList } = yield* fixture
+				const origin = server.origins["127.0.0.1"]
+				k.note(requestFeature(c))
+				const flagsAt = (placement: Placement): ReadonlyArray<string> =>
+					Arr.flatten([
+						c.baseUrl === placement ? ["--base-url", origin] : [],
+						c.allow === placement ? ["--allow-credentials-for-base-url"] : []
+					])
+				const observed = yield* server.observe(
+					() => listed,
+					runBin(lazy, {
+						args: Arr.flatten([
+							flagsAt("before the group"),
+							petsList,
+							["--limit", String(c.limit)],
+							flagsAt("after the arguments")
+						]),
+						env: { LAZY_API_KEY: KEY },
+						stdin: new Uint8Array(0)
+					})
+				)
+				deepStrictEqual<Requested>(
+					{
+						exitCode: observed.result.exitCode,
+						requests: Arr.map(observed.requests, (request) => ({
+							method: request.method,
+							target: request.target,
+							key: valuesOf(request.headers, "x-api-key")
+						}))
+					},
+					{
+						exitCode: 0,
+						requests: [{ method: "GET", target: `/pets?limit=${String(c.limit)}`, key: [KEY] }]
+					},
+					"the request is the same wherever the global flags go"
+				)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "one request, carrying the key, wherever the global flags go"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/groups.ts",
+			original:
+				"\tArr.some(\n\t\targs,\n\t\t(arg) => arg === header.name || (header.alias !== undefined && arg === header.alias)\n\t)",
+			replacement:
+				"\t(args[0] === header.name || (header.alias !== undefined && args[0] === header.alias))",
+			why: "A group is selected only when it is argv's first element, so a global flag before the group name leaves the group a header-only stub and its command unknown; the property fails."
+		}
+	]
 })
