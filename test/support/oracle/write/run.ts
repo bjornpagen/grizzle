@@ -52,7 +52,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import { openServedDb } from "#test/support/served-db.ts"
 import { type RoleSetupError, runEntry, servedRoleContext } from "#test/support/served-role.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { occupiedGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { replaceRows, rowsGroup } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A refusal's witness as plain values: the violating fact's key, or why it names none. */
@@ -138,7 +138,7 @@ type TargetError = OpenError | ServedRefusal | CompileError | RoleSetupError
  * Every case of the run then
  *
  * 1. resets its group to the case's initial state as the owner, in one transaction: the installation's tables that
- *    hold a block truncated (test/support/substrate/replace.ts occupiedGroup), the case's facts loaded as typed
+ *    hold a row emptied (test/support/substrate/replace.ts rowsGroup), the case's facts loaded as typed
  *    literals (oracle/install/load.ts), every identity sequence set where the case's expectation starts it, and, when
  *    the run keeps planner statistics, every relation of the group analyzed. A statement's plan follows the planner statistics, and a MERGE runs its actions
  *    in its plan's row order, so a realization can be right under one plan and wrong under another; a run draws
@@ -274,12 +274,14 @@ export const privilegeProblems = (
 	})
 
 /**
- * Resets the installation to `facts`, the group's, its identity sequences to `state`'s (step 1 of the header), in one
- * transaction that first truncates every stored relation's table that holds a block, with the tables referencing it,
- * and so reads no version another transaction wrote: never an SSI pivot, whatever the cluster's load
- * (test/support/substrate/replace.ts occupiedGroup). A case writes one group of a schema of several, so a reset
- * truncates the tables the cases before it wrote, not every table of the schema. Every other group is left empty
- * until its own reset: a group's laws reach only its own relations, and a case reads its group alone.
+ * Resets the installation to `facts`, the group's, its identity sequences to `state`'s (step 1 of the header): every
+ * stored relation's rows deleted in a READ COMMITTED transaction of their own, then one transaction that loads the
+ * facts, which reads no version a serializable transaction wrote: never an SSI pivot, whatever the cluster's load
+ * (test/support/substrate/replace.ts rowsGroup). A deletion swaps no relation file, so a reset costs the rows the cases
+ * before it wrote, not every table and index of the schema. The deleted versions it leaves until a vacuum change what a
+ * plan reads and never what a statement answers, and the oracle's verdicts are plan-independent by construction: the
+ * run draws its statistics and perturbs its plans (perturb.ts). Every other group is left empty until its own reset: a
+ * group's laws reach only its own relations, and a case reads its group alone.
  */
 export const resetGroup = (
 	t: WriteInstallation,
@@ -313,7 +315,7 @@ export const resetGroup = (
 		}
 		yield* replaceRows(
 			s.admin,
-			occupiedGroup(namesOf(t.installed)),
+			rowsGroup(namesOf(t.installed).storedTables),
 			Arr.map(statements, (sql) => ({ sql, params: [] }))
 		)
 	})

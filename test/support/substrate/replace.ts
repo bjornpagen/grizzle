@@ -1,21 +1,22 @@
 import { Array as Arr, Brand, Effect } from "effect"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 
 /**
- * How a reset empties its group: `whole`, every table truncated; or `occupied`, only the tables that hold a block and,
- * transitively, every table of the group whose foreign key references one of them, which TRUNCATE requires truncated
- * with it. A table of no block holds no version, live or dead, so a reset reads no version another transaction wrote
- * whether it truncates that table or not.
+ * How a reset empties its group: `whole`, every table truncated, so no table holds a version, live or dead, a fresh
+ * relation file each, for the suites that read a table's pages or plans; or `rows`, every row deleted, its table's
+ * files kept, in a READ COMMITTED transaction of its own with no trigger firing (rowsDeletion), for a group of many
+ * tables whose cases each write a few and read only their rows: TRUNCATE gives each table it empties and each of its
+ * indexes a new relation file, so its cost grows with the group's relations, where a DELETE's grows with the rows.
  */
-type Emptying = "whole" | "occupied"
+type Emptying = "whole" | "rows"
 
 /**
  * The tables one reset empties together (schema-qualified, quoted), and how: a whole group, built only by
- * installationGroup, occupiedGroup, fixtureGroup or schemaGroup, and emptied only by one TRUNCATE of all of it or of
- * its occupied part (replaceRows, clearRows).
+ * installationGroup, rowsGroup, fixtureGroup or schemaGroup, and emptied only by one TRUNCATE of all of it or by
+ * deleting all its rows (replaceRows, clearRows).
  */
 export type ResetGroup = {
 	readonly tables: ReadonlyArray<string>
@@ -32,12 +33,13 @@ export const installationGroup = (names: Names): ResetGroup =>
 	ResetGroup({ tables: names.storedTables, emptying: "whole" })
 
 /**
- * Every stored relation's table of an installation, as installationGroup, emptied by its occupied part (Emptying): the
- * group of an installation of many tables whose cases each write a few, the write oracle's every group of a generated
- * schema, so a reset truncates the tables a case wrote and not every table of the schema.
+ * Every table of `tables`, an installation's stored relations' (kernel/naming.ts Names storedTables) or a fixture's,
+ * emptied by deleting its rows (Emptying): the group of an installation of many tables whose cases each write a few, the
+ * write oracle's every group of a generated schema, so a reset swaps no relation file and costs the rows the cases
+ * before it wrote.
  */
-export const occupiedGroup = (names: Names): ResetGroup =>
-	ResetGroup({ tables: names.storedTables, emptying: "occupied" })
+export const rowsGroup = (tables: ReadonlyArray<string>): ResetGroup =>
+	ResetGroup({ tables, emptying: "rows" })
 
 /** No table: the group of a template whose cases write no table of its own (substrate.ts base). */
 export const noTables: ResetGroup = ResetGroup({ tables: [], emptying: "whole" })
@@ -69,31 +71,48 @@ export const schemaGroup = (
 	)
 
 /**
- * The one statement that truncates the occupied part of `tables` (Emptying): the tables of a block, closed over the
- * group's tables whose foreign keys reference one, by pg_constraint, then one TRUNCATE of them, none when none holds a
- * block. Its TRUNCATE names tables of the group alone, so a table outside the group that references one of them is
- * refused as TRUNCATE refuses it (0A000), never truncated.
+ * The deletion of every row of `tables` (Emptying rows): its own READ COMMITTED transaction, under the replica role, so
+ * no trigger fires, neither a law's nor a foreign key's (each table of the group is emptied, so no reference among them
+ * is left dangling), then one DO block deleting each table's rows. A READ COMMITTED transaction takes no part in SSI:
+ * it holds no SIREAD lock, and a version it deleted is no serializable transaction's, so no later SERIALIZABLE
+ * transaction that meets it counts a conflict with it (replaceRows), and its DELETE reads no version another
+ * transaction wrote under SSI's eyes, the reason a SERIALIZABLE DELETE was refused here.
  */
-const occupiedTruncation = (tables: Arr.NonEmptyReadonlyArray<string>): string =>
-	`DO $reset$
-DECLARE
-	occupied text;
-BEGIN
-	WITH RECURSIVE grouped(rel, name) AS (
-		SELECT n::regclass, n FROM pg_catalog.unnest(ARRAY[${Arr.join(Arr.map(tables, quoteString), ", ")}]::text[]) AS n
-	), reached(rel) AS (
-		SELECT g.rel FROM grouped AS g WHERE pg_catalog.pg_relation_size(g.rel) > 0
-		UNION
-		SELECT c.conrelid FROM reached AS r JOIN pg_catalog.pg_constraint AS c ON c.contype = 'f' AND c.confrelid = r.rel
-	)
-	SELECT pg_catalog.string_agg(g.name, ', ') INTO occupied FROM grouped AS g WHERE g.rel IN (SELECT r.rel FROM reached AS r);
-	IF occupied IS NOT NULL THEN
-		EXECUTE 'TRUNCATE ' || occupied;
-	END IF;
-END
-$reset$`
+const rowsDeletion = (
+	tables: Arr.NonEmptyReadonlyArray<string>
+): ReadonlyArray<ReplacedStatement> => [
+	{ sql: "BEGIN ISOLATION LEVEL READ COMMITTED", params: [] },
+	{ sql: "SET LOCAL session_replication_role = replica", params: [] },
+	{
+		sql: `DO $reset$\nBEGIN\n${Arr.join(
+			Arr.map(tables, (t) => `\tDELETE FROM ${t};`),
+			"\n"
+		)}\nEND\n$reset$`,
+		params: []
+	},
+	{ sql: "COMMIT", params: [] }
+]
 
-/** The one statement that empties `group` as its Emptying says; none when the group holds no table. */
+/** The statements before the replacing transaction that empty `group` as its Emptying says: a deletion's, or none. */
+const deletion = (group: ResetGroup): ReadonlyArray<ReplacedStatement> =>
+	group.emptying === "rows" && Arr.isReadonlyArrayNonEmpty(group.tables)
+		? rowsDeletion(group.tables)
+		: []
+
+/** `group` emptied by its rows on `connection`'s one backend, as its Emptying says (rowsDeletion); a whole one untouched. */
+const emptied = (
+	connection: Pick<PgConnection, "query">,
+	group: ResetGroup
+): Effect.Effect<void, SqlError> =>
+	Effect.forEach(
+		deletion(group),
+		(statement) => connection.query(statement.sql, statement.params),
+		{
+			discard: true
+		}
+	)
+
+/** The one statement of the replacing transaction that empties `group` as its Emptying says: a whole one's TRUNCATE. */
 const truncation = (group: ResetGroup): ReadonlyArray<ReplacedStatement> => {
 	if (!Arr.isReadonlyArrayNonEmpty(group.tables)) {
 		return []
@@ -101,8 +120,8 @@ const truncation = (group: ResetGroup): ReadonlyArray<ReplacedStatement> => {
 	switch (group.emptying) {
 		case "whole":
 			return [{ sql: `TRUNCATE ${Arr.join(group.tables, ", ")}`, params: [] }]
-		case "occupied":
-			return [{ sql: occupiedTruncation(group.tables), params: [] }]
+		case "rows":
+			return []
 	}
 }
 
@@ -129,24 +148,25 @@ export interface ReplacedStatement {
  * fails with 40001, "Canceled on identification as a pivot, during write", though nothing ran beside it. Run alone the
  * suites pass; under a full parallel run, or two copies of one file, they fail.
  *
- * So a case's rows are written whole, in one transaction that reads no version another transaction wrote: TRUNCATE of
- * its group, every table or its occupied part (Emptying), then the inserts. TRUNCATE reads no row, and the inserts' own
- * checks (a foreign key's, a law's) read the rows the transaction itself inserted, since no row of the group outlives
- * the reset, a table either truncated or of no block, and a sequence's tuple is frozen: the transaction has no
- * rw-conflict out, so it is never a pivot and never fails with 40001. Neither a truncated table nor one of no block
- * holds a dead version, so the reads and writes of the case after it meet only the replacing transaction's live rows.
+ * So a case's rows are written whole, in one transaction that reads no version another serializable transaction wrote:
+ * a whole group's TRUNCATE, then the inserts; or, for a group emptied by its rows, the inserts after the deletion that
+ * emptied it (rowsDeletion), a READ COMMITTED transaction of its own, whose versions no serializable transaction counts
+ * a conflict with. TRUNCATE reads no row, and the inserts' own checks (a foreign key's, a law's) read the rows the
+ * transaction itself inserted, since no live row of the group outlives the reset, and a sequence's tuple is frozen: the
+ * transaction has no rw-conflict out, so it is never a pivot and never fails with 40001. A truncated table holds no
+ * dead version; a table emptied by its rows holds the deleted versions until a vacuum, which the case's reads and
+ * writes meet as no serializable transaction's, so they change what a plan reads and never what a statement answers.
  *
  * The group is whole by construction (ResetGroup): every stored relation's table of an installation, migrated or
  * installed from its compiled script, or every table of a fixture a test creates by hand. A part of one is not
  * expressible: TRUNCATE refuses a table another references unless that one is truncated with it (0A000, "cannot
- * truncate a table referenced in a foreign key constraint"), and a table of a block the reset left alone would keep
- * rows an earlier transaction wrote for the inserts' checks to read. An occupied emptying leaves alone only tables of no
- * block, and closes what it truncates over the group's references, so no table it leaves holds a version and no
- * reference within the group refuses its TRUNCATE.
+ * truncate a table referenced in a foreign key constraint"), and a table the reset left alone would keep rows an
+ * earlier transaction wrote for the inserts' checks to read; a deletion of the rows empties every table of the group,
+ * so no reference among them is left dangling.
  *
- * Replaces the rows of every table of `group` with what `statements` insert, in one SERIALIZABLE transaction on one
- * backend of `connection`: one TRUNCATE of the group as its Emptying says, then the statements. A COMMIT that
- * PostgreSQL answers with ROLLBACK fails with TransactionRolledBack.
+ * Replaces the rows of every table of `group` with what `statements` insert: the deletion that empties a group by its
+ * rows, then one SERIALIZABLE transaction on one backend of `connection`, a whole group's TRUNCATE, then the
+ * statements. A COMMIT that PostgreSQL answers with ROLLBACK fails with TransactionRolledBack.
  */
 export const replaceRows = (
 	connection: PgConnection,
@@ -156,6 +176,7 @@ export const replaceRows = (
 	Effect.scoped(
 		Effect.gen(function* () {
 			const pinned = yield* connection.pin
+			yield* emptied(pinned, group)
 			yield* pinned.query("BEGIN ISOLATION LEVEL SERIALIZABLE", [])
 			yield* Effect.onError(
 				Effect.forEach(
@@ -174,20 +195,22 @@ export const replaceRows = (
 
 /**
  * Empties every table of `group` between the cases of a suite that clears its state rather than replacing it, on
- * `connection` (a PgConnection, or a substrate proof's own RawSession): one TRUNCATE of the group as its Emptying says,
- * alone in its transaction, for replaceRows' reasons. It reads no row, so it has no rw-conflict for SSI to cancel it
- * by, where a DELETE reads every dead version an earlier case left; it takes the group's every table that references
- * one it truncates, so no foreign key among its tables refuses it; and the tables it leaves hold no version, live or
- * dead, for the next case to meet.
+ * `connection`'s one backend (a PgConnection, or a substrate proof's own RawSession), as its Emptying says, for
+ * replaceRows' reasons: a whole group's one TRUNCATE, alone in its transaction, which reads no row, so it has no
+ * rw-conflict for SSI to cancel it by, takes the group's every table, so no foreign key among them refuses it, and
+ * leaves no version, live or dead, for the next case to meet; or a group's deletion of its rows (rowsDeletion).
  */
 export const clearRows = (
 	connection: Pick<PgConnection, "query">,
 	group: ResetGroup
 ): Effect.Effect<void, SqlError> =>
-	Effect.forEach(
-		truncation(group),
-		(statement) => connection.query(statement.sql, statement.params),
-		{
-			discard: true
-		}
+	Effect.andThen(
+		emptied(connection, group),
+		Effect.forEach(
+			truncation(group),
+			(statement) => connection.query(statement.sql, statement.params),
+			{
+				discard: true
+			}
+		)
 	)

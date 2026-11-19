@@ -184,6 +184,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/substrate/fill.test.ts",
 	"test/pg/substrate/forms.test.ts",
 	"test/pg/substrate/orphan.test.ts",
+	"test/pg/substrate/reset.test.ts",
 	"test/pg/substrate/stopped.test.ts",
 	"test/pg/substrate/substrate.test.ts",
 	"test/pg/substrate/temporal.test.ts",
