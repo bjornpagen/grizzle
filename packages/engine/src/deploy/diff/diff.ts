@@ -90,7 +90,6 @@ import {
 	type RecordedManifest,
 	type RecordedObject,
 	type RecordedStatement,
-	recordedManifest,
 	sameRecord
 } from "#compiler/deploy/snapshot/recorded.ts"
 import type {
@@ -4125,62 +4124,22 @@ const revokeRoleOf = (g: GrantRole): SqlStatement => ({
 /** The roles' objects that hold no data and are created again whenever they change: views, world functions, policies. */
 const worldKinds: ReadonlySet<PhysicalKind> = new Set(["view", "worldFunction", "policy"])
 
-/** Each table's and materialized view's compile inputs its own DDL does not state, by the relation: what a world object
- * reading it is lowered against (laws/model/catalog.ts evidenceCatalog) beside its CREATE. A table's keys and checks
- * are in its CREATE TABLE; a materialized view's keys are its unique indexes (physical/derived/objects.ts viewObjects);
- * and each foreign key a relation takes part in, referencing or referenced, is a containment the catalog may prove an
- * existence by, whose DDL says whether it holds at every statement, which decides whether a definition may rely on it.
- * Each input by its object, with its DDL. */
-const compileInputsOf = (
-	manifest: RecordedManifest
-): ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<RecordedStatement>>> => {
-	const objects = new Map(manifest.objects.map((o) => [o.ident, o]))
-	const inputs = new Map(
-		manifest.objects.flatMap(
-			(o): ReadonlyArray<readonly [string, Map<string, ReadonlyArray<RecordedStatement>>]> =>
-				o.kind === "table" || o.kind === "materializedView" ? [[o.ident, new Map()]] : []
-		)
-	)
-	for (const e of manifest.edges) {
-		const from = objects.get(e.from)
-		const to = objects.get(e.to)
-		if (
-			to?.kind === "foreignKey" ||
-			(from?.kind === "materializedView" && to?.kind === "uniqueIndex")
-		) {
-			inputs.get(e.from)?.set(e.to, to.ddl)
-		}
-	}
-	return inputs
-}
-
-/** Whether a relation's compile inputs are the same objects in two manifests, each with the same DDL. */
-const sameInputs = (
-	a: ReadonlyMap<string, ReadonlyArray<RecordedStatement>>,
-	b: ReadonlyMap<string, ReadonlyArray<RecordedStatement>>
-): boolean =>
-	a.size === b.size &&
-	[...a].every(([input, ddl]) => {
-		const other = b.get(input)
-		return other !== undefined && canonicalEquals(ddl, other)
-	})
-
 /** The roles' views, world functions and policies a migration drops at the start of Structure and creates again (in
  * Structure or in Publish, Differ.visit): each the target holds whose DDL changes, or that waits for an object the
- * migration changes (one whose DDL changes, one the previous manifest lacks, one the target lacks, one whose compile
- * inputs change, or one `beneath` names, which the migration takes away and builds again without changing its DDL: a
+ * migration changes (one whose DDL changes, one the previous manifest lacks, one the target lacks, or one `beneath`
+ * names, which the migration takes away and builds again without changing its DDL: a
  * materialized view it drops, an object it drops before replacing a column it is built over, a table it converts a
  * column of), read off the target's edges in install order, a world object waiting for every relation, type and
  * function its statements read (`readsOf`); and each the target no longer holds. PostgreSQL refuses to convert, drop or
  * rename what a view, a policy or a function body reads beneath it, so dropping them first leaves every structural
  * change free, and they hold nothing a drop could lose.
  *
- * A world object depends on every compile input of what it reads: the keys its compilation proves uniqueness by and
- * the containments it proves existence by. A table's keys are in its CREATE TABLE, so its DDL changes with them; a
- * materialized view's keys and each relation's foreign keys are objects of their own (`compileInputsOf`), so a relation
- * whose unique indexes or foreign keys differ changes for the world objects waiting for it, though the relation itself
- * is kept. Which world objects a migration creates again then follows from the schema's change, never from whether the
- * optimizer's output for them happens to differ. */
+ * A world object is identified by its own statement and what it waits for, nothing else. What its compile relies on of
+ * what it reads, a key it proves uniqueness by or a containment it proves existence by, is in its statement, which
+ * changes wherever the compile does; and PostgreSQL records no dependency of a view, policy or function on a foreign key
+ * or a unique index, so a foreign key added, changed or dropped, or a materialized view's key, takes nothing away
+ * beneath it. A materialized view whose keys change means something else and is created again (viewDropsOf), which
+ * `beneath` names. */
 const worldChangesOf = (
 	previous: RecordedManifest,
 	target: InstallationManifest<SqlStatement>,
@@ -4193,13 +4152,6 @@ const worldChangesOf = (
 		const was = before.get(o.ident)
 		if (was === undefined || !sameRecord(was, o)) {
 			changed.add(o.ident)
-		}
-	}
-	const inputsBefore = compileInputsOf(previous)
-	for (const [relation, inputs] of compileInputsOf(recordedManifest(target))) {
-		const was = inputsBefore.get(relation)
-		if (was !== undefined && !sameInputs(was, inputs)) {
-			changed.add(relation)
 		}
 	}
 	for (const o of previous.objects) {

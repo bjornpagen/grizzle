@@ -1,5 +1,5 @@
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
-import { foreignKeysOf, writableSupplier } from "#test/support/worlds/model/host.ts"
+import { writableSupplier } from "#test/support/worlds/model/host.ts"
 import { domainLawKey, lawDomainsOf } from "#test/support/worlds/model/session/domains.ts"
 import {
 	loginHolding,
@@ -207,11 +207,10 @@ interface WorldObject {
 /**
  * What a world object's statement reads of a relation, which it waits for, so a change to it drops and creates the
  * object again (packages/engine/src/deploy/diff/diff.ts worldChangesOf): an ordinary relation's table, its fields, primary key
- * and the laws its CREATE TABLE declares inline (keys, span keys, row checks, a closed tag's conditional facts), and
- * each foreign key it takes part in, referencing or referenced, by its law, deferred or not (host.ts foreignKeysOf); a
+ * and the laws its CREATE TABLE declares inline (keys, span keys, row checks, a closed tag's conditional facts); a
  * derived relation's definition and its keys, its materialized view's unique indexes (keys.ts derivedKeys); a roster's
- * members. A world object depends on every compile input of what it reads, the keys its compilation proves uniqueness
- * by and the containments it proves existence by, whether or not its statement's text changes with them.
+ * members. No foreign key is in it: a world object is identified by its own statement, which no foreign key the model
+ * holds changes, since every entry of the model reads its relations whole or by the rules it states.
  */
 const readOf = (base: BaseSpec, name: string): unknown => {
 	const relation = relationSpecOf(base, name)
@@ -228,14 +227,7 @@ const readOf = (base: BaseSpec, name: string): unknown => {
 					return false
 			}
 		})
-		const foreignKeys = Arr.flatMap(base.laws, (law) => {
-			const taking = Arr.filter(
-				foreignKeysOf(base, law),
-				(fk) => fk.from === name || fk.to === name
-			)
-			return taking.length === 0 ? [] : [{ law, foreignKeys: taking }]
-		})
-		return { fields: relation.fields, key: relation.key, inline, foreignKeys }
+		return { fields: relation.fields, key: relation.key, inline }
 	}
 	const derived = Option.getOrUndefined(Arr.findFirst(base.derived, (d) => d.name === name))
 	if (derived !== undefined) {
