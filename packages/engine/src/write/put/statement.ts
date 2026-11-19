@@ -392,6 +392,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			input: r1,
 			inputs: head.inputs,
 			normalized: true,
+			rows: "set",
 			occupants: "probed"
 		})
 		if (probe !== undefined) {

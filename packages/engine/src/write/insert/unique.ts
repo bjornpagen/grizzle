@@ -388,6 +388,11 @@ interface ProbeSpec {
 	 * whose pairs are the host's (`Probed`). */
 	readonly normalized: boolean
 	/**
+	 * What the input CTE's rows are: `set`, a statement's input read as a set over its every column (insert/input.ts
+	 * readInput), no row of it repeating another; or `rows`, rows that may repeat, a family's laid-out candidates.
+	 */
+	readonly rows: "set" | "rows"
+	/**
 	 * Who meets a stored occupant of a probed object: the probe, under the statement's snapshot (`probed`), the insert
 	 * protocol's at READ COMMITTED; or the INSERT's arbitration of every object (`met`), the protocol's at SERIALIZABLE
 	 * (protocol.ts Arbitration), so the probe reads only the input, for the pairs within it.
@@ -487,11 +492,16 @@ interface BranchRows {
  * the fact itself nor one equal to it at every field. PostgreSQL estimates a CTE it holds no statistics of at a row and
  * ran that pair as a nested loop of two scans of the input, k² rows for a check k facts meet.
  *
- * The windows read the distinct facts meeting the guards, SELECT DISTINCT of every field. No field is NULL (a requested
+ * The windows read the distinct facts meeting the guards (`facts`): the input itself where it is a set over every field
+ * a fact states, a statement's input read as one (insert/input.ts readInput), whose rows repeat no fact, and SELECT
+ * DISTINCT of every field where its rows may repeat or hold more columns than its facts. No field is NULL (a requested
  * fact is a value of each field's type, and the statement names no NULL), and DISTINCT and a window's partition compare
  * a column by its type's default equality, the `=` the pair compares by and whose negation its `<>` is, a vector's too.
  * So a fact's others are exactly the other distinct facts, and two of them agree at the compared fields exactly where
- * one partition by those fields holds both.
+ * one partition by those fields holds both. The windows carry every field of a fact, never the compared fields alone
+ * joined back to the input for the facts paired: PostgreSQL estimates a CTE at one row and may plan that join as a
+ * nested loop over the input, its rows times the facts paired, every fact where every fact is paired, which is the
+ * pair's own cost the windows replace.
  *
  * - At an object of no span: a fact is paired where its partition by the compared fields holds another fact,
  *   `count(*) OVER (PARTITION BY <compared>) > 1`.
@@ -520,6 +530,8 @@ const pairedFacts = (
 		readonly input: string
 		readonly inputs: FieldColumns<string>
 		readonly check: UniqueObject
+		/** Whether the input's rows are a set over every field a fact states (ProbeSpec `rows`), so its facts repeat none. */
+		readonly facts: "set" | "rows"
 	}
 ): BranchRows => {
 	const { relation, fields, input, inputs, check } = spec
@@ -533,13 +545,13 @@ const pairedFacts = (
 	const read = factsAt(input, inputs)
 	const distinct = supply.relation(internal("distinct requested fact"))
 	const distinctColumns = columnsOf()
+	const factTargets = mapNonEmpty(fields, (f) => target(col(input, inputs.of(f))))
+	const guards = conjunction(withinRow(w.cx, check, read.at))
 	const distinctFacts = derived(
 		select(
-			distinctCore(
-				mapNonEmpty(fields, (f) => target(col(input, inputs.of(f)))),
-				[cteRef(input)],
-				conjunction(withinRow(w.cx, check, read.at))
-			)
+			spec.facts === "set"
+				? provedCore("keyed", factTargets, [cteRef(input)], guards)
+				: distinctCore(factTargets, [cteRef(input)], guards)
 		),
 		distinct,
 		distinctColumns.columns,
@@ -739,7 +751,17 @@ export const buildProbe = (
 		const ordinal = i + 1
 		const own = predicate(check, fact)
 		if (!spec.normalized || pairs === "statement") {
-			const rows = pairedFacts(w, supply, { relation, fields, input, inputs, check })
+			const rows = pairedFacts(w, supply, {
+				relation,
+				fields,
+				input,
+				inputs,
+				check,
+				facts:
+					spec.rows === "set" && inputs.pairs.every((p) => fields.includes(p.field))
+						? "set"
+						: "rows"
+			})
 			branches.push({
 				rows,
 				ordinal: -ordinal,

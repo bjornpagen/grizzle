@@ -595,6 +595,7 @@ export const buildInsert = (
 			input: r1,
 			inputs,
 			normalized: input.kind === "relation",
+			rows: "set",
 			occupants: arbitration.kind === "every" ? "met" : "probed"
 		})
 		if (probe !== undefined) {

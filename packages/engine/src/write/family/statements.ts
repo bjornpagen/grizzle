@@ -203,6 +203,7 @@ export const candidateGate = (
 		input: candidates.name,
 		inputs,
 		normalized: false,
+		rows: "rows",
 		occupants: "probed"
 	})
 	if (probe === undefined) {

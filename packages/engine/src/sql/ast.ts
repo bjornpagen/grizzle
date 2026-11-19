@@ -709,7 +709,10 @@ export type FromSource =
 			 * (SELECT 1 FROM "<insert>" WHERE <its key> = <the row's key>)` reads it; a returned row's other columns are
 			 * read for no row the source delivers. The window sorts the sides once, so no plan reads more than every row of
 			 * both once, however PostgreSQL estimates either CTE (two CTEs estimated at a row each were paired as a nested
-			 * loop, every proposed row against every returned one), and the source names no NULL and no outer join.
+			 * loop, every proposed row against every returned one), and the source names no NULL and no outer join. The
+			 * sides carry every column, never the key alone with the met keys joined back to the proposed rows: under the
+			 * same estimate PostgreSQL may plan that join as a nested loop, the proposed rows times the met ones, every row
+			 * of both where every row is met, the pairing the window replaces.
 			 */
 			readonly kind: "metRows"
 			readonly insert: string
