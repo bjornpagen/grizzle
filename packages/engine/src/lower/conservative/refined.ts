@@ -5,20 +5,22 @@ import { isRefined, refinementText, type ScalarType } from "#compiler/ir/scalar.
 import { type LowerContext, refuse } from "#compiler/lower/conservative/context.ts"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
 import { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"
-import type {
-	Cte,
-	Expr,
-	FromItem,
-	FromSource,
-	ObjectName,
-	OperandBody,
-	OperandSelect,
-	Select,
-	SelectCore,
-	SetOperand,
-	Target,
-	TypeRef,
-	With
+import {
+	type Cte,
+	type Expr,
+	type FromItem,
+	type FromSource,
+	type OperandBody,
+	type OperandSelect,
+	type Select,
+	type SelectCore,
+	type SetOperand,
+	type Target,
+	type TypeRef,
+	type With,
+	nameKey,
+	storedColumnKey,
+	type StoredColumnKey
 } from "#compiler/sql/ast.ts"
 import { cast, mapTargets, sameTypeRef, setBodyOf, withArms } from "#compiler/sql/build.ts"
 
@@ -77,10 +79,6 @@ export const coreScope = (core: SelectCore, enclosing: Scope): Scope => {
 
 export const withScope = (select: OperandSelect, enclosing: Scope): Scope =>
 	select.with === undefined ? enclosing : { ...enclosing, ctes: [select.with, ...enclosing.ctes] }
-
-/** The key of an installed table's column: its schema, table and column, three identifiers, never one text. */
-const storedKey = (table: ObjectName, column: string): string =>
-	`${table.schema}\u0000${table.name}\u0000${column}`
 
 /** Whether `type` is the claim's domain: never, when the installation names none. */
 const isDomain = (type: TypeRef, claim: Claim): boolean =>
@@ -149,14 +147,14 @@ const parameterOf = (slot: ConservativeParamSlot): ReadonlyArray<readonly [numbe
 }
 
 export class Tracer {
-	readonly #stored: ReadonlyMap<string, ScalarType>
+	readonly #stored: ReadonlyMap<StoredColumnKey, ScalarType>
 	/** Each declared parameter's placeholder, by its number (Supplied). */
 	readonly #parameters: ReadonlyMap<number, Supplied>
 	/** The admitted patterns the trace's literals are judged by, one table per lowering's trace. */
 	readonly #patterns = new CompilePatterns()
 
 	constructor(
-		stored: ReadonlyMap<string, ScalarType>,
+		stored: ReadonlyMap<StoredColumnKey, ScalarType>,
 		slots: ReadonlyArray<ConservativeParamSlot>
 	) {
 		this.#stored = stored
@@ -296,14 +294,16 @@ export class Tracer {
 				const stored =
 					typeof item.table === "string"
 						? undefined
-						: this.#stored.get(storedKey(item.table, column))
+						: this.#stored.get(storedColumnKey(nameKey(item.table), column))
 				return [stored !== undefined && guarantees(stored, claim.type) ? "proved" : "unproved"]
 			}
 			case "probe":
 			case "met": {
 				const driven = item.columns.find((c) => c.as === column)
 				const stored =
-					driven === undefined ? undefined : this.#stored.get(storedKey(item.table, driven.read))
+					driven === undefined
+						? undefined
+						: this.#stored.get(storedColumnKey(nameKey(item.table), driven.read))
 				return [stored !== undefined && guarantees(stored, claim.type) ? "proved" : "unproved"]
 			}
 			case "metRows":
@@ -379,15 +379,15 @@ export class Tracer {
 }
 
 /** The declared type of every stored column of a non-derived relation the DAG reads, by its installed table and column. */
-export const storedColumns = (cx: LowerContext): ReadonlyMap<string, ScalarType> => {
-	const out = new Map<string, ScalarType>()
+export const storedColumns = (cx: LowerContext): ReadonlyMap<StoredColumnKey, ScalarType> => {
+	const out = new Map<StoredColumnKey, ScalarType>()
 	for (const node of topoOrder(cx.dag)) {
 		if (node.kind !== "Base" || node.relationKind !== "relation") {
 			continue
 		}
 		const table = cx.names.relation(node.relation)
 		for (const c of node.heading) {
-			out.set(storedKey(table, cx.names.column(node.relation, c.name)), c.type)
+			out.set(storedColumnKey(nameKey(table), cx.names.column(node.relation, c.name)), c.type)
 		}
 	}
 	return out

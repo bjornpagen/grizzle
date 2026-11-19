@@ -30,7 +30,6 @@ import { drawnWriting, fieldWriting } from "#compiler/deploy/snapshot/build.ts"
 import {
 	type AnyObject,
 	installed,
-	nameKey,
 	type PartOf,
 	partsAt,
 	partsByTable
@@ -60,17 +59,19 @@ import {
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { innerIdent, namedIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
-import type {
-	AlterTableAction,
-	ColumnDef,
-	Expr,
-	ForeignKeyColumn,
-	Grantee,
-	InlineConstraint,
-	KeyColumn,
-	ObjectName,
-	SqlStatement,
-	TableConstraint
+import {
+	type AlterTableAction,
+	type ColumnDef,
+	type Expr,
+	type ForeignKeyColumn,
+	type Grantee,
+	type InlineConstraint,
+	type KeyColumn,
+	type ObjectName,
+	type SqlStatement,
+	type TableConstraint,
+	nameKey,
+	type NameKey
 } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
@@ -862,7 +863,7 @@ const lawColumnRenames = (
 } => {
 	const schema = previous.schema
 	const laws = new Map(installation.laws.theory.laws.map((l) => [l.id, l] as const))
-	const held = new Map<string, Set<string>>()
+	const held = new Map<NameKey, Set<string>>()
 	for (const o of previous.manifest.objects) {
 		const v = installed(o)
 		if (v.kind === "lawColumn") {
@@ -871,7 +872,7 @@ const lawColumnRenames = (
 		}
 	}
 	const targets = new Map<
-		string,
+		NameKey,
 		{ readonly table: ObjectName; readonly columns: Array<TargetLawColumn> }
 	>()
 	for (const n of installation.laws.natives) {
@@ -888,7 +889,7 @@ const lawColumnRenames = (
 		targets.set(key, of)
 	}
 	const statements: Array<SqlStatement> = []
-	const tableColumns = new Map<string, ReadonlyMap<string, string>>()
+	const tableColumns = new Map<NameKey, ReadonlyMap<string, string>>()
 	for (const [key, { table, columns }] of targets) {
 		const holds = held.get(key) ?? new Set<string>()
 		const moves = columns.flatMap((c) =>
@@ -1269,7 +1270,7 @@ const columnRenames = (
 	const schema = previous.schema
 	const statements: Array<SqlStatement> = []
 	/** Each table's renamed columns, by its name key, and each renamed fields' relation's record after the renames. */
-	const tableColumns = new Map<string, ReadonlyMap<string, string>>()
+	const tableColumns = new Map<NameKey, ReadonlyMap<string, string>>()
 	const records = new Map<string, SnapshotRelation>()
 	for (const relation of new Set([...fields.keys(), ...anew.keys()])) {
 		const renames = fields.get(relation) ?? new Map<string, string>()

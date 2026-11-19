@@ -32,7 +32,15 @@ import {
 } from "#compiler/physical/obligations/graph.ts"
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
 import type { Owned, OwnedLogin } from "#compiler/schema/own.ts"
-import type { Expr, FunctionName, ObjectName, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import {
+	type Expr,
+	type FunctionName,
+	nameKey,
+	type NameKey,
+	type ObjectName,
+	type SqlStatement,
+	type TypeRef
+} from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	type AstHooks,
@@ -139,7 +147,7 @@ const noLawColumns: ReadonlyMap<string, TargetField> = new Map()
  */
 type Evaluated =
 	| { readonly kind: "constant"; readonly identifier: string }
-	| { readonly kind: "domain"; readonly identifier: string }
+	| { readonly kind: "domain"; readonly identifier: NameKey }
 
 /**
  * What a role's statements evaluate of the installation, before any reachability: the statements of the objects they
@@ -192,13 +200,6 @@ const widenedRelation = (
 	return undefined
 }
 
-/** A domain's key among the installation's: its schema and its identifier, which no identifier holds a NUL of. */
-const typeKey = (schema: string, name: string): string => `${schema}\u0000${name}`
-
-/** The key of the domain `name` among the installation's (`typeKey`). */
-export const domainKey = (name: { readonly schema: string; readonly name: string }): string =>
-	typeKey(name.schema, name.name)
-
 /** What every DDL generator of one installation shares: the owned schema, its law model, the installed names, the
  * obligation graph the objects go into, and the identities the installation names its own objects by (`name`).
  *
@@ -233,8 +234,8 @@ export class InstallBuilder {
 	readonly snapshotGuard: Node<"setup">
 	readonly #named: Array<Identity<IdentityKind>> = []
 	readonly #providers = new Map<Capability, Node<"setup">>()
-	/** Each domain the installation creates, by its schema and identifier (`typeKey`). */
-	readonly #types = new Map<string, Node<"setup">>()
+	/** Each domain the installation creates, by its name's key (sql/ast.ts nameKey). */
+	readonly #types = new Map<NameKey, Node<"setup">>()
 	/** Each constant by identifier: its identity, its object and the constants its body calls. */
 	readonly #constants = new Map<
 		string,
@@ -452,7 +453,7 @@ export class InstallBuilder {
 			},
 			after
 		)
-		this.#types.set(typeKey(schema.identifier, name.identifier), node)
+		this.#types.set(nameKey({ schema: schema.identifier, name: name.identifier }), node)
 		return node
 	}
 
@@ -554,7 +555,7 @@ export class InstallBuilder {
 			},
 			typeRef: (type) => {
 				if (type.kind === "named") {
-					reach({ kind: "domain", identifier: typeKey(type.schema, type.name) })
+					reach({ kind: "domain", identifier: nameKey(type) })
 				}
 				return type
 			}
@@ -563,7 +564,7 @@ export class InstallBuilder {
 			reach({ kind: "constant", identifier })
 		}
 		for (const domain of roots.domains) {
-			reach({ kind: "domain", identifier: domainKey(domain) })
+			reach({ kind: "domain", identifier: nameKey(domain) })
 		}
 		for (const predicate of roots.predicates) {
 			transformExpr(predicate, hooks)
@@ -599,12 +600,12 @@ export class InstallBuilder {
 
 	/** The domain the installation creates under `name`; none for another type. */
 	typeNamed(name: { readonly schema: string; readonly name: string }): Node<"setup"> | undefined {
-		return this.#types.get(typeKey(name.schema, name.name))
+		return this.#types.get(nameKey(name))
 	}
 
 	/** The domain of the contract `contract`; none when the installation creates none for it. */
 	domainOf(contract: DeclaredName): Node<"setup"> | undefined {
-		return this.#types.get(domainKey(this.names.contractDomain(contract)))
+		return this.#types.get(nameKey(this.names.contractDomain(contract)))
 	}
 
 	/** Adds the table of the stored relation `relation`, which every object on it is created after (`table`). */
@@ -638,7 +639,7 @@ export class InstallBuilder {
 				return this.table(relation)
 			case "closed":
 				return (
-					this.#types.get(domainKey(this.names.rosterDomain(r.name))) ??
+					this.#types.get(nameKey(this.names.rosterDomain(r.name))) ??
 					missing(`physical: no domain of roster ${r.name}`)
 				)
 			case "derived":

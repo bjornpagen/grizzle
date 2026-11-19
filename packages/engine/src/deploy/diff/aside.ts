@@ -7,7 +7,6 @@ import {
 	inStatistics,
 	inTypes,
 	type ManifestObject,
-	nameKey,
 	type Parts,
 	type QualifiedRenames,
 	partsAt,
@@ -18,7 +17,14 @@ import {
 import type { RecordedObject, RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { innerIdent, parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
-import type { ObjectName, RenameObject, SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
+import {
+	type ObjectName,
+	type RenameObject,
+	type SqlStatement,
+	type TableConstraint,
+	nameKey,
+	type NameKey
+} from "#compiler/sql/ast.ts"
 
 /** The kinds of object that hold a name in the types' name space: a relation's row type, or a domain. */
 type Holding = "table" | "materializedView" | "domain"
@@ -165,7 +171,7 @@ export const asidesOf = (
 	temporaries: TemporaryCensus
 ): ReadonlyArray<Aside> => {
 	const kept = new Set(target.map((o) => o.ident))
-	const takers = new Map<string, { readonly kind: Holding; readonly ident: string }>()
+	const takers = new Map<NameKey, { readonly kind: Holding; readonly ident: string }>()
 	for (const o of target) {
 		const held = heldName(o.ident)
 		if (held !== undefined) {

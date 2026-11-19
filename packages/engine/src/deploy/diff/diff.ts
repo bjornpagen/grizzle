@@ -38,7 +38,6 @@ import {
 	type BackfilledTable,
 	backfillOf,
 	changedOver,
-	columnAt,
 	type DrawnColumns,
 	drawnColumns,
 	fillReadsOf
@@ -77,7 +76,6 @@ import {
 	installed,
 	keyOrCheckDefinition,
 	type ManifestObject,
-	nameKey,
 	objectTable,
 	type PartOf,
 	type Parts,
@@ -131,7 +129,10 @@ import {
 	type SqlStatement,
 	type TableConstraint,
 	type TypeRef,
-	type TypeSchema
+	type TypeSchema,
+	nameKey,
+	type NameKey,
+	storedColumnKey
 } from "#compiler/sql/ast.ts"
 
 import { dropLiveSlot } from "#compiler/physical/ddl/live.ts"
@@ -460,7 +461,7 @@ interface Removal {
  * one whose definition changes, or that reads a relation this migration recreates or a table whose column it converts.
  * One the target keeps is created again; one it no longer has cannot outlive what it reads. */
 interface ViewDrop {
-	readonly key: string
+	readonly key: NameKey
 	readonly view: Installed<RecordedObject> & { readonly kind: "materializedView" }
 	/** Created again when the target keeps it, dropped for good when it does not. */
 	readonly fate: "recreated" | "dropped"
@@ -813,7 +814,7 @@ class Differ {
 	 * place of its first subcommand (drafted). */
 	readonly drafting: Array<Drafting> = []
 	/** Each table's one alteration in each slot that alters each table once, by table key (nameKey). */
-	readonly alterations: { readonly [S in TableSlot]: Map<string, TableAlteration> } = {
+	readonly alterations: { readonly [S in TableSlot]: Map<NameKey, TableAlteration> } = {
 		structure: new Map(),
 		"structure.constraints": new Map()
 	}
@@ -821,18 +822,18 @@ class Differ {
 	 * own statement after the key's (foreignKey). */
 	readonly constrainedKeys = new Set<KeyAfter>()
 	/** Each table's fill of its set-aside fields, by table key (setAside). */
-	readonly fills = new Map<string, TableFill>()
+	readonly fills = new Map<NameKey, TableFill>()
 	/** Each target table's generation as a fill's UPDATE meets it (laws/model/generation.ts). */
 	readonly generationOf: (table: ObjectName) => TableGeneration
 	readonly prev: ReadonlyMap<string, RecordedObject>
 	readonly next: ReadonlyMap<string, ManifestObject>
 	/** The parts of every relation of the previous and of the target installation, by name key (partsByTable). */
-	readonly prevParts: ReadonlyMap<string, Parts>
-	readonly nextParts: ReadonlyMap<string, Parts>
+	readonly prevParts: ReadonlyMap<NameKey, Parts>
+	readonly nextParts: ReadonlyMap<NameKey, Parts>
 	/** The domains of the previous and the target installation (domainsOf), which a column of each is read through to
 	 * what it holds (representationOf). */
-	readonly prevDomains: ReadonlyMap<string, DomainReading>
-	readonly nextDomains: ReadonlyMap<string, DomainReading>
+	readonly prevDomains: ReadonlyMap<NameKey, DomainReading>
+	readonly nextDomains: ReadonlyMap<NameKey, DomainReading>
 	/** Each table both installations hold, by identity, with the fate of each of its columns (KeptTable). */
 	readonly keptTables: ReadonlyMap<string, KeptTable>
 	/** The materialized views this migration drops at the start of Structure (viewDropsOf). */
@@ -851,22 +852,22 @@ class Differ {
 	/** Each table both installations hold as its visit drafts it, by identity (KeptPlan). */
 	readonly keptPlans: ReadonlyMap<string, KeptPlan>
 	/** Recreated materialized views, by table key: their privileges went with their drop. */
-	readonly recreatedViews: ReadonlySet<string>
+	readonly recreatedViews: ReadonlySet<NameKey>
 	/** Relations this migration drops at the start of Structure and does not create again, by table key: a view the
 	 * target no longer has that reads a recreated relation. Their privileges went with them. */
-	readonly dropped: ReadonlySet<string>
+	readonly dropped: ReadonlySet<NameKey>
 	/** The identity sequences of a table both snapshots install that this migration drops, by name key, each with its
 	 * fate (sequenceFatesOf). */
-	readonly sequences: ReadonlyMap<string, SequenceFate>
+	readonly sequences: ReadonlyMap<NameKey, SequenceFate>
 	/** What each installed materialized view reads, by table key: the previous snapshot's edges, and the qualified
 	 * names of every installed definition. */
-	readonly reads: ReadonlyMap<string, ReadonlySet<string>>
+	readonly reads: ReadonlyMap<NameKey, ReadonlySet<NameKey>>
 	/** The names of the roles' views and world functions this migration drops at the start of Structure, by name key,
 	 * whose privileges went with them. */
-	readonly worldGone: ReadonlySet<string>
+	readonly worldGone: ReadonlySet<NameKey>
 	/** Domains whose constraint this migration replaces, by name key: the validation statements that cast to one run
 	 * again in Publish. */
-	readonly reconstrained = new Set<string>()
+	readonly reconstrained = new Set<NameKey>()
 	/** Every object of the previous installation, in its install order, with its fate. */
 	readonly previous: ReadonlyArray<Previous>
 	/** Every object of the target, in its install order, with what it is to this migration. */
@@ -879,7 +880,7 @@ class Differ {
 	/** The drawn columns this migration adds to tables that may hold rows under their placeholders, by table key, in the
 	 * order it adds them, which the backfill draws and then drops the default of. */
 	readonly backfilled = new Map<
-		string,
+		NameKey,
 		{ readonly table: ObjectName; readonly added: ReadonlyArray<string> }
 	>()
 	/** The privileges Structure grants again right after the world object it creates again (regrantWorld), by key
@@ -1114,16 +1115,18 @@ class Differ {
 			tables.flatMap(({ key, own, lawColumns }) => [
 				...[...own].flatMap(([column, change]) =>
 					change.kind === "rewritten" || change.kind === "reexpressed" || change.kind === "redrawn"
-						? [columnAt(key, column)]
+						? [storedColumnKey(key, column)]
 						: []
 				),
-				...lawColumns.flatMap((c) => (c.fate.kind === "redefined" ? [columnAt(key, c.column)] : []))
+				...lawColumns.flatMap((c) =>
+					c.fate.kind === "redefined" ? [storedColumnKey(key, c.column)] : []
+				)
 			])
 		)
 		/** Whether the migration draws a column of the table `key` again: one the target's families draw whose values
 		 * change. */
-		const drawnAgain = (key: string, column: string): boolean =>
-			this.drawn.get(key)?.has(column) === true && changed.has(columnAt(key, column))
+		const drawnAgain = (key: NameKey, column: string): boolean =>
+			this.drawn.get(key)?.has(column) === true && changed.has(storedColumnKey(key, column))
 		return new Map(
 			tables.map(
 				({
@@ -1203,7 +1206,7 @@ class Differ {
 
 	/** The tables of which this migration converts a field's column in place or drops and adds one again, by table key:
 	 * PostgreSQL refuses either under a view that reads the column. */
-	convertedTables(): ReadonlyArray<string> {
+	convertedTables(): ReadonlyArray<NameKey> {
 		return [...this.keptTables.values()].flatMap((k) =>
 			[...k.changes.values()].some((c) => c.kind === "converted" || c.kind === "rewritten")
 				? [nameKey(k.create.table)]
@@ -1682,7 +1685,7 @@ class Differ {
 	}
 
 	/** `views` in drop order: every view before the views it reads, and otherwise in the order given (dependencyOrder). */
-	topDown(views: ReadonlySet<string>): ReadonlyArray<string> {
+	topDown(views: ReadonlySet<NameKey>): ReadonlyArray<NameKey> {
 		const keys = [...views]
 		return isNonEmpty(keys)
 			? dependencyOrder(keys, (key, reader) => this.reads.get(reader)?.has(key) === true)
@@ -2245,7 +2248,7 @@ class Differ {
 	 * (structure.constraints). It draws, on each table both install, every column of it a family draws that this
 	 * migration revalues in place (ColumnFate revalued) beside those it adds. */
 	backfill(): boolean {
-		const drawn = new Map<string, BackfilledTable>(
+		const drawn = new Map<NameKey, BackfilledTable>(
 			[...this.backfilled].map(
 				([key, { table, added }]) => [key, { table, added, redrawn: [] }] as const
 			)
@@ -3064,21 +3067,25 @@ class Differ {
 	 * identity sequence it creates again under its name. Publish revokes nothing on one, and grants again every privilege
 	 * the target states on one it holds. */
 	resetObjects(): ReadonlySet<string> {
+		const reset = (x: GrantObject): boolean => {
+			switch (x.kind) {
+				case "TABLE": {
+					const key = nameKey(x.name)
+					return this.recreatedViews.has(key) || this.dropped.has(key) || this.worldGone.has(key)
+				}
+				case "FUNCTION":
+					return this.worldGone.has(nameKey(x.name))
+				case "SEQUENCE":
+					return this.sequences.get(nameKey(x.name)) === "recreated"
+				case "DOMAIN":
+				case "SCHEMA":
+				case "DATABASE":
+					return false
+			}
+		}
 		return new Set(
 			[...this.input.previous.manifest.objects, ...this.input.target.manifest.objects].flatMap(
-				(o) =>
-					grantObjectsOf(installed(o)).flatMap((x) => {
-						const key = x.kind === "DATABASE" ? undefined : nameKeyOf(x)
-						return key !== undefined &&
-							((x.kind === "TABLE" &&
-								(this.recreatedViews.has(key) ||
-									this.dropped.has(key) ||
-									this.worldGone.has(key))) ||
-								(x.kind === "FUNCTION" && this.worldGone.has(key)) ||
-								(x.kind === "SEQUENCE" && this.sequences.get(key) === "recreated"))
-							? [objectKey(x)]
-							: []
-					})
+				(o) => grantObjectsOf(installed(o)).flatMap((x) => (reset(x) ? [objectKey(x)] : []))
 			)
 		)
 	}
@@ -3093,9 +3100,8 @@ class Differ {
 			this.input.previous.manifest.objects.flatMap((o) =>
 				grantObjectsOf(installed(o)).flatMap((x) => {
 					const key = objectKey(x)
-					const name = x.kind === "DATABASE" ? undefined : nameKeyOf(x)
 					return !held.has(key) ||
-						(name !== undefined && x.kind === "SEQUENCE" && this.sequences.get(name) === "dropped")
+						(x.kind === "SEQUENCE" && this.sequences.get(nameKey(x.name)) === "dropped")
 						? [key]
 						: []
 				})
@@ -3220,9 +3226,9 @@ function refuseUnsupported(u: Unsupported): never {
 	throw new Refusal(unsupported(u.loc, u.capability))
 }
 
-/** A column list as a key of its set. */
-const sortedColumns = (columns: ReadonlyArray<string>): string =>
-	[...columns].toSorted(compareStrings).join(",")
+/** A table's key (NameKey) with a set of its columns: each column after a NUL, in one order. */
+const sortedColumns = (table: ObjectName, columns: ReadonlyArray<string>): string =>
+	[nameKey(table), ...[...columns].toSorted(compareStrings)].join("\u0000")
 
 /** The identity of a key of a table as a foreign key binds it: the table and the key's columns as a set, since
  * PostgreSQL matches a foreign key's referenced columns to a unique constraint whatever order either lists them in, and
@@ -3237,10 +3243,10 @@ type KeyAfter = string & { readonly [keyAfterBrand]: true }
 const mintKeyBefore = nominal<string, KeyBefore>()
 const mintKeyAfter = nominal<string, KeyAfter>()
 const keyBefore = (table: ObjectName, columns: ReadonlyArray<string>): KeyBefore =>
-	mintKeyBefore(`${nameKey(table)}|${sortedColumns(columns)}`)
+	mintKeyBefore(sortedColumns(table, columns))
 
 const keyAfter = (table: ObjectName, columns: ReadonlyArray<string>): KeyAfter =>
-	mintKeyAfter(`${nameKey(table)}|${sortedColumns(columns)}`)
+	mintKeyAfter(sortedColumns(table, columns))
 
 const referencedColumns = (fk: ForeignKey): ReadonlyArray<string> =>
 	fk.referencedColumns.map((k) => k.column)
@@ -3299,7 +3305,7 @@ const domainsOf = (
 		readonly edges: RecordedManifest["edges"]
 	},
 	constants: ReadonlyMap<string, RosterFate>
-): ReadonlyMap<string, DomainReading> => {
+): ReadonlyMap<NameKey, DomainReading> => {
 	const readers = new Map(
 		manifest.edges.flatMap((e) => {
 			const roster = constants.get(e.from)
@@ -3325,7 +3331,7 @@ const domainsOf = (
 /** The domain of `domains` a column's type names, if it names one. */
 const domainOf = (
 	type: TypeRef,
-	domains: ReadonlyMap<string, DomainReading>
+	domains: ReadonlyMap<NameKey, DomainReading>
 ): DomainReading | undefined =>
 	type.kind === "named" ? domains.get(nameKey(objectName(type.schema, type.name))) : undefined
 
@@ -3336,7 +3342,7 @@ const domainOf = (
  */
 const columnOperators = (
 	type: TypeRef,
-	domains: ReadonlyMap<string, DomainReading>
+	domains: ReadonlyMap<NameKey, DomainReading>
 ): TypeSchema | undefined => {
 	const domain = domainOf(type, domains)
 	return domain !== undefined
@@ -3354,7 +3360,7 @@ const continuesAs = (from: RosterFate, to: RosterFate): boolean =>
  * holds no roster's values. */
 const rosterDomainOf = (
 	type: TypeRef,
-	domains: ReadonlyMap<string, DomainReading>
+	domains: ReadonlyMap<NameKey, DomainReading>
 ): Extract<DomainReading, { readonly kind: "roster" }> | undefined => {
 	const domain = domainOf(type, domains)
 	if (domain === undefined) {
@@ -3371,7 +3377,7 @@ const rosterDomainOf = (
 /** The roster a column of `type` holds handles of (rosterDomainOf). */
 const rosterOf = (
 	type: TypeRef,
-	domains: ReadonlyMap<string, DomainReading>
+	domains: ReadonlyMap<NameKey, DomainReading>
 ): RosterFate | undefined => rosterDomainOf(type, domains)?.roster
 
 /** Whether a previous column's roster and a target column's are one, or neither holds a roster's values. */
@@ -3387,7 +3393,7 @@ const sameRoster = (before: RosterFate | undefined, after: RosterFate | undefine
 const representationOf = (
 	type: TypeRef,
 	collation: Collation | undefined,
-	domains: ReadonlyMap<string, DomainReading>
+	domains: ReadonlyMap<NameKey, DomainReading>
 ): string => {
 	const domain = domainOf(type, domains)
 	if (domain === undefined) {
@@ -3406,7 +3412,7 @@ const representationOf = (
  * other type. */
 const setOf = (
 	type: TypeRef,
-	domains: ReadonlyMap<string, DomainReading>
+	domains: ReadonlyMap<NameKey, DomainReading>
 ): { readonly roster: RosterFate; readonly length: number } | undefined => {
 	const domain = rosterDomainOf(type, domains)
 	const base = domain?.create.base
@@ -3804,8 +3810,8 @@ type InPlace =
 /** The identity sequences of the tables both install that a migration drops, by name key, each with its fate, read off
  * each field's change before any object is visited: a serial field converted in place drops its sequence, created again
  * when it takes the target's identity under its name; a field serial no longer drops it. */
-const sequenceFatesOf = (kept: Iterable<KeptTable>): ReadonlyMap<string, SequenceFate> => {
-	const out = new Map<string, SequenceFate>()
+const sequenceFatesOf = (kept: Iterable<KeptTable>): ReadonlyMap<NameKey, SequenceFate> => {
+	const out = new Map<NameKey, SequenceFate>()
 	for (const { changes } of kept) {
 		for (const change of changes.values()) {
 			if (
@@ -3849,15 +3855,15 @@ const constantName = (c: ConstantHeader): FunctionName => ({
 	args: c.params.map((p) => p.type)
 })
 
-/** The table key of a table or a materialized view: the name its definition creates. */
+/** The key of a table or a materialized view: the name its definition creates. */
 const relationKey = (
 	v: Installed<AnyObject> & { readonly kind: "table" | "materializedView" }
-): string => nameKey(v.kind === "table" ? v.create.table : v.create.name)
+): NameKey => nameKey(v.kind === "table" ? v.create.table : v.create.name)
 
 /** The keys of every name qualified by one of the installation's level schemas `schemas` that a value holds:
  * relations, types, sequences and functions. */
-const qualifiedNames = (value: unknown, schemas: ReadonlySet<string>): ReadonlySet<string> => {
-	const out = new Set<string>()
+const qualifiedNames = (value: unknown, schemas: ReadonlySet<string>): ReadonlySet<NameKey> => {
+	const out = new Set<NameKey>()
 	const walk = (v: unknown): void => {
 		if (isList(v)) {
 			for (const x of v) {
@@ -3870,8 +3876,9 @@ const qualifiedNames = (value: unknown, schemas: ReadonlySet<string>): ReadonlyS
 		}
 		const r: { readonly [key: string]: unknown } = v
 		const schema = r["schema"]
-		if (typeof schema === "string" && schemas.has(schema) && typeof r["name"] === "string") {
-			out.add(`${schema}.${r["name"]}`)
+		const name = r["name"]
+		if (typeof schema === "string" && schemas.has(schema) && typeof name === "string") {
+			out.add(nameKey({ schema, name }))
 		}
 		for (const child of Object.values(r)) {
 			walk(child)
@@ -3888,13 +3895,13 @@ const qualifiedNames = (value: unknown, schemas: ReadonlySet<string>): ReadonlyS
 const installedReads = (
 	previous: DeploySnapshot,
 	schemas: ReadonlySet<string>
-): ReadonlyMap<string, ReadonlySet<string>> => {
-	const out = new Map<string, Set<string>>()
-	const add = (view: string, relation: string): void => {
+): ReadonlyMap<NameKey, ReadonlySet<NameKey>> => {
+	const out = new Map<NameKey, Set<NameKey>>()
+	const add = (view: NameKey, relation: NameKey): void => {
 		if (view === relation) {
 			return
 		}
-		const set = out.get(view) ?? new Set<string>()
+		const set = out.get(view) ?? new Set<NameKey>()
 		set.add(relation)
 		out.set(view, set)
 	}
@@ -3905,7 +3912,7 @@ const installedReads = (
 			to.kind === "materializedView" &&
 			(from.kind === "table" || from.kind === "materializedView")
 		) {
-			add(`${to.schema}.${to.name}`, `${from.schema}.${from.name}`)
+			add(nameKey(to), nameKey(from))
 		}
 	}
 	for (const o of previous.manifest.objects) {
@@ -3982,10 +3989,6 @@ const grantOf = (r: Revoke): Grant => ({
 	on: r.on,
 	to: r.from
 })
-
-/** The name key (snapshot/objects.ts nameKey) of an object a GRANT names: a schema's its name alone. */
-const nameKeyOf = (o: Exclude<GrantObject, { readonly kind: "DATABASE" }>): string =>
-	o.kind === "SCHEMA" ? o.name : nameKey(o.name)
 
 /**
  * The objects a GRANT may name that an installed object is (privileges.ts GrantObject): a table, with its identity

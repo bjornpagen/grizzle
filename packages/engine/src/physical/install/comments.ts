@@ -11,8 +11,10 @@ import {
 	type ColumnDef,
 	type Comment,
 	type CommentTarget,
+	nameKey,
 	type ObjectName,
 	type SqlStatement,
+	storedColumnKey,
 	tableConstraints
 } from "#compiler/sql/ast.ts"
 import { functionNameOf } from "#compiler/sql/build.ts"
@@ -209,7 +211,6 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 
 /** A comment's target as one text, which tells two targets apart (its kind, then its names). */
 export const targetKey = (on: CommentTarget): string => {
-	const name = (n: ObjectName) => `${n.schema}\u0000${n.name}`
 	switch (on.kind) {
 		case "SCHEMA":
 		case "ROLE":
@@ -221,17 +222,17 @@ export const targetKey = (on: CommentTarget): string => {
 		case "SEQUENCE":
 		case "INDEX":
 		case "STATISTICS":
-			return `${on.kind}\u0001${name(on.name)}`
+			return `${on.kind}\u0001${nameKey(on.name)}`
 		case "COLUMN":
-			return `${on.kind}\u0001${name(on.relation)}\u0000${on.column}`
+			return `${on.kind}\u0001${storedColumnKey(nameKey(on.relation), on.column)}`
 		case "CONSTRAINT":
 		case "TRIGGER":
 		case "POLICY":
-			return `${on.kind}\u0001${name(on.on)}\u0000${on.name}`
+			return `${on.kind}\u0001${nameKey(on.on)}\u0000${on.name}`
 		case "DOMAIN CONSTRAINT":
-			return `${on.kind}\u0001${name(on.domain)}\u0000${on.name}`
+			return `${on.kind}\u0001${nameKey(on.domain)}\u0000${on.name}`
 		case "FUNCTION":
-			return `${on.kind}\u0001${name(on.name)}`
+			return `${on.kind}\u0001${nameKey(on.name)}`
 	}
 }
 

@@ -11,7 +11,7 @@ import { serialDraw } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { ObjectName } from "#compiler/sql/ast.ts"
+import { nameKey, type ObjectName } from "#compiler/sql/ast.ts"
 import {
 	type StoredGenerated,
 	type TableGeneration,
@@ -156,15 +156,14 @@ export const migrationGenerations = (
 	laws: LawModel,
 	tableOf: (relation: string) => ObjectName
 ): ((table: ObjectName) => TableGeneration) => {
-	const key = (t: ObjectName): string => `${t.schema}\u0000${t.name}`
 	const relations = new Map(
 		Object.values(laws.theory.relations).flatMap((r) =>
-			r.kind === "relation" ? [[key(tableOf(r.name)), r.name] as const] : []
+			r.kind === "relation" ? [[nameKey(tableOf(r.name)), r.name] as const] : []
 		)
 	)
 	const of = generations(laws, reality)
 	return (table) => {
-		const relation = relations.get(key(table))
+		const relation = relations.get(nameKey(table))
 		if (relation === undefined) {
 			throw defect(
 				`the table ${table.schema}.${table.name} an UPDATE writes is a stored relation's`

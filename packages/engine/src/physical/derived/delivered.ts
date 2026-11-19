@@ -1,21 +1,19 @@
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import type { RootedDag } from "#compiler/ir/rel.ts"
-import type {
-	Cte,
-	Expr,
-	FromSource,
-	ObjectName,
-	Select,
-	OperandBody,
-	TypeRef
+import {
+	type Cte,
+	type Expr,
+	type FromSource,
+	type Select,
+	type OperandBody,
+	type TypeRef,
+	nameKey,
+	storedColumnKey,
+	type StoredColumnKey
 } from "#compiler/sql/ast.ts"
 import { sameTypeRef } from "#compiler/sql/build.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
-
-/** The key of an installed column: its schema, table and column. */
-const columnKey = (table: ObjectName, column: string): string =>
-	`${table.schema}\u0000${table.name}\u0000${column}`
 
 /**
  * The PostgreSQL type of every installed column a definition's DAG reads: each column of an ordinary relation's table,
@@ -23,8 +21,11 @@ const columnKey = (table: ObjectName, column: string): string =>
  * column is created at that type, and a materialized view's column is closed to it by its own definition
  * (definition.ts withColumnTypes).
  */
-const installedColumns = (dag: RootedDag, names: PhysicalNames): ReadonlyMap<string, TypeRef> => {
-	const out = new Map<string, TypeRef>()
+const installedColumns = (
+	dag: RootedDag,
+	names: PhysicalNames
+): ReadonlyMap<StoredColumnKey, TypeRef> => {
+	const out = new Map<StoredColumnKey, TypeRef>()
 	for (const node of topoOrder(dag)) {
 		if (node.kind !== "Base" || node.relationKind === "world") {
 			continue
@@ -32,7 +33,7 @@ const installedColumns = (dag: RootedDag, names: PhysicalNames): ReadonlyMap<str
 		const table = names.relation(node.relation)
 		for (const c of node.heading) {
 			out.set(
-				columnKey(table, names.column(node.relation, c.name)),
+				storedColumnKey(nameKey(table), names.column(node.relation, c.name)),
 				fieldColumnType(names, c.type).type
 			)
 		}
@@ -56,11 +57,11 @@ const installedColumns = (dag: RootedDag, names: PhysicalNames): ReadonlyMap<str
  * statement, so a column reference resolves by its alias alone.
  */
 class Delivered {
-	readonly #installed: ReadonlyMap<string, TypeRef>
+	readonly #installed: ReadonlyMap<StoredColumnKey, TypeRef>
 	readonly #items = new Map<string, FromSource>()
 	readonly #ctes = new Map<string, Cte>()
 
-	constructor(query: Select, installed: ReadonlyMap<string, TypeRef>) {
+	constructor(query: Select, installed: ReadonlyMap<StoredColumnKey, TypeRef>) {
 		this.#installed = installed
 		visitSelect(query, {
 			...inertVisitor,
@@ -169,13 +170,13 @@ class Delivered {
 			case "table":
 				return typeof item.table === "string"
 					? undefined
-					: this.#installed.get(columnKey(item.table, column))
+					: this.#installed.get(storedColumnKey(nameKey(item.table), column))
 			case "probe":
 			case "met": {
 				const driven = item.columns.find((c) => c.as === column)
 				return driven === undefined
 					? undefined
-					: this.#installed.get(columnKey(item.table, driven.read))
+					: this.#installed.get(storedColumnKey(nameKey(item.table), driven.read))
 			}
 			case "metRows":
 				return undefined

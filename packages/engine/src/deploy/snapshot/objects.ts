@@ -37,7 +37,9 @@ import {
 	type SqlFunction,
 	type SqlStatement,
 	type TableConstraint,
-	tableConstraints
+	tableConstraints,
+	nameKey,
+	type NameKey
 } from "#compiler/sql/ast.ts"
 
 import { type AstHooks, identityHooks, transformStatements } from "#compiler/sql/transform.ts"
@@ -834,7 +836,7 @@ const noParts: Parts = {
 }
 
 /** The parts of the relation `t` in `parts` (partsByTable), none where it holds none. */
-export const partsAt = (parts: ReadonlyMap<string, Parts>, t: ObjectName): Parts =>
+export const partsAt = (parts: ReadonlyMap<NameKey, Parts>, t: ObjectName): Parts =>
 	parts.get(nameKey(t)) ?? noParts
 
 /** The parts of every relation among `among`, by its name key, each of each kind by name, in the order of the objects
@@ -843,9 +845,9 @@ export const partsAt = (parts: ReadonlyMap<string, Parts>, t: ObjectName): Parts
 export const partsByTable = (
 	among: Iterable<AnyObject>,
 	objects: ReadonlyMap<string, AnyObject>
-): ReadonlyMap<string, Parts> => {
+): ReadonlyMap<NameKey, Parts> => {
 	const byTable = new Map<
-		string,
+		NameKey,
 		{
 			readonly constraint: Map<string, PartOf<"constraint">>
 			readonly index: Map<string, PartOf<"index">>
@@ -889,9 +891,6 @@ export const partsByTable = (
 	}
 	return byTable
 }
-
-/** The key of a name in a set or map: `<schema>.<name>`. */
-export const nameKey = (name: ObjectName): string => `${name.schema}.${name.name}`
 
 /** Renames of schema-qualified names of one catalog namespace (`NameSpace`): a relation's, with its indexes' and
  * identity sequences', all in pg_class, a type's, or an extended statistics object's. */

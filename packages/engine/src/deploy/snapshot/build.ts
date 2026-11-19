@@ -98,6 +98,8 @@ import {
 	type AlterTableAction,
 	type CreateIndex,
 	type CreateTable,
+	nameKey,
+	type NameKey,
 	type ObjectName,
 	type SqlStatement,
 	tableConstraints,
@@ -614,19 +616,14 @@ const keyOrdered = <A, B>(
 	)
 
 /** A two-level map's value at `outer`, then `inner`. */
-const valueAt = <V>(
-	map: ReadonlyMap<string, ReadonlyMap<string, V>>,
-	outer: string,
+const valueAt = <K, V>(
+	map: ReadonlyMap<K, ReadonlyMap<string, V>>,
+	outer: K,
 	inner: string
 ): V | undefined => map.get(outer)?.get(inner)
 
 /** `value` set at `outer`, then `inner`, of a two-level map. */
-const setAt = <V>(
-	map: Map<string, Map<string, V>>,
-	outer: string,
-	inner: string,
-	value: V
-): void => {
+const setAt = <K, V>(map: Map<K, Map<string, V>>, outer: K, inner: string, value: V): void => {
 	const within = map.get(outer) ?? new Map<string, V>()
 	within.set(inner, value)
 	map.set(outer, within)
@@ -730,17 +727,17 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			setAt(holds, n.object.relation.name, n.object.column, holdsOf(n.plan, n.object.field.name))
 		}
 	}
-	const creates = new Map<string, Map<string, CreateTable>>()
-	const lawColumns = new Map<string, Map<string, ReadonlyArray<LawId>>>()
+	const creates = new Map<NameKey, CreateTable>()
+	const lawColumns = new Map<NameKey, Map<string, ReadonlyArray<LawId>>>()
 	for (const o of installation.manifest.objects) {
 		const v = installed(o)
 		if (v.kind === "table") {
-			setAt(creates, v.create.table.schema, v.create.table.name, v.create)
+			creates.set(nameKey(v.create.table), v.create)
 		}
 		if (v.kind === "lawColumn") {
 			setAt(
 				lawColumns,
-				`${v.table.schema}.${v.table.name}`,
+				nameKey(v.table),
 				v.column,
 				o.reasons.flatMap((r) => (r.kind === "law" ? [r.law] : []))
 			)
@@ -764,7 +761,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 				return { kind: "field", field }
 			}
 			const held = valueAt(holds, on.relation, k.column)
-			const laws = valueAt(lawColumns, `${table.schema}.${table.name}`, k.column)
+			const laws = valueAt(lawColumns, nameKey(table), k.column)
 			if (held === undefined || laws === undefined) {
 				throw defect(
 					`the column ${k.column} of index ${name}: a field or a law column of ${on.relation}`
@@ -781,7 +778,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 		on.indexes.set(name, { columns, reasons })
 	}
 	const declared = (table: ObjectName, name: string): TableConstraint => {
-		const create = valueAt(creates, table.schema, table.name)
+		const create = creates.get(nameKey(table))
 		const constraint =
 			create === undefined ? undefined : tableConstraints(create).find((c) => c.name === name)
 		if (constraint === undefined) {

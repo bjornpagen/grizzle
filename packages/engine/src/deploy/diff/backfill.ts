@@ -67,7 +67,6 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import { nameKey } from "#compiler/deploy/snapshot/objects.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -87,20 +86,24 @@ import { columnReads } from "#compiler/laws/model/uniques.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { lowerPersistent, persistentClosed } from "#compiler/physical/ddl/expr.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type {
-	Cte,
-	Expr,
-	FromSource,
-	JoinStep,
-	ObjectName,
-	Select,
-	SetCore,
-	SqlStatement,
-	Target,
-	TypeRef,
-	Update,
-	WindowSpec,
-	With
+import {
+	type Cte,
+	type Expr,
+	type FromSource,
+	type JoinStep,
+	type ObjectName,
+	type Select,
+	type SetCore,
+	type SqlStatement,
+	type Target,
+	type TypeRef,
+	type Update,
+	type WindowSpec,
+	type With,
+	nameKey,
+	type NameKey,
+	storedColumnKey,
+	type StoredColumnKey
 } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -146,7 +149,7 @@ export interface DrawnColumn {
 }
 
 /** The columns of each table the target's families draw, by table key (nameKey), then column (DrawnColumn). */
-export type DrawnColumns = ReadonlyMap<string, ReadonlyMap<string, DrawnColumn>>
+export type DrawnColumns = ReadonlyMap<NameKey, ReadonlyMap<string, DrawnColumn>>
 
 /**
  * The columns the backfill draws on a table that may hold rows: those this migration adds under their placeholder
@@ -161,7 +164,7 @@ export interface BackfilledTable {
 }
 
 /** Each table's columns the backfill draws, by table key (nameKey). */
-export type Backfilled = ReadonlyMap<string, BackfilledTable>
+export type Backfilled = ReadonlyMap<NameKey, BackfilledTable>
 
 /** What the backfill of a migration reads besides its target: the previous snapshot's theory, which names the key the
  * stored rows of a relation are distinct by; whether a table of the target holds rows before the migration; and the
@@ -251,7 +254,7 @@ const identityOf = (installation: Installation, plane: FoldPlane): DrawnColumn =
  * empty, but an accumulator or an end, which holds its plane's identity, and a copy, which holds its base.
  */
 export const drawnColumns = (installation: Installation): DrawnColumns => {
-	const out = new Map<string, Map<string, DrawnColumn>>()
+	const out = new Map<NameKey, Map<string, DrawnColumn>>()
 	const families = familyCells(installation)
 	const put = (relation: string, column: string, value: DrawnColumn): void => {
 		const key = nameKey(tableOf(installation, relation))
@@ -289,25 +292,21 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 	return out
 }
 
-/** A column of a table, by its table's key (nameKey) and its column's name: a node of the fill's read graph
- * (FillReads). */
-export const columnAt = (table: string, column: string): string => `${table}\u0000${column}`
-
 /**
- * The target's fill read graph (ir/fill.ts FillOrder): each column a write fills on a row a family reaches, by its node
- * (columnAt), with every node it reads: the columns of its own row its rule reads (FillColumn reads), and the column its
+ * The target's fill read graph (ir/fill.ts FillOrder): each column a write fills on a row a family reaches, by its key
+ * (sql/ast.ts storedColumnKey), with every node it reads: the columns of its own row its rule reads (FillColumn reads), and the column its
  * rule takes off another row, a copy's target along its axis and a member's group field's owner column. A column the
  * fill draws holds its rule's value over what it reads, so a migration that changes the values of a column it reads
  * draws it again (`changedOver`).
  */
-export type FillReads = ReadonlyMap<string, ReadonlyArray<string>>
+export type FillReads = ReadonlyMap<StoredColumnKey, ReadonlyArray<StoredColumnKey>>
 
 export const fillReadsOf = (installation: Installation): FillReads => {
 	const schema = installation.names.schema
-	const at = (relation: RelationInfo | TableRelation, c: NativeColumn): string =>
-		columnAt(nameKey(objectName(schema, relation.ident)), columnOf(c))
+	const at = (relation: RelationInfo | TableRelation, c: NativeColumn): StoredColumnKey =>
+		storedColumnKey(nameKey(objectName(schema, relation.ident)), columnOf(c))
 	/** The column a rule takes off another row, by its node: none for a rule that reads its own row alone. */
-	const across = (layout: FillLayout, rule: FillRule): ReadonlyArray<string> => {
+	const across = (layout: FillLayout, rule: FillRule): ReadonlyArray<StoredColumnKey> => {
 		switch (rule.kind) {
 			case "ownerCopy":
 				return [at(rule.family.owner, rule.to)]
@@ -329,7 +328,7 @@ export const fillReadsOf = (installation: Installation): FillReads => {
 				return []
 		}
 	}
-	const out = new Map<string, Array<string>>()
+	const out = new Map<StoredColumnKey, Array<StoredColumnKey>>()
 	for (const layout of installation.laws.theory.fill.layouts.values()) {
 		for (const c of layout.columns) {
 			const node = at(layout.relation, c.column)
@@ -350,8 +349,11 @@ export const fillReadsOf = (installation: Installation): FillReads => {
  * Every node whose values change with `seeds`' (FillReads): each seed, and each column that reads a changed one,
  * transitively, each reached once along its readers.
  */
-export const changedOver = (reads: FillReads, seeds: Iterable<string>): ReadonlySet<string> => {
-	const readers = new Map<string, Array<string>>()
+export const changedOver = (
+	reads: FillReads,
+	seeds: Iterable<StoredColumnKey>
+): ReadonlySet<StoredColumnKey> => {
+	const readers = new Map<StoredColumnKey, Array<StoredColumnKey>>()
 	for (const [node, of] of reads) {
 		for (const read of of) {
 			const by = readers.get(read) ?? []
@@ -359,7 +361,7 @@ export const changedOver = (reads: FillReads, seeds: Iterable<string>): Readonly
 			readers.set(read, by)
 		}
 	}
-	const changed = new Set<string>()
+	const changed = new Set<StoredColumnKey>()
 	const pending = [...seeds]
 	for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
 		if (!changed.has(node)) {
@@ -1425,7 +1427,7 @@ const treeEndDerivation = (
  * value (Instance's `children`, its tree's count, which its document's family's owner axis holds to the document's
  * `sites`).
  */
-const familyCells = (installation: Installation): ReadonlySet<string> =>
+const familyCells = (installation: Installation): ReadonlySet<StoredColumnKey> =>
 	new Set(
 		installation.laws.families.flatMap((family) =>
 			[
@@ -1474,7 +1476,7 @@ const hostFilled = (c: NativeColumn): boolean =>
 const copiesOf = (
 	installation: Installation,
 	family: Family,
-	families: ReadonlySet<string>
+	families: ReadonlySet<StoredColumnKey>
 ): ReadonlyArray<Copy> => {
 	const member = tableOf(installation, family.member.name)
 	const owner = tableOf(installation, family.owner.name)
@@ -1655,7 +1657,7 @@ const cellsOf = (table: ObjectName, columns: ReadonlyArray<string>): ReadonlyArr
 	columns.map((column) => ({ table, column }))
 
 /** A cell's key: its table's (nameKey) and its column. */
-const cellKey = (c: Cell): string => `${nameKey(c.table)}\u0000${c.column}`
+const cellKey = (c: Cell): StoredColumnKey => storedColumnKey(nameKey(c.table), c.column)
 
 /** A cell as a refusal names it, by its table's name and its column. */
 const cellName = (c: Cell): string => `${c.table.name}.${c.column}`
@@ -1689,7 +1691,7 @@ interface Placing {
  * and the one it reads.
  */
 const ordered = (planned: ReadonlyArray<Planned>): ReadonlyArray<Derivation> => {
-	const drawer = new Map<string, Planned>()
+	const drawer = new Map<StoredColumnKey, Planned>()
 	for (const p of planned) {
 		for (const c of drawsOf(p.derivation)) {
 			if (drawer.has(cellKey(c))) {
@@ -1857,13 +1859,13 @@ const derivationCte = (
 	presented: (cell: Cell) => Presented
 ): { readonly cte: Cte; readonly reads: ReadonlyArray<Named> } => {
 	const { derivation } = n
-	const columnsOn = new Map<string, Array<string>>()
+	const columnsOn = new Map<NameKey, Array<string>>()
 	for (const cell of derivation.reads) {
 		const key = nameKey(cell.table)
 		columnsOn.set(key, [...(columnsOn.get(key) ?? []), cell.column])
 	}
 	const views: Array<Cte> = []
-	const viewOf = new Map<string, string>()
+	const viewOf = new Map<NameKey, string>()
 	const read = transformSelect(
 		{
 			...select({
@@ -1947,13 +1949,13 @@ const passes = (
 	derivations: ReadonlyArray<Derivation>,
 	generationOf: (table: ObjectName) => TableGeneration,
 	columns: DrawnColumns,
-	redrawn: ReadonlySet<string>
+	redrawn: ReadonlySet<StoredColumnKey>
 ): ReadonlyArray<Update> => {
 	const named = derivations.map((derivation, i): Named => ({
 		name: drawingName(i + 1),
 		derivation
 	}))
-	const drawer = new Map<string, Named>()
+	const drawer = new Map<StoredColumnKey, Named>()
 	for (const n of named) {
 		for (const c of drawsOf(n.derivation)) {
 			drawer.set(cellKey(c), n)
@@ -1983,7 +1985,7 @@ const passes = (
 		}
 	const built = new Map(named.map((n) => [n, derivationCte(n, presentedTo(n))] as const))
 	const builtOf = (n: Named) => defined(built.get(n), "every derivation is built")
-	const tables = new Map<string, NonEmptyReadonlyArray<Named>>()
+	const tables = new Map<NameKey, NonEmptyReadonlyArray<Named>>()
 	for (const n of named) {
 		const key = nameKey(n.derivation.table)
 		tables.set(key, appendNonEmpty(tables.get(key) ?? [], n))
@@ -2185,7 +2187,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		plan(family, ownerDerivation(input, family, ownerTable, memberTable, theirs))
 	}
 	const families = familyCells(installation)
-	const copied = new Set<string>()
+	const copied = new Set<StoredColumnKey>()
 	for (const family of installation.laws.families) {
 		const drawn = copiesOf(installation, family, families).filter((c) => {
 			const cell = cellKey({ table: c.source, column: columnOf(c.from) })

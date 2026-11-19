@@ -1,3 +1,4 @@
+import { nominal } from "#compiler/core/brand.ts"
 import type { FloatSpecialName } from "#compiler/core/canonical.ts"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
@@ -11,6 +12,30 @@ export interface ObjectName {
 	readonly schema: string
 	readonly name: string
 }
+
+declare const nameKeyBrand: unique symbol
+declare const storedColumnKeyBrand: unique symbol
+
+/**
+ * A schema object's name as one text, the key every map of objects by name is keyed by: its schema's identifier and
+ * its own, a NUL between, which no PostgreSQL identifier holds, so two names share a key only where they are one name,
+ * where a key spelled `<schema>.<name>` is shared by `"a.b"."c"` and `"a"."b.c"`.
+ */
+export type NameKey = string & { readonly [nameKeyBrand]: true }
+
+/** A column of a table or a materialized view as one text: its relation's key (NameKey), a NUL, and its own name. */
+export type StoredColumnKey = string & { readonly [storedColumnKeyBrand]: true }
+
+const mintNameKey = nominal<string, NameKey>()
+const mintStoredColumnKey = nominal<string, StoredColumnKey>()
+
+/** The key of the object `name` names (NameKey). */
+export const nameKey = (name: ObjectName): NameKey =>
+	mintNameKey(`${name.schema}\u0000${name.name}`)
+
+/** The key of the column `column` of the relation whose key is `table` (StoredColumnKey). */
+export const storedColumnKey = (table: NameKey, column: string): StoredColumnKey =>
+	mintStoredColumnKey(`${table}\u0000${column}`)
 
 /**
  * A table a data-modifying statement or a FROM item names: a stored relation by its qualified name, or a write

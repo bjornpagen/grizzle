@@ -38,7 +38,7 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
-import { domainKey, type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
+import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, noPersistentClosed } from "#compiler/physical/ddl/expr.ts"
 import {
 	type ContractSource,
@@ -47,13 +47,15 @@ import {
 } from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
-import type {
-	Collation,
-	CreateDomain,
-	Expr,
-	ObjectName,
-	TypeRef,
-	TypeSchema
+import {
+	type Collation,
+	type CreateDomain,
+	type Expr,
+	nameKey,
+	type NameKey,
+	type ObjectName,
+	type TypeRef,
+	type TypeSchema
 } from "#compiler/sql/ast.ts"
 import { and } from "#compiler/sql/build.ts"
 import { domainValue, membershipTerms, textDomainDefinition } from "#compiler/text/refinement.ts"
@@ -82,7 +84,7 @@ export interface UsedType {
 
 /** The domains columns are typed by, by name, and whether one is a vector. */
 export interface TypeUse {
-	readonly domains: Map<string, UsedType>
+	readonly domains: Map<NameKey, UsedType>
 	vector: boolean
 }
 
@@ -94,7 +96,7 @@ const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const contract = contractOf(t)
 	if (contract !== undefined) {
 		const name = b.names.contractDomain(contract.name)
-		use.domains.set(domainKey(name), {
+		use.domains.set(nameKey(name), {
 			name,
 			identity: b.names.contractNamed(contract.name),
 			node: b.typeNamed(name)
@@ -104,7 +106,7 @@ const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	}
 	if (t.carrier === "code") {
 		const name = b.names.rosterDomain(t.roster.closed)
-		use.domains.set(domainKey(name), {
+		use.domains.set(nameKey(name), {
 			name,
 			identity: b.names.rosterNamed(t.roster.closed),
 			node: b.typeNamed(name)
@@ -112,7 +114,7 @@ const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	}
 	if (t.carrier === "bits") {
 		const name = b.names.bitsDomain(t.roster.closed)
-		use.domains.set(domainKey(name), {
+		use.domains.set(nameKey(name), {
 			name,
 			identity: b.names.bitsNamed(t.roster.closed),
 			node: b.typeNamed(name)
@@ -130,7 +132,7 @@ const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 		const name = b.names.textDomain(regex)
 		const named = b.names.textNamed(regex)
 		if (name !== undefined && named !== undefined) {
-			use.domains.set(domainKey(name), { name, identity: named, node: b.typeNamed(name) })
+			use.domains.set(nameKey(name), { name, identity: named, node: b.typeNamed(name) })
 		}
 	}
 }

@@ -1,13 +1,16 @@
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import type {
-	Expr,
-	FromItem,
-	FromSource,
-	JoinStep,
-	OperandBody,
-	OperandSelect,
-	Select,
-	SelectCore
+import {
+	type Expr,
+	type FromItem,
+	type FromSource,
+	type JoinStep,
+	nameKey,
+	type NameKey,
+	type ObjectName,
+	type OperandBody,
+	type OperandSelect,
+	type Select,
+	type SelectCore
 } from "#compiler/sql/ast.ts"
 import { and, call, eq } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
@@ -15,7 +18,7 @@ import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 
 /** A stored column as a statement reads it: by the table or view it is a column of, and its name there. */
 export interface StoredColumn {
-	readonly table: { readonly schema: string; readonly name: string }
+	readonly table: ObjectName
 	readonly column: string
 }
 
@@ -26,7 +29,7 @@ export interface StoredColumn {
 export interface ImagedColumns {
 	readonly has: (column: StoredColumn) => boolean
 	/** The imaged columns of a table or view, by name. */
-	readonly of: (table: StoredColumn["table"]) => ReadonlyArray<string>
+	readonly of: (table: ObjectName) => ReadonlyArray<string>
 }
 
 /**
@@ -74,21 +77,18 @@ export const imagedColumnOf = (e: Expr): string | undefined => {
 		: undefined
 }
 
-/** A table's key in an ImagedColumns set: no identifier holds NUL. */
-const tableKey = (table: StoredColumn["table"]): string => `${table.schema}\u0000${table.name}`
-
 /** The imaged columns `columns`, each a text column of no byte bound by the table or plain view it is read through. */
 export const imagedColumns = (columns: Iterable<StoredColumn>): ImagedColumns => {
-	const byTable = new Map<string, Set<string>>()
+	const byTable = new Map<NameKey, Set<string>>()
 	for (const c of columns) {
-		const key = tableKey(c.table)
+		const key = nameKey(c.table)
 		const held = byTable.get(key) ?? new Set<string>()
 		held.add(c.column)
 		byTable.set(key, held)
 	}
 	return {
-		has: (c) => byTable.get(tableKey(c.table))?.has(c.column) === true,
-		of: (table) => [...(byTable.get(tableKey(table)) ?? [])]
+		has: (c) => byTable.get(nameKey(c.table))?.has(c.column) === true,
+		of: (table) => [...(byTable.get(nameKey(table)) ?? [])]
 	}
 }
 

@@ -65,7 +65,8 @@ export const oneChangeToAnAxissCopiesOrAMembersGeneratedFieldTouchesOnlyItAndWha
 			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
-				original: "this.drawn.get(key)?.has(column) === true && changed.has(columnAt(key, column))",
+				original:
+					"this.drawn.get(key)?.has(column) === true && changed.has(storedColumnKey(key, column))",
 				replacement: "this.drawn.get(key)?.has(column) === true && changed.size < 0",
 				why: "No column drawn again for what its fill reads (diff.ts keptTablesOf drawnAgain): a copy of a retargeted copy keeps its stale values; the property fails."
 			},
