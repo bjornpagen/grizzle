@@ -141,15 +141,19 @@ export interface LaidRows {
 }
 
 /**
- * A member relation's INSERT as its gate reads it: its relation, its row layout, its unique objects, and the key it
- * arbitrates: its primary key, ON CONFLICT at which meets an exact repeat and the key's conflict witness
- * (write/family/additions.ts insertOf); or none, a plain INSERT of rows no stored row repeats.
+ * The key a member relation's INSERT arbitrates (write/family/additions.ts memberArbiter): its primary key, ON CONFLICT
+ * at which meets an exact repeat and the key's conflict witness (`primaryKey`); or none, a plain INSERT of rows no stored
+ * row repeats, each stored repeat and conflict read by a probe (`none`).
  */
+export type Arbiter = "primaryKey" | "none"
+
+/** A member relation's INSERT as its gate reads it: its relation, its row layout, its unique objects, and the key it
+ * arbitrates (`Arbiter`). */
 interface GatedInsert {
 	readonly relation: RelationInfo
 	readonly layout: RowLayout
 	readonly uniques: RelationUniques
-	readonly arbiter: "primaryKey" | "none"
+	readonly arbiter: Arbiter
 }
 
 /**
@@ -182,16 +186,20 @@ export const candidateGate = (
 			`the candidate column of ${relation.name}.${f.name}`
 		)
 	)
-	const probed: { readonly requested: Requested; readonly checks: ReadonlyArray<Probed> } =
-		insert.arbiter === "primaryKey"
-			? { requested: { kind: "complete", arbiter: uniques.arbiter }, checks: uniques.checks }
-			: {
+	const probed = ((): { readonly requested: Requested; readonly checks: ReadonlyArray<Probed> } => {
+		switch (insert.arbiter) {
+			case "primaryKey":
+				return { requested: { kind: "complete", arbiter: uniques.arbiter }, checks: uniques.checks }
+			case "none":
+				return {
 					requested: { kind: "none", fields },
 					checks: [
 						{ object: uniques.arbiter, pairs: "statement", witness: "every" },
 						...uniques.checks
 					]
 				}
+		}
+	})()
 	const probe = buildProbe(w, supply, {
 		relation,
 		...probed,
