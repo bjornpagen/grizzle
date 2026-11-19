@@ -100,15 +100,13 @@ import {
 	type PerGroup,
 	readAt,
 	type Scanned,
-	type ScanRows,
 	scannedValue,
-	scanOf,
-	writeLowering,
 	type Shaped
 } from "#compiler/write/family/scan.ts"
 import { endColumns, type RowLayout } from "#compiler/write/family/statements.ts"
 import {
 	columnAt,
+	drawnScan,
 	deletedResult,
 	type FamilyWriteSql,
 	groupAggregate,
@@ -116,6 +114,7 @@ import {
 	installed,
 	internal,
 	one,
+	ownerReadsOf,
 	type FamilyReturning,
 	rowNumber,
 	sameGroupExprs,
@@ -1241,28 +1240,7 @@ const redraw = (
 			)
 		)
 	)
-	/** The members from each group's least changed slot at their final slots, every column as the edit leaves it. */
-	const ownerReads = new Map(
-		drawnColumns.flatMap((c) =>
-			c.rule.kind === "ownerCopy"
-				? [[columnKey(c.rule.to), { to: c.rule.to, from: columnKey(c.column) }] as const]
-				: []
-		)
-	)
-	const rows: ScanRows = {
-		name: supply.relation(internal("redrawn rows")),
-		group: mapNonEmpty(family.group, () => supply.column(internal("redrawn group key"))),
-		slot: supply.column(internal("redrawn slot")),
-		first: supply.column(internal("redrawn first slot")),
-		count: supply.column(internal("redrawn count")),
-		columns: new Map(keys.map((k) => [k, supply.column(internal("redrawn column"))] as const)),
-		owner: new Map(
-			[...ownerReads.keys()].map(
-				(k) => [k, supply.column(internal("redrawn owner column"))] as const
-			)
-		),
-		through: []
-	}
+	const ownerReads = ownerReadsOf(drawnColumns)
 	/**
 	 * A member's value of each column as the edit leaves it: the put's where it updates the member, else stored, read as
 	 * COALESCE since a column is never NULL (rule 0).
@@ -1368,291 +1346,244 @@ const redraw = (
 			)
 		)
 	}
-	const rowTargets = (
-		m: string,
-		g: string,
-		slot: Expr
-	): ReadonlyArray<ReturnType<typeof targetAs>> => [
-		...mapNonEmpty(rows.group, (c, i) =>
-			targetAs(col(g, defined(groups.group[i], "a group column")), c)
-		),
-		targetAs(cast(slot, bigint), rows.slot),
-		targetAs(col(g, groups.first), rows.first),
-		targetAs(
-			counted
-				? col(g, groups.stored)
-				: {
-						kind: "case",
-						operand: undefined,
-						whens: [{ when: col(g, groups.recounted), result: col(g, groups.kept) }],
-						else: col(g, groups.stored)
-					},
-			rows.count
-		),
-		...keys.map((k) => targetAs(memberColumn(m, k), columnAt(rows, k))),
-		...[...ownerReads].map(([k, owned]) =>
-			targetAs(
-				ownerColumn(m, g, owned.to, owned.from),
-				defined(rows.owner.get(k), "an owner column")
-			)
-		)
-	]
-	const m1 = supply.relation(internal("kept member"))
-	const g1 = supply.relation(internal("kept group"))
-	const memberInGroup = (m: string, g: string): Expr =>
-		and(
-			mapNonEmpty(family.group, (gr, i) =>
-				typedEq(
-					gr.member.type,
-					col(m, w.names.column(name, gr.member.name)),
-					col(g, defined(groups.group[i], "a group column")),
-					w.names
-				)
-			)
-		)
-	const arms: Array<SetArm> = []
-	if (counted) {
-		/** Every kept member at its own slot from the least changed one below the kept count. */
-		const inPlace = provedCore(
-			"keyed",
-			rowTargets(m1, g1, col(m1, index)),
-			[join(cteRefAs(groups.name, g1), tableAs(w, name, m1), memberInGroup(m1, g1))],
-			and([
-				ge(col(m1, index), col(g1, groups.first)),
-				lt(col(m1, index), col(g1, groups.kept)),
-				notRemoved(m1)
-			])
-		)
-		arms.push(inPlace)
-		/** Each kept member at or above the kept count, moved into a freed slot below it: the highest into the least. */
-		const movers = {
-			name: supply.relation(internal("mover")),
-			group: mapNonEmpty(family.group, () => supply.column(internal("mover group key"))),
-			slot: supply.column(internal("mover slot")),
-			rank: supply.column(internal("mover rank")),
-			key: mapNonEmpty(member.relation.primaryFields, () => supply.column(internal("mover key")))
-		}
-		const m2 = supply.relation(internal("moving member"))
-		const g2 = supply.relation(internal("moving group"))
-		const mGroup = family.group.map((gr) => col(m2, w.names.column(name, gr.member.name)))
-		ctes.push(
-			cte(
-				movers.name,
-				[...movers.group, movers.slot, movers.rank, ...movers.key],
-				select(
-					provedCore(
-						"keyed",
-						[
-							...mapNonEmpty(movers.group, (c, i) =>
-								targetAs(defined(mGroup[i], "a group key"), c)
-							),
-							targetAs(col(m2, index), movers.slot),
-							targetAs(
-								rowNumber(mGroup, [binary("-", lit.int(0, bigint), col(m2, index))]),
-								movers.rank
-							),
-							...mapNonEmpty(movers.key, (c, i) =>
-								targetAs(
-									col(
-										m2,
-										w.names.column(
-											name,
-											defined(member.relation.primaryFields[i], "a key field").name
-										)
-									),
-									c
-								)
-							)
-						],
-						[join(cteRefAs(groups.name, g2), tableAs(w, name, m2), memberInGroup(m2, g2))],
-						and([ge(col(m2, index), col(g2, groups.kept)), notRemoved(m2)])
-					)
-				)
-			)
-		)
-		const freed = {
-			name: supply.relation(internal("freed slot")),
-			group: mapNonEmpty(family.group, () => supply.column(internal("freed group key"))),
-			slot: supply.column(internal("freed slot")),
-			rank: supply.column(internal("freed rank"))
-		}
-		const t2 = supply.relation(internal("freed touched"))
-		const g3 = supply.relation(internal("freed group"))
-		const fGroup = touched.group.map((c) => col(t2, c))
-		ctes.push(
-			cte(
-				freed.name,
-				[...freed.group, freed.slot, freed.rank],
-				select(
-					provedCore(
-						"keyed",
-						[
-							...mapNonEmpty(freed.group, (c, i) => targetAs(defined(fGroup[i], "a group key"), c)),
-							targetAs(col(t2, touched.slot), freed.slot),
-							targetAs(rowNumber(fGroup, [col(t2, touched.slot)]), freed.rank)
-						],
-						[
-							join(
-								cteRefAs(touched.name, t2),
-								cteRefAs(groups.name, g3),
-								sameGroupExprs(w.names, family, fGroup, g3, groups.group)
-							)
-						],
-						and([col(t2, touched.removed), lt(col(t2, touched.slot), col(g3, groups.kept))])
-					)
-				)
-			)
-		)
-		const mv = supply.relation(internal("moved"))
-		const fr = supply.relation(internal("freed"))
-		const g4 = supply.relation(internal("moved group"))
-		const m3 = supply.relation(internal("moved member"))
-		arms.push(
-			provedCore(
-				"keyed",
-				rowTargets(m3, g4, col(fr, freed.slot)),
-				[
-					{
-						kind: "joins",
-						first: cteRefAs(movers.name, mv),
-						steps: [
-							{
-								kind: "on",
-								source: cteRefAs(freed.name, fr),
-								on: and([
-									sameGroupExprs(
-										w.names,
-										family,
-										movers.group.map((c) => col(mv, c)),
-										fr,
-										freed.group
-									),
-									eq(col(mv, movers.rank), col(fr, freed.rank))
-								])
-							},
-							{
-								kind: "on",
-								source: cteRefAs(groups.name, g4),
-								on: sameGroupExprs(
-									w.names,
-									family,
-									movers.group.map((c) => col(mv, c)),
-									g4,
-									groups.group
-								)
-							},
-							{
-								kind: "on",
-								source: tableAs(w, name, m3),
-								on: and(
-									mapNonEmpty(member.relation.primaryFields, (f, i) =>
-										typedEq(
-											f.type,
-											col(m3, w.names.column(name, f.name)),
-											col(mv, defined(movers.key[i], "a mover key")),
-											w.names
-										)
-									)
-								)
-							}
-						]
-					}
-				],
-				undefined
-			)
-		)
-	} else {
-		/** Every kept member from the least changed slot, renumbered from it in its order. */
-		const mGroup = family.group.map((gr) => col(m1, w.names.column(name, gr.member.name)))
-		arms.push(
-			provedCore(
-				"keyed",
-				rowTargets(
-					m1,
-					g1,
-					binary(
-						"-",
-						binary("+", col(g1, groups.first), rowNumber(mGroup, [col(m1, index)])),
-						lit.int(1, bigint)
-					)
-				),
-				[join(cteRefAs(groups.name, g1), tableAs(w, name, m1), memberInGroup(m1, g1))],
-				and([ge(col(m1, index), col(g1, groups.first)), notRemoved(m1)])
-			)
-		)
-	}
-	const [firstArm, ...restArms] = arms
-	if (firstArm === undefined) {
-		throw defect("a redraw of no rows")
-	}
-	ctes.push(
-		cte(
-			rows.name,
-			[
-				...rows.group,
-				rows.slot,
-				rows.first,
-				rows.count,
-				...rows.columns.values(),
-				...rows.owner.values()
-			],
-			select(unionAll("disjoint", [firstArm, ...restArms]))
-		)
-	)
-	/** Each group's seed: its member at the slot before its least changed one, with every column a predecessor reads. */
-	const seedReads = new Map<ColumnKey, NativeColumn>(
-		drawnColumns.flatMap((c) =>
-			c.rule.kind === "predecessor" ? [[columnKey(c.rule.to), c.rule.to] as const] : []
-		)
-	)
-	const seed: PerGroup = {
-		name: supply.relation(internal("redraw seed")),
-		group: mapNonEmpty(family.group, () => supply.column(internal("redraw seed group"))),
-		columns: new Map(
-			[...seedReads.keys()].map((k) => [k, supply.column(internal("redraw seed column"))] as const)
-		)
-	}
-	const g5 = supply.relation(internal("seeded group"))
-	const m5 = supply.relation(internal("seed member"))
-	ctes.push(
-		cte(
-			seed.name,
-			[...seed.group, ...seed.columns.values()],
-			select(
-				provedCore(
-					"keyed",
-					[
-						...mapNonEmpty(seed.group, (c, i) =>
-							targetAs(col(g5, defined(groups.group[i], "a group column")), c)
-						),
-						...[...seedReads].map(([k, column]) =>
-							targetAs(col(m5, installed(w, name, column)), columnAt(seed, k))
-						)
-					],
-					[
-						join(
-							cteRefAs(groups.name, g5),
-							tableAs(w, name, m5),
-							and([
-								memberInGroup(m5, g5),
-								eq(col(m5, index), binary("-", col(g5, groups.first), lit.int(1, bigint)))
-							])
-						)
-					],
-					undefined
-				)
-			)
-		)
-	)
-	const scan = scanOf(writeLowering(w), supply, {
+	/** The members from each group's least changed slot at their final slots, every column as the edit leaves it, drawn
+	 * from that slot: its seed the stored member before it. */
+	const scan = drawnScan(w, supply, ctes, {
 		family,
 		member: member.relation,
 		drawn: drawnColumns,
-		rows,
-		group: { kind: "stored", seed }
+		start: {
+			kind: "stored",
+			groups: { name: groups.name, group: groups.group, first: groups.first }
+		},
+		owner: ownerReads,
+		columns: keys,
+		rows: (rows) => {
+			const rowTargets = (
+				m: string,
+				g: string,
+				slot: Expr
+			): ReadonlyArray<ReturnType<typeof targetAs>> => [
+				...mapNonEmpty(rows.group, (c, i) =>
+					targetAs(col(g, defined(groups.group[i], "a group column")), c)
+				),
+				targetAs(cast(slot, bigint), rows.slot),
+				targetAs(col(g, groups.first), rows.first),
+				targetAs(
+					counted
+						? col(g, groups.stored)
+						: {
+								kind: "case",
+								operand: undefined,
+								whens: [{ when: col(g, groups.recounted), result: col(g, groups.kept) }],
+								else: col(g, groups.stored)
+							},
+					rows.count
+				),
+				...keys.map((k) => targetAs(memberColumn(m, k), columnAt(rows, k))),
+				...[...ownerReads].map(([k, owned]) =>
+					targetAs(
+						ownerColumn(m, g, owned.to, columnKey(owned.from)),
+						defined(rows.owner.get(k), "an owner column")
+					)
+				)
+			]
+			const m1 = supply.relation(internal("kept member"))
+			const g1 = supply.relation(internal("kept group"))
+			const memberInGroup = (m: string, g: string): Expr =>
+				and(
+					mapNonEmpty(family.group, (gr, i) =>
+						typedEq(
+							gr.member.type,
+							col(m, w.names.column(name, gr.member.name)),
+							col(g, defined(groups.group[i], "a group column")),
+							w.names
+						)
+					)
+				)
+			const arms: Array<SetArm> = []
+			if (counted) {
+				/** Every kept member at its own slot from the least changed one below the kept count. */
+				const inPlace = provedCore(
+					"keyed",
+					rowTargets(m1, g1, col(m1, index)),
+					[join(cteRefAs(groups.name, g1), tableAs(w, name, m1), memberInGroup(m1, g1))],
+					and([
+						ge(col(m1, index), col(g1, groups.first)),
+						lt(col(m1, index), col(g1, groups.kept)),
+						notRemoved(m1)
+					])
+				)
+				arms.push(inPlace)
+				/** Each kept member at or above the kept count, moved into a freed slot below it: the highest into the least. */
+				const movers = {
+					name: supply.relation(internal("mover")),
+					group: mapNonEmpty(family.group, () => supply.column(internal("mover group key"))),
+					slot: supply.column(internal("mover slot")),
+					rank: supply.column(internal("mover rank")),
+					key: mapNonEmpty(member.relation.primaryFields, () =>
+						supply.column(internal("mover key"))
+					)
+				}
+				const m2 = supply.relation(internal("moving member"))
+				const g2 = supply.relation(internal("moving group"))
+				const mGroup = family.group.map((gr) => col(m2, w.names.column(name, gr.member.name)))
+				ctes.push(
+					cte(
+						movers.name,
+						[...movers.group, movers.slot, movers.rank, ...movers.key],
+						select(
+							provedCore(
+								"keyed",
+								[
+									...mapNonEmpty(movers.group, (c, i) =>
+										targetAs(defined(mGroup[i], "a group key"), c)
+									),
+									targetAs(col(m2, index), movers.slot),
+									targetAs(
+										rowNumber(mGroup, [binary("-", lit.int(0, bigint), col(m2, index))]),
+										movers.rank
+									),
+									...mapNonEmpty(movers.key, (c, i) =>
+										targetAs(
+											col(
+												m2,
+												w.names.column(
+													name,
+													defined(member.relation.primaryFields[i], "a key field").name
+												)
+											),
+											c
+										)
+									)
+								],
+								[join(cteRefAs(groups.name, g2), tableAs(w, name, m2), memberInGroup(m2, g2))],
+								and([ge(col(m2, index), col(g2, groups.kept)), notRemoved(m2)])
+							)
+						)
+					)
+				)
+				const freed = {
+					name: supply.relation(internal("freed slot")),
+					group: mapNonEmpty(family.group, () => supply.column(internal("freed group key"))),
+					slot: supply.column(internal("freed slot")),
+					rank: supply.column(internal("freed rank"))
+				}
+				const t2 = supply.relation(internal("freed touched"))
+				const g3 = supply.relation(internal("freed group"))
+				const fGroup = touched.group.map((c) => col(t2, c))
+				ctes.push(
+					cte(
+						freed.name,
+						[...freed.group, freed.slot, freed.rank],
+						select(
+							provedCore(
+								"keyed",
+								[
+									...mapNonEmpty(freed.group, (c, i) =>
+										targetAs(defined(fGroup[i], "a group key"), c)
+									),
+									targetAs(col(t2, touched.slot), freed.slot),
+									targetAs(rowNumber(fGroup, [col(t2, touched.slot)]), freed.rank)
+								],
+								[
+									join(
+										cteRefAs(touched.name, t2),
+										cteRefAs(groups.name, g3),
+										sameGroupExprs(w.names, family, fGroup, g3, groups.group)
+									)
+								],
+								and([col(t2, touched.removed), lt(col(t2, touched.slot), col(g3, groups.kept))])
+							)
+						)
+					)
+				)
+				const mv = supply.relation(internal("moved"))
+				const fr = supply.relation(internal("freed"))
+				const g4 = supply.relation(internal("moved group"))
+				const m3 = supply.relation(internal("moved member"))
+				arms.push(
+					provedCore(
+						"keyed",
+						rowTargets(m3, g4, col(fr, freed.slot)),
+						[
+							{
+								kind: "joins",
+								first: cteRefAs(movers.name, mv),
+								steps: [
+									{
+										kind: "on",
+										source: cteRefAs(freed.name, fr),
+										on: and([
+											sameGroupExprs(
+												w.names,
+												family,
+												movers.group.map((c) => col(mv, c)),
+												fr,
+												freed.group
+											),
+											eq(col(mv, movers.rank), col(fr, freed.rank))
+										])
+									},
+									{
+										kind: "on",
+										source: cteRefAs(groups.name, g4),
+										on: sameGroupExprs(
+											w.names,
+											family,
+											movers.group.map((c) => col(mv, c)),
+											g4,
+											groups.group
+										)
+									},
+									{
+										kind: "on",
+										source: tableAs(w, name, m3),
+										on: and(
+											mapNonEmpty(member.relation.primaryFields, (f, i) =>
+												typedEq(
+													f.type,
+													col(m3, w.names.column(name, f.name)),
+													col(mv, defined(movers.key[i], "a mover key")),
+													w.names
+												)
+											)
+										)
+									}
+								]
+							}
+						],
+						undefined
+					)
+				)
+			} else {
+				/** Every kept member from the least changed slot, renumbered from it in its order. */
+				const mGroup = family.group.map((gr) => col(m1, w.names.column(name, gr.member.name)))
+				arms.push(
+					provedCore(
+						"keyed",
+						rowTargets(
+							m1,
+							g1,
+							binary(
+								"-",
+								binary("+", col(g1, groups.first), rowNumber(mGroup, [col(m1, index)])),
+								lit.int(1, bigint)
+							)
+						),
+						[join(cteRefAs(groups.name, g1), tableAs(w, name, m1), memberInGroup(m1, g1))],
+						and([ge(col(m1, index), col(g1, groups.first)), notRemoved(m1)])
+					)
+				)
+			}
+			const [firstArm, ...restArms] = arms
+			if (firstArm === undefined) {
+				throw defect("a redraw of no rows")
+			}
+			return select(unionAll("disjoint", [firstArm, ...restArms]))
+		}
 	})
-	ctes.push(scan.cte)
-	return { family, member, groups, scan: scan.rows }
+	return { family, member, groups, scan }
 }
 
 /**

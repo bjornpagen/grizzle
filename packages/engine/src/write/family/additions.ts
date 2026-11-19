@@ -117,10 +117,7 @@ import {
 	type PerGroup,
 	readAt,
 	type Scanned,
-	type ScanRows,
 	scannedValue,
-	scanOf,
-	writeLowering,
 	type Shaped
 } from "#compiler/write/family/scan.ts"
 import {
@@ -132,12 +129,14 @@ import {
 } from "#compiler/write/family/statements.ts"
 import {
 	columnAt,
+	drawnScan,
 	countOver,
 	type FamilyWriteSql,
 	insertedResult,
 	installed,
 	internal,
 	one,
+	ownerReadsOf,
 	type FamilyReturning,
 	rowNumber,
 	sameGroupExprs,
@@ -867,15 +866,7 @@ const appendScan = (
 	/** The member's group columns bound to `keys`, a group's values in order. */
 	const groupAt = (keys: ReadonlyArray<Expr>) =>
 		mapNonEmpty(family.group, (g, i) => bound(w, name, g.member, defined(keys[i], "a group key")))
-	/** The owner columns the family's owner copies read, by the owner column's key: the owner's column, the member's copy
-	 * and the copy's type. */
-	const ownerReads = new Map(
-		drawnColumns.flatMap((c) =>
-			c.rule.kind === "ownerCopy"
-				? [[columnKey(c.rule.to), { to: c.rule.to, from: c.column, type: c.type }] as const]
-				: []
-		)
-	)
+	const ownerReads = ownerReadsOf(drawnColumns)
 	/** The owner reads whose copies are `held` (schedule.ts CopySource), which the owner's rows the stratum inserts hold. */
 	const heldReads = [...ownerReads].filter(
 		([, read]) => copySource(columnKey(read.from)) === "held"
@@ -1261,101 +1252,30 @@ const appendScan = (
 			)
 		)
 	}
-	/** Each group's seed at `stored`: its stored member at the kept count less one, with every column a predecessor rule
-	 * reads, read by the probe of the member at that slot of its group. */
-	const seedReads = new Map<ColumnKey, NativeColumn>(
-		drawnColumns.flatMap((c) =>
-			c.rule.kind === "predecessor" ? [[columnKey(c.rule.to), c.rule.to] as const] : []
-		)
-	)
-	const storedSeed = (): PerGroup => {
-		const seed: PerGroup = {
-			name: supply.relation(internal("seed")),
-			group: mapNonEmpty(family.group, () => supply.column(internal("seed group key"))),
-			columns: new Map(
-				[...seedReads.keys()].map((k) => [k, supply.column(internal("seed column"))] as const)
+	/** The appended rows at their slots, each with its group's first drawn slot, its new count and its owner's columns,
+	 * drawn from each group's kept count: its seed the stored member before it. */
+	const scanned = drawnScan(w, supply, ctes, {
+		family,
+		member: member.relation,
+		drawn: drawnColumns,
+		start:
+			state === "base"
+				? { kind: "base" }
+				: {
+						kind: "stored",
+						groups: { name: groups.name, group: groups.group, first: groups.kept }
+					},
+		owner: ownerReads,
+		columns: [...appended.columns.keys()],
+		rows: (rows) => {
+			const a = supply.relation(internal("appended row"))
+			const g2 = supply.relation(internal("row group"))
+			const aGroup = memberGroup(a, appended)
+			const aKey = member.relation.primaryFields.map((f) =>
+				col(a, columnAt(appended, columnKeyOf(f.name)))
 			)
-		}
-		const g1 = supply.relation(internal("seeded group"))
-		const g1Keys = groups.group.map((c) => col(g1, c))
-		const reads = [...seedReads.values()].map((column) => installed(w, name, column))
-		const seedMember = probeKey(
-			w,
-			supply,
-			name,
-			{
-				key: appendNonEmpty(groupAt(g1Keys), {
-					column: index,
-					value: binary("-", col(g1, groups.kept), lit.int(1, bigint)),
-					schema: undefined
-				}),
-				filter: () => [],
-				placed: appendNonEmpty(
-					mapNonEmpty(family.group, (g) => w.names.column(name, g.member.name)),
-					index
-				)
-			},
-			[index, ...reads]
-		)
-		ctes.push(
-			cte(
-				seed.name,
-				[...seed.group, ...seed.columns.values()],
-				select(
-					provedCore(
-						"keyed",
-						[
-							...mapNonEmpty(seed.group, (c, i) =>
-								targetAs(col(g1, defined(groups.group[i], "a group column")), c)
-							),
-							...[...seedReads].map(([k, column]) =>
-								targetAs(seedMember.at(installed(w, name, column)), columnAt(seed, k))
-							)
-						],
-						[cteRefAs(groups.name, g1), seedMember.source],
-						undefined
-					)
-				)
-			)
-		)
-		return seed
-	}
-	const group: GroupState =
-		state === "base" ? { kind: "base" } : { kind: "stored", seed: storedSeed() }
-	/** The appended rows at their slots, each with its group's first drawn slot, its new count and its owner's columns. */
-	const rows: ScanRows = {
-		name: supply.relation(internal("appended rows")),
-		group: mapNonEmpty(family.group, () => supply.column(internal("row group key"))),
-		slot: supply.column(internal("row slot")),
-		first: supply.column(internal("row first slot")),
-		count: supply.column(internal("row count")),
-		columns: new Map(
-			[...appended.columns.keys()].map((k) => [k, supply.column(internal("row column"))] as const)
-		),
-		owner: new Map(
-			[...ownerReads.keys()].map((k) => [k, supply.column(internal("row owner column"))] as const)
-		),
-		through: []
-	}
-	const a = supply.relation(internal("appended row"))
-	const g2 = supply.relation(internal("row group"))
-	const aGroup = memberGroup(a, appended)
-	const aKey = member.relation.primaryFields.map((f) =>
-		col(a, columnAt(appended, columnKeyOf(f.name)))
-	)
-	const kept = col(g2, groups.kept)
-	ctes.push(
-		cte(
-			rows.name,
-			[
-				...rows.group,
-				rows.slot,
-				rows.first,
-				rows.count,
-				...rows.columns.values(),
-				...rows.owner.values()
-			],
-			select(
+			const kept = col(g2, groups.kept)
+			return select(
 				provedCore(
 					"keyed",
 					[
@@ -1386,21 +1306,13 @@ const appendScan = (
 						: undefined
 				)
 			)
-		)
-	)
-	const scan = scanOf(writeLowering(w), supply, {
-		family,
-		member: member.relation,
-		drawn: drawnColumns,
-		rows,
-		group
+		}
 	})
-	ctes.push(scan.cte)
 	switch (groupRead.kind) {
 		case "appended":
-			return scan.rows
+			return scanned
 		case "ranked":
-			return withHostDrawn(w, supply, ctes, family, groupRead.host, drawnColumns, scan.rows, keptAt)
+			return withHostDrawn(w, supply, ctes, family, groupRead.host, drawnColumns, scanned, keptAt)
 	}
 }
 

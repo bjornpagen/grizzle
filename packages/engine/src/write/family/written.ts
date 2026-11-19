@@ -6,14 +6,16 @@
 import { maxOf } from "#compiler/core/array.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { Family } from "#compiler/ir/family.ts"
+import type { FillColumn } from "#compiler/ir/fill.ts"
 import {
 	type LawField,
 	type NativeColumn,
 	type RelationInfo,
 	type ColumnKey,
+	columnKey,
 	columnKeyOf
 } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -39,6 +41,7 @@ import {
 	and,
 	arrays,
 	asc,
+	binary,
 	call,
 	cast,
 	col,
@@ -47,6 +50,7 @@ import {
 	countStar,
 	cte,
 	cteRef,
+	cteRefAs,
 	lit,
 	not,
 	operandSelect,
@@ -63,7 +67,15 @@ import {
 import { emitText } from "#compiler/sql/emit.ts"
 import { assignments } from "#compiler/sql/generation.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
-import type { Shaped } from "#compiler/write/family/scan.ts"
+import {
+	type GroupState,
+	type PerGroup,
+	type ScanRows,
+	type Scanned,
+	scanOf,
+	type Shaped,
+	writeLowering
+} from "#compiler/write/family/scan.ts"
 import { endColumns } from "#compiler/write/family/statements.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
 import {
@@ -76,6 +88,7 @@ import {
 	rowType,
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
+import { bound, probeKey } from "#compiler/write/probe.ts"
 import type { PutResult } from "#compiler/write/put/statement.ts"
 
 /** An update's rows: each fact after the update and before, a put's update's result. */
@@ -485,4 +498,184 @@ export const recountUpdate = <L extends RecountedLast>(
 		result: updatedResult(owner, fields),
 		rows: "counts"
 	}
+}
+
+/** The owner columns a family's owner copies read, by the owner column's key: the owner's column, the member's copy and
+ * the copy's type. */
+export type OwnerReads = ReadonlyMap<
+	ColumnKey,
+	{ readonly to: NativeColumn; readonly from: NativeColumn; readonly type: ScalarType }
+>
+
+/** The owner reads of a family's `drawn` columns (`OwnerReads`), each owner copy's. */
+export const ownerReadsOf = (drawn: ReadonlyArray<FillColumn>): OwnerReads =>
+	new Map(
+		drawn.flatMap((c) =>
+			c.rule.kind === "ownerCopy"
+				? [[columnKey(c.rule.to), { to: c.rule.to, from: c.column, type: c.type }] as const]
+				: []
+		)
+	)
+
+/**
+ * Where a family write's draw starts each group it draws (scan.ts GroupState):
+ * - `base`: at slot 0 and the family's base, reading no stored member (an arbitrated append's, write/family/additions.ts);
+ * - `stored`: at each group's first drawn slot, which the CTE `groups` holds beside the group's key, each group drawn
+ *   from past slot 0 continuing its seed, its stored member at the slot before.
+ */
+export type DrawStart =
+	| { readonly kind: "base" }
+	| {
+			readonly kind: "stored"
+			readonly groups: {
+				readonly name: string
+				readonly group: NonEmptyReadonlyArray<string>
+				readonly first: string
+			}
+	  }
+
+/**
+ * A family write's draw of the members of its groups, the additions' appends and the removals' redraws alike: the family
+ * and its member relation, the columns its fill layout draws at the member's position, in fill order, where each group
+ * starts (`DrawStart`), the owner columns its owner copies read (`OwnerReads`), the member columns the rows carry, by key,
+ * and the rows themselves at their final slots, in the shape `rows` gives them (scan.ts ScanRows).
+ */
+export interface FamilyDraw {
+	readonly family: Family
+	readonly member: RelationInfo
+	readonly drawn: ReadonlyArray<FillColumn>
+	readonly start: DrawStart
+	readonly owner: OwnerReads
+	readonly columns: ReadonlyArray<ColumnKey>
+	readonly rows: (rows: ScanRows) => Select
+}
+
+/**
+ * The scan of a family write's draw (`FamilyDraw`), each a CTE pushed onto `ctes`: each group's seed where it starts
+ * stored, the rows, and the scan of the family's rules over them (scan.ts scanOf). A group's seed is its stored member at
+ * the slot before its first drawn one, with every column a predecessor copy reads, read by the probe of the member at
+ * that slot of its group (write/probe.ts probeKey), once per group, index-led at the member's (group, index) key,
+ * whatever PostgreSQL estimates of the groups; a group that starts at slot 0 has none, and reads the family's base.
+ */
+export const drawnScan = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	draw: FamilyDraw
+): Scanned => {
+	const { family, member } = draw
+	const group: GroupState =
+		draw.start.kind === "base"
+			? { kind: "base" }
+			: { kind: "stored", seed: seedOf(w, supply, ctes, draw, draw.start.groups) }
+	const rows: ScanRows = {
+		name: supply.relation(internal("drawn rows")),
+		group: mapNonEmpty(family.group, () => supply.column(internal("drawn row group key"))),
+		slot: supply.column(internal("drawn row slot")),
+		first: supply.column(internal("drawn row first slot")),
+		count: supply.column(internal("drawn row count")),
+		columns: new Map(
+			draw.columns.map((k) => [k, supply.column(internal("drawn row column"))] as const)
+		),
+		owner: new Map(
+			[...draw.owner.keys()].map(
+				(k) => [k, supply.column(internal("drawn row owner column"))] as const
+			)
+		),
+		through: []
+	}
+	ctes.push(
+		cte(
+			rows.name,
+			[
+				...rows.group,
+				rows.slot,
+				rows.first,
+				rows.count,
+				...rows.columns.values(),
+				...rows.owner.values()
+			],
+			draw.rows(rows)
+		)
+	)
+	const scan = scanOf(writeLowering(w), supply, {
+		family,
+		member,
+		drawn: draw.drawn,
+		rows,
+		group
+	})
+	ctes.push(scan.cte)
+	return scan.rows
+}
+
+/** Each group's seed of a draw that starts stored (`drawnScan`), over the CTE of its groups. */
+const seedOf = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	draw: FamilyDraw,
+	groups: Extract<DrawStart, { readonly kind: "stored" }>["groups"]
+): PerGroup => {
+	const { family } = draw
+	const name = draw.member.name
+	const index = installed(w, name, family.shape.index)
+	const reads = new Map<ColumnKey, NativeColumn>(
+		draw.drawn.flatMap((c) =>
+			c.rule.kind === "predecessor" ? [[columnKey(c.rule.to), c.rule.to] as const] : []
+		)
+	)
+	const seed: PerGroup = {
+		name: supply.relation(internal("seed")),
+		group: mapNonEmpty(family.group, () => supply.column(internal("seed group key"))),
+		columns: new Map(
+			[...reads.keys()].map((k) => [k, supply.column(internal("seed column"))] as const)
+		)
+	}
+	const g = supply.relation(internal("seeded group"))
+	const member = probeKey(
+		w,
+		supply,
+		name,
+		{
+			key: appendNonEmpty(
+				mapNonEmpty(family.group, (f, i) =>
+					bound(w, name, f.member, col(g, defined(groups.group[i], "a group column")))
+				),
+				{
+					column: index,
+					value: binary("-", col(g, groups.first), lit.int(1, types.bigint)),
+					schema: undefined
+				}
+			),
+			filter: () => [],
+			placed: appendNonEmpty(
+				mapNonEmpty(family.group, (f) => w.names.column(name, f.member.name)),
+				index
+			)
+		},
+		[index, ...[...reads.values()].map((column) => installed(w, name, column))]
+	)
+	ctes.push(
+		cte(
+			seed.name,
+			[...seed.group, ...seed.columns.values()],
+			select(
+				provedCore(
+					"keyed",
+					[
+						...mapNonEmpty(seed.group, (c, i) =>
+							targetAs(col(g, defined(groups.group[i], "a group column")), c)
+						),
+						...[...reads].map(([k, column]) =>
+							targetAs(member.at(installed(w, name, column)), columnAt(seed, k))
+						)
+					],
+					[cteRefAs(groups.name, g), member.source],
+					undefined
+				)
+			)
+		)
+	)
+	return seed
 }
