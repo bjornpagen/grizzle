@@ -520,7 +520,9 @@ export const generatedRuleText = (rule: GeneratedRule): string => {
  * alone stamps (`clockStated`); a put or a delete leaves an instant of its rows out, which only an insert stamps, where it
  * states every instant from a stored one, a term of instant's type (`unstated`); an insert leaves out a reference that no one clock stamps (`unstampable`), or one
  * whose clock `clock` its statement does not stamp (`clockUnstamped`); or one call would stamp the clock `clock` in more
- * than one statement, each reading its own head, in two strata or in a stratum of several statements (`stampedApart`).
+ * than one statement, each reading its own head, in two strata or in a stratum of several statements (`stampedApart`);
+ * or a migration adds a clock to a table that holds rows under a primary key, `key`, that does not hold the old one,
+ * `held`, beside the clock, so the one instant every stored row takes would not keep them apart (`addedOverRows`).
  */
 export type InstantRule =
 	| { readonly kind: "clockOutsideKey" }
@@ -534,6 +536,11 @@ export type InstantRule =
 			readonly kind: "stampedApart"
 			readonly clock: string
 			readonly apart: "strata" | "statements"
+	  }
+	| {
+			readonly kind: "addedOverRows"
+			readonly key: NonEmptyReadonlyArray<string>
+			readonly held: NonEmptyReadonlyArray<string>
 	  }
 
 /**
@@ -599,6 +606,8 @@ export const instantRuleText = (rule: InstantRule): string => {
 			return `a reference an insert leaves out takes the instant its statement stamps ${rule.clock} with, and no insert of that stratum stamps ${rule.clock}: insert it in the same stratum, or state the reference from a stored instant`
 		case "stampedApart":
 			return `one call stamps ${rule.clock} in one statement, whose every row at a child shares one instant, and this one would stamp it ${rule.apart === "strata" ? "in two strata" : "in a stratum of several statements"}: stamp it in one stratum, and read it back as a stored instant after`
+		case "addedOverRows":
+			return `a clock a migration adds to a table that holds rows takes the migration's one instant on every stored row, which keeps them apart at the new primary key only where it holds the old one beside the clock, and (${rule.key.join(", ")}) does not hold (${rule.held.join(", ")}): add the clock under the old key's fields, or re-key the table in a migration of its own`
 	}
 }
 

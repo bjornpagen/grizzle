@@ -773,9 +773,17 @@ const intOf = (v: SqlValue, what: string): bigint | undefined =>
 	v === undefined ? undefined : v.kind === "int" ? v.value : unevaluable(`${what} of ${v.kind}`)
 
 /**
+ * The instant every transaction of the model began, in each unit a clock reading counts it in (sql/ast.ts Expr clock):
+ * a migration's reading of the database's clock, one value in every statement, as transaction_timestamp() is. Its
+ * microseconds are a day in 2023 with a fraction of a millisecond, so the millisecond reading is floored.
+ */
+export const modelInstant = { micros: 1_700_000_000_123_456n, millis: 1_700_000_000_123n } as const
+
+/**
  * The value of `e`, evaluated as PostgreSQL would over the fragment a constant's body and a roster's or a set's domain
  * CHECK are written in: literals, a bit string's hex literal among them, casts, VALUE, + and -, = and <>, & and |, a
- * subscript, a CASE, substring and a call of the schema's constant. Any other expression is Unevaluable.
+ * subscript, a CASE, substring, a call of the schema's constant, and a reading of the clock, the model's instant
+ * (modelInstant). Any other expression is Unevaluable.
  */
 const evaluate = (e: Expr, scope: Scope): SqlValue => {
 	switch (e.kind) {
@@ -981,7 +989,6 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "mergeAction":
 		case "nullif":
 		case "param":
-		case "clock":
 		case "plSpecial":
 		case "plVar":
 		case "regclass":
@@ -990,6 +997,8 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "subquery":
 		case "user":
 			return unevaluable(`an expression of kind ${e.kind}`)
+		case "clock":
+			return { kind: "int", value: modelInstant[e.unit] }
 	}
 }
 

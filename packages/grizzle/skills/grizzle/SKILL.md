@@ -246,7 +246,8 @@ breaking change may briefly break older application instances that are still run
   constraints that read them added, `NOT VALID`, for Validate to prove the values. A place added to stored rows is
   backfilled the same way, numbered within its group by its `by`, and so is a column a containment carries into stored
   rows where the previous installation's containment over the same tables named each row's parent: it takes that row's
-  value, then its NOT NULL (re-keying a child by its parent's place needs no data step). A field whose filler changed (its
+  value, then its NOT NULL (re-keying a child by its parent's place needs no data step); a clock added to stored rows
+  takes the migration's instant on every one, refused where the new key does not hold the old one beside it. A field whose filler changed (its
   fold steps over another field, its copy reads another field, its family's group or order changed) is dropped and
   backfilled the same way: `snapshot.json` records what fills each drawn or accumulated field. An ordered family's
   or a tree's index is the exception: a stored index is the caller's order, so when only the family's group changes

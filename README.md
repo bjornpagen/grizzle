@@ -3286,6 +3286,12 @@ export const signIn = ChangeSet.empty(Auth)
   snapshot is the concurrent case above, never a key conflict.
 - **What a child holds.** The order is over the rows the child holds: a write may delete its head, and a later stamp
   is then above every row still held, not above the deleted one.
+- **A clock a migration adds to stored rows** takes the migration's instant on every one, its transaction's reading
+  of the database's clock, under a DEFAULT the backfill then drops, with no placeholder: re-keying `VerifiedEmail` from
+  `(user)` to `(user, at)` gives each stored row the one instant, and every later insert stamps above it. That keeps
+  the rows apart exactly when the new primary key holds the old one beside the clock; a clock added under a key that
+  does not, `(user, email)` to `(user, at)`, is refused when generate drafts it (`InstantRefused`, `addedOverRows`,
+  naming both keys): keep the old key's fields, or re-key in a migration of its own.
 - **The child is the shard key.** The theory orders one child's instants and claims nothing between two children, so
   each child needs one place that serializes its writes, its rows on one machine, which stamps them, and children
   shard freely.

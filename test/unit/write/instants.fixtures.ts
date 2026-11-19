@@ -65,8 +65,12 @@ const chain = query(Clocks).rule((r) => r.find({ user: r.param("user", pg.intege
 
 const empty = ChangeSet.empty(Clocks)
 
-/** A rule a write is refused by: every instant rule but a schema's, which refuse a clock outside its key or first in it. */
-type WriteRule = Exclude<InstantRule, { readonly kind: "clockOutsideKey" | "childless" }>
+/** A rule a write is refused by: every instant rule but a schema's, which refuse a clock outside its key or first in it,
+ * and a migration's, which refuses a clock added over stored rows its key would not keep apart. */
+type WriteRule = Exclude<
+	InstantRule,
+	{ readonly kind: "clockOutsideKey" | "childless" | "addedOverRows" }
+>
 
 /** What the rule says of a case: it compiles, or is refused at a field by a rule. */
 export type Verdict =
