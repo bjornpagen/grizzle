@@ -50,6 +50,7 @@ import type {
 } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
+import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
@@ -676,8 +677,8 @@ export const planClosed = (
 		const key = r.primaryFields
 		const payload = r.fields.filter((f) => !key.includes(f))
 		const rows = r.rows.map((row): Split<TypedLiteral> => ({
-			key: key.map((f) => defined(row[f.position], "a value per field")),
-			payload: payload.map((f) => defined(row[f.position], "a value per field"))
+			key: key.map((f) => closedCell(row, f.position)),
+			payload: payload.map((f) => closedCell(row, f.position))
 		}))
 		const side = plannedSide(codes, r, key, payload, rows, `closed relation ${r.name}`)
 		out.set(r.name, { ...side, keys: keySetOf(side.cells) })
