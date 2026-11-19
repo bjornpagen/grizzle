@@ -20,8 +20,10 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	type Installed,
+	installedTemplate,
 	installMigrated as install,
-	loadMigrated as load
+	loadMigrated as load,
+	type MigratedOptions
 } from "#test/support/install-migrate.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -35,7 +37,13 @@ import {
 	type TransactionRolledBack
 } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
-import { Substrate, worldPsql } from "#test/support/substrate/substrate.ts"
+import {
+	Substrate,
+	type SubstrateCase,
+	type SubstrateShape,
+	type SubstrateTemplate,
+	worldPsql
+} from "#test/support/substrate/substrate.ts"
 
 /** A schema's relations as the list it was built from, its record's members. */
 type Listed<R> = ReadonlyArray<R[keyof R]>
@@ -94,17 +102,11 @@ export interface Fixture {
 }
 
 export interface OpenOptions {
-	/** The facts loaded after the install: `noFacts` for none. */
+	/** The facts loaded after the install. */
 	readonly facts: FactSet
 	/** SQL run as the owner after the facts, in one transaction: none when empty. */
 	readonly after: ReadonlyArray<string>
 }
-
-/** No fact: the fixture installed empty. */
-const noFacts: FactSet = {}
-
-/** A fixture installed empty, with nothing run after. */
-export const bareFixture: OpenOptions = { facts: noFacts, after: [] }
 
 /**
  * Shared helpers of the suites that open a fixture whole: the direct writers' native errors and the queue's and the
@@ -134,52 +136,74 @@ export const openFixture = (
 > =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const done = yield* install(fixture, {
-			ambient: ordinarySession,
-			extensions: [],
-			logins,
-			label: "real"
-		})
+		const done = yield* install(fixture, fixtureInstall(logins))
 		yield* load(done, options.facts)
-		const q = quoteIdent(done.schema)
-		const owner = (sql: ReadonlyArray<string>) =>
-			transaction(
-				s.admin,
-				Arr.map(sql, (x) => Str.replaceAll("$S", q)(x))
-			)
+		const fx = fixtureOf(s, done)
 		if (options.after.length > 0) {
-			yield* owner(options.after)
-		}
-		const fx: Fixture = {
-			installed: done,
-			t: (relation) => printObjectName(done.installation.names.relation(relation)),
-			rebuilt: <
-				const N extends string,
-				R extends Record<string, AnyRelation | AnyClosed>,
-				const St extends ReadonlyArray<Statement>
-			>(
-				value: Checked<N, R, St>
-			) =>
-				builtSchema<string, Listed<R>, St>(
-					done.schema,
-					listed<R>(value.relations),
-					value.statements,
-					[]
-				),
-			served: (login) => servedFixture(done, login),
-			owner,
-			rows: (sql) =>
-				Effect.map(s.admin.queryValues(Str.replaceAll("$S", q)(sql), []), (rs) =>
-					Arr.map(rs, (r) =>
-						Arr.map(r, (x) =>
-							x === null ? "NULL" : typeof x === "string" ? x : Formatter.format(x)
-						)
-					)
-				),
-			psql: (role) => s.psql({ ...worldPsql(done.world(role)), label: role.name })
+			yield* fx.owner(options.after)
 		}
 		return fx
 	})
+
+/** How openFixture installs a fixture: its complete installation under the cluster's own ambient, with `logins`. */
+const fixtureInstall = (logins: ReadonlyArray<AnyLogin>): MigratedOptions => ({
+	ambient: ordinarySession,
+	extensions: [],
+	logins,
+	label: "real"
+})
+
+/** The fixture of the installation `done` in the substrate `s`: its names, its owner's statements and its psql children. */
+const fixtureOf = (s: SubstrateShape, done: Installed): Fixture => {
+	const q = quoteIdent(done.schema)
+	return {
+		installed: done,
+		t: (relation) => printObjectName(done.installation.names.relation(relation)),
+		rebuilt: <
+			const N extends string,
+			R extends Record<string, AnyRelation | AnyClosed>,
+			const St extends ReadonlyArray<Statement>
+		>(
+			value: Checked<N, R, St>
+		) =>
+			builtSchema<string, Listed<R>, St>(
+				done.schema,
+				listed<R>(value.relations),
+				value.statements,
+				[]
+			),
+		served: (login) => servedFixture(done, login),
+		owner: (sql) =>
+			transaction(
+				s.admin,
+				Arr.map(sql, (x) => Str.replaceAll("$S", q)(x))
+			),
+		rows: (sql) =>
+			Effect.map(s.admin.queryValues(Str.replaceAll("$S", q)(sql), []), (rs) =>
+				Arr.map(rs, (r) =>
+					Arr.map(r, (x) => (x === null ? "NULL" : typeof x === "string" ? x : Formatter.format(x)))
+				)
+			),
+		psql: (role) => s.psql({ ...worldPsql(done.world(role)), label: role.name })
+	}
+}
+
+/**
+ * openFixture's installation as a template (install-migrate.ts installedTemplate): `fixture` installed empty with
+ * `logins` once per member, as openFixture installs it, where a search opened it once before its cases; each case's
+ * fixture over its clone (fixtureIn), whose seat empties every stored relation's table after the case.
+ */
+export const openFixtureTemplate = (
+	declaredIn: ImportMeta,
+	name: string,
+	fixture: AnySchema,
+	logins: ReadonlyArray<AnyLogin>
+): SubstrateTemplate<Installed> =>
+	installedTemplate({ declaredIn, name, schema: fixture, options: fixtureInstall(logins) })
+
+/** The fixture of a case over a clone of an openFixtureTemplate, as openFixture opens one, in the case's substrate. */
+export const fixtureIn = (taken: SubstrateCase<Installed>): Fixture =>
+	fixtureOf(taken.substrate, taken.value)
 
 /** The PostgreSQL error a psql statement or transaction failed with, or a failure naming what happened instead. */
 export const failure = <A, E, R>(

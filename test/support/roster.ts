@@ -7,6 +7,7 @@
 export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/adapter/cancel-race.test.ts",
 	"test/pg/adapter/commit.test.ts",
+	"test/pg/adapter/connect-classes.test.ts",
 	"test/pg/adapter/connection.test.ts",
 	"test/pg/adapter/environment.test.ts",
 	"test/pg/adapter/flight.test.ts",
@@ -48,6 +49,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/derived/workload-index.test.ts",
 	"test/pg/direct-writers/direct-writers.test.ts",
 	"test/pg/direct-writers/missing-role.test.ts",
+	"test/pg/direct-writers/native-errors.test.ts",
 	"test/pg/e2e-platform/box.test.ts",
 	"test/pg/e2e-platform/laws.test.ts",
 	"test/pg/e2e-platform/plans.test.ts",
@@ -209,6 +211,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/serverless/deadlines.test.ts",
 	"test/pg/serverless/logins.test.ts",
 	"test/pg/serverless/pool.test.ts",
+	"test/pg/serverless/vercel.test.ts",
 	"test/pg/spans/allen/classifications.test.ts",
 	"test/pg/spans/allen/endpoints.test.ts",
 	"test/pg/spans/allen/gist.test.ts",
