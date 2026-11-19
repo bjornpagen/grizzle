@@ -3647,8 +3647,8 @@ stored members.
 A side is `{ relation, terms, selection }`. `terms` are in the order the rule pairs them, each `{ kind: "field", field }`
 or `{ kind: "pred", field }`.
 `selection` is `{ conjuncts }`, row predicates in canonical form (a literal second, `gt` and `ge` between two terms as
-`lt` and `le`, `eq` and `ne` with their terms in canonical order, an IN list's values a set, and an IN list of one value
-the `eq` with it) and canonical order; a side that reads every row has none.
+`lt` and `le`, `eq` and `ne` with their terms in canonical order, an IN list's values a set) and canonical order; a side
+that reads every row has none.
 
 </details>
 

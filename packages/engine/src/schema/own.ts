@@ -812,9 +812,8 @@ const canonicalComparison = (
 
 /**
  * A predicate in canonical form, recursively: every conjunction's and disjunction's operands in canonical order, every
- * comparison in its canonical orientation (`canonicalComparison`), every IN list's values each once, in canonical
- * order, and an IN list of one value the equality with it, which it means (`x IN (v)` is `x = v`, NULL where either
- * is), so the two spellings are one predicate, of one text, law name and SQL. No operation of a row check raises (scalar/compute/registry.ts Totality), so none of these orders carries
+ * comparison in its canonical orientation (`canonicalComparison`), and every IN list's values each once, in canonical
+ * order. No operation of a row check raises (scalar/compute/registry.ts Totality), so none of these orders carries
  * meaning. No other term reorders: a computation's operands keep their meaning by position.
  */
 const canonicalPredicate = (expr: ExprDesc): Canonical<ExprDesc> => {
@@ -838,21 +837,10 @@ const canonicalPredicate = (expr: ExprDesc): Canonical<ExprDesc> => {
 		case "compare":
 			return canonicalComparison(expr)
 		case "in": {
+			const arg = canonicalPredicate(expr.arg)
 			const values = [...new Map(expr.values.map((v) => [textOf(v), v] as const))].toSorted(
 				([a], [b]) => compareStrings(a, b)
 			)
-			const [only, ...others] = values
-			if (only !== undefined && others.length === 0) {
-				return canonicalComparison(
-					Object.freeze({
-						kind: "compare",
-						op: "eq",
-						left: expr.arg,
-						right: Object.freeze({ kind: "literal", value: only[1] })
-					})
-				)
-			}
-			const arg = canonicalPredicate(expr.arg)
 			return madeOf(
 				Object.freeze({
 					...expr,
