@@ -33,7 +33,7 @@ import {
 	unavailableCauses
 } from "#compiler/live/events.ts"
 import { type KeyFields, RowKey } from "#compiler/live/key.ts"
-import type { Anchor, Input, NoFacts, Window, WindowInput } from "#compiler/live/program.ts"
+import type { Input, NoFacts, WindowInput } from "#compiler/live/program.ts"
 import type {
 	MemberWire,
 	RoleWitness,
@@ -44,8 +44,8 @@ import type {
 	WireHeading,
 	WireInput,
 	WireKeyColumn,
+	WireLevel,
 	WireOptions,
-	WireParam,
 	WireRecord,
 	WireWitness
 } from "#compiler/live/shape.ts"
@@ -282,323 +282,361 @@ export type ParsedInput =
 /** The facts of a page's input: none. */
 const noFacts: NoFacts = Object.freeze({})
 
-type Parsed<A> = Result.Result<A, WireFault>
+type Read<A> = Result.Result<A, WireFault>
 
-const refused = (kind: WireFault["kind"], at: Path): Parsed<never> => Result.err({ kind, at })
+const refused = (kind: WireFault["kind"], at: Path): Read<never> => Result.err({ kind, at })
 
-/** A caller's record holding exactly the members `names`, at `at`. */
-const exactRecord = (
+/** Each of `items` read by `read`, the first refusal kept. */
+const readEach = <A, B>(
+	items: ReadonlyArray<A>,
+	read: (item: A, index: number) => Read<B>
+): Read<ReadonlyArray<B>> => {
+	const out: Array<B> = []
+	for (const [index, item] of items.entries()) {
+		const one = read(item, index)
+		if (!one.ok) {
+			return one
+		}
+		out.push(one.value)
+	}
+	return Result.ok(Object.freeze(out))
+}
+
+/** A caller's anchor as a walk builds it, a keyed one's key as its door builds a key. */
+type WalkedAnchor<K> =
+	| { readonly kind: "start" | "end" }
+	| { readonly kind: "after" | "before"; readonly key: K }
+
+/** A caller's input as a walk builds it (`walkInput`): a call's parameters and facts, or a page's parameters, no facts
+ * and window. */
+type WalkedInput<P, F, K, N> =
+	| { readonly params: P; readonly facts: F }
+	| {
+			readonly params: P
+			readonly facts: N
+			readonly window: { readonly anchor: WalkedAnchor<K>; readonly size: number }
+	  }
+
+/**
+ * How a walk of a caller's input in the program's input shape (`walkInput`) reads the caller's values and builds what
+ * it delivers: the server's exact parse of the JSON a call's body holds (`jsonDoor`) and the client's encode of the
+ * caller's own values as that JSON (`hostDoor`) walk the one shape, refusing a value at one path with one fault, each
+ * reading its values and building its result its own way.
+ *
+ * - `record`: a record holding exactly the members `names`, each read once: refused `json` where it is no plain record
+ *   and `members` where it holds others or lacks one;
+ * - `fact`: a fact of `level`, its heading the one whose fields it holds exactly beside the level's count fields, and its
+ *   members read once: refused `json` where it is no plain record and `members` where it holds no heading's;
+ * - `kind`: an anchor's member `kind`, refused `json` where it is no plain record;
+ * - `list`: a list's elements, refused `json` where it is none; `rows`: a relation parameter's facts, a list's or, where
+ *   the caller's own values are read, any iterable's;
+ * - `column`: a value of a scalar or head literals' column;
+ * - `built`, `params`, `facts`, `key`: a fact, the parameters, the facts by op and relation and a key, built from their
+ *   parts, and `noFacts` a page's facts, none.
+ */
+interface InputDoor<V, P, F, K, N> {
+	readonly record: (
+		value: unknown,
+		names: ReadonlyArray<string>,
+		at: Path
+	) => Read<Readonly<Record<string, unknown>>>
+	readonly fact: (
+		value: unknown,
+		level: WireLevel<WireScalar>,
+		at: Path
+	) => Read<{
+		readonly heading: WireHeading<WireScalar>
+		readonly members: Readonly<Record<string, unknown>>
+	}>
+	readonly kind: (value: unknown, at: Path) => Read<unknown>
+	readonly list: (value: unknown, at: Path) => Read<ReadonlyArray<unknown>>
+	readonly rows: (value: unknown, at: Path) => Read<ReadonlyArray<unknown>>
+	readonly column: (field: WireColumn<WireScalar>, value: unknown, at: Path) => Read<V>
+	readonly built: (entries: ReadonlyArray<readonly [string, V | ReadonlyArray<V>]>) => V
+	readonly params: (entries: ReadonlyArray<readonly [string, V | ReadonlyArray<V>]>) => P
+	readonly facts: (
+		entries: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, ReadonlyArray<V>]>]>
+	) => F
+	readonly key: (values: ReadonlyArray<V>) => K
+	readonly noFacts: N
+}
+
+/**
+ * A caller's input walked through `door` in the program's input shape (live/shape.ts WireInput): `{ params, facts }`, or
+ * a page's `{ params, facts: {}, window }`, every record holding exactly its members; each parameter a scalar's value or
+ * a relation's facts; the facts under each op of the ChangeSet's array members and under each of its relations, each a
+ * fact of its levels' first, and under each family's count field its members' facts, each of the member level, to any
+ * depth; a window its anchor and its size, a positive safe integer, a keyed anchor's key its key columns' values in key
+ * order. A refusal names its fault and its path.
+ */
+const walkInput = <V, P, F, K, N>(
+	door: InputDoor<V, P, F, K, N>,
+	input: WireInput<WireScalar>,
+	value: unknown
+): Read<WalkedInput<P, F, K, N>> => {
+	const column = (field: WireField<WireScalar>, given: unknown, at: Path): Read<V> => {
+		if (field.kind !== "scalar" && field.kind !== "constant") {
+			throw defect("an input field of a scalar")
+		}
+		return door.column(field, given, at)
+	}
+	const factsOf = (
+		elements: Read<ReadonlyArray<unknown>>,
+		levels: WireFacts<WireScalar>["levels"],
+		index: number,
+		at: Path
+	): Read<ReadonlyArray<V>> =>
+		Result.flatMap(elements, (given) =>
+			readEach(given, (one, position) => fact(levels, index, one, [...at, position]))
+		)
+	const fact = (
+		levels: WireFacts<WireScalar>["levels"],
+		index: number,
+		given: unknown,
+		at: Path
+	): Read<V> => {
+		const level = levels[index]
+		if (level === undefined) {
+			throw defect("a fact's level among its levels")
+		}
+		return Result.flatMap(door.fact(given, level, at), ({ heading, members }) =>
+			Result.flatMap(
+				readEach(heading, (named) =>
+					Result.map(
+						column(named.field, members[named.name], [...at, named.name]),
+						(read): readonly [string, V] => [named.name, read]
+					)
+				),
+				(own) =>
+					Result.map(
+						readEach(level.families, (family) => {
+							const here = [...at, family.count]
+							return Result.map(
+								factsOf(door.list(members[family.count], here), levels, family.level, here),
+								(read): readonly [string, ReadonlyArray<V>] => [family.count, read]
+							)
+						}),
+						(nested) => door.built([...own, ...nested])
+					)
+			)
+		)
+	}
+	const params = (given: unknown, at: Path): Read<P> =>
+		Result.flatMap(
+			door.record(
+				given,
+				input.params.map((p) => p.name),
+				at
+			),
+			(byName) =>
+				Result.map(
+					readEach(input.params, (p): Read<readonly [string, V | ReadonlyArray<V>]> => {
+						const here = [...at, p.name]
+						const param = p.param
+						return param.kind === "scalar"
+							? Result.map(
+									door.column(param, byName[p.name], here),
+									(read): readonly [string, V] => [p.name, read]
+								)
+							: Result.map(
+									factsOf(
+										door.rows(byName[p.name], here),
+										[{ headings: [param.heading], families: [] }],
+										0,
+										here
+									),
+									(read): readonly [string, ReadonlyArray<V>] => [p.name, read]
+								)
+					}),
+					door.params
+				)
+		)
+	const facts = (
+		members: ReadonlyArray<WireFacts<WireScalar>>,
+		given: unknown,
+		at: Path
+	): Read<F> => {
+		const ops = [...new Set(members.map((member) => member.op))]
+		return Result.flatMap(door.record(given, ops, at), (byOp) =>
+			Result.map(
+				readEach(ops, (op) => {
+					const ofOp = members.filter((member) => member.op === op)
+					const here = [...at, op]
+					return Result.flatMap(
+						door.record(
+							byOp[op],
+							ofOp.map((member) => member.relation),
+							here
+						),
+						(byRelation) =>
+							Result.map(
+								readEach(ofOp, (member) => {
+									const there = [...here, member.relation]
+									return Result.map(
+										factsOf(door.list(byRelation[member.relation], there), member.levels, 0, there),
+										(read): readonly [string, ReadonlyArray<V>] => [member.relation, read]
+									)
+								}),
+								(
+									entries
+								): readonly [string, ReadonlyArray<readonly [string, ReadonlyArray<V>]>] => [
+									op,
+									entries
+								]
+							)
+					)
+				}),
+				door.facts
+			)
+		)
+	}
+	const key = (columns: ReadonlyArray<WireColumn<WireScalar>>, given: unknown, at: Path): Read<K> =>
+		Result.flatMap(door.list(given, at), (values) =>
+			values.length === columns.length
+				? Result.map(
+						readEach(columns, (c, index) => door.column(c, values[index], [...at, index])),
+						door.key
+					)
+				: refused("members", at)
+		)
+	const anchor = (
+		columns: ReadonlyArray<WireColumn<WireScalar>>,
+		given: unknown,
+		at: Path
+	): Read<WalkedAnchor<K>> =>
+		Result.flatMap(door.kind(given, at), (kind): Read<WalkedAnchor<K>> => {
+			switch (kind) {
+				case "start":
+				case "end":
+					return Result.map(door.record(given, ["kind"], at), () => ({ kind }))
+				case "after":
+				case "before":
+					return Result.flatMap(door.record(given, ["kind", "key"], at), (record) =>
+						Result.map(key(columns, record["key"], [...at, "key"]), (read) => ({
+							kind,
+							key: read
+						}))
+					)
+				default:
+					return refused("members", [...at, "kind"])
+			}
+		})
+	const window = (
+		columns: ReadonlyArray<WireColumn<WireScalar>>,
+		given: unknown,
+		at: Path
+	): Read<{ readonly anchor: WalkedAnchor<K>; readonly size: number }> =>
+		Result.flatMap(door.record(given, ["anchor", "size"], at), (record) =>
+			Result.flatMap(anchor(columns, record["anchor"], [...at, "anchor"]), (read) => {
+				const size = record["size"]
+				if (typeof size !== "number") {
+					return refused("json", [...at, "size"])
+				}
+				return Number.isSafeInteger(size) && size >= 1
+					? Result.ok({ anchor: read, size })
+					: refused("range", [...at, "size"])
+			})
+		)
+	if (input.kind === "call") {
+		return Result.flatMap(door.record(value, ["params", "facts"], []), (body) =>
+			Result.flatMap(params(body["params"], ["params"]), (p) =>
+				Result.map(facts(input.facts, body["facts"], ["facts"]), (f): WalkedInput<P, F, K, N> => ({
+					params: p,
+					facts: f
+				}))
+			)
+		)
+	}
+	return Result.flatMap(door.record(value, ["params", "facts", "window"], []), (body) =>
+		Result.flatMap(params(body["params"], ["params"]), (p) =>
+			Result.flatMap(door.record(body["facts"], [], ["facts"]), () =>
+				Result.map(window(input.key, body["window"], ["window"]), (w): WalkedInput<P, F, K, N> => ({
+					params: p,
+					facts: door.noFacts,
+					window: w
+				}))
+			)
+		)
+	)
+}
+
+/** A caller's record holding exactly the members `names`. */
+const jsonRecord = (
 	json: unknown,
 	names: ReadonlyArray<string>,
 	at: Path
-): Parsed<Readonly<Record<string, unknown>>> => {
+): Read<Readonly<Record<string, unknown>>> => {
 	if (!isPlainRecord(json)) {
 		return refused("json", at)
 	}
 	return holdsExactly(json, names) ? Result.ok(json) : refused("members", at)
 }
 
-/** Each of `items` parsed by `parse`, the first refusal kept. */
-const parseEach = <A, B>(
-	items: ReadonlyArray<A>,
-	parse: (item: A, index: number) => Parsed<B>
-): Parsed<ReadonlyArray<B>> => {
-	const out: Array<B> = []
-	for (const [index, item] of items.entries()) {
-		const parsed = parse(item, index)
-		if (!parsed.ok) {
-			return parsed
+/** A caller's list. */
+const jsonList = (json: unknown, at: Path): Read<ReadonlyArray<unknown>> =>
+	isList(json) ? Result.ok(json) : refused("json", at)
+
+/** A frozen record of `entries`, as a caller's parsed input delivers each. */
+const frozenRecord = <A>(
+	entries: ReadonlyArray<readonly [string, A]>
+): Readonly<Record<string, A>> => Object.freeze(Object.fromEntries(entries))
+
+/**
+ * The server's door to a caller's JSON (`walkInput`): its records and lists as they are, each value of a scalar parsed
+ * exactly (live/wire.ts parseScalar), a head literal's spelling one of the literals', and every record it builds frozen.
+ */
+const jsonDoor: InputDoor<
+	unknown,
+	Readonly<Record<string, unknown>>,
+	Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>,
+	RowKey,
+	NoFacts
+> = {
+	record: jsonRecord,
+	fact: (json, level, at) => {
+		if (!isPlainRecord(json)) {
+			return refused("json", at)
 		}
-		out.push(parsed.value)
-	}
-	return Result.ok(Object.freeze(out))
-}
-
-/** A caller's scalar at `at`, parsed exactly. */
-const parseScalarAt = (scalar: WireScalar, json: unknown, at: Path): Parsed<unknown> =>
-	Result.mapError(parseScalar(scalar, json), (kind) => ({ kind, at }))
-
-/** A caller's value of a scalar or head literals' field: a head literal's, its spelling one of the literals'. */
-const parseColumn = (field: WireField<WireScalar>, json: unknown, at: Path): Parsed<unknown> => {
-	switch (field.kind) {
-		case "scalar":
-			return parseScalarAt(field.scalar, json, at)
-		case "constant":
-			return Result.flatMap(parseScalarAt(field.scalar, json, at), (value) =>
-				field.values.some((literal) => sameJson(literal, encodeScalar(field.scalar, value)))
-					? Result.ok(value)
-					: refused("range", at)
-			)
-		case "attachment":
-		case "arm":
-		case "some":
-		case "none":
-			throw defect("an input field of a scalar")
-	}
-}
-
-/** A caller's record of one of `record`'s headings, at `at`: its heading by its keys, each field parsed. */
-const parseRecord = (
-	record: WireRecord<WireScalar>,
-	json: unknown,
-	at: Path
-): Parsed<Readonly<Record<string, unknown>>> => {
-	if (!isPlainRecord(json)) {
-		return refused("json", at)
-	}
-	const heading = headingOf(record, json)
-	if (
-		heading === undefined ||
-		!holdsExactly(
-			json,
-			heading.map((named) => named.name)
+		const counts = level.families.map((family) => family.count)
+		const heading = level.headings.find((h) =>
+			holdsExactly(json, [...h.map((named) => named.name), ...counts])
 		)
-	) {
-		return refused("members", at)
-	}
-	return Result.map(
-		parseEach(heading, (named) =>
-			Result.map(
-				parseColumn(named.field, json[named.name], [...at, named.name]),
-				(value): readonly [string, unknown] => [named.name, value]
-			)
-		),
-		(entries) => Object.freeze(Object.fromEntries(entries))
-	)
-}
-
-/** A caller's parameters: exactly the program's, each parsed, a relation's as an array of its facts. */
-const parseParams = (
-	params: ReadonlyArray<WireParam<WireScalar>>,
-	json: unknown,
-	at: Path
-): Parsed<Readonly<Record<string, unknown>>> =>
-	Result.flatMap(
-		exactRecord(
-			json,
-			params.map((p) => p.name),
-			at
-		),
-		(given) =>
-			Result.map(
-				parseEach(params, (p) => {
-					const here = [...at, p.name]
-					const value = given[p.name]
-					const parsed: Parsed<unknown> =
-						p.param.kind === "scalar"
-							? parseScalarAt(p.param.scalar, value, here)
-							: parseFactArray([p.param.heading], value, here)
-					return Result.map(parsed, (v): readonly [string, unknown] => [p.name, v])
-				}),
-				(entries) => Object.freeze(Object.fromEntries(entries))
-			)
-	)
-
-/** A caller's array of facts of `record`, at `at`. */
-const parseFactArray = (
-	record: WireRecord<WireScalar>,
-	json: unknown,
-	at: Path
-): Parsed<ReadonlyArray<unknown>> =>
-	isList(json)
-		? parseEach(json, (fact, index) => parseRecord(record, fact, [...at, index]))
-		: refused("json", at)
-
-/**
- * A caller's fact of the level at `index` among `levels`, at `at`: one of its headings' fields, each parsed, and under
- * each family's count field an array of the member level's facts, each parsed alike.
- */
-const parseLevelFact = (
-	levels: WireFacts<WireScalar>["levels"],
-	index: number,
-	json: unknown,
-	at: Path
-): Parsed<Readonly<Record<string, unknown>>> => {
-	const level = levels[index]
-	if (level === undefined) {
-		throw defect("a fact's level among its levels")
-	}
-	if (!isPlainRecord(json)) {
-		return refused("json", at)
-	}
-	const counts = level.families.map((family) => family.count)
-	const heading = level.headings.find((h) =>
-		holdsExactly(json, [...h.map((named) => named.name), ...counts])
-	)
-	if (heading === undefined) {
-		return refused("members", at)
-	}
-	return Result.flatMap(
-		parseEach(heading, (named) =>
-			Result.map(
-				parseColumn(named.field, json[named.name], [...at, named.name]),
-				(value): readonly [string, unknown] => [named.name, value]
-			)
-		),
-		(own) =>
-			Result.map(
-				parseEach(level.families, (family) => {
-					const members = json[family.count]
-					const here = [...at, family.count]
-					return isList(members)
-						? Result.map(
-								parseEach(members, (member, position) =>
-									parseLevelFact(levels, family.level, member, [...here, position])
-								),
-								(parsed): readonly [string, unknown] => [family.count, parsed]
-							)
-						: refused("json", here)
-				}),
-				(nested) => Object.freeze(Object.fromEntries([...own, ...nested]))
-			)
-	)
-}
-
-/** A caller's facts: under each op of the ChangeSet's array members, under each of its relations, an array of facts. */
-const parseFacts = (
-	facts: ReadonlyArray<WireFacts<WireScalar>>,
-	json: unknown,
-	at: Path
-): Parsed<Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>> => {
-	const ops = [...new Set(facts.map((member) => member.op))]
-	return Result.flatMap(exactRecord(json, ops, at), (given) =>
-		Result.map(
-			parseEach(ops, (op) => {
-				const members = facts.filter((member) => member.op === op)
-				const here = [...at, op]
-				return Result.flatMap(
-					exactRecord(
-						given[op],
-						members.map((member) => member.relation),
-						here
-					),
-					(byRelation) =>
-						Result.map(
-							parseEach(members, (member) => {
-								const array = byRelation[member.relation]
-								const there = [...here, member.relation]
-								return isList(array)
-									? Result.map(
-											parseEach(array, (fact, position) =>
-												parseLevelFact(member.levels, 0, fact, [...there, position])
-											),
-											(parsed): readonly [string, ReadonlyArray<unknown>] => [
-												member.relation,
-												parsed
-											]
-										)
-									: refused("json", there)
-							}),
-							(entries): readonly [string, Readonly<Record<string, ReadonlyArray<unknown>>>] => [
-								op,
-								Object.freeze(Object.fromEntries(entries))
-							]
-						)
+		return heading === undefined ? refused("members", at) : Result.ok({ heading, members: json })
+	},
+	kind: (json, at) => (isPlainRecord(json) ? Result.ok(json["kind"]) : refused("json", at)),
+	list: jsonList,
+	rows: jsonList,
+	column: (field, json, at) => {
+		const parsed = Result.mapError(parseScalar(field.scalar, json), (kind) => ({ kind, at }))
+		return field.kind === "scalar"
+			? parsed
+			: Result.flatMap(parsed, (value) =>
+					field.values.some((literal) => sameJson(literal, encodeScalar(field.scalar, value)))
+						? Result.ok(value)
+						: refused("range", at)
 				)
-			}),
-			(entries) => Object.freeze(Object.fromEntries(entries))
-		)
-	)
+	},
+	built: frozenRecord,
+	params: frozenRecord,
+	facts: (entries) =>
+		frozenRecord(entries.map(([op, byRelation]) => [op, frozenRecord(byRelation)] as const)),
+	key: RowKey,
+	noFacts
 }
-
-/** A caller's key of a page's anchor: its columns' values in key order, each parsed. */
-const parseKey = (
-	key: ReadonlyArray<WireColumn<WireScalar>>,
-	json: unknown,
-	at: Path
-): Parsed<RowKey> => {
-	if (!isList(json)) {
-		return refused("json", at)
-	}
-	if (json.length !== key.length) {
-		return refused("members", at)
-	}
-	return Result.map(
-		parseEach(key, (column, index) => parseColumn(column, json[index], [...at, index])),
-		RowKey
-	)
-}
-
-/** A caller's anchor: tagged by its kind, a keyed one's key parsed. */
-const parseAnchor = (
-	key: ReadonlyArray<WireColumn<WireScalar>>,
-	json: unknown,
-	at: Path
-): Parsed<Anchor> => {
-	if (!isPlainRecord(json)) {
-		return refused("json", at)
-	}
-	const kind = json["kind"]
-	switch (kind) {
-		case "start":
-		case "end":
-			return Result.map(exactRecord(json, ["kind"], at), (): Anchor => ({ kind }))
-		case "after":
-		case "before":
-			return Result.flatMap(exactRecord(json, ["kind", "key"], at), (given) =>
-				Result.map(parseKey(key, given["key"], [...at, "key"]), (parsed): Anchor => ({
-					kind,
-					key: parsed
-				}))
-			)
-		default:
-			return refused("members", [...at, "kind"])
-	}
-}
-
-/** A caller's window: its anchor and its size, a positive safe integer. */
-const parseWindow = (
-	key: ReadonlyArray<WireColumn<WireScalar>>,
-	json: unknown,
-	at: Path
-): Parsed<Window> =>
-	Result.flatMap(exactRecord(json, ["anchor", "size"], at), (given) =>
-		Result.flatMap(parseAnchor(key, given["anchor"], [...at, "anchor"]), (anchor) => {
-			const size = given["size"]
-			if (typeof size !== "number") {
-				return refused("json", [...at, "size"])
-			}
-			return Number.isSafeInteger(size) && size >= 1
-				? Result.ok({ anchor, size })
-				: refused("range", [...at, "size"])
-		})
-	)
 
 /**
- * A caller's input, parsed exactly (live/wire.ts parse): `{ params, facts }`, or a page's `{ params, facts: {}, window }`,
- * every record holding exactly its members. A refusal names its fault and its path in the body.
+ * A caller's input, parsed exactly (live/wire.ts parse, `walkInput` over `jsonDoor`): `{ params, facts }`, or a page's
+ * `{ params, facts: {}, window }`, every record holding exactly its members. A refusal names its fault and its path in
+ * the body.
  */
-export const parseInput = (input: WireInput<WireScalar>, json: unknown): Parsed<ParsedInput> => {
-	if (input.kind === "call") {
-		return Result.flatMap(exactRecord(json, ["params", "facts"], []), (body) =>
-			Result.flatMap(parseParams(input.params, body["params"], ["params"]), (params) =>
-				Result.map(parseFacts(input.facts, body["facts"], ["facts"]), (facts): ParsedInput => ({
-					params,
-					facts
-				}))
-			)
-		)
-	}
-	return Result.flatMap(exactRecord(json, ["params", "facts", "window"], []), (body) =>
-		Result.flatMap(parseParams(input.params, body["params"], ["params"]), (params) =>
-			Result.flatMap(exactRecord(body["facts"], [], ["facts"]), () =>
-				Result.map(parseWindow(input.key, body["window"], ["window"]), (window): ParsedInput => ({
-					params,
-					facts: noFacts,
-					window
-				}))
-			)
-		)
-	)
-}
-
-type Encoded<A> = Result.Result<A, WireFault>
+export const parseInput = (input: WireInput<WireScalar>, json: unknown): Read<ParsedInput> =>
+	walkInput(jsonDoor, input, json)
 
 /**
  * A read of a caller's value at `at`, its own code run once (core/host.ts hostRead): a getter or a proxy's trap that
  * throws refuses it `json`, as no value of the input's shape.
  */
-const givenRead = <A>(at: Path, read: () => Encoded<A>): Encoded<A> =>
+const givenRead = <A>(at: Path, read: () => Read<A>): Read<A> =>
 	hostRead(() => ({ kind: "json", at }), read)
 
 /**
@@ -610,7 +648,7 @@ const givenRecord = (
 	value: unknown,
 	names: ReadonlyArray<string>,
 	at: Path
-): Encoded<Readonly<Record<string, unknown>>> =>
+): Read<Readonly<Record<string, unknown>>> =>
 	givenRead(at, () => {
 		if (!isPlainRecord(value)) {
 			return refused("json", at)
@@ -630,258 +668,67 @@ const givenRecord = (
 	})
 
 /**
- * A caller's elements at `at`, read once: a list's, the facts a member's call gives (runtime/write/members.ts), or any
- * iterable's where `iterable`, a relation parameter's facts (core/record.ts isIterable); refused `json` otherwise.
+ * The client's door to a caller's own values (`walkInput`), as its untyped door takes them: each record read once through
+ * its own descriptors (`givenRecord`), each list read once, a relation parameter's facts from any iterable
+ * (core/record.ts isIterable), the facts a member's call gives from a list alone (runtime/write/members.ts), each value
+ * of a scalar its JSON (live/wire.ts encodeGiven), and every value whose reading throws refused `json`.
  */
-const givenElements = (
-	value: unknown,
-	iterable: boolean,
-	at: Path
-): Encoded<ReadonlyArray<unknown>> =>
-	givenRead(at, () =>
-		isList(value) || (iterable && isIterable(value))
-			? Result.ok(Array.from(value))
-			: refused("json", at)
-	)
-
-/** A caller's value of a scalar at `at` as JSON (live/wire.ts encodeGiven), refused at `at` where it is none. */
-const givenScalar = (scalar: WireScalar, value: unknown, at: Path): Encoded<WireJson> =>
-	Result.mapError(encodeGiven(scalar, value), (kind) => ({ kind, at }))
-
-/** A caller's facts at `at`, each encoded by `encode` at its index. */
-const givenFacts = (
-	facts: unknown,
-	iterable: boolean,
-	at: Path,
-	encode: (fact: unknown, at: Path) => Encoded<WireJson>
-): Encoded<WireJson> =>
-	Result.flatMap(givenElements(facts, iterable, at), (elements) =>
-		parseEach(elements, (fact, index) => encode(fact, [...at, index]))
-	)
-
-/**
- * A caller's fact of the level at `index` among `levels`, at `at`, as JSON: one of the level's headings' fields, each a
- * scalar's value, and under each family's count field its members' facts, each a fact of the member level, to any depth.
- */
-const encodeLevelFact = (
-	levels: WireFacts<WireScalar>["levels"],
-	index: number,
-	fact: unknown,
-	at: Path
-): Encoded<WireJson> => {
-	const level = levels[index]
-	if (level === undefined) {
-		throw defect("a fact's level among its levels")
-	}
-	const counts = level.families.map((family) => family.count)
-	const heading = givenRead(at, () => {
-		if (!isPlainRecord(fact)) {
-			return refused("json", at)
-		}
-		const found = level.headings.find((h) =>
-			holdsExactly(fact, [...h.map((named) => named.name), ...counts])
-		)
-		return found === undefined ? refused("members", at) : Result.ok(found)
-	})
-	return Result.flatMap(heading, (found) =>
-		Result.flatMap(
-			givenRecord(fact, [...found.map((named) => named.name), ...counts], at),
-			(given) =>
-				Result.flatMap(
-					parseEach(found, (named) => {
-						const field = named.field
-						if (field.kind !== "scalar" && field.kind !== "constant") {
-							throw defect("a fact's field of a scalar")
-						}
-						return Result.map(
-							givenScalar(field.scalar, given[named.name], [...at, named.name]),
-							(json): readonly [string, WireJson] => [named.name, json]
-						)
-					}),
-					(own) =>
-						Result.map(
-							parseEach(level.families, (family) =>
-								Result.map(
-									givenFacts(
-										given[family.count],
-										false,
-										[...at, family.count],
-										(member, memberAt) => encodeLevelFact(levels, family.level, member, memberAt)
-									),
-									(json): readonly [string, WireJson] => [family.count, json]
-								)
-							),
-							(nested): WireJson => Object.fromEntries([...own, ...nested])
-						)
+const hostDoor: InputDoor<WireJson, WireJson, WireJson, WireJson, WireJson> = {
+	record: givenRecord,
+	fact: (value, level, at) => {
+		const counts = level.families.map((family) => family.count)
+		return Result.flatMap(
+			givenRead(at, () => {
+				if (!isPlainRecord(value)) {
+					return refused("json", at)
+				}
+				const found = level.headings.find((h) =>
+					holdsExactly(value, [...h.map((named) => named.name), ...counts])
 				)
-		)
-	)
-}
-
-/** A caller's parameters at `at` as JSON: exactly the program's, a scalar's value or a relation's facts each. */
-const encodeParams = (
-	params: ReadonlyArray<WireParam<WireScalar>>,
-	value: unknown,
-	at: Path
-): Encoded<WireJson> =>
-	Result.flatMap(
-		givenRecord(
-			value,
-			params.map((p) => p.name),
-			at
-		),
-		(given) =>
-			Result.map(
-				parseEach(params, (p) => {
-					const here = [...at, p.name]
-					const param = p.param
-					const encoded =
-						param.kind === "scalar"
-							? givenScalar(param.scalar, given[p.name], here)
-							: givenFacts(given[p.name], true, here, (fact, factAt) =>
-									encodeLevelFact([{ headings: [param.heading], families: [] }], 0, fact, factAt)
-								)
-					return Result.map(encoded, (json): readonly [string, WireJson] => [p.name, json])
-				}),
-				(entries): WireJson => Object.fromEntries(entries)
-			)
-	)
-
-/**
- * A caller's facts at `at` as JSON: under each op of the ChangeSet's array members, under each of its relations, a list
- * of facts, and nothing else.
- */
-const encodeFacts = (
-	facts: ReadonlyArray<WireFacts<WireScalar>>,
-	value: unknown,
-	at: Path
-): Encoded<WireJson> => {
-	const ops = [...new Set(facts.map((member) => member.op))]
-	return Result.flatMap(givenRecord(value, ops, at), (byOp) =>
-		Result.map(
-			parseEach(ops, (op) => {
-				const members = facts.filter((member) => member.op === op)
-				const here = [...at, op]
-				return Result.flatMap(
-					givenRecord(
-						byOp[op],
-						members.map((member) => member.relation),
-						here
-					),
-					(byRelation) =>
-						Result.map(
-							parseEach(members, (member) =>
-								Result.map(
-									givenFacts(
-										byRelation[member.relation],
-										false,
-										[...here, member.relation],
-										(fact, factAt) => encodeLevelFact(member.levels, 0, fact, factAt)
-									),
-									(json): readonly [string, WireJson] => [member.relation, json]
-								)
-							),
-							(entries): readonly [string, WireJson] => [op, Object.fromEntries(entries)]
-						)
-				)
+				return found === undefined ? refused("members", at) : Result.ok(found)
 			}),
-			(entries): WireJson => Object.fromEntries(entries)
+			(heading) =>
+				Result.map(
+					givenRecord(value, [...heading.map((named) => named.name), ...counts], at),
+					(members) => ({ heading, members })
+				)
 		)
-	)
-}
-
-/** A caller's key of a page's anchor at `at` as JSON: its columns' values in key order. */
-const encodeAnchorKey = (
-	key: ReadonlyArray<WireColumn<WireScalar>>,
-	value: unknown,
-	at: Path
-): Encoded<WireJson> =>
-	Result.flatMap(givenElements(value, false, at), (values) =>
-		values.length === key.length
-			? parseEach(key, (column, index) => givenScalar(column.scalar, values[index], [...at, index]))
-			: refused("members", at)
-	)
-
-/** A caller's anchor at `at` as JSON: tagged by its kind, a keyed one's key encoded. */
-const encodeAnchor = (
-	key: ReadonlyArray<WireColumn<WireScalar>>,
-	value: unknown,
-	at: Path
-): Encoded<WireJson> =>
-	Result.flatMap(
+	},
+	kind: (value, at) =>
 		givenRead(at, () =>
 			isPlainRecord(value)
 				? Result.ok(Reflect.getOwnPropertyDescriptor(value, "kind")?.value)
 				: refused("json", at)
 		),
-		(kind): Encoded<WireJson> => {
-			switch (kind) {
-				case "start":
-				case "end":
-					return Result.map(givenRecord(value, ["kind"], at), (): WireJson => ({ kind }))
-				case "after":
-				case "before":
-					return Result.flatMap(givenRecord(value, ["kind", "key"], at), (given) =>
-						Result.map(encodeAnchorKey(key, given["key"], [...at, "key"]), (json): WireJson => ({
-							kind,
-							key: json
-						}))
-					)
-				default:
-					return refused("members", [...at, "kind"])
-			}
-		}
-	)
-
-/** A caller's window at `at` as JSON: its anchor and its size, a positive safe integer. */
-const encodeWindow = (
-	key: ReadonlyArray<WireColumn<WireScalar>>,
-	value: unknown,
-	at: Path
-): Encoded<WireJson> =>
-	Result.flatMap(givenRecord(value, ["anchor", "size"], at), (given) =>
-		Result.flatMap(encodeAnchor(key, given["anchor"], [...at, "anchor"]), (anchor) => {
-			const size = given["size"]
-			if (typeof size !== "number") {
-				return refused("json", [...at, "size"])
-			}
-			return Number.isSafeInteger(size) && size >= 1
-				? Result.ok({ anchor, size })
-				: refused("range", [...at, "size"])
-		})
-	)
+	list: (value, at) =>
+		givenRead(at, () => (isList(value) ? Result.ok(Array.from(value)) : refused("json", at))),
+	rows: (value, at) =>
+		givenRead(at, () =>
+			isList(value) || isIterable(value) ? Result.ok(Array.from(value)) : refused("json", at)
+		),
+	column: (field, value, at) =>
+		Result.mapError(encodeGiven(field.scalar, value), (kind) => ({ kind, at })),
+	built: (entries) => Object.fromEntries(entries),
+	params: (entries) => Object.fromEntries(entries),
+	facts: (entries) =>
+		Object.fromEntries(
+			entries.map(([op, byRelation]) => [op, Object.fromEntries(byRelation)] as const)
+		),
+	key: (values) => values,
+	noFacts: {}
+}
 
 /**
- * A caller's input to a program as JSON, in the program's input shape: the inverse of parseInput, over the caller's
- * own values as the client's untyped door takes them. Every value of the input's shape encodes, and any other is
- * refused with its fault at its path (WireFault), as parseInput refuses JSON: a record that is no plain record or does
- * not hold exactly its members, no list where facts or a key stand, a value of another type than its scalar's host type
- * (live/wire.ts encodeGiven), a window's size that is no positive safe integer, or a value whose reading throws. A
- * value the caller gives is never asserted: only the server's own values are (encodeRecord, encodeKey).
+ * A caller's input to a program as JSON, in the program's input shape (`walkInput` over `hostDoor`): the inverse of
+ * parseInput, over the caller's own values as the client's untyped door takes them. Every value of the input's shape
+ * encodes, and any other is refused with its fault at its path (WireFault), as parseInput refuses JSON: a record that is
+ * no plain record or does not hold exactly its members, no list where facts or a key stand, a value of another type
+ * than its scalar's host type (live/wire.ts encodeGiven), a window's size that is no positive safe integer, or a value
+ * whose reading throws. A value the caller gives is never asserted: only the server's own values are (encodeRecord,
+ * encodeKey).
  */
-export const encodeInput = (input: WireInput<WireScalar>, value: unknown): Encoded<WireJson> => {
-	if (input.kind === "call") {
-		return Result.flatMap(givenRecord(value, ["params", "facts"], []), (body) =>
-			Result.flatMap(encodeParams(input.params, body["params"], ["params"]), (params) =>
-				Result.map(encodeFacts(input.facts, body["facts"], ["facts"]), (facts): WireJson => ({
-					params,
-					facts
-				}))
-			)
-		)
-	}
-	return Result.flatMap(givenRecord(value, ["params", "facts", "window"], []), (body) =>
-		Result.flatMap(encodeParams(input.params, body["params"], ["params"]), (params) =>
-			Result.flatMap(givenRecord(body["facts"], [], ["facts"]), () =>
-				Result.map(encodeWindow(input.key, body["window"], ["window"]), (window): WireJson => ({
-					params,
-					facts: {},
-					window
-				}))
-			)
-		)
-	)
-}
+export const encodeInput = (input: WireInput<WireScalar>, value: unknown): Read<WireJson> =>
+	walkInput(hostDoor, input, value)
 
 /** Plain data (types/changeset Refused) as JSON: strings, finite numbers, booleans, arrays and plain records. */
 const plainJson = (value: unknown): WireJson => {
