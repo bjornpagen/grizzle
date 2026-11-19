@@ -33,7 +33,7 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { filed } from "#compiler/deploy/render/filed.ts"
 import { folderName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
-import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { type DraftWorkload, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { LoginDesc, RoleDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -66,7 +66,7 @@ import {
 	parsedMigrationName,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import { type Placeholder, review } from "#test/support/migrate/review.ts"
+import { type Decisions, type Placeholder, review } from "#test/support/migrate/review.ts"
 import { type FactSet, factStatements, loadFacts } from "#test/support/oracle/install/load.ts"
 import {
 	type InstallCompile,
@@ -665,13 +665,55 @@ export interface InstallVersion {
 }
 
 /**
- * How every version of a history is drafted: with the caller's extensions, and by the compile of its installation,
+ * How each drafted folder of a history is reviewed: with no placeholder, one of which is the test's defect; with the
+ * placeholders' values; or with their values and the reviewer's data steps, each reviewed file of a version's folder
+ * as `edit` writes it, given the version's index, as a person adds an UPDATE before a placeholder's DROP DEFAULT.
+ */
+export type Review =
+	| { readonly kind: "noPlaceholders" }
+	| { readonly kind: "values"; readonly value: Decisions["value"] }
+	| {
+			readonly kind: "reviewed"
+			readonly value: Decisions["value"]
+			readonly edit: (version: number, file: ReviewedText) => string
+	  }
+
+/** A review of folders that hold no placeholder (Review `noPlaceholders`). */
+export const noPlaceholders: Review = { kind: "noPlaceholders" }
+
+/** A reviewed file of a drafted folder: its name and its text. */
+export interface ReviewedText {
+	readonly name: string
+	readonly text: string
+}
+
+/**
+ * What a version's logins' workloads add to its draft, as `grizzle generate` plans them (installed.ts workloadOf): the
+ * installer extensions of their plan and the draft's workload; none for a history that plans no workload.
+ */
+export interface VersionWorkload {
+	readonly extensions: ReadonlyArray<InstallExtension>
+	readonly draft: DraftWorkload
+}
+
+/** No workload planned (VersionWorkload). */
+export const noVersionWorkload: VersionWorkload = { extensions: [], draft: noWorkload }
+
+/** A version of a history with what its logins' workloads add to its draft. */
+export interface WorkloadVersion {
+	readonly version: InstallVersion
+	readonly workload: VersionWorkload
+}
+
+/**
+ * How every version of a history is drafted: with the caller's extensions, by the compile of its installation,
  * compileInstallation, as `grizzle generate` composes it, or another compile of the same schema a suite installs beside
- * it, such as a lowering's trigger oracle (conservativeInstallation).
+ * it, such as a lowering's trigger oracle (conservativeInstallation), and each folder reviewed as `review` says.
  */
 interface DraftOptions {
 	readonly extensions: ReadonlyArray<InstallExtension>
 	readonly compile: InstallCompile
+	readonly review: Review
 }
 
 /**
@@ -701,19 +743,30 @@ interface DraftAt {
 	readonly step: number
 }
 
-/** A drafted folder's placeholder: a defect of the test, since a history's caller states every value in its schema. */
+/** A drafted folder's placeholder under no value: a defect of the test, whose history states every value it drafts. */
 const noPlaceholder = (placeholder: Placeholder): string => {
-	throw new Error(`a history drafted a placeholder of ${placeholder.table.name}`)
+	throw new Error(
+		`a history drafted a placeholder of ${placeholder.table.name}, and no review value`
+	)
 }
+
+/** The placeholder values `review` gives a folder's review. */
+const reviewValue = (review: Review): Decisions["value"] =>
+	review.kind === "noPlaceholders" ? noPlaceholder : review.value
+
+/** A reviewed file of version `version` as `review` writes it. */
+const reviewedText = (review: Review, version: number, file: ReviewedText): string =>
+	review.kind === "reviewed" ? review.edit(version, file) : file.text
 
 /**
  * `version` as `grizzle generate` drafts it `at` its step, from 0, of a history: planned under the identity by
- * `options.compile` with its logins, the caller's extensions and the codes its declarations draft from the snapshot
- * before it (migrate/kit.ts draftCodes), its folder, drafted under the same declarations at its step's instant,
- * reviewed as a person reviews it with every loss written in (migrate/review.ts), and the snapshot it reaches.
+ * `options.compile` with its logins, the caller's extensions and its workload's, and the codes its declarations draft
+ * from the snapshot before it (migrate/kit.ts draftCodes), its folder, drafted under the same declarations and its
+ * workload at its step's instant, reviewed as a person reviews it with every loss written in (migrate/review.ts) as
+ * `options.review` says, and the snapshot it reaches: the one drafting of a version, which every history reads.
  */
 export const draftVersion = (
-	version: InstallVersion,
+	{ version, workload }: WorkloadVersion,
 	at: DraftAt,
 	options: DraftOptions
 ): Effect.Effect<DraftedVersion, CompileError> =>
@@ -724,7 +777,7 @@ export const draftVersion = (
 			planRealInstall(desc, {
 				installation,
 				logins: version.logins,
-				extensions: options.extensions,
+				extensions: [...options.extensions, ...workload.extensions],
 				codes,
 				compile: options.compile
 			})
@@ -735,15 +788,22 @@ export const draftVersion = (
 				name: installName,
 				timestamp: installTimestamp(at.step),
 				previous: at.previous,
-				workload: noWorkload,
+				workload: workload.draft,
 				declared: version.declarations
 			})
 		)
-		const reviewed = review(g, { losses: "written", value: noPlaceholder })
+		const reviewed = review(g, { losses: "written", value: reviewValue(options.review) })
 		return {
 			plan,
 			planned: (fresh) => fromEngine(plannedUnder(identity.schema(parsedSchemaName(fresh)))),
-			folder: { name: g.folder.name, metaText: g.folder.metaText, files: reviewed.files },
+			folder: {
+				name: g.folder.name,
+				metaText: g.folder.metaText,
+				files: Arr.map(reviewed.files, (f) => ({
+					name: f.name,
+					text: reviewedText(options.review, at.step, f)
+				}))
+			},
 			snapshot: g.snapshot
 		}
 	})
@@ -770,16 +830,20 @@ export const installMigratedThrough = (
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const name = yield* substrate.schema({ create: false, label: options.label })
-		const history = yield* draftedHistory(versions, options, name)
+		const history = yield* draftedHistory(
+			Arr.map(versions, (version) => ({ version, workload: noVersionWorkload })),
+			options,
+			name
+		)
 		return yield* appliedHistory(history, name, options, new Map())
 	})
 
 /**
- * Every version of `versions` drafted under the name `name`, owned by `owner` (draftVersion): the first from the empty
- * snapshot, each later one from the snapshot the one before it reached. Pure: what installMigratedThrough applies.
+ * Every version of `versions` drafted under the name `name` (draftVersion): the first from the empty snapshot, each
+ * later one from the snapshot the one before it reached. Pure: what installMigratedThrough and migrated apply.
  */
 export const draftedHistory = (
-	versions: Arr.NonEmptyReadonlyArray<InstallVersion>,
+	versions: Arr.NonEmptyReadonlyArray<WorkloadVersion>,
 	options: DraftOptions,
 	name: string
 ): Effect.Effect<Arr.NonEmptyReadonlyArray<DraftedVersion>, CompileError> =>
@@ -864,10 +928,17 @@ const historyTemplate = <E>(spec: HistorySpec, seeding: Seeding<E>): SubstrateTe
 		name: spec.name,
 		content: spec.content,
 		plan: (names) =>
-			Effect.map(draftedHistory(spec.versions, spec.options, names.schema), (history) => ({
-				names,
-				history
-			})),
+			Effect.map(
+				draftedHistory(
+					Arr.map(spec.versions, (version) => ({ version, workload: noVersionWorkload })),
+					spec.options,
+					names.schema
+				),
+				(history) => ({
+					names,
+					history
+				})
+			),
 		install: ({ names, history }) =>
 			Effect.flatMap(appliedHistory(history, names.schema, spec.options, new Map()), seeding.seed),
 		reset: seeding.reset,
@@ -971,7 +1042,8 @@ export const installMigrated = (
 		label: options.label,
 		extensions: options.extensions,
 		ambient: options.ambient,
-		compile: compileInstallation
+		compile: compileInstallation,
+		review: noPlaceholders
 	})
 
 /**
@@ -1003,7 +1075,8 @@ const installedSpec = (spec: {
 		label: spec.options.label,
 		extensions: spec.options.extensions,
 		ambient: spec.options.ambient,
-		compile: compileInstallation
+		compile: compileInstallation,
+		review: noPlaceholders
 	}
 })
 

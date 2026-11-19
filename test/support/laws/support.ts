@@ -30,7 +30,8 @@ import { type ClosedField, closedField, namedText } from "#test/support/closed/s
 import {
 	type Installed,
 	installMigrated as install,
-	migratedTemplate
+	migratedTemplate,
+	noPlaceholders
 } from "#test/support/install-migrate.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
 import {
@@ -441,7 +442,13 @@ export const lawsTemplate = (spec: {
 		versions: [
 			{ schema: value, logins: [writers.server, writers.psql], declarations: noDeclarations }
 		],
-		options: { label: "real", extensions: [], ambient: spec.ambient, compile: compileInstallation }
+		options: {
+			label: "real",
+			extensions: [],
+			ambient: spec.ambient,
+			compile: compileInstallation,
+			review: noPlaceholders
+		}
 	})
 }
 

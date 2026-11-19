@@ -8,7 +8,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgErrorFields } from "#test/support/pg.ts"
@@ -64,7 +64,8 @@ export const disjointTemplate = migratedTemplate({
 		label: "disjoint_units",
 		extensions: [],
 		compile: compileInstallation,
-		ambient: ordinarySession
+		ambient: ordinarySession,
+		review: noPlaceholders
 	}
 })
 

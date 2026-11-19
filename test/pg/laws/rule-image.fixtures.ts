@@ -19,7 +19,7 @@ import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
-import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -108,7 +108,8 @@ export const imageTemplate = migratedTemplate({
 		label: "rule_image",
 		extensions: [],
 		compile: compileInstallation,
-		ambient: ordinarySession
+		ambient: ordinarySession,
+		review: noPlaceholders
 	}
 })
 

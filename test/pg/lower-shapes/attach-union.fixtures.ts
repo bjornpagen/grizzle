@@ -19,7 +19,7 @@ import {
 	testCompile,
 	workloadOver
 } from "#test/support/compile.ts"
-import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -97,7 +97,8 @@ export const attachUnionTemplate = migratedTemplate({
 		label: "attach_union",
 		extensions: [workloadOver([{ login: "reader", workloads: [workload(Files, { documents })] }])],
 		compile: compileInstallation,
-		ambient: ordinarySession
+		ambient: ordinarySession,
+		review: noPlaceholders
 	}
 })
 

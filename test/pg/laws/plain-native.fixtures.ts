@@ -9,7 +9,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { pg } from "#compiler/public/fields.ts"
 import { contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { attempt } from "#test/support/substrate.ts"
@@ -64,7 +64,8 @@ export const plainTemplate = migratedTemplate({
 		label: "plain_native",
 		extensions: [],
 		compile: compileInstallation,
-		ambient: ordinarySession
+		ambient: ordinarySession,
+		review: noPlaceholders
 	}
 })
 

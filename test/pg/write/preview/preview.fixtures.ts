@@ -84,7 +84,8 @@ import {
 import {
 	type Installed,
 	installMigrated,
-	installMigratedThrough
+	installMigratedThrough,
+	noPlaceholders
 } from "#test/support/install-migrate.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -626,7 +627,8 @@ export const previewCase = (k: PreviewCase, c: Case<PreviewFeature>) =>
 				label: "preview_migrated",
 				extensions: [],
 				ambient: ordinarySession,
-				compile: compileInstallation
+				compile: compileInstallation,
+				review: noPlaceholders
 			}
 		)
 		const familyFacts = instanceFacts(k.spec, k.rows)

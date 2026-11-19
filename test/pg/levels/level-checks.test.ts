@@ -84,7 +84,11 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { installedCodes, levelNameAt } from "#test/support/compile.ts"
-import { installMigrated, installMigratedThrough } from "#test/support/install-migrate.ts"
+import {
+	installMigrated,
+	installMigratedThrough,
+	noPlaceholders
+} from "#test/support/install-migrate.ts"
 import { atName, namesOf } from "#test/support/kernel/naming.ts"
 import {
 	compile,
@@ -141,7 +145,8 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19rc2StoresExactlyTheR
 									label: "level_checks",
 									extensions: [],
 									ambient: ordinarySession,
-									compile: compileInstallation
+									compile: compileInstallation,
+									review: noPlaceholders
 								}
 							)
 							const at = levelsAt(done.schema, own, level)

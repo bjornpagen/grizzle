@@ -16,7 +16,7 @@ import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -111,7 +111,8 @@ export const checkCostTemplate = migratedTemplate({
 		label: "check_cost",
 		extensions: [],
 		compile: compileInstallation,
-		ambient: ordinarySession
+		ambient: ordinarySession,
+		review: noPlaceholders
 	}
 })
 

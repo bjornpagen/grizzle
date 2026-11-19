@@ -26,7 +26,7 @@ import {
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
 	type JudgedStatement,
 	judgedStatementsOf,
@@ -385,7 +385,8 @@ const judgeTemplate = (judge: Judge, shape: ShapeKey) => {
 			label: `${judge}_judge_${width}_${order}`,
 			extensions: [],
 			compile: compileInstallation,
-			ambient: ordinarySession
+			ambient: ordinarySession,
+			review: noPlaceholders
 		}
 	})
 }

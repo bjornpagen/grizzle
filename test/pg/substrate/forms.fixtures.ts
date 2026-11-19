@@ -9,7 +9,8 @@ import { Account, Work, type WorkNamed, workWorlds } from "#test/support/fixture
 import {
 	generatedTemplate,
 	type Installed,
-	migratedTemplate
+	migratedTemplate,
+	noPlaceholders
 } from "#test/support/install-migrate.ts"
 import { rebuild } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -31,7 +32,13 @@ export const workTemplate = migratedTemplate({
 	name: "work",
 	content: { schema: "Work", logins: ["server"], ambient: "ordinary" },
 	versions: [{ schema: Work, logins: [workWorlds(Work).server], declarations: noDeclarations }],
-	options: { label: "work", extensions: [], compile: compileInstallation, ambient: ordinarySession }
+	options: {
+		label: "work",
+		extensions: [],
+		compile: compileInstallation,
+		ambient: ordinarySession,
+		review: noPlaceholders
+	}
 })
 
 /**
@@ -43,7 +50,13 @@ export const secondWorkTemplate = migratedTemplate({
 	name: "work, second",
 	content: { schema: "Work", logins: ["server"], ambient: "ordinary", copy: "second" },
 	versions: [{ schema: Work, logins: [workWorlds(Work).server], declarations: noDeclarations }],
-	options: { label: "work", extensions: [], compile: compileInstallation, ambient: ordinarySession }
+	options: {
+		label: "work",
+		extensions: [],
+		compile: compileInstallation,
+		ambient: ordinarySession,
+		review: noPlaceholders
+	}
 })
 
 /** The keys of the closed set of templates the oneOf property draws a case's from. */

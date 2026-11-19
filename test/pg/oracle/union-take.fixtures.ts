@@ -24,7 +24,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
-import { migratedTemplate } from "#test/support/install-migrate.ts"
+import { migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -273,5 +273,11 @@ export const unionsTemplate = migratedTemplate({
 	name: "unions",
 	content: { schema: "Unions", logins: [], ambient: "ordinary", label: "real" },
 	versions: [{ schema: Unions, logins: [], declarations: noDeclarations }],
-	options: { label: "real", extensions: [], compile: compileInstallation, ambient: ordinarySession }
+	options: {
+		label: "real",
+		extensions: [],
+		compile: compileInstallation,
+		ambient: ordinarySession,
+		review: noPlaceholders
+	}
 })

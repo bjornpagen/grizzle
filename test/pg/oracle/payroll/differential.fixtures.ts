@@ -9,6 +9,8 @@ import {
 	draftedHistory,
 	type HistoryOptions,
 	type Installed,
+	noPlaceholders,
+	noVersionWorkload,
 	templateInstalled
 } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -41,7 +43,8 @@ const options: HistoryOptions = {
 	label: "real",
 	extensions: [],
 	compile: compileInstallation,
-	ambient: ordinarySession
+	ambient: ordinarySession,
+	review: noPlaceholders
 }
 
 /** What a case over the payroll template reads: Reporting installed in its clone, and every payroll program compiled for it. */
@@ -62,7 +65,12 @@ export const payrollTemplate = installTemplate({
 	plan: (names) =>
 		Effect.map(
 			draftedHistory(
-				[{ schema: P.Reporting, logins: [], declarations: noDeclarations }],
+				[
+					{
+						version: { schema: P.Reporting, logins: [], declarations: noDeclarations },
+						workload: noVersionWorkload
+					}
+				],
 				options,
 				names.schema
 			),

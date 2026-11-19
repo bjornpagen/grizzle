@@ -86,8 +86,9 @@ import { deepEquals, defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import {
 	type Installed,
+	installMigratedThrough,
 	type InstallVersion,
-	installMigratedThrough
+	noPlaceholders
 } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -1167,7 +1168,8 @@ const loweredInstall = (
 			label: "lowering",
 			extensions: [],
 			ambient: ordinarySession,
-			compile: compileInstallation
+			compile: compileInstallation,
+			review: noPlaceholders
 		})
 		const value = loweringSchema(shape, installed.schema)
 		const served = yield* servedFixture(installed, fullWorld(value, programsOf(value)).server)
@@ -1239,7 +1241,8 @@ const pairOf = (shape: Shape) =>
 				label: "lowering_oracle",
 				extensions: [],
 				ambient: ordinarySession,
-				compile: conservativeInstallation
+				compile: conservativeInstallation,
+				review: noPlaceholders
 			}
 		)
 		for (const [order, low] of lows) {

@@ -19,7 +19,9 @@ import {
 	installedOf,
 	installedSchemas,
 	loginCredentials,
-	migrateFolders
+	migrateFolders,
+	noPlaceholders,
+	noVersionWorkload
 } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -130,13 +132,16 @@ const prepared = (d: Drawn) =>
 		const declared = yield* substrate.schema({ create: false, label: "concurrent" })
 		const shape = shapes[d.shape]
 		const version = yield* draftVersion(
-			{ schema: shape.schema, logins: [shape.login], declarations: noDeclarations },
+			{
+				version: { schema: shape.schema, logins: [shape.login], declarations: noDeclarations },
+				workload: noVersionWorkload
+			},
 			{
 				installation: identity.schema(parsedSchemaName(declared)),
 				previous: fromEmpty,
 				step: 0
 			},
-			{ extensions: [], compile: compileInstallation }
+			{ extensions: [], compile: compileInstallation, review: noPlaceholders }
 		)
 		const owner = yield* ambientOwner(ordinarySession, installedSchemas(version.plan.installation))
 		const gated = defined(

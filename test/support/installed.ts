@@ -6,8 +6,6 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
@@ -33,22 +31,15 @@ import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { deployedWorkloadOver, inputArtifacts, testCompile } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
+	type DraftedVersion,
+	draftedHistory,
 	type Installed,
 	installedOf,
 	loginCredentials,
+	type Review,
 	templateInstalledOf
 } from "#test/support/install-migrate.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import {
-	draftCodes,
-	fromEmpty,
-	fromSnapshot,
-	generate,
-	type Previous,
-	draftedAt
-} from "#test/support/migrate/kit.ts"
-import { type Decisions, type Placeholder, review } from "#test/support/migrate/review.ts"
-import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { installationGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -145,14 +136,7 @@ interface MigrateOptions {
 	 * folder as `edit` writes it, given the version's index, as a person adds an UPDATE before a placeholder's DROP
 	 * DEFAULT.
 	 */
-	readonly apply:
-		| { readonly kind: "noPlaceholders" }
-		| { readonly kind: "values"; readonly value: Decisions["value"] }
-		| {
-				readonly kind: "reviewed"
-				readonly value: Decisions["value"]
-				readonly edit: (version: number, file: ReviewedText) => string
-		  }
+	readonly apply: Review
 	/**
 	 * The renames and drops each version's migration declares (`--rename`, `--drop`), by the version's index, 0 the
 	 * first: every drop of stored data is declared, a roster's removed handle among them, and a renamed handle keeps its
@@ -166,12 +150,6 @@ interface MigrateOptions {
 	readonly observe: Option.Option<Observe>
 }
 
-/** A reviewed file of a drafted folder: its name and its text. */
-interface ReviewedText {
-	readonly name: string
-	readonly text: string
-}
-
 /** A reading between versions, given the version's index and the owner's session. */
 type Observe = (version: number, owner: RawSession) => Effect.Effect<void, SqlError>
 
@@ -179,14 +157,6 @@ type Observe = (version: number, owner: RawSession) => Effect.Effect<void, SqlEr
 export const noObservation: Option.Option<Observe> = Option.none()
 
 /** The placeholder value of a migration whose options say it has none: a placeholder is a defect of the test. */
-const noValue =
-	(label: string) =>
-	(placeholder: Placeholder): string => {
-		throw new Error(
-			`migrated: a placeholder of ${placeholder.table.name}, and no apply.value (${label})`
-		)
-	}
-
 /**
  * What a version's logins' workloads add, planned as `grizzle generate` plans them with their roles' write filters
  * (cli/generate.ts draftInput): the installer extension of the plan, compiled against the schema the installation
@@ -223,23 +193,6 @@ export const workloadOf = (
 		],
 		draft: { access: plan.access, accessPaths: plan.requests, live: plan.live }
 	}
-}
-
-/**
- * A version's codes, drafted as `grizzle generate` drafts them (cli/generate.ts draftInput): from the codes the
- * previous snapshot records, the empty codebook before the first, with no rename declared. A draft that reorders a
- * roster is the test's defect: a history the test states appends new handles.
- */
-const draftedCodes = (
-	previous: Previous,
-	version: AnyVersion,
-	declared: Declarations
-): Codebook => {
-	const drafted = draftCodes(version.schema, previous, declared)
-	if (!drafted.ok) {
-		throw new Error(`migrated: a version's codes are refused: ${drafted.error.message}`)
-	}
-	return drafted.value
 }
 
 /**
@@ -305,7 +258,7 @@ export const migrated = (options: MigrateOptions) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const name = yield* schemaNameOf(options)
-		const steps = migratedSteps(options, name)
+		const steps = yield* migratedHistory(options, name)
 		const session = yield* substrate.session({ ...ownerSession(), label: `owner ${options.label}` })
 		const ownerLogin = yield* ambientOwner(ordinarySession, [
 			identifierOf(identity.schema(parsedSchemaName(name)))
@@ -343,76 +296,38 @@ export const migrated = (options: MigrateOptions) =>
 		return result
 	})
 
-/** One version as migrated drafts it under the installed name: its plan, its reviewed folder, and its snapshot. */
-interface MigratedStep {
-	readonly plan: RealInstallPlan
-	readonly folder: FolderTexts
-	readonly snapshot: DeploySnapshot
-}
-
-/** What migratedSteps drafts from: a migration's versions, their declarations and how their folders are reviewed. */
+/** What migratedHistory drafts from: a migration's versions, their declarations and how their folders are reviewed. */
 type MigratedDraft = Pick<MigrateOptions, "label" | "first" | "later" | "apply" | "declared">
 
 /**
- * Every version of `options` drafted under `name` as a deployment drafts it, each from the snapshot the one before
- * reached: its complete installation, every installer extension a deployment needs and its logins' worlds, its
- * generated folder reviewed as the caller says, and the snapshot it reaches. Pure: what migrated applies in turn.
+ * Every version of `options` drafted under `name` by the one drafting of a history (install-migrate.ts
+ * draftedHistory), each from the snapshot the one before reached, with its logins' workloads planned as a deployment
+ * plans them (workloadOf), its declarations, and its folder reviewed as the caller says: what migrated applies in turn.
+ * A version the compile refuses is the test's defect.
  */
-const migratedSteps = (
+const migratedHistory = (
 	options: MigratedDraft,
 	name: string
-): Arr.NonEmptyReadonlyArray<MigratedStep> => {
-	const installation = identity.schema(parsedSchemaName(name))
+): Effect.Effect<Arr.NonEmptyReadonlyArray<DraftedVersion>> => {
 	const versions: Arr.NonEmptyReadonlyArray<AnyVersion> = [
 		options.first(name),
 		...Arr.map(options.later, (f) => f(name))
 	]
-	const reviewing = options.apply
-	const placeholderValue =
-		reviewing.kind === "noPlaceholders" ? noValue(options.label) : reviewing.value
-	const edited = (version: number, file: ReviewedText): string =>
-		reviewing.kind === "reviewed" ? reviewing.edit(version, file) : file.text
-	const steps: Array<MigratedStep> = []
-	let previous: Previous = fromEmpty
-	for (const [i, version] of versions.entries()) {
-		const workload = workloadOf(version)
-		const plan = succeeded(
-			planRealInstall(version.schema, {
-				installation,
-				logins: version.logins,
-				extensions: workload.extensions,
-				codes: draftedCodes(previous, version, options.declared(i)),
-				compile: compileInstallation
-			})
+	return Effect.orDie(
+		draftedHistory(
+			Arr.map(versions, (v, i) => ({
+				version: { schema: v.schema, logins: v.logins, declarations: options.declared(i) },
+				workload: workloadOf(v)
+			})),
+			{ extensions: [], compile: compileInstallation, review: options.apply },
+			name
 		)
-		const g = succeeded(
-			generate({
-				previous,
-				installation: plan.installation,
-				name: `step_${i + 1}`,
-				timestamp: draftedAt(i + 1),
-				workload: workload.draft,
-				declared: options.declared(i)
-			})
-		)
-		const reviewed = review(g, { losses: "written", value: placeholderValue })
-		steps.push({
-			plan,
-			folder: {
-				name: g.folder.name,
-				metaText: g.folder.metaText,
-				files: Arr.map(reviewed.files, (f) => ({ name: f.name, text: edited(i, f) }))
-			},
-			snapshot: g.snapshot
-		})
-		previous = fromSnapshot(g.snapshot)
-	}
-	return nonEmpty(steps, "a migrated schema has its first version")
+	)
 }
 
 /** The folders of `steps` through the one at `at`: what a migration has applied once that version's migration ran. */
 const foldersThrough = (
-	steps: Arr.NonEmptyReadonlyArray<MigratedStep>,
+	steps: Arr.NonEmptyReadonlyArray<DraftedVersion>,
 	at: number
 ): Arr.NonEmptyReadonlyArray<FolderTexts> =>
 	nonEmpty(
@@ -422,7 +337,7 @@ const foldersThrough = (
 
 /**
  * migrated's installation as a template (substrate.ts installTemplate): every version drafted under the template's name
- * by every worker as it plans (migratedSteps), applied once per member by the real runner as the template's owner
+ * by every worker as it plans (migratedHistory), applied once per member by the real runner as the template's owner
  * login, as migrated applies them, each login given its password; each case's Installed the last version's in its
  * clone, every login logging in with the password the template derived (install-migrate.ts templateInstalledOf), and
  * the seat's reset emptying every stored relation's table. `name` tells it from its module's other templates.
@@ -437,7 +352,7 @@ export const migratedOnceTemplate = (spec: {
 		name: spec.name,
 		content: { label: spec.options.label },
 		plan: (names) =>
-			Effect.sync(() => ({ names, steps: migratedSteps(spec.options, names.schema) })),
+			Effect.map(migratedHistory(spec.options, names.schema), (steps) => ({ names, steps })),
 		install: ({ names, steps }) =>
 			Effect.gen(function* () {
 				const substrate = yield* Substrate

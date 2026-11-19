@@ -17,7 +17,9 @@ import { assert } from "#test/support/assert.ts"
 import {
 	type DraftedVersion,
 	draftVersion,
-	expectFreshCatalog
+	expectFreshCatalog,
+	noPlaceholders,
+	noVersionWorkload
 } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -323,12 +325,15 @@ export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 		for (const [step, version] of c.versions.entries()) {
 			const draft = yield* draftVersion(
 				{
-					schema: schemaOf(name, useName(c, step), version),
-					logins: [],
-					declarations: declaredAt(c, step)
+					version: {
+						schema: schemaOf(name, useName(c, step), version),
+						logins: [],
+						declarations: declaredAt(c, step)
+					},
+					workload: noVersionWorkload
 				},
 				{ installation, previous, step },
-				{ extensions: [], compile: compileInstallation }
+				{ extensions: [], compile: compileInstallation, review: noPlaceholders }
 			)
 			const plan = draft.plan
 			drafted.push(draft)

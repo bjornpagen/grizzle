@@ -6,6 +6,8 @@ import {
 	appliedHistory,
 	draftedHistory,
 	type Installed,
+	noPlaceholders,
+	noVersionWorkload,
 	templateInstalled
 } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -57,7 +59,8 @@ export const worldTemplate = (spec: {
 		label: "worlds",
 		extensions: [],
 		ambient: spec.ambient,
-		compile: compileInstallation
+		compile: compileInstallation,
+		review: noPlaceholders
 	}
 	const content: Content = {
 		worlds: spec.name,
@@ -74,9 +77,12 @@ export const worldTemplate = (spec: {
 				const history = yield* draftedHistory(
 					[
 						{
-							schema: declared.base,
-							logins: Rec.values(declared.logins),
-							declarations: noDeclarations
+							version: {
+								schema: declared.base,
+								logins: Rec.values(declared.logins),
+								declarations: noDeclarations
+							},
+							workload: noVersionWorkload
 						}
 					],
 					options,

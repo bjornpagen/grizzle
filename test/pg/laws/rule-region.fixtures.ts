@@ -10,7 +10,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { check, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -76,7 +76,8 @@ const templateOf = (judged: Judged) => {
 			label: `${judged}_region`,
 			extensions: [],
 			compile: compileInstallation,
-			ambient: ordinarySession
+			ambient: ordinarySession,
+			review: noPlaceholders
 		}
 	})
 }

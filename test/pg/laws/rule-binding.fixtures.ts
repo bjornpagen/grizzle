@@ -13,7 +13,7 @@ import { contained, derived, key, mutable, on, relation, schema } from "#compile
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
 	type JudgedStatement,
 	judgedStatementsOf,
@@ -118,7 +118,8 @@ const templateOf = (judged: Judged) => {
 			label: `${judged}_binding`,
 			extensions: [],
 			compile: compileInstallation,
-			ambient: ordinarySession
+			ambient: ordinarySession,
+			review: noPlaceholders
 		}
 	})
 }

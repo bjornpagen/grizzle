@@ -13,7 +13,9 @@ import { assert } from "#test/support/assert.ts"
 import {
 	type DraftedVersion,
 	draftVersion,
-	expectFreshCatalog
+	expectFreshCatalog,
+	noPlaceholders,
+	noVersionWorkload
 } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -110,9 +112,12 @@ export const walk = (c: DeferralCase, note: (feature: Feature) => void) =>
 		let previous: Previous = fromEmpty
 		for (const [step, shape] of [c.before, c.after].entries()) {
 			const draft = yield* draftVersion(
-				{ schema: schemaOf(name, shape), logins: [], declarations: noDeclarations },
+				{
+					version: { schema: schemaOf(name, shape), logins: [], declarations: noDeclarations },
+					workload: noVersionWorkload
+				},
 				{ installation, previous, step },
-				{ extensions: [], compile: compileInstallation }
+				{ extensions: [], compile: compileInstallation, review: noPlaceholders }
 			)
 			drafted.push(draft)
 			previous = fromSnapshot(draft.snapshot)

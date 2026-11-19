@@ -62,6 +62,8 @@ import {
 	generatedTemplate,
 	type Installed,
 	installGenerated,
+	noPlaceholders,
+	noVersionWorkload,
 	replaceMigrated,
 	templateInstalled
 } from "#test/support/install-migrate.ts"
@@ -357,10 +359,20 @@ const certifiedPlan = (
 				)
 			],
 			ambient: ordinarySession,
-			compile: compileInstallation
+			compile: compileInstallation,
+			review: noPlaceholders
 		}
 		const history = yield* draftedHistory(
-			[{ schema: declared.schema, logins: [declared.login], declarations: noDeclarations }],
+			[
+				{
+					version: {
+						schema: declared.schema,
+						logins: [declared.login],
+						declarations: noDeclarations
+					},
+					workload: noVersionWorkload
+				}
+			],
 			options,
 			name
 		)
