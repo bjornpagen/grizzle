@@ -37,7 +37,7 @@ import {
 	caseGen,
 	type DomainFeature,
 	inInstallation,
-	installationOf,
+	domainsInstallation,
 	judgeState,
 	probe,
 	situations,
@@ -64,7 +64,7 @@ export const naturalAndPredAgainstPostgreSQLAdmitExactlyTheStatesTheirLawsAdmitA
 						const substrate = yield* Substrate
 						return yield* Effect.scoped(
 							Effect.gen(function* () {
-								const installation = yield* installationOf
+								const installation = yield* domainsInstallation
 								const pinned = yield* substrate.admin.pin
 								const writer = writerOf(installation)
 								const problems: Array<string> = []

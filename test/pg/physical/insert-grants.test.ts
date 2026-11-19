@@ -26,7 +26,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	allowed,
 	asRole,
-	type Built,
+	type InsertGrantsBuilt,
 	countOf,
 	type Feature,
 	holdsOwner,
@@ -72,7 +72,7 @@ export const aDirectWriterThroughAnInsertRoleIsRefusedEveryUPDATEAndDELETEWhereT
 			(probes) =>
 				Effect.provideServiceEffect(
 					Effect.gen(function* () {
-						let built: Built | undefined
+						let built: InsertGrantsBuilt | undefined
 						const substrate = yield* Substrate
 						const m = yield* migrated({
 							label: "insert_grants",

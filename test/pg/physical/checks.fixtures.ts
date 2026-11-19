@@ -494,7 +494,7 @@ export const inInstallation = <A>(
 	)
 
 /** The case's real installation under a fresh schema name of the substrate's. */
-export const installationOf = (s: Planting) =>
+export const checksInstallation = (s: Planting) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const schemaName = yield* substrate.schema({ create: false, label: "checks" })

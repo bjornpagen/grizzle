@@ -9,7 +9,7 @@ import type { CallError } from "#compiler/live/index.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import {
 	type AcquireFeature,
-	failureOf,
+	acquireFailureOf,
 	point,
 	programs,
 	statedOf,
@@ -79,13 +79,15 @@ export const aConnectionThatCantBeHadFailsAReadAndAWriteWithTheCallErrorItsWayNa
 								): Effect.Effect<CallError | "the call succeeded" | undefined> => {
 									switch (call) {
 										case "read":
-											return failureOf(
+											return acquireFailureOf(
 												db.workload.automaticTasksFor.once({ params: { account: a1 }, facts: {} })
 											)
 										case "key":
-											return failureOf(db.workload.task.once({ params: { id: t1 }, facts: {} }))
+											return acquireFailureOf(
+												db.workload.task.once({ params: { id: t1 }, facts: {} })
+											)
 										case "page":
-											return failureOf(
+											return acquireFailureOf(
 												db.workload.tasks.once({
 													params: {},
 													facts: {},
@@ -93,7 +95,7 @@ export const aConnectionThatCantBeHadFailsAReadAndAWriteWithTheCallErrorItsWayNa
 												})
 											)
 										case "write":
-											return failureOf(
+											return acquireFailureOf(
 												db.workload.note.once({
 													params: {},
 													facts: { insert: { TaskNote: [{ task: t3, note: "acquired" }] } }

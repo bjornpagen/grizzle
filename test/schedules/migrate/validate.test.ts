@@ -58,10 +58,10 @@ import {
 	assignmentOf,
 	assignmentWorker,
 	backendOf,
-	Badge,
+	ValidatedBadge,
 	Desk,
 	deskColumns,
-	domainCheck,
+	validatedDomainCheck,
 	type ForeignKeyLaw,
 	issuedDesk,
 	judgeRacing,
@@ -123,7 +123,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 							const x = yield* prepare(tightened, (names) => [
 								`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${first}, '${shared}'), (${second}, '${shared}')`,
 								`INSERT INTO ${names.table(Assignment)} (${assignmentColumns(names)}) VALUES (${negativeAssignment}, ${first}, true, ${negative}, 1), (${orphanAssignment}, ${missing}, false, ${positive}, ${v.rate})`,
-								`INSERT INTO ${names.table(Badge)} (${names.column(Badge, "id")}, ${names.column(Badge, "desk")}, ${names.column(Badge, "issued")}) VALUES (${v.badge}, ${desk}, true)`,
+								`INSERT INTO ${names.table(ValidatedBadge)} (${names.column(ValidatedBadge, "id")}, ${names.column(ValidatedBadge, "desk")}, ${names.column(ValidatedBadge, "issued")}) VALUES (${v.badge}, ${desk}, true)`,
 								`INSERT INTO ${names.table(Desk)} (${deskColumns(names)}) VALUES (${coded}, '${v.code}')`
 							])
 							const { names } = x
@@ -214,14 +214,14 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 									law: rateDomain.law,
 									over: "rows",
 									reports: (server, place) =>
-										domainCheck(rateDomain)(server) && !inPayloadFile(place),
+										validatedDomainCheck(rateDomain)(server) && !inPayloadFile(place),
 									fix: `UPDATE ${names.table(Assignment)} SET ${names.column(Assignment, "rate")} = 100 WHERE ${names.column(Assignment, "id")} = ${orphanAssignment}`
 								},
 								{
 									law: codeLaw,
 									over: "rows",
 									reports: (server, place) =>
-										domainCheck(codeDomain)(server) && !inPayloadFile(place),
+										validatedDomainCheck(codeDomain)(server) && !inPayloadFile(place),
 									fix: `UPDATE ${names.table(Desk)} SET ${names.column(Desk, "code")} = 'abc' WHERE ${names.column(Desk, "id")} = ${coded}`
 								}
 							]
@@ -240,7 +240,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 								law: codeLaw,
 								over: "a payload",
 								reports: (server, place) =>
-									domainCheck(floorDomain)(server) && inPayloadFile(place),
+									validatedDomainCheck(floorDomain)(server) && inPayloadFile(place),
 								fix: "restore the folder as drafted"
 							}
 							let target: MigrationTarget = { snapshot: x.target.snapshot, folders: payloads }

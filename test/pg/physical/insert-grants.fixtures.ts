@@ -69,7 +69,7 @@ export const versionOf = (name: string) => {
 	}
 }
 
-export type Built = ReturnType<typeof versionOf>
+export type InsertGrantsBuilt = ReturnType<typeof versionOf>
 
 const roleNames = ["appender", "editor", "filer"] as const
 

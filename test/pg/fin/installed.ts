@@ -204,7 +204,7 @@ export const seatPool = <A, E, R>(
 	)
 
 /** How many cases of a search over a seat pool run at once: one on each seat it may hold (seatPool). */
-export const seatsAtOnce: number = casesAtOnce(1)
+const seatsAtOnce: number = casesAtOnce(1)
 
 /**
  * The seat of an installation already made: its owner session, and the catalog of every PostgreSQL schema `relations`

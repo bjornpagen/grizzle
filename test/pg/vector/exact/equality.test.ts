@@ -65,7 +65,7 @@ import {
 	writeOps,
 	writeProgramGen,
 	writeRelations,
-	type WrittenRelation,
+	type EqualityWrittenRelation,
 	writtenRelations
 } from "#test/pg/vector/exact/equality.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -270,7 +270,7 @@ export const vectorEqualityAsAWorldRoleChangeSetInsertsRepeatsConflictsDeletesAn
 						const names = namesOf(installed)
 
 						yield* clearRows(s.admin, installationGroup(names))
-						const model = new Map<WrittenRelation, Map<string, WriteFact>>(
+						const model = new Map<EqualityWrittenRelation, Map<string, WriteFact>>(
 							Arr.map(writtenRelations, (relation) => [relation, new Map()])
 						)
 						for (const step of steps) {

@@ -31,7 +31,7 @@ import {
 	type CheckFeature,
 	checksOf,
 	inInstallation,
-	installationOf,
+	checksInstallation,
 	judgeCase,
 	plantedGen,
 	plantedSchema,
@@ -60,7 +60,7 @@ export const thePredicateCHECKsOfTheRealInstallerAdmitExactlyWhatEachDeclaration
 						return yield* Effect.scoped(
 							Effect.gen(function* () {
 								const s = plantedSchema(p)
-								const installation = yield* installationOf(s)
+								const installation = yield* checksInstallation(s)
 								const pinned = yield* substrate.admin.pin
 								const intact = yield* inInstallation(
 									pinned,

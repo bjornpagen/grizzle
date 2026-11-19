@@ -30,7 +30,7 @@ import {
 	type Feature,
 	programsOf,
 	RELATIONS,
-	rowsOf,
+	shapeRowsOf,
 	type Rule,
 	ruleOf,
 	rules,
@@ -82,7 +82,7 @@ export const downstreamsRulesOverQueriesOnPostgreSQL19rc2AcceptExactlyTheStatesO
 						)
 
 						yield* cleared(seat, RELATIONS)
-						const rows = rowsOf(sketch)
+						const rows = shapeRowsOf(sketch)
 						const outcome = yield* answered(
 							db.workload.insertAll.once({ params: {}, facts: { insert: rows } })
 						)

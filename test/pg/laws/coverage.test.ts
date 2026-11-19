@@ -35,7 +35,7 @@ import {
 	Disagreed,
 	insertSql,
 	modelOf,
-	refusalOf,
+	coverageRefusalOf,
 	RELATIONS,
 	sketchGen,
 	SQLSTATE
@@ -100,7 +100,7 @@ export const coverageThroughGrizzlesLoweringOnPostgreSQL19rc2CommitExactlyTheCov
 						if (model.kind !== "refused") {
 							return yield* disagree("PostgreSQL refused")
 						}
-						const named = Option.flatMap(seat.refusedBy(real.fields), refusalOf(laws))
+						const named = Option.flatMap(seat.refusedBy(real.fields), coverageRefusalOf(laws))
 						if (
 							!sameMoment(real.moment, model.moment) ||
 							!Option.contains(named, model.by) ||

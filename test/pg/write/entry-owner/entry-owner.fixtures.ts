@@ -161,4 +161,4 @@ export const versionOf = (name: string) => {
 	}
 }
 
-export type Built = ReturnType<typeof versionOf>
+export type EntryOwnerBuilt = ReturnType<typeof versionOf>

@@ -3,7 +3,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import {
-	type Built,
+	type EntryOwnerBuilt,
 	caseGen,
 	expectedOf,
 	type Feature,
@@ -48,7 +48,7 @@ export const aFamilysOwnerWrittenThroughARolesQueryEntryOnPostgreSQL19rc2Inserts
 			(c) =>
 				Effect.provideServiceEffect(
 					Effect.gen(function* () {
-						let version: Built | undefined
+						let version: EntryOwnerBuilt | undefined
 						return yield* Effect.gen(function* () {
 							const substrate = yield* Substrate
 							const m = yield* migrated({

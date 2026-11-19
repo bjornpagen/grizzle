@@ -75,7 +75,11 @@ const domains = (tightened: boolean) => {
 		["id"]
 	)
 	const Desk = relation("Desk", { id: pg.integer, code }, ["id"])
-	const Badge = relation("Badge", { id: pg.integer, desk: pg.integer, issued: pg.boolean }, ["id"])
+	const ValidatedBadge = relation(
+		"ValidatedBadge",
+		{ id: pg.integer, desk: pg.integer, issued: pg.boolean },
+		["id"]
+	)
 	const Floor = closed.ordered("Floor", ["Ground", "Top"])
 	const FloorCode = closed.relation(
 		"FloorCode",
@@ -86,12 +90,12 @@ const domains = (tightened: boolean) => {
 			{ floor: "Top", code: "top" }
 		]
 	)
-	return { Worker, Assignment, Desk, Badge, Floor, FloorCode }
+	return { Worker, Assignment, Desk, ValidatedBadge, Floor, FloorCode }
 }
 
 const relations = Object.freeze(domains(false))
 
-export const { Worker, Assignment, Desk, Badge } = Object.freeze(relations)
+export const { Worker, Assignment, Desk, ValidatedBadge } = Object.freeze(relations)
 
 /**
  * Every version's world is its full world (fullWorld): the role `app`, writing every relation, in
@@ -108,7 +112,7 @@ export const assignmentWorker = contained(on(Assignment, "worker"), on(Worker, "
 
 export const issuedDesk = contained(
 	on(
-		select(Badge, (b) => b.eq(b.issued, true)),
+		select(ValidatedBadge, (b) => b.eq(b.issued, true)),
 		"desk"
 	),
 	on(Desk, "id")
@@ -124,7 +128,7 @@ export const tightened = (name: string) => {
 		contained(on(r.Assignment, "worker"), on(r.Worker, "id")),
 		contained(
 			on(
-				select(r.Badge, (b) => b.eq(b.issued, true)),
+				select(r.ValidatedBadge, (b) => b.eq(b.issued, true)),
 				"desk"
 			),
 			on(r.Desk, "id")
@@ -280,8 +284,10 @@ export const prepare = (
 				},
 				{ r: Desk, columns: [names.column(Desk, "id"), names.column(Desk, "code")] },
 				{
-					r: Badge,
-					columns: Arr.map(["id", "desk", "issued"] as const, (f) => names.column(Badge, f))
+					r: ValidatedBadge,
+					columns: Arr.map(["id", "desk", "issued"] as const, (f) =>
+						names.column(ValidatedBadge, f)
+					)
 				}
 			]
 			for (const { r, columns } of declared) {
@@ -325,7 +331,7 @@ export const deskColumns = (names: Names) =>
 	`${names.column(Desk, "id")}, ${names.column(Desk, "code")}`
 
 /** A refusal by a domain's CHECK as a cast to the domain judges a value: the domain and its constraint, at 23514. */
-export const domainCheck =
+export const validatedDomainCheck =
 	(domain: ColumnTextDomain) =>
 	(server: ServerReport): boolean =>
 		server.by === "server" &&

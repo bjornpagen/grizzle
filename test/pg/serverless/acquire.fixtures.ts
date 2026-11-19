@@ -53,7 +53,7 @@ export const programs = Object.freeze({
 })
 
 /** What a call failed with: its error, or the call's success, which no case here expects. */
-export const failureOf = <A, E>(
+export const acquireFailureOf = <A, E>(
 	call: Effect.Effect<A, E>
 ): Effect.Effect<E | "the call succeeded" | undefined> =>
 	Effect.map(Effect.exit(call), (exit) =>

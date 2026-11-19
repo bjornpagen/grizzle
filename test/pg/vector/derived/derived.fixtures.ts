@@ -74,9 +74,9 @@ const build = (name: string) => {
 const id = (prefix: number, n: number): Uuid =>
 	`${pipe(prefix.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 
-export const accountA = id(0xa, 1)
+export const derivedAccountA = id(0xa, 1)
 
-export const accountB = id(0xb, 1)
+export const derivedAccountB = id(0xb, 1)
 
 /** The query vector a test numbers `n`, drawn anew in every run. */
 type Probe = (n: number) => ReadonlyArray<number>
@@ -85,7 +85,7 @@ type Probe = (n: number) => ReadonlyArray<number>
 const documentsOf = (probe: Probe) =>
 	Arr.makeBy(24, (i) => ({
 		id: id(0xd, i + 1),
-		account: i < 16 ? accountA : accountB,
+		account: i < 16 ? derivedAccountA : derivedAccountB,
 		value: i === 15 || i === 23 ? undefined : probe(100 + i)
 	}))
 

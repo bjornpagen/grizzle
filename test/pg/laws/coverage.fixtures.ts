@@ -128,7 +128,7 @@ export const insertSql = (
  * foreign key reporting the target key's law or the coverage's law, each the law its statement declares
  * (kernel/naming.ts lawOf), whatever kind of law the theory makes of it.
  */
-export const refusalOf =
+export const coverageRefusalOf =
 	(laws: Names) =>
 	(c: Catalogued): Option.Option<Refusal> => {
 		const reports = (law: Statement) => Option.contains(c.law, laws.lawOf(law))

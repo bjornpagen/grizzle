@@ -354,7 +354,7 @@ const numbered = (flags: ReadonlyArray<boolean>): ReadonlyArray<number> =>
 	Arr.flatMap(flags, (set, i) => (set ? [i + 1] : []))
 
 /** The rows of every relation the sketch's state holds. */
-export const rowsOf = (sketch: Sketch): Rows => {
+export const shapeRowsOf = (sketch: Sketch): Rows => {
 	switch (sketch.shape) {
 		case "typedHref": {
 			const { href, typed, entries, lom } = sketch

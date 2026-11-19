@@ -27,8 +27,8 @@ import { queryInput } from "#compiler/program/compile.ts"
 import { workload as servedPrograms } from "#compiler/program/workload/value.ts"
 import { admittedPolicy, textRows, vectorParam, vectorText } from "#test/pg/vector/ann/support.ts"
 import {
-	accountA,
-	accountB,
+	derivedAccountA,
+	derivedAccountB,
 	opened,
 	policySettings,
 	type ViewCase,
@@ -103,7 +103,7 @@ export const approximateNearestOverADerivedRelationTheViewerReachesTheVectorType
 									admittedPolicy(o.installed.snapshot, o.installed.as(o.fixture.server).role),
 									policySettings
 								)
-								const account = c.account === "A" ? accountA : accountB
+								const account = c.account === "A" ? derivedAccountA : derivedAccountB
 								const vector = o.probe(c.probe)
 								/**
 								 * A complete scan of the view, as the owner sees it: every embedded document of the

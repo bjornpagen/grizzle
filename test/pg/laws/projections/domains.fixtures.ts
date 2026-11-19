@@ -406,7 +406,7 @@ export const inInstallation = <A>(
 	)
 
 /** The case's real installation of the schema under a fresh schema name of the substrate's. */
-export const installationOf = Effect.gen(function* () {
+export const domainsInstallation = Effect.gen(function* () {
 	const substrate = yield* Substrate
 	const schemaName = yield* substrate.schema({ create: false, label: "naturals" })
 	const owned = owning(Slots)

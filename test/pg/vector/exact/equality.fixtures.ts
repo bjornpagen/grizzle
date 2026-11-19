@@ -499,14 +499,14 @@ export const markers = (o: Applied) => {
 /** The relations the write programs write: one with a single vector payload, one with a vector and a bigint. */
 export const writeRelations = { A, Note } as const
 
-export type WrittenRelation = keyof typeof writeRelations
+export type EqualityWrittenRelation = keyof typeof writeRelations
 
 export const writtenRelations = nonEmpty(Rec.keys(writeRelations), "the written relations")
 
 /** Each written relation's table and the columns its stored rows are read by. */
-export const tableOf: { readonly [R in WrittenRelation]: string } = { A: "a", Note: "note" }
+export const tableOf: { readonly [R in EqualityWrittenRelation]: string } = { A: "a", Note: "note" }
 
-export const columnsOf: { readonly [R in WrittenRelation]: string } = {
+export const columnsOf: { readonly [R in EqualityWrittenRelation]: string } = {
 	A: `"id"::text, "value"::text`,
 	Note: `"id"::text, "value"::text, "rank"::text`
 }
@@ -520,7 +520,7 @@ export interface WriteFact {
 
 /** A ChangeSet member: an operation over drawn facts of one relation, their keys distinct. */
 interface WriteStep {
-	readonly relation: WrittenRelation
+	readonly relation: EqualityWrittenRelation
 	readonly op: WriteOp
 	readonly facts: Arr.NonEmptyReadonlyArray<WriteFact>
 }
