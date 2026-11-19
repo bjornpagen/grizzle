@@ -2,7 +2,7 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
-import { meaningDigestWithin, rooted } from "#compiler/ir/dag.ts"
+import { meaningDigestWithin, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
@@ -11,7 +11,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { type ConservativeInput, conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { Select } from "#compiler/sql/ast.ts"
+import { nameKey, type Select, type StoredColumnKey, storedColumnKey } from "#compiler/sql/ast.ts"
 
 /**
  * The violation query of one law, its Forbid node `violation`, as it reads its relations: its own DAG pruned by the prune
@@ -77,7 +77,31 @@ export interface MigrationCheck {
 	readonly law: LawId
 	readonly query: Select
 	readonly digest: string
+	/** The stored columns its violation query reads, as installed (storedColumnsRead): the rows its proof was of. */
+	readonly reads: ReadonlySet<StoredColumnKey>
 }
+
+/**
+ * The stored columns a law's violation DAG `reads` reads, each as `installation` installs it: of each stored relation
+ * a Base of it reads, the columns of its heading, which the source prune narrowed to those the law binds and the
+ * relation's primary key (readsOf). A derived relation is read by its definition, never its view, and a closed relation
+ * by its facts, so these are every stored value the law's verdict depends on.
+ */
+const storedColumnsRead = (
+	installation: Installation,
+	reads: ConservativeInput
+): ReadonlySet<StoredColumnKey> =>
+	new Set(
+		topoOrder(reads.dag).flatMap((node) => {
+			if (node.kind !== "Base" || node.relationKind !== "relation") {
+				return []
+			}
+			const table = nameKey(installation.names.relation(node.relation))
+			return node.heading.map((column) =>
+				storedColumnKey(table, installation.names.column(node.relation, column.name))
+			)
+		})
+	)
 
 /** The check of `law`: its violation DAG as it reads its relations, lowered, and the identity of what it asks. */
 const checkOf = (
@@ -99,7 +123,12 @@ const checkOf = (
 	if (!identity.ok) {
 		throw new Refusal(identity.error)
 	}
-	return { law, query: violationQuery(installation, law, reads), digest: identity.value }
+	return {
+		law,
+		query: violationQuery(installation, law, reads),
+		digest: identity.value,
+		reads: storedColumnsRead(installation, reads)
+	}
 }
 
 /**

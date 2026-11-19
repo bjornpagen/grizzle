@@ -135,6 +135,7 @@ import {
 	type TypeSchema,
 	nameKey,
 	type NameKey,
+	type StoredColumnKey,
 	storedColumnKey
 } from "#compiler/sql/ast.ts"
 
@@ -329,13 +330,19 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 const checkedAtOnce: SqlStatement = { kind: "setConstraintsImmediate" }
 
 /**
- * Whether the previous installation held the law of `check` on every row, as the previous snapshot records it (`was`):
- * by the rule judge under the same check identity, the law's own (violation.ts MigrationCheck), or by its native
- * objects at every write where the law's statement is its meaning (RuleCheck `meaning`). A law it did not state, or
- * checked once by its migration, it did not hold.
+ * Whether the previous installation held the law of `check` on every row this migration leaves it, as the previous
+ * snapshot records it (`was`): by the rule judge under the same check identity, the law's own (violation.ts
+ * MigrationCheck), or by its native objects at every write where the law's statement is its meaning (RuleCheck
+ * `meaning`), and the migration writes again no column the check reads (`rewritten`, Differ.rewritten), since the
+ * proof was of the values it replaces and no write the judge saw wrote the new ones. A law it did not state, or checked
+ * once by its migration, it did not hold.
  */
-const heldBefore = (was: SnapshotLaw | undefined, check: RuleCheck): boolean => {
-	if (was === undefined) {
+const heldBefore = (
+	was: SnapshotLaw | undefined,
+	check: RuleCheck,
+	rewritten: ReadonlySet<StoredColumnKey>
+): boolean => {
+	if (was === undefined || [...check.reads].some((column) => rewritten.has(column))) {
 		return false
 	}
 	switch (was.kind) {
@@ -789,6 +796,9 @@ class Differ {
 	readonly nextDomains: ReadonlyMap<NameKey, DomainReading>
 	/** Each table both installations hold, by identity, with the fate of each of its columns (KeptTable). */
 	readonly keptTables: ReadonlyMap<string, KeptTable>
+	/** The stored columns whose values this migration writes again (rewrittenColumns): a rule that reads one is checked
+	 * again, and a materialized view above its table is created again. */
+	readonly rewritten: ReadonlySet<StoredColumnKey>
 	/** The materialized views this migration drops at the start of Structure (viewDropsOf). */
 	readonly viewDrops: ReadonlyArray<ViewDrop>
 	/** What publish.removed drops, gathered while drafting and drafted in order once every removal is known
@@ -871,6 +881,7 @@ class Differ {
 		])
 		this.reads = installedReads(input.previous, this.levelSchemas)
 		this.keptTables = this.keptTablesOf()
+		this.rewritten = rewrittenColumns(this.keptTables)
 		const replacedBy = this.takenByReplacement()
 		this.viewDrops = this.viewDropsOf()
 		this.recreatedViews = new Set(
@@ -1159,6 +1170,21 @@ class Differ {
 		)
 	}
 
+	/** The tables a column of which this migration writes again (Differ.rewritten), by table key: a materialized view
+	 * above one would keep the rows of the values it replaces, and PostgreSQL refuses a conversion or a drop under it. */
+	rewrittenTables(): ReadonlySet<NameKey> {
+		return new Set(
+			[...this.keptTables.values()].flatMap((k) => {
+				const table = nameKey(k.create.table)
+				return [...k.fates.keys()].some((column) =>
+					this.rewritten.has(storedColumnKey(table, column))
+				)
+					? [table]
+					: []
+			})
+		)
+	}
+
 	/** The tables of which this migration converts a field's column in place or drops and adds one again, by table key:
 	 * PostgreSQL refuses either under a view that reads the column. */
 	convertedTables(): ReadonlyArray<NameKey> {
@@ -1395,7 +1421,7 @@ class Differ {
 	 * checks nothing, and neither does a containment its natives held, now discharged whole. */
 	ruleChecks(checks: ReadonlyArray<RuleCheck>): void {
 		for (const c of checks) {
-			if (!heldBefore(this.input.previous.theory.laws[c.law], c)) {
+			if (!heldBefore(this.input.previous.theory.laws[c.law], c, this.rewritten)) {
 				this.push("validate", { kind: "violation", law: c.law, query: c.query })
 			}
 		}
@@ -1439,7 +1465,7 @@ class Differ {
 		}
 		const dropping = new Set([
 			...seeds,
-			...this.viewsAbove(new Set([...seeds, ...this.convertedTables()]))
+			...this.viewsAbove(new Set([...seeds, ...this.rewrittenTables()]))
 		])
 		return this.input.previous.manifest.objects.flatMap((o): ReadonlyArray<ViewDrop> => {
 			const v = installed(o)
@@ -3831,6 +3857,39 @@ const generatedOver = (
 	}
 	return fates
 }
+
+/** Whether a column's fate gives it other values: converted, dropped and added again, or computed again from a column
+ * the backfill draws again (a field drawn again itself among them, keptTablesOf). */
+const revalues = (fate: ColumnFate): boolean => {
+	switch (fate.kind) {
+		case "converted":
+		case "redefined":
+		case "revalued":
+			return true
+		case "kept":
+		case "dropped":
+			return false
+	}
+}
+
+/**
+ * The stored columns whose values a migration writes again, of the tables both installations hold (`kept`): each column
+ * whose fate gives it other values (revalues), and each field re-expressed in place, whose column is kept but whose
+ * every row SET EXPRESSION computes again. The one reading of "this migration rewrites that column": a rule over a
+ * query that reads one is checked again (heldBefore), and a materialized view above its table is created again
+ * (Differ.viewDropsOf), since a proof of the old values, and rows computed from them, no longer stand.
+ */
+const rewrittenColumns = (kept: ReadonlyMap<string, KeptTable>): ReadonlySet<StoredColumnKey> =>
+	new Set(
+		[...kept.values()].flatMap((k) => {
+			const table = nameKey(k.create.table)
+			return [...k.fates].flatMap(([column, fate]) =>
+				revalues(fate) || k.changes.get(column)?.kind === "reexpressed"
+					? [storedColumnKey(table, column)]
+					: []
+			)
+		})
+	)
 
 /** A field's change in a table's changes (fieldChangesOf): every field both declarations hold has one. */
 const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): FieldChange => {
