@@ -7,6 +7,7 @@ import type { Witness } from "#compiler/analysis/theory/query.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
+import type { OnUpdate } from "#compiler/ir/law.ts"
 
 /**
  * One relation of the installation: the laws the installation's law model still discharges by deferred constraint
@@ -66,7 +67,7 @@ export type InsertsFact =
 export interface Reference {
 	readonly relation: string
 	readonly columns: ReadonlyArray<string>
-	readonly onUpdate: "cascade" | "noAction"
+	readonly onUpdate: OnUpdate
 }
 
 /**
@@ -111,10 +112,13 @@ export interface WriteFact {
  * A read of a derived relation is the reads of the stored relations its definition reads, each in the mode it has
  * there composed with the outer one.
  */
+/** How a read reaches its statement (ReadFact `mode`). */
+export type ReadMode = "positive" | "negated" | "counted" | "arbiter"
+
 export interface ReadFact {
 	readonly relation: string
-	readonly mode: "positive" | "negated" | "counted" | "arbiter"
-	readonly base: "positive" | "negated" | "counted" | "arbiter"
+	readonly mode: ReadMode
+	readonly base: ReadMode
 	readonly probes: ReadonlyArray<number>
 	readonly own: boolean
 	readonly group: ReadGroup | undefined

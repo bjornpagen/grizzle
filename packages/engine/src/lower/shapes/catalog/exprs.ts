@@ -2,6 +2,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, catchSignal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { CompareOp } from "#compiler/ir/desc.ts"
 import {
 	type ColumnRef,
 	describeOp,
@@ -244,7 +245,7 @@ export const eitherOrder = <A>(
 /** The native comparison `fn` over two operands of one carrier. */
 export const compareExpr = (
 	ed: CatalogEditor,
-	fn: "eq" | "ne" | "lt" | "le" | "gt" | "ge",
+	fn: CompareOp,
 	left: ScalarExpr,
 	right: ScalarExpr
 ): ScalarExpr => {

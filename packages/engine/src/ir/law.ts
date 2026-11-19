@@ -551,7 +551,7 @@ type NativeBody =
 			readonly targetColumns: NonEmptyReadonlyArray<NativeColumn>
 			readonly deferrable: boolean
 			/** ON UPDATE: cascade on a family's owner axis alone, so an owner's count change reaches its members' copies. */
-			readonly onUpdate: "cascade" | "noAction"
+			readonly onUpdate: OnUpdate
 	  }
 	| {
 			/**
@@ -617,6 +617,10 @@ type TableCheckOrigin =
  * The scalar fields of a span key, compared for equality before its span: a primary key has one at least, since
  * PostgreSQL's PRIMARY KEY needs a column before WITHOUT OVERLAPS (42601); a candidate key may have none.
  */
+/** What a foreign key does to its referencing rows when their referenced key is updated: ON UPDATE CASCADE carries
+ * the change to them, NO ACTION refuses it while any references it. */
+export type OnUpdate = "cascade" | "noAction"
+
 export type SpanKeyScalars =
 	| { readonly kind: "primary"; readonly scalars: NonEmptyReadonlyArray<NativeColumn> }
 	| { readonly kind: "unique"; readonly scalars: ReadonlyArray<NativeColumn> }

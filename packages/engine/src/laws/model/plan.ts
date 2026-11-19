@@ -35,7 +35,13 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
-import { descText, type ExprDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
+import {
+	type CompareOp,
+	descText,
+	type ExprDesc,
+	fieldTermsOf,
+	termText
+} from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
@@ -49,6 +55,7 @@ import {
 	type KeyName,
 	type LawField,
 	type NativeColumn,
+	type OnUpdate,
 	type RelationInfo,
 	scalarKeySet,
 	type SpanField,
@@ -515,7 +522,7 @@ export type NativePlan =
 			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
 			readonly target: RelationInfo
 			readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
-			readonly onUpdate: "cascade" | "noAction"
+			readonly onUpdate: OnUpdate
 			readonly deferral: ForeignKeyDeferral
 			/**
 			 * The laws it discharges, the reported one first, where it is a family axis whose pairs state several (its
@@ -1602,11 +1609,7 @@ const coverageKeySentence =
 /** A literal expression of a small natural, which every comparison of a family's drawn naturals reads. */
 const naturalLiteral = (value: 0n | 1n): ExprDesc => ({ kind: "literal", value })
 
-const cmp = (
-	op: "eq" | "ne" | "lt" | "le" | "gt" | "ge",
-	left: ExprDesc,
-	right: ExprDesc
-): ExprDesc => ({
+const cmp = (op: CompareOp, left: ExprDesc, right: ExprDesc): ExprDesc => ({
 	kind: "compare",
 	op,
 	left,
@@ -2996,7 +2999,7 @@ class FamilyPlanner {
 			readonly relation: RelationInfo
 			readonly base: NonEmptyReadonlyArray<PlannedColumn>
 		},
-		onUpdate: "cascade" | "noAction",
+		onUpdate: OnUpdate,
 		deferral: ForeignKeyDeferral
 	): AxisPlan {
 		const columns = extendNonEmpty(

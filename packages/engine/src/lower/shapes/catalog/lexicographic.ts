@@ -1,5 +1,6 @@
 import { firstIndex } from "#compiler/core/array.ts"
 import type { Direction } from "#compiler/core/order.ts"
+import { type CompareOp, compareOps } from "#compiler/ir/desc.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
@@ -20,15 +21,13 @@ interface Pair {
 	readonly a: string
 }
 
-type Cmp = "eq" | "ne" | "lt" | "le" | "gt" | "ge"
-
 /** b <cmp> a. */
 type Formula =
 	| { readonly kind: "and" | "or"; readonly args: ReadonlyArray<Formula> }
 	| { readonly kind: "not"; readonly arg: Formula }
-	| { readonly kind: "atom"; readonly pair: number; readonly cmp: Cmp }
+	| { readonly kind: "atom"; readonly pair: number; readonly cmp: CompareOp }
 
-const flip: Readonly<Record<Cmp, Cmp>> = {
+const flip: Readonly<Record<CompareOp, CompareOp>> = {
 	eq: "eq",
 	ne: "ne",
 	lt: "gt",
@@ -37,8 +36,7 @@ const flip: Readonly<Record<Cmp, Cmp>> = {
 	ge: "le"
 }
 
-const isCmp = (fn: string): fn is Cmp =>
-	fn === "eq" || fn === "ne" || fn === "lt" || fn === "le" || fn === "gt" || fn === "ge"
+const isCmp = (fn: string): fn is CompareOp => compareOps.some((op) => op === fn)
 
 interface LexOrder {
 	/** The pairs in priority order with their directions: under "asc" b precedes a when b < a. */
@@ -117,7 +115,7 @@ const parse = (pred: ScalarExpr, classify: Classify, pairs: Array<Pair>): Formul
 		return { kind: "atom", pair: index, cmp: lc.side === "b" ? fn : flip[fn] }
 	}).of(pred)
 
-const holds = (cmp: Cmp, sign: number): boolean => {
+const holds = (cmp: CompareOp, sign: number): boolean => {
 	switch (cmp) {
 		case "eq":
 			return sign === 0

@@ -87,7 +87,8 @@ import {
 	parentSetOf,
 	type RelationInput,
 	type TakeShape,
-	takeLowerer
+	takeLowerer,
+	type WholeRelationShape
 } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
@@ -589,7 +590,7 @@ const wholeRelationTake = (
 	cx: LowerContext,
 	env: Env,
 	facts: ShapeFacts,
-	shape: "distinctOn" | "rowNumber"
+	shape: WholeRelationShape
 ): Select => {
 	const d = decorrelatedTake(node, cx, env, facts, shape)
 	const source = cx.wrap(d.query, node.heading, { kind: "node", node: node.id })

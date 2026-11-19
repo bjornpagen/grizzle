@@ -78,6 +78,7 @@ import {
 	type ScalarType,
 	spanOf
 } from "#compiler/ir/scalar.ts"
+import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import type { ClosedRelations } from "#compiler/scalar/compute/typing.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
@@ -137,17 +138,8 @@ interface CheckEvidence {
  * is marked: it proves coverage, not scalar existence. Only a containment between sides of fields selected by literal
  * conjunctions gives evidence.
  */
-interface ContainmentEvidence {
+interface ContainmentEvidence extends ContainmentFact {
 	readonly law: LawId
-	readonly from: EvidenceSide
-	readonly to: EvidenceSide
-	readonly coverage: boolean
-	/**
-	 * What states it: a `contained` statement, or an alternatives statement's expansion (desc.ts expandAlternatives). attach reads only
-	 * declared containments.
-	 */
-	readonly statement: "contained" | "alternatives" | "retirable"
-	readonly context: EvidenceContext
 }
 
 /**

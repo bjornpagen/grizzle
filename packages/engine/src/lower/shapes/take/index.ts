@@ -50,7 +50,10 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 
-export type TakeShape = "limit" | "lateral" | "distinctOn" | "rowNumber"
+/** A take over every group at once: DISTINCT ON for k = 1, the row_number window otherwise (wholeRelationShape). */
+export type WholeRelationShape = "distinctOn" | "rowNumber"
+
+export type TakeShape = "limit" | "lateral" | WholeRelationShape
 
 /**
  * The input whose size decides a per-execution choice: a relation parameter's distinct fact count, or a page's
@@ -95,14 +98,14 @@ type TakeChoice<I extends ChoiceInput> =
 			readonly source: I
 			readonly threshold: number
 			readonly small: "lateral"
-			readonly large: "distinctOn" | "rowNumber"
+			readonly large: WholeRelationShape
 	  }
 
 /**
  * The whole-relation form of a take: DISTINCT ON for k = 1, the row_number window otherwise. A parameter bound may be 1
  * at run time, but the statement is fixed at compile time, so it ranks.
  */
-const wholeRelationShape = (bound: TakeBound): "distinctOn" | "rowNumber" =>
+const wholeRelationShape = (bound: TakeBound): WholeRelationShape =>
 	bound.kind === "literal" && bound.k === 1n ? "distinctOn" : "rowNumber"
 
 /**
@@ -764,7 +767,7 @@ export const decorrelatedTake = (
 	cx: LowerContext,
 	env: Env,
 	facts: ShapeFacts,
-	shape: "distinctOn" | "rowNumber"
+	shape: WholeRelationShape
 ): DecorrelatedTake => {
 	const outer = outerCorrelations(node)
 	const local = node.correlation.filter((c) => !outer.includes(c))

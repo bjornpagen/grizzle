@@ -52,6 +52,7 @@ import * as Result from "#compiler/core/result.ts"
 import { predicateTable, type ScalarExpr, tableReads } from "#compiler/ir/expr.ts"
 import {
 	baseLiteral,
+	type AxisKind,
 	type Family,
 	familyColumnType,
 	isCopy,
@@ -186,12 +187,7 @@ const writerOf = (f: Family): FillWriter =>
 	isSequence(f) ? { kind: "walk" } : { kind: "counted", family: f }
 
 /** The first law of the pair of `family`'s `axis` whose source is `from` and target `to`. */
-const pairLaw = (
-	family: Family,
-	axis: "owner" | "predecessor" | "last",
-	from: NativeColumn,
-	to: NativeColumn
-): LawId => {
+const pairLaw = (family: Family, axis: AxisKind, from: NativeColumn, to: NativeColumn): LawId => {
 	const pair = family.axes[axis].find(
 		(p) => keyOf(p.from) === keyOf(from) && keyOf(p.to) === keyOf(to)
 	)
@@ -893,7 +889,7 @@ export const fillOrder = (
 		for (const { entry } of draft.columns.values()) {
 			const rule = entry.rule
 			const refusal = (
-				axis: "owner" | "predecessor" | "last",
+				axis: AxisKind,
 				family: Family,
 				law: LawId,
 				source: { readonly relation: string; readonly to: NativeColumn },
