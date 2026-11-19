@@ -19,751 +19,212 @@
  *   credential's value nowhere in what the run prints.
  * - Help: the root's help offers every scheme's `--<scheme>-file` flag with a description naming that scheme.
  */
-import { aimed, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { boolean, characterOf, constant, element, type Gen, string } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { deepStrictEqual } from "@effect/vitest/utils"
-import { jsonTextOf } from "@superstarter/json"
+import { deepStrictEqual } from "@bjornpagen/testing/assert"
+import { Checkout } from "@bjornpagen/testing/checkout"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Scratch } from "@bjornpagen/testing/resources"
+import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
 import {
-	Array as Arr,
-	Context,
-	Duration,
-	Effect,
-	FileSystem,
-	Formatter,
-	Layer,
-	Option,
-	Path,
-	Record as Rec,
-	String as Str
-} from "effect"
-import {
-	type CaptureServer,
-	captureServer,
-	type ScriptedResponse
-} from "#test/support/capture-server.ts"
-import {
-	buildPackage,
-	type BuiltPackage,
-	generateFixture,
-	harnessLayer,
-	runBin,
-	runBinOnTerminal
-} from "#test/support/cli-package.ts"
-import { valuesOf, type WireRequest } from "#test/support/http.ts"
-import { aimedAmong } from "#test/support/steering.ts"
-import { latin1Bytes } from "#test/support/wire.ts"
+	carriedOf,
+	caseFeatures,
+	checkRun,
+	type CredentialFeature,
+	credentialFixture,
+	expectedCarried,
+	FAULT_FEATURES,
+	faultCases,
+	landing,
+	NAMES,
+	type Outcome,
+	rootHelp,
+	SCHEMES,
+	SOURCE_FEATURES,
+	sourceCases,
+	typedCases,
+	valueCases
+} from "#test/generated/credential-sources.fixtures.ts"
+import { runBin, runBinOnTerminal } from "#test/support/cli-package.ts"
 
-/** The schemes of the box, one per kind and place a credential travels. */
-type Scheme = "bearerAuth" | "basicAuth" | "headerKey" | "queryKey" | "cookieKey" | "oauth" | "oidc"
-
-/** Every scheme of the box. */
-const SCHEMES: Arr.NonEmptyReadonlyArray<Scheme> = [
-	"bearerAuth",
-	"basicAuth",
-	"headerKey",
-	"queryKey",
-	"cookieKey",
-	"oauth",
-	"oidc"
-]
-
-/** Each scheme's credential setting and file flag, as `<PREFIX>_<SCHEME>` and `--<scheme>-file` spell them. */
-const NAMES: Readonly<Record<Scheme, Readonly<{ env: string; flag: string }>>> = {
-	bearerAuth: { env: "CRED_BEARER_AUTH", flag: "--bearer-auth-file" },
-	basicAuth: { env: "CRED_BASIC_AUTH", flag: "--basic-auth-file" },
-	headerKey: { env: "CRED_HEADER_KEY", flag: "--header-key-file" },
-	queryKey: { env: "CRED_QUERY_KEY", flag: "--query-key-file" },
-	cookieKey: { env: "CRED_COOKIE_KEY", flag: "--cookie-key-file" },
-	oauth: { env: "CRED_OAUTH", flag: "--oauth-file" },
-	oidc: { env: "CRED_OIDC", flag: "--oidc-file" }
-}
-
-/** The scopes the token schemes' requirements and flows name, which no request may carry. */
-const SCOPES: ReadonlyArray<string> = [
-	"pets:read",
-	"pets:write",
-	"pets:admin",
-	"openid",
-	"profile:read"
-]
-
-/** The landing response's JSON. */
-const landed = {
-	content: { "application/json": { schema: { type: "object" } } },
-	description: "Landed."
-} as const
-
-/** The document: one GET per scheme at `/s/<scheme>`, each requiring that scheme alone; flow URLs name `origin`. */
-const specOf = (origin: string): string =>
-	jsonTextOf({
-		openapi: "3.1.0",
-		info: { title: "Credential sources", version: "1.0.0" },
-		paths: Rec.fromEntries(
-			Arr.map(SCHEMES, (scheme) => [
-				`/s/${scheme}`,
-				{
-					get: {
-						operationId: `get-${scheme}`,
-						security: [
-							{
-								[scheme]:
-									scheme === "oauth"
-										? ["pets:read", "pets:write"]
-										: scheme === "oidc"
-											? ["openid", "profile:read"]
-											: []
-							}
-						],
-						responses: { "200": landed }
-					}
-				}
-			])
-		),
-		components: {
-			securitySchemes: {
-				bearerAuth: { type: "http", scheme: "bearer" },
-				basicAuth: { type: "http", scheme: "basic" },
-				headerKey: { type: "apiKey", in: "header", name: "X-Api-Key" },
-				queryKey: { type: "apiKey", in: "query", name: "api_key" },
-				cookieKey: { type: "apiKey", in: "cookie", name: "session" },
-				oauth: {
-					type: "oauth2",
-					flows: {
-						clientCredentials: {
-							tokenUrl: `${origin}/flow/token`,
-							scopes: { "pets:admin": "Administer pets" }
-						},
-						authorizationCode: {
-							authorizationUrl: `${origin}/flow/authorize`,
-							tokenUrl: `${origin}/flow/token`,
-							refreshUrl: `${origin}/flow/refresh`,
-							scopes: { "pets:read": "Read pets", "pets:write": "Write pets" }
-						}
-					}
-				},
-				oidc: {
-					type: "openIdConnect",
-					openIdConnectUrl: `${origin}/flow/.well-known/openid-configuration`
-				}
-			}
-		}
-	})
-
-/** The author config, binding exactly the capture server's origin. */
-const configOf = (bound: string): string =>
-	jsonTextOf({
-		package: { name: "credential-sources", version: "1.0.0" },
-		binName: "cred",
-		envPrefix: "CRED",
-		acceptedOrigins: [bound],
-		allowInsecure: true
-	})
-
-/** Where a run's credential comes from: its setting, a file, stdin, or nowhere. */
-type Source = "the environment" | "a file" | "stdin" | "no source"
-
-/** A planted fault, from the family the scheme's carrier refuses. */
-type Fault = "a line break" | "an edge space" | "no colon" | "a cookie separator"
-
-/** A credential value: one its carrier admits, or one with a planted fault. */
-type Value =
-	| Readonly<{ kind: "valid"; text: string }>
-	| Readonly<{ kind: "faulty"; fault: Fault; text: string }>
-
-/** One run: the scheme, where its credential comes from, the value, and whether a file or stdin ends it with a line end. */
-type Case = Readonly<{ scheme: Scheme; source: Source; value: Value; lineEnd: boolean }>
-
-/** The schemes whose value travels in a header: it may hold an inner space and characters up to U+00FF. */
-const HEADER_SCHEMES: Arr.NonEmptyReadonlyArray<Scheme> = [
-	"bearerAuth",
-	"headerKey",
-	"oauth",
-	"oidc"
-]
-
-/**
- * Header-safe text: no edge space, an inner space where `spaced` draws one, and characters up to U+00FF, an é at
- * its start where `accented` is set.
- */
-const headerTextOf =
-	(spaced: Gen<boolean>, accented: boolean): Gen<string> =>
-	(source) => {
-		const drawn = string(characterOf(["a", "Z", "0", "-", ".", "_", "~", "+", "/", "=", "é"]), {
-			min: 8,
-			max: 12
-		})(source)
-		const core = accented ? `é${Str.slice(1)(drawn)}` : drawn
-		return spaced(source) ? `${Str.slice(0, 4)(core)} ${Str.slice(4)(core)}` : core
-	}
-
-/** Header-safe text, an inner space half the time. */
-const headerText: Gen<string> = headerTextOf(boolean, false)
-
-/** Text of URL-unreserved characters, sent in the query as written. */
-const queryText: Gen<string> = string(characterOf(["a", "Z", "0", "-", ".", "_", "~"]), {
-	min: 8,
-	max: 12
-})
-
-/** RFC 6265 cookie octets: no space, double quote, comma, semicolon or backslash. */
-const cookieText: Gen<string> = string(
-	characterOf([
-		"a",
-		"Z",
-		"0",
-		"!",
-		"#",
-		"$",
-		"%",
-		"&",
-		"'",
-		"(",
-		")",
-		"*",
-		"+",
-		"-",
-		".",
-		"/",
-		":",
-		"<",
-		"=",
-		">",
-		"?",
-		"@",
-		"[",
-		"]",
-		"^",
-		"_",
-		"`",
-		"{",
-		"|",
-		"}",
-		"~"
-	]),
-	{ min: 8, max: 12 }
-)
-
-/** A basic credential: a user id without a colon, then a password that may hold one. */
-const basicText: Gen<string> = (source) =>
-	`${string(characterOf(["a", "Z", "0", "-", "_"]), { min: 4, max: 6 })(source)}:${string(characterOf(["a", "Z", "0", ":", "!", "-"]), { min: 4, max: 8 })(source)}`
-
-/** The value a scheme's carrier admits. */
-const validText = (scheme: Scheme): Gen<string> => {
-	switch (scheme) {
-		case "queryKey":
-			return queryText
-		case "cookieKey":
-			return cookieText
-		case "basicAuth":
-			return basicText
-		case "bearerAuth":
-		case "headerKey":
-		case "oauth":
-		case "oidc":
-			return headerText
-	}
-}
-
-/** The schemes whose carrier refuses a fault: header carriers a line break or an edge space, basic a missing colon, a cookie a separator. */
-const schemesRefusing = (fault: Fault): Arr.NonEmptyReadonlyArray<Scheme> => {
-	switch (fault) {
-		case "a line break":
-		case "an edge space":
-			return ["bearerAuth", "headerKey", "oauth", "oidc"]
-		case "no colon":
-			return ["basicAuth"]
-		case "a cookie separator":
-			return ["cookieKey"]
-	}
-}
-
-/** A valid value with the fault planted in it. */
-const plant = (fault: Fault, text: string): string => {
-	switch (fault) {
-		case "a line break":
-			return `${Str.slice(0, 4)(text)}\n${Str.slice(4)(text)}`
-		case "an edge space":
-			return ` ${text}`
-		case "no colon":
-			return Str.replaceAll(":", "")(text)
-		case "a cookie separator":
-			return `${Str.slice(0, 4)(text)};${Str.slice(4)(text)}`
-	}
-}
-
-/** The value each scheme's runs from every source carry, and its planted faults are planted in: a simple one its carrier admits. */
-const BASE: Readonly<Record<Scheme, string>> = {
-	bearerAuth: "token-0001",
-	basicAuth: "user:pass",
-	headerKey: "token-0002",
-	queryKey: "query-0003",
-	cookieKey: "cookie-0004",
-	oauth: "token-0005",
-	oidc: "token-0006"
-}
-
-/** Whether a run ends its value with a line end: only a file or stdin can, so only they draw it. */
-const lineEndOf =
-	(from: Source): Gen<boolean> =>
-	(source) =>
-		from === "a file" || from === "stdin" ? boolean(source) : false
-
-/** A run of a scheme's simple value from one source, or with no credential at all. */
-const sourceCaseOf =
-	(from: Source): Gen<Case> =>
-	(source) => {
-		const scheme = element(SCHEMES)(source)
-		return {
-			scheme,
-			source: from,
-			value: { kind: "valid", text: BASE[scheme] },
-			lineEnd: lineEndOf(from)(source)
-		}
-	}
-
-/** A run of a value its scheme's carrier admits, from the environment. */
-const valueCaseOf =
-	(scheme: Scheme, text: Gen<string>): Gen<Case> =>
-	(source) => ({
-		scheme,
-		source: "the environment",
-		value: { kind: "valid", text: text(source) },
-		lineEnd: false
-	})
-
-/** A run of the value a drawn scheme's carrier admits. */
-const anyValueCase: Gen<Case> = (source) => {
-	const scheme = source.draw(element(SCHEMES))
-	return source.draw(valueCaseOf(scheme, validText(scheme)))
-}
-
-/** A run of a drawn header scheme's value, `text`. */
-const headerValueCase =
-	(text: Gen<string>): Gen<Case> =>
-	(source) =>
-		source.draw(valueCaseOf(source.draw(element(HEADER_SCHEMES)), text))
-
-/** A planted fault's run: a fault of the given families, a scheme whose carrier refuses it, and a source that delivers it. */
-const faultCaseOf =
-	(families: Arr.NonEmptyReadonlyArray<Fault>): Gen<Case> =>
-	(source) => {
-		const fault = element(families)(source)
-		const scheme = element(schemesRefusing(fault))(source)
-		return {
-			scheme,
-			source: element<Source>(["the environment", "a file", "stdin"])(source),
-			value: { kind: "faulty", fault, text: plant(fault, BASE[scheme]) },
-			lineEnd: false
-		}
-	}
-
-/** What a request carried of the credentials, as the oracle compares it. */
-type Carried = Readonly<{
-	target: string
-	authorization: ReadonlyArray<readonly [scheme: string, credential: string]>
-	apiKey: ReadonlyArray<string>
-	cookie: ReadonlyArray<string>
-	scopes: ReadonlyArray<string>
-}>
-
-/** An Authorization value split at its first space: the scheme word, then the credential. */
-const schemeAndCredential = (value: string): readonly [scheme: string, credential: string] =>
-	Option.match(Str.indexOf(" ")(value), {
-		onNone: () => [value, ""],
-		onSome: (space) => [Str.slice(0, space)(value), Str.slice(space + 1)(value)]
-	})
-
-/** What a recorded request carried, and the scope names its whole text holds. */
-const carriedOf = (request: WireRequest): Carried => {
-	const text = Arr.join(
-		Arr.appendAll(
-			[request.target, Buffer.from(request.body).toString("latin1")],
-			Arr.flatten(request.headers)
-		),
-		"\n"
-	)
-	return {
-		target: request.target,
-		authorization: Arr.map(valuesOf(request.headers, "authorization"), schemeAndCredential),
-		apiKey: valuesOf(request.headers, "x-api-key"),
-		cookie: valuesOf(request.headers, "cookie"),
-		scopes: Arr.filter(SCOPES, (scope) => Str.includes(scope)(text))
-	}
-}
-
-/** What the scheme's credential puts on the request, and nothing else. */
-const expectedCarried = (scheme: Scheme, text: string): Carried => {
-	const none: Carried = {
-		target: `/s/${scheme}`,
-		authorization: [],
-		apiKey: [],
-		cookie: [],
-		scopes: []
-	}
-	switch (scheme) {
-		case "bearerAuth":
-		case "oauth":
-		case "oidc":
-			return { ...none, authorization: [["Bearer", text]] }
-		case "basicAuth":
-			return { ...none, authorization: [["Basic", Buffer.from(text, "utf8").toString("base64")]] }
-		case "headerKey":
-			return { ...none, apiKey: [text] }
-		case "queryKey":
-			return { ...none, target: `/s/${scheme}?api_key=${text}` }
-		case "cookieKey":
-			return { ...none, cookie: [`session=${text}`] }
-	}
-}
-
-/** What a run did, as the oracle compares it: the exit code, what each request carried, and the value's leaks. */
-type Outcome = Readonly<{ exitCode: number; requests: ReadonlyArray<Carried>; leaked: boolean }>
-
-/**
- * The run the contract gives: no credential, exit 3 and no request; a planted fault, exit 2 and no request; a valid
- * credential, exit 0 and one request carrying it. The value never leaks.
- */
-const expectedOf = (c: Case): Outcome => {
-	if (c.source === "no source") {
-		return { exitCode: 3, requests: [], leaked: false }
-	}
-	return c.value.kind === "faulty"
-		? { exitCode: 2, requests: [], leaked: false }
-		: { exitCode: 0, requests: [expectedCarried(c.scheme, c.value.text)], leaked: false }
-}
-
-/** The landing: an empty JSON object. */
-const landing: ScriptedResponse = {
-	status: 200,
-	headers: [["Content-Type", "application/json"]],
-	delay: Duration.zero,
-	body: { kind: "complete", bytes: latin1Bytes("{}") }
-}
-
-type CredentialFeature =
-	| Scheme
-	| Source
-	| Fault
-	| "a value ending in a line end"
-	| "a value holding a space"
-	| "a value beyond ASCII"
-
-/** The features a run reaches. */
-const caseFeatures = (c: Case): ReadonlyArray<CredentialFeature> =>
-	Arr.flatten<ReadonlyArray<ReadonlyArray<CredentialFeature>>>([
-		[c.scheme, c.source],
-		c.value.kind === "faulty" && c.source !== "no source" ? [c.value.fault] : [],
-		c.lineEnd && (c.source === "a file" || c.source === "stdin")
-			? ["a value ending in a line end"]
-			: [],
-		c.value.kind === "valid" && Str.includes(" ")(c.value.text) && c.source !== "no source"
-			? ["a value holding a space"]
-			: [],
-		c.value.kind === "valid" &&
-		Arr.some(Arr.fromIterable(c.value.text), (character) => character > "\u007f") &&
-		c.source !== "no source"
-			? ["a value beyond ASCII"]
-			: []
-	])
-
-/** What a run needs from the suite: the server, the package, its commands, the file system and the credential file. */
-type Runner = Readonly<{
-	server: CaptureServer
-	built: BuiltPackage
-	commands: Readonly<Record<Scheme, ReadonlyArray<string>>>
-	fs: FileSystem.FileSystem
-	file: string
-}>
-
-/** Runs a case's command with its credential from its source, and checks the run against the contract. */
-const checkRun = Effect.fn("credentialSources.check")(function* (c: Case, runner: Runner) {
-	const names = NAMES[c.scheme]
-	const written = c.lineEnd ? `${c.value.text}\n` : c.value.text
-	if (c.source === "a file") {
-		yield* runner.fs.writeFileString(runner.file, written)
-	}
-	const observed = yield* runner.server.observe(
-		() => landing,
-		runBin(runner.built, {
-			args: Arr.flatten([
-				runner.commands[c.scheme],
-				["--base-url", runner.server.origins["127.0.0.1"]],
-				c.source === "a file"
-					? [names.flag, runner.file]
-					: c.source === "stdin"
-						? [names.flag, "-"]
-						: []
-			]),
-			env: c.source === "the environment" ? { [names.env]: c.value.text } : {},
-			stdin: c.source === "stdin" ? new TextEncoder().encode(written) : new Uint8Array(0)
-		})
-	)
-	const printed = `${new TextDecoder().decode(observed.result.stdout)}${new TextDecoder().decode(observed.result.stderr)}`
-	deepStrictEqual<Outcome>(
-		{
-			exitCode: observed.result.exitCode,
-			requests: Arr.map(observed.requests, carriedOf),
-			leaked: Str.includes(Str.trim(c.value.text))(printed)
-		},
-		expectedOf(c),
-		"the credential goes exactly where its scheme says, a fault or a missing credential sends nothing, and the value is never printed"
-	)
-})
-
-/** The suite's fixture: the capture server, the package built against it, and each scheme's command. */
-class CredentialFixture extends Context.Service<
-	CredentialFixture,
-	Readonly<{
-		server: CaptureServer
-		built: BuiltPackage
-		commands: Readonly<Record<Scheme, ReadonlyArray<string>>>
-	}>
->()("effect-openapi-cli-generator/test/generated/credential-sources.test/CredentialFixture") {}
-
-const fixture = Layer.effect(
-	CredentialFixture,
-	Effect.gen(function* () {
-		const server = yield* captureServer
-		const origin = server.origins["127.0.0.1"]
-		const generated = yield* generateFixture({
-			spec: { path: "openapi.json", text: specOf(origin) },
-			config: { path: "author-config.json", text: configOf(origin) },
-			authorFiles: []
-		})
-		const built = yield* buildPackage(generated)
-		const commands = yield* Effect.all(
-			Rec.map(NAMES, (_names, scheme) =>
-				Effect.map(
-					Effect.fromOption(
-						Arr.findFirst(
-							generated.result.report.commandNames,
-							(name) => name.pointer === `/paths/~1s~1${scheme}/get`
-						)
-					),
-					(name) => name.path
-				)
-			)
-		)
-		return { server, built, commands }
-	})
-).pipe(Layer.provideMerge(harnessLayer))
-
-/** Every source a run's credential may come from. */
-const SOURCES: Arr.NonEmptyReadonlyArray<Source> = [
-	"the environment",
-	"a file",
-	"stdin",
-	"no source"
-]
-
-/** The planted fault families, grouped so each group's exhaustion stays small. */
-const FAULT_GROUPS: ReadonlyArray<Arr.NonEmptyReadonlyArray<Fault>> = [
-	["a line break"],
-	["an edge space"],
-	["no colon", "a cookie separator"]
-]
-
-/** What a source's exhaustion must reach: every scheme, the source, and a last line end where the source can hold one. */
-const sourceFeatures = (from: Source): Arr.NonEmptyReadonlyArray<CredentialFeature> =>
-	Arr.appendAll(
-		Arr.append(SCHEMES, from),
-		from === "a file" || from === "stdin" ? ["a value ending in a line end" as const] : []
-	)
-
-/** Checks the contract on every case of a small box of runs, against the suite's built package. */
-const exhaustRuns = (
-	suite: string,
-	box: string,
-	generator: Gen<Case>,
-	situations: Arr.NonEmptyReadonlyArray<CredentialFeature>
-) =>
-	Effect.gen(function* () {
-		const { server, built, commands } = yield* CredentialFixture
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "credential-box-" })
-		return yield* exhaust(
-			{
-				suite,
-				oracle: {
-					kind: "specification",
-					name: "one request with the credential in exactly its scheme's place, exit 3 or 2 with no request when there is none or it is refused, and its value nowhere in what the run prints"
-				},
-				box,
-				generator,
-				literal: Formatter.format,
-				coverage: requiredInSpace<CredentialFeature>(situations),
-				caseHang: Duration.seconds(60)
-			},
-			(c, k) =>
-				Effect.gen(function* () {
-					k.noteAll(caseFeatures(c))
-					yield* checkRun(c, {
-						server,
-						built,
-						commands,
-						fs,
-						file: path.join(scratch, "credential")
-					})
-				})
-		)
-	}).pipe(Effect.scoped)
-
-layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (it) => {
-	Arr.forEach(SOURCES, (from) => {
-		it.effect(`go where their scheme says from ${from}, and nowhere else`, (ctx) =>
-			searched(
-				ctx,
-				exhaustRuns(
-					`credential sources: ${from}`,
-					`every scheme's simple credential from ${from}, with and without a last line end where it can hold one`,
-					sourceCaseOf(from),
-					sourceFeatures(from)
-				)
-			)
-		)
-	})
-
-	it.effect("are each offered by a file flag whose help names the scheme it reads", () =>
-		Effect.gen(function* () {
-			const { built } = yield* CredentialFixture
-			const help = yield* runBin(built, { args: ["--help"], env: {}, stdin: new Uint8Array(0) })
-			const lines = Arr.map(Str.split("\n")(new TextDecoder().decode(help.stdout)), Str.trim)
-			deepStrictEqual(
-				Arr.map(SCHEMES, (scheme) =>
-					Arr.some(
-						lines,
-						(line) =>
-							Str.startsWith(`${NAMES[scheme].flag} path|-`)(line) &&
-							Str.includes(`Read the ${scheme} credential from <path>`)(line)
-					)
-				),
-				Arr.map(SCHEMES, () => true),
-				"every scheme's --<scheme>-file flag is described by the scheme whose credential it reads"
-			)
-		})
-	)
-
-	it.effect("carry any value their scheme's carrier admits exactly as given", (ctx) =>
-		searched(
-			ctx,
+/** Every scheme's simple credential goes where its scheme says from every source, and nowhere else. */
+export const credentialSources = property.exhaust(sourceCases, {
+	box: "every scheme's simple credential from the environment, a file, stdin or no source, with and without a last line end where the source can hold one",
+	needs: { fixture: credentialFixture, scratch: Scratch.dir, checkout: Checkout.dir },
+	situations: SOURCE_FEATURES,
+	check:
+		({ fixture, scratch: scratchDir }, k: Case<CredentialFeature>) =>
+		(c) =>
 			Effect.gen(function* () {
-				const { server, built, commands } = yield* CredentialFixture
+				const { server, built, commands } = yield* fixture
 				const fs = yield* FileSystem.FileSystem
 				const path = yield* Path.Path
-				const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "credential-values-" })
-				return yield* explore(
-					{
-						suite: "credential values",
-						oracle: {
-							kind: "specification",
-							name: "the credential in exactly its scheme's place on the one request, and its value nowhere in what the run prints"
-						},
-						draw: aimed(anyValueCase, [
-							...Arr.map(
-								SCHEMES,
-								(scheme) => [scheme, valueCaseOf(scheme, validText(scheme))] as const
-							),
-							["a value holding a space", headerValueCase(headerTextOf(constant(true), false))],
-							["a value beyond ASCII", headerValueCase(headerTextOf(boolean, true))]
-						]),
-						literal: Formatter.format,
-						coverage: required<CredentialFeature>(
-							[...SCHEMES, "a value holding a space", "a value beyond ASCII"],
-							{ cases: 20, sense: notesOnly }
-						),
-						kept: [],
-						runs: 8,
-						shrink: { kind: "bounded", candidates: 30 },
-						steerEvery: 2,
-						caseHang: Duration.seconds(60)
-					},
-					(c, k) =>
-						Effect.gen(function* () {
-							k.noteAll(caseFeatures(c))
-							yield* checkRun(c, {
-								server,
-								built,
-								commands,
-								fs,
-								file: path.join(scratch, "credential")
-							})
-						})
-				)
-			}).pipe(Effect.scoped)
-		)
-	)
+				const scratch = yield* scratchDir
+				k.noteAll(caseFeatures(c))
+				yield* checkRun(c, { server, built, commands, fs, file: path.join(scratch, "credential") })
+			}),
+	oracle: {
+		kind: "specification",
+		name: "one request with the credential in exactly its scheme's place, exit 3 with no request when there is none, and its value nowhere in what the run prints"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "\t\tEffect.map(stripLineEnd)",
+			replacement: "\t\tEffect.map((text) => text)",
+			why: "A credential read from a file or stdin keeps its last line end, so a header carrier refuses it and the query and cookie carry it; the property fails."
+		}
+	]
+})
 
-	Arr.forEach(FAULT_GROUPS, (families) => {
-		it.effect(
-			`refuse ${Arr.join(families, " and ")} before any request, from every source`,
-			(ctx) =>
-				searched(
-					ctx,
-					exhaustRuns(
-						`credential faults: ${Arr.join(families, ", ")}`,
-						`every fault of ${Arr.join(families, " and ")}, under each scheme whose carrier refuses it, from the environment, a file and stdin`,
-						faultCaseOf(families),
-						Arr.appendAll(families, ["the environment", "a file", "stdin"])
-					)
-				)
-		)
-	})
-
-	it.effect("are read from a prompt on a terminal, the typed value never echoed", (ctx) =>
-		searched(
-			ctx,
+/** Each scheme's --<scheme>-file flag is offered by the root's help, described by the scheme whose credential it reads. */
+export const credentialFileHelp = property.exhaust(rootHelp, {
+	box: "the root's --help",
+	needs: { fixture: credentialFixture, checkout: Checkout.dir },
+	situations: [],
+	check:
+		({ fixture }) =>
+		(flag) =>
 			Effect.gen(function* () {
-				const { server, built, commands } = yield* CredentialFixture
-				return yield* explore(
-					{
-						suite: "credential prompt",
-						oracle: {
-							kind: "specification",
-							name: "the typed credential in its scheme's place on the one request, and the typed value nowhere the terminal shows"
-						},
-						draw: aimedAmong(SCHEMES, element(SCHEMES), (scheme) => constant(scheme)),
-						literal: Formatter.format,
-						coverage: required<CredentialFeature>(SCHEMES, { cases: 20, sense: notesOnly }),
-						kept: [],
-						runs: 7,
-						shrink: { kind: "bounded", candidates: 20 },
-						steerEvery: 2,
-						caseHang: Duration.seconds(60)
-					},
-					(scheme, k) =>
-						Effect.gen(function* () {
-							const text = k.draw(validText(scheme))
-							k.note(scheme)
-							const observed = yield* server.observe(
-								() => landing,
-								runBinOnTerminal(built, {
-									args: Arr.appendAll(commands[scheme], [
-										"--base-url",
-										server.origins["127.0.0.1"]
-									]),
-									env: {},
-									typed: text
-								})
-							)
-							deepStrictEqual<Outcome>(
-								{
-									exitCode: observed.result.exitCode,
-									requests: Arr.map(observed.requests, carriedOf),
-									leaked: Str.includes(Str.trim(text))(
-										new TextDecoder().decode(observed.result.terminal)
-									)
-								},
-								{ exitCode: 0, requests: [expectedCarried(scheme, text)], leaked: false },
-								"the value typed at the prompt goes where its scheme says and the terminal never shows it"
-							)
-						})
+				const { built } = yield* fixture
+				const help = yield* runBin(built, { args: [flag], env: {}, stdin: new Uint8Array(0) })
+				const lines = Arr.map(Str.split("\n")(new TextDecoder().decode(help.stdout)), Str.trim)
+				deepStrictEqual(
+					Arr.map(SCHEMES, (scheme) =>
+						Arr.some(
+							lines,
+							(line) =>
+								Str.startsWith(`${NAMES[scheme].flag} path|-`)(line) &&
+								Str.includes(`Read the ${scheme} credential from <path>`)(line)
+						)
+					),
+					Arr.map(SCHEMES, () => true),
+					"every scheme's --<scheme>-file flag is described by the scheme whose credential it reads"
 				)
-			})
-		)
-	)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "a file flag for every scheme, its description naming the scheme"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: `\t\t\t\t\`Read the \${scheme} credential from <path>, or from stdin when <path> is -\``,
+			replacement: '\t\t\t\t"Read the credential from <path>, or from stdin when <path> is -"',
+			why: "A file flag's description names no scheme, so the help cannot say whose credential each file holds; the property fails."
+		}
+	]
+})
+
+/**
+ * Any value a scheme's carrier admits is carried exactly as given. Its budget is the count its suite stated before the
+ * conversion: 8 independent cases, and up to 20 steered while a situation is unreached.
+ */
+export const credentialValues = property.explore(valueCases, {
+	needs: { fixture: credentialFixture, scratch: Scratch.dir, checkout: Checkout.dir },
+	situations: [...SCHEMES, "a value holding a space", "a value beyond ASCII"],
+	check:
+		({ fixture, scratch: scratchDir }, k: Case<CredentialFeature>) =>
+		(c) =>
+			Effect.gen(function* () {
+				const { server, built, commands } = yield* fixture
+				const fs = yield* FileSystem.FileSystem
+				const path = yield* Path.Path
+				const scratch = yield* scratchDir
+				k.noteAll(caseFeatures(c))
+				yield* checkRun(c, { server, built, commands, fs, file: path.join(scratch, "credential") })
+			}),
+	oracle: {
+		kind: "specification",
+		name: "the credential in exactly its scheme's place on the one request, and its value nowhere in what the run prints"
+	},
+	kept: [],
+	budget: { runs: 8, steered: 20 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "HttpClientRequest.basicAuth(request, user, password)",
+			replacement: "HttpClientRequest.basicAuth(request, password, user)",
+			why: "A basic credential's user and password are sent swapped; the property fails."
+		}
+	]
+})
+
+/** Every fault a carrier refuses is refused before any request, from every source. */
+export const credentialFaults = property.exhaust(faultCases, {
+	box: "every fault of every family a carrier refuses (a line break, an edge space, no colon, a cookie separator), under each scheme whose carrier refuses it, from the environment, a file and stdin",
+	needs: { fixture: credentialFixture, scratch: Scratch.dir, checkout: Checkout.dir },
+	situations: FAULT_FEATURES,
+	check:
+		({ fixture, scratch: scratchDir }, k: Case<CredentialFeature>) =>
+		(c) =>
+			Effect.gen(function* () {
+				const { server, built, commands } = yield* fixture
+				const fs = yield* FileSystem.FileSystem
+				const path = yield* Path.Path
+				const scratch = yield* scratchDir
+				k.noteAll(caseFeatures(c))
+				yield* checkRun(c, { server, built, commands, fs, file: path.join(scratch, "credential") })
+			}),
+	oracle: {
+		kind: "specification",
+		name: "exit 2 with no request for a credential its carrier refuses, and its value nowhere in what the run prints"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "\tunsafeHeaderValue(value)\n\t\t? refuse(",
+			replacement: "\tfalse\n\t\t? refuse(",
+			why: "A header credential with a line break, an edge space or a code point above U+00FF is passed to the request, where it is refused before any connection; the property fails."
+		}
+	]
+})
+
+/**
+ * A credential typed at a prompt on a terminal goes where its scheme says, and the terminal never shows it. Its budget
+ * is the count its suite stated before the conversion: 7 independent cases, and up to 20 steered while a situation is
+ * unreached.
+ */
+export const credentialPrompt = property.explore(typedCases, {
+	needs: { fixture: credentialFixture, checkout: Checkout.dir },
+	situations: SCHEMES,
+	check:
+		({ fixture }, k: Case<CredentialFeature>) =>
+		({ scheme, text }) =>
+			Effect.gen(function* () {
+				const { server, built, commands } = yield* fixture
+				k.note(scheme)
+				const observed = yield* server.observe(
+					() => landing,
+					runBinOnTerminal(built, {
+						args: Arr.appendAll(commands[scheme], ["--base-url", server.origins["127.0.0.1"]]),
+						env: {},
+						typed: text
+					})
+				)
+				deepStrictEqual<Outcome>(
+					{
+						exitCode: observed.result.exitCode,
+						requests: Arr.map(observed.requests, carriedOf),
+						leaked: Str.includes(Str.trim(text))(new TextDecoder().decode(observed.result.terminal))
+					},
+					{ exitCode: 0, requests: [expectedCarried(scheme, text)], leaked: false },
+					"the value typed at the prompt goes where its scheme says and the terminal never shows it"
+				)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "the typed credential in its scheme's place on the one request, and the typed value nowhere the terminal shows"
+	},
+	kept: [],
+	budget: { runs: 7, steered: 20 },
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "\tPrompt.run(Prompt.Password({",
+			replacement: "\tPrompt.run(Prompt.Text({",
+			why: "The prompt echoes what is typed, so the terminal shows the credential; the property fails."
+		}
+	]
 })
