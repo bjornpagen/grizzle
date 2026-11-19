@@ -32,6 +32,7 @@ import type { Heading } from "#compiler/ir/rel.ts"
 import { type ScalarType, type SpanCarrier, spanOf } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { type Columns, textAt } from "#compiler/runtime/write/cells.ts"
+import { keptReads } from "#compiler/runtime/write/decoded.ts"
 import type { MemberKey } from "#compiler/runtime/write/draw.ts"
 import {
 	nestedConflict,
@@ -300,9 +301,10 @@ const rowReading = (columns: Columns): EntryReading<NestedRow> => ({
 /**
  * The admitted facts of `facts`, member `member`'s, against a slot's heading, by its member's normalizer, refused with
  * the codec's fault at the member slot. The codec checks no key: normalization refuses a same-key pair itself (step 3).
- * Its facts are read first, none of their bytes read (codec/recordset.ts ReadRelation), and an input whose arrays no
- * Bind message of `transport` carries, with the statement's own fields and its placeholders, is refused as its
- * MessageBound before any is: before a digest is worked out or a copy made.
+ * Its facts are read first, none of their bytes read (codec/recordset.ts ReadRelation), or, where `facts` is an array
+ * decode admitted, its facts read under an equal heading, taken as decode read them (runtime/write/decoded.ts
+ * keptReads); then an input whose arrays no Bind message of `transport` carries, with the statement's own fields and
+ * its placeholders, is refused as its MessageBound before any is: before a digest is worked out or a copy made.
  *
  * The codec's identities are factIdentity's over the slot heading, the identity this module keys facts by.
  */
@@ -313,7 +315,8 @@ const admit = (
 	book: DigestBook,
 	transport: Transport
 ): Result.Result<ReadonlyArray<FactEntry>, EncodingFailure | MessageBound> => {
-	const read = normalize.read(facts)
+	const kept = keptReads(facts, normalize.plan)
+	const read = kept === undefined ? normalize.read(facts) : normalize.kept(kept)
 	if (!read.ok) {
 		return read
 	}

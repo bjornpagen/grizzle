@@ -31,15 +31,26 @@ import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import {
+	type ArrayRows,
+	arrayRows,
 	caseSpace,
+	codings,
 	Decoded,
 	type DecodeFeature,
 	decodeFeatures,
+	detachedOne,
 	doubledGen,
+	flights,
+	outcomeOf,
 	preview,
+	setsChanged,
 	stored,
+	type TakenFeature,
+	takenFeatures,
+	takenSpace,
 	type Top,
 	tops,
+	undecodedRows,
 	writtenOf
 } from "#test/unit/program/decode.fixtures.ts"
 
@@ -80,7 +91,7 @@ export const decodeRefusesExactlyWhereTheInsertsOwnAdmissionRefusesAtTheSameFiel
 				const refused = Arr.flatMap(decoded, ({ relation, answer }) =>
 					Result.isFailure(answer) ? [{ relation, refusal: answer.failure }] : []
 				)
-				const previewed = preview(c.rows)
+				const previewed = preview(undecodedRows(c.rows))
 				const note = (refusal: FactsRefused, relation: Top): void => {
 					switch (refusal._tag) {
 						case "RowsRefused":
@@ -186,8 +197,9 @@ export const decodeRefusesExactlyWhereTheInsertsOwnAdmissionRefusesAtTheSameFiel
 			},
 			{
 				file: "packages/engine/src/program/decode.ts",
-				original: "\t\t\t\tfor (const read of levels) {",
-				replacement: "\t\t\t\tfor (const read of levels.slice(-1)) {",
+				original: "\t\t\t\t\t\t\t\t\tfor (const { level: at, read } of reading.reads) {",
+				replacement:
+					"\t\t\t\t\t\t\t\t\tfor (const { level: at, read } of reading.reads.slice(-1)) {",
 				why: "decode judges the domains of a row's own level alone: a nested member's or a tree child's value outside its contract is decoded, so decode and the insert disagree on that one contract."
 			},
 			{
@@ -200,8 +212,9 @@ export const decodeRefusesExactlyWhereTheInsertsOwnAdmissionRefusesAtTheSameFiel
 			{
 				file: "packages/engine/src/program/decode.ts",
 				original:
-					"\t\t\t\t\treturn nestedReader(nesting.relation, levels, additionSplitter(nesting.sequences))",
-				replacement: "\t\t\t\t\treturn flatReader(levels.own)",
+					"\t\t\t\t\t\t\t\tnestedReader(nesting.relation, levels, additionSplitter(nesting.sequences)),",
+				replacement:
+					"\t\t\t\t\t\t\t\t(fact) => Result.map(levels.own.normalize.readRow(fact), (read) => ({ addition: { relation: nesting.relation, fact: {}, families: [] }, reads: [{ level: levels.own, read }] })),",
 				why: "decode reads a nested relation's rows flat, as its own level alone: every row whose nesting holds a member array is refused as factShape, where the insert admits it."
 			}
 		]
@@ -252,17 +265,174 @@ export const aDecoderPlansEachHeadingParsesEachPatternAndSplitsEachNestingOnceWh
 			{
 				file: "packages/engine/src/program/decode.ts",
 				original:
-					"\t\t\t\t\treturn nestedReader(nesting.relation, levels, additionSplitter(nesting.sequences))",
+					"\t\t\t\t\t\t\t\tnestedReader(nesting.relation, levels, additionSplitter(nesting.sequences)),",
 				replacement:
-					"\t\t\t\t\treturn (fact) => nestedReader(nesting.relation, levels, additionSplitter(nesting.sequences))(fact)",
+					"\t\t\t\t\t\t\t\t(fact) => nestedReader(nesting.relation, levels, additionSplitter(nesting.sequences))(fact),",
 				why: "Each row splits its nesting afresh: a relation's splits are worked out once a row, and twice the rows split twice as often."
 			},
 			{
 				file: "packages/engine/src/program/decode.ts",
-				original: "\t\t\t\t\tconst field = domainOf(judge, read)",
+				original: "\t\t\t\t\t\t\t\t\t\tconst field = domainOf(judge, at, read)",
 				replacement:
-					"\t\t\t\t\tconst field = domainOf(judgeOf(closedTableOf({ schema: model.checked }), new CompilePatterns()), read)",
+					"\t\t\t\t\t\t\t\t\t\tconst field = domainOf(judgeOf(closedTableOf({ schema: model.checked }), new CompilePatterns()), at, read)",
 				why: "Each row's domains are judged by a judge of its own, its patterns parsed again: twice the rows parse twice as often."
 			}
 		]
 	})
+
+/** Every top-level relation's rows decoded: which of them decode admitted. */
+const decodedAll = (rows: ArrayRows): ReadonlyArray<Top> =>
+	Arr.filter(tops, (relation) => Result.isSuccess(decoder.decode(relation, rows[relation])))
+
+/**
+ * The insert of rows decode admitted is the insert of the same rows undecoded, refusals included: over drawn rows with at
+ * most one fault planted, every relation's rows are decoded, then, it may be, a bytes value's buffer detached, as a
+ * caller may once decode has read it; then `ChangeSet.empty(Decoded).insertAll(rows)` is bound before any SQL
+ * (runtime/write/bind.ts bindWrite) over the rows themselves and over a copy of them no decode admitted, under the
+ * decoder's own codes, where the insert takes decode's reads (runtime/write/decoded.ts), and under an installation's
+ * other codes, where it reads the rows again: every statement's executions alike, or one refusal. And a set a bound
+ * write holds is its own: a handle no roster holds put into every set the decoded insert's rows hold, the decoded rows'
+ * insert bound again is the copy's still.
+ */
+export const theInsertOfRowsDecodeAdmittedIsTheInsertOfTheSameRowsUndecodedRefusalsIncluded =
+	property.explore(takenSpace, {
+		needs: {},
+		budget: { runs: 150, steered: 150 },
+		situations: takenFeatures satisfies ReadonlyArray<Reached<TakenFeature>>,
+		check: (_, k: Case<TakenFeature>) => (c) =>
+			Effect.gen(function* () {
+				const rows = arrayRows(c.decoded.rows)
+				if (rows === undefined) {
+					return assert.fail("a case's rows are arrays")
+				}
+				const copy = arrayRows(undecodedRows(rows))
+				if (copy === undefined) {
+					return assert.fail("a copy of arrays is arrays")
+				}
+				const admitted = decodedAll(rows)
+				if (c.afterward === "a buffer detached" && detachedOne(rows)) {
+					k.note("a buffer detached since")
+				}
+				for (const coding of codings) {
+					const flight = flights[coding]
+					const taken = yield* outcomeOf(flight, rows)
+					const read = yield* outcomeOf(flight, copy)
+					assert.deepEqual(
+						taken.outcome,
+						read.outcome,
+						`under ${coding}, the decoded rows' insert is the copy's`
+					)
+					if (taken.outcome.kind !== "bound") {
+						k.note("refused alike")
+						continue
+					}
+					if (coding === "the decoder's codes" && setsChanged(taken.inserted)) {
+						const again = yield* outcomeOf(flight, rows)
+						assert.deepEqual(
+							again.outcome,
+							read.outcome,
+							"the decoded rows' insert again, once a set the last one held is changed, is the copy's"
+						)
+						k.note("a set taken again")
+					}
+				}
+				if (Arr.some(admitted, (relation) => relation === "Flat" && rows.Flat.length > 0)) {
+					k.note("a flat relation's reads taken")
+				}
+				if (Arr.some(admitted, (relation) => relation !== "Flat" && rows[relation].length > 0)) {
+					k.note("a nested relation's readings taken")
+				}
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the insert of a copy of the rows no decode admitted, which reads every row"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: '\tbytes: "again",',
+				replacement: '\tbytes: "shared",',
+				why: "A write takes a decoded bytes value as decode read it, unchecked: a buffer detached since is stored as no bytes, where the copy's insert refuses it as bytesType."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: '\tbits: "again",',
+				replacement: '\tbits: "shared",',
+				why: "A write takes a decoded set as decode's own copy, which the write's rows hand out: a handle put into it reaches the next insert of the decoded rows, unadmitted."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original:
+					"\t\t\treturn other !== undefined && field.name === other.name && sameSpec(field.spec, other.spec)",
+				replacement: "\t\t\treturn other !== undefined && field.name === other.name",
+				why: "A write under other roster codes takes decode's reads, whose closed ids are parted by the decoder's codes: a nested node's closed id is sent as the decoder's code, not the installation's."
+			}
+		]
+	})
+
+/** The calls a read of a fact is counted by (scalar/values/identity.ts readFact). */
+const readSites = Object.freeze({
+	reads: { file: "packages/engine/src/scalar/values/identity.ts", name: "readFact" }
+})
+
+/**
+ * Decode and the insert of what it admitted read each row once in all: over drawn rows of every top-level relation, a
+ * flat one and two nested, each admitted, decoding every relation's rows and then binding their insert reads exactly as
+ * many facts as binding the insert of a copy of them alone (scalar/values/identity.ts readFact, read off V8's call
+ * counts, kernel/calls.ts callCounts), and decode alone reads some.
+ */
+export const decodeAndTheInsertOfWhatItAdmittedReadEachRowOnceInAll = property.explore(doubledGen, {
+	needs: {},
+	budget: { runs: 12, steered: 0 },
+	situations: [],
+	check: () => (drawn) =>
+		Effect.gen(function* () {
+			const rows: ArrayRows = drawn.once
+			const copy = arrayRows(undecodedRows(rows))
+			if (copy === undefined) {
+				return assert.fail("a copy of arrays is arrays")
+			}
+			const flight = flights["the decoder's codes"]
+			const [alone, aloneCounts] = yield* callCounts(outcomeOf(flight, copy), readSites)
+			const [decoded, decodedCounts] = yield* callCounts(
+				Effect.sync(() => decodedAll(rows)),
+				readSites
+			)
+			const [both, bothCounts] = yield* callCounts(outcomeOf(flight, rows), readSites)
+			assert.deepEqual(decoded, tops, "decode admits every relation's rows")
+			assert.equal(alone.outcome.kind, "bound", "the copy's insert binds")
+			assert.deepEqual(both.outcome, alone.outcome, "the decoded rows' insert is the copy's")
+			assert.ok(decodedCounts.reads > 0, "decode reads the rows")
+			assert.equal(
+				decodedCounts.reads + bothCounts.reads,
+				aloneCounts.reads,
+				"decode and the insert of what it admitted read as many facts as the insert alone"
+			)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "a row decode read is read by no insert of it again"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/runtime/write/normalize.ts",
+			original: "\tconst kept = keptReads(facts, normalize.plan)",
+			replacement: "\tconst kept = undefined",
+			why: "The insert reads a decoded flat relation's rows again: decode and the insert read each of Flat's rows twice."
+		},
+		{
+			file: "packages/engine/src/runtime/write/nesting.ts",
+			original: "\tconst kept = keptReadings(facts, normalizers)",
+			replacement: "\tconst kept = undefined",
+			why: "The insert reads a decoded nested relation's rows again: every level of Owner's and Node's rows is read twice."
+		},
+		{
+			file: "packages/engine/src/write/changeset/value.ts",
+			original: "\tisDecoded(facts) ? facts : Object.freeze(facts.map(frozenFact))",
+			replacement: "\tObject.freeze(facts.map(frozenFact))",
+			why: "A ChangeSet copies a decoded array, so its insert meets no array decode admitted and reads every row again."
+		}
+	]
+})

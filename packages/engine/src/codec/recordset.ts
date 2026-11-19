@@ -31,6 +31,7 @@ import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { AdmittedBytes, DigestBook } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
+	againAt,
 	compareFactIdentities,
 	digestFact,
 	type FactIdentity,
@@ -38,6 +39,7 @@ import {
 	type HeadingPlan,
 	headingPlan,
 	type ReadFact,
+	readAgain,
 	readFact
 } from "#compiler/scalar/values/identity.ts"
 
@@ -113,26 +115,34 @@ export interface ReadRelation {
  */
 export interface RelationNormalizer {
 	readonly columns: number
+	/** The heading as its facts are read (scalar/values/identity.ts HeadingPlan), planned once with the normalizer. */
+	readonly plan: HeadingPlan
 	/** The heading's field names in the order an admitted fact's identity holds their texts (scalar/values/identity.ts
 	 * FactIdentity): field-name order. */
 	readonly fields: ReadonlyArray<string>
 	readonly read: (facts: Iterable<unknown>) => Result.Result<ReadRelation, EncodingFailure>
+	/**
+	 * An input whose facts were read already, each by a normalizer of an equal heading (scalar/values/identity.ts
+	 * samePlan), as the write takes it now: each read as it is but the values it takes again, a bytes value checked and a
+	 * set or a vector copied (identity.ts readAgain), then measured as `read` measures it. A decoded array's kept reads
+	 * are taken so (program/decode.ts).
+	 */
+	readonly kept: (reads: ReadonlyArray<ReadFact>) => Result.Result<ReadRelation, EncodingFailure>
 	readonly admit: (
 		read: ReadRelation,
 		book: DigestBook
 	) => Result.Result<AdmittedRelation, EncodingFailure>
 	/**
-	 * One fact read as `read` reads each, its refusal not yet placed in the input (RowRefusal): what a decoded row is
-	 * read by (program/decode.ts), which places it at the row's position.
+	 * One fact read as `read` reads each, its refusal not yet placed in the input (RowRefusal): what a decoded row and a
+	 * nested write's level are read by (program/decode.ts, runtime/write/nesting.ts), which place it where they stand.
 	 */
 	readonly readRow: (fact: unknown) => Result.Result<ReadFact, RowRefusal>
-	/**
-	 * One fact read alone, as `read` reads an input of it alone: the fact read, and its arrays' bytes, its `widest` and
-	 * its `together` alike. A nested write's level reads its facts one at a time, each the input of its own row.
-	 */
-	readonly readOne: (
-		fact: unknown
-	) => Result.Result<{ readonly read: ReadFact; readonly widest: number }, EncodingFailure>
+	/** One fact's read made earlier, as `kept` takes each (identity.ts readAgain), its refusal placed. */
+	readonly again: (read: ReadFact) => Result.Result<ReadFact, EncodingFailure>
+	/** A refusal of one fact's read placed in the input, at its field or at the input as a whole, as `read` places it. */
+	readonly place: (refusal: RowRefusal) => EncodingFailure
+	/** The bytes a read fact's binary arrays take with it alone: what a statement that carries it alone carries. */
+	readonly alone: (read: ReadFact) => number
 	/** A fact read alone admitted, as `admit` admits an input of it alone: its one normal fact, with its identity, each
 	 * field's canonical text in `fields`' order, the one text the write works out of each of its values. */
 	readonly admitOne: (
@@ -332,6 +342,8 @@ export const relationNormalizer = (spec: RelationSpec): RelationNormalizer =>
 const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	const { columns } = s
 	const bytesAt = s.plan.entries.flatMap((f, at) => (f.spec.carrier === "bytes" ? [at] : []))
+	/** The fields whose values a read made earlier gives again (identity.ts againAt). */
+	const againFields = againAt(s.plan)
 	/** The bytes one fact's value at bytes field `at` takes in its column's array, past the array's header. */
 	const elements = (read: ReadFact, at: number): number => {
 		const value = read.values[at]
@@ -360,40 +372,71 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		}
 		return readFact(s.plan, fact)
 	}
+	/** A refusal of one fact's read placed in the input. */
+	const place = (refusal: RowRefusal): EncodingFailure =>
+		encodeFailure(refusal.fault, placeOf(s, refusal.field))
 	/** One fact read (readRow), its refusal placed in the input. */
 	const readOneFact = (fact: unknown): Result.Result<ReadFact, EncodingFailure> => {
 		const one = readRow(fact)
-		return one.ok ? one : Result.err(encodeFailure(one.error.fault, placeOf(s, one.error.field)))
+		return one.ok ? one : Result.err(place(one.error))
+	}
+	/** One fact's read made earlier as the write takes it now (identity.ts readAgain), its refusal placed. */
+	const again = (one: ReadFact): Result.Result<ReadFact, EncodingFailure> => {
+		const taken = readAgain(s.plan, one, againFields)
+		return taken.ok ? taken : Result.err(place(taken.error))
 	}
 	/** The bytes a read fact's binary arrays take with it alone. */
-	const aloneBytes = (one: ReadFact): number =>
+	const alone = (one: ReadFact): number =>
 		bytesAt.reduce((sum, at) => sum + byteaHeaderBytes(1) + elements(one, at), 0)
+	/**
+	 * An input's reads measured (ReadRelation): what its binary arrays take together, over its reads of distinct parts,
+	 * and its widest fact's alone. An input of no bytes column takes no binary array.
+	 */
+	const measured = (reads: ReadonlyArray<ReadFact>): ReadRelation => {
+		if (bytesAt.length === 0) {
+			return { reads, together: 0, widest: 0 }
+		}
+		const distinct = new TupleMap<ReadonlyArray<string>, ReadFact>()
+		let widest = 0
+		for (const one of reads) {
+			if (!distinct.has(one.parts)) {
+				distinct.set(one.parts, one)
+			}
+			widest = Math.max(widest, alone(one))
+		}
+		let together = 0
+		for (const at of bytesAt) {
+			together += byteaHeaderBytes(distinct.size)
+			for (const one of distinct.values()) {
+				together += elements(one, at)
+			}
+		}
+		return { reads, together, widest }
+	}
 	const read = (facts: Iterable<unknown>): Result.Result<ReadRelation, EncodingFailure> => {
 		const reads: Array<ReadFact> = []
-		const distinct =
-			bytesAt.length > 0 ? new TupleMap<ReadonlyArray<string>, ReadFact>() : undefined
-		let widest = 0
 		for (const fact of facts) {
 			const one = readOneFact(fact)
 			if (!one.ok) {
 				return one
 			}
 			reads.push(one.value)
-			if (distinct !== undefined) {
-				if (!distinct.has(one.value.parts)) {
-					distinct.set(one.value.parts, one.value)
-				}
-				widest = Math.max(widest, aloneBytes(one.value))
-			}
 		}
-		let together = 0
-		for (const at of bytesAt) {
-			together += byteaHeaderBytes(distinct?.size ?? 0)
-			for (const one of distinct?.values() ?? []) {
-				together += elements(one, at)
-			}
+		return Result.ok(measured(reads))
+	}
+	const kept = (reads: ReadonlyArray<ReadFact>): Result.Result<ReadRelation, EncodingFailure> => {
+		if (againFields.length === 0) {
+			return Result.ok(measured(reads))
 		}
-		return Result.ok({ reads, together, widest })
+		const now: Array<ReadFact> = []
+		for (const one of reads) {
+			const taken = again(one)
+			if (!taken.ok) {
+				return taken
+			}
+			now.push(taken.value)
+		}
+		return Result.ok(measured(now))
 	}
 	/** A read fact digested, its bytes values each held in `book` as the one value of its digest. */
 	const digested = (
@@ -427,19 +470,17 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		const normal = normalFacts(byIdentity)
 		return Result.ok(Object.freeze({ ...normal, count: normal.facts.length }))
 	}
-	const readOne = (
-		fact: unknown
-	): Result.Result<{ readonly read: ReadFact; readonly widest: number }, EncodingFailure> => {
-		const one = readOneFact(fact)
-		return one.ok ? Result.ok({ read: one.value, widest: aloneBytes(one.value) }) : one
-	}
 	return {
 		columns: columns.length,
+		plan: s.plan,
 		fields: s.plan.entries.map((f) => f.name),
 		read,
+		kept,
 		admit,
 		readRow,
-		readOne,
+		again,
+		place,
+		alone,
 		admitOne: digested
 	}
 }

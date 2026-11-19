@@ -38,6 +38,7 @@ import { schemaInfo } from "#compiler/query/build/heading.ts"
 import { isCallback } from "#compiler/query/build/scope.ts"
 import { isOrdered, publicDesc, queryState } from "#compiler/query/build/state.ts"
 import { headValueOf } from "#compiler/query/build/terms.ts"
+import { isDecoded } from "#compiler/runtime/write/decoded.ts"
 import { termExpr } from "#compiler/scalar/compute/term.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { isLevelOver, type Level } from "#compiler/schema/level.ts"
@@ -805,6 +806,14 @@ const requireLevel = (written: Level, over: BuiltOver, label: string): void => {
 const frozenFact = (fact: unknown): unknown =>
 	isPlainRecord(fact) ? Object.freeze({ ...fact }) : fact
 
+/**
+ * A member's facts as the ChangeSet holds them, fixed from now on: an array decode admitted as it is, frozen with its
+ * rows, whose reads decode recorded for its write (runtime/write/decoded.ts); any other array copied, each plain record
+ * a frozen copy of its fields as they are read now.
+ */
+const heldFacts = (facts: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
+	isDecoded(facts) ? facts : Object.freeze(facts.map(frozenFact))
+
 /** The canonical identity text of a decoded part of a member's Description: a query, or a field-equality member's fields. */
 const identityText = (desc: QueryDesc | Readonly<Record<string, EqualedDesc>>): string => {
 	const text = descText(desc)
@@ -832,7 +841,7 @@ const memberState = (
 			kind: "array",
 			op,
 			relation: name,
-			facts: Object.freeze(facts.map(frozenFact)),
+			facts: heldFacts(facts),
 			slot,
 			desc: enumeratedDesc("array", op, name, slot, keptLoc(loc))
 		}

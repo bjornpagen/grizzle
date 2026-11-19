@@ -60,11 +60,11 @@ export const admissionRefusesEveryValueItsColumnsTypeRefusesAtItsFieldByTheCodec
 					]),
 					slot: { kind: "none" },
 					codes: emptyCodebook
-				}).readOne({ [input.site]: input.value })
+				}).readRow({ [input.site]: input.value })
 				if (read.ok) {
 					return assert.fail(`a write's fact refuses ${input.label} at ${input.site}`)
 				}
-				const expected = { error: read.error.reason._tag }
+				const expected = { error: read.error.fault }
 				const verdict = evaluator.admit(Cells, { ...admittedRow, [input.site]: input.value })
 				if (!Result.isFailure(verdict)) {
 					return assert.fail(`${input.label} at ${input.site} admitted`)

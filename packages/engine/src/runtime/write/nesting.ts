@@ -8,11 +8,12 @@ import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/t
  * into each relation its family statements write, every relation's rows one set across the stratum's nested writes.
  */
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
-import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
+import { slotPlace } from "#compiler/codec/fault.ts"
 import {
 	positionalColumns,
 	type RelationNormalizer,
-	relationNormalizer
+	relationNormalizer,
+	type RowRefusal
 } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf, cellOfText, paramOfText } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
@@ -26,8 +27,13 @@ import type { MessageBound } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
+	type AdditionSplitter,
 	additionSplitter,
+	type LevelRead,
+	levelOrder,
 	type NestedAddition,
+	type NestedReading,
+	type NestingLevels,
 	type SplitFamily
 } from "#compiler/runtime/write/addition.ts"
 import {
@@ -38,6 +44,7 @@ import {
 	type Texts,
 	textAt
 } from "#compiler/runtime/write/cells.ts"
+import { keptReadings } from "#compiler/runtime/write/decoded.ts"
 import type { MemberCell, MemberKey } from "#compiler/runtime/write/draw.ts"
 import {
 	type FilledNode,
@@ -250,7 +257,10 @@ const nestedRefusal = (
 /**
  * The facts of a nested member `member` added into `into`, the stratum's nested set, by the nesting's levels'
  * normalizers for that member; their own rows, each insert's own relation's when it is no tree's, for its slot's own
- * normalization. Every fact is split along its sequences and its levels admitted before any is filled, then each is
+ * normalization. Every fact is read, split along its sequences and its levels read (`nestedReader`), or, where `facts`
+ * is an array decode admitted, its levels read under equal headings, taken as decode read it at these levels re-keyed by
+ * decode's families (runtime/write/decoded.ts keptReadings), then its levels measured and admitted, before any is
+ * filled, then each is
  * filled and cut into whole rows. A fill that finds a generated field with no value refuses the write by its law
  * (NestedGeneratedNull, the first such fact's) only once every other fact has filled, so an encoding failure of any
  * fact is the write's refusal instead. A fact `into` holds already, at its key with every row it nests, adds nothing.
@@ -284,7 +294,8 @@ export const nestedRows = (
 			nesting.sequences.map((f) => [f.id, normalizerOf(f.member, f.heading)] as const)
 		)
 	}
-	const split = additionSplitter(nesting.sequences)
+	/** Every level's refusal is placed at the member slot, which each level's normalizer names alike. */
+	const place = normalizers.own.normalize.place
 	const shapes = new Map<StoredRelationName, RowShape>()
 	/** The shape of a reached relation's rows, each relation's made once for the write. */
 	const shapeOf = (reached: StoredRelationName): RowShape => {
@@ -316,18 +327,38 @@ export const nestedRows = (
 	})
 	const keyColumns = nesting.primary.map(shapedField)
 	const top = nesting.top.map(shapedField)
-	const hosts: Array<HostNode> = []
-	for (const fact of facts) {
-		const addition = split(relation, fact)
-		if (!addition.ok) {
-			return Result.err(encodeFailure(addition.error.fault, slotPlace(member)))
+	const write = { member, book, transport }
+	/** The host nodes of `items` at `levels`, each read into its reading by `readingOf`, then measured and admitted, one
+	 * after another, or the first refusal of either. */
+	const hostsOf = <A>(
+		levels: NestingLevels<Level>,
+		items: Iterable<A>,
+		readingOf: (item: A) => Result.Result<NestedReading<unknown>, EncodingFailure>
+	): Result.Result<ReadonlyArray<HostNode>, EncodingFailure | MessageBound> => {
+		const built: Array<HostNode> = []
+		for (const item of items) {
+			const reading = readingOf(item)
+			if (!reading.ok) {
+				return reading
+			}
+			const host = hostNodes(levels, reading.value, write)
+			if (!host.ok) {
+				return host
+			}
+			built.push(host.value)
 		}
-		const host = hostNodes(normalizers, addition.value, { member, book, transport })
-		if (!host.ok) {
-			return host
-		}
-		hosts.push(host.value)
+		return Result.ok(built)
 	}
+	const kept = keptReadings(facts, normalizers)
+	const read = nestedReader(relation, normalizers, additionSplitter(nesting.sequences))
+	const taken =
+		kept === undefined
+			? hostsOf(normalizers, facts, (fact) => Result.mapError(read(fact), place))
+			: hostsOf(kept.levels, kept.readings, (reading) => readingAgain(kept.levels, reading))
+	if (!taken.ok) {
+		return taken
+	}
+	const hosts = taken.value
 	let stopped: NestedGeneratedNull | undefined
 	for (const host of hosts) {
 		const filled = walk.fill(host, nesting.start)
@@ -443,13 +474,6 @@ interface Level {
 	readonly fields: ReadonlyArray<{ readonly name: string; readonly at: number }>
 }
 
-/** The levels of a nesting, each an L: its facts' own, and each sequence's members', by the sequence's id, the one its
- * split additions name it by (addition.ts additionSplitter), so no node spells a family's key. */
-export interface NestingLevels<L> {
-	readonly own: L
-	readonly members: ReadonlyMap<FamilyId, L>
-}
-
 /**
  * The normalizer of a nesting's level, `relation`'s facts admitted by `heading` under `codes`, each refusal placed at
  * the nested input's member slot `member`: the one a nested write reads each level of its facts by, and a decoded
@@ -469,58 +493,85 @@ export const levelNormalizer = (
 	})
 
 /**
- * Every addition of the nesting `root` heads, in pre-order, each with the level it stands at in `levels`: the order a
- * nested write reads its levels in, backwards, members before their owners (`hostNodes`), as a decoded row's are read.
+ * The reader of `relation`'s nested facts over `levels`, each with the normalizer it reads its facts by, the one a
+ * nested write reads its facts by and a decoded relation its rows (program/decode.ts): each fact split along its
+ * sequences by `split`, then every level of it read by its level's normalizer, members before their owners
+ * (`levelOrder`), into a reading (`NestedReading`), or the refusal of the first that does not read, unplaced, a fact
+ * that does not split refused at its shape. Nothing is measured or admitted: the write measures each level, then admits
+ * it (`hostNodes`).
  */
-export const levelOrder = <L>(
-	levels: NestingLevels<L>,
-	root: NestedAddition
-): ReadonlyArray<{ readonly addition: NestedAddition; readonly level: L }> => {
-	const order: Array<{ readonly addition: NestedAddition; readonly level: L }> = []
-	const pending: Array<{ readonly addition: NestedAddition; readonly level: L }> = [
-		{ addition: root, level: levels.own }
-	]
-	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-		order.push(next)
-		for (const g of next.addition.families) {
-			const level = defined(levels.members.get(g.family), "a sequence the nesting splits along")
-			for (const m of g.members) {
-				pending.push({ addition: m, level })
-			}
+export const nestedReader =
+	<L extends { readonly normalize: RelationNormalizer }>(
+		relation: StoredRelationName,
+		levels: NestingLevels<L>,
+		split: AdditionSplitter
+	) =>
+	(fact: unknown): Result.Result<NestedReading<L>, RowRefusal> => {
+		const addition = split(relation, fact)
+		if (!addition.ok) {
+			return Result.err({ fault: addition.error.fault, field: undefined })
 		}
+		const order = levelOrder(levels, addition.value)
+		const reads: Array<LevelRead<L>> = []
+		for (let i = order.length - 1; i >= 0; i -= 1) {
+			const { addition: at, level } = defined(order[i], "a nested addition met in pre-order")
+			const read = level.normalize.readRow(at.fact)
+			if (!read.ok) {
+				return read
+			}
+			reads.push({ level, read: read.value })
+		}
+		return Result.ok({ addition: addition.value, reads })
 	}
-	return order
+
+/**
+ * A reading made earlier (`NestedReading`), a decoded row's, as the write reads it now under its own levels, of
+ * headings equal to those it was read under: each level's read taken as it is but its bytes values, checked again
+ * (codec/recordset.ts RelationNormalizer again), its refusal placed at the member slot.
+ */
+const readingAgain = (
+	levels: NestingLevels<Level>,
+	kept: NestedReading<unknown>
+): Result.Result<NestedReading<Level>, EncodingFailure> => {
+	const order = levelOrder(levels, kept.addition)
+	const reads: Array<LevelRead<Level>> = []
+	for (const [at, { read }] of kept.reads.entries()) {
+		const { level } = defined(order[order.length - 1 - at], "a level read of each addition")
+		const now = level.normalize.again(read)
+		if (!now.ok) {
+			return now
+		}
+		reads.push({ level, read: now.value })
+	}
+	return Result.ok({ addition: kept.addition, reads })
 }
 
 /**
- * A split fact as the filler's nesting: each level's own fields admitted through its normalizer, the fact's own
- * through its own and each member's through its sequence's, and laid out as its level's cells, iteratively, members
- * built before their owners, so any depth converts.
+ * A nested fact's reading as the filler's nesting: each level's read measured and admitted through its normalizer, the
+ * fact's own through its own and each member's through its sequence's, and laid out as its level's cells,
+ * iteratively, members built before their owners, so any depth converts.
  */
 const hostNodes = (
 	normalizers: NestingLevels<Level>,
-	root: NestedAddition,
+	reading: NestedReading<unknown>,
 	write: {
 		readonly member: string
 		readonly book: DigestBook
 		readonly transport: Transport
 	}
 ): Result.Result<HostNode, EncodingFailure | MessageBound> => {
-	const order = levelOrder(normalizers, root)
+	const order = levelOrder(normalizers, reading.addition)
 	const built = new Map<NestedAddition, HostNode>()
 	for (let i = order.length - 1; i >= 0; i -= 1) {
 		const { addition, level } = defined(order[i], "a nested addition met in pre-order")
+		const { read } = defined(reading.reads[order.length - 1 - i], "a level read of each addition")
 		const normalize = level.normalize
-		const read = normalize.readOne(addition.fact)
-		if (!read.ok) {
-			return read
-		}
 		const { frame, messageBytes } = write.transport
-		const bytes = frame.statement + normalize.columns * frame.parameter + read.value.widest
+		const bytes = frame.statement + normalize.columns * frame.parameter + normalize.alone(read)
 		if (bytes > messageBytes) {
 			return Result.err({ _tag: "MessageBound", input: write.member, bytes, limit: messageBytes })
 		}
-		const admitted = normalize.admitOne(read.value.read, write.book)
+		const admitted = normalize.admitOne(read, write.book)
 		if (!admitted.ok) {
 			return admitted
 		}
@@ -550,7 +601,7 @@ const hostNodes = (
 			})
 		)
 	}
-	return Result.ok(defined(built.get(root), "the nesting's root"))
+	return Result.ok(defined(built.get(reading.addition), "the nesting's root"))
 }
 
 /**

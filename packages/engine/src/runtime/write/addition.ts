@@ -9,6 +9,7 @@ import { hostRead } from "#compiler/core/host.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
+import type { ReadFact } from "#compiler/scalar/values/identity.ts"
 
 /** An addition split along its relation's families: its own fields, and each family's member additions in order. */
 export interface NestedAddition {
@@ -190,4 +191,56 @@ const splitAddition = (
 		})
 	}
 	return Result.ok(defined(built[0], "the addition's own slot"))
+}
+
+/**
+ * The levels of a nesting, each an L: its facts' own, and each sequence's members', by the sequence's id, the one its
+ * split additions name it by (`additionSplitter`), so no node spells a family's key. An addition another compile split
+ * names its families by that compile's ids, whose levels are these re-keyed by them (runtime/write/decoded.ts
+ * keptReadings).
+ */
+export interface NestingLevels<L> {
+	readonly own: L
+	readonly members: ReadonlyMap<FamilyId, L>
+}
+
+/**
+ * Every addition of the nesting `root` heads, in pre-order, each with the level it stands at in `levels`: the order a
+ * nested write reads its levels in, backwards, members before their owners (nesting.ts nestedReader), as a decoded row's
+ * are read.
+ */
+export const levelOrder = <L>(
+	levels: NestingLevels<L>,
+	root: NestedAddition
+): ReadonlyArray<{ readonly addition: NestedAddition; readonly level: L }> => {
+	const order: Array<{ readonly addition: NestedAddition; readonly level: L }> = []
+	const pending: Array<{ readonly addition: NestedAddition; readonly level: L }> = [
+		{ addition: root, level: levels.own }
+	]
+	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+		order.push(next)
+		for (const g of next.addition.families) {
+			const level = defined(levels.members.get(g.family), "a sequence the nesting splits along")
+			for (const m of g.members) {
+				pending.push({ addition: m, level })
+			}
+		}
+	}
+	return order
+}
+
+/** One level of a nested fact read: the level it stands at, and the read its level's normalizer made of its fact. */
+export interface LevelRead<L> {
+	readonly level: L
+	readonly read: ReadFact
+}
+
+/**
+ * A nested fact as the write reads it (nesting.ts nestedReader): its addition, split along its sequences, and each of its
+ * levels' facts read, in the order they are read, members before their owners: the reverse of levelOrder's pre-order,
+ * so the read of the addition levelOrder puts at i is at the reading's length − 1 − i.
+ */
+export interface NestedReading<L> {
+	readonly addition: NestedAddition
+	readonly reads: ReadonlyArray<LevelRead<L>>
 }

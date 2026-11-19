@@ -13,12 +13,15 @@ import {
 	int,
 	string,
 	subset,
+	type Weighted,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Predicate, Record as Rec, String as Str } from "effect"
+import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { slotPlace } from "#compiler/codec/fault.ts"
 import type { EncodingPlace } from "#compiler/core/errors.ts"
+import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { previewOver } from "#compiler/program/preview.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closed } from "#compiler/public/dynamic.ts"
@@ -35,10 +38,18 @@ import {
 } from "#compiler/public/fields.ts"
 import { fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { bindWrite, type InsertedStratum } from "#compiler/runtime/write/bind.ts"
+import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { FactsRefused } from "#compiler/types/changeset/decode.ts"
+import { changeSetOver } from "#compiler/write/changeset/value.ts"
+import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
+import { checking } from "#test/support/policy.ts"
+import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** The roster the decoded rows' closed ids and sets are of. */
 const Tone = closed.ordered("Tone", ["low", "mid", "high"])
@@ -400,10 +411,9 @@ const valueAt =
 		}
 	}
 
-/** A planted fault (Planted), at a row any of its relation's, or none. */
-const plantedGen: Gen<Planted> = weighted<Planted>([
+/** The faults a case plants in rows that are arrays (Planted), each with its weight: a row's, a value's, a nesting's. */
+const inArrays: Arr.NonEmptyReadonlyArray<Weighted<Planted>> = [
 	[2, () => ({ kind: "none" })],
-	[1, (s) => ({ kind: "no array", relation: topGen(s) })],
 	[
 		3,
 		(s) => ({
@@ -430,13 +440,19 @@ const plantedGen: Gen<Planted> = weighted<Planted>([
 			row: int(0, 3)(s)
 		})
 	]
+]
+
+/** A planted fault (Planted), at a row any of its relation's, or none. */
+const plantedGen: Gen<Planted> = weighted<Planted>([
+	...inArrays,
+	[1, (s) => ({ kind: "no array", relation: topGen(s) })]
 ])
 
 /** A case of `planted` (DecodeCase): rows drawn small, then the fault planted in them, at its row, or none. */
 const caseOf =
-	(planted: Gen<Planted>): Gen<DecodeCase> =>
+	(planted: Gen<Planted>, least: number): Gen<DecodeCase> =>
 	(source) => {
-		const rows = rowsGen({ min: 0, max: 3 })(source)
+		const rows = rowsGen({ min: least, max: 3 })(source)
 		const fault = planted(source)
 		switch (fault.kind) {
 			case "none":
@@ -489,31 +505,37 @@ const plantedAt =
  * a handle no roster holds, a set of one, a bytes value that is no Uint8Array, a nested member's field and a tree
  * child's.
  */
-export const caseSpace: Aimed<DecodeCase, DecodeFeature> = aimed(caseOf(plantedGen), [
-	["a handle no roster holds", caseOf(plantedAt("tone", "purple"))],
-	["a set of a handle no roster holds", caseOf(plantedAt("tones", new Set(["purple"])))],
-	["a bytes field", caseOf(plantedAt("b", "AQI="))],
+export const caseSpace: Aimed<DecodeCase, DecodeFeature> = aimed(caseOf(plantedGen, 0), [
+	["a handle no roster holds", caseOf(plantedAt("tone", "purple"), 0)],
+	["a set of a handle no roster holds", caseOf(plantedAt("tones", new Set(["purple"])), 0)],
+	["a bytes field", caseOf(plantedAt("b", "AQI="), 0)],
 	[
 		"a nested member's field",
-		caseOf((source) => ({
-			kind: "value",
-			site: { relation: "Owner", depth: "member", field: "qty" },
-			row: int(0, 3)(source),
-			value: -1
-		}))
+		caseOf(
+			(source) => ({
+				kind: "value",
+				site: { relation: "Owner", depth: "member", field: "qty" },
+				row: int(0, 3)(source),
+				value: -1
+			}),
+			0
+		)
 	],
 	[
 		"a tree's child's field",
-		caseOf((source) => ({
-			kind: "value",
-			site: { relation: "Node", depth: "member", field: "tone" },
-			row: int(0, 3)(source),
-			value: "purple"
-		}))
+		caseOf(
+			(source) => ({
+				kind: "value",
+				site: { relation: "Node", depth: "member", field: "tone" },
+				row: int(0, 3)(source),
+				value: "purple"
+			}),
+			0
+		)
 	],
 	[
 		"a nesting that does not split",
-		caseOf((source) => ({ kind: "unsplit", relation: "Node", row: int(0, 3)(source) }))
+		caseOf((source) => ({ kind: "unsplit", relation: "Node", row: int(0, 3)(source) }), 0)
 	]
 ])
 
@@ -568,3 +590,175 @@ export const doubledGen: Gen<{
 	]
 	return { once, twice: { Flat: twice("Flat"), Owner: twice("Owner"), Node: twice("Node") } }
 }
+
+/**
+ * A value as a caller states it again: every array and plain record in it a copy, every other value its own, so no
+ * array of it is one decode admitted.
+ */
+const undecoded = (value: unknown): unknown =>
+	Arr.isArray(value)
+		? Arr.map(value, undecoded)
+		: Predicate.isObject(value) && Object.getPrototypeOf(value) === Object.prototype
+			? Rec.map(value, undecoded)
+			: value
+
+/** A case's rows as a caller states them again (`undecoded`), each relation's rows a copy, its values the same. */
+export const undecodedRows = (rows: Rows): Rows => Rec.map(rows, undecoded)
+
+/** Rows of each top-level relation that are arrays, as insertAll takes them. */
+export type ArrayRows = Readonly<Record<Top, ReadonlyArray<unknown>>>
+
+/** A case's rows where every relation's are an array, as insertAll takes them, or none. */
+export const arrayRows = (rows: Rows): ArrayRows | undefined =>
+	Arr.isArray(rows.Flat) && Arr.isArray(rows.Owner) && Arr.isArray(rows.Node)
+		? { Flat: rows.Flat, Owner: rows.Owner, Node: rows.Node }
+		: undefined
+
+/**
+ * insertAll over every top-level relation, compiled once, the whole served write, its statements among it, under the
+ * schema's first codes, the decoder's.
+ */
+const insertAll = succeeded(
+	compileWrite(
+		checking(Decoded),
+		descOf(changeSetOver.empty(Decoded).insertAll({ Flat: [], Owner: [], Node: [] })),
+		realityWrite(succeeded(testArtifacts(Decoded, testCompile), "the schema compiles"))
+	),
+	"insertAll compiles"
+)
+
+/** Each roster's codes one later, past a hole at the first code: an installation's codes that are not the decoder's. */
+const shifted = (codes: Codebook): Codebook => ({
+	rosters: new Map(
+		Arr.map([...codes.rosters], ([name, codec]) => [
+			name,
+			rosterCodec(name, [{ kind: "hole" }, ...codec.codes])
+		])
+	)
+})
+
+/** Where an insert is bound: under the decoder's own codes, and under an installation's other codes. */
+export const codings = ["the decoder's codes", "other codes"] as const
+
+/** The insert's flight under each coding (`codings`). */
+export const flights: Readonly<Record<(typeof codings)[number], FlightWrite>> = {
+	"the decoder's codes": flightOf(insertAll, insertAll.frontend.codes),
+	"other codes": flightOf(insertAll, shifted(insertAll.frontend.codes))
+}
+
+/** The transport every insert is bound under: the wire's. */
+const transport = inForce(bindFrame)
+
+/**
+ * What binding `ChangeSet.empty(Decoded).insertAll(rows)` under `flight` gives before any SQL (runtime/write/bind.ts
+ * bindWrite), the write every application runs: every statement's executions, none of one the write skips, or the
+ * write's refusal; and the rows it inserts, where it binds.
+ */
+export const outcomeOf = (flight: FlightWrite, rows: ArrayRows) =>
+	Effect.map(
+		collectInputs(
+			insertAll.binding.groups,
+			parsedOf(changeSetOver.empty(Decoded).insertAll(rows)).inputs
+		),
+		(members) => {
+			const bound = bindWrite(flight, { members, params: {}, transport })
+			if (!bound.ok) {
+				return { outcome: { kind: "refused", refusal: bound.error }, inserted: [] } as const
+			}
+			const write = bound.value
+			switch (write.kind) {
+				case "bound":
+					return {
+						outcome: {
+							kind: "bound",
+							statements: Arr.map(flight.statements, (statement) =>
+								write.skip.has(statement.index) ? undefined : write.chunks(statement, transport)
+							)
+						},
+						inserted: write.inserted()
+					} as const
+				case "invariant-rejected":
+				case "generated-rejected":
+					return { outcome: { kind: "rejected", write }, inserted: [] } as const
+			}
+		}
+	)
+
+/** What a case does to its rows once decode has read them: nothing, or a bytes value's buffer detached. */
+const afterwards = ["nothing", "a buffer detached"] as const
+type Afterward = (typeof afterwards)[number]
+
+/**
+ * Detaches the buffer of the first bytes value among Flat's rows, where one is, as a caller may once decode has read
+ * it: whether one was.
+ */
+export const detachedOne = (rows: ArrayRows): boolean => {
+	for (const row of rows.Flat) {
+		const b: unknown = Predicate.isObject(row) ? row["b"] : undefined
+		if (b instanceof Uint8Array && b.buffer instanceof ArrayBuffer) {
+			b.buffer.transfer()
+			return true
+		}
+	}
+	return false
+}
+
+/** Puts a handle no roster holds into every set the rows `inserted` hold, as a caller may: whether one was. */
+export const setsChanged = (inserted: ReadonlyArray<InsertedStratum>): boolean => {
+	const sets = Arr.flatMap(inserted, (stratum) =>
+		Arr.flatMap([...stratum.rows.values()], (rows) =>
+			Arr.flatMap(rows, (row) =>
+				Arr.filter(Array.from(row.values), (value) => value instanceof Set)
+			)
+		)
+	)
+	for (const set of sets) {
+		set.add("purple")
+	}
+	return sets.length > 0
+}
+
+/** A case of the insert's differential: its rows and the fault planted in them, and what it does to them after decode. */
+interface TakenCase {
+	readonly decoded: DecodeCase
+	readonly afterward: Afterward
+}
+
+/** What a case of the insert's differential reaches. */
+export type TakenFeature =
+	| "a flat relation's reads taken"
+	| "a nested relation's readings taken"
+	| "refused alike"
+	| "a buffer detached since"
+	| "a set taken again"
+
+export const takenFeatures: Arr.NonEmptyReadonlyArray<TakenFeature> = [
+	"a flat relation's reads taken",
+	"a nested relation's readings taken",
+	"refused alike",
+	"a buffer detached since",
+	"a set taken again"
+]
+
+/** A case of `planted` in rows of at least `least` rows each, then `afterward`. */
+const takenOf =
+	(planted: Gen<Planted>, least: number, afterward: Gen<Afterward>): Gen<TakenCase> =>
+	(source) => ({ decoded: caseOf(planted, least)(source), afterward: afterward(source) })
+
+/**
+ * The insert's differential's cases (TakenCase): every fault drawn in rows that are arrays, then nothing or a buffer
+ * detached; and rows with no fault, each relation's one or more, then a buffer detached, which few draws reach.
+ */
+export const takenSpace: Aimed<TakenCase, TakenFeature> = aimed(
+	takenOf(weighted<Planted>(inArrays), 0, element(afterwards)),
+	[
+		[
+			"a buffer detached since",
+			takenOf(
+				() => ({ kind: "none" }),
+				1,
+				() => "a buffer detached"
+			)
+		]
+	]
+)

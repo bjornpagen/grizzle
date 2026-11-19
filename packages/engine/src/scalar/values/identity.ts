@@ -747,6 +747,66 @@ export const headingPlan = (heading: ReadonlyArray<HeadingField>): HeadingPlan =
 	}
 }
 
+/** Whether two numeric typmods are one, or both none. */
+const sameTypmod = (a: NumericTypmod | undefined, b: NumericTypmod | undefined): boolean =>
+	a === b ||
+	(a !== undefined && b !== undefined && a.precision === b.precision && a.scale === b.scale)
+
+/** Whether two rosters' codecs are one: one roster, each code the same handle, each hole a hole. */
+const sameCodes = (a: RosterCodec, b: RosterCodec): boolean =>
+	a === b ||
+	(a.roster === b.roster &&
+		a.names.length === b.names.length &&
+		a.names.every((name, code) => name === b.names[code]))
+
+/**
+ * Whether a spec of carrier C and another spec admit, part and spell every value alike, each read through its own
+ * carrier: the other spec of C too, with the same typmod, roster codes, dimensions or width.
+ */
+const sameExtras: { readonly [C in Carrier]: (a: SpecOf<C>, b: CarrierSpec) => boolean } = {
+	int2: (_, b) => b.carrier === "int2",
+	int4: (_, b) => b.carrier === "int4",
+	int8: (_, b) => b.carrier === "int8",
+	numeric: (a, b) => b.carrier === "numeric" && sameTypmod(a.typmod, b.typmod),
+	float4: (_, b) => b.carrier === "float4",
+	float8: (_, b) => b.carrier === "float8",
+	money: (_, b) => b.carrier === "money",
+	bool: (_, b) => b.carrier === "bool",
+	uuid: (_, b) => b.carrier === "uuid",
+	date: (_, b) => b.carrier === "date",
+	text: (_, b) => b.carrier === "text",
+	bytes: (_, b) => b.carrier === "bytes",
+	code: (a, b) => b.carrier === "code" && sameCodes(a.roster, b.roster),
+	bits: (a, b) => b.carrier === "bits" && sameCodes(a.roster, b.roster),
+	range4: (a, b) => b.carrier === "range4" && a.width === b.width,
+	range8: (a, b) => b.carrier === "range8" && a.width === b.width,
+	rangeDate: (a, b) => b.carrier === "rangeDate" && a.width === b.width,
+	vector: (a, b) => b.carrier === "vector" && a.dimensions === b.dimensions,
+	exactInteger: (a, b) => b.carrier === "exactInteger" && sameTypmod(a.typmod, b.typmod),
+	exactMoney: (_, b) => b.carrier === "exactMoney"
+}
+
+/** Whether two specs admit, part and spell every value alike (`sameExtras`). */
+const sameSpec = <C extends Carrier>(a: SpecOf<C> & CarrierSpec, b: CarrierSpec): boolean => {
+	const own: SpecOf<C> = a
+	const same: (a: SpecOf<C>, b: CarrierSpec) => boolean = sameExtras[own.carrier]
+	return same(own, b)
+}
+
+/**
+ * Whether two planned headings read every fact alike: the same fields, each of the same name and spec, so a fact read
+ * against one is read against the other, value for value and part for part (`readFact`). Codes are an installation's,
+ * so a closed id's or a set's field is the same only under the same roster codes.
+ */
+export const samePlan = (a: HeadingPlan, b: HeadingPlan): boolean =>
+	a === b ||
+	(a.names === b.names &&
+		a.fields.length === b.fields.length &&
+		a.fields.every((field, at) => {
+			const other = b.fields[at]
+			return other !== undefined && field.name === other.name && sameSpec(field.spec, other.spec)
+		}))
+
 /** What reading a fact answers for a fact whose shape could not be read. */
 const unshapedFact = (): FactFault => ({ fault: "factShape", field: undefined })
 
@@ -850,6 +910,79 @@ const partOf = (spec: CarrierSpec, value: HostValue | Uint8Array): string =>
 		: spec.carrier === "bytes" && value instanceof AdmittedBytes
 			? String(value.bytes.length)
 			: canonicalText(spec, value)
+
+/**
+ * How a read holds a carrier's value (ReadFact `values`): an immutable value ("shared"), a primitive or a frozen object,
+ * which any number of writes may take from one read; or one a write takes again from the read ("again"): a bytes
+ * value, the caller's array, which a read checks and keeps unread (values/bytes.ts checkBytes); a set's, the copy its
+ * read made in a Set, which no freeze fixes (admitHandles); a vector's, the copy its read made in a Float32Array
+ * (admitVector).
+ */
+const heldAs: { readonly [C in Carrier]: "shared" | "again" } = {
+	int2: "shared",
+	int4: "shared",
+	int8: "shared",
+	numeric: "shared",
+	float4: "shared",
+	float8: "shared",
+	money: "shared",
+	bool: "shared",
+	uuid: "shared",
+	date: "shared",
+	text: "shared",
+	bytes: "again",
+	code: "shared",
+	bits: "again",
+	range4: "shared",
+	range8: "shared",
+	rangeDate: "shared",
+	vector: "again",
+	exactInteger: "shared",
+	exactMoney: "shared"
+}
+
+/** The positions among a planned heading's entries of the fields whose values a write takes again (`heldAs`). */
+export const againAt = (plan: HeadingPlan): ReadonlyArray<number> =>
+	plan.entries.flatMap((field, at) => (heldAs[field.spec.carrier] === "again" ? [at] : []))
+
+/**
+ * A fact's read made earlier, as a write takes it now, `again` the positions of its heading's fields it takes again
+ * (`againAt`), each admitted again from the value the read holds: a bytes value checked again, its part its length
+ * now, so a buffer detached since is refused as a read now refuses it and one resized since is measured at its length
+ * now; a set or a vector copied again, so every write holds a copy of its own and the read's own copy goes to none, its
+ * part the same, since its members or components are the copy's. Every other value is immutable, the read's own.
+ */
+export const readAgain = (
+	plan: HeadingPlan,
+	read: ReadFact,
+	again: ReadonlyArray<number>
+): Result.Result<ReadFact, FactFault> => {
+	let values: Array<unknown> | undefined
+	let parts: Array<string> | undefined
+	for (const at of again) {
+		const { name, spec } = defined(plan.entries[at], "a field among the heading's entries")
+		const value = admitValue(spec, read.values[at])
+		if (!value.ok) {
+			return Result.err({ fault: value.error, field: name })
+		}
+		if (value.value !== read.values[at]) {
+			values ??= [...read.values]
+			values[at] = value.value
+		}
+		if (spec.carrier === "bytes") {
+			const part = partOf(spec, value.value)
+			if (part !== read.parts[at]) {
+				parts ??= [...read.parts]
+				parts[at] = part
+			}
+		}
+	}
+	return Result.ok(
+		values === undefined && parts === undefined
+			? read
+			: { values: values ?? read.values, parts: parts ?? read.parts }
+	)
+}
 
 /**
  * A read fact's bytes field `name` admitted with its digest: the caller's array digested, or a value admitted already
