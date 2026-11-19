@@ -17,6 +17,8 @@ import {
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, String as Str } from "effect"
 import { DatabaseError } from "pg"
+import * as Execution from "#adapter/errors/execution.ts"
+import * as Failures from "#adapter/errors/failures.ts"
 import { literalBound, messageBound } from "#adapter/errors/failures.ts"
 import { type FenceStep } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
@@ -33,9 +35,9 @@ import { assert, defined } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 
 /**
- * The failure values an application's test builds: every failure Db.open, DbLayer.make or a member's explain can
- * fail with has a constructor in the public barrel, and it is the one the adapter builds that failure
- * with, so a test's value is exactly grizzle's, built with no cast and no object literal standing in for a class. The
+ * The failure values an application's test builds: every failure Db.open or DbLayer.make can fail with has a
+ * constructor in the public barrel, and every failure the adapter classifies, which a call's
+ * CallError reads, is built by its own constructor, the one the adapter builds that failure with, so a test's value is exactly grizzle's, built with no cast and no object literal standing in for a class. The
  * outcome values are the adapter's own (adapter/outcomes applyOutcome), which a write call reads as its WriteOutcome or
  * its refusal; they are built here with those constructors.
  *
@@ -58,8 +60,11 @@ import { wild } from "#test/support/kernel/naming.ts"
  * Features: each constructor, each SQLSTATE grizzle branches on and any other, each report field empty or present.
  */
 
-/** The errors the public channels name: Db.open's and DbLayer.make's, a member's explain's, generate's compile's. */
-type Channel = Public.OpenError | Public.ReadError | CompileError
+/** The errors a caller meets as classes: Db.open's and DbLayer.make's, and the compile's. */
+type PublicChannel = Public.OpenError | CompileError
+
+/** The errors the adapter classifies, the public ones and those a call's CallError reads (live/call-error.ts). */
+type Channel = PublicChannel | Execution.ReadError | Execution.ApplyError
 
 /** A field's value when it is a failure: an Error carrying its tag. */
 type FailureIn<V> = V extends Error & { readonly _tag: string } ? V : never
@@ -88,50 +93,53 @@ const constructors: {
 		...args: never
 	) => Extract<Failure, { readonly _tag: T }>
 } = {
-	CallInputRefused: Public.CallInputRefused,
+	CallInputRefused: Failures.CallInputRefused,
 	ClaimRefused: Public.ClaimRefused,
-	CommitLost: Public.CommitLost,
+	CommitLost: Failures.CommitLost,
+	CommitUnknown: Execution.CommitUnknown,
 	CompileError,
-	ConcurrentRefresh: Public.ConcurrentRefresh,
-	ConnectionClosed: Public.ConnectionClosed,
+	ConcurrentRefresh: Failures.ConcurrentRefresh,
+	ConnectionClosed: Failures.ConnectionClosed,
 	ConnectionEnvironmentRefused: Public.ConnectionEnvironmentRefused,
-	ConnectionLost: Public.ConnectionLost,
-	ConnectTimedOut: Public.ConnectTimedOut,
+	ConnectionLost: Failures.ConnectionLost,
+	ConnectTimedOut: Failures.ConnectTimedOut,
 	CredentialError: Public.CredentialError,
 	DbConfigRefused: Public.DbConfigRefused,
-	Deadlock: Public.Deadlock,
-	DriverFailure: Public.DriverFailure,
-	DriverRefused: Public.DriverRefused,
+	Deadlock: Failures.Deadlock,
+	DriverFailure: Failures.DriverFailure,
+	DriverRefused: Failures.DriverRefused,
 	EncodingFailure,
+	ExecutionFailure: Execution.ExecutionFailure,
 	ExpiryRefused: Public.ExpiryRefused,
-	GeneratedSerialUnique: Public.GeneratedSerialUnique,
-	InputRejected: Public.InputRejected,
-	InputTooLarge: Public.InputTooLarge,
-	LawRejected: Public.LawRejected,
-	LayerReleased: Public.LayerReleased,
+	GeneratedSerialUnique: Failures.GeneratedSerialUnique,
+	InputRejected: Failures.InputRejected,
+	InputTooLarge: Failures.InputTooLarge,
+	LawRejected: Failures.LawRejected,
+	LayerReleased: Failures.LayerReleased,
 	LiveSourceMissing: Public.LiveSourceMissing,
-	Migrated: Public.Migrated,
-	Migrating: Public.Migrating,
-	NoCancelKey: Public.NoCancelKey,
+	Migrated: Failures.Migrated,
+	Migrating: Failures.Migrating,
+	NoCancelKey: Failures.NoCancelKey,
 	OpenError: Public.OpenError,
-	ParamRejected: Public.ParamRejected,
-	PutTargetConflict: Public.PutTargetConflict,
-	ReadFailure: Public.ReadFailure,
+	ParamRejected: Failures.ParamRejected,
+	PutTargetConflict: Failures.PutTargetConflict,
+	ReadFailure: Execution.ReadFailure,
 	RoleOutsideLayers: Public.RoleOutsideLayers,
-	SerializationFailure: Public.SerializationFailure,
+	SerializationFailure: Failures.SerializationFailure,
 	ServedLoginRefused: Public.ServedLoginRefused,
-	ServerError: Public.ServerError,
-	SocketFailed: Public.SocketFailed,
-	SpanKeyChange: Public.SpanKeyChange,
-	StaleSnapshot: Public.StaleSnapshot,
-	StartupRefused: Public.StartupRefused,
-	TemporaryRefused: Public.TemporaryRefused,
-	TlsRefused: Public.TlsRefused,
+	ServerError: Failures.ServerError,
+	SocketFailed: Failures.SocketFailed,
+	SpanKeyChange: Failures.SpanKeyChange,
+	StaleSnapshot: Execution.StaleSnapshot,
+	StartupRefused: Failures.StartupRefused,
+	TemporaryRefused: Failures.TemporaryRefused,
+	TlsRefused: Failures.TlsRefused,
 	TokenError: Public.TokenError,
 	TokenMalformed: Public.TokenMalformed,
-	TransientFailure: Public.TransientFailure,
-	UnreadableAnswer: Public.UnreadableAnswer,
-	UnseenOccupant: Public.UnseenOccupant
+	TransientFailure: Execution.TransientFailure,
+	TransportFailure: Execution.TransportFailure,
+	UnreadableAnswer: Failures.UnreadableAnswer,
+	UnseenOccupant: Failures.UnseenOccupant
 }
 
 /** Whether the adapter built `failure` with the public constructor of its tag. */
@@ -459,8 +467,8 @@ const databaseError = (r: Report): DatabaseError => {
 }
 
 /** The report built with the public constructor, carrying every field as given, an empty one saying nothing. */
-export const publicServerError = (r: Report): Public.ServerError => {
-	const built = new Public.ServerError({
+export const publicServerError = (r: Report): Failures.ServerError => {
+	const built = new Failures.ServerError({
 		sqlstate: defined(Sqlstate.parse(r.code), `${r.code} is a SQLSTATE`),
 		message: r.message,
 		constraint: r.constraint,
@@ -487,13 +495,13 @@ export const publicServerError = (r: Report): Public.ServerError => {
 
 /** SERIALIZABLE's refusal of the report, by its SQLSTATE: 40001 or 40P01, and none for any other. */
 export const serializableOf = (
-	error: Public.ServerError
-): Public.SerializationFailure | Public.Deadlock | undefined => {
+	error: Failures.ServerError
+): Failures.SerializationFailure | Failures.Deadlock | undefined => {
 	const code: string = error.sqlstate
 	return code === serialization
-		? new Public.SerializationFailure()
+		? new Failures.SerializationFailure()
 		: code === deadlock
-			? new Public.Deadlock()
+			? new Failures.Deadlock()
 			: undefined
 }
 
@@ -501,48 +509,48 @@ export const serializableOf = (
  * fenced write's lock. */
 export const staleOf = (
 	step: FenceStep,
-	error: Public.ServerError
-): Public.StaleReason | undefined => {
+	error: Failures.ServerError
+): Failures.StaleReason | undefined => {
 	const code: string = error.sqlstate
 	switch (step) {
 		case "lock":
-			return code === lockNotAvailable ? new Public.Migrating() : undefined
+			return code === lockNotAvailable ? new Failures.Migrating() : undefined
 		case "exclude":
 			return undefined
 		case "guard":
 			return code === migrating
-				? new Public.Migrating()
+				? new Failures.Migrating()
 				: code === migrated
-					? new Public.Migrated()
+					? new Failures.Migrated()
 					: undefined
 	}
 }
 
 /** The public reason of an engine reason, its facts carried as drawn. */
-export const publicReason = (reason: DrawnReason): Public.TransientReason => {
+export const publicReason = (reason: DrawnReason): Failures.TransientReason => {
 	switch (reason._tag) {
 		case "SerializationFailure":
-			return new Public.SerializationFailure()
+			return new Failures.SerializationFailure()
 		case "Deadlock":
-			return new Public.Deadlock()
+			return new Failures.Deadlock()
 		case "PutTargetConflict":
-			return new Public.PutTargetConflict({ relation: reason.relation })
+			return new Failures.PutTargetConflict({ relation: reason.relation })
 		case "GeneratedSerialUnique": {
-			const built = new Public.GeneratedSerialUnique(reason)
+			const built = new Failures.GeneratedSerialUnique(reason)
 			assert.equal<string>(built.constraint, reason.constraint)
 			assert.equal(built.relation, reason.relation)
 			return built
 		}
 		case "SpanKeyChange":
-			return new Public.SpanKeyChange({ relation: reason.relation })
+			return new Failures.SpanKeyChange({ relation: reason.relation })
 		case "UnseenOccupant": {
-			const built = new Public.UnseenOccupant(reason)
+			const built = new Failures.UnseenOccupant(reason)
 			assert.equal<string>(built.constraint, reason.constraint)
 			assert.equal(built.relation, reason.relation)
 			return built
 		}
 		case "ConcurrentRefresh":
-			return new Public.ConcurrentRefresh({ relation: reason.relation })
+			return new Failures.ConcurrentRefresh({ relation: reason.relation })
 	}
 }
 
@@ -566,14 +574,14 @@ export const engineReason = (reason: DrawnReason): EngineReason => {
 }
 
 /** The public InputTooLarge of an engine bound, its facts carried as the README states each bound's. */
-export const publicBound = (bound: MessageBound | LiteralBound): Public.InputTooLarge => {
+export const publicBound = (bound: MessageBound | LiteralBound): Failures.InputTooLarge => {
 	switch (bound._tag) {
 		case "MessageBound":
-			return new Public.InputTooLarge({
+			return new Failures.InputTooLarge({
 				bound: { kind: "input", input: bound.input, bytes: bound.bytes, limit: bound.limit }
 			})
 		case "LiteralBound":
-			return new Public.InputTooLarge({
+			return new Failures.InputTooLarge({
 				bound: {
 					kind: "literal",
 					form: bound.form,
@@ -585,7 +593,7 @@ export const publicBound = (bound: MessageBound | LiteralBound): Public.InputToo
 	}
 }
 
-export const adapterBound = (bound: MessageBound | LiteralBound): Public.InputTooLarge => {
+export const adapterBound = (bound: MessageBound | LiteralBound): Failures.InputTooLarge => {
 	switch (bound._tag) {
 		case "MessageBound":
 			return messageBound(bound)

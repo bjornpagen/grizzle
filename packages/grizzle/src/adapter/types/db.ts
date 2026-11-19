@@ -1,5 +1,5 @@
 import type { Effect, Stream } from "effect"
-import type { DeferrableReadError, OpenError, ReadError } from "#adapter/errors/execution.ts"
+import type { OpenError } from "#adapter/errors/execution.ts"
 import type { DbLayerService, ServedRole } from "#adapter/types/layer.ts"
 import type {
 	CallError,
@@ -20,7 +20,6 @@ import type { AnyChangeSet, Refused, Witness } from "#compiler/plan/change.ts"
 import type {
 	AnyRole,
 	Clocked,
-	Deferrable,
 	Invariant,
 	Phantom,
 	ReadsContext,
@@ -144,49 +143,46 @@ interface WatchCall<In, A, Ps, Key extends boolean, Ev> {
  */
 type ExplainOf<X> = symbol extends keyof X ? ExplainOfProgram<X> : ExplainByKey<X>
 type ExplainByKey<X> = X extends unknown
-	? "deferrable" extends keyof X
-		? ReadExplain<X, DeferrableReadError>
-		: "refresh" extends keyof X
-			? unknown
-			: "write" extends ServedShape<X>
-				? ChangeExplain<X>
-				: ReadExplain<X, ReadError>
+	? "refresh" extends keyof X
+		? unknown
+		: "write" extends ServedShape<X>
+			? ChangeExplain<X>
+			: ReadExplain<X>
 	: never
 type ExplainOfProgram<X> =
-	X extends Deferrable<unknown>
-		? ReadExplain<X, DeferrableReadError>
-		: X extends Refresh<unknown>
-			? unknown
-			: (X extends Clocked<infer P, unknown> ? P : X) extends AnyChangeSet
-				? ChangeExplain<X>
-				: ReadExplain<X, ReadError>
+	X extends Refresh<unknown>
+		? unknown
+		: (X extends Clocked<infer P, unknown> ? P : X) extends AnyChangeSet
+			? ChangeExplain<X>
+			: ReadExplain<X>
 
 /**
  * A served read member's plans for a call's input, as its once takes it: the one statement its once sends, a paged
  * member's for its window's template and anchor, planned by PostgreSQL for those values in one transaction of the Db's
- * role that is rolled back, the read's own: SERIALIZABLE READ ONLY, DEFERRABLE for a deferrable member, whose error E
- * then holds no serialization failure. `explain` asks for PostgreSQL's estimates alone and runs nothing;
- * `explainAnalyze` runs the statement under EXPLAIN ANALYZE and reports what each node did beside its estimates.
+ * role that is rolled back, the read's own: SERIALIZABLE READ ONLY, DEFERRABLE for a deferrable member. `explain` asks
+ * for PostgreSQL's estimates alone and runs nothing; `explainAnalyze` runs the statement under EXPLAIN ANALYZE and
+ * reports what each node did beside its estimates. Each fails as the member's once fails, with the CallError its read
+ * would end in.
  */
-export interface ReadExplain<X, E> {
+export interface ReadExplain<X> {
 	explain<const I>(
 		input: I & NoInfer<InputCheck<I, X>>
-	): Effect.Effect<ReadonlyArray<StatementPlan>, E>
+	): Effect.Effect<ReadonlyArray<StatementPlan>, CallError>
 	explainAnalyze<const I>(
 		input: I & NoInfer<InputCheck<I, X>>
-	): Effect.Effect<ReadonlyArray<ExecutedStatement>, E>
+	): Effect.Effect<ReadonlyArray<ExecutedStatement>, CallError>
 }
 
 /**
  * A served change member's plans for a call's input, as its once takes it: the estimates of every statement its once
  * sends, in one transaction of the Db's role at SERIALIZABLE that is rolled back, so it writes nothing. A ChangeSet's
  * statements are never run under EXPLAIN ANALYZE: a write rolled back still advances its serial fields' sequences,
- * which no rollback undoes.
+ * which no rollback undoes. It fails with the CallError a read of its statements would end in.
  */
 export interface ChangeExplain<X> {
 	explain<const I>(
 		input: I & NoInfer<InputCheck<I, X>>
-	): Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
+	): Effect.Effect<ReadonlyArray<StatementPlan>, CallError>
 }
 
 /**

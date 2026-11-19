@@ -3799,8 +3799,8 @@ fails with its `CallError`, by kind:
 
 `Db.open` contacts nothing, so a connection that can't be had is the first call's failure, never the open's.
 
-A call's `CallError` is read from the reason that failed it, each reason a class grizzle exports
-(adapter/live/call-error.ts):
+A call's `CallError` is read from the reason that failed it, each reason a class of grizzle's own
+(adapter/live/call-error.ts), and a member's `explain` and `explainAnalyze` fail with the `CallError` its `once` would:
 
 | Reason                                                                                                                                                                       | `kind`          |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |

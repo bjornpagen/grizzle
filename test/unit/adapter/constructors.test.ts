@@ -2,13 +2,13 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { serializationRefusal, transientReason } from "#adapter/errors/execution.ts"
+import * as Execution from "#adapter/errors/execution.ts"
 import { applyOutcome, transientFailureOf } from "#adapter/outcomes/index.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { fenceReason } from "#adapter/wire/batch.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { UniqueAbort } from "#compiler/plan/change.ts"
 import { admittedIdentifier } from "#compiler/plan/common.ts"
-import * as Public from "#index.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	adapterBound,
@@ -64,7 +64,7 @@ export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeEx
 							refused,
 							serializable === undefined
 								? undefined
-								: new Public.TransientFailure({ reason: serializable, error })
+								: new Execution.TransientFailure({ reason: serializable, error })
 						)
 						for (const step of ["lock", "guard"] as const) {
 							const stale = staleOf(step, error)
@@ -73,7 +73,7 @@ export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeEx
 								continue
 							}
 							c.note("report stale")
-							const snapshot = new Public.StaleSnapshot({
+							const snapshot = new Execution.StaleSnapshot({
 								reason: stale,
 								snapshot: drawnCase.snapshot,
 								error
@@ -113,7 +113,7 @@ export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeEx
 						assert.deepEqual(
 							failure,
 							drawnCase.matched
-								? new Public.TransientFailure({ reason: publicReason(reason), error })
+								? new Execution.TransientFailure({ reason: publicReason(reason), error })
 								: undefined
 						)
 						if (failure !== undefined) {

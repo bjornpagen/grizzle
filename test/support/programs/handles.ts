@@ -3,8 +3,7 @@
  * program imports these alone, each through this module.
  */
 export type { Effect } from "effect"
-export type { Db, MemberHandle } from "#adapter/public/db.ts"
-export type { DeferrableReadError, ReadError } from "#adapter/public/errors.ts"
+export type { CallError, Db, MemberHandle } from "#adapter/public/db.ts"
 export { ChangeSet } from "#compiler/public/changeset.ts"
 export { pg, uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"

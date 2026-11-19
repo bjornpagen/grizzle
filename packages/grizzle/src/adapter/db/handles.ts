@@ -834,13 +834,22 @@ export const memberExplains = (
 	}
 }
 
-/** The members a handle holds of its member's explains, each its own call. */
+/**
+ * The members a handle holds of its member's explains, each its own call, failing as the member's once fails: a read's
+ * failure read as its CallError (live/call-error.ts readCallError).
+ */
 const explainsOf = (explains: MemberExplains): object => {
 	switch (explains.kind) {
 		case "read":
-			return { explain: explains.explain, explainAnalyze: explains.explainAnalyze }
+			return {
+				explain: (input: unknown) => Effect.mapError(explains.explain(input), readCallError),
+				explainAnalyze: (input: unknown) =>
+					Effect.mapError(explains.explainAnalyze(input), readCallError)
+			}
 		case "change":
-			return { explain: explains.explain }
+			return {
+				explain: (input: unknown) => Effect.mapError(explains.explain(input), readCallError)
+			}
 		case "refresh":
 			return {}
 	}

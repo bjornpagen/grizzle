@@ -12,8 +12,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * The oracle: a handle is admitted exactly when its program is the function's own, whichever login's role holds it, a
  * role over the level or over its extension; the handle of the kind's other program is refused. Each pairing states
  * its verdict as a type the program must hold, and each admitted handle is also passed to the function, so the program
- * typechecks clean exactly when every verdict holds. Each read kind's explain fails with its read's error: a deferrable
- * read's with DeferrableReadError, which holds no serialization failure, every other read's with ReadError. Each
+ * typechecks clean exactly when every verdict holds. Each read kind's explain fails as its once does, with CallError. Each
  * pairing is a cell of the box, and so is each read kind's explain; the level, its programs and the Dbs are the
  * batch's own.
  */
@@ -23,10 +22,10 @@ const kinds = ["query", "paged", "key", "deferrable", "change", "facts"] as cons
 
 /** The read kinds, each with the error its explain fails with. */
 const readErrors: Arr.NonEmptyReadonlyArray<readonly [Kind, string]> = [
-	["query", "ReadError"],
-	["paged", "ReadError"],
-	["key", "ReadError"],
-	["deferrable", "DeferrableReadError"]
+	["query", "CallError"],
+	["paged", "CallError"],
+	["key", "CallError"],
+	["deferrable", "CallError"]
 ]
 
 type Kind = (typeof kinds)[number]
