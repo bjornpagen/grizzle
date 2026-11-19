@@ -14,6 +14,7 @@ import { assert } from "#test/support/assert.ts"
 import { type CaseSpace, caseGen } from "#test/support/flight/cases.ts"
 import type { Timing } from "#test/support/flight/drive.ts"
 import {
+	callAnswers,
 	type FlightCase,
 	type FlightFeature,
 	type Framed,
@@ -148,7 +149,7 @@ const runOnce = (
 	const sent: ReadonlyArray<ReadonlyArray<Framed>> = Arr.map(session.flights(), (flight) =>
 		Arr.map(flight.pipeline, framed)
 	)
-	assert.deepEqual(sent, framingOf(c.call, sqlOf), "the flight's texts")
+	assert.deepEqual(sent, framingOf(c.call, sqlOf).slice(0, sent.length), "the flights' texts")
 	assert.equal(session.open(), false, "the server holds no transaction open")
 	assert.equal(session.deliverable(), false, "every answer was read")
 	/**
@@ -156,14 +157,16 @@ const runOnce = (
 	 * made reaches the client, and only a query the server never answered, a stuck statement's and those behind it, can
 	 * fail for a destroyed connection.
 	 */
-	const flight = session.flights()[0]
-	for (const [index, made] of (flight?.made ?? []).entries()) {
-		if (made !== undefined) {
-			assert.deepEqual(
-				flight?.delivered[index]?.answer,
-				made,
-				`the answer the server made at ${index} reached the client`
-			)
+	const flights = session.flights()
+	for (const [at, flight] of flights.entries()) {
+		for (const [index, made] of flight.made.entries()) {
+			if (made !== undefined) {
+				assert.deepEqual(
+					flight.delivered[index]?.answer,
+					made,
+					`the answer the server made at ${index} of flight ${at} reached the client`
+				)
+			}
 		}
 	}
 	const observation = observations.run
@@ -192,7 +195,7 @@ const runOnce = (
 			k.note(`prologue ${slot.step} ${slot.answer}`)
 		}
 	}
-	const delivered = session.flights()[0]?.delivered ?? []
+	const { delivered } = callAnswers(c.call, session.flights())
 	const point = interruptionPoint(c.call, delivered, observations.interruption)
 	if (point !== "none") {
 		k.note(`interrupted ${point}`)

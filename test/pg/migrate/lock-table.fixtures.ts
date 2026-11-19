@@ -116,20 +116,47 @@ export const refusingTransaction = (
 	}
 }
 
-/** `m`, whose transaction alongside is refused at statement `index`, answered as the server's 53200. */
-export const refusingAlongside = (m: MigrationSession, index: number): MigrationSession => ({
+/**
+ * `m`, whose transaction alongside, the drift check's, is refused in its second flight at the statement `pick` picks
+ * among that flight's, answered as the server's 53200.
+ */
+export const refusingAlongside = (
+	m: MigrationSession,
+	pick: (statements: ReadonlyArray<BatchStatement>) => number
+): MigrationSession => ({
 	installation: m.installation,
 	apart: m.apart,
 	transaction: m.transaction,
-	alongside: (apart, statements, transaction) =>
-		Effect.map(m.alongside(apart, replaced(statements, index), transaction), (answered) => ({
-			alone: answered.alone,
-			framed: Result.mapError(answered.framed, (failure) =>
-				failure._tag === "BatchRefused" && failure.index === index
-					? new BatchRefused({ index, failure: outOfLocks })
-					: failure
-			)
-		}))
+	alongside: (apart, first, then, transaction) => {
+		/** The refused statement's index in the second flight, once `then` made it. */
+		let index = -1
+		return Effect.map(
+			m.alongside(
+				apart,
+				first,
+				(alone, outcomes) =>
+					Result.map(then(alone, outcomes), (second) => {
+						index = pick(second.statements)
+						return { ...second, statements: replaced(second.statements, index) }
+					}),
+				transaction
+			),
+			(answered) => ({
+				alone: answered.alone,
+				framed: Result.map(answered.framed, (opened) => ({
+					...opened,
+					made: Result.map(opened.made, (made) => ({
+						...made,
+						second: Result.mapError(made.second, (failure) =>
+							failure._tag === "BatchRefused" && failure.index === index
+								? new BatchRefused({ index, failure: outOfLocks })
+								: failure
+						)
+					}))
+				}))
+			})
+		)
+	}
 })
 
 /** The lock table exhausted a MigrateError's reason carries at the place it stops, none for any other failure. */

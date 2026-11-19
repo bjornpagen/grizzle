@@ -47,7 +47,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Option, Result } from "effect"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import { Db } from "#adapter/public/db.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -75,7 +74,12 @@ import {
 	type Row,
 	steeredLogins
 } from "#test/pg/levels/level-checks.fixtures.ts"
-import { folderSource, openMigrator } from "#test/pg/migrate/support.ts"
+import {
+	openMigrator,
+	parsedTarget,
+	type TextTarget,
+	writtenTexts
+} from "#test/pg/migrate/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
@@ -397,16 +401,18 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19rc2ValidatesALevelsC
 								)
 							}
 							const added = draft(stacked, done.snapshot, "20261014000000")
-							const addedTarget: MigrationTarget = {
+							const addedTarget: TextTarget = {
 								snapshot: added.snapshot,
-								folders: [...done.folders, folderSource(added.folder)]
+								folders: [...done.folders, writtenTexts(added.folder)]
 							}
 							const migrator = yield* openMigrator(s, s.owner)
 							const breaking = Arr.filter(k.seeds, (row) =>
 								Arr.some(level, (l) => !holds(l.pred, row))
 							)
 							const before = yield* contents
-							const first = yield* Effect.result(applyOnSession(migrator, [addedTarget]))
+							const first = yield* Effect.result(
+								applyOnSession(migrator, [parsedTarget(addedTarget)])
+							)
 							if (breaking.length === 0) {
 								assert.ok(
 									Result.isSuccess(first),
@@ -449,7 +455,7 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19rc2ValidatesALevelsC
 										)
 									}
 								}
-								yield* applyOnSession(migrator, [addedTarget])
+								yield* applyOnSession(migrator, [parsedTarget(addedTarget)])
 							}
 							assert.deepEqual(
 								levelRecord(added.snapshot, 0),
@@ -488,11 +494,11 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19rc2ValidatesALevelsC
 								c.note("a probe refused")
 							}
 							const removed = draft(bare, added.snapshot, "20261015000000")
-							const removedTarget: MigrationTarget = {
+							const removedTarget: TextTarget = {
 								snapshot: removed.snapshot,
-								folders: [...addedTarget.folders, folderSource(removed.folder)]
+								folders: [...addedTarget.folders, writtenTexts(removed.folder)]
 							}
-							yield* applyOnSession(migrator, [removedTarget])
+							yield* applyOnSession(migrator, [parsedTarget(removedTarget)])
 							assert.deepEqual(
 								levelRecord(removed.snapshot, 0),
 								levelRecord(done.snapshot, 0),

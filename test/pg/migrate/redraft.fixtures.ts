@@ -4,7 +4,7 @@ import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { AppliedEdit, MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -251,13 +251,13 @@ const refusedFirst = (text: string): string =>
 		: `${failingStatement}\n${text}`
 
 /** `folder` with its file at `index` refused at its first statement, when it holds one there. */
-const refusedAt = (folder: FolderSource, index: number): FolderSource => ({
+const refusedAt = (folder: FolderTexts, index: number): FolderTexts => ({
 	...folder,
 	files: Arr.map(folder.files, (f, i) => (i === index ? { ...f, text: refusedFirst(f.text) } : f))
 })
 
 /** `folder` with one file more after its own. */
-const withAdded = (folder: FolderSource): FolderSource => ({
+const withAdded = (folder: FolderTexts): FolderTexts => ({
 	...folder,
 	files: [
 		...folder.files,
@@ -332,8 +332,8 @@ type Verdict =
 
 /** The verdict, restated over the folder as it ran and the regeneration as the directory holds it (see the header). */
 const verdictOf = (
-	ran: FolderSource,
-	regeneration: FolderSource,
+	ran: FolderTexts,
+	regeneration: FolderTexts,
 	completed: number,
 	sourceAlike: boolean
 ): Verdict => {
@@ -448,7 +448,7 @@ export const runCase = (c: RedraftCase, k: Case<Feature>) =>
 		)
 		const reviewed = reviewedSource(regeneration.g, kept)
 		const held = c.added ? withAdded(reviewed) : reviewed
-		const directory = (folder: FolderSource) => ({
+		const directory = (folder: FolderTexts) => ({
 			snapshot: regeneration.g.snapshot,
 			folders: [...reviewedBefore, folder]
 		})

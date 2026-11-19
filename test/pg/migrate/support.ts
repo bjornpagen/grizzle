@@ -23,7 +23,11 @@ import {
 	type StatementFailure,
 	stopped
 } from "#adapter/migrate/errors.ts"
-import type { FolderSource, MigrationTarget } from "#adapter/migrate/input.ts"
+import {
+	type FolderTexts,
+	folderSource as parsedSource,
+	type MigrationTarget
+} from "#adapter/migrate/input.ts"
 import {
 	type MigrationConnection,
 	type MigrationSession,
@@ -155,8 +159,8 @@ export const keeping = (value: string): Decisions => ({
 /** Every loss written, '0' for every placeholder: an untyped literal every numeric and text type accepts. */
 export const kept: Reviewer = { decisions: () => keeping("'0'"), edit: unedited }
 
-/** A drafted folder reviewed as the command line reads it. */
-export const reviewedSource = (g: GenerateResult, reviewer: Reviewer): FolderSource => {
+/** A drafted folder reviewed, its texts as the command line reads them. */
+export const reviewedSource = (g: GenerateResult, reviewer: Reviewer): FolderTexts => {
 	const reviewed = review(g, reviewer.decisions(g))
 	return {
 		name: g.folder.name,
@@ -168,11 +172,26 @@ export const reviewedSource = (g: GenerateResult, reviewer: Reviewer): FolderSou
 	}
 }
 
-/** A folder as written: a custom migration, or a draft applied with its markers. */
-export const folderSource = (folder: MigrationFolder): FolderSource => ({
+/** A folder as written, a custom migration or a draft applied with its markers: its texts. */
+export const writtenTexts = (folder: MigrationFolder): FolderTexts => ({
 	name: folder.name,
 	metaText: folder.metaText,
 	files: folder.files
+})
+
+/**
+ * A migrations directory as a test holds it: the snapshot it knows and every folder's texts, which a test edits as a
+ * person edits the files.
+ */
+export interface TextTarget {
+	readonly snapshot: DeploySnapshot
+	readonly folders: ReadonlyArray<FolderTexts>
+}
+
+/** A directory's texts as `grizzle migrate` reads them, each folder parsed once (input.ts folderSource). */
+export const parsedTarget = (t: TextTarget): MigrationTarget => ({
+	snapshot: t.snapshot,
+	folders: Arr.map(t.folders, parsedSource)
 })
 
 /** A further admission of the applied catalog, such as the installed-catalog checker, run on the migration session
@@ -189,11 +208,11 @@ export const noFurther: Option.Option<FurtherAdmission> = Option.none()
  * runner's own admission's would. */
 export const apply = (
 	session: MigrationSession,
-	t: MigrationTarget,
+	t: TextTarget,
 	further: Option.Option<FurtherAdmission>
 ): Effect.Effect<SchemaApplyReport, MigrateError> =>
 	Effect.gen(function* () {
-		const [report] = yield* applyOnSession(session, [t])
+		const [report] = yield* applyOnSession(session, [parsedTarget(t)])
 		assert.ok(report !== undefined, "the apply reports its one schema")
 		const schema = t.snapshot.schema
 		const mismatches: ReadonlyArray<DriftMismatch> = Option.isNone(further)
@@ -696,7 +715,7 @@ export const drafted = (
 }
 
 /** The migrations directory as of step `i`: every folder up to it that changes something, as its reviewer left it. */
-export const directory = (steps: ReadonlyArray<Step>, i: number): MigrationTarget => {
+export const directory = (steps: ReadonlyArray<Step>, i: number): TextTarget => {
 	const step = steps[i]
 	if (step === undefined) {
 		throw new Error(`no step ${i}`)

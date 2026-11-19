@@ -15,7 +15,7 @@ import {
 import { fromEngine } from "#adapter/engine.ts"
 import { applyOnSession, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import { type FolderTexts, folderSource } from "#adapter/migrate/input.ts"
 import { migrationSession } from "#adapter/migrate/session.ts"
 import { served as servedLogin } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
@@ -158,7 +158,7 @@ export interface Installed {
 	 * The migrations that installed it, in order, as they were applied, and the snapshot the last one reached: what a
 	 * DbLayer of its logins is given.
 	 */
-	readonly folders: Arr.NonEmptyReadonlyArray<FolderSource>
+	readonly folders: Arr.NonEmptyReadonlyArray<FolderTexts>
 	readonly snapshot: DeploySnapshot
 	/**
 	 * The owner as the installation's own sessions log in, with the ambient session they start under: what every later
@@ -319,7 +319,7 @@ const isPrivilege = (statement: string): boolean => {
  * string of the same value, the one constant PostgreSQL reads from either spelling.
  */
 export const runsInstallScript = (
-	folders: ReadonlyArray<FolderSource>,
+	folders: ReadonlyArray<FolderTexts>,
 	installation: Installation,
 	database: string
 ): boolean => {
@@ -424,7 +424,7 @@ export const runsInstallScript = (
  */
 export const expectFreshCatalog = (
 	migrated: Installation,
-	folders: ReadonlyArray<FolderSource>,
+	folders: ReadonlyArray<FolderTexts>,
 	planned: VersionPlanner
 ): Effect.Effect<void, CompileError | SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
@@ -471,7 +471,7 @@ export const migrateFolders = (
 	owner: AmbientOwner,
 	database: string,
 	snapshot: DeploySnapshot,
-	folders: ReadonlyArray<FolderSource>
+	folders: ReadonlyArray<FolderTexts>
 ): Effect.Effect<ReadonlyArray<SchemaApplyReport>, MigrateError, Substrate> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
@@ -493,7 +493,7 @@ export const migrateFolders = (
 		)
 		return yield* applyOnSession(
 			migrationSession(connection, { database, roles: { kind: "stems" } }),
-			[{ snapshot, folders }]
+			[{ snapshot, folders: Arr.map(folders, folderSource) }]
 		)
 	}).pipe(Effect.scoped)
 
@@ -502,7 +502,7 @@ const applyFolders = (
 	owner: AmbientOwner,
 	database: string,
 	snapshot: DeploySnapshot,
-	folders: ReadonlyArray<FolderSource>
+	folders: ReadonlyArray<FolderTexts>
 ): Effect.Effect<void, never, Substrate> =>
 	Effect.asVoid(applied(migrateFolders(owner, database, snapshot, folders)))
 
@@ -569,7 +569,7 @@ export const loginCredentials = (
 interface InstalledParts {
 	readonly plan: RealInstallPlan
 	readonly declared: string
-	readonly folders: Arr.NonEmptyReadonlyArray<FolderSource>
+	readonly folders: Arr.NonEmptyReadonlyArray<FolderTexts>
 	readonly snapshot: DeploySnapshot
 	readonly ambientOwner: AmbientOwner
 	readonly files: ReadonlyMap<string, unknown>
@@ -684,7 +684,7 @@ export interface HistoryOptions extends DraftOptions {
 export interface DraftedVersion {
 	readonly plan: RealInstallPlan
 	readonly planned: VersionPlanner
-	readonly folder: FolderSource
+	readonly folder: FolderTexts
 	readonly snapshot: DeploySnapshot
 }
 
@@ -948,7 +948,7 @@ interface GeneratedHistory {
  * reaches, and each login's served file of it, by declared name. */
 interface GeneratedDraft {
 	readonly plan: RealInstallPlan
-	readonly folder: FolderSource
+	readonly folder: FolderTexts
 	readonly snapshot: DeploySnapshot
 	readonly served: ReadonlyMap<string, unknown>
 }
@@ -1102,7 +1102,7 @@ const generatedAt = (
 	drafted: GeneratedDraft,
 	input: {
 		readonly declared: string
-		readonly folders: Arr.NonEmptyReadonlyArray<FolderSource>
+		readonly folders: Arr.NonEmptyReadonlyArray<FolderTexts>
 		readonly ambientOwner: AmbientOwner
 		readonly credentials: ReadonlyMap<string, Credentials>
 	}

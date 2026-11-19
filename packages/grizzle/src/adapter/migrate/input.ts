@@ -8,12 +8,12 @@ import {
 	stopped
 } from "#adapter/migrate/errors.ts"
 import type { MigrationText } from "#adapter/wire/batch.ts"
-import { sha256Hex } from "#compiler/plan/common.ts"
+import { type CompileError, sha256Hex } from "#compiler/plan/common.ts"
 import {
 	type InstallationNames,
 	isFolderName,
 	isNoTransaction,
-	lex,
+	leadingTokens,
 	orderFolderFiles,
 	type ReadMeta,
 	resolveVariables,
@@ -44,15 +44,46 @@ import type { DeploySnapshot } from "#compiler/plan/serve.ts"
  *   are filled with what the installation names them, and a variable none fills is refused: what is sent is the filled
  *   statement, what the ledger records the digest of the file as written, the same in every installation.
  *
- * A folder as the command line read it.
+ * A folder as the command line read it: its texts.
  */
-export interface FolderSource {
+export interface FolderTexts {
 	/** `<timestamp>_<name>`. */
 	readonly name: string
 	readonly metaText: string
 	/** Every `NN-<phase>.sql` file of the folder; meta.json is metaText. */
 	readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
 }
+
+/** A file of a folder as it was read, its statements split once by the drafted files' own splitter. */
+export interface SourceFile {
+	readonly name: string
+	readonly text: string
+	readonly statements: ReadonlyArray<string>
+}
+
+/**
+ * A folder as `grizzle check` and migrate read it, parsed once where its texts are read (folderSource): its name, its
+ * meta.json as readMeta reads it, or the reason it does not, the SHA-256 of that text, which the ledger records, and
+ * each file's statements. The check's findings and the apply read these, and neither reads a text again.
+ */
+export interface FolderSource {
+	readonly name: string
+	readonly meta: Result.Result<ReadMeta, CompileError>
+	readonly metaDigest: string
+	readonly files: ReadonlyArray<SourceFile>
+}
+
+/** A folder's texts, parsed once (FolderSource). */
+export const folderSource = (folder: FolderTexts): FolderSource => ({
+	name: folder.name,
+	meta: readMeta(folder.metaText),
+	metaDigest: sha256Hex(folder.metaText),
+	files: Arr.map(folder.files, (f) => ({
+		name: f.name,
+		text: f.text,
+		statements: splitStatements(f.text)
+	}))
+})
 
 /** One declared schema to apply: the snapshot the application knows and every folder of its migrations directory. */
 export interface MigrationTarget {
@@ -125,6 +156,13 @@ const transactionControls: ReadonlyMap<string, Control> = new Map<string, Contro
 ])
 
 /**
+ * The tokens a statement's head holds that decide whether it controls a transaction: its verb and the two after it.
+ *
+ * @formatConstant gram.y's TransactionStmt read by its first three tokens: the verb, then WORK, TRANSACTION or TO
+ */
+const transactionHead = 3
+
+/**
  * The transaction-control command a statement is, or undefined. It is read as PostgreSQL's grammar (gram.y
  * TransactionStmt and TransactionStmtLegacy) reads the statement's first tokens, as its scanner reads them
  * (sql/lexer.ts), past whitespace and comments:
@@ -137,7 +175,7 @@ const transactionControls: ReadonlyMap<string, Control> = new Map<string, Contro
  * A word is a whole identifier, so `begin1` is no BEGIN.
  */
 export const transactionControl = (statement: string): string | undefined => {
-	const [first, second, third] = lex(statement).tokens
+	const [first, second, third] = leadingTokens(statement, transactionHead)
 	const verb = wordOf(first)
 	return verb === undefined ? undefined : transactionControls.get(verb)?.(second, third)
 }
@@ -161,7 +199,7 @@ export const parseTarget = (
 			return refuse({ kind: "repeatedFolder", folder })
 		}
 		names.add(folder)
-		const meta = readMeta(source.metaText)
+		const meta = source.meta
 		if (Result.isFailure(meta)) {
 			return refuse({ kind: "malformedMeta", folder, error: meta.failure })
 		}
@@ -186,11 +224,11 @@ export const parseTarget = (
 		}
 		const files: Array<ParsedFile> = []
 		for (const {
-			file: { name, text },
+			file: { name, text, statements: split },
 			ordinal
 		} of ordered.value) {
 			const statements: Array<MigrationText> = []
-			for (const [i, statement] of splitStatements(text).entries()) {
+			for (const [i, statement] of split.entries()) {
 				const control = transactionControl(statement)
 				if (control !== undefined) {
 					return refuse({
@@ -225,7 +263,7 @@ export const parseTarget = (
 		folders.push({
 			name: folder,
 			meta: meta.success,
-			metaDigest: sha256Hex(source.metaText),
+			metaDigest: source.metaDigest,
 			files
 		})
 	}

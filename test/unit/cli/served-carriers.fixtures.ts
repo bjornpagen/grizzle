@@ -223,7 +223,7 @@ export const drafted = (
 			carriers,
 			"the installation grants TEMPORARY on the database to exactly the roles whose served file creates a carrier, once each"
 		)
-		const statements = succeeded(manifestStatements(draft.snapshot))
+		const { statements } = succeeded(manifestStatements(draft.snapshot))
 		for (const installed of manifestRoles(statements)) {
 			const held = Arr.filter(
 				roleExpectation(

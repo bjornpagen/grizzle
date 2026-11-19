@@ -20,7 +20,7 @@ import type { ServedDbContext } from "#adapter/db/context.ts"
 import { openServed } from "#adapter/db/served.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import { served } from "#adapter/public/layer.ts"
 import type { DbLayerOf, DbLayerService, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
@@ -259,7 +259,7 @@ interface Next {
 
 /** A folder a run left pending, and the version it installs once it applies. */
 interface PendingFolder {
-	readonly folder: FolderSource
+	readonly folder: FolderTexts
 	readonly next: Next
 }
 
@@ -271,12 +271,12 @@ interface PendingFolder {
  * resumes them oldest first. snapshot.json is the last folder's target.
  */
 interface Directory {
-	readonly applied: ReadonlyArray<FolderSource>
+	readonly applied: ReadonlyArray<FolderTexts>
 	readonly pending: ReadonlyArray<PendingFolder>
 }
 
 /** Every folder of a directory, in order. */
-const foldersOf = (directory: Directory): ReadonlyArray<FolderSource> => [
+const foldersOf = (directory: Directory): ReadonlyArray<FolderTexts> => [
 	...directory.applied,
 	...Arr.map(directory.pending, (p) => p.folder)
 ]
@@ -1393,7 +1393,7 @@ const worldOver = (
 		 */
 		const runTo = (
 			directory: Directory,
-			folders: ReadonlyArray<FolderSource>,
+			folders: ReadonlyArray<FolderTexts>,
 			end: RunEnd
 		): Effect.Effect<Ran> =>
 			Effect.gen(function* () {

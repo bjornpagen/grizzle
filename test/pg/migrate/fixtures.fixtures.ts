@@ -4,7 +4,7 @@ import type { Steered } from "@bjornpagen/testing/explore"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Layer, Option, Record as Rec } from "effect"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { compileServed } from "#adapter/public/compile.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -272,7 +272,7 @@ export const migrates = (h: History) =>
 		const owner = substrate.owner.role
 		const name = yield* substrate.schema({ create: false, label: history.label })
 		const m = yield* openMigrator(substrate, substrate.owner)
-		const folders: Array<FolderSource> = []
+		const folders: Array<FolderTexts> = []
 		const drafted: Array<GenerateResult> = []
 		let previous = fromEmpty
 		for (const [i, version] of history.versions.entries()) {

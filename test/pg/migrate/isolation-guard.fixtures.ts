@@ -2,7 +2,7 @@
 
 import { constant, element, type Gen, subarray, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -255,7 +255,7 @@ export const walk = (c: GuardCase, note: (feature: Feature) => void) =>
 		const session = yield* substrate.session({ ...ownerSession(), label: "owner guard" })
 		const ownerLogin = yield* ambientOwner(ordinarySession, [schemaIdent])
 		const migrator = yield* openMigrator(substrate, ownerLogin.credentials)
-		const folders: Array<FolderSource> = []
+		const folders: Array<FolderTexts> = []
 		const guards: Array<ReadonlyMap<Table, boolean>> = []
 		let previous: Option.Option<DeploySnapshot> = Option.none()
 		let appliedGuards: ReadonlyMap<Table, boolean> | undefined

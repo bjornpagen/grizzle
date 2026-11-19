@@ -8,7 +8,7 @@ import {
 	type PlatformError,
 	String as Str
 } from "effect"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import {
 	type CliError,
 	FolderExists,
@@ -61,7 +61,7 @@ export interface SchemaTree {
 	 */
 	readonly snapshotFiles: Option.Option<SnapshotFiles>
 	/** Every migration folder, in name order. */
-	readonly folders: ReadonlyArray<FolderSource>
+	readonly folders: ReadonlyArray<FolderTexts>
 	/**
 	 * The text of each login's file of each kind (loginFiles), by its login's declared name, the stem of its name; none
 	 * before generate wrote one.
@@ -133,7 +133,7 @@ const readFolder = Effect.fnUntraced(function* (schema: string, directory: strin
 		}
 		files.push({ name: entry, text: yield* fs.readFileString(join(entry)) })
 	}
-	const folder: FolderSource = {
+	const folder: FolderTexts = {
 		name,
 		metaText: yield* fs.readFileString(join(metaFileName)),
 		files
@@ -198,7 +198,7 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 			return yield* strayIn(schema, { kind: "notDirectory", directory })
 		}
 		const snapshotTexts = new Map<string, string>()
-		const folders: Array<FolderSource> = []
+		const folders: Array<FolderTexts> = []
 		const logins: { -readonly [K in LoginFileKind]: ReadonlyMap<string, string> } = {
 			...noLoginTexts
 		}

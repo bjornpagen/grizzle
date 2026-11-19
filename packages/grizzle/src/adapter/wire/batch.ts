@@ -407,9 +407,16 @@ const exclusionSteps = (
 	exclusion.kind === "lock" ? [{ statement: exclusion.statement, step: "exclude" }] : []
 
 /**
+ * What of its transaction a flight carries: all of it, from BEGIN to its end (`whole`), every Db call's and every
+ * migration file's; or one of two flights of one transaction (runAlongside): BEGIN and its first statements, the
+ * transaction left open (`opening`), then its other statements and its end (`closing`).
+ */
+type Carried = "whole" | "opening" | "closing"
+
+/**
  * A transaction's flight as planned: the statements alone in front of it (runAlongside) at the first pipeline
- * positions, then BEGIN and the prologue of its principal (none for the login), its statements and its end, each a
- * position of `steps`.
+ * positions, then, as far as it carries them (Carried), BEGIN and the prologue of its principal (none for the login),
+ * its statements and its end, each a position of `steps`.
  */
 interface Plan<P, F> {
 	readonly pipeline: ReadonlyArray<WireQuery>
@@ -419,29 +426,33 @@ interface Plan<P, F> {
 	readonly steps: ReadonlyArray<Position<P>>
 	readonly refused: Principal<P, F>["refused"]
 	readonly transaction: Transaction
+	readonly carried: Carried
 }
 
 const planOf = <P, F>(
 	alone: ReadonlyArray<BatchStatement>,
 	principal: Principal<P, F>,
 	statements: ReadonlyArray<BatchStatement>,
-	transaction: Transaction
+	transaction: Transaction,
+	carried: Carried
 ): Plan<P, F> => {
 	const before = planAll(alone)
 	const pipeline = queriesOf(before)
 	const steps: Array<Position<P>> = []
 	const prologue: Array<Planned> = []
 	const framed: Array<PlannedStatement> = []
-	steps.push(beginStep)
-	pipeline.push({
-		_tag: "control",
-		control: beginOf(transaction)
-	})
-	for (const { statement, step } of principal.prologue) {
-		const planned = plannedOf(statement)
-		prologue.push(planned)
-		steps.push({ kind: "prologue", planned, step })
-		pipeline.push(planned.query)
+	if (carried !== "closing") {
+		steps.push(beginStep)
+		pipeline.push({
+			_tag: "control",
+			control: beginOf(transaction)
+		})
+		for (const { statement, step } of principal.prologue) {
+			const planned = plannedOf(statement)
+			prologue.push(planned)
+			steps.push({ kind: "prologue", planned, step })
+			pipeline.push(planned.query)
+		}
 	}
 	for (const statement of statements) {
 		const planned: PlannedStatement = {
@@ -453,8 +464,10 @@ const planOf = <P, F>(
 		steps.push(planned)
 		pipeline.push(planned.query)
 	}
-	steps.push(endStep)
-	pipeline.push({ _tag: "control", control: { kind: "end", end: transaction.end } })
+	if (carried !== "opening") {
+		steps.push(endStep)
+		pipeline.push({ _tag: "control", control: { kind: "end", end: transaction.end } })
+	}
 	return {
 		pipeline,
 		before,
@@ -462,12 +475,17 @@ const planOf = <P, F>(
 		statements: framed,
 		steps,
 		refused: principal.refused,
-		transaction
+		transaction,
+		carried
 	}
 }
 
-/** The pipeline position of a transaction's first statement: behind the statements alone, BEGIN and the prologue. */
-const offsetOf = <P, F>(plan: Plan<P, F>): number => plan.before.length + 1 + plan.prologue.length
+/**
+ * The pipeline position of a transaction's first statement of a flight: behind the statements alone, BEGIN and the
+ * prologue where the flight carries them.
+ */
+const offsetOf = <P, F>(plan: Plan<P, F>): number =>
+	plan.before.length + (plan.carried === "closing" ? 0 : 1 + plan.prologue.length)
 
 /**
  * What a pipeline position holds once its flight has drained: the server's answer, or none, because the connection
@@ -531,7 +549,8 @@ const failureAt = <P, F>(
 	answer: Unanswered,
 	cut: boolean
 ): BatchFailure | F => {
-	const commits = plan.transaction.end === "COMMIT"
+	/** A flight that opens a transaction carries no end, so nothing of it commits. */
+	const commits = plan.transaction.end === "COMMIT" && plan.carried !== "opening"
 	if (
 		commits &&
 		!cut &&
@@ -590,7 +609,9 @@ const transactionFate = <P, F>(
 				continue
 			case "refused":
 			case "terminated":
-				return index === plan.before.length ? "noTransaction" : "aborted"
+				return index === plan.before.length && plan.carried !== "closing"
+					? "noTransaction"
+					: "aborted"
 			case "failed":
 			case "unanswered":
 				return "unknown"
@@ -980,10 +1001,11 @@ const sendPlan = <P, F>(
 	alone: ReadonlyArray<BatchStatement>,
 	principal: Principal<P, F>,
 	statements: ReadonlyArray<BatchStatement>,
-	transaction: Transaction
+	transaction: Transaction,
+	carried: Carried
 ): Effect.Effect<{ readonly plan: Plan<P, F>; readonly sent: Sent }, InputTooLarge> =>
 	Effect.suspend(() => {
-		const plan = planOf(alone, principal, statements, transaction)
+		const plan = planOf(alone, principal, statements, transaction, carried)
 		return Effect.fromResult(
 			Result.map(send(session, plan.pipeline, lastStatement(plan)), (sent) => ({
 				plan,
@@ -1009,7 +1031,14 @@ const runEntered = <P, F>(
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, BatchFailure | F | InputTooLarge> =>
 	onSession(session, (restore) =>
 		Effect.gen(function* () {
-			const { plan, sent } = yield* sendPlan(session, [], principal, statements, transaction)
+			const { plan, sent } = yield* sendPlan(
+				session,
+				[],
+				principal,
+				statements,
+				transaction,
+				"whole"
+			)
 			yield* execute(session, restore, sent, sent.statements)
 			const early = decide(session, plan, sent, lastStatement(plan) + 1)
 			if (Result.isFailure(early) || transaction.end === "ROLLBACK") {
@@ -1138,35 +1167,127 @@ export const runTransaction = (
 	runEntered(session, asLogin, statements, transaction)
 
 /**
- * What one flight of statements alone and a transaction returned (runAlongside): each statement alone's outcome or
- * the server's refusal of it, and the transaction's outcomes or its failure.
+ * What a transaction behind statements alone returned, over its two flights (runAlongside): each statement alone's
+ * outcome or the server's refusal of it, and what the transaction's first flight met: its failure, or its outcomes, one
+ * per statement in order, with what `then` made of them (Continued).
  */
-export interface Alongside {
-	readonly alone: ReadonlyArray<Result.Result<BatchOutcome, ServerError>>
-	readonly framed: Result.Result<ReadonlyArray<BatchOutcome>, BatchFailure>
+export interface Alongside<A, E> {
+	readonly alone: ReadonlyArray<ApartAnswer>
+	readonly framed: Result.Result<Continued<A, E>, BatchFailure>
 }
 
 /**
- * Sends `alone`, each statement as its own implicit transaction, then `statements` in `transaction`, as one flight,
- * and returns both parts' answers. A lost connection or an answer the pipeline cannot account for fails the whole
- * flight, as runTransaction's would; so does an unreadable answer of a statement alone here, since the statements alone
- * sent through it read only texts: admission's minimal reads (format('%s')) and the ledger's reads (a count, and each
- * row's JSON text). An interruption abandons the flight as runTransaction's does (execute). The transaction commits
- * nothing (Uncommitting), so a lost connection that fails the whole flight is never a commit of unknown fate.
+ * A transaction's first flight's outcomes, and what `then` made of them (runAlongside): its refusal of them, `E`, after
+ * which the second flight carried the end alone; or the value it made beside the second flight's statements, with the
+ * second flight's outcomes or its failure, its statements numbered from its first, as its own.
  */
-export const runAlongside = (
+export interface Continued<A, E> {
+	readonly first: ReadonlyArray<BatchOutcome>
+	readonly made: Result.Result<
+		{
+			readonly value: A
+			readonly second: Result.Result<ReadonlyArray<BatchOutcome>, BatchFailure>
+		},
+		E
+	>
+}
+
+/** What `then` makes of a transaction's first flight's answers (runAlongside): its second flight's statements, and a
+ * value its caller reads beside the transaction's outcomes. */
+export interface SecondFlight<A> {
+	readonly statements: ReadonlyArray<BatchStatement>
+	readonly value: A
+}
+
+/**
+ * What a transaction's first flight leads its second to carry (runAlongside): nothing but the end, after the first
+ * failed (`failed`) or after `then` refused its answers (`refused`); or the statements `then` made of them, behind the
+ * first's outcomes (`continued`).
+ */
+type Next<A, E> =
+	| { readonly kind: "failed"; readonly failure: BatchFailure }
+	| {
+			readonly kind: "refused"
+			readonly outcomes: ReadonlyArray<BatchOutcome>
+			readonly failure: E
+	  }
+	| {
+			readonly kind: "continued"
+			readonly outcomes: ReadonlyArray<BatchOutcome>
+			readonly second: SecondFlight<A>
+	  }
+
+const continuedOf = <A, E>(
+	opened: Result.Result<ReadonlyArray<BatchOutcome>, BatchFailure>,
+	then: (first: ReadonlyArray<BatchOutcome>) => Result.Result<SecondFlight<A>, E>
+): Next<A, E> => {
+	if (Result.isFailure(opened)) {
+		return { kind: "failed", failure: opened.failure }
+	}
+	const made = then(opened.success)
+	return Result.isSuccess(made)
+		? { kind: "continued", outcomes: opened.success, second: made.success }
+		: { kind: "refused", outcomes: opened.success, failure: made.failure }
+}
+
+/**
+ * Sends `alone`, each statement as its own implicit transaction, then BEGIN of `transaction` and `first`, as one flight;
+ * then, in that transaction, the statements `then` makes of both parts' answers, and the transaction's end, as a second
+ * flight; and returns the answers of all of them (Alongside). The second flight is sent whatever the first met: one
+ * that failed, or whose answers `then` refused, sends the end alone, so the transaction ends in either case, and a
+ * second flight longer than one write carries ends it alone too, then fails as InputTooLarge. `then` runs on the host
+ * between the flights, uninterruptibly, so the transaction is open only while a flight is in flight, whose
+ * interruption abandons it as every flight's (execute): the session is retired, and its connection's close ends the
+ * transaction. A lost connection or an answer the pipeline cannot account for fails the whole call, as runTransaction's
+ * would; so does an unreadable answer of a statement alone here, since the statements alone sent through it read only
+ * texts: the ledger's and the proofs' reads (a count, and each row's texts). The transaction commits nothing
+ * (Uncommitting), so a lost connection that fails the whole call is never a commit of unknown fate.
+ */
+export const runAlongside = <A, E>(
 	session: Session,
 	alone: ReadonlyArray<BatchStatement>,
-	statements: ReadonlyArray<BatchStatement>,
+	first: ReadonlyArray<BatchStatement>,
+	then: (
+		alone: ReadonlyArray<ApartAnswer>,
+		first: ReadonlyArray<BatchOutcome>
+	) => Result.Result<SecondFlight<A>, E>,
 	transaction: Uncommitting
-): Effect.Effect<Alongside, ConnectionLost | DriverFailure | InputTooLarge> =>
+): Effect.Effect<Alongside<A, E>, ConnectionLost | DriverFailure | InputTooLarge> =>
 	onSession(session, (restore) =>
 		Effect.gen(function* () {
-			const { plan, sent } = yield* sendPlan(session, alone, asLogin, statements, transaction)
-			yield* execute(session, restore, sent, sent.drained)
-			const answers: Array<Result.Result<BatchOutcome, ServerError>> = []
-			for (let index = 0; index < plan.before.length; index++) {
-				const answer = receivedAt(sent.answers, index)
+			const opening = yield* sendPlan(session, alone, asLogin, first, transaction, "opening")
+			/**
+			 * The call's end once the first flight has drained without making a second: the transaction it opened, where
+			 * BEGIN ran and the connection stands, ended alone, the wait for its end cancelling nothing, so the server holds no
+			 * transaction of the session, which every such end has retired; then `failed`. An end longer than one write
+			 * carries goes unsent, and the retired session's close ends the transaction.
+			 */
+			const endedThen = <X, Y>(failed: Effect.Effect<X, Y>): Effect.Effect<X, Y> =>
+				Effect.gen(function* () {
+					const begun = receivedAt(opening.sent.answers, opening.plan.before.length)
+					if (
+						session.state() !== "ended" &&
+						(begun._tag === "result" || begun._tag === "unreadable")
+					) {
+						const ending = yield* Effect.result(
+							sendPlan(session, [], asLogin, [], transaction, "closing")
+						)
+						if (Result.isSuccess(ending)) {
+							yield* Deferred.await(ending.success.sent.drained)
+						}
+					}
+					return yield* failed
+				})
+			/** The first flight's run: an abandoned one has drained, and its interruption takes effect once its end has. */
+			const ran = yield* Effect.exit(execute(session, restore, opening.sent, opening.sent.drained))
+			if (Exit.isFailure(ran)) {
+				return yield* ran.cause.pipe(Effect.failCause, endedThen)
+			}
+			/** An answer alone grizzle cannot read, its failure read once the end has drained, whose lost connection it names. */
+			const unreadableAlone = Effect.failSync(() => broken(session))
+			const answers: Array<ApartAnswer> = []
+			for (let index = 0; index < opening.plan.before.length; index++) {
+				const answer = receivedAt(opening.sent.answers, index)
 				switch (answer._tag) {
 					case "result":
 						answers.push(Result.succeed(answer.outcome))
@@ -1175,21 +1296,80 @@ export const runAlongside = (
 						answers.push(Result.fail(answer.error))
 						continue
 					case "unreadable":
-						return yield* broken(session)
+						return yield* endedThen(unreadableAlone)
 					case "terminated":
 					case "failed":
 					case "unanswered":
-						return yield* lost(session, answer)
+						return yield* lost(session, answer).pipe(Effect.fail, endedThen)
 				}
 			}
-			const framed = flightOutcomes(session, plan, sent)
+			const opened = flightOutcomes(session, opening.plan, opening.sent)
 			if (
-				Result.isFailure(framed) &&
-				(framed.failure._tag === "ConnectionLost" || framed.failure._tag === "DriverFailure")
+				Result.isFailure(opened) &&
+				(opened.failure._tag === "ConnectionLost" || opened.failure._tag === "DriverFailure")
 			) {
-				return yield* framed.failure
+				return yield* opened.failure.pipe(Effect.fail, endedThen)
 			}
-			return { alone: answers, framed }
+			const next = continuedOf(opened, (outcomes) => then(answers, outcomes))
+			const written = yield* Effect.result(
+				sendPlan(
+					session,
+					[],
+					asLogin,
+					next.kind === "continued" ? next.second.statements : [],
+					transaction,
+					"closing"
+				)
+			)
+			const closing = Result.isSuccess(written)
+				? written.success
+				: yield* sendPlan(session, [], asLogin, [], transaction, "closing")
+			yield* execute(session, restore, closing.sent, closing.sent.drained)
+			const closed = flightOutcomes(session, closing.plan, closing.sent)
+			if (
+				Result.isFailure(closed) &&
+				(closed.failure._tag === "ConnectionLost" || closed.failure._tag === "DriverFailure")
+			) {
+				return yield* closed.failure
+			}
+			if (Result.isFailure(written)) {
+				return yield* written.failure
+			}
+			switch (next.kind) {
+				case "failed": {
+					/**
+					 * The first flight's unreadable answer decided nothing: the second flight's end decides, its failure first,
+					 * then its fate.
+					 */
+					const failure = next.failure
+					return {
+						alone: answers,
+						framed: Result.fail(
+							failure._tag !== "UnreadableAnswer"
+								? failure
+								: Result.isFailure(closed)
+									? closed.failure
+									: new UnreadableAnswer({
+											index: failure.index,
+											fate: transactionFate(closing.plan, closing.sent.answers)
+										})
+						)
+					}
+				}
+				case "refused":
+					return {
+						alone: answers,
+						framed: Result.succeed({ first: next.outcomes, made: Result.fail(next.failure) })
+					}
+				case "continued":
+					return {
+						alone: answers,
+						framed: Result.succeed({
+							first: next.outcomes,
+							made: Result.succeed({ value: next.second.value, second: closed })
+						})
+					}
+			}
 		})
 	)
 

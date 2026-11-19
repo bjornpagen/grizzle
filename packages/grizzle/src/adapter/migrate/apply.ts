@@ -1,17 +1,28 @@
 import { Array as Arr, Effect, Option, Result, type Scope } from "effect"
 import {
+	driftCheck,
 	type DriftFolder,
-	driftFlight,
 	driftTransaction,
-	type FlightSpan,
-	ledgerMismatches
+	type DriftVerdict,
+	heldProofs,
+	ledgerMismatches,
+	type ProofRow,
+	proofRowsRead,
+	proofsExistRead,
+	proofsPresence,
+	type ReplaySpan
 } from "#adapter/admission/drift.ts"
 import {
 	stackDepthColumn,
 	stackDepthRequired,
 	stackTooShallow
 } from "#adapter/admission/expectation.ts"
-import type { BatchFailure, InputTooLarge, ServerError } from "#adapter/errors/failures.ts"
+import type {
+	BatchFailure,
+	CatalogRowRefused,
+	InputTooLarge,
+	ServerError
+} from "#adapter/errors/failures.ts"
 import {
 	ApplyBusy,
 	Drifted,
@@ -19,6 +30,7 @@ import {
 	FileCommitLost,
 	FileCommitRefused,
 	InputRefused,
+	LedgerUncompiled,
 	LedgerUnlocked,
 	type ServerLockTable,
 	LockTableExhausted,
@@ -26,6 +38,7 @@ import {
 	type MigrateError,
 	OwnedByAnother,
 	OwnerUnread,
+	ProofsUnrecorded,
 	SurveyFailed,
 	type RecordPlace,
 	RecordFailed,
@@ -47,12 +60,17 @@ import {
 	parseTarget
 } from "#adapter/migrate/input.ts"
 
+import { textArray } from "#adapter/admission/roles.ts"
+import { toResult } from "#adapter/engine.ts"
 import {
 	fileParams,
 	folderParams,
+	installedLedger,
 	type LedgerRead,
-	ledgerOfAnswers,
-	ledgerReads,
+	ledgerExistsRead,
+	ledgerPresence,
+	ledgerRowsRead,
+	ledgerStateOf,
 	redraftParams,
 	statementsFor
 } from "#adapter/migrate/ledger.ts"
@@ -94,7 +112,13 @@ import {
 	sqlstateClass,
 	sqlstates
 } from "#compiler/plan/common.ts"
-import type { FolderLaws, InstallationNames } from "#compiler/plan/migration.ts"
+import {
+	type FolderLaws,
+	type InstallationNames,
+	type ProofStatements,
+	proofStatements,
+	proofsIdent
+} from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
 import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/serve.ts"
 
@@ -333,6 +357,7 @@ interface Planned {
 	/** The schema's committed folders as parsed, which the drift check names a function's defining statement from. */
 	readonly folders: ReadonlyArray<ParsedFolder>
 	readonly statements: LedgerStatements
+	readonly proofs: ProofStatements
 	readonly plan: ApplyPlan
 	/** Whether the ledger existed when the apply read it, under its apply lock. */
 	readonly ledger: LedgerTable
@@ -341,13 +366,14 @@ interface Planned {
 }
 
 /**
- * A schema's input, checked before anything is read: its parsed target, its ledger statements, its apply lock, and its
- * live source's decoder login under the installation's role space, by the name its snapshot gives it (live.ts
- * decoderRole), none where it installs none.
+ * A schema's input, checked before anything is read: its parsed target, its ledger's and its proofs' statements, its
+ * apply lock, and its live source's decoder login under the installation's role space, by the name its snapshot gives
+ * it (live.ts decoderRole), none where it installs none.
  */
 interface Checked {
 	readonly parsed: ParsedTarget
 	readonly statements: LedgerStatements
+	readonly proofs: ProofStatements
 	readonly lock: ApplyLock
 	readonly decoder: string | undefined
 }
@@ -357,33 +383,62 @@ const checkTarget = (
 	installation: InstallationNames
 ): Result.Result<Checked, MigrateError> =>
 	Result.flatMap(parseTarget(target, installation), (parsed) =>
-		Result.map(statementsFor(parsed.schema), (statements) => ({
-			parsed,
-			statements,
-			lock: applyLock(parsed.schema),
-			decoder: decoderRole(parsed.snapshot, installation.roles)
-		}))
+		Result.flatMap(statementsFor(parsed.schema), (statements) =>
+			Result.map(
+				Result.mapError(toResult(proofStatements(parsed.schema)), (error) =>
+					stopped(new LedgerUncompiled({ schema: parsed.schema, error }))
+				),
+				(proofs) => ({
+					parsed,
+					statements,
+					proofs,
+					lock: applyLock(parsed.schema),
+					decoder: decoderRole(parsed.snapshot, installation.roles)
+				})
+			)
+		)
 	)
 
 /**
- * The survey step's reads of one schema, apart and in the order it sends them (see the header): its owner, its apply
- * lock, its ledger's two reads (ledger.ts ledgerReads), and, last and only where its snapshot installs a live source,
- * whether its decoder login holds the replication right. Each read's answer is at its position in this list, counted
- * from the schema's first answer.
+ * Every target's input checked (checkTarget), in order, each parsed once: what migrate checks before it connects and
+ * applies, and drift checks and judges by. A schema named twice is refused.
  */
-const schemaReadOrder = ["owner", "lock", "ledgerExists", "ledgerRows", "decoder"] as const
+const checkTargets = (
+	targets: ReadonlyArray<MigrationTarget>,
+	installation: InstallationNames
+): Result.Result<ReadonlyArray<Checked>, MigrateError> =>
+	Result.gen(function* () {
+		const schemas = Arr.map(targets, (t) => t.snapshot.schema)
+		const repeated = Arr.findFirst(schemas, (s, i) => schemas.indexOf(s) !== i)
+		if (Option.isSome(repeated)) {
+			return yield* Result.fail(
+				stopped(new InputRefused({ schema: repeated.value, fault: { kind: "repeatedSchema" } }))
+			)
+		}
+		const checked: Array<Checked> = []
+		for (const t of targets) {
+			checked.push(yield* checkTarget(t, installation))
+		}
+		return checked
+	})
+
+/**
+ * The survey step's reads of one schema, apart and in the order it sends them (see the header): its owner, its apply
+ * lock, whether its ledger exists (ledger.ts ledgerExistsRead), and, last and only where its snapshot installs a live
+ * source, whether its decoder login holds the replication right. Each read's answer is at its position in this list,
+ * counted from the schema's first answer. A ledger's rows are read in the step after, where it exists (surveyAll).
+ */
+const schemaReadOrder = ["owner", "lock", "ledger", "decoder"] as const
 type SchemaRead = (typeof schemaReadOrder)[number]
 
 /** The statements of a schema's survey reads, in schemaReadOrder, its decoder login's where it has one. */
 const schemaReads = (checked: Checked): ReadonlyArray<BatchStatement> => {
 	const schema = checked.parsed.schema
-	const [ledgerExists, ledgerRows] = ledgerReads(schema, checked.statements)
 	const decoder = checked.decoder
 	return [
 		oneShotStatement(schemaOwner.sql, [textParam(schema)]),
 		oneShotStatement(checked.lock.take.sql, []),
-		ledgerExists,
-		ledgerRows,
+		ledgerExistsRead(schema),
 		...(decoder === undefined
 			? []
 			: [oneShotStatement(replicationHeldQuery.sql, [textParam(decoder)])])
@@ -425,15 +480,18 @@ const releaseOf = (
 		lockTaken(c.lock, readAnswer(answers, at, "lock")) ? [oneShotStatement(c.lock.release, [])] : []
 	)
 
-/** One schema's checks from its answers in the survey step, from `at` on: owner, lock, ledger and plan. */
-const planSchema = (
+/**
+ * One schema's checks from its answers in the survey step, from `at` on: its owner, its apply lock, and whether its
+ * ledger exists.
+ */
+const surveySchema = (
 	checked: Checked,
 	answers: ReadonlyArray<ApartAnswer>,
 	at: number,
 	user: string
-): Result.Result<Planned, MigrateError> =>
+): Result.Result<LedgerRead["kind"], MigrateError> =>
 	Result.gen(function* () {
-		const { parsed, statements, lock } = checked
+		const { parsed, lock } = checked
 		const schema = parsed.schema
 		const [owner] = yield* Result.mapError(
 			apartRows(schemaOwner, readAnswer(answers, at, "owner")),
@@ -449,15 +507,22 @@ const planSchema = (
 		if (!taken) {
 			return yield* Result.fail(stopped(new ApplyBusy({ schema })))
 		}
-		const read = yield* Result.mapError(
-			ledgerOfAnswers(
-				schema,
-				readAnswer(answers, at, "ledgerExists"),
-				readAnswer(answers, at, "ledgerRows")
-			),
+		return yield* Result.mapError(
+			ledgerPresence(schema, readAnswer(answers, at, "ledger")),
 			stopped
 		)
-		const plan = yield* planApply(parsed, read.state)
+	})
+
+/** One schema's plan from its ledger as the survey read it, and its decoder login from its answers, from `at` on. */
+const planSchema = (
+	checked: Checked,
+	answers: ReadonlyArray<ApartAnswer>,
+	at: number,
+	read: LedgerRead
+): Result.Result<Planned, MigrateError> =>
+	Result.gen(function* () {
+		const { parsed, statements, proofs } = checked
+		const plan = yield* planApply(parsed, ledgerStateOf(parsed.schema, read))
 		const role = checked.decoder
 		const decoder: SurveyedDecoder =
 			role === undefined
@@ -474,8 +539,9 @@ const planSchema = (
 			snapshot: parsed.snapshot,
 			folders: parsed.folders,
 			statements,
+			proofs,
 			plan,
-			ledger: read.table,
+			ledger: read.kind,
 			decoder
 		}
 	})
@@ -531,9 +597,30 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 			new WalLevelNotLogical({ schema: sourced.parsed.schema, level: walLevel })
 		)
 	}
-	const planned: Array<Planned> = []
+	const surveyed: Array<readonly [Checked, number, LedgerRead["kind"]]> = []
 	for (const [c, at] of schemas) {
-		const schemaPlan = yield* Effect.fromResult(planSchema(c, answers, at, user))
+		const ledger = yield* Effect.fromResult(surveySchema(c, answers, at, user))
+		surveyed.push([c, at, ledger])
+	}
+	/** The rows of every ledger the catalog holds, in survey order, read in a step of their own under the apply locks. */
+	const installed = Arr.filter(surveyed, ([, , ledger]) => ledger === "installed")
+	const rows = Arr.isReadonlyArrayNonEmpty(installed)
+		? yield* Effect.mapError(
+				session.apart(Arr.map(installed, ([c]) => ledgerRowsRead(c.statements))),
+				(failure) => stopped(new SurveyFailed({ failure }))
+			)
+		: []
+	const planned: Array<Planned> = []
+	/** The position of the next installed ledger's rows among the rows step's answers. */
+	let next = 0
+	for (const [c, at, ledger] of surveyed) {
+		const read: LedgerRead =
+			ledger === "absent"
+				? { kind: "absent" }
+				: yield* Effect.fromResult(
+						Result.mapError(installedLedger(c.parsed.schema, sentAnswer(rows, next++)), stopped)
+					)
+		const schemaPlan = yield* Effect.fromResult(planSchema(c, answers, at, read))
 		planned.push(schemaPlan)
 	}
 	return { planned, grants }
@@ -678,7 +765,7 @@ const runFile = (
 }
 
 /** Whether the schema's ledger exists before a transaction of the apply: absent only before its first file committed. */
-type LedgerTable = LedgerRead["table"]
+type LedgerTable = LedgerRead["kind"]
 
 /**
  * The lock every transaction of the apply that writes the ledger takes first, before any statement of its file: the
@@ -693,7 +780,7 @@ const fenceOf = (
 	switch (ledger) {
 		case "absent":
 			return []
-		case "present":
+		case "installed":
 			return [oneShotStatement(statements.exclusive.text, [])]
 	}
 }
@@ -752,7 +839,7 @@ const runPlan = Effect.fn("runPlan")(function* (
 	for (const r of plan.runs) {
 		if (r.folder.files.length === 0) {
 			yield* recordFolderRow(session, plan.schema, statements, r.folder, ledger)
-			ledger = "present"
+			ledger = "installed"
 		}
 		const broken = brokenLaw(r.folder.meta.laws)
 		/** A redraft's re-record, which the transaction of the first file it runs carries, and no other. */
@@ -762,7 +849,7 @@ const runPlan = Effect.fn("runPlan")(function* (
 				: []
 		for (const f of runFiles(r)) {
 			yield* runFile(session, plan.schema, statements, r.folder, f, ledger, broken, redraft)
-			ledger = "present"
+			ledger = "installed"
 			redraft = []
 		}
 	}
@@ -780,25 +867,31 @@ const runPlan = Effect.fn("runPlan")(function* (
 })
 
 /**
- * What stopped the drift check's transaction: a refusal of a statement of the replay is the replay's (ReplayRefused,
- * numbered within the replay), as the migration states the server's refusal (refusalOf), and every other failure is the
- * reads' (decidingFailure).
+ * What stopped the drift check's second flight: a refusal of a statement of the replay is the replay's (ReplayRefused,
+ * numbered within the replay, with the object it builds), as the migration states the server's refusal (refusalOf), and
+ * every other failure is the reads' (decidingFailure).
  */
 const driftFailure = (
 	session: MigrationSession,
-	replay: FlightSpan,
+	replay: ReplaySpan,
 	failure: BatchFailure
 ): Effect.Effect<ReplayRefused | StatementFailure> => {
 	switch (failure._tag) {
 		case "BatchRefused": {
 			const at = failure.index - replay.from
-			return at >= 0 && at < replay.count
-				? Effect.map(
+			const object = at >= 0 ? replay.objects[at] : undefined
+			return object === undefined
+				? Effect.succeed(failure.failure)
+				: Effect.map(
 						refusalOf(session, failure.failure),
 						(refusal) =>
-							new ReplayRefused({ statement: at + 1, of: replay.count, failure: refusal })
+							new ReplayRefused({
+								statement: at + 1,
+								of: replay.objects.length,
+								object,
+								failure: refusal
+							})
 					)
-				: Effect.succeed(failure.failure)
 		}
 		case "CommitRefused":
 		case "CommitLost":
@@ -810,46 +903,126 @@ const driftFailure = (
 }
 
 /**
- * The drift check of one schema (adapter/admission/drift.ts), in one flight (see the header): the ledger's two reads
- * apart, then the drift check's transaction, which it rolls back. migrate runs it after every apply; `grizzle drift` runs
- * it alone. A folder not yet applied is the ledger's mismatch: the latest complete folder's target is not the snapshot.
- * The migration identity owns the schema and every object in it.
+ * The drift check of one schema (adapter/admission/drift.ts), one transaction over two flights (see the header): the
+ * ledger's and the proofs' two reads each apart in front of it, then the check's reads of the installed catalog; then,
+ * made of their answers, the replay of what no proof proves and its scratch descriptions, and the transaction's
+ * ROLLBACK. migrate runs it after every apply; `grizzle drift` runs it alone. A folder not yet applied is the ledger's
+ * mismatch: the latest complete folder's target is not the snapshot. The migration identity owns the schema and every
+ * object in it. Its verdict says what a migrate records of the proofs (recordProofs).
  */
 export const checkDrift = Effect.fn("checkDrift")(function* (
 	session: MigrationSession,
 	snapshot: DeploySnapshot,
 	statements: LedgerStatements,
+	proofs: ProofStatements,
 	folders: ReadonlyArray<DriftFolder>
-): Effect.fn.Return<void, MigrateError> {
+): Effect.fn.Return<DriftVerdict, MigrateError> {
 	const schema = snapshot.schema
 	const unchecked = (failure: DriftUnchecked["failure"]) =>
 		stopped(new DriftUnchecked({ schema, failure }))
 	const drift = yield* Effect.mapError(
-		Effect.fromResult(driftFlight(snapshot, session.installation, folders)),
+		Effect.fromResult(driftCheck(snapshot, session.installation, folders)),
 		unchecked
 	)
+	/** Whether the ledger and the proofs exist, so the reads after name only tables the catalog holds. */
+	const present = yield* Effect.mapError(
+		session.apart([ledgerExistsRead(schema), proofsExistRead(schema)]),
+		unchecked
+	)
+	const ledger = yield* Effect.mapError(
+		Effect.fromResult(ledgerPresence(schema, sentAnswer(present, 0))),
+		unchecked
+	)
+	const proven = yield* Effect.mapError(
+		Effect.fromResult(proofsPresence(sentAnswer(present, 1))),
+		unchecked
+	)
+	/** The rows of each that exists, apart in front of the check's transaction: the ledger's, then the proofs'. */
+	const ledgerRows = ledger === "installed" ? [ledgerRowsRead(statements)] : []
+	const proofRows = proven === "present" ? [proofRowsRead(proofs)] : []
 	const answered = yield* Effect.mapError(
-		session.alongside(ledgerReads(schema, statements), drift.flight.statements, driftTransaction),
-		unchecked
-	)
-	const read = yield* Effect.mapError(
-		Effect.fromResult(
-			ledgerOfAnswers(schema, sentAnswer(answered.alone, 0), sentAnswer(answered.alone, 1))
+		session.alongside(
+			[...ledgerRows, ...proofRows],
+			drift.first,
+			(alone, first) => {
+				/** No proofs' table holds no proof: everything is unproven, and the replay whole. */
+				const held: Result.Result<
+					ReadonlyMap<string, ProofRow>,
+					ServerError | CatalogRowRefused
+				> = proven === "present"
+					? heldProofs(proofs, sentAnswer(alone, ledgerRows.length))
+					: Result.succeed(new Map())
+				return Result.flatMap(held, (rows) => drift.after(rows, first))
+			},
+			driftTransaction
 		),
 		unchecked
 	)
-	const outcomes = yield* Effect.catch(Effect.fromResult(answered.framed), (failure) =>
-		Effect.flatMap(driftFailure(session, drift.replay, failure), (refused) =>
+	const read: LedgerRead =
+		ledger === "absent"
+			? { kind: "absent" }
+			: yield* Effect.mapError(
+					Effect.fromResult(installedLedger(schema, sentAnswer(answered.alone, 0))),
+					unchecked
+				)
+	const opened = yield* Effect.mapError(Effect.fromResult(answered.framed), (failure) =>
+		failure.pipe(decidingFailure, unchecked)
+	)
+	const made = yield* Effect.mapError(Effect.fromResult(opened.made), unchecked)
+	const second = yield* Effect.catch(Effect.fromResult(made.second), (failure) =>
+		Effect.flatMap(driftFailure(session, made.value.replay, failure), (refused) =>
 			Effect.fail(unchecked(refused))
 		)
 	)
-	const found = yield* Effect.mapError(drift.flight.read(outcomes), unchecked)
+	const verdict = yield* Effect.mapError(Effect.fromResult(made.value.read(second)), unchecked)
 	/** Each mismatch is a fact of its own, which the report lists one per line. */
-	const mismatches = [...ledgerMismatches(snapshot, read.state), ...found]
+	const mismatches = [
+		...ledgerMismatches(snapshot, ledgerStateOf(schema, read)),
+		...verdict.mismatches
+	]
 	if (Arr.isReadonlyArrayNonEmpty(mismatches)) {
 		return yield* stopped(new Drifted({ schema, snapshot: snapshot.fingerprint, mismatches }))
 	}
+	return verdict
 })
+
+/**
+ * The proofs a drift check that found no drift found (DriftVerdict proofs), recorded under the apply lock in a
+ * transaction of their own: every row deleted and the check's rows written, where the check's rows are not the ones it
+ * read; nothing where they are, or where the installation holds no proofs, as a snapshot drafted before them does not.
+ */
+const recordProofs = (
+	session: MigrationSession,
+	snapshot: DeploySnapshot,
+	proofs: ProofStatements,
+	verdict: DriftVerdict
+): Effect.Effect<void, MigrateError> => {
+	const held = verdict.proofs
+	const schema = snapshot.schema
+	if (
+		held.kind === "held" ||
+		!Arr.some(snapshot.manifest.objects, (o) => o.ident === proofsIdent(schema))
+	) {
+		return Effect.void
+	}
+	return Effect.mapError(
+		session.transaction([
+			oneShotStatement(proofs.clear.text, []),
+			oneShotStatement(proofs.record.text, [
+				textArray(Arr.map(held.rows, (r) => r.object)),
+				textArray(Arr.map(held.rows, (r) => r.ddl)),
+				textArray(Arr.map(held.rows, (r) => r.description))
+			])
+		]),
+		(failure: BatchFailure | InputTooLarge) =>
+			stopped(
+				new ProofsUnrecorded({
+					schema,
+					failure: failure._tag === "InputTooLarge" ? failure : decidingFailure(failure)
+				})
+			)
+	)
+}
 
 /**
  * Applies every target on a session: checks and plans every schema first, then runs the plans in order, then admits
@@ -859,18 +1032,18 @@ export const applyOnSession = Effect.fn("applyOnSession")(function* (
 	session: MigrationSession,
 	targets: ReadonlyArray<MigrationTarget>
 ): Effect.fn.Return<ReadonlyArray<SchemaApplyReport>, MigrateError, Scope.Scope> {
-	const schemas = Arr.map(targets, (t) => t.snapshot.schema)
-	const repeated = Arr.findFirst(schemas, (s, i) => schemas.indexOf(s) !== i)
-	if (Option.isSome(repeated)) {
-		return yield* stopped(
-			new InputRefused({ schema: repeated.value, fault: { kind: "repeatedSchema" } })
-		)
-	}
-	const checked: Array<Checked> = []
-	for (const t of targets) {
-		const checkedTarget = yield* Effect.fromResult(checkTarget(t, session.installation))
-		checked.push(checkedTarget)
-	}
+	const checked = yield* Effect.fromResult(checkTargets(targets, session.installation))
+	return yield* applyChecked(session, checked)
+}, Effect.scoped)
+
+/**
+ * Applies every checked target on a session (applyOnSession): plans every schema, then runs the plans in order, then
+ * checks every schema's drift, recording each one's proofs once its check found no drift, under its apply lock.
+ */
+const applyChecked = Effect.fn("applyChecked")(function* (
+	session: MigrationSession,
+	checked: ReadonlyArray<Checked>
+): Effect.fn.Return<ReadonlyArray<SchemaApplyReport>, MigrateError, Scope.Scope> {
 	const { planned, grants } = yield* surveyAll(session, checked)
 	const reports: Array<SchemaApplyReport> = []
 	for (const p of planned) {
@@ -881,10 +1054,11 @@ export const applyOnSession = Effect.fn("applyOnSession")(function* (
 		yield* grantReplicationRight(session, p.snapshot.schema, p.decoder, grants)
 	}
 	for (const p of planned) {
-		yield* checkDrift(session, p.snapshot, p.statements, p.folders)
+		const verdict = yield* checkDrift(session, p.snapshot, p.statements, p.proofs, p.folders)
+		yield* recordProofs(session, p.snapshot, p.proofs, verdict)
 	}
 	return reports
-}, Effect.scoped)
+})
 
 /**
  * Checks every target's catalog against its snapshot without applying anything: the drift check of each schema, in
@@ -894,9 +1068,14 @@ const driftOnSession = Effect.fn("driftOnSession")(function* (
 	session: MigrationSession,
 	targets: ReadonlyArray<MigrationTarget>
 ): Effect.fn.Return<void, MigrateError> {
-	for (const t of targets) {
-		const checked = yield* Effect.fromResult(checkTarget(t, session.installation))
-		yield* checkDrift(session, checked.parsed.snapshot, checked.statements, checked.parsed.folders)
+	for (const checked of yield* Effect.fromResult(checkTargets(targets, session.installation))) {
+		yield* checkDrift(
+			session,
+			checked.parsed.snapshot,
+			checked.statements,
+			checked.proofs,
+			checked.parsed.folders
+		)
 	}
 })
 
@@ -918,11 +1097,9 @@ export const applyMigrations = Effect.fn("applyMigrations")(function* (input: {
 	readonly connection: MigrationConnection
 	readonly targets: ReadonlyArray<MigrationTarget>
 }): Effect.fn.Return<ReadonlyArray<SchemaApplyReport>, MigrateError, Scope.Scope> {
-	for (const t of input.targets) {
-		yield* Effect.asVoid(
-			Effect.fromResult(parseTarget(t, connectionInstallation(input.connection)))
-		)
-	}
+	const checked = yield* Effect.fromResult(
+		checkTargets(input.targets, connectionInstallation(input.connection))
+	)
 	const session = yield* openMigrationSession(input.connection)
-	return yield* applyOnSession(session, input.targets)
+	return yield* applyChecked(session, checked)
 }, Effect.scoped)

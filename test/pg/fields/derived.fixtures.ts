@@ -26,7 +26,7 @@ import {
 	Struct
 } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
@@ -748,7 +748,7 @@ export interface System {
 	readonly writer: RawSession
 	previous: Previous
 	names: PhysicalNames
-	folders: Array<FolderSource>
+	folders: Array<FolderTexts>
 	drafts: number
 }
 
@@ -842,7 +842,7 @@ export const draftNext = (sys: System, built: Built, declared: Declarations) =>
  */
 export const applyWith = (
 	sys: System,
-	next: ReadonlyArray<FolderSource>,
+	next: ReadonlyArray<FolderTexts>,
 	snapshot: DeploySnapshot
 ) =>
 	Effect.scoped(

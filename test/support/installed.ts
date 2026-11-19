@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -307,7 +307,7 @@ export const migrated = (options: MigrateOptions) =>
 			reviewing.kind === "noPlaceholders" ? noValue(options.label) : reviewing.value
 		const edited = (version: number, file: ReviewedText): string =>
 			reviewing.kind === "reviewed" ? reviewing.edit(version, file) : file.text
-		const folders: Array<FolderSource> = []
+		const folders: Array<FolderTexts> = []
 		const steps: Array<{
 			readonly version: AnyVersion
 			readonly plan: RealInstallPlan

@@ -3,6 +3,7 @@ import type { FenceStep } from "#adapter/wire/batch.ts"
 import { type Driven, drive, type Timing } from "#test/support/flight/drive.ts"
 import {
 	beginRefusal,
+	callAnswers,
 	callOf,
 	expected,
 	type Failure,
@@ -150,9 +151,9 @@ export const observationsOf = (
 	}
 	const session = run.session
 	const interruption = { at: driven.interruptedAt }
-	const flight = session.flights()[0]
+	const answers = callAnswers(c.call, session.flights())
 	return {
-		model: expected(c, flight?.delivered ?? [], flight?.made ?? [], interruption),
+		model: expected(c, answers.delivered, answers.made, interruption, answers.endSent),
 		run: observed(
 			driven.exit,
 			Arr.map(

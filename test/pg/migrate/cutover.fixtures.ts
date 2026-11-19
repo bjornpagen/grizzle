@@ -32,7 +32,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { transactionControl } from "#adapter/migrate/input.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -1101,7 +1101,7 @@ interface History {
 	readonly declared: string
 	readonly schema: string
 	readonly owner: string
-	folders: Array<FolderSource>
+	folders: Array<FolderTexts>
 	previous: Previous
 	installed: Installed
 	steps: number
@@ -1599,7 +1599,7 @@ export const history = (c: Cutover, note: (f: Feature) => void) =>
 				}),
 				"the first version"
 			)
-			const folder: FolderSource = {
+			const folder: FolderTexts = {
 				name: first.folder.name,
 				metaText: first.folder.metaText,
 				files: first.folder.files
@@ -1864,7 +1864,7 @@ export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
 				value: treePlaceholder
 			})
 			assert.deepEqual(fileFindings(g, reviewed.files), [], "grizzle check's findings")
-			const folders: ReadonlyArray<FolderSource> = [
+			const folders: ReadonlyArray<FolderTexts> = [
 				tree.folder,
 				{ name: g.folder.name, metaText: g.folder.metaText, files: reviewed.files }
 			]

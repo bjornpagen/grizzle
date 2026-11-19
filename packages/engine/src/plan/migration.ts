@@ -5,11 +5,27 @@
  * the slice and the basis, is plan/serve.ts's.
  */
 export {
+	type InstalledStatements,
 	type ManifestStatement,
 	manifestStatements,
 	type RecordedSource,
-	recordedSources
+	recordedSources,
+	type ReplayedObject
 } from "#compiler/deploy/admission/manifest.ts"
+export {
+	type ProofDigest,
+	proofDigests,
+	type ProvedObject,
+	replayedOver
+} from "#compiler/deploy/admission/proof.ts"
+export {
+	proofColumns,
+	proofsIdent,
+	type ProofStatements,
+	proofStatements
+} from "#compiler/deploy/ledger/ledger.ts"
+export { proofsTableName } from "#compiler/physical/ddl/ledger.ts"
+export { type GraphIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
 export type { AbandonedSchema, Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 export { decideFolder, type Redraft } from "#compiler/deploy/ledger/decide.ts"
 export {
@@ -75,7 +91,7 @@ export { memberWire, roleWire } from "#compiler/live/member.ts"
 export { openApiDirectory, openApiPath, openApiText } from "#compiler/live/openapi.ts"
 export { type UnservedMember, type UnservedReason } from "#compiler/served/unserved.ts"
 export { filledText } from "#compiler/sql/emit.ts"
-export { lex, type Token } from "#compiler/sql/lexer.ts"
+export { leadingTokens, lex, type Token } from "#compiler/sql/lexer.ts"
 export {
 	identifierOf,
 	identity,

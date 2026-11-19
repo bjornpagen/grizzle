@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, type FileSystem, type Path } from "effect"
 import { applyMigrations, checkDriftOf, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { MigrationTarget } from "#adapter/migrate/input.ts"
+import { folderSource, type MigrationTarget } from "#adapter/migrate/input.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"
 import { installationRoles, type UninstallReport, uninstall } from "#adapter/migrate/uninstall.ts"
 import { recordedCommitted } from "#cli/committed.ts"
@@ -20,7 +20,7 @@ export const readTargets = (
 		Effect.gen(function* () {
 			const tree = yield* readSchemaTree(schema.declared, schema.directory)
 			const { snapshot } = yield* recordedCommitted(schema, tree)
-			return { snapshot, folders: tree.folders } satisfies MigrationTarget
+			return { snapshot, folders: Arr.map(tree.folders, folderSource) } satisfies MigrationTarget
 		})
 	)
 
@@ -30,8 +30,8 @@ export const readTargets = (
  * The command takes no flags. Where to connect comes first (run.ts, connection.ts migrationConnection), so a connection
  * or a process environment it refuses is refused before any check runs or any directory is read; then every check of
  * the committed files `grizzle check` runs (run.ts, check.ts checkFiles), compiling nothing, since migrate applies the
- * files as they are; then it reads every configured schema's directory, its snapshot.json and its folders
- * as text (files.ts, committed.ts), and hands them and the connection to the apply runner
+ * files as they are, which reads every configured schema's directory, its snapshot.json and its folders as text, once
+ * (files.ts, committed.ts); then it hands those targets and the connection to the apply runner
  * (packages/grizzle/src/adapter/migrate), which connects as the migration identity and, for every schema in configured order, checks
  * before any statement of any folder runs that the role owns the schema, that the apply lock is free, that the ledger's
  * chain continues into the folders, that every applied file is still the text that ran, and that no file holds a
@@ -43,19 +43,14 @@ export const readTargets = (
  * check of every schema (packages/grizzle/src/adapter/migrate checkDriftOf): no apply lock, no file run, nothing
  * committed. A folder not yet applied is a mismatch of its own.
  *
- * Applies every configured schema's pending migrations, connecting with `connection`, the configuration's.
+ * Applies every configured schema's pending migrations, `targets`, as the file checks read them (check.ts checkFiles),
+ * connecting with `connection`, the configuration's.
  */
-export const migrate = Effect.fn("migrate")(function* (
-	config: ResolvedConfig,
+export const migrate = (
+	targets: ReadonlyArray<MigrationTarget>,
 	connection: MigrationConnection
-): Effect.fn.Return<
-	ReadonlyArray<SchemaApplyReport>,
-	CliError | MigrateError,
-	FileSystem.FileSystem | Path.Path
-> {
-	const targets = yield* readTargets(config)
-	return yield* applyMigrations({ connection, targets })
-})
+): Effect.Effect<ReadonlyArray<SchemaApplyReport>, MigrateError> =>
+	applyMigrations({ connection, targets })
 
 /**
  * Checks every configured schema's catalog against its committed snapshot, applying nothing; it connects with

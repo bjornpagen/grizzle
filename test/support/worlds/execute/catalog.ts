@@ -2,7 +2,7 @@ import { Array as Arr, Effect, Option, Record as Rec, Result, String as Str } fr
 import { fromEngine } from "#adapter/engine.ts"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import { type FolderTexts, folderSource } from "#adapter/migrate/input.ts"
 import { type MigrationSession, migrationSession } from "#adapter/migrate/session.ts"
 import { type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
@@ -166,6 +166,7 @@ export const failedFolder = (error: MigrateError): Option.Option<string> => {
 		case "LossesUndecided":
 		case "Drifted":
 		case "DriftUnchecked":
+		case "ProofsUnrecorded":
 		case "NamespaceUnread":
 		case "UninstallRefused":
 			return Option.none()
@@ -252,7 +253,7 @@ export const runFolders = (
 	substrate: SubstrateShape,
 	owner: AmbientOwner,
 	snapshot: DeploySnapshot,
-	folders: ReadonlyArray<FolderSource>,
+	folders: ReadonlyArray<FolderTexts>,
 	end: RunEnd
 ): Effect.Effect<RunOutcome> =>
 	Effect.scoped(
@@ -271,7 +272,9 @@ export const runFolders = (
 				end.kind === "runner"
 					? migrationSession(connection, { database: substrate.database, roles: { kind: "stems" } })
 					: killedAt(connection, end.at, substrate.database)
-			const ran = yield* Effect.result(applyOnSession(session, [{ snapshot, folders }]))
+			const ran = yield* Effect.result(
+				applyOnSession(session, [{ snapshot, folders: Arr.map(folders, folderSource) }])
+			)
 			if (Result.isSuccess(ran)) {
 				return { kind: "applied" }
 			}
@@ -288,7 +291,7 @@ export const drift = (
 	substrate: SubstrateShape,
 	owner: AmbientOwner,
 	snapshot: DeploySnapshot,
-	folders: ReadonlyArray<FolderSource>
+	folders: ReadonlyArray<FolderTexts>
 ): Effect.Effect<Seen> =>
 	Effect.flatMap(runFolders(substrate, owner, snapshot, folders, { kind: "runner" }), (outcome) => {
 		switch (outcome.kind) {
@@ -856,14 +859,14 @@ export const tamper = (
 /** What a migration installs: its plan, the folder it applies as `how` says, and the snapshot it reaches. */
 export interface Drafted {
 	readonly plan: RealInstallPlan
-	readonly folder: FolderSource
+	readonly folder: FolderTexts
 	readonly snapshot: DeploySnapshot
 }
 
 /** The version a migration continues: the snapshot it drafts from and the folders the ledger has applied. */
 interface Continued {
 	readonly snapshot: DeploySnapshot
-	readonly folders: ReadonlyArray<FolderSource>
+	readonly folders: ReadonlyArray<FolderTexts>
 }
 
 /**
@@ -1029,15 +1032,15 @@ export const draftedPhases = (
 	})
 
 /** A file with a line a person added by hand, after it was written. */
-const editedByHand = (file: FolderSource["files"][number]): FolderSource["files"][number] => ({
+const editedByHand = (file: FolderTexts["files"][number]): FolderTexts["files"][number] => ({
 	name: file.name,
 	text: `${file.text}\n-- edited by hand\n`
 })
 
 /** The folders of a migrations directory: the ones the ledger applied, oldest first, and the ones still pending. */
 interface FolderList {
-	readonly applied: ReadonlyArray<FolderSource>
-	readonly pending: ReadonlyArray<FolderSource>
+	readonly applied: ReadonlyArray<FolderTexts>
+	readonly pending: ReadonlyArray<FolderTexts>
 }
 
 /**
@@ -1048,9 +1051,9 @@ interface FolderList {
  */
 export const landedFolders = (
 	directory: FolderList,
-	folder: FolderSource,
+	folder: FolderTexts,
 	how: MigrationHow
-): ReadonlyArray<FolderSource> => {
+): ReadonlyArray<FolderTexts> => {
 	switch (how) {
 		case "complete":
 		case "half-applied":
@@ -1077,7 +1080,7 @@ export const landedFolders = (
  * left in progress in the ledger, or not started (main's ruling). A half-applied migration is drawn only to an
  * installation that differs, so a new folder with no file to stop in is a defect of the run.
  */
-export const runEndOf = (folder: FolderSource, how: MigrationHow): Effect.Effect<RunEnd> => {
+export const runEndOf = (folder: FolderTexts, how: MigrationHow): Effect.Effect<RunEnd> => {
 	switch (how) {
 		case "complete":
 		case "hand-edited":

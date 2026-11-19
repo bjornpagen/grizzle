@@ -59,7 +59,7 @@ import {
 	String as Str
 } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -286,7 +286,7 @@ const namesHeld = (session: RawSession, call: string) =>
 interface Drafted {
 	readonly plan: RealInstallPlan
 	readonly snapshot: DeploySnapshot
-	readonly folder: FolderSource
+	readonly folder: FolderTexts
 	readonly codes: Codebook
 }
 

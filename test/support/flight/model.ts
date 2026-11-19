@@ -42,7 +42,12 @@ import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { type Delivered, type Rows, sentSql } from "#test/support/flight/scripted.ts"
+import {
+	type Delivered,
+	type Rows,
+	type SentFlight,
+	sentSql
+} from "#test/support/flight/scripted.ts"
 
 /** What a statement does on the server (scripted.ts): its label is its identity in the case. */
 export type Planned =
@@ -297,9 +302,53 @@ const framedSlot = (frame: Transaction, slot: Slot, sqlOf: SqlOf): Framed => {
 	}
 }
 
+/**
+ * Each flight of a call as framingOf states it: a framed call's one flight; statements alone in front of a
+ * transaction (runAlongside) send theirs and the transaction's BEGIN and statements in a first flight and its end in a
+ * second, which a first flight that ended the call never sends.
+ */
 export const framingOf = (call: Call, sqlOf: SqlOf): ReadonlyArray<ReadonlyArray<Framed>> => {
 	const frame = frames[call.frame]
-	return [Arr.map(layoutOf(call), (slot) => framedSlot(frame, slot, sqlOf))]
+	const framed = Arr.map(layoutOf(call), (slot) => framedSlot(frame, slot, sqlOf))
+	return call.kind === "alongside" ? [framed.slice(0, -1), framed.slice(-1)] : [framed]
+}
+
+/**
+ * The end of a transaction a call never sent, its first flight having lost the connection: the answer its second
+ * flight would have carried, which no server made, read as the lost connection's, and delivered after every answer, so
+ * an interruption came before it.
+ */
+const unsentEnd: Delivered = { answer: { _tag: "failed" }, ordinal: Number.POSITIVE_INFINITY }
+
+/**
+ * A call's answers by its layout's positions (layoutOf) over every flight it sent, and whether it sent its
+ * transaction's end: a framed call's one flight's, its end among them; an alongside call's first flight's, then its
+ * second's one answer, its transaction's end, or, where it never sent the second, the end unsent (unsentEnd), which the
+ * server never made.
+ */
+export const callAnswers = (
+	call: Call,
+	flights: ReadonlyArray<SentFlight>
+): {
+	readonly delivered: ReadonlyArray<Delivered | undefined>
+	readonly made: ReadonlyArray<Answer | undefined>
+	readonly endSent: boolean
+} => {
+	const [first, second] = flights
+	if (call.kind === "framed" || first === undefined) {
+		return { delivered: first?.delivered ?? [], made: first?.made ?? [], endSent: true }
+	}
+	return second === undefined
+		? {
+				delivered: [...first.delivered, unsentEnd],
+				made: [...first.made, undefined],
+				endSent: false
+			}
+		: {
+				delivered: [...first.delivered, ...second.delivered],
+				made: [...first.made, ...second.made],
+				endSent: true
+			}
 }
 
 /**
@@ -392,17 +441,25 @@ const failureData = (failure: FlightFailure | ConnectionLost | DriverFailure): F
 const outcomeRows = (outcomes: ReadonlyArray<BatchOutcome>): ReadonlyArray<Rows> =>
 	Arr.map(outcomes, (o) => o.rows)
 
-const alongsideValue = (ran: Alongside): Value => ({
-	kind: "alongside",
-	alone: Arr.map(ran.alone, (r): AloneResult =>
-		Result.isSuccess(r)
-			? { kind: "rows", rows: r.success.rows }
-			: { kind: "refused", sqlstate: r.failure.sqlstate }
-	),
-	framed: Result.isSuccess(ran.framed)
-		? { kind: "outcomes", rows: outcomeRows(ran.framed.success) }
-		: { kind: "failure", failure: failureData(ran.framed.failure) }
-})
+const alongsideValue = (ran: Alongside<undefined, never>): Value => {
+	/** The transaction's outcomes over its two flights: the first's, then the second's, which carries its end alone. */
+	const framed = Result.flatMap(ran.framed, (opened) =>
+		Result.flatMap(opened.made, (made) =>
+			Result.map(made.second, (second) => [...opened.first, ...second])
+		)
+	)
+	return {
+		kind: "alongside",
+		alone: Arr.map(ran.alone, (r): AloneResult =>
+			Result.isSuccess(r)
+				? { kind: "rows", rows: r.success.rows }
+				: { kind: "refused", sqlstate: r.failure.sqlstate }
+		),
+		framed: Result.isSuccess(framed)
+			? { kind: "outcomes", rows: outcomeRows(framed.success) }
+			: { kind: "failure", failure: failureData(framed.failure) }
+	}
+}
 
 /**
  * The call on `session`, a framed one behind `prologue`, its value and failure as plain data. A framed call is a Db's,
@@ -429,6 +486,7 @@ export const callOf = (
 			session,
 			Arr.map(call.alone, oneShot),
 			Arr.map(call.statements, oneShot),
+			() => Result.succeed({ statements: [], value: undefined }),
 			alongsideTransactions[call.frame]
 		),
 		{
@@ -574,9 +632,11 @@ const judgeTransaction = (
 	prologue: ReadonlyArray<{ readonly step: FenceStep; readonly answer: Answer }>,
 	statements: ReadonlyArray<Answer>,
 	end: Answer,
-	frame: Transaction
+	frame: Transaction,
+	endSent: boolean
 ): { readonly result: FramedResult; readonly retired: boolean } => {
-	const commits = frame.end === "COMMIT"
+	/** A transaction whose end its call never sent, the connection lost before it, commits nothing. */
+	const commits = frame.end === "COMMIT" && endSent
 	const failure = (f: Failure, retired: boolean) => ({
 		result: { kind: "failure", failure: f } as const,
 		retired
@@ -686,7 +746,34 @@ export const interruptionPoint = (
 	const layout = layoutOf(call)
 	const beginAt = Arr.findFirstIndex(layout, (slot) => slot.role === "begin")
 	const endAt = layout.length - 1
-	const awaited = call.kind === "alongside" ? endAt : Option.isNone(beginAt) ? 0 : endAt - 1
+	/**
+	 * Whether an alongside call's first flight decided it whole (runAlongside): an answer alone it cannot read or a lost
+	 * connection, or BEGIN refused, after which the wait for its end, where it sends one, cancels nothing.
+	 */
+	const firstDecides =
+		call.kind === "alongside" &&
+		Arr.some(layout.slice(0, endAt), (slot, index) => {
+			const tag = delivered[index]?.answer._tag
+			switch (slot.role) {
+				case "alone":
+					return tag !== "result" && tag !== "refused"
+				case "begin":
+					return tag !== "result" && tag !== "unreadable"
+				case "statement":
+					return tag === "terminated" || tag === "failed"
+				case "prologue":
+				case "end":
+					return false
+			}
+		})
+	const awaited =
+		call.kind === "alongside"
+			? firstDecides
+				? endAt - 1
+				: endAt
+			: Option.isNone(beginAt)
+				? 0
+				: endAt - 1
 	const ordinal = (index: number): number => {
 		const d = delivered[index]
 		if (d === undefined) {
@@ -765,7 +852,8 @@ export const expected = (
 	c: FlightCase,
 	delivered: ReadonlyArray<Delivered | undefined>,
 	made: ReadonlyArray<Answer | undefined>,
-	interruption: Interruption
+	interruption: Interruption,
+	endSent: boolean
 ): Observation => {
 	const layout = layoutOf(c.call)
 	const at = (index: number): Delivered => {
@@ -779,8 +867,11 @@ export const expected = (
 	const frame = frames[c.call.frame]
 	const beginAt = Arr.findFirstIndex(layout, (slot) => slot.role === "begin")
 	const endAt = layout.length - 1
-	/** The flight lost its connection: a query failed, or the server ended the session. */
-	const lostConnection = Arr.some(answers, (a) => a._tag === "failed" || a._tag === "terminated")
+	/** The flight lost its connection: a query it sent failed, or the server ended the session. */
+	const lostConnection = Arr.some(
+		endSent ? answers : answers.slice(0, -1),
+		(a) => a._tag === "failed" || a._tag === "terminated"
+	)
 	/** The ending and the retirement the answers alone decide. */
 	const judged = ((): Judged => {
 		const first = Arr.headNonEmpty(answers)
@@ -803,7 +894,8 @@ export const expected = (
 			prologue,
 			answers.slice(firstStatement, endAt),
 			end,
-			frame
+			frame,
+			endSent
 		)
 		const framed = transaction.result
 		if (c.call.kind === "framed") {

@@ -20,7 +20,7 @@
  * hold, so a suite installs it into a database no other case of it holds it in at once.
  */
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { oldFormTreeFiles } from "#test/support/migrate/old-form-tree.files.ts"
@@ -32,7 +32,7 @@ import { oldFormTreeFiles } from "#test/support/migrate/old-form-tree.files.ts"
  */
 export interface OldFormTree {
 	readonly snapshot: DeploySnapshot
-	readonly folder: FolderSource
+	readonly folder: FolderTexts
 	readonly columns: {
 		readonly copy: string
 		readonly parentStart: string

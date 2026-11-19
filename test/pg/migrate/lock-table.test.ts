@@ -22,15 +22,15 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
-import { driftFlight } from "#adapter/admission/drift.ts"
+import { Array as Arr, Effect, Option } from "effect"
 import { applyOnSession, checkDrift } from "#adapter/migrate/apply.ts"
 import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { migrationSession } from "#adapter/migrate/session.ts"
-import type { BatchStatement } from "#adapter/wire/batch.ts"
+import { type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import { proofStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import {
 	caseGen,
@@ -44,7 +44,7 @@ import {
 	refusingAlongside,
 	refusingTransaction
 } from "#test/pg/migrate/lock-table.fixtures.ts"
-import { kept, reviewedSource } from "#test/pg/migrate/support.ts"
+import { kept, parsedTarget, reviewedSource } from "#test/pg/migrate/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
@@ -80,6 +80,7 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 							const allocated = yield* substrate.schema({ create: false, label: "locks" })
 							const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
 							const ledgerStatements = succeeded(statementsFor(schema))
+							const proofs = succeeded(proofStatements(schema))
 							const tapped = yield* tappedSession({
 								cluster: substrate.cluster,
 								database: substrate.database,
@@ -105,10 +106,11 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 								fromEmpty
 							)
 							const sources = Arr.map(folders, (g) => reviewedSource(g, kept))
-							const target = (n: number): MigrationTarget => ({
-								snapshot: defined(folders[n - 1], "a drafted folder").snapshot,
-								folders: sources.slice(0, n)
-							})
+							const target = (n: number): MigrationTarget =>
+								parsedTarget({
+									snapshot: defined(folders[n - 1], "a drafted folder").snapshot,
+									folders: sources.slice(0, n)
+								})
 							if (x.versions === 2 || x.at === "the replay") {
 								yield* applyOnSession(m, [target(1)])
 							}
@@ -120,7 +122,6 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 							const ledgerBefore = yield* Effect.result(readLedger(m, schema, ledgerStatements))
 							const relationsBefore = yield* relations()
 							const snapshot = target(1).snapshot
-							const replay = succeeded(driftFlight(snapshot, m.installation, [])).replay
 							/** The place the refused statement is at, which `pick` notes. */
 							let place: LockPlace = "the drift check's replay"
 							/** The case's statement among a file transaction's, at the place its text names. */
@@ -136,13 +137,31 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 											: "a file's statement"
 								return index
 							}
+							/**
+							 * The case's statement among the drift check's replay, which its second flight sends first, before
+							 * each scratch schema's description, one statement of one text: with no proof left, a whole one.
+							 */
+							const pickReplay = (statements: ReadonlyArray<BatchStatement>): number => {
+								const describe = sentSql(
+									defined(statements.at(-1), "a scratch schema's description")
+								)
+								const count = Arr.findFirstIndex(statements, (s) => sentSql(s) === describe)
+								return indexAmong(
+									x,
+									defined(Option.getOrUndefined(count), "the first scratch schema's description")
+								)
+							}
+							if (x.at === "the replay") {
+								yield* m.transaction([oneShotStatement(proofs.clear.text, [])])
+							}
 							const failed =
 								x.at === "the replay"
 									? yield* Effect.flip(
 											checkDrift(
-												refusingAlongside(m, replay.from + indexAmong(x, replay.count)),
+												refusingAlongside(m, pickReplay),
 												snapshot,
 												ledgerStatements,
+												proofs,
 												[]
 											)
 										)

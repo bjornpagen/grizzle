@@ -80,6 +80,8 @@ export type IdentityKind =
 	| "ledger"
 	| "ledgerKey"
 	| "ledgerCheck"
+	| "proofs"
+	| "proofsKey"
 	| "isolationGuard"
 	| "isolationTrigger"
 	| "lawTrigger"

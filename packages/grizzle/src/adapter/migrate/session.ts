@@ -19,10 +19,12 @@ import {
 	type Alongside,
 	type ApartAnswer,
 	type ApartFailure,
+	type BatchOutcome,
 	type BatchStatement,
 	runAlongside,
 	runApart,
 	runTransaction,
+	type SecondFlight,
 	type Transaction,
 	type Uncommitting
 } from "#adapter/wire/batch.ts"
@@ -42,9 +44,9 @@ import type { InstallationNames } from "#compiler/plan/migration.ts"
  * connect timeout (../wire/session.ts), holds it for the whole apply, and sends every step itself. A step is a list of
  * statements sent together, in one flight (../wire/batch.ts): every statement of it is written before any answer is
  * read, so no statement of a step can wait on another's answer, and the session sends nothing else. A step is
- * statements apart, each its own implicit transaction (`apart`); statements apart in front of one transaction
- * (`alongside`); or a transactional file's transaction, its statements and ledger rows ending with COMMIT
- * (`transaction`). Statements are unnamed: a migration statement runs once. Nothing sets statement_timeout or
+ * statements apart, each its own implicit transaction (`apart`); statements apart in front of one transaction that
+ * commits nothing, the drift check's, which is two steps, the second made of the first's answers (`alongside`); or a
+ * transactional file's transaction, its statements and ledger rows ending with COMMIT (`transaction`). Statements are unnamed: a migration statement runs once. Nothing sets statement_timeout or
  * lock_timeout; an interruption cancels the flight in flight until the server has stopped it (../wire/batch.ts abandon),
  * so an open transaction has rolled back once it ends, and the session is never used again. A step longer than one write carries is refused before any byte of it is written, as
  * InputTooLarge (../wire/batch.ts send): nothing of it ran.
@@ -62,12 +64,20 @@ export interface MigrationSession {
 	readonly apart: (
 		statements: Arr.NonEmptyReadonlyArray<BatchStatement>
 	) => Effect.Effect<ReadonlyArray<ApartAnswer>, ApartFailure>
-	/** One step of statements apart in front of one transaction (batch.ts runAlongside): the answers of both. */
-	readonly alongside: (
+	/**
+	 * Statements apart in front of one transaction that commits nothing, over two flights (batch.ts runAlongside): the
+	 * statements apart and the transaction's `first`, then the statements `then` makes of their answers and the
+	 * transaction's end; the answers of all of them.
+	 */
+	readonly alongside: <A, E>(
 		apart: ReadonlyArray<BatchStatement>,
-		statements: ReadonlyArray<BatchStatement>,
+		first: ReadonlyArray<BatchStatement>,
+		then: (
+			apart: ReadonlyArray<ApartAnswer>,
+			first: ReadonlyArray<BatchOutcome>
+		) => Result.Result<SecondFlight<A>, E>,
 		transaction: Uncommitting
-	) => Effect.Effect<Alongside, ConnectionLost | DriverFailure | InputTooLarge>
+	) => Effect.Effect<Alongside<A, E>, ConnectionLost | DriverFailure | InputTooLarge>
 	/**
 	 * One step of statements in one transaction that ends with COMMIT: a transactional file with its ledger rows, or a
 	 * ledger record alone.
@@ -123,8 +133,8 @@ export const migrationSession = (
 ): MigrationSession => ({
 	installation,
 	apart: (statements) => runApart(session, statements),
-	alongside: (apart, statements, transaction) =>
-		runAlongside(session, apart, statements, transaction),
+	alongside: (apart, first, then, transaction) =>
+		runAlongside(session, apart, first, then, transaction),
 	transaction: (statements) => Effect.asVoid(runTransaction(session, statements, fileTransaction))
 })
 

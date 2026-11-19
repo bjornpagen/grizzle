@@ -21,7 +21,7 @@ import {
 	String as Str
 } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -786,7 +786,7 @@ const migrateHistory = <A>(
 			const owner = substrate.owner.role
 			const name = yield* substrate.schema({ create: false, label })
 			const m = yield* openMigrator(substrate, substrate.owner)
-			const folders: Array<FolderSource> = []
+			const folders: Array<FolderTexts> = []
 			const observed: Array<A> = []
 			let previous: Previous = fromEmpty
 			for (const [i, version] of versions.entries()) {

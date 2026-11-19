@@ -286,6 +286,7 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 		case "FileCommitRefused":
 		case "FileCommitLost":
 		case "DriftUnchecked":
+		case "ProofsUnrecorded":
 		case "NamespaceUnread":
 		case "UninstallRefused":
 			return []
@@ -412,7 +413,8 @@ const program = Effect.fn("program")(function* (
 				]
 			)
 		}
-		const applied = yield* Effect.mapError(migrate(config, connection), refusedBy("migrate"))
+		const targets = Arr.flatMap(checks, (c) => Option.toArray(c.target))
+		const applied = yield* Effect.mapError(migrate(targets, connection), refusedBy("migrate"))
 		return ran(exitCodes.ok, renderApply(applied), [])
 	}
 	if (command.kind === "roles") {

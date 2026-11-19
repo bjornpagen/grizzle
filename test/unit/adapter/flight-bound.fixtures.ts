@@ -14,7 +14,16 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Cause, Effect, Exit, Option, type Scope, String as Str } from "effect"
+import {
+	Array as Arr,
+	Cause,
+	Effect,
+	Exit,
+	Option,
+	Result,
+	type Scope,
+	String as Str
+} from "effect"
 import pgDriver from "pg"
 import type { BatchFailure, ConnectRefusal, InputTooLarge } from "#adapter/errors/failures.ts"
 import type { Transport } from "#adapter/types/layer.ts"
@@ -333,6 +342,14 @@ export const newConnectionBytesOf = (
 	)
 }
 
+/**
+ * The flight of a call the bound is drawn by, from `wire`, the server's record of the whole call: every runner's one
+ * flight, or for statements alone in front of a transaction (runAlongside) its first, every message but the second's,
+ * the transaction's end alone, one simple Query, which the first, the longer, never outweighs.
+ */
+export const boundFlightOf = (c: FlightCase, wire: ReadonlyArray<Read>): ReadonlyArray<Read> =>
+	c.runner === "alongside" ? wire.slice(0, -1) : wire
+
 /** The case's statement text, padded with a trailing comment of `pad`. */
 const textOf = (pad: string): string => `SELECT $1::text AS s -- ${pad}`
 
@@ -429,9 +446,17 @@ export const boundCallOf = (
 					session,
 					Arr.map(c.first, statementOfSpec),
 					Arr.map(c.second, statementOfSpec),
+					() => Result.succeed({ statements: [], value: undefined }),
 					readOnly
 				),
-				(both) => Effect.asVoid(Effect.fromResult(both.framed))
+				(both) =>
+					Effect.asVoid(
+						Effect.fromResult(
+							Result.flatMap(both.framed, (opened) =>
+								Result.flatMap(opened.made, (made) => made.second)
+							)
+						)
+					)
 			)
 		case "framed":
 			return Effect.asVoid(

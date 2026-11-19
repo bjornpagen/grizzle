@@ -46,12 +46,12 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrationPlace, ServerReport } from "#adapter/migrate/errors.ts"
-import type { FolderSource, MigrationTarget } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { reportedOwner } from "#adapter/witness/keylaw.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { constraintLawMap } from "#compiler/laws/model/model.ts"
-import { statementRows } from "#test/pg/migrate/support.ts"
+import { parsedTarget, statementRows, type TextTarget } from "#test/pg/migrate/support.ts"
 import {
 	Assignment,
 	assignmentColumns,
@@ -225,7 +225,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 									fix: `UPDATE ${names.table(Desk)} SET ${names.column(Desk, "code")} = 'abc' WHERE ${names.column(Desk, "id")} = ${coded}`
 								}
 							]
-							const payloads = Arr.map(x.target.folders, (f): FolderSource =>
+							const payloads = Arr.map(x.target.folders, (f): FolderTexts =>
 								f === drafted
 									? {
 											...f,
@@ -243,11 +243,13 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 									validatedDomainCheck(floorDomain)(server) && inPayloadFile(place),
 								fix: "restore the folder as drafted"
 							}
-							let target: MigrationTarget = { snapshot: x.target.snapshot, folders: payloads }
+							let target: TextTarget = { snapshot: x.target.snapshot, folders: payloads }
 							const refused: Array<string> = []
 							for (let round = 0; round <= fixes.length + 1; round++) {
 								const before = yield* x.contents
-								const result = yield* Effect.result(applyOnSession(x.migrator, [target]))
+								const result = yield* Effect.result(
+									applyOnSession(x.migrator, [parsedTarget(target)])
+								)
 								if (result._tag === "Success") {
 									break
 								}
@@ -282,7 +284,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 								Arr.map([...fixes, payload], refusalName),
 								"every law refused once where the data violates it"
 							)
-							yield* Effect.result(applyOnSession(x.migrator, [x.target]))
+							yield* Effect.result(applyOnSession(x.migrator, [parsedTarget(x.target)]))
 							const violation = yield* Effect.result(
 								x.owner(
 									`INSERT INTO ${worker} (${workerColumns(names)}) VALUES (${later}, '${shared}')`
@@ -374,7 +376,7 @@ export const aMigrationsValidatePhaseAWriterRacingTheMigrationCannotSlipAViolati
 										{
 											label: "migrate apply",
 											outcome: Effect.map(
-												Effect.result(applyOnSession(x.migrator, [x.target])),
+												Effect.result(applyOnSession(x.migrator, [parsedTarget(x.target)])),
 												(r) => {
 													migrated.set("m", r)
 													return succeededStep

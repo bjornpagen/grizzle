@@ -118,6 +118,7 @@
 				"patterns": [
 					"packages/engine/src/plan/migration.ts",
 					"packages/engine/src/deploy/admission/manifest.ts",
+					"packages/engine/src/deploy/admission/proof.ts",
 					"packages/engine/src/deploy/diff/**",
 					"packages/engine/src/deploy/ledger/decide.ts",
 					"packages/engine/src/deploy/phases/**",

@@ -1450,6 +1450,18 @@ export const identity = Object.freeze({
 			readable(`__ledger_${joined(segments)}_check`)
 		)
 	},
+	/** The drift check's proofs, beside the migrations ledger (deploy/ledger/ledger.ts proofsTable). */
+	proofs: (): Identity<"proofs"> =>
+		mint("proofs", [], ["drift", "proofs"], "the drift check's proofs", readable("__drift_proofs")),
+	/** The drift check's proofs' primary key. */
+	proofsKey: (): Identity<"proofsKey"> =>
+		mint(
+			"proofsKey",
+			[],
+			["drift", "proofs", "pk"],
+			"the drift check's proofs' key",
+			readable("__drift_proofs_pk")
+		),
 	isolationGuard: (): Identity<"isolationGuard"> =>
 		mint(
 			"isolationGuard",

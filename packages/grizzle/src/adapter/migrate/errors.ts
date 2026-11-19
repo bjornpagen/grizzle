@@ -745,10 +745,26 @@ export class Drifted extends Data.TaggedError("Drifted")<{
 export class ReplayRefused extends Data.TaggedError("ReplayRefused")<{
 	readonly statement: number
 	readonly of: number
+	/** The manifest identity of the object the refused statement builds. */
+	readonly object: string
 	readonly failure: ServerError | LockTableExhausted
 }> {
 	override get message(): string {
-		return `statement ${this.statement} of ${this.of} of the replay was refused: ${failureText(this.failure)}`
+		return `statement ${this.statement} of ${this.of} of the replay, which builds ${this.object}, was refused: ${failureText(this.failure)}`
+	}
+}
+
+/**
+ * The drift check of `schema` found no drift, but its proofs could not be recorded (deploy/ledger/ledger.ts
+ * proofsTable): every folder applied and the catalog is the snapshot's, and a rerun checks it again, replaying what the
+ * proofs it finds do not prove, and records them.
+ */
+export class ProofsUnrecorded extends Data.TaggedError("ProofsUnrecorded")<{
+	readonly schema: string
+	readonly failure: StatementFailure
+}> {
+	override get message(): string {
+		return `the drift check of ${this.schema} found no drift, but its proofs could not be recorded: ${failureText(this.failure)}`
 	}
 }
 
@@ -833,6 +849,7 @@ export type MigrateReason =
 	| FileCommitLost
 	| Drifted
 	| DriftUnchecked
+	| ProofsUnrecorded
 	| NamespaceUnread
 	| UninstallRefused
 
@@ -865,6 +882,7 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	FileCommitLost: "commit",
 	Drifted: "drift",
 	DriftUnchecked: "unchecked",
+	ProofsUnrecorded: "record",
 	NamespaceUnread: "uninstall",
 	UninstallRefused: "uninstall"
 }
@@ -915,6 +933,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "FileCommitLost":
 			case "Drifted":
 			case "DriftUnchecked":
+			case "ProofsUnrecorded":
 				return reason.schema
 		}
 	}
@@ -965,6 +984,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "SnapshotUnreached":
 			case "Drifted":
 			case "DriftUnchecked":
+			case "ProofsUnrecorded":
 			case "NamespaceUnread":
 			case "UninstallRefused":
 				return directory
@@ -980,6 +1000,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "LedgerUnlocked":
 			case "RecordFailed":
 			case "FileCommitRefused":
+			case "ProofsUnrecorded":
 			case "NamespaceUnread":
 			case "UninstallRefused":
 				return serverReport(reason.failure)

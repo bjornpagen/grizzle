@@ -26,7 +26,12 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import { type ParsedTarget, parseTarget, transactionControl } from "#adapter/migrate/input.ts"
+import {
+	folderSource,
+	type ParsedTarget,
+	parseTarget,
+	transactionControl
+} from "#adapter/migrate/input.ts"
 import { planApply, runFiles } from "#adapter/migrate/plan.ts"
 import { indices } from "#compiler/core/array.ts"
 import type { LedgerState, RecordedFolder } from "#compiler/deploy/ledger/ledger.ts"
@@ -164,7 +169,10 @@ export const theInputCheckBeforeAnyConnectionOrdersTheFoldersByNameAndTheFilesBy
 					onSome: (g) => g.snapshot
 				})
 				const planted = plantedFolders(handed, c.fault)
-				const parsed = parseTarget({ snapshot, folders: planted.folders }, stemsInstallation)
+				const parsed = parseTarget(
+					{ snapshot, folders: Arr.map(planted.folders, folderSource) },
+					stemsInstallation
+				)
 				if (planted.refusal !== undefined) {
 					const reason = failed(parsed).reason
 					assert.deepEqual(
@@ -273,7 +281,7 @@ export const thePlanSkipResumeRunOrRefuseBeforeAnyStatementRunsExactlyTheFolders
 					parseTarget(
 						{
 							snapshot: defined(Arr.last(chain).pipe(Option.getOrUndefined), "a draft").snapshot,
-							folders: sources
+							folders: Arr.map(sources, folderSource)
 						},
 						stemsInstallation
 					)
@@ -461,7 +469,10 @@ export const thePlanSkipResumeRunOrRefuseBeforeAnyStatementRunsExactlyTheFolders
 					}
 				})()
 				const parsed = succeeded(
-					parseTarget({ snapshot: known, folders: target }, stemsInstallation)
+					parseTarget(
+						{ snapshot: known, folders: Arr.map(target, folderSource) },
+						stemsInstallation
+					)
 				)
 				const planned = planApply(parsed, state)
 				if (verdict.kind === "refused") {

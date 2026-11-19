@@ -2,7 +2,7 @@
 
 import { array, boolean, element, type Gen, int, shuffled, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order } from "effect"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { type Catalogued, seatOf } from "#test/pg/fin/installed.ts"
@@ -483,7 +483,7 @@ export const walkCase = (
 		const m = yield* openMigrator(substrate, substrate.owner)
 		const over = { ...asDrafted, schema: atName(name), owner: ownedBy(owner) }
 		const steps = [stepOf(undefined), stepOf(second), stepOf(undefined)] as const
-		const folders: Array<FolderSource> = []
+		const folders: Array<FolderTexts> = []
 		let previous: Previous = fromEmpty
 		let landed: ReadonlyArray<string> = []
 		for (const [i, step] of steps.entries()) {

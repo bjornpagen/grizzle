@@ -28,7 +28,9 @@ import {
 	ledgerGuardObject,
 	ledgerObject,
 	ledgerPrivilegesObject,
-	ledgerPublished
+	ledgerPublished,
+	proofsGuardObject,
+	proofsObject
 } from "#compiler/deploy/ledger/ledger.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
 import {
@@ -897,8 +899,9 @@ export const derivedFacts = (owned: Owned, closed: ClosedNames, model: LawModel)
 
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
  * migrations ledger's objects added to its manifest: the ledger table and its SERIALIZABLE guard trigger in Setup,
- * after the guard's function, every login's SELECT on it in Publish, and the ledger among the tables of the live
- * source's publication (ledgerPublished), where the installation holds one. */
+ * after the guard's function, then the drift check's proofs and their guard trigger (deploy/ledger/ledger.ts
+ * proofsTable), every login's SELECT on the ledger in Publish, and the ledger among the tables of the live source's
+ * publication (ledgerPublished), where the installation holds one. */
 export const targetState = (input: TargetInput): Result.Result<SnapshotContent, CompileError> =>
 	catchRefusal(() => {
 		const { installation } = input
@@ -908,10 +911,12 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 		 * function before the ledger. */
 		const ledger = ledgerObject(schema)
 		const guard = ledgerGuardObject(schema)
+		const proofs = proofsObject(schema)
+		const proofsGuard = proofsGuardObject(schema)
 		for (const o of installation.manifest.objects) {
 			objects.push(o.kind === "publication" ? ledgerPublished(schema, o) : o)
 			if (o.kind === "isolationFunction") {
-				objects.push(ledger, guard)
+				objects.push(ledger, guard, proofs, proofsGuard)
 			}
 		}
 		const privileges = ledgerPrivilegesObject(schema, installationLogins(installation))
@@ -925,6 +930,9 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			{ from: namedIdent("schema", schema), to: ledger.ident },
 			{ from: isolationFunctionIdent(schema), to: guard.ident },
 			{ from: ledger.ident, to: guard.ident },
+			{ from: namedIdent("schema", schema), to: proofs.ident },
+			{ from: isolationFunctionIdent(schema), to: proofsGuard.ident },
+			{ from: proofs.ident, to: proofsGuard.ident },
 			...installation.manifest.objects.flatMap((o) =>
 				o.kind === "publication" ? [{ from: ledger.ident, to: o.ident }] : []
 			)

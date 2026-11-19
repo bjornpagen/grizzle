@@ -38,6 +38,7 @@ import type { Session } from "#adapter/wire/session.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	boundCallOf,
+	boundFlightOf,
 	caseGen,
 	typedFailureOf,
 	features,
@@ -74,7 +75,7 @@ export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteO
 					const twin = yield* historied
 					yield* boundCallOf(c, twin.session)
 					const wire = twin.server.read.slice(twin.mark)
-					const measured = newConnectionBytesOf(wire, wire)
+					const measured = newConnectionBytesOf(boundFlightOf(c, wire), wire)
 					const limit =
 						c.at === "short of"
 							? Math.max(0, measured - c.distance)

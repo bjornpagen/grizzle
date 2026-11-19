@@ -38,7 +38,12 @@ export const digest = (
  * The domains the compiler digests the values it owns under: one-line names, each a fingerprint domain. A constant's
  * domain digests the content its function is named by (ConstantDomain).
  */
-export type OwnedDomain = "empty-snapshot" | "regex-language" | "domain-definition" | ConstantDomain
+export type OwnedDomain =
+	| "empty-snapshot"
+	| "regex-language"
+	| "domain-definition"
+	| "drift-proof"
+	| ConstantDomain
 
 /**
  * The domains of an installed constant's content: a closed relation's or side's string of cells, and a roster's names

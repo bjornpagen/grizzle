@@ -19,7 +19,7 @@ import type {
 	UnresolvedLoss,
 	UnresolvedMarker
 } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -48,7 +48,7 @@ import { folderOrdinal, ledgerTableName } from "#compiler/physical/ddl/ledger.ts
 import { catalogExpr, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	apply,
-	folderSource,
+	writtenTexts,
 	id,
 	kept,
 	noFurther,
@@ -93,7 +93,7 @@ interface System {
 	readonly schema: string
 	readonly m: MigrationSession
 	readonly gs: ReadonlyArray<GenerateResult>
-	readonly reviewed: ReadonlyArray<FolderSource>
+	readonly reviewed: ReadonlyArray<FolderTexts>
 	/** Another schema's drafted first folder, never applied. */
 	readonly foreign: GenerateResult
 	readonly holder: RawSession
@@ -263,13 +263,13 @@ const refusedBeforeRunning = (
 	})
 
 /** The folders as reviewed, none changed. */
-const asReviewed = (f: FolderSource): FolderSource | undefined => f
+const asReviewed = (f: FolderTexts): FolderTexts | undefined => f
 
 /** The directory as of folder k, the folders reviewed, each folder of `edit` changed. */
 const directory = (
 	r: System,
 	k: number,
-	edit: (f: FolderSource, i: number) => FolderSource | undefined
+	edit: (f: FolderTexts, i: number) => FolderTexts | undefined
 ) => ({
 	snapshot: defined(r.gs[k - 1]).snapshot,
 	folders: Arr.flatMap(r.reviewed.slice(0, k), (f, i) => {
@@ -299,7 +299,7 @@ type Point =
 	| { readonly at: "within"; readonly ordinal: number; readonly statement: number }
 
 /** Each file's points; a no-transaction file's statements are the runner's own split (splitStatements). */
-const pointsOf = (folder: FolderSource): ReadonlyArray<Point> =>
+const pointsOf = (folder: FolderTexts): ReadonlyArray<Point> =>
 	Arr.flatMap(folder.files, (f, i): ReadonlyArray<Point> => {
 		const ordinal = i + 1
 		if (!isNoTransaction(f.text)) {
@@ -381,7 +381,7 @@ type ChainShape = ReadonlyArray<FolderShape>
  * names it writes, so a chain drafted under any name has the shape of every case's. */
 const shapeOf = (
 	gs: ReadonlyArray<GenerateResult>,
-	reviewed: ReadonlyArray<FolderSource>
+	reviewed: ReadonlyArray<FolderTexts>
 ): ChainShape =>
 	Arr.map(gs, (g, i): FolderShape => {
 		const folder = defined(reviewed[i])
@@ -697,7 +697,7 @@ const realOf = (
 			Effect.gen(function* () {
 				c.note("a pending folder sorted before an applied one")
 				const next = model.recorded
-				const early = (f: FolderSource): FolderSource => ({
+				const early = (f: FolderTexts): FolderTexts => ({
 					...f,
 					name: succeeded(folderName("20000101000000", parsedMigrationName("early")))
 				})
@@ -720,7 +720,7 @@ const realOf = (
 				const g = defined(r.gs[model.recorded])
 				const { markers, losses } = unreviewedOf(g)
 				const unreviewed = directory(r, model.recorded + 1, (f, i) =>
-					i === model.recorded ? folderSource(g.folder) : f
+					i === model.recorded ? writtenTexts(g.folder) : f
 				)
 				if (markers.length === 0 && losses.length === 0) {
 					c.note("apply unreviewed without markers")
@@ -802,7 +802,7 @@ const realOf = (
 				const target = defined(applied.files[file])
 				const renamed = `${Str.slice(0, 3)(target.name)}renamed.sql`
 				const name = applied.name
-				const edit = (f: FolderSource): FolderSource | undefined => {
+				const edit = (f: FolderTexts): FolderTexts | undefined => {
 					switch (kind) {
 						case "edited":
 							return {
@@ -989,7 +989,7 @@ const realOf = (
 				const e = yield* refusal(
 					apply(
 						r.m,
-						{ snapshot, folders: [...r.reviewed.slice(0, model.recorded), folderSource(step)] },
+						{ snapshot, folders: [...r.reviewed.slice(0, model.recorded), writtenTexts(step)] },
 						noFurther
 					)
 				)
@@ -1038,7 +1038,7 @@ const realOf = (
 				const e = yield* refusal(
 					apply(
 						r.m,
-						{ snapshot: first.snapshot, folders: [folderSource(early), defined(r.reviewed[0])] },
+						{ snapshot: first.snapshot, folders: [writtenTexts(early), defined(r.reviewed[0])] },
 						noFurther
 					)
 				)

@@ -184,8 +184,9 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 	kills: [
 		{
 			file: "packages/grizzle/src/adapter/migrate/apply.ts",
-			original: "\tconst mismatches = [...ledgerMismatches(snapshot, read.state), ...found]",
-			replacement: "\tconst mismatches = [...ledgerMismatches(snapshot, read.state)]",
+			original:
+				"\t\t...ledgerMismatches(snapshot, ledgerStateOf(schema, read)),\n\t\t...verdict.mismatches\n",
+			replacement: "\t\t...ledgerMismatches(snapshot, ledgerStateOf(schema, read))\n",
 			why: "The drift check compares no catalog fact, so drift passes over every change made by hand."
 		},
 		{

@@ -44,6 +44,7 @@ import { type CaseSpace, caseGen } from "#test/support/flight/cases.ts"
 import { runAlone } from "#test/support/pg.ts"
 
 import {
+	callAnswers,
 	callOf,
 	type Failure,
 	fenceSql,
@@ -313,7 +314,7 @@ const flightSuite = Effect.gen(function* () {
 			cx.note(`call ${c.call.kind} ${c.call.frame}`)
 			const point = interruptionPoint(
 				c.call,
-				run.session.flights()[0]?.delivered ?? [],
+				callAnswers(c.call, run.session.flights()).delivered,
 				observations.interruption
 			)
 			if (point !== "none") {

@@ -6,7 +6,6 @@ import type { Source } from "@bjornpagen/testing/source"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result, String as Str } from "effect"
 import type { MigrateError, MigrationPlace, ServerReport } from "#adapter/migrate/errors.ts"
-import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import { reportedOwner } from "#adapter/witness/keylaw.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -31,7 +30,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import { folderSource, openMigrator } from "#test/pg/migrate/support.ts"
+import { openMigrator, type TextTarget, writtenTexts } from "#test/pg/migrate/support.ts"
 import { keyGen } from "#test/schedules/write/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
@@ -263,8 +262,8 @@ export const prepare = (
 			})
 		)
 		/** Every folder the schema has, the installing one as it ran, then the new one. */
-		const drafted = folderSource(g.folder)
-		const target: MigrationTarget = { snapshot: g.snapshot, folders: [...done.folders, drafted] }
+		const drafted = writtenTexts(g.folder)
+		const target: TextTarget = { snapshot: g.snapshot, folders: [...done.folders, drafted] }
 		const migrator = yield* openMigrator(s, s.owner)
 		const owner = (statement: string) => s.admin.query(statement, [])
 		/**

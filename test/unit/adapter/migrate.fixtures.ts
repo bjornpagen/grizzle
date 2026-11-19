@@ -490,14 +490,14 @@ export const inputCaseGen: Gen<InputCase> = (source) => {
 }
 
 /** A folder as the command line hands it over. */
-type FolderSource = ReturnType<typeof source>
+type FolderTexts = ReturnType<typeof source>
 
 /** The folders of a case as handed over, the fault planted, and the refusal the fault is, at its folder. */
 export const plantedFolders = (
-	folders: ReadonlyArray<FolderSource>,
+	folders: ReadonlyArray<FolderTexts>,
 	fault: InputFault
 ): {
-	readonly folders: ReadonlyArray<FolderSource>
+	readonly folders: ReadonlyArray<FolderTexts>
 	readonly refusal: { readonly kind: InputFaultKind; readonly folder: string } | undefined
 } => {
 	if (fault.kind === "none") {
@@ -505,7 +505,7 @@ export const plantedFolders = (
 	}
 	const at = fault.at % folders.length
 	const folder = defined(folders[at], "the faulted folder")
-	const replaced = (replacement: ReadonlyArray<FolderSource>): ReadonlyArray<FolderSource> => [
+	const replaced = (replacement: ReadonlyArray<FolderTexts>): ReadonlyArray<FolderTexts> => [
 		...Arr.take(folders, at),
 		...replacement,
 		...Arr.drop(folders, at + 1)
@@ -862,7 +862,7 @@ export const planCases = aimed<PlanCase, PlanFeature>(planCaseGen, [
 ])
 
 /** A folder of the chain as the case's reviewer leaves it. */
-export const reviewedSource = (c: PlanCase, folder: MigrationFolder, i: number): FolderSource =>
+export const reviewedSource = (c: PlanCase, folder: MigrationFolder, i: number): FolderTexts =>
 	source(
 		folder,
 		c.chain === "the shop"

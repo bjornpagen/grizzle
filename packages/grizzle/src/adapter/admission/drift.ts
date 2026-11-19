@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Order, pipe, Result, String as Str } from "effect"
+import { Array as Arr, Option, Order, pipe, Result, String as Str } from "effect"
 import {
 	attributeDifferences,
 	attributesQuery,
@@ -23,12 +23,15 @@ import {
 	textArray
 } from "#adapter/admission/roles.ts"
 import { toResult } from "#adapter/engine.ts"
-import type { CatalogRowRefused } from "#adapter/errors/failures.ts"
+import type { CatalogRowRefused, ServerError } from "#adapter/errors/failures.ts"
+import { tableExists } from "#adapter/migrate/ledger.ts"
+import { apartRow, apartRows } from "#adapter/migrate/session.ts"
 import {
+	type ApartAnswer,
 	type BatchOutcome,
 	type BatchStatement,
-	type Flight,
 	oneShotStatement,
+	type SecondFlight,
 	type Uncommitting
 } from "#adapter/wire/batch.ts"
 import { type CatalogQuery, catalogRow, catalogRows, outcomeRows } from "#adapter/wire/statement.ts"
@@ -69,13 +72,20 @@ import {
 import {
 	decoderLoginOf,
 	filledText,
+	type GraphIdent,
 	type InstallationNames,
 	type InstalledRoleTooLong,
 	lex,
 	type ManifestStatement,
 	manifestStatements,
+	parseIdent,
+	proofDigests,
+	type ProofStatements,
+	proofsTableName,
 	type RecordedSource,
 	recordedSources,
+	type ReplayedObject,
+	replayedOver,
 	resolveVariables,
 	type VariableFault
 } from "#compiler/plan/migration.ts"
@@ -393,7 +403,124 @@ const inNamespace = (
 ): C.CatalogFrom => C.join(from, n.item, C.eq(n.col("oid"), namespace))
 
 /**
- * Each object of a schema with its description, two text columns: $1 the schema read, $2 the schema the keys spell.
+ * A manifest identity as physical/obligations/graph.ts spells it: `<kind>:`, the schema the keys spell ($2), then each
+ * name as the catalog holds it, a dot before each.
+ */
+const identOf = (kind: string, names: NonEmptyReadonlyArray<C.CatalogExpr>): C.CatalogExpr =>
+	C.concat([
+		C.text(`${kind}:`),
+		C.param(2, "text"),
+		...Arr.flatMap(names, (n) => [C.text("."), C.asText(n)])
+	])
+
+/**
+ * The identity of the relation `r` as a column, a constraint, a trigger, a policy, a rule, an index or a statistics
+ * object lies in it: a table's (a partitioned or foreign one's alike), a view's, a materialized view's, or a row type's
+ * (a relation of kind c); none for any other kind, in which nothing lies.
+ */
+const containerIdent = (r: C.CatalogSource): C.CatalogExpr => {
+	const named = (kind: string) => identOf(kind, [r.col("relname")])
+	return C.caseOf(
+		r.col("relkind"),
+		[
+			{ when: C.letter("r"), result: named("table") },
+			{ when: C.letter("p"), result: named("table") },
+			{ when: C.letter("f"), result: named("table") },
+			{ when: C.letter("v"), result: named("view") },
+			{ when: C.letter("m"), result: named("materializedView") },
+			{ when: C.letter("c"), result: named("type") }
+		],
+		undefined
+	)
+}
+
+/** The identity of the relation of oid `oid` as something lies in it (containerIdent), by a scalar read. */
+const containerOf = (oid: C.CatalogExpr): C.CatalogExpr => {
+	const r = C.from("pg_class", "r")
+	return C.scalar(C.query([containerIdent(r)], [r.item], C.eq(r.col("oid"), oid)))
+}
+
+/**
+ * The identity a relation row `c` describes: a relation something lies in by its own (containerIdent); an index by
+ * the key or exclusion constraint it backs, which the manifest installs as the constraint (`constraint:<s>.<t>.<k>`),
+ * else by its own name (`index:`); a sequence by its own name, `sequence:`, which no manifest identity spells.
+ */
+const relationIdent = (c: C.CatalogSource): C.CatalogExpr => {
+	const backed = (): C.CatalogExpr => {
+		const k = C.from("pg_constraint", "k")
+		const t = C.from("pg_class", "t")
+		return C.scalar(
+			C.query(
+				[identOf("constraint", [t.col("relname"), k.col("conname")])],
+				[C.join(k.item, t.item, C.eq(t.col("oid"), k.col("conrelid")))],
+				C.and([
+					C.eq(k.col("conindid"), c.col("oid")),
+					C.inList(k.col("contype"), C.letters(["p", "u", "x"]))
+				])
+			)
+		)
+	}
+	const index = (): C.CatalogExpr => C.coalesce([backed(), identOf("index", [c.col("relname")])])
+	return C.coalesce([
+		containerIdent(c),
+		C.caseOf(
+			c.col("relkind"),
+			[
+				{ when: C.letter("i"), result: index() },
+				{ when: C.letter("I"), result: index() },
+				{ when: C.letter("S"), result: identOf("sequence", [c.col("relname")]) }
+			],
+			undefined
+		)
+	])
+}
+
+/**
+ * The identity of the relation a relation row `c` lies in: an index's, the relation it indexes; a sequence's, the table
+ * of the column that owns it, its own where none does; every other relation's, its own (relationIdent).
+ */
+const relationWithin = (c: C.CatalogSource): C.CatalogExpr => {
+	const indexed = (): C.CatalogExpr => {
+		const i = C.from("pg_index", "i")
+		return C.scalar(
+			C.query([containerOf(i.col("indrelid"))], [i.item], C.eq(i.col("indexrelid"), c.col("oid")))
+		)
+	}
+	const owning = (): C.CatalogExpr => {
+		const d = C.from("pg_depend", "d")
+		return C.scalar(
+			C.select({
+				...C.catalogCore(
+					[containerOf(d.col("refobjid"))],
+					[d.item],
+					C.and([
+						C.eq(d.col("classid"), C.catalogRegclass("pg_class")),
+						C.eq(d.col("objid"), c.col("oid")),
+						C.eq(d.col("refclassid"), C.catalogRegclass("pg_class")),
+						C.inList(d.col("deptype"), C.letters(["a", "i"]))
+					])
+				),
+				orderBy: [d.col("refobjid")],
+				limit: 1
+			})
+		)
+	}
+	return C.caseOf(
+		c.col("relkind"),
+		[
+			{ when: C.letter("i"), result: indexed() },
+			{ when: C.letter("I"), result: indexed() },
+			{ when: C.letter("S"), result: C.coalesce([owning(), relationIdent(c)]) }
+		],
+		relationIdent(c)
+	)
+}
+
+/**
+ * Each fact of a schema's description, four text columns: its key, the identity of the object it describes and of the
+ * relation it lies in (the object's own for an object that lies in none), and its description; $1 the schema read, $2
+ * the schema the keys and the identities spell. The two identities are the manifest's spellings
+ * (physical/obligations/graph.ts), by which an object of the manifest owns the fact (factOwner).
  *
  * A view's or materialized view's own _RETURN rule is its definition, described with the view.
  *
@@ -401,6 +528,11 @@ const inNamespace = (
  *
  * A statistics object's columns by name: PostgreSQL keeps them in column order (stxkeys), which differs between a
  * migrated table, whose retyped column was added last, and a fresh one.
+ *
+ * A relation's replica identity and its row security are facts of their own, `replica identity <s>.<t>` of a table's
+ * or materialized view's and `row security <s>.<t>` of a table's, never parts of the relation's: an object of the
+ * manifest sets each (`replicaIdentity:`, `rowSecurity:`), the table's other facts are its own, and so every fact is
+ * one object's.
  */
 const descriptionSelect = (): C.CatalogSelect => {
 	const n = C.from("pg_namespace", "n")
@@ -572,11 +704,20 @@ const descriptionSelect = (): C.CatalogSelect => {
 		const e = C.from("pg_type", "e")
 		return C.notExists(C.anyRow([e.item], C.eq(e.col("typarray"), t.col("oid"))))
 	}
+	/** A domain's identity, `domain:`, and any other type's, `type:`. */
+	const typeIdent = (of: C.CatalogSource): C.CatalogExpr =>
+		C.caseOf(
+			of.col("typtype"),
+			[{ when: C.letter("d"), result: identOf("domain", [of.col("typname")]) }],
+			identOf("type", [of.col("typname")])
+		)
 	const relations = inNamespace(c.item, n, c.col("relnamespace"))
 	return C.union([
 		C.catalogCore(
 			[
 				C.concat([C.text("schema "), C.catalogCall("quote_ident", [C.param(2, "text")])]),
+				C.concat([C.text("schema:"), C.param(2, "text")]),
+				C.concat([C.text("schema:"), C.param(2, "text")]),
 				parts([owner(n.col("nspowner"))])
 			],
 			[n.item],
@@ -585,6 +726,8 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("relation", [c.col("relname")]),
+				relationIdent(c),
+				relationWithin(c),
 				parts([
 					labelled("kind ", C.asText(c.col("relkind"))),
 					owner(c.col("relowner")),
@@ -597,9 +740,6 @@ const descriptionSelect = (): C.CatalogSelect => {
 						undefined
 					),
 					labelled("options ", C.asText(c.col("reloptions"))),
-					when(c.col("relrowsecurity"), C.text("row security")),
-					when(c.col("relforcerowsecurity"), C.text("forced row security")),
-					labelled("replica identity ", C.asText(c.col("relreplident"))),
 					C.caseWhen(
 						[
 							{
@@ -630,7 +770,43 @@ const descriptionSelect = (): C.CatalogSelect => {
 		),
 		C.catalogCore(
 			[
+				keyOf("replica identity", [c.col("relname")]),
+				identOf("replicaIdentity", [c.col("relname")]),
+				containerIdent(c),
+				C.asText(c.col("relreplident"))
+			],
+			[relations],
+			C.and([
+				inSchema(n),
+				C.inList(c.col("relkind"), C.letters(["r", "p", "m"])),
+				notExtensionMember("pg_class", c.col("oid"))
+			])
+		),
+		C.catalogCore(
+			[
+				keyOf("row security", [c.col("relname")]),
+				identOf("rowSecurity", [c.col("relname")]),
+				containerIdent(c),
+				parts([
+					C.caseWhen(
+						[{ when: c.col("relrowsecurity"), result: C.text("enabled") }],
+						C.text("disabled")
+					),
+					when(c.col("relforcerowsecurity"), C.text("forced"))
+				])
+			],
+			[relations],
+			C.and([
+				inSchema(n),
+				C.inList(c.col("relkind"), C.letters(["r", "p"])),
+				notExtensionMember("pg_class", c.col("oid"))
+			])
+		),
+		C.catalogCore(
+			[
 				keyOf("column", [c.col("relname"), a.col("attname")]),
+				identOf("column", [c.col("relname"), a.col("attname")]),
+				containerIdent(c),
 				parts([
 					C.catalogCall("format_type", [a.col("atttypid"), a.col("atttypmod")]),
 					collationOf(a.col("attcollation")),
@@ -664,6 +840,8 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("constraint", [c.col("relname"), k.col("conname")]),
+				identOf("constraint", [c.col("relname"), k.col("conname")]),
+				containerIdent(c),
 				C.catalogCall("pg_get_constraintdef", [k.col("oid")])
 			],
 			[
@@ -682,6 +860,8 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("domain constraint", [t.col("typname"), k.col("conname")]),
+				identOf("domain", [t.col("typname")]),
+				identOf("domain", [t.col("typname")]),
 				C.catalogCall("pg_get_constraintdef", [k.col("oid")])
 			],
 			[
@@ -696,6 +876,8 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("type", [t.col("typname")]),
+				typeIdent(t),
+				typeIdent(t),
 				parts([
 					labelled("kind ", C.asText(t.col("typtype"))),
 					owner(t.col("typowner")),
@@ -725,6 +907,8 @@ const descriptionSelect = (): C.CatalogSelect => {
 					C.catalogCall("pg_get_function_identity_arguments", [p.col("oid")]),
 					C.text(")")
 				]),
+				identOf("function", [p.col("proname")]),
+				identOf("function", [p.col("proname")]),
 				parts([
 					owner(p.col("proowner")),
 					C.caseWhen(
@@ -755,6 +939,8 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("trigger", [c.col("relname"), g.col("tgname")]),
+				identOf("trigger", [c.col("relname"), g.col("tgname")]),
+				containerIdent(c),
 				parts([
 					C.catalogCall("pg_get_triggerdef", [g.col("oid"), C.bool(false)]),
 					when(
@@ -775,6 +961,8 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("statistics", [x.col("stxname")]),
+				identOf("statistics", [x.col("stxname")]),
+				containerOf(x.col("stxrelid")),
 				parts([
 					owner(x.col("stxowner")),
 					labelled("kinds ", C.asText(x.col("stxkind"))),
@@ -792,6 +980,8 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("policy", [c.col("relname"), policy.col("polname")]),
+				identOf("policy", [c.col("relname"), policy.col("polname")]),
+				containerIdent(c),
 				parts([
 					labelled("command ", C.asText(policy.col("polcmd"))),
 					C.caseWhen(
@@ -821,6 +1011,8 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("rule", [c.col("relname"), rule.col("rulename")]),
+				identOf("rule", [c.col("relname"), rule.col("rulename")]),
+				containerIdent(c),
 				C.catalogCall("pg_get_ruledef", [rule.col("oid"), C.bool(false)])
 			],
 			[
@@ -839,11 +1031,24 @@ const descriptionSelect = (): C.CatalogSelect => {
 	])
 }
 
-const descriptions: CatalogQuery<readonly [string, string]> = {
+/**
+ * A fact of a schema's description (descriptionSelect): its key, the identity of the object it describes, the identity
+ * of the relation it lies in, and its description.
+ */
+interface Fact {
+	readonly key: string
+	readonly object: string
+	readonly within: string
+	readonly description: string
+}
+
+const descriptions: CatalogQuery<Fact> = {
 	sql: emitCatalog(descriptionSelect()),
-	what: "an object's key and its description",
-	row: ([key, description]) =>
-		key === undefined || description === undefined ? undefined : [key, description]
+	what: "a fact's key, its object's and its relation's identities, and its description",
+	row: ([key, object, within, description]) =>
+		key === undefined || object === undefined || within === undefined || description === undefined
+			? undefined
+			: { key, object, within, description }
 }
 
 /**
@@ -1133,26 +1338,34 @@ const unfilled = (fault: VariableFault): CompileError =>
 		? roleTooLong("role", fault)
 		: malformedArtifact("manifest", [], `a role named by its stem, not ${fault.name}`)
 
+/** A statement of the replay: its text and the object of the manifest it builds. */
+interface ReplayText {
+	readonly object: string
+	readonly text: EmittedText
+}
+
 /**
- * The texts that build the snapshot's objects in the scratch schemas, in the manifest's order, each policy's role filled
- * as the installation names it.
+ * The texts that build `objects` in the scratch schemas, in the manifest's order, each policy's role filled as the
+ * installation names it.
  */
 const scratchStatements = (
-	statements: ReadonlyArray<ManifestStatement>,
+	objects: ReadonlyArray<ReplayedObject>,
 	scratchOf: ReadonlyMap<string, TypeSchema>,
 	installation: InstallationNames
-): Result.Result<ReadonlyArray<EmittedText>, CompileError> => {
-	const texts: Array<EmittedText> = []
-	for (const d of Arr.flatMap(statements, (s) => inScratch(s, scratchOf))) {
-		const e = emit(d, emptyNameMap)
-		if (!e.ok) {
-			return Result.fail(e.error)
+): Result.Result<ReadonlyArray<ReplayText>, CompileError> => {
+	const texts: Array<ReplayText> = []
+	for (const o of objects) {
+		for (const d of Arr.flatMap(o.statements, (s) => inScratch(s, scratchOf))) {
+			const e = emit(d, emptyNameMap)
+			if (!e.ok) {
+				return Result.fail(e.error)
+			}
+			const filled = filledText(e.value.text, (text) => resolveVariables(text, installation))
+			if (!filled.ok) {
+				return Result.fail(unfilled(filled.error))
+			}
+			texts.push({ object: o.ident, text: filled.value })
 		}
-		const filled = filledText(e.value.text, (text) => resolveVariables(text, installation))
-		if (!filled.ok) {
-			return Result.fail(unfilled(filled.error))
-		}
-		texts.push(filled.value)
 	}
 	return Result.succeed(texts)
 }
@@ -1261,18 +1474,19 @@ interface Slot<Row> {
 	readonly row: (outcomes: ReadonlyArray<BatchOutcome>) => Result.Result<Row, CatalogRowRefused>
 }
 
-/** Where in a flight a run of commands sits: its first statement's position and how many it sent. */
-export interface FlightSpan {
+/** Where in its flight the replay sits: its first statement's position, and the object each of its statements builds,
+ * in order. */
+export interface ReplaySpan {
 	readonly from: number
-	readonly count: number
+	readonly objects: ReadonlyArray<string>
 }
 
-/** A flight's statements as they are sent, in order: a command, whose outcome nothing reads, a run of commands, whose
- * span the flight's failure is located by, or a catalog query, read through the slot it is sent into. */
+/** A flight's statements as they are sent, in order: a command, whose outcome nothing reads, the replay, whose span the
+ * flight's failure is located by, or a catalog query, read through the slot it is sent into. */
 interface Sending {
 	readonly statements: ReadonlyArray<BatchStatement>
 	readonly command: (sql: EmittedText) => void
-	readonly commands: (texts: ReadonlyArray<EmittedText>) => FlightSpan
+	readonly replay: (texts: ReadonlyArray<ReplayText>) => ReplaySpan
 	readonly query: <Row>(query: CatalogQuery<Row>, params: ReadonlyArray<ParamText>) => Slot<Row>
 }
 
@@ -1284,12 +1498,12 @@ const sending = (): Sending => {
 		command: (sql) => {
 			sent(command(sql))
 		},
-		commands: (texts) => {
+		replay: (texts) => {
 			const from = statements.length
-			for (const sql of texts) {
-				sent(command(sql))
+			for (const t of texts) {
+				sent(command(t.text))
 			}
-			return { from, count: texts.length }
+			return { from, objects: Arr.map(texts, (t) => t.object) }
 		},
 		query: (query, params) => {
 			const at = sent(oneShotStatement(query.sql, params))
@@ -1308,34 +1522,279 @@ const sending = (): Sending => {
 const sorted = (mismatches: ReadonlyArray<DriftMismatch>): ReadonlyArray<DriftMismatch> =>
 	Arr.sort(mismatches, Order.Struct({ fact: Order.String, kind: Order.String }))
 
-/** The drift check's statements, and where in them the replay that builds the snapshot beside the schema sits. */
-export interface DriftFlight {
-	readonly flight: Flight<ReadonlyArray<DriftMismatch>, CatalogRowRefused>
-	readonly replay: FlightSpan
+/**
+ * A row of the drift check's proofs (deploy/ledger/ledger.ts proofsTable): an object's manifest identity, its proof
+ * digest (deploy/admission/proof.ts) and the digest of PostgreSQL's description of it (descriptionDigest).
+ */
+export interface ProofRow {
+	readonly object: string
+	readonly ddl: string
+	readonly description: string
+}
+
+/** The proofs' rows statement of `statements` (proofStatements), each row its three texts as a migrate wrote them. */
+const proofRowsQuery = (statements: ProofStatements): CatalogQuery<ProofRow> => ({
+	sql: statements.rows.text,
+	what: "a proof's object, its proof digest and its description's digest",
+	row: ([object, ddl, description]) =>
+		object === undefined || ddl === undefined || description === undefined
+			? undefined
+			: { object, ddl, description }
+})
+
+/**
+ * The catalog read of whether a schema's proofs' table exists (migrate/ledger.ts tableExists): it does not before the
+ * migration that creates it, and then no statement names it, so no refusal of a missing relation is ever read as none.
+ */
+export const proofsExistRead = (schema: string): BatchStatement =>
+	oneShotStatement(tableExists.sql, [textParam(schema), textParam(proofsTableName)])
+
+/** Whether a schema's proofs' table exists, from its catalog read's answer (proofsExistRead). */
+export const proofsPresence = (
+	exists: ApartAnswer
+): Result.Result<"absent" | "present", ServerError | CatalogRowRefused> =>
+	Result.map(apartRow(tableExists, exists), (present) => (present ? "present" : "absent"))
+
+/** The read of a schema's proofs' rows, sent only where their catalog read found the table. */
+export const proofRowsRead = (statements: ProofStatements): BatchStatement =>
+	oneShotStatement(statements.rows.text, [])
+
+/**
+ * The proofs by object, from their rows read's answer (proofRowsRead). A row is a fact about the server
+ * (deploy/ledger/ledger.ts proofsTable), so reading them apart from the drift check's snapshot loses nothing.
+ */
+export const heldProofs = (
+	statements: ProofStatements,
+	rows: ApartAnswer
+): Result.Result<ReadonlyMap<string, ProofRow>, ServerError | CatalogRowRefused> =>
+	Result.map(
+		apartRows(proofRowsQuery(statements), rows),
+		(held) => new Map(Arr.map(held, (row) => [row.object, row] as const))
+	)
+
+/**
+ * What the server says of itself that a description is a function of beside the statements replayed: its version, as a
+ * number and as its release names it (19rc1 is no 19.0), the role the check runs as, which owns every object a replay
+ * creates and every installed one, and each extension with its version, by name, whose types, operators and classes a
+ * deparse may spell.
+ */
+interface ServerEnvironment {
+	readonly versionNumber: string
+	readonly version: string
+	readonly user: string
+	readonly extensions: string
+}
+
+const environmentQuery: CatalogQuery<ServerEnvironment> = (() => {
+	const x = C.from("pg_extension", "x")
+	return {
+		sql: emitCatalog(
+			C.query(
+				[
+					C.catalogCall("current_setting", [C.text("server_version_num")]),
+					C.catalogCall("current_setting", [C.text("server_version")]),
+					C.asText(C.currentUser),
+					C.coalesce([
+						C.scalar(
+							C.query(
+								[
+									C.joinedSet(
+										C.collateC(
+											C.concat([
+												C.asText(x.col("extname")),
+												C.text(" "),
+												C.asText(x.col("extversion"))
+											])
+										),
+										C.text(", ")
+									)
+								],
+								[x.item],
+								undefined
+							)
+						),
+						C.text("")
+					])
+				],
+				[],
+				undefined
+			)
+		),
+		what: "the server's version, its role and its extensions",
+		row: ([versionNumber, version, user, extended]) =>
+			versionNumber === undefined ||
+			version === undefined ||
+			user === undefined ||
+			extended === undefined
+				? undefined
+				: { versionNumber, version, user, extensions: extended }
+	}
+})()
+
+/** Texts as one, each framed by its length, so one text frames exactly one list. */
+const framed = (texts: ReadonlyArray<string>): string =>
+	Arr.join(
+		Arr.map(texts, (t) => `${t.length}:${t}`),
+		""
+	)
+
+/**
+ * The environment every proof digest digests (deploy/admission/proof.ts): the server's (ServerEnvironment), the text of
+ * the statement that describes a schema, and the installation's names, which fill a replayed policy's roles.
+ */
+const proofEnvironment = (server: ServerEnvironment, installation: InstallationNames): string =>
+	sha256Hex(
+		framed([
+			server.versionNumber,
+			server.version,
+			server.user,
+			server.extensions,
+			descriptions.sql,
+			installation.database,
+			installation.roles.kind === "stems" ? "stems" : `prefixed ${installation.roles.prefix}`
+		])
+	)
+
+/**
+ * The kinds of manifest identity a fact names (descriptionSelect): the objects of an installation PostgreSQL
+ * describes, which the drift check proves. An object of any other kind (a role, a membership, a grant, the
+ * publication, a database default, an extension, a validation) has no description: the reads beside the descriptions
+ * judge it.
+ */
+const describedKinds = [
+	"schema",
+	"domain",
+	"table",
+	"materializedView",
+	"view",
+	"index",
+	"statistics",
+	"function",
+	"rowSecurity",
+	"replicaIdentity",
+	"column",
+	"constraint",
+	"trigger",
+	"policy"
+] as const satisfies ReadonlyArray<GraphIdent["kind"]>
+
+const isDescribed = (ident: string): boolean => {
+	const kind = parseIdent(ident).kind
+	return Arr.some(describedKinds, (k) => k === kind)
+}
+
+/**
+ * The object of the installation a fact is a fact of, among the objects it describes (`described`): the object it
+ * describes, where the manifest holds it, else the relation it lies in, where the manifest holds that, as a column its
+ * table's CREATE TABLE declares is the table's; none for a fact of nothing the installation creates.
+ */
+const factOwner = (described: ReadonlySet<string>, f: Fact): string | undefined =>
+	described.has(f.object) ? f.object : described.has(f.within) ? f.within : undefined
+
+const byKey: Order.Order<Fact> = Order.Struct({ key: Order.String })
+
+/**
+ * The digest of an object's description, its facts in key order, each key and description framed by its length: what
+ * the proofs record of what PostgreSQL describes of the object. An object with no fact has the digest of none.
+ */
+const descriptionDigest = (facts: ReadonlyArray<Fact>): string =>
+	sha256Hex(
+		framed(
+			Arr.flatMap(Arr.sort(facts, byKey), (f: Fact): ReadonlyArray<string> => [
+				f.key,
+				f.description
+			])
+		)
+	)
+
+/** Facts as compareDescriptions reads them: each key with its description. */
+const keyed = (facts: ReadonlyArray<Fact>): ReadonlyMap<string, string> =>
+	new Map(Arr.map(facts, (f) => [f.key, f.description] as const))
+
+/**
+ * What a migrate records of a drift check that found no drift: nothing, where the proofs hold the check's rows already
+ * (`held`); else every row the check found (`record`), each object of the installation PostgreSQL describes by its
+ * proof digest and its installed description's digest, in identity order, in place of the ones it read.
+ */
+export type ProofRecord =
+	| { readonly kind: "held" }
+	| { readonly kind: "record"; readonly rows: ReadonlyArray<ProofRow> }
+
+/**
+ * What a drift check found: every mismatch, by fact; the manifest identity of every object it replayed, in install
+ * order (driftCheck); and what a migrate records of its proofs (ProofRecord).
+ */
+export interface DriftVerdict {
+	readonly mismatches: ReadonlyArray<DriftMismatch>
+	readonly replayed: ReadonlyArray<string>
+	readonly proofs: ProofRecord
+}
+
+/**
+ * What the drift check's second flight carries: the replay, where it sits among the flight's statements, and how the
+ * flight's outcomes read.
+ */
+export interface DriftReplay {
+	readonly replay: ReplaySpan
+	readonly read: (
+		second: ReadonlyArray<BatchOutcome>
+	) => Result.Result<DriftVerdict, CatalogRowRefused>
+}
+
+/**
+ * The drift check of a snapshot as its two flights (session.ts alongside): `first`, the reads of the installed
+ * database, and `after`, the second flight made of the first's outcomes and of the proofs a read beside it found
+ * (proofRowsQuery), by object.
+ */
+export interface DriftCheck {
+	readonly first: ReadonlyArray<BatchStatement>
+	readonly after: (
+		proofs: ReadonlyMap<string, ProofRow>,
+		first: ReadonlyArray<BatchOutcome>
+	) => Result.Result<SecondFlight<DriftReplay>, CatalogRowRefused | CompileError>
 }
 
 /**
  * The drift check of `snapshot`'s schema, installed as `installation` names its roles (deploy/admission/roles.ts
- * installedExpectation), as statements of driftTransaction, in order, each read through the slot it is
- * sent into (Sending): the closed search path first (sql/ast.ts closedSearchPath), against which every description is
- * spelled, since PostgreSQL's deparsers spell a name bare exactly when the path finds it first; each installed schema's
- * name as PostgreSQL prints it, the installed schema's first and then each role's; the replay, whose statements name
- * every object absolutely; each schema's installed and scratch descriptions; then each extension's schema, the
+ * installedExpectation), as the statements of driftTransaction's two flights, each read through the slot it is sent
+ * into (Sending).
+ *
+ * The first flight reads the installed database, the snapshot it reads them in being the transaction's: the closed
+ * search path first (sql/ast.ts closedSearchPath), against which every description is spelled, since PostgreSQL's
+ * deparsers spell a name bare exactly when the path finds it first; the server's environment (ServerEnvironment); each
+ * installed schema's name as PostgreSQL prints it, the installed schema's first and then each role's; each schema's
+ * installed description; then each PL/pgSQL function's source, each extension's schema, the publications, the
  * database's settings, the owner's default privileges (none for the empty snapshot, which alters no default), and each
  * login's and role's login, settings, privileges, memberships and policies.
+ *
+ * Between the flights, on the host: each installed fact is its object's (factOwner), and every object the manifest
+ * holds of a kind PostgreSQL describes is proven, or not. A proven one has a row of the proofs that holds its proof
+ * digest (deploy/admission/proof.ts), under this server's environment, and the digest of its installed description:
+ * the description that digest replayed to once, the object installed as it was then. Every other object is unproven:
+ * one with no row (the first check, or a new object), one whose proof digest moved (its statements changed, or an
+ * object it is created after, or the environment, which every digest digests), and one whose installed description is
+ * no longer its row's, an edit by hand among them.
+ *
+ * The second flight replays every unproven object and every object one is created after (deploy/admission/proof.ts
+ * replayedOver) into the scratch schemas, then reads each scratch schema's description. The facts of the unproven
+ * objects, and every fact no object of the manifest owns, are compared fact by fact, the scratch ones renamed to the
+ * installed schemas (fromScratch): one only the replay has is missing, one only the database has unexpected, one both
+ * have with two descriptions differs. A proven object needs no replay, and one replayed only for an unproven one
+ * created after it is held to its proof alone: its installed description is the one its proof says it has. So the
+ * replay is bounded by the unproven objects and what they are created after, the whole manifest when no row proves
+ * anything, and none when every object is proven.
  */
-export const driftFlight = (
+export const driftCheck = (
 	snapshot: DeploySnapshot,
 	installation: InstallationNames,
 	folders: ReadonlyArray<DriftFolder>
-): Result.Result<DriftFlight, CompileError> =>
+): Result.Result<DriftCheck, CompileError> =>
 	Result.gen(function* () {
 		const schema = snapshot.schema
-		const statements = yield* toResult(manifestStatements(snapshot))
+		const { objects, statements } = yield* toResult(manifestStatements(snapshot))
 		const sources = recordedSources(snapshot)
 		const schemas = judgedSchemas(statements, schema)
 		const scratchOf = new Map(Arr.map(schemas, (s) => [s, scratchSchema(s)] as const))
-		const replay = yield* scratchStatements(statements, scratchOf, installation)
 		const createdExtensions = Arr.flatMap(statements, (s) =>
 			s.kind === "createExtension" ? [s] : []
 		)
@@ -1349,17 +1808,17 @@ export const driftFlight = (
 			}
 			roles.push(installed.value)
 		}
+		const described = new Set(Arr.flatMap(objects, (o) => (isDescribed(o.ident) ? [o.ident] : [])))
 		const flight = sending()
 		flight.command(emitCatalog(C.setClosedSearchPath))
+		const environment = flight.query(environmentQuery, [])
 		const printed = Arr.map(schemas, (s) => ({
 			schema: s,
 			slot: flight.query(quotedIdent, [textParam(s)])
 		}))
-		const replayed = flight.commands(replay)
-		const described = Arr.map(schemas, (s) => ({
-			installed: flight.query(descriptions, [textParam(s), textParam(s)]),
-			expected: flight.query(descriptions, [textParam(scratchSchema(s)), textParam(s)])
-		}))
+		const installedFacts = Arr.map(schemas, (s) =>
+			flight.query(descriptions, [textParam(s), textParam(s)])
+		)
 		const installedSources = flight.query(sourcesQuery, [
 			textArray(Arr.dedupe(Arr.map(sources, (r) => r.function.schema)))
 		])
@@ -1391,105 +1850,176 @@ export const driftFlight = (
 				textArray(Arr.map(snapshot.levels, (l) => l.schema))
 			])
 		}))
-		return {
-			replay: replayed,
-			flight: {
-				statements: flight.statements,
-				read: (outcomes) =>
-					Effect.fromResult(
-						Result.gen(function* () {
-							const names: Array<{ scratch: string; schema: string; printed: string }> = []
-							for (const p of printed) {
-								names.push({
-									scratch: scratchSchema(p.schema),
-									schema: p.schema,
-									printed: yield* p.slot.row(outcomes)
-								})
-							}
-							const rename = fromScratch(names)
-							const out: Array<DriftMismatch> = []
-							for (const d of described) {
-								const installed = yield* d.installed.rows(outcomes)
-								const expected = yield* d.expected.rows(outcomes)
-								const mismatches = compareDescriptions(
-									new Map(Arr.map(expected, ([k, e]) => [rename(k), rename(e)])),
-									new Map(installed)
-								)
-								for (const mismatch of mismatches) {
-									out.push(mismatch)
-								}
-							}
-							for (const mismatch of sourceMismatches(
-								sources,
-								yield* installedSources.rows(outcomes),
-								folders
-							)) {
-								out.push(mismatch)
-							}
-							for (const { extension: x, slot } of extensionSchemas) {
-								const at = yield* slot.rows(outcomes)
-								if (!at.includes(x.schema)) {
-									out.push({ kind: "missing", fact: `extension ${x.name} in schema ${x.schema}` })
-								}
-							}
-							for (const { expected, slot } of publicationReads) {
-								for (const mismatch of compareDescriptions(
-									expected,
-									new Map(yield* slot.rows(outcomes))
-								)) {
-									out.push(mismatch)
-								}
-							}
-							for (const d of databaseDifferences(yield* database.rows(outcomes))) {
-								for (const fact of settingFacts(d, "database")) {
-									out.push(fact)
-								}
-							}
-							for (const { expectation, slot } of defaults) {
-								const owned = yield* slot.rows(outcomes)
-								for (const d of defaultPrivilegeDifferences(owned, expectation)) {
-									out.push({ kind: d.kind, fact: `default privilege ${d.grant}` })
-								}
-							}
-							for (const read of roleReads) {
-								const r = read.expectation
-								for (const d of attributeDifferences(yield* read.attributes.rows(outcomes), r)) {
-									out.push({ kind: "missing", fact: `role ${r.role} ${d.expected}` })
-									if (d.attribute !== "existence") {
-										out.push({ kind: "unexpected", fact: `role ${r.role} ${d.observed}` })
-									}
-								}
-								for (const d of roleDifferences(yield* read.settings.rows(outcomes), r)) {
-									const scope =
-										d.scope === "roleInDatabase" ? `role ${r.role} in database` : `role ${r.role}`
-									for (const fact of settingFacts(d, scope)) {
-										out.push(fact)
-									}
-								}
-								for (const d of yield* read.privileges.rows(outcomes)) {
-									out.push(privilegeFact(d, r.role))
-								}
-								for (const d of membershipDifferences(yield* read.memberships.rows(outcomes), r)) {
-									for (const fact of membershipFacts(d, `role ${r.role} membership in ${d.role}`)) {
-										out.push(fact)
-									}
-								}
-								for (const d of memberDifferences(yield* read.members.rows(outcomes), r)) {
-									for (const fact of membershipFacts(d, `role ${r.role} member ${d.role}`)) {
-										out.push(fact)
-									}
-								}
-								for (const d of policyDifferences(yield* read.policies.rows(outcomes), r)) {
-									out.push({
-										kind: d.kind,
-										fact: `policy ${d.policy.name} on ${d.policy.table} naming role ${r.role}`
-									})
-								}
-							}
-							return sorted(out)
+		/** The facts of the installed catalog no row proves, and every fact beside the descriptions, from the first
+		 * flight's outcomes. */
+		const beside = (first: ReadonlyArray<BatchOutcome>) =>
+			Result.gen(function* () {
+				const out: Array<DriftMismatch> = []
+				for (const mismatch of sourceMismatches(
+					sources,
+					yield* installedSources.rows(first),
+					folders
+				)) {
+					out.push(mismatch)
+				}
+				for (const { extension: x, slot } of extensionSchemas) {
+					const at = yield* slot.rows(first)
+					if (!at.includes(x.schema)) {
+						out.push({ kind: "missing", fact: `extension ${x.name} in schema ${x.schema}` })
+					}
+				}
+				for (const { expected, slot } of publicationReads) {
+					for (const mismatch of compareDescriptions(expected, new Map(yield* slot.rows(first)))) {
+						out.push(mismatch)
+					}
+				}
+				for (const d of databaseDifferences(yield* database.rows(first))) {
+					for (const fact of settingFacts(d, "database")) {
+						out.push(fact)
+					}
+				}
+				for (const { expectation, slot } of defaults) {
+					const owned = yield* slot.rows(first)
+					for (const d of defaultPrivilegeDifferences(owned, expectation)) {
+						out.push({ kind: d.kind, fact: `default privilege ${d.grant}` })
+					}
+				}
+				for (const read of roleReads) {
+					const r = read.expectation
+					for (const d of attributeDifferences(yield* read.attributes.rows(first), r)) {
+						out.push({ kind: "missing", fact: `role ${r.role} ${d.expected}` })
+						if (d.attribute !== "existence") {
+							out.push({ kind: "unexpected", fact: `role ${r.role} ${d.observed}` })
+						}
+					}
+					for (const d of roleDifferences(yield* read.settings.rows(first), r)) {
+						const scope =
+							d.scope === "roleInDatabase" ? `role ${r.role} in database` : `role ${r.role}`
+						for (const fact of settingFacts(d, scope)) {
+							out.push(fact)
+						}
+					}
+					for (const d of yield* read.privileges.rows(first)) {
+						out.push(privilegeFact(d, r.role))
+					}
+					for (const d of membershipDifferences(yield* read.memberships.rows(first), r)) {
+						for (const fact of membershipFacts(d, `role ${r.role} membership in ${d.role}`)) {
+							out.push(fact)
+						}
+					}
+					for (const d of memberDifferences(yield* read.members.rows(first), r)) {
+						for (const fact of membershipFacts(d, `role ${r.role} member ${d.role}`)) {
+							out.push(fact)
+						}
+					}
+					for (const d of policyDifferences(yield* read.policies.rows(first), r)) {
+						out.push({
+							kind: d.kind,
+							fact: `policy ${d.policy.name} on ${d.policy.table} naming role ${r.role}`
 						})
+					}
+				}
+				return out
+			})
+		return {
+			first: flight.statements,
+			after: (proofs, first) =>
+				Result.gen(function* () {
+					const names: Array<{ scratch: string; schema: string; printed: string }> = []
+					for (const p of printed) {
+						names.push({
+							scratch: scratchSchema(p.schema),
+							schema: p.schema,
+							printed: yield* p.slot.row(first)
+						})
+					}
+					const rename = fromScratch(names)
+					const installed: Array<Fact> = []
+					for (const slot of installedFacts) {
+						for (const f of yield* slot.rows(first)) {
+							installed.push(f)
+						}
+					}
+					const owned = Arr.groupBy(
+						Arr.flatMap(installed, (f) => {
+							const by = factOwner(described, f)
+							return by === undefined ? [] : [{ by, fact: f }]
+						}),
+						(o) => o.by
 					)
-			}
+					const proved = yield* toResult(
+						proofDigests(
+							objects,
+							snapshot.manifest.edges,
+							proofEnvironment(yield* environment.row(first), installation)
+						)
+					)
+					const rows = Arr.sort(
+						Arr.flatMap(proved, ({ object, digest }): ReadonlyArray<ProofRow> =>
+							described.has(object.ident)
+								? [
+										{
+											object: object.ident,
+											ddl: digest,
+											description: descriptionDigest(
+												Arr.map(owned[object.ident] ?? [], (o) => o.fact)
+											)
+										}
+									]
+								: []
+						),
+						Order.Struct({ object: Order.String })
+					)
+					const proves = (row: ProofRow): boolean => {
+						const held = proofs.get(row.object)
+						return (
+							held !== undefined && held.ddl === row.ddl && held.description === row.description
+						)
+					}
+					const unproven = new Set(Arr.flatMap(rows, (row) => (proves(row) ? [] : [row.object])))
+					const record: ProofRecord =
+						unproven.size === 0 && proofs.size === rows.length
+							? { kind: "held" }
+							: { kind: "record", rows }
+					const replayed = replayedOver(objects, snapshot.manifest.edges, unproven)
+					/**
+					 * A fact compared fact by fact: an unproven object's, or one no object owns. An object replayed only for one
+					 * created after it stands proven, its installed description its proof's.
+					 */
+					const isCompared = (f: Fact): boolean => {
+						const by = factOwner(described, f)
+						return by === undefined || unproven.has(by)
+					}
+					const texts = yield* scratchStatements(replayed, scratchOf, installation)
+					const second = sending()
+					const replay = second.replay(texts)
+					const scratchFacts = Arr.map(schemas, (s) =>
+						second.query(descriptions, [textParam(scratchSchema(s)), textParam(s)])
+					)
+					const besides = yield* beside(first)
+					const read = (outcomes: ReadonlyArray<BatchOutcome>) =>
+						Result.gen(function* () {
+							const expected: Array<Fact> = []
+							for (const slot of scratchFacts) {
+								for (const f of yield* slot.rows(outcomes)) {
+									const renamed = { ...f, key: rename(f.key), description: rename(f.description) }
+									if (isCompared(renamed)) {
+										expected.push(renamed)
+									}
+								}
+							}
+							const verdict: DriftVerdict = {
+								mismatches: sorted([
+									...compareDescriptions(keyed(expected), keyed(Arr.filter(installed, isCompared))),
+									...besides
+								]),
+								replayed: Arr.map(replayed, (o) => o.ident),
+								proofs: record
+							}
+							return verdict
+						})
+					return { statements: second.statements, value: { replay, read } }
+				})
 		}
 	})
 

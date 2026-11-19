@@ -146,27 +146,48 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 	}
 }
 
+/** An installed object as the drift check replays it: its graph identity and its recorded DDL as manifest statements,
+ * a PL/pgSQL function with its header and a stub body and a constant returning the empty value of its type
+ * (snapshot/recorded.ts replayedStatement). */
+export interface ReplayedObject {
+	readonly ident: string
+	readonly statements: ReadonlyArray<ManifestStatement>
+}
+
 /** The statements that install a snapshot as the drift check replays them, each a manifest statement, parsed once:
- * every object's recorded DDL in install order, a PL/pgSQL function with its header and a stub body and a constant
- * returning the empty value of its type (snapshot/recorded.ts replayedStatement), then the PUBLIC revokes, the logins'
- * defaults and the comments.
+ * `objects`, every object with its replayed statements in install order, and `statements`, theirs in that order, then
+ * the PUBLIC revokes, the logins' defaults and the comments.
  * Admission reads them twice over: the role checks read the grants, memberships, policies and defaults each login and
- * role is installed with, and the drift check replays the objects' statements into scratch schemas, where PostgreSQL
+ * role is installed with, and the drift check replays objects' statements into scratch schemas, where PostgreSQL
  * deparses them beside the installed ones, each function but by its header (recordedSources). Each statement is one of
  * the installation subset of the SQL AST (`ManifestStatement`); a statement only a migration runs (a drop, a rename, a
  * revocation, a constraint's validation, a domain altered, a default reset, a lock) or any data or transaction
  * statement is a malformed snapshot, refused as MalformedArtifact. */
+export interface InstalledStatements {
+	readonly objects: ReadonlyArray<ReplayedObject>
+	readonly statements: ReadonlyArray<ManifestStatement>
+}
+
 export const manifestStatements = (
 	snapshot: DeploySnapshot
-): Result.Result<ReadonlyArray<ManifestStatement>, CompileError> =>
-	catchRefusal(() =>
-		[
-			...snapshot.manifest.objects.flatMap((o) => o.ddl.map(replayedStatement)),
-			...snapshot.manifest.publicRevokes,
-			...snapshot.manifest.roleDefaults,
-			...snapshot.manifest.comments
-		].map((s) => manifestStatement(s))
-	)
+): Result.Result<InstalledStatements, CompileError> =>
+	catchRefusal(() => {
+		const objects = snapshot.manifest.objects.map((o): ReplayedObject => ({
+			ident: o.ident,
+			statements: o.ddl.map((s) => manifestStatement(replayedStatement(s)))
+		}))
+		return {
+			objects,
+			statements: [
+				...objects.flatMap((o) => o.statements),
+				...[
+					...snapshot.manifest.publicRevokes,
+					...snapshot.manifest.roleDefaults,
+					...snapshot.manifest.comments
+				].map((s) => manifestStatement(s))
+			]
+		}
+	})
 
 /** A PL/pgSQL function a snapshot installs, by its name, with the digest of the source it installs as. */
 export interface RecordedSource {

@@ -8,11 +8,17 @@ import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalObject } from "#compiler/ir/products.ts"
 import { isolationTrigger } from "#compiler/physical/ddl/isolation.ts"
-import { folderOrdinal, ledgerTableName, snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
+import {
+	folderOrdinal,
+	ledgerTableName,
+	proofsTableName,
+	snapshotGuardName
+} from "#compiler/physical/ddl/ledger.ts"
 import { namedIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
 import type {
 	ColumnDef,
 	CreateTable,
+	Delete,
 	EmittedSql,
 	Expr,
 	Grant,
@@ -26,6 +32,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 
 import {
+	arrays,
 	asc,
 	call,
 	cast,
@@ -52,6 +59,8 @@ import { claimsSettingName } from "#compiler/sql/print.ts"
 const folderFile = "meta.json"
 
 const ledgerName = (schema: string): ObjectName => objectName(schema, ledgerTableName)
+
+const proofsName = (schema: string): ObjectName => objectName(schema, proofsTableName)
 
 /** The graph identities of the ledger's objects in a snapshot manifest (`InstallBuilder` names the others). */
 const ledgerIdent = (schema: string): string => qualifiedIdent("table", schema, ledgerTableName)
@@ -185,6 +194,74 @@ export const ledgerGuardObject = (schema: string): PhysicalObject<SqlStatement> 
 	kind: "isolationTrigger",
 	...isolationTrigger(schema, ledgerName(schema)),
 	reasons: [{ kind: "enforcement", of: "the SERIALIZABLE writes of the migrations ledger" }],
+	state: "needed",
+	phase: "setup"
+})
+
+/** The drift check's proofs' columns in table order: the proof rows statement's columns c1 to c3. */
+export const proofColumns = ["object", "ddl", "description"] as const
+
+/**
+ * The drift check's proofs `<schema>.<proofs>` (identity.proofs), beside the ledger: one row for each object of the
+ * installation PostgreSQL describes, as the last drift check of a migrate that found no drift left it (adapter/admission
+ * drift.ts), every column NOT NULL with a primary key, like every table:
+ *
+ *   CREATE TABLE "<schema>"."<proofs>" (
+ *     "object" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,       -- the object's graph identity
+ *     "ddl" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,          -- its proof digest (deploy/admission/proof.ts)
+ *     "description" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,  -- the digest of PostgreSQL's description of it
+ *     CONSTRAINT "<proofs key>" PRIMARY KEY ("object")
+ *   )
+ *
+ * A row is a fact about the server, never about the installation's state: the description PostgreSQL gives the object
+ * its proof digest names, which digests the object's recorded statements, what it depends on and everything else a
+ * description is a function of. So a row is read apart from any snapshot, and one whose digest an installation no
+ * longer has proves nothing of it. The drift check replays only the objects no row proves (one whose digest or live
+ * description is not its row's) with what they depend on, and a migrate whose drift check found no drift replaces the
+ * rows, in a transaction of its own under the apply lock, when they differ from the ones it read. No Db reads it, so
+ * no login holds a privilege on it and no fence takes it, and the live source publishes nothing of it. Its PUBLIC
+ * privileges are revoked at once.
+ */
+const proofsTable = (schema: string): CreateTable => ({
+	kind: "createTable",
+	table: proofsName(schema),
+	columns: mapNonEmpty(proofColumns, text),
+	primaryKey: {
+		kind: "primaryKey",
+		name: identifierOf(identity.proofsKey()),
+		columns: [{ column: "object", withoutOverlaps: false }]
+	},
+	secondary: []
+})
+
+/** The manifest identity of the drift check's proofs of `schema`. */
+export const proofsIdent = (schema: string): string =>
+	qualifiedIdent("table", schema, proofsTableName)
+
+/** The drift check's proofs as an object of a snapshot manifest, created in Setup right after the ledger. */
+export const proofsObject = (schema: string): PhysicalObject<SqlStatement> => ({
+	kind: "ledger",
+	ident: proofsIdent(schema),
+	ddl: [
+		proofsTable(schema),
+		{
+			kind: "revoke",
+			privileges: ["ALL"],
+			on: { kind: "TABLE", names: [proofsName(schema)] },
+			from: [{ kind: "PUBLIC" }]
+		}
+	],
+	reasons: [{ kind: "enforcement", of: "the drift check's proofs" }],
+	state: "needed",
+	phase: "setup"
+})
+
+/** The proofs' guard trigger, created in Setup right after the proofs: every table grizzle installs refuses a write
+ * below SERIALIZABLE. */
+export const proofsGuardObject = (schema: string): PhysicalObject<SqlStatement> => ({
+	kind: "isolationTrigger",
+	...isolationTrigger(schema, proofsName(schema)),
+	reasons: [{ kind: "enforcement", of: "the SERIALIZABLE writes of the drift check's proofs" }],
 	state: "needed",
 	phase: "setup"
 })
@@ -356,6 +433,67 @@ const redraftUpdate = (schema: string): Update => {
 	}
 }
 
+/** The proofs' rows by object, each column named c1 to c3 in proofColumns order. */
+const proofRows = (schema: string): Select => {
+	const r1 = "r1"
+	return {
+		...provedSelect(
+			"keyed",
+			proofColumns.map((c, i) => targetAs(col(r1, c), `c${i + 1}`)),
+			[table(schema, proofsTableName, r1)],
+			undefined
+		),
+		orderBy: [asc(col(r1, "object"))]
+	}
+}
+
+/** Every row of the proofs deleted. */
+const clearProofs = (schema: string): Delete => ({
+	kind: "delete",
+	with: undefined,
+	table: proofsName(schema),
+	alias: "r1",
+	using: [],
+	where: undefined,
+	returning: []
+})
+
+/** The proofs' rows inserted from three text arrays, $1 to $3 in proofColumns order, read in lockstep. */
+const recordProofs = (schema: string): Insert => {
+	const a1 = "a1"
+	const source = arrays(
+		{
+			kind: "columns",
+			columns: mapNonEmpty(proofColumns, (name, i) => ({
+				definition: { name, type: types.text, collation: cUtf8Collation },
+				array: { placeholder: "value", number: i + 1 },
+				check: { kind: "base" }
+			})),
+			ordinal: undefined
+		},
+		a1
+	)
+	return {
+		kind: "insert",
+		with: undefined,
+		table: proofsName(schema),
+		alias: undefined,
+		columns: [...proofColumns],
+		overriding: undefined,
+		source: {
+			kind: "query",
+			query: provedSelect(
+				"input",
+				proofColumns.map((c) => targetAs(col(a1, c), c)),
+				[source],
+				undefined
+			)
+		},
+		onConflict: undefined,
+		returning: []
+	}
+}
+
 /** The guard of the fingerprint at `$1`. */
 const guardCall = (schema: string): Expr =>
 	qualifiedCall(schema, snapshotGuardName, [param(1, types.text)])
@@ -405,6 +543,28 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 			enter: emitted(enter)
 		}
 	})
+
+/** The statements the drift check reads and migrate writes the drift check's proofs by (proofsTable), emitted like every
+ * other text; no Db and no admission runs one. */
+export interface ProofStatements {
+	/** Every row as its three columns in proofColumns order, by object. */
+	readonly rows: EmittedSql
+	/** DELETE every row, which `record` then writes afresh. */
+	readonly clear: EmittedSql
+	/**
+	 * INSERT the rows: $1 the objects, $2 their proof digests and $3 their descriptions' digests, three text arrays read
+	 * in lockstep, one row per element.
+	 */
+	readonly record: EmittedSql
+}
+
+/** The statements of `schema`'s proofs. */
+export const proofStatements = (schema: string): Result.Result<ProofStatements, CompileError> =>
+	catchRefusal(() => ({
+		rows: emitted(proofRows(schema)),
+		clear: emitted(clearProofs(schema)),
+		record: emitted(recordProofs(schema))
+	}))
 
 /** One ledger row, as the shell converts the rows statement's row: the ledger is grizzle's own table, written only by
  * the apply runner's records, so every text is nonempty and every integer at least zero as written, and read back

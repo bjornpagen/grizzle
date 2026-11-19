@@ -9,7 +9,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import { transactionControl } from "#adapter/migrate/input.ts"
+import { folderSource, type MigrationTarget, transactionControl } from "#adapter/migrate/input.ts"
 import type { ServedEntry } from "#adapter/served/compile.ts"
 import { chainWhole, type Committed, committedChain, committedSnapshot } from "#cli/committed.ts"
 import {
@@ -43,8 +43,7 @@ import {
 	orderFolderFiles,
 	type PackFault,
 	servedDifference,
-	servedPartingText,
-	splitStatements
+	servedPartingText
 } from "#compiler/plan/migration.ts"
 import {
 	type DeploySnapshot,
@@ -151,6 +150,12 @@ interface PackStatement {
 interface CommittedCheck {
 	readonly findings: ReadonlyArray<CheckFinding>
 	readonly committed: Option.Option<Committed>
+	/**
+	 * What `grizzle migrate` applies of the files, read here once: the committed snapshot with every folder as read, none
+	 * where the directory or the snapshot does not read, or the snapshot is of the form an earlier grizzle wrote, which a
+	 * finding names.
+	 */
+	readonly target: Option.Option<MigrationTarget>
 	readonly folders: number
 	readonly packs: ReadonlyArray<PackStatement>
 	/** The committed served files' and OpenAPI documents' texts, by kind and login (files.ts SchemaTree). */
@@ -187,12 +192,15 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 		return {
 			findings,
 			committed: Option.none(),
+			target: Option.none(),
 			folders: 0,
 			packs: [],
 			logins: { served: new Map(), openapi: new Map() }
 		}
 	}
 	const tree: SchemaTree = read.success
+	/** Every folder parsed once: what the chain, the statement findings and migrate's target all read. */
+	const sources = Arr.map(tree.folders, folderSource)
 	const committed = yield* Effect.result(committedSnapshot(schema, tree))
 	if (Result.isFailure(committed)) {
 		at("unreadableSnapshot", path(snapshotFileName), refusalText.unreadableSnapshot.problem)
@@ -207,7 +215,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	}
 
 	/** The chain, folder by folder, from the empty snapshot (committed.ts, the walk generate continues). */
-	const chain = committedChain(schema, tree)
+	const chain = committedChain(schema, sources)
 	const packs: Array<PackStatement> = []
 	for (const folder of chain.folders) {
 		if (folder.place === "misnamed") {
@@ -242,7 +250,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 		}
 		for (const file of folder.files) {
 			const where = path(folder.name, file.name)
-			for (const [i, statement] of splitStatements(file.text).entries()) {
+			for (const [i, statement] of file.statements.entries()) {
 				if (looksLikeLiteralPack(statement)) {
 					packs.push({ where, statement, ordinal: i + 1 })
 				}
@@ -280,6 +288,11 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	return {
 		findings,
 		committed: recorded,
+		target: Option.flatMap(recorded, (c) =>
+			c.kind === "files" && c.form === "earlier"
+				? Option.none()
+				: Option.some({ snapshot: c.snapshot, folders: sources })
+		),
 		folders: tree.folders.length,
 		packs,
 		logins: tree.logins
@@ -554,19 +567,28 @@ export const check = (
 	)
 
 /**
+ * A schema's committed files as `grizzle migrate` checks them before it connects: what `grizzle check` finds of them,
+ * and the target migrate applies, read once with them (CommittedCheck target).
+ */
+export interface FilesCheck extends SchemaCheck {
+	readonly target: Option.Option<MigrationTarget>
+}
+
+/**
  * Every configured schema's committed files checked, in configured order, compiling nothing (checkCommitted, each
  * literal pack held to the digest and the rows it states): the checks `grizzle migrate` runs before it connects, since
- * it applies the committed files as they are.
+ * it applies the committed files as they are, and the targets it applies, read with them, so nothing reads a file twice.
  */
 export const checkFiles = (
 	config: ResolvedConfig,
 	cwd: string
-): Effect.Effect<ReadonlyArray<SchemaCheck>, never, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<ReadonlyArray<FilesCheck>, never, FileSystem.FileSystem | Path.Path> =>
 	Effect.forEach(config.schemas, (schema) =>
-		Effect.map(checkCommitted(schema, cwd), (committed): SchemaCheck => ({
+		Effect.map(checkCommitted(schema, cwd), (committed): FilesCheck => ({
 			schema: schema.declared,
 			findings: [...committed.findings, ...packFindings(schema, committed.packs, undefined)],
 			snapshot: Option.map(committed.committed, (c) => c.snapshot),
-			folders: committed.folders
+			folders: committed.folders,
+			target: committed.target
 		}))
 	)

@@ -20,7 +20,7 @@
  */
 import { Effect } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -68,7 +68,7 @@ export const passedOver = (s: ReturnType<typeof versionOf>) =>
  * migration's folder. */
 export interface FrozenFirst {
 	readonly snapshot: DeploySnapshot
-	readonly folder: FolderSource
+	readonly folder: FolderTexts
 }
 
 /** The first version's migrations directory, its files verbatim as its generator wrote them. */

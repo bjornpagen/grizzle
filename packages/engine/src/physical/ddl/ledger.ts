@@ -27,6 +27,12 @@ import {
 /** The migrations ledger's table, which the naming door names (identity.ledger). */
 export const ledgerTableName: string = identifierOf(identity.ledger())
 
+/**
+ * The drift check's proofs' table, beside the ledger in the installed schema, which the naming door names
+ * (identity.proofs): no Db reads it, so no fence or guard names it (deploy/ledger/ledger.ts proofsTable).
+ */
+export const proofsTableName: string = identifierOf(identity.proofs())
+
 /** The ordinal of a folder's row: the one row of its folder that records its source, target and file count. */
 export const folderOrdinal = 0
 

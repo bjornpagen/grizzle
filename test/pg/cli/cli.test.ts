@@ -33,7 +33,7 @@ import { Array as Arr, Effect, Option, Redacted } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { defineConfig } from "#adapter/config/define.ts"
 import { migrationConnection } from "#cli/connection.ts"
-import { migrate } from "#cli/migrate.ts"
+import { migrate, readTargets } from "#cli/migrate.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import {
 	type CliFeature,
@@ -144,8 +144,8 @@ export const configurations = property.explore(aimed(configGen, refusalAims), {
 								)
 								const resolved = succeeded(config)
 								const intruderConnection = yield* migrationConnection(resolved)
-								const refused = yield* Effect.flip(migrate(resolved, intruderConnection))
-								assert.ok(refused._tag === "MigrateError", `a MigrateError, not ${refused._tag}`)
+								const targets = yield* readTargets(resolved)
+								const refused = yield* Effect.flip(migrate(targets, intruderConnection))
 								assert.equal(refused.stage, "owner")
 							}
 							for (const name of names) {

@@ -6,9 +6,10 @@ import { applyOnSession, checkDrift, type SchemaApplyReport } from "#adapter/mig
 import { type MigrationTarget, parseTarget } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
+import { proofStatements } from "#compiler/deploy/ledger/ledger.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { frameOf, type Tapped } from "#test/support/wire-tap.ts"
+import { backendCount, frameOf, type Tapped } from "#test/support/wire-tap.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
 export const versions = [
@@ -36,13 +37,28 @@ export type FlightFeature =
 	| "the rest of a history after its start"
 	| "nothing pending"
 
-/** The steps an apply ran, as its report says: the survey step, each applied folder's files (a transactional file one
- * flight; a no-transaction file one for its folder row, recorded unfinished under the ledger's lock before its first
- * statement so that no Db runs while its statements run alone, one per statement and one for its rows) or its row
- * alone, the schema's drift check, and the release of its apply lock. */
+/** Whether a schema's ledger exists when a step reads it: absent before its first folder is applied. */
+export type LedgerAt = "absent" | "installed"
+
+/** The steps a read of the ledger takes: its catalog read, with the step it rides, and its rows' own step where the
+ * ledger exists. */
+const ledgerSteps = (ledger: LedgerAt): number => (ledger === "installed" ? 1 : 0)
+
+/**
+ * The steps of a drift check: the catalog's reads of whether the ledger and the proofs exist, then its transaction's
+ * two flights, the rows of the ledger and the proofs that exist apart in front of the first.
+ */
+const driftSteps = 3
+
+/** The steps an apply ran, as its report says: the survey step, its ledger's rows where the ledger stood before it,
+ * each applied folder's files (a transactional file one flight; a no-transaction file one for its folder row, recorded
+ * unfinished under the ledger's lock before its first statement so that no Db runs while its statements run alone, one
+ * per statement and one for its rows) or its row alone, the schema's drift check, the record of its proofs once a
+ * folder applied changed what they prove, and the release of its apply lock. */
 const stepsOf = (
 	target: MigrationTarget,
 	report: SchemaApplyReport,
+	before: LedgerAt,
 	c: { note: (f: FlightFeature) => void }
 ) => {
 	const parsed = succeeded(parseTarget(target, { database: "unparsed", roles: { kind: "stems" } }))
@@ -69,14 +85,16 @@ const stepsOf = (
 	if (report.applied.length === 0) {
 		c.note("nothing pending")
 	}
-	return steps + 2
+	return steps + ledgerSteps(before) + driftSteps + (report.applied.length === 0 ? 0 : 1) + 1
 }
 
-/** The apply of `target` on the tapped session: its round trips are exactly the steps its report says it ran. */
+/** The apply of `target` on the tapped session, its ledger `before` it as given: its round trips are exactly the steps
+ * its report says it ran, and the server refuses none of its statements, an absent ledger read off the catalog. */
 export const appliedIn = (
 	tapped: Tapped,
 	m: MigrationSession,
 	target: MigrationTarget,
+	before: LedgerAt,
 	c: { note: (f: FlightFeature) => void }
 ) =>
 	Effect.gen(function* () {
@@ -86,21 +104,33 @@ export const appliedIn = (
 		const ran = defined(report, "the schema's report")
 		assert.equal(
 			window.roundTrips,
-			stepsOf(target, ran, c),
+			stepsOf(target, ran, before, c),
 			`${target.snapshot.schema}: round trips of the apply`
+		)
+		assert.equal(
+			backendCount(window, "E"),
+			0,
+			`${target.snapshot.schema}: no statement of the apply is refused`
 		)
 		return ran
 	})
 
-/** The drift check of `target`'s snapshot alone: one round trip, framed by its BEGIN and ROLLBACK, ending idle. */
+/** The drift check of `target`'s snapshot alone: its catalog reads, then its transaction's two round trips, framed by
+ * its BEGIN and ROLLBACK, ending idle, the server refusing none of its statements. */
 export const admittedAlone = (tapped: Tapped, m: MigrationSession, target: MigrationTarget) =>
 	Effect.gen(function* () {
 		const snapshot = target.snapshot
 		const statements = succeeded(statementsFor(snapshot.schema))
+		const proofs = succeeded(proofStatements(snapshot.schema))
 		const mark = tapped.mark()
-		yield* checkDrift(m, snapshot, statements, [])
+		yield* checkDrift(m, snapshot, statements, proofs, [])
 		const window = tapped.since(mark)
-		assert.equal(window.roundTrips, 1, "the drift check is one round trip")
+		assert.equal(
+			window.roundTrips,
+			driftSteps,
+			"the drift check is its catalog reads, then two round trips of one transaction"
+		)
+		assert.equal(backendCount(window, "E"), 0, "no statement of the drift check is refused")
 		assert.deepEqual(
 			frameOf(window),
 			{

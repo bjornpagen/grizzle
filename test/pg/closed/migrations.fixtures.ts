@@ -14,7 +14,7 @@ import { constant, element, type Gen, map, subset } from "@bjornpagen/testing/ge
 import { type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Option, Order, Record as Rec, type Scope, Struct } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -483,7 +483,7 @@ export interface System {
 	snapshot: DeploySnapshot
 	/** The physical names of the version the snapshot is of: each migration's own installation's. */
 	names: PhysicalNames
-	folders: Array<FolderSource>
+	folders: Array<FolderTexts>
 	drafts: number
 	ids: number
 	constants: Map<string, { readonly name: string; readonly names: ReadonlyArray<string> }>
@@ -582,7 +582,7 @@ const drafting = (sys: System, built: Built, declared: Declarations) =>
 	})
 
 /** Applies the system's folders and then `next`, as the installation's owner login. */
-const applyWith = (sys: System, next: ReadonlyArray<FolderSource>, snapshot: DeploySnapshot) =>
+const applyWith = (sys: System, next: ReadonlyArray<FolderTexts>, snapshot: DeploySnapshot) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const migrator = yield* openMigrator(substrate, sys.m.ambientOwner.credentials)

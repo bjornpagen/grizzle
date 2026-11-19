@@ -4,7 +4,7 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { DefinedBy, DriftMismatch } from "#adapter/admission/drift.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderSource } from "#adapter/migrate/input.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { filed } from "#compiler/deploy/render/filed.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
@@ -171,7 +171,7 @@ export const constantPlants = {
  * draft files it, its number counted from 1 in its file.
  */
 export const definingStatement = (
-	folders: ReadonlyArray<FolderSource>,
+	folders: ReadonlyArray<FolderTexts>,
 	create: PlFunction
 ): DefinedBy => {
 	const text = filed(printStatement(create))

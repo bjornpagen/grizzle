@@ -110,11 +110,17 @@ type FolderMeta =
  * A committed folder, read once: its name places it in chain order, the timestamp of `<YYYYMMDDHHMMSS>_<name>`
  * (`placed`), or does not (`misnamed`), and its meta.json, as the chain judges it.
  */
-interface ReadFolder {
+interface ReadFolder<F extends FileText = FileText> {
 	readonly name: string
 	readonly place: "placed" | "misnamed"
 	readonly meta: FolderMeta
-	readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+	readonly files: ReadonlyArray<F>
+}
+
+/** A file of a folder as the walk carries it: its name and text, and whatever its reader read of it besides. */
+interface FileText {
+	readonly name: string
+	readonly text: string
 }
 
 /**
@@ -122,8 +128,8 @@ interface ReadFolder {
  * reaches. The walk judges the links of the placed folders in timestamp order, from the empty snapshot, up to the first
  * whose meta.json is not this schema's link from the fingerprint it reached; a misnamed folder has no place in it.
  */
-interface CommittedChain {
-	readonly folders: ReadonlyArray<ReadFolder>
+interface CommittedChain<F extends FileText = FileText> {
+	readonly folders: ReadonlyArray<ReadFolder<F>>
 	readonly reached: string
 }
 
@@ -146,20 +152,29 @@ const folderFault = (folder: ReadFolder): ChainFault | undefined => {
 export const chainWhole = (chain: CommittedChain): boolean =>
 	Arr.every(chain.folders, (f) => f.place === "placed" && f.meta.kind === "sound")
 
-/** A folder as it is read, before the walk judges its meta.json. */
-interface ReadFolderInput {
+/** A folder with its meta.json read, as the walk reads it: what check reads it from (adapter/migrate/input.ts
+ * FolderSource), and generate from its texts. */
+interface MetaFolder<F extends FileText> {
 	readonly name: string
-	readonly place: ReadFolder["place"]
 	readonly meta: Result.Result<ReadMeta, CompileError>
-	readonly files: ReadFolder["files"]
+	readonly files: ReadonlyArray<F>
 }
 
-/** The one walk of a schema's committed chain, which `grizzle check` reports and `grizzle generate` continues. */
-export const committedChain = (schema: ConfiguredSchema, tree: SchemaTree): CommittedChain => {
-	const read = Arr.map(tree.folders, (f): ReadFolderInput => ({
+/** A folder as it is read, before the walk judges its meta.json. */
+interface ReadFolderInput<F extends FileText> extends MetaFolder<F> {
+	readonly place: ReadFolder["place"]
+}
+
+/** The one walk of a schema's committed chain, which `grizzle check` reports and `grizzle generate` continues, over its
+ * folders with their meta.json read. */
+export const committedChain = <F extends FileText>(
+	schema: ConfiguredSchema,
+	folders: ReadonlyArray<MetaFolder<F>>
+): CommittedChain<F> => {
+	const read = Arr.map(folders, (f): ReadFolderInput<F> => ({
 		name: f.name,
 		place: isFolderName(f.name) ? "placed" : "misnamed",
-		meta: readMeta(f.metaText),
+		meta: f.meta,
 		files: f.files
 	}))
 	const own = (meta: Result.Result<ReadMeta, CompileError>): ReadMeta | undefined =>
@@ -170,7 +185,7 @@ export const committedChain = (schema: ConfiguredSchema, tree: SchemaTree): Comm
 	const walk = (
 		at: number,
 		reached: string
-	): { readonly stop: ReadFolderInput | undefined; readonly reached: string } => {
+	): { readonly stop: ReadFolderInput<F> | undefined; readonly reached: string } => {
 		const folder = placed[at]
 		const meta = folder === undefined ? undefined : own(folder.meta)
 		return meta === undefined || meta.source !== reached
@@ -223,7 +238,10 @@ export const continuedChain = Effect.fn("continuedChain")(function* (
 				fault
 			})
 		)
-	const chain = committedChain(schema, tree)
+	const chain = committedChain(
+		schema,
+		Arr.map(tree.folders, (f) => ({ name: f.name, meta: readMeta(f.metaText), files: f.files }))
+	)
 	const misnamed = Arr.findFirst(chain.folders, (f) => f.place === "misnamed")
 	if (Option.isSome(misnamed)) {
 		return yield* breaks({ kind: "misnamed", folder: misnamed.value.name })

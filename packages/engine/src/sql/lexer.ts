@@ -755,6 +755,36 @@ export const lexemesOf = (text: string): Lexemes => {
 }
 
 /**
+ * The first `count` tokens of `text` PostgreSQL's scanner reads (lex), the text read no further than they reach: fewer
+ * where the text holds fewer before the scanner first refuses it or meets a construct it never closes. What a
+ * statement's head decides, such as whether it controls a transaction, reads its head alone, never its whole text.
+ */
+export const leadingTokens = (text: string, count: number): ReadonlyArray<Token> => {
+	const tokens: Array<Token> = []
+	let i = 0
+	while (i < text.length && tokens.length < count) {
+		const step = stepAt(text, i)
+		switch (step.kind) {
+			case "unclosed":
+				return tokens
+			case "skip":
+				break
+			case "identifier":
+				tokens.push(step.word)
+				break
+			case "lexeme":
+				if (step.lexeme.kind === "refused") {
+					return tokens
+				}
+				tokens.push(step.lexeme)
+				break
+		}
+		i = step.end
+	}
+	return tokens
+}
+
+/**
  * The tokens of `text` PostgreSQL's scanner reads before it first refuses it (lexemesOf), and that refusal: every
  * semicolon is punctuation to it, a statement's terminator among them.
  */
