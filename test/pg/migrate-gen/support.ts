@@ -2713,7 +2713,7 @@ export const typedValue = (
 					: quoteString(
 							inputText(typedDefault(typeOf(p)), typeOf(p), to.plan.installation.names.codes)
 						)
-			case "placeholderColumn":
+			case "addColumnPlaceholder":
 				return quoteString(
 					inputText(typedDefault(typeOf(p)), typeOf(p), to.plan.installation.names.codes)
 				)

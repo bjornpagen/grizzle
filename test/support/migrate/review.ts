@@ -7,7 +7,6 @@ import {
 	type Draft,
 	type LossDecision,
 	type MigrationPlan,
-	type PlaceholderAlteration,
 	type RetypeReason
 } from "#compiler/deploy/diff/plan.ts"
 import { type DraftFile, planFiles } from "#compiler/deploy/phases/files.ts"
@@ -19,7 +18,7 @@ import {
 	lossMarker,
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
-import type { ColumnDef, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
+import type { AlterTableAction, ColumnDef, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 
 /**
@@ -45,7 +44,9 @@ import { placeholderToken } from "#compiler/sql/print.ts"
  * A text that disagrees with meta.json or with the plan is a defect of the draft, thrown as DraftTextDefect.
  */
 export type Placeholder =
-	| (PlaceholderAlteration & { readonly table: ObjectName })
+	| (Extract<AlterTableAction, { readonly kind: "addColumnPlaceholder" }> & {
+			readonly table: ObjectName
+	  })
 	| {
 			readonly kind: "placeholderRetype"
 			readonly table: ObjectName
@@ -80,7 +81,7 @@ const actionPlaceholders = (a: Action): ReadonlyArray<Placeholder> => {
 	switch (a.kind) {
 		case "alteration":
 			return Arr.flatMap(a.actions, (sub): ReadonlyArray<Placeholder> =>
-				sub.kind === "placeholderColumn" ? [{ ...sub, table: a.table }] : []
+				sub.kind === "addColumnPlaceholder" ? [{ ...sub, table: a.table }] : []
 			)
 		case "fill":
 			return Arr.map(a.fields, (f): Placeholder => ({

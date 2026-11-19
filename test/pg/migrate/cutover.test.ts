@@ -1544,7 +1544,7 @@ const migration = (
 						Arr.flatMap(file.actions, (a) =>
 							a.kind === "alteration"
 								? Arr.flatMap(a.actions, (sub) =>
-										sub.kind === "placeholderColumn"
+										sub.kind === "addColumnPlaceholder"
 											? [placeholderKey({ ...sub, table: a.table })]
 											: []
 									)

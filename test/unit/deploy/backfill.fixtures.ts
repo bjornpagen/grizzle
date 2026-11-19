@@ -657,7 +657,7 @@ const assertBackfillOrder = (m: Migration, columns: ReadonlyArray<string>): void
 			steps,
 			(s) =>
 				s.draft.kind === "alteration" &&
-				Arr.some(s.draft.actions, (a) => a.kind === "placeholderColumn")
+				Arr.some(s.draft.actions, (a) => a.kind === "addColumnPlaceholder")
 		),
 		"no drawn or accumulated field asks the reviewer for a value"
 	)

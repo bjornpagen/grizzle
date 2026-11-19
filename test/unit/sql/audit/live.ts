@@ -435,7 +435,7 @@ const actionStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 		case "statement":
 			return [a.statement]
 		case "alteration": {
-			const plain = Arr.filter(a.actions, (sub) => sub.kind !== "placeholderColumn")
+			const plain = Arr.filter(a.actions, (sub) => sub.kind !== "addColumnPlaceholder")
 			return Arr.isReadonlyArrayNonEmpty(plain) ? [alterationStatement(a.table, plain)] : []
 		}
 		case "fill":

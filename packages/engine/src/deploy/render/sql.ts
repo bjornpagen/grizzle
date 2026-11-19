@@ -13,12 +13,10 @@ import {
 import type * as Result from "#compiler/core/result.ts"
 import {
 	type Action,
-	type Alteration,
 	alterationStatement,
 	type Draft,
 	type Loss,
 	type LossDecision,
-	type PlaceholderAlteration,
 	type RetypeReason,
 	type SetAside
 } from "#compiler/deploy/diff/plan.ts"
@@ -31,7 +29,14 @@ import {
 	noTransactionMarker,
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
-import type { ColumnDef, ObjectName, PlBlock, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import type {
+	AlterTableAction,
+	ColumnDef,
+	ObjectName,
+	PlBlock,
+	Select,
+	SqlStatement
+} from "#compiler/sql/ast.ts"
 import { cast, lit, tableCol, types, whenFound } from "#compiler/sql/build.ts"
 import type { GenerationAnchor } from "#compiler/sql/generation.ts"
 import {
@@ -143,21 +148,19 @@ const retypeAdvice: { readonly [R in RetypeReason]: (column: ColumnDef) => strin
 		"a closed id's or a set's code names a handle only under its own roster, which this conversion leaves, so a cast would read each value as another handle or a bare number: replace the placeholder below with the expression computing each row's new value from what its value before means"
 }
 
-/** The marker a placeholder column of an alteration of `table` drafts above it: what the reviewer supplies there, and
- * how. */
-const placeholderNote = (table: ObjectName, p: PlaceholderAlteration): string =>
-	`${placeholderMarker}: every existing row of ${printObjectName(table)} needs a value for the new column ${quoteIdent(p.column.name)} (${printType(p.column.type)}); replace the placeholder below with it, or with any value and compute the real one by an UPDATE written right after the SET CONSTRAINTS ALL IMMEDIATE below, which every data step follows; then delete this line.`
+/** The marker a placeholder column `column` of an alteration of `table` drafts above it: what the reviewer supplies
+ * there, and how. */
+const placeholderNote = (table: ObjectName, column: ColumnDef): string =>
+	`${placeholderMarker}: every existing row of ${printObjectName(table)} needs a value for the new column ${quoteIdent(column.name)} (${printType(column.type)}); replace the placeholder below with it, or with any value and compute the real one by an UPDATE written right after the SET CONSTRAINTS ALL IMMEDIATE below, which every data step follows; then delete this line.`
 
 /** The marker a set-aside field of a fill of `table` drafts above the fill's UPDATE: the value its set-aside column takes,
  * and how a value joins another row. */
 const fillNote = (table: ObjectName, f: SetAside): string =>
 	`${placeholderMarker}: every row of ${printObjectName(table)} needs ${quoteIdent(f.column.name)} as ${printType(f.column.type)} in its set-aside column ${quoteIdent(f.aside)}, which takes the field's name below; ${retypeAdvice[f.reason](f.column)}: the row is "t", its old ${quoteIdent(f.column.name)} still standing, and the last value may be followed by the FROM and WHERE the values join; then delete this line.`
 
-/** The placeholders of an alteration's subcommands, in its order. */
-const placeholdersOf = (actions: ReadonlyArray<Alteration>): ReadonlyArray<PlaceholderAlteration> =>
-	actions.flatMap((a): ReadonlyArray<PlaceholderAlteration> =>
-		a.kind === "placeholderColumn" ? [a] : []
-	)
+/** The columns an alteration's subcommands add at a placeholder (sql/ast.ts addColumnPlaceholder), in its order. */
+const placeholdersOf = (actions: ReadonlyArray<AlterTableAction>): ReadonlyArray<ColumnDef> =>
+	actions.flatMap((a) => (a.kind === "addColumnPlaceholder" ? [a.column] : []))
 
 /** A fill's UPDATE of `table`: its anchor assigned its own value where it has one (plan.ts Action `fill`), then each
  * set-aside column at its placeholder, one assignment a line, the last free to be followed by a FROM. */
@@ -187,12 +190,12 @@ const writeFill = (
  * of the column goes among the data steps, after SET CONSTRAINTS ALL IMMEDIATE (deploy/diff/diff.ts checkedAtOnce). */
 const spellAlteration = (
 	table: ObjectName,
-	actions: NonEmptyReadonlyArray<Alteration>
+	actions: NonEmptyReadonlyArray<AlterTableAction>
 ): NonEmptyReadonlyArray<Spelled> => {
 	const placeholders = placeholdersOf(actions)
-	const dropped = placeholders.map((p) => p.column.name)
+	const dropped = placeholders.map((c) => c.name)
 	const alteration = spelled(
-		placeholders.map((p) => placeholderNote(table, p)),
+		placeholders.map((c) => placeholderNote(table, c)),
 		alterationStatement(table, actions)
 	)
 	return isNonEmpty(dropped)

@@ -383,7 +383,7 @@ const addedColumns = (plan: MigrationPlan): ReadonlyMap<string, number> => {
 					(a) =>
 						a.kind === "addColumn" ||
 						a.kind === "addColumnUnchecked" ||
-						a.kind === "placeholderColumn"
+						a.kind === "addColumnPlaceholder"
 				).length
 			)
 			continue

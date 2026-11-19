@@ -42,7 +42,6 @@ import {
 import {
 	type AbandonedSchema,
 	type Action,
-	type Alteration,
 	alterationPass,
 	alterTablePasses,
 	alterationStatement,
@@ -549,8 +548,8 @@ const roleSettings = (list: ReadonlyArray<SqlStatement>) => {
  * subcommand, which places it, and the rest in the order the visits draft them. */
 interface TableAlteration {
 	readonly table: ObjectName
-	readonly first: Alteration
-	readonly rest: Array<Alteration>
+	readonly first: AlterTableAction
+	readonly rest: Array<AlterTableAction>
 }
 
 /** Where the plan's steps stand while the visits draft them: a step drafted whole, or the place of a table's one
@@ -622,13 +621,12 @@ const generationReads = (c: ColumnDef): ReadonlyArray<string> => {
 }
 
 /** The column a subcommand of a table's alteration adds, under whatever value it adds it; none for any other. */
-const addedColumn = (a: Alteration): ColumnDef | undefined => {
+const addedColumn = (a: AlterTableAction): ColumnDef | undefined => {
 	switch (a.kind) {
 		case "addColumn":
 		case "addColumnPlaceholder":
 		case "addColumnDefault":
 		case "addColumnUnchecked":
-		case "placeholderColumn":
 			return a.column
 		case "setNotNull":
 		case "dropColumn":
@@ -653,7 +651,7 @@ const addedColumn = (a: Alteration): ColumnDef | undefined => {
 
 /** Whether the subcommand `a` adds a column whose generation reads the column `b` adds, so it goes after it
  * (dependencyOrder): an ALTER TABLE adds its columns one by one, each generation read as its column is added. */
-const readsAdded = (a: Alteration, b: Alteration): boolean => {
+const readsAdded = (a: AlterTableAction, b: AlterTableAction): boolean => {
 	const reader = addedColumn(a)
 	const read = addedColumn(b)
 	return reader !== undefined && read !== undefined && generationReads(reader).includes(read.name)
@@ -667,9 +665,9 @@ const readsAdded = (a: Alteration, b: Alteration): boolean => {
  * fill, which sets its NOT NULL once the fill has drawn it (`checked`).
  */
 const asideSubcommand = (
-	a: Alteration,
+	a: AlterTableAction,
 	aside: AsideColumns
-): { readonly alteration: Alteration; readonly checked: ReadonlyArray<string> } => {
+): { readonly alteration: AlterTableAction; readonly checked: ReadonlyArray<string> } => {
 	if (
 		a.kind !== "addColumn" ||
 		a.column.generated === undefined ||
@@ -709,7 +707,7 @@ const asideSubcommand = (
 	}
 }
 /** An alteration's subcommands in PostgreSQL's pass order, the order of drafting within a pass (alterationPass). */
-const byPass = mapInput(compareNumbers, (a: Alteration) =>
+const byPass = mapInput(compareNumbers, (a: AlterTableAction) =>
 	alterTablePasses.indexOf(alterationPass(a))
 )
 
@@ -815,7 +813,7 @@ const fillSteps = (
 const alteredBy = (
 	d: Draft
 ):
-	| { readonly table: ObjectName; readonly actions: NonEmptyReadonlyArray<Alteration> }
+	| { readonly table: ObjectName; readonly actions: NonEmptyReadonlyArray<AlterTableAction> }
 	| undefined => {
 	switch (d.kind) {
 		case "statement":
@@ -1263,7 +1261,11 @@ class Differ {
 	 * subcommand there. A later subcommand moves up to it: what it reads is drafted before the table's first (its domains
 	 * and constants in Setup or before every table, its table's columns in the alteration itself, which PostgreSQL adds
 	 * pass by pass), and nothing between the two reads it but what reads the table, which may read it sooner. */
-	alter(slot: TableSlot, table: ObjectName, actions: NonEmptyReadonlyArray<Alteration>): void {
+	alter(
+		slot: TableSlot,
+		table: ObjectName,
+		actions: NonEmptyReadonlyArray<AlterTableAction>
+	): void {
 		const key = nameKey(table)
 		const held = this.alterations[slot].get(key)
 		if (held !== undefined) {
@@ -2240,20 +2242,20 @@ class Differ {
 	/** The addition of a field to a table that may hold rows: a column its family draws under its placeholder default,
 	 * which the backfill overwrites (drawnColumn); a generated field by its expression, which computes every row; any
 	 * other by the reviewer's value for every row, at its placeholder. */
-	addedField(t: ObjectName, c: ColumnDef): Alteration {
+	addedField(t: ObjectName, c: ColumnDef): AlterTableAction {
 		const drawn = this.drawnColumn(t, c)
 		if (drawn !== undefined) {
 			return drawn
 		}
 		return c.generated === undefined
-			? { kind: "placeholderColumn", column: c }
+			? { kind: "addColumnPlaceholder", column: c }
 			: { kind: "addColumn", column: c }
 	}
 
 	/** The ADD COLUMN of a column of `t` its family draws, when `t` may hold rows: under the placeholder default the value
 	 * an empty family holds, recorded for the backfill (backfill.ts), which draws it over the stored rows and then drops
 	 * the default. A column no family draws, or one added to a table that holds no row, takes none. */
-	drawnColumn(t: ObjectName, c: ColumnDef): Alteration | undefined {
+	drawnColumn(t: ObjectName, c: ColumnDef): AlterTableAction | undefined {
 		const key = nameKey(t)
 		const drawn = this.drawn.get(key)?.get(c.name)
 		if (drawn === undefined || c.generated !== undefined || !this.mayHoldRows(t)) {
@@ -2308,7 +2310,7 @@ class Differ {
 			backfilled ||
 			this.fills.size > 0 ||
 			[...this.alterations.structure.values()].some((a) =>
-				[a.first, ...a.rest].some((x) => x.kind === "placeholderColumn")
+				[a.first, ...a.rest].some((x) => x.kind === "addColumnPlaceholder")
 			)
 		)
 	}
@@ -3768,9 +3770,9 @@ const inPlace = (
 	c: ColumnDef,
 	change: FieldChange,
 	convert: (column: ColumnDef) => ColumnConversion,
-	add: (column: ColumnDef) => Alteration
+	add: (column: ColumnDef) => AlterTableAction
 ): InPlace => {
-	const altering = (a: Alteration): Action => ({ kind: "alteration", table: t, actions: [a] })
+	const altering = (a: AlterTableAction): Action => ({ kind: "alteration", table: t, actions: [a] })
 	const steps = (list: ReadonlyArray<Action>): InPlace => ({ kind: "steps", steps: list })
 	const take = (sequence: ObjectName): ReadonlyArray<Action> => [
 		altering({ kind: "addIdentity", column: c.name, sequence }),

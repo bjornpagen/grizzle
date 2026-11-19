@@ -437,7 +437,7 @@ const declaredOf =
 /** The reviewer's value of each placeholder: 0 for an added column, a conversion by its cast. */
 const reviewed = (p: Placeholder): string => {
 	switch (p.kind) {
-		case "placeholderColumn":
+		case "addColumnPlaceholder":
 			return "0"
 		case "placeholderRetype":
 			return `${quoteIdent(p.column.name)}::${printType(p.column.type)}`

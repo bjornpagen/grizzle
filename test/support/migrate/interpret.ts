@@ -4046,7 +4046,7 @@ class Model {
 				return
 			case "alteration":
 				for (const sub of a.actions) {
-					if (sub.kind === "placeholderColumn") {
+					if (sub.kind === "addColumnPlaceholder") {
 						this.#typeExists(sub.column.type)
 						this.#addColumn(a.table, columnOf(sub.column, this.#schema), () => ({
 							kind: "value",

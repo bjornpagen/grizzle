@@ -1,6 +1,6 @@
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { DeployPhase } from "#compiler/ir/products.ts"
 import type {
 	AlterTable,
@@ -198,18 +198,6 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
  * read it as another handle or a bare number. */
 export type RetypeReason = "values" | "roster"
 
-/** A subcommand of a table's alteration whose value the reviewer writes at its placeholder, which a marker above the
- * alteration explains: ADD COLUMN ... NOT NULL DEFAULT <placeholder>, its DROP DEFAULT drafted after the alteration: a
- * field added to a relation that may hold rows needs a value for every row, which the generator cannot invent. */
-export interface PlaceholderAlteration {
-	readonly kind: "placeholderColumn"
-	readonly column: ColumnDef
-}
-
-/** One subcommand of a table's alteration: an ALTER TABLE action, or a placeholder column's (PlaceholderAlteration),
- * which prints as the ADD COLUMN ... DEFAULT <placeholder> under its marker. */
-export type Alteration = AlterTableAction | PlaceholderAlteration
-
 /**
  * A field converted at the reviewer's value, set aside: a field whose type changes to one that holds other values, for
  * its `reason` (RetypeReason). No ALTER COLUMN ... TYPE ... USING converts it in place, since a USING expression reads
@@ -254,7 +242,7 @@ export type AlterTablePass = (typeof alterTablePasses)[number]
 /** The pass a subcommand runs in (alterTablePasses): ATPrepCmd's (tablecmds.c 4991-5205), an added constraint's as
  * ATParseTransformCmd moves it on (5821-5854), a key's to the keys and a CHECK's or foreign key's to the other
  * constraints. */
-export const alterationPass = (a: Alteration): AlterTablePass => {
+export const alterationPass = (a: AlterTableAction): AlterTablePass => {
 	switch (a.kind) {
 		case "dropColumn":
 		case "dropConstraint":
@@ -269,7 +257,6 @@ export const alterationPass = (a: Alteration): AlterTablePass => {
 		case "addColumnPlaceholder":
 		case "addColumnDefault":
 		case "addColumnUnchecked":
-		case "placeholderColumn":
 			return "addColumn"
 		case "setExpression":
 			return "setExpression"
@@ -292,49 +279,18 @@ export const alterationPass = (a: Alteration): AlterTablePass => {
 	}
 }
 
-/** The ALTER TABLE action a subcommand prints as: a placeholder's with its placeholder token (sql/ast.ts
- * addColumnPlaceholder, Using placeholder), any other as it is. */
-const printedAction = (a: Alteration): AlterTableAction => {
-	switch (a.kind) {
-		case "placeholderColumn":
-			return { kind: "addColumnPlaceholder", column: a.column }
-		case "addColumn":
-		case "addColumnPlaceholder":
-		case "addColumnUnchecked":
-		case "setNotNull":
-		case "addColumnDefault":
-		case "dropColumn":
-		case "dropDefault":
-		case "setUuidv7Default":
-		case "setRetirementDefault":
-		case "alterColumnType":
-		case "addIdentity":
-		case "dropIdentity":
-		case "addConstraint":
-		case "addConstraintUsingIndex":
-		case "validateConstraint":
-		case "alterConstraintDeferral":
-		case "dropConstraint":
-		case "enableRowSecurity":
-		case "disableRowSecurity":
-		case "replicaIdentity":
-		case "setExpression":
-			return a
-	}
-}
-
-/** The one ALTER TABLE a table's alteration runs: its subcommands as they print, in its order. */
+/** The one ALTER TABLE a table's alteration runs: its subcommands in its order. */
 export const alterationStatement = (
 	table: ObjectName,
-	actions: NonEmptyReadonlyArray<Alteration>
-): AlterTable => ({ kind: "alterTable", table, actions: mapNonEmpty(actions, printedAction) })
+	actions: NonEmptyReadonlyArray<AlterTableAction>
+): AlterTable => ({ kind: "alterTable", table, actions })
 
 /** One drafted action:
  * - `statement`: one statement, audited and printed by `emit`;
  * - `alteration`: a table's one ALTER TABLE in a slot that alters each table once (TableSlot), its subcommands in
  *   PostgreSQL's pass order (alterationPass), so PostgreSQL rewrites the table at most once for all of them: in its one
  *   phase 3 (tablecmds.c ATRewriteTables at 5896, the rewrite at 5945-6069, fired once per table at 6022), which also
- *   checks every CHECK the statement adds (ATRewriteTable at 6252-6253); then one DROP DEFAULT of each placeholder column (PlaceholderAlteration),
+ *   checks every CHECK the statement adds (ATRewriteTable at 6252-6253); then one DROP DEFAULT of each placeholder column (sql/ast.ts addColumnPlaceholder),
  *   after the reviewer's optional UPDATE;
  * - `fill`: a table's fill of its set-aside fields (SetAside), in structure.fill, after every table's alteration: one
  *   UPDATE setting each set-aside column to the reviewer's value at its placeholder, under a marker each, the row aliased
@@ -354,7 +310,7 @@ export type Action =
 	| {
 			readonly kind: "alteration"
 			readonly table: ObjectName
-			readonly actions: NonEmptyReadonlyArray<Alteration>
+			readonly actions: NonEmptyReadonlyArray<AlterTableAction>
 	  }
 	| {
 			readonly kind: "fill"

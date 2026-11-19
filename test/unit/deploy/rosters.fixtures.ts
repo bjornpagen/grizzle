@@ -336,7 +336,7 @@ const observedOf = (draft: Draft): ReadonlyArray<string> => {
 				return [statementWord(a.statement)]
 			case "alteration":
 				return Arr.map(a.actions, (sub) =>
-					sub.kind === "placeholderColumn"
+					sub.kind === "addColumnPlaceholder"
 						? `placeholder column ${a.table.name}.${sub.column.name}`
 						: statementWord({ kind: "alterTable", table: a.table, actions: [sub] })
 				)
