@@ -173,9 +173,9 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 		kills: [
 			{
 				file: "packages/engine/src/schema/world.ts",
-				original: '\t\tif (writingOf(descriptor).kind !== "caller") {',
-				replacement: "\t\tif (false) {",
-				why: "A context field grizzle writes, drawn(natural), read as its descriptor (schema/world.ts admitContext), which refuses it as no descriptor rather than as no claim."
+				original: "() => noClaim(field)).desc",
+				replacement: '() => malformed(label, "a field")).desc',
+				why: "A context field grizzle writes, drawn(natural), refused as a malformed field rather than as no claim (schema/world.ts admitContext)."
 			}
 		]
 	})

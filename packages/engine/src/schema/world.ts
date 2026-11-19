@@ -39,7 +39,6 @@ import {
 } from "#compiler/schema/levels.ts"
 import {
 	builderLoc,
-	describedField,
 	frozenCopy,
 	frozenTuple,
 	malformed,
@@ -54,7 +53,7 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { record, roleRelations, wholeEntries } from "#compiler/schema/record.ts"
-import { derivedDraftOf, relationDescOf, writingOf } from "#compiler/schema/relation.ts"
+import { derivedDraftOf, relationDescOf, valueTypeOf } from "#compiler/schema/relation.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import { loginStem, roleStem } from "#compiler/schema/stem.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
@@ -161,8 +160,8 @@ export const admitContext = (
 	if (!isPlainRecord(fields)) {
 		throw malformed(label, "a record of field descriptors")
 	}
-	/** A field no claim is: one grizzle writes, read before its descriptor, which a written field is none of, or one of
-	 * a type no claim's is. */
+	/** A field no claim is: one a field builder made, which no value type is (valueTypeOf), or one of a type no claim's
+	 * is. */
 	const noClaim = (field: string) =>
 		CompileError.make({
 			_tag: "ContextRefused",
@@ -172,10 +171,7 @@ export const admitContext = (
 		})
 	const descs: Record<string, FieldDesc> = {}
 	for (const [field, descriptor] of Object.entries(fields)) {
-		if (writingOf(descriptor).kind !== "caller") {
-			throw noClaim(field)
-		}
-		const desc = describedField(descriptor, `${label} field ${field}`).desc
+		const desc = valueTypeOf(descriptor, `${label} field ${field}`, () => noClaim(field)).desc
 		if (!contextFieldAdmits(desc)) {
 			throw noClaim(field)
 		}

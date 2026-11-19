@@ -18,7 +18,6 @@ import {
 } from "#compiler/ir/desc.ts"
 import {
 	builderLoc,
-	describedField,
 	frozenCopy,
 	malformed,
 	ownedDesc,
@@ -26,7 +25,7 @@ import {
 	ownValue,
 	requireName
 } from "#compiler/schema/protocol.ts"
-import { writingOf } from "#compiler/schema/relation.ts"
+import { valueTypeOf } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type {
 	AnyFunction,
@@ -46,13 +45,10 @@ import type {
  */
 
 /** The field descriptors of a heading or a signature, each a value type no writing of its own declares. */
-const valueDesc = (value: unknown, label: string): FieldDesc => {
-	const described = describedField(value, label)
-	if (writingOf(value).kind !== "caller") {
-		throw malformed(label, "a value type, which no field of a writing of its own is")
-	}
-	return described.desc
-}
+const valueDesc = (value: unknown, label: string): FieldDesc =>
+	valueTypeOf(value, label, () =>
+		malformed(label, "a value type, which no field of a writing of its own is")
+	).desc
 
 /** A heading's fields in declared order, at least one, each a value type. */
 const headingOf = (fields: unknown, label: string): NonEmptyReadonlyArray<NamedDesc<FieldDesc>> => {

@@ -9,6 +9,7 @@ import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { sameContent } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -182,6 +183,29 @@ const fieldEntryOf = (value: unknown): FieldEntry | undefined =>
 /** Whether a field value is one slot(type, fin) made. */
 const isSlot = (value: unknown): boolean => fieldEntryOf(value)?.kind === "slot"
 
+/**
+ * The first step of every admission of a field its caller writes (a context's field, a heading's or a signature's, an
+ * accumulated or a generated field's type, a closed relation's field), taken before the field is described: a field
+ * grizzle writes, a drawn, accumulated, generated or retirement field, is refused by `refusal`, which names why, where
+ * its description would refuse it as no descriptor. A slot's codes are its caller's, so a slot passes.
+ */
+const refuseWritten = (value: unknown, refusal: () => CompileError): void => {
+	const entry = fieldEntryOf(value)
+	if (entry?.kind === "written" || entry?.kind === "generated") {
+		throw refusal()
+	}
+}
+
+/** A value type's descriptor, after the first step (refuseWritten). */
+export const valueTypeOf = (
+	value: unknown,
+	label: string,
+	refusal: () => CompileError
+): Described => {
+	refuseWritten(value, refusal)
+	return describedField(value, label)
+}
+
 /** How a field value is written: as drawn(…), accumulated(…) or retirement recorded it, and by its caller otherwise. */
 export const writingOf = (value: unknown): Writing => {
 	const recorded = fieldEntryOf(value)
@@ -247,10 +271,9 @@ export const accumulatedField = <F extends FieldBase>(
 	}
 	const valueType: Refused =
 		"an accumulated field is of a value type: no span, vector or field of a writing of its own"
-	if (writingOf(type).kind !== "caller") {
-		throw builderRefusal("accumulated", valueType)
-	}
-	const described = describedField(type, "accumulated type")
+	const described = valueTypeOf(type, "accumulated type", () =>
+		builderRefusal("accumulated", valueType)
+	)
 	if (described.desc.kind === "span" || described.desc.kind === "vector") {
 		throw builderRefusal("accumulated", valueType)
 	}
@@ -430,10 +453,9 @@ export const generatedField = <F extends FieldBase>(
 	if (extra.length > 0) {
 		throw malformed("generated", "generated(type, term): two arguments")
 	}
-	const described = describedField(type, "generated type")
-	if (writingOf(type).kind !== "caller") {
-		throw malformed("generated", "a value type, which no field of a writing of its own is")
-	}
+	const described = valueTypeOf(type, "generated type", () =>
+		malformed("generated", "a value type, which no field of a writing of its own is")
+	)
 	const value: GeneratedField<F> = Object.freeze({
 		writing: "generated",
 		type,
@@ -806,9 +828,9 @@ export const admitClosedRelation = (
 	}
 	const descriptors = descriptorRecord(fields, label)
 	for (const [field, value] of Object.entries(descriptors)) {
-		if (writingOf(value).kind !== "caller") {
-			throw malformed(label, `fields its declaration's rows hold; ${field} is written by grizzle`)
-		}
+		refuseWritten(value, () =>
+			malformed(label, `fields its declaration's rows hold; ${field} is written by grizzle`)
+		)
 	}
 	keyListedOnce(key, label)
 	const described = describedFields(descriptors, label)
