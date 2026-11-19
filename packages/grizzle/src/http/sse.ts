@@ -1,3 +1,4 @@
+import { utf8 } from "@bjornpagen/grizzle-text/utf8"
 import { Stream } from "effect"
 import { type WireJson, wireText } from "#compiler/plan/runtime.ts"
 
@@ -25,14 +26,12 @@ export const sseHeaders: Readonly<Record<string, string>> = Object.freeze({
 	"x-accel-buffering": "no"
 })
 
-const utf8 = new TextEncoder()
-
 /** The bytes of one event: its `event:` line, its `data:` line, and the blank line that dispatches it. */
 const sseBytes = (frame: SseEvent): Uint8Array =>
-	utf8.encode(`event: ${frame.event}\ndata: ${wireText(frame.data)}\n\n`)
+	utf8(`event: ${frame.event}\ndata: ${wireText(frame.data)}\n\n`)
 
 /** The bytes of one heartbeat: a comment line, which a parser skips. */
-const heartbeatBytes = (): Uint8Array => utf8.encode(": \n")
+const heartbeatBytes = (): Uint8Array => utf8(": \n")
 
 /**
  * `events` framed, each the bytes of one event (sseBytes), beside a heartbeat every `heartbeatMs` milliseconds from the

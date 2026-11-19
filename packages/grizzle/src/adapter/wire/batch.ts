@@ -1,4 +1,4 @@
-import { Buffer } from "node:buffer"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import type * as Arr from "effect/Array"
 import type * as Brand from "effect/Brand"
 import * as Cause from "effect/Cause"
@@ -1294,7 +1294,7 @@ export const bindLength = (statement: BatchStatement): number => {
 		length +=
 			bindParamFields.format +
 			bindParamFields.length +
-			(typeof param === "string" ? Buffer.byteLength(param, "utf8") : param.byteLength)
+			(typeof param === "string" ? utf8Length(param) : param.byteLength)
 	}
 	return length
 }
@@ -1313,7 +1313,7 @@ const messageHead = messageFields.type + messageFields.length
 
 /** A message holding one NUL-ended text, `text`: a simple Query of it. */
 const textMessageBytes = (text: string): number =>
-	messageHead + Buffer.byteLength(text, "utf8") + messageFields.end
+	messageHead + utf8Length(text) + messageFields.end
 
 /** What pg writes after every Bind: the unnamed portal's Describe, its Execute of every row, and a Sync. */
 const portalBytes =
@@ -1335,7 +1335,7 @@ export const parseLength = (statement: BatchStatement): number =>
 	messageFields.length +
 	nameBytes(statement) +
 	messageFields.end +
-	Buffer.byteLength(parsedText(statement), "utf8") +
+	utf8Length(parsedText(statement)) +
 	messageFields.end +
 	messageFields.typeCount
 
