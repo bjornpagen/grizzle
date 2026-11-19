@@ -7,8 +7,9 @@
  * - trimmed is the text without the XML whitespace at either end, its inner whitespace kept;
  * - replaced and collapsed, XML Schema's whiteSpace facets, are exactly the code-point walk's they replace, over texts
  *   with lone surrogates and supplementary characters, and tokens is the text split at its whitespace runs, none
- *   empty; each reads its text by code unit: no code point is decoded or built (text.ts codePointAt, codePointsText),
- *   collapsed reads a unit once and the unit after each inner run twice, and tokens each unit once.
+ *   empty; none decodes or builds a code point (text.ts codePointAt, codePointsText): collapsed reads a unit once and
+ *   the unit after each inner run twice, tokens each unit once, and replace reads no unit in JavaScript, the engine's
+ *   search finding each character of its map once and once more after each place it replaces (text.ts nextOf).
  *
  * Oracle: grizzle's XSD reader (regex/xsd.ts xsdPattern) of the NCName production and its matcher; ECMAScript's
  * replacement of the outer whitespace runs; the code-point walk of each facet (translate's map, and each run between
@@ -195,8 +196,13 @@ const surrogate = regex("[\\ud800-\\udfff]", "")
 const facetSites = Object.freeze({
 	decoded: { file: "packages/text/src/text.ts", name: "codePointAt" },
 	built: { file: "packages/text/src/text.ts", name: "codePointsText" },
-	read: { file: "packages/text/src/text.ts", name: "isWhitespaceUnit" }
+	read: { file: "packages/text/src/text.ts", name: "isWhitespaceUnit" },
+	searched: { file: "packages/text/src/text.ts", name: "nextOf" }
 })
+
+/** The tabs, line feeds and carriage returns of a text: the places replace changes. */
+const replacedPlaces = (text: string): number =>
+	Arr.filter(codePoints(text), (c) => c === 0x09 || c === 0x0a || c === 0x0d).length
 
 /** The runs of white space inside a trimmed text, each between two other characters. */
 const innerRuns = (text: string): number => Str.split(trimmed(text), whitespaceRuns).length - 1
@@ -241,6 +247,12 @@ export const whitespaceFacetsAndTokensAreTheCodePointWalksAndReadATextByCodeUnit
 					Arr.reduce(texts, 0, (n, text) => n + text.length),
 					`${label}: tokens reads each unit once`
 				)
+				assert.equal(
+					facetCounts.searched,
+					Arr.reduce(texts, 0, (n, text) => n + replaceMap.from.length + replacedPlaces(text)),
+					`${label}: replace searches each character of its map once, and once more after each place it replaces`
+				)
+				assert.equal(tokenCounts.searched, 0, `${label}: tokens searches nothing`)
 				for (const [i, text] of texts.entries()) {
 					const each = Formatter.format(text)
 					const collapse = Arr.getUnsafe(collapses, i)
@@ -282,6 +294,13 @@ export const whitespaceFacetsAndTokensAreTheCodePointWalksAndReadATextByCodeUnit
 				replacement:
 					"export const replaced = (text: string): string => translated(text, replaceMap.from, replaceMap.to)\n\nexport const replacedByUnit = (text: string): string => {\n",
 				why: "replaced is translate's walk over its map again, decoding every code point of the text: its decodes are past 0."
+			},
+			{
+				file: "packages/text/src/text.ts",
+				original: "export const replaced = (text: string): string => {\n\tconst cursors",
+				replacement:
+					'export const replaced = (text: string): string => {\n\tlet out = ""\n\tlet from = 0\n\tfor (let i = 0; i < text.length; i++) {\n\t\tif (replaceMap.from.includes(text.charAt(i))) {\n\t\t\tout += text.slice(from, i) + " "\n\t\t\tfrom = i + 1\n\t\t}\n\t}\n\treturn out + text.slice(from)\n}\n\nexport const replacedBySearch = (text: string): string => {\n\tconst cursors',
+				why: "replaced reads every unit of the text in JavaScript again, the stretches between two replaced characters among them, where the engine's search skips them: it searches nothing."
 			},
 			{
 				file: "packages/text/src/text.ts",

@@ -123,21 +123,52 @@ const isWhitespaceUnit = (unit: number): boolean =>
  */
 export const replaceMap = Object.freeze({ from: "\t\n\r", to: "   " })
 
-/** The code units replaceMap replaces, each one of XML's white space (xmlWhitespace) and so one code unit. */
-const replacedUnits: ReadonlySet<number> = new Set(codePoints(replaceMap.from))
+/** The characters replaceMap replaces, in its order. */
+const replacedCharacters: ReadonlyArray<string> = Array.from(replaceMap.from)
+
+/**
+ * Where a character next stands in a text at or after `from`, by the engine's own search: its index, or the text's
+ * length where it stands nowhere after, the end being where every search stops.
+ */
+const nextOf = (text: string, character: string, from: number): number => {
+	const at = text.indexOf(character, from)
+	return at === -1 ? text.length : at
+}
+
+/** A character replaceMap replaces and where it next stands in the text being replaced. */
+interface Cursor {
+	readonly character: string
+	at: number
+}
+
+/** The first place any cursor stands, the text's length when none stands before it. */
+const earliest = (cursors: ReadonlyArray<Cursor>, end: number): number =>
+	cursors.reduce((least, cursor) => Math.min(least, cursor.at), end)
 
 /**
  * whiteSpace replace of a text (replaceMap): each tab, line feed and carriage return a space, every other kept,
- * translate's answer by its map read by code unit, the text between two replaced characters copied as one slice.
+ * translate's answer by its map. Each character of the map is found by the engine's own search, once and again after
+ * each place it stands, so no stretch between two replaced characters is read in JavaScript, and the text between
+ * them is copied as one slice.
  */
 export const replaced = (text: string): string => {
+	const cursors = replacedCharacters.map((character): Cursor => ({
+		character,
+		at: nextOf(text, character, 0)
+	}))
 	let out = ""
 	let from = 0
-	for (let i = 0; i < text.length; i++) {
-		const unit = text.charCodeAt(i)
-		if (unit <= lastWhitespace && replacedUnits.has(unit)) {
-			out += `${text.slice(from, i)} `
-			from = i + 1
+	for (
+		let at = earliest(cursors, text.length);
+		at < text.length;
+		at = earliest(cursors, text.length)
+	) {
+		out += `${text.slice(from, at)} `
+		from = at + 1
+		for (const cursor of cursors) {
+			if (cursor.at === at) {
+				cursor.at = nextOf(text, cursor.character, from)
+			}
 		}
 	}
 	return out + text.slice(from)
