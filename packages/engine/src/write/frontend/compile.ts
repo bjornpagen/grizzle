@@ -286,14 +286,26 @@ const statedInRelation: StatedIn = Object.freeze({ kind: "relation" })
 /** What a slot of facts that nest no member states beside their key and caller's fields: nothing. */
 const noneWalked: ReadonlySet<ColumnKey> = new Set()
 
-/** A stratum's edits of one member relation: its slots, each normalized as any slot is, by operation. */
+/** A slot of a stratum's edit of one member relation, by the operation its facts take. */
+export interface EditSlot {
+	readonly as: "inserts" | "puts" | "deletes"
+	readonly slot: ParamId
+}
+
+/** A stratum's edits of one member relation: its slots, each normalized as any slot is, one per operation, its
+ * inserts', then its puts', then its deletes'; none for a relation only a nested write of the stratum fills. */
 export interface StratumEdit {
 	readonly stratum: StratumAt
 	readonly relation: WrittenRelation
-	readonly inserts: ParamId | undefined
-	readonly puts: ParamId | undefined
-	readonly deletes: ParamId | undefined
+	readonly slots: ReadonlyArray<EditSlot>
 }
+
+/** The operations of a stratum's edit, each under the name its slot is read by, in the order its slots are. */
+const editSlotOps = [
+	["insert", "inserts"],
+	["put", "puts"],
+	["delete", "deletes"]
+] as const
 
 /** A nested write of a stratum: the insert's relation's nesting and the slot its facts travel in. */
 export interface NestedWrite {
@@ -2821,20 +2833,16 @@ const compile = (
 		...groupBy(edits, (e) => `${e.stratum}\u0000${e.relation}`)
 	].map(([, list]): StratumEdit => {
 		const first = list[0]
-		const slotOf = (op: "insert" | "put" | "delete"): ParamId | undefined => {
-			for (const e of list) {
-				if (e.write.op === op) {
-					return e.write.slot
-				}
-			}
-			return undefined
-		}
 		return Object.freeze({
 			stratum: first.stratum,
 			relation: writtenOf(first.relation, at),
-			inserts: slotOf("insert"),
-			puts: slotOf("put"),
-			deletes: slotOf("delete")
+			slots: editSlotOps.flatMap(([op, as]) =>
+				list
+					.flatMap((e): ReadonlyArray<EditSlot> =>
+						e.write.op === op ? [{ as, slot: e.write.slot }] : []
+					)
+					.slice(0, 1)
+			)
 		})
 	})
 	const classified = readBacks.flatMap((r) =>

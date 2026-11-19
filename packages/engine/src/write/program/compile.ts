@@ -111,6 +111,7 @@ import { memberFamilies, type RowLayout, rowLayout } from "#compiler/write/famil
 import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
 	compileClockedChangeSet,
+	type EditSlot,
 	type EnumeratedInput,
 	type MemberSlot,
 	type SlotGroup,
@@ -441,26 +442,13 @@ const familyProgram = (
 			const w0 = { ...w, start: ownStatement }
 			/** The slots of the stratum that leave a group's recount to its additions (removals.ts Deferring). */
 			const deferring: ReadonlyArray<Deferring> = [
-				...stratumEdits.flatMap((edit) => [
-					...(edit.inserts === undefined
-						? []
-						: [
-								{
-									relation: edit.relation.name,
-									slot: memberSlotOf(frontend, edit.inserts),
-									as: "inserts" as const
-								}
-							]),
-					...(edit.puts === undefined
-						? []
-						: [
-								{
-									relation: edit.relation.name,
-									slot: memberSlotOf(frontend, edit.puts),
-									as: "puts" as const
-								}
-							])
-				]),
+				...stratumEdits.flatMap((edit) =>
+					edit.slots.flatMap((e): ReadonlyArray<Deferring> =>
+						e.as === "deletes"
+							? []
+							: [{ relation: edit.relation.name, slot: memberSlotOf(frontend, e.slot), as: e.as }]
+					)
+				),
 				...[...ownerSlots("put"), ...ownerSlots("delete")].map((o) => ({
 					...o,
 					as: "owners" as const
@@ -539,14 +527,9 @@ const familyProgram = (
 				/** Each appended relation's row sources: its slots, then its nested rows. */
 				const sourced = new Map<string, [RowSource, ...Array<RowSource>]>()
 				for (const edit of stratumEdits) {
-					const slots = [
-						...(edit.inserts === undefined
-							? []
-							: [{ as: "inserts" as const, slot: memberSlotOf(frontend, edit.inserts) }]),
-						...(edit.puts === undefined
-							? []
-							: [{ as: "puts" as const, slot: memberSlotOf(frontend, edit.puts) }])
-					]
+					const slots = edit.slots.flatMap((e) =>
+						e.as === "deletes" ? [] : [{ as: e.as, slot: memberSlotOf(frontend, e.slot) }]
+					)
 					if (isNonEmpty(slots)) {
 						sourced.set(edit.relation.name, [{ kind: "slots", slots }])
 					}
@@ -632,12 +615,15 @@ const familyProgram = (
 				return Object.freeze({ stratum: s, node, step: Object.freeze(step), sql })
 			}
 			const relation = info(node.member)
-			const memberEdit = stratumEdits.find((e) => e.relation.name === node.member)
+			const memberSlots = stratumEdits.find((e) => e.relation.name === node.member)?.slots ?? []
+			/** The member's slot of `as`, none where the stratum edits it so in no slot. */
+			const editSlotOf = (as: EditSlot["as"]): MemberSlot | undefined =>
+				slotOf(memberSlots.find((e) => e.as === as)?.slot)
 			const removing: EditedMember = {
 				relation,
 				layout: layoutOf(relation.name),
-				puts: slotOf(memberEdit?.puts),
-				deletes: slotOf(memberEdit?.deletes),
+				puts: editSlotOf("puts"),
+				deletes: editSlotOf("deletes"),
 				families: removedFamilies(relation)
 			}
 			const roots = node.refilledFrom.map((root): RefillRoot => ({

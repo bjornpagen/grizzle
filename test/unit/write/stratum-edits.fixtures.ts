@@ -176,11 +176,11 @@ const modelOf = (frontend: WriteFrontend): ReadonlyArray<Planned> =>
 	Arr.flatMap(strataAt(frontend.ir.strata), ([stratum]) => {
 		const own = Arr.filter(frontend.edits, (e) => e.stratum === stratum)
 		const removed = Arr.flatMap(own, (e) =>
-			e.puts === undefined && e.deletes === undefined ? [] : [e.relation.name]
+			Arr.some(e.slots, (s) => s.as !== "inserts") ? [e.relation.name] : []
 		)
 		const appended = Arr.dedupe([
 			...Arr.flatMap(own, (e) =>
-				e.inserts === undefined && e.puts === undefined ? [] : [e.relation.name]
+				Arr.some(e.slots, (s) => s.as !== "deletes") ? [e.relation.name] : []
 			),
 			...Arr.flatMap(frontend.nested, (n) =>
 				n.stratum === stratum ? [...n.nesting.layouts.keys()] : []
@@ -285,9 +285,9 @@ export const property = (sketch: Sketch, c: Case<Feature>) =>
 			Arr.map(frontend.edits, (e): EditShape => ({
 				stratum: e.stratum,
 				relation: e.relation.name,
-				inserts: e.inserts !== undefined,
-				puts: e.puts !== undefined,
-				deletes: e.deletes !== undefined
+				inserts: Arr.some(e.slots, (s) => s.as === "inserts"),
+				puts: Arr.some(e.slots, (s) => s.as === "puts"),
+				deletes: Arr.some(e.slots, (s) => s.as === "deletes")
 			})),
 			editsOf(sketch),
 			"the front end's edits are the case's"
@@ -320,10 +320,7 @@ export const property = (sketch: Sketch, c: Case<Feature>) =>
 		)
 		const sources = [
 			...Arr.flatMap(program.frontend.edits, (e) =>
-				Arr.map(
-					Arr.filter([e.inserts, e.puts, e.deletes], (slot) => slot !== undefined),
-					(slot) => ({ source: slot, of: e.stratum })
-				)
+				Arr.map(e.slots, (s) => ({ source: s.slot, of: e.stratum }))
 			),
 			...Arr.flatMap(program.frontend.nested, (n) =>
 				Arr.map([...n.nesting.layouts.keys()], (relation) => ({

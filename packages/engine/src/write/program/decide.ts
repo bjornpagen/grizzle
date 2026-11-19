@@ -151,8 +151,8 @@ const freshStrata = (frontend: WriteFrontend): ReadonlyArray<FreshStratum> => {
 		}
 		const appended = frontend.edits.flatMap((e) =>
 			e.stratum === stratum
-				? [e.inserts, e.puts].flatMap((slot) =>
-						slot === undefined ? [] : [{ relation: e.relation.name, slot }]
+				? e.slots.flatMap((s) =>
+						s.as === "deletes" ? [] : [{ relation: e.relation.name, slot: s.slot }]
 					)
 				: []
 		)

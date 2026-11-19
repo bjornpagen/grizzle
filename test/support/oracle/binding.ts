@@ -156,8 +156,8 @@ const freshAgrees = (frontend: WriteFrontend, binding: Binding): void => {
 		const fresh = defined(binding.fresh[i], `the fresh fill of stratum ${stratum}`)
 		const appended = Arr.flatMap(frontend.edits, (e) =>
 			e.stratum === stratum
-				? Arr.flatMap([e.inserts, e.puts], (slot) =>
-						slot === undefined ? [] : [{ relation: e.relation.name, slot }]
+				? Arr.flatMap(e.slots, (s) =>
+						s.as === "deletes" ? [] : [{ relation: e.relation.name, slot: s.slot }]
 					)
 				: []
 		)
