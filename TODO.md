@@ -416,8 +416,8 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   holders hold at most 11 backends (CLUSTER's 64-wide run), which leaves 64 × 57 = 3648 spare connections and absorbs
   any realistic queue, but nothing guarantees it. A K-cluster family does not make it moot: a member is sized for its
   share of one run's workers, and another run's files queue on the same members the same way.
-- **unleasedConnections is a bare 5 (concurrency-limit audit, 2026-11-15; main: log only):** packages/pg/src/lease.ts
-  `unleasedConnections`, the connections no lease covers, is both the reserve leaseSlots and size.ts clusterConnections
+- **unleasedConnections is a bare 5 (concurrency-limit audit, 2026-11-15; main: log only):** test/support/substrate/lease.ts
+  `unleasedConnections`, the connections no lease covers, is both the reserve leaseSlots and pg.config.ts's connections sizing
   set aside of max_connections and the budget a process's global setup and sweep draw from (substrate/shared.ts
   unleased). Its JSDoc names four users (the global setup, the doctor, the sweep, an operator's psql) and no count for
   any: the setup holds two at once (ensureSharedDatabase's claim session and ensureDatabase's admin), the sweep one, the
@@ -515,7 +515,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   on the stock release it is rebased onto: the RC2 rebase left that RC1 observation as it was, since any edit changes
   the patch's SHA-256 in pin.env and so rebuilds every build.
 - **Named clusters each size themselves as if alone (PRIVATECLUSTER, c30406e6; main's decision 2026-11-14: no change):**
-  every cluster GRIZZLE_PG_CLUSTER names takes clusterSize, the one machine-derived formula. On cassowary a cluster
+  every cluster TOOLCHAIN_PG_CLUSTER names takes pg.config.ts's sizing, the one machine-derived formula. On cassowary a cluster
   is max_connections 4359, shared_buffers 304,064 blocks, max_pred_locks_per_transaction 30, 66 replication slots and
   walsenders, shared_memory_size 2882 MB; init took 13 s and destroy 4 s (throwaway cluster 5460, 2026-11-14), with
   247 GB of RAM, about 75 GB available and 49 GB of swap in use at the time. Revisit with numbers only under memory

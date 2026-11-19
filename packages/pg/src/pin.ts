@@ -16,8 +16,8 @@ import { regex } from "arkregex"
 
 /**
  * scripts/pg/pin.env, grizzle's PostgreSQL pin: the one file that names the build every script, test and consumer
- * runs against. The shell scripts source it (scripts/pg/lib.sh), and `pin` is its parse, so no second copy of any
- * value exists.
+ * runs against. The shell scripts source it (scripts/pg/build.sh, source.sh), and `pin` is its parse, so no second copy
+ * of any value exists.
  */
 export const pinFile = `${import.meta.dirname}/../../../scripts/pg/pin.env`
 
@@ -102,9 +102,8 @@ const assignments = (text: string): Effect.Effect<Readonly<Record<string, string
 
 /**
  * Every assignment of pin.env, typed: the release's tag, commit and version; its source patches, in order, each
- * `<file>=<its SHA-256>`; pgvector's tag and version; the owner role and the template database init makes; the source,
- * the installation and the build tree beside it; and the default cluster's port and state directory. A missing one,
- * or a default cluster that is no port, fails the parse.
+ * `<file>=<its SHA-256>`; pgvector's tag and version; and the source, the installation and the build tree beside it. A
+ * missing one fails the parse.
  */
 const pinConfig = Config.all({
 	PG_PIN_TAG: Config.String("PG_PIN_TAG"),
@@ -113,13 +112,9 @@ const pinConfig = Config.all({
 	PG_PIN_PATCHES: Config.map(Config.String("PG_PIN_PATCHES"), patchesOf),
 	PGVECTOR_PIN_TAG: Config.String("PGVECTOR_PIN_TAG"),
 	PGVECTOR_PIN_VERSION: Config.String("PGVECTOR_PIN_VERSION"),
-	PG_DEV_ROLE: Config.String("PG_DEV_ROLE"),
-	PG_TEMPLATE_DB: Config.String("PG_TEMPLATE_DB"),
 	GRIZZLE_PG_SRC: Config.String("GRIZZLE_PG_SRC"),
 	GRIZZLE_PG_PREFIX: Config.String("GRIZZLE_PG_PREFIX"),
-	GRIZZLE_PG_BUILD: Config.String("GRIZZLE_PG_BUILD"),
-	GRIZZLE_PG_DEFAULT_CLUSTER: Config.Port("GRIZZLE_PG_DEFAULT_CLUSTER"),
-	GRIZZLE_PG_DEFAULT_STATE: Config.String("GRIZZLE_PG_DEFAULT_STATE")
+	GRIZZLE_PG_BUILD: Config.String("GRIZZLE_PG_BUILD")
 })
 
 /** The pin's every assignment, by the name pin.env gives it (pinConfig). */

@@ -49,29 +49,9 @@ export const leaseSlots = (
 	)
 
 /**
- * The installations on the local cluster outside the substrate's databases that serve live reads, each its own live
- * source, slot and walsender: qti-pie's and the dev database's.
- */
-const standingInstallations = ["qti_pie", "the dev database"] as const
-
-/**
- * The most live sources the local cluster serves at once, which its max_replication_slots and max_wal_senders hold:
- * one leader's slot and walsender per substrate's watched installation, which each substrate holds one of at a time,
- * so one per lease slot a cluster of `maxConnections`, `superuserReserved` and `reserved` connections admits
- * (leaseSlots), and one per standing installation. scripts/pg/init.sh sets both settings to it where they fall short,
- * and scripts/pg/doctor.sh checks them against it.
- */
-export const liveSlotBound = (
-	maxConnections: number,
-	superuserReserved: number,
-	reserved: number
-): number => leaseSlots(maxConnections, superuserReserved, reserved) + standingInstallations.length
-
-/**
  * A lease's tables in the owner's own database, by their names: one per slot, and the gate a file queues at while every
- * slot is held. The lease only locks them; whoever sets the lease up creates them first, so no lease creates a table
- * while another does: scripts/pg/init.sh creates the substrate's (substrateLeaseNames), and a test of the lease creates
- * its own, so it never takes one of the cluster's slots.
+ * slot is held. The lease only locks them; the first lease on a member creates them (substrate/shared.ts leaseOn,
+ * leaseTableNames), under an advisory lock, so no lease creates a table while another does.
  */
 export interface LeaseTables {
 	readonly slot: (index: number) => string
@@ -87,16 +67,8 @@ const leaseTables = (stem: string): LeaseTables => ({
 /** The substrate lease's tables: substrate_lease_<index> for each slot, and substrate_lease_gate. */
 export const substrateLease = leaseTables("substrate_lease")
 
-/**
- * The substrate lease's tables a cluster of `maxConnections` connections, `superuserReserved` and `reserved` of them
- * reserved, needs: the gate and one for each of its slots (leaseSlots). lease-facts.ts prints them, init.sh
- * creates them and doctor.sh requires every one.
- */
-export const substrateLeaseNames = (
-	maxConnections: number,
-	superuserReserved: number,
-	reserved: number
-): ReadonlyArray<string> => [
-	substrateLease.gate,
-	...Arr.map(indices(leaseSlots(maxConnections, superuserReserved, reserved)), substrateLease.slot)
+/** `tables`' names for `slots` slots: the gate and one table for each slot, the tables a lease on them locks. */
+export const leaseTableNames = (tables: LeaseTables, slots: number): ReadonlyArray<string> => [
+	tables.gate,
+	...Arr.map(indices(slots), tables.slot)
 ]

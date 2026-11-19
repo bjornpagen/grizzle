@@ -83,12 +83,5 @@ export const stoppedReleases = property.explore(stoppingSpace, {
 		name: "a clean database (shared.ts leftovers) and none of the allocations' roles on the cluster, once the stopped allocations are awaited"
 	},
 	kept: [],
-	kills: [
-		{
-			file: "packages/pg/src/family.ts",
-			original: "\tif (head !== first.port) {",
-			replacement: "\tif (head === first.port) {",
-			why: "Operator mutant (comparison) at packages/pg/src/family.ts:93 in parseFamily: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
-		}
-	]
+	kills: []
 })

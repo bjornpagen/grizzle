@@ -1,13 +1,13 @@
+import type { PgMember } from "@bjornpagen/testing/pg"
 import { ModuleClosure, type NeedFailed } from "@bjornpagen/testing/property"
 import { type DatabaseTemplate, Template } from "@bjornpagen/testing/resources"
 import { Array as Arr, Effect, Option, Redacted, String as Str } from "effect"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { pin } from "#pg/pin.ts"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
-import { pgPin } from "#test/support/env.ts"
+import { pgCluster } from "#test/support/env.ts"
 import { configureDatabase, devSession, session, testDatabaseSettings } from "#test/support/pg.ts"
-import { sqlNeedFailed } from "#test/support/runner.ts"
+import { memberLease, sqlNeedFailed } from "#test/support/runner.ts"
 
 /**
  * PUBLIC's default privileges on a database, granted as the grant that states them (its ACL then reads as PostgreSQL's
@@ -18,7 +18,7 @@ import { sqlNeedFailed } from "#test/support/runner.ts"
 const databaseDefaultGrant = "GRANT CONNECT, TEMPORARY ON DATABASE"
 
 /**
- * The owner's default privileges on vector_ext, the schema scripts/pg/init.sh creates for pgvector under the owner,
+ * The owner's default privileges on vector_ext, the schema the cluster's maker creates for pgvector under the owner,
  * granted as the grant that states them (its ACL then reads as PostgreSQL's default for a schema, acldefault, never
  * NULL): an installation whose relations hold a vector grants USAGE on vector_ext to its roles, which materializes the
  * ACL, so a template whose schema ACL is NULL is told apart from a clone whose roles' grants were released, and a held
@@ -28,7 +28,7 @@ const databaseDefaultGrant = "GRANT CONNECT, TEMPORARY ON DATABASE"
 const vectorSchemaGrant = "GRANT USAGE, CREATE ON SCHEMA vector_ext TO CURRENT_USER"
 
 /**
- * The database every grizzle case starts from: grizzle_template as scripts/pg/init.sh makes it (public empty, the
+ * The database every grizzle case starts from: grizzle_template as pg.config.ts states it (public empty, the
  * vector extension in vector_ext, plpgsql), with the test database settings (pg.ts testDatabaseSettings) as its
  * database defaults, PUBLIC's default privileges on it stated (databaseDefaultGrant), which the toolchain replays on
  * every clone (a clone copies no pg_db_role_setting row, and its ACL is replayed as the template's), and the owner's on
@@ -51,7 +51,7 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 	build: (target) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				const { cluster } = yield* target.member.leased
+				const { cluster } = yield* memberLease(target.member)
 				const failed = sqlNeedFailed("grizzle base template", `the settings of ${target.name}`)
 				const admin = yield* Effect.mapError(
 					devSession(cluster, Option.some("grizzle base template")),
@@ -67,8 +67,8 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 						Effect.flatMap(
 							session(cluster, {
 								database: target.name,
-								username: pgPin.devRole,
-								password: cluster.devPassword,
+								username: pgCluster.owner,
+								password: cluster.password,
 								applicationName: Option.some("grizzle base template")
 							}),
 							(inTarget) => inTarget.query(vectorSchemaGrant, [])
@@ -118,7 +118,7 @@ export const templateDigest = (
  * the member's owner password (its length, then itself) and the role's name, so only who holds the owner's password
  * derives it, and every worker that clones the template logs in as the role without the template keeping a credential.
  */
-export const templatePassword = (cluster: InitializedClusterShape, role: string): string => {
-	const secret = Redacted.value(cluster.devPassword)
+export const templatePassword = (cluster: PgMember, role: string): string => {
+	const secret = Redacted.value(cluster.password)
 	return sha256Hex(`${secret.length}:${secret}${role}`)
 }

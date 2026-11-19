@@ -325,6 +325,7 @@
 		"scripts/dev",
 		"oxlint.config.ts",
 		"oxlint.ast.config.ts",
+		"pg.config.ts",
 		"toolchain.config.ts",
 		"test.config.ts",
 		"vitest.config.ts",

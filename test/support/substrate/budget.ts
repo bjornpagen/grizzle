@@ -1,8 +1,8 @@
 import * as net from "node:net"
+import type { PgMember } from "@bjornpagen/testing/pg"
 import { Array as Arr, Data, Effect, Exit, Option, Scope } from "effect"
 import type { PgSocket } from "#adapter/types/driver.ts"
 import type { Transport } from "#adapter/types/layer.ts"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
 
 /**
  * A connection asked of a budget whose every permit is drawn: the budget's width, the connections it grants at once.
@@ -168,15 +168,12 @@ export const leaseBudget = (width: number): LeaseBudget => {
  * grants (shared.ts leaseConnections), or one the lease itself, the global setup or the sweep holds outside any file's.
  * Every opener of test support takes one, so no connection is opened outside a budget.
  */
-export interface BudgetedCluster extends InitializedClusterShape {
+export interface BudgetedCluster extends PgMember {
 	readonly budget: LeaseBudget
 }
 
 /** `cluster` with `budget`. */
-export const budgeted = (
-	cluster: InitializedClusterShape,
-	budget: LeaseBudget
-): BudgetedCluster => ({
+export const budgeted = (cluster: PgMember, budget: LeaseBudget): BudgetedCluster => ({
 	...cluster,
 	budget
 })

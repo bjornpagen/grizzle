@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# ab.sh <out> <family-on> <family-off> <file>...: the same network files at once on two families, one whose members
+# ab.sh <out> <family-on> <family-off> <file>...: the same network files at once on two clusters, each named by its
+# port, one whose members
 # fsync and one whose members do not (the caller sets fsync = off on its members first), at TEST_SEED, every member's
 # waits sampled (waits.sh). Per family: <out>/<family>.out, <out>/<family>.wall, <out>/<family>.<port>.waits; and each
 # member's checkpoint lines over the run, <out>/<family>.<port>.checkpoints.
@@ -14,16 +15,16 @@ mkdir -p "$out"
 run() {
 	local family=$1
 	shift
-	# shellcheck source=../../../scripts/pg/lib.sh
-	GRIZZLE_PG_CLUSTER=$family source "$here/../../../scripts/pg/lib.sh"
+	# shellcheck source=cluster.sh
+	TOOLCHAIN_PG_CLUSTER=$family source "$here/cluster.sh"
 	local ports samplers=() start end status port
-	ports=$(GRIZZLE_PG_CLUSTER=$family family_ports) || return 1
+	ports=$(family_ports) || return 1
 	for port in $ports; do
-		"$here/waits.sh" "$port" "$out/$family.$port.waits" &
+		TOOLCHAIN_PG_CLUSTER=$family "$here/waits.sh" "$port" "$out/$family.$port.waits" &
 		samplers+=($!)
 	done
 	start=$(date -u +%FT%T)
-	(cd "$repo_root" && GRIZZLE_PG_CLUSTER=$family pnpm -s test:network "$@") >"$out/$family.out" 2>&1
+	(cd "$repo_root" && TOOLCHAIN_PG_CLUSTER=$family pnpm -s test:network "$@") >"$out/$family.out" 2>&1
 	status=$?
 	end=$(date -u +%FT%T)
 	for sampler in "${samplers[@]}"; do

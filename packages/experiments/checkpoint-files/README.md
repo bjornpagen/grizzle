@@ -13,8 +13,8 @@ the files are not the tests' to touch and what the cluster may do instead. Then 
 
 ```sh
 TEST_SEED=<seed> packages/experiments/checkpoint-files/ab.sh <out> <family-on> <family-off> <file>...
-packages/experiments/checkpoint-files/sample.sh <port> <out> <seconds>
-GRIZZLE_PG_CLUSTER=<port> TEST_SEED=<seed> packages/experiments/checkpoint-files/per-file.sh <seconds> <out> <file>...
+TOOLCHAIN_PG_CLUSTER=<cluster> packages/experiments/checkpoint-files/sample.sh <port> <out> <seconds>
+TOOLCHAIN_PG_CLUSTER=<port> TEST_SEED=<seed> packages/experiments/checkpoint-files/per-file.sh <seconds> <out> <file>...
 python3 -I packages/experiments/checkpoint-files/digests.py <member's server log> <out> <out>
 ```
 

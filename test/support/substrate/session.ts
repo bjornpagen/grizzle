@@ -1,6 +1,6 @@
+import type { PgMember } from "@bjornpagen/testing/pg"
 import { Effect, Formatter, Option, type Redacted, type Scope, String as Str } from "effect"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
-import { pgPin } from "#test/support/env.ts"
+import { pgCluster } from "#test/support/env.ts"
 import { ownPidOf, ownPidQuery } from "#test/support/kernel/sanitize.ts"
 import {
 	type PgConnection,
@@ -25,9 +25,9 @@ export interface SubstrateWorld {
 }
 
 /** The migration identity and database owner (Rules), whose password is the initialised cluster's. */
-export const ownerCredentials = (cluster: InitializedClusterShape): Credentials => ({
-	role: pgPin.devRole,
-	password: cluster.devPassword
+export const ownerCredentials = (cluster: PgMember): Credentials => ({
+	role: pgCluster.owner,
+	password: cluster.password
 })
 
 /** The BEGIN of every transaction a direct writer runs. */

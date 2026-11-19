@@ -219,7 +219,7 @@ const sqlFiles = (dir: string) =>
 /** Runs a command line in the workspace, and holds the universal property: no password in its output. */
 const command = (r: Workspace, argv: ReadonlyArray<string>) =>
 	Effect.map(cli(r.dir, argv, nextNow()), (ran: CliRun) => {
-		for (const secret of [Redacted.value(r.cluster.devPassword), wrongPassword]) {
+		for (const secret of [Redacted.value(r.cluster.password), wrongPassword]) {
 			lacksText(
 				`${ran.stdout}${ran.stderr}`,
 				secret,

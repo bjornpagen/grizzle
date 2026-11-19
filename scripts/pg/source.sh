@@ -15,8 +15,8 @@
 # The build directory is made anew on every run, so nothing of an earlier build is left in it, and nothing is ever
 # built in the source.
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
 here="$(cd "$(dirname "$0")" && pwd)"
+source "$here/pin.env"
 
 repository=https://github.com/postgres/postgres.git
 src="$GRIZZLE_PG_SRC"

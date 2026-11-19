@@ -1,19 +1,19 @@
 /**
  * The postmasters build.sh refuses to exchange the shared prefix under (packages/pg/src/installation.ts postmastersOf,
- * through foreign-postmasters.ts): every process running the bin/postgres of a tree it is given, other than the
- * selected cluster's, found from the processes themselves wherever their data directories lie.
+ * through foreign-postmasters.ts): every process running the bin/postgres of a tree it is given, found from the
+ * processes themselves wherever their data directories lie.
  *
  * Each case makes a process of its own and asks for the postmasters of its own tree, so no case meets another's: the
  * tree's bin/postgres and another tree's are hard links of one copy of this Node binary, a program that runs until it
  * is killed, and the process runs one of them in a data directory of its own, outside every cluster's state directory.
  * The box is each binary it runs (the tree's; the tree's, replaced after it started, as a build replaces it; another
  * tree's), each lock file its data directory holds (postmaster.pid naming the process, naming another process as a
- * backend's directory does, absent, or no lock file at all), and whether that directory is the selected cluster's.
+ * backend's directory does, absent, or no lock file at all).
  *
  * Oracle: the specification. A process running the tree's binary, or one replaced since it started, whose lock file
  * names it, is the one postmaster found, with its lock file's data directory and port and the executable the kernel
- * names, unless its directory is the selected cluster's; a lock file that is no lock file is refused as LockFileUnparsed
- * wherever the binary is the tree's; any other process is none.
+ * names; a lock file that is no lock file is refused as LockFileUnparsed wherever the binary is the tree's; any other
+ * process is none.
  *
  * Features: each verdict, by the reason for it.
  */
@@ -31,8 +31,8 @@ import {
 	sketchGen
 } from "#test/unit/substrate/postmasters.fixtures.ts"
 
-/** The postmasters running a tree's build are every process running the tree's bin/postgres whose lock file names it, wherever its data directory lies, but the selected cluster's. */
-export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPostgresWhoseLockFileNamesItWhereverItsDataDirectoryLiesButTheSelectedClusters =
+/** The postmasters running a tree's build are every process running the tree's bin/postgres whose lock file names it, wherever its data directory lies. */
+export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPostgresWhoseLockFileNamesItWhereverItsDataDirectoryLies =
 	property.exhaust(finite(sketchGen), {
 		needs: { dir: Scratch.dir },
 		situations: [
@@ -41,7 +41,6 @@ export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPo
 			"another tree's process unlisted",
 			"a backend's directory unlisted",
 			"a process without a lock file unlisted",
-			"the selected cluster's postmaster unlisted",
 			"a malformed lock file refused"
 		] satisfies ReadonlyArray<Reached<PostmasterFeature>>,
 		check: (resources, c: Case<PostmasterFeature>) => (s) =>
@@ -69,9 +68,9 @@ export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPo
 			),
 		oracle: {
 			kind: "specification",
-			name: "a process of the tree's binary whose lock file names it is a postmaster, unless its directory is the selected cluster's"
+			name: "a process of the tree's binary whose lock file names it is a postmaster"
 		},
-		box: "one process a case, each binary it runs (the tree's, the tree's replaced since it started, another tree's), each lock file its data directory holds (naming it, naming another process, absent, malformed), its data directory the selected cluster's or another",
+		box: "one process a case, each binary it runs (the tree's, the tree's replaced since it started, another tree's), each lock file its data directory holds (naming it, naming another process, absent, malformed)",
 		kept: [],
 		kills: [
 			{

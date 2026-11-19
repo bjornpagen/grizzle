@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, type Scope } from "effect"
-import { pgPin } from "#test/support/env.ts"
+import { pgCluster } from "#test/support/env.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { type RolledBack, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -47,7 +47,7 @@ export class OracleSeat extends Context.Service<OracleSeat, OracleSeatShape>()(
 	 */
 	static readonly rolledBack = (held: RolledBack<unknown>): OracleSeatShape => ({
 		database: held.database,
-		owner: pgPin.devRole,
+		owner: pgCluster.owner,
 		schema: held.schema,
 		lasting: { connection: held.connection, open: [], close: [] },
 		reading: Effect.succeed({ connection: held.bare, ...readingSavepoint })

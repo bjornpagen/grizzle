@@ -1,7 +1,7 @@
 {
 	"name": "@bjornpagen/grizzle-pg",
 	"private": true,
-	"description": "grizzle's local PostgreSQL: the commands that build, make, check and run a cluster of the pinned build (scripts/pg), and the formulas they and grizzle's tests share, run from the installing workspace's own packages",
+	"description": "grizzle's pinned PostgreSQL build: the commands that fetch its source and build it (scripts/pg), and the pin they and grizzle's tests read, run from the installing workspace's own packages; the testing library makes and runs the clusters of the build (pg.config.ts)",
 	"license": "0BSD",
 	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
 	"type": "module",
@@ -9,12 +9,10 @@
 		"node": ">=26"
 	},
 	"imports": {
-		"#pg/*": "./src/*",
-		"#compiler/*": "@bjornpagen/grizzle-engine/internal/*"
+		"#pg/*": "./src/*"
 	},
 	"exports": {
-		"./pin": "./src/pin.ts",
-		"./settings": "./src/settings.ts"
+		"./pin": "./src/pin.ts"
 	},
 	"bin": {
 		"grizzle-pg": "./bin/grizzle-pg.sh"
@@ -25,8 +23,6 @@
 		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {
-		"@bjornpagen/grizzle-engine": "workspace:*",
-		"@bjornpagen/testing": "workspace:*",
 		"@effect/platform-node": "catalog:",
 		"arkregex": "catalog:"
 	},

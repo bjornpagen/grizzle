@@ -101,7 +101,7 @@ const tablePrivileges = [
 
 /**
  * PostgreSQL's role attributes the snapshot denies a login or a role that the test's administrator may set, each with
- * the attribute that undoes it: CREATEDB and CREATEROLE, which the administrator holds (scripts/pg/init.sh), and a
+ * the attribute that undoes it: CREATEDB and CREATEROLE, which the administrator holds (@bjornpagen/testing/pg), and a
  * login's INHERIT or a role's LOGIN, which it may set on any role it administers. REPLICATION, BYPASSRLS and SUPERUSER
  * are set only by a role that holds them, which the administrator does not.
  */

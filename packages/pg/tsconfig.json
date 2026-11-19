@@ -3,6 +3,5 @@
 	"compilerOptions": {
 		"tsBuildInfoFile": "types/tsconfig.tsbuildinfo"
 	},
-	"references": [{ "path": "../engine" }],
 	"include": ["src"]
 }

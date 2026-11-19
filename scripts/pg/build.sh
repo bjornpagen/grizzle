@@ -9,17 +9,32 @@
 # pin's, before the build is installed into a staging tree beside the prefix, on the same file system; pgvector is
 # checked out and built into that tree and the stamp is written last. Only then does one rename exchange the tree with
 # the prefix. A failure before the exchange leaves the prefix as it was, and the staging tree, which holds the previous
-# build after the exchange, is removed on every exit. The selected cluster runs from the prefix, so it is stopped just
-# before the exchange and started again just after it.
+# build after the exchange, is removed on every exit.
 #
 # Two refusals keep a build from damaging the prefix. A checkout older than the prefix's build, one whose pin is of the
 # same release and lacks a patch the build carries, is refused before anything changes, --force or not: building it
-# would drop that patch under every cluster. And unless --force is given, the exchange is refused while a postmaster
-# other than the selected cluster's runs from the prefix, since it would replace that postmaster's binaries under it:
-# before anything changes, and again just before the exchange, since a cluster may start while the build runs.
+# would drop that patch under every cluster. And unless --force is given, the exchange is refused while any postmaster
+# runs from the prefix, since it would replace that postmaster's binaries under it: before anything changes, and again
+# just before the exchange, since a cluster may start while the build runs. Stop each cluster first (`pnpm pg stop`).
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
 here="$(cd "$(dirname "$0")" && pwd)"
+source "$here/pin.env"
+
+# pg_node <module> [args...]: runs the module <module> of packages/pg/src from the repository's root, the package the
+# installing workspace links, whose own node_modules hold what its modules import, so a checkout taken as a submodule
+# runs this script from its consumer's install and never needs an install of its own.
+repo_root="$(cd "$here/../.." && pwd)"
+pg_node() {
+	local module=$1
+	shift
+	(cd "$repo_root" && node "packages/pg/src/$module" "$@")
+}
+
+# The stamp of the build at the prefix $1, written last: the file named stamp_stem and the release's commit, which holds
+# the patch set the build was made with. The installation's is read through packages/pg/src/pin-verdict.ts, so a
+# changed set rebuilds and an older one of the same release is refused.
+stamp_stem=.grizzle-build-
+core_stamp() { echo "$1/$stamp_stem$PG_PIN_COMMIT"; }
 
 force=0
 [[ "${1:-}" == "--force" ]] && force=1
@@ -46,40 +61,28 @@ vector_src="$stage_root/pgvector-$PGVECTOR_PIN_VERSION"
 pgxs=(PG_CONFIG="$staged/bin/pg_config" COPT="-ffile-prefix-map=$staged=$GRIZZLE_PG_PREFIX"
 	rpathdir="$GRIZZLE_PG_PREFIX/lib")
 
-# Refuses, unless --force is given, while a postmaster other than the selected cluster's runs the prefix's build or the
-# staging tree's, the two trees the exchange swaps, and names each by its port and data directory: every postmaster the
-# kernel lists whose executable is or was one of theirs (packages/pg/src/foreign-postmasters.ts), so a cluster grizzle did
-# not make is named too. With --force it names them as the clusters to restart after the exchange.
+# Refuses, unless --force is given, while any postmaster runs the prefix's build or the staging tree's, the two trees
+# the exchange swaps, and names each by its port and data directory: every postmaster the kernel lists whose executable
+# is or was one of theirs (packages/pg/src/foreign-postmasters.ts), so a cluster no command of this repository made is
+# named too. With --force it names them as the clusters to restart after the exchange.
 refuse_foreign_postmasters() {
 	local foreign
-	foreign="$(pg_node foreign-postmasters.ts "$GRIZZLE_PG_DATA" "$GRIZZLE_PG_PREFIX" "$staged")"
+	foreign="$(pg_node foreign-postmasters.ts "$GRIZZLE_PG_PREFIX" "$staged")"
 	if [[ -z "$foreign" ]]; then
 		return 0
 	fi
 	if [[ $force -eq 0 ]]; then
-		printf '%s\n' "Postmasters other than the cluster on port $PG_PORT run from $GRIZZLE_PG_PREFIX, and the exchange would replace their binaries under them:" \
-			"$foreign" "Stop each and run this again, or pass --force to exchange the prefix under them. Nothing was installed." >&2
+		printf '%s\n' "Postmasters run from $GRIZZLE_PG_PREFIX, and the exchange would replace their binaries under them:" \
+			"$foreign" "Stop each (pnpm pg stop) and run this again, or pass --force to exchange the prefix under them. Nothing was installed." >&2
 		exit 1
 	fi
-	printf '%s\n' "--force: the exchange replaces the binaries of postmasters other than the cluster on port $PG_PORT; restart each after it:" \
+	printf '%s\n' "--force: the exchange replaces the binaries of postmasters that run from $GRIZZLE_PG_PREFIX; restart each after it:" \
 		"$foreign"
 }
 refuse_foreign_postmasters
 
-# Whether the cluster was stopped for the exchange. Every exit starts it again, from the new build after the exchange
-# and from the previous one before it, so no failure leaves it down.
-stopped=0
-finish() {
-	local status=$?
-	if [[ $stopped -eq 1 ]] && ! "$here/ctl.sh" start; then
-		echo "The cluster did not start; its log is $GRIZZLE_PG_LOG/startup.log" >&2
-		status=1
-	fi
-	rm -rf "$stage_root"
-	exit "$status"
-}
 rm -rf "$stage_root"
-trap finish EXIT
+trap 'rm -rf "$stage_root"' EXIT
 
 # Puts the directory $1 at the path $2 in one renameat2: exchanged with the tree already there, which then sits at $1,
 # or moved there when there is none. $2 never names a missing or a partial tree.
@@ -117,10 +120,5 @@ printf '%s' "$PG_PIN_PATCHES" > "$(core_stamp "$staged")"
 echo "Built PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION in $staged"
 
 refuse_foreign_postmasters
-if pg_running; then
-	echo "The cluster runs from $GRIZZLE_PG_PREFIX; it is restarted around the exchange, which replaces its binaries"
-	stopped=1
-	"$here/ctl.sh" stop
-fi
 exchange "$staged" "$GRIZZLE_PG_PREFIX"
 echo "Installed PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION at $GRIZZLE_PG_PREFIX"

@@ -54,7 +54,7 @@ import {
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import { draftedSql, type FixtureSchema, filledSql, migratedSql } from "#test/support/compile.ts"
-import { pgPin } from "#test/support/env.ts"
+import { pgCluster } from "#test/support/env.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -851,7 +851,7 @@ export const migratedTemplate = (spec: {
 		content: spec.content,
 		plan: (names) =>
 			Effect.map(
-				draftedHistory(spec.versions, spec.options, names.schema, pgPin.devRole),
+				draftedHistory(spec.versions, spec.options, names.schema, pgCluster.owner),
 				(history) => ({ names, history })
 			),
 		install: ({ names, history }) =>
@@ -1222,7 +1222,7 @@ export const generatedTemplate = (spec: {
 				generatedHistory(
 					[(name) => ({ ...spec.build(name), declarations: noDeclarations })],
 					names.schema,
-					pgPin.devRole
+					pgCluster.owner
 				),
 				(history) => ({ names, drafted: Arr.headNonEmpty(history) })
 			),

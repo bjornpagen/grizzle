@@ -28,7 +28,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
-import { pgPin } from "#test/support/env.ts"
+import { pgCluster } from "#test/support/env.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, runStep } from "#test/support/worlds/drive/index.ts"
@@ -158,7 +158,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 									})
 								)
 								c.note(endingOf(ended))
-								const left = yield* s.admin.queryValues(leftQuery, [pgPin.devRole])
+								const left = yield* s.admin.queryValues(leftQuery, [pgCluster.owner])
 								assert.deepEqual(
 									left,
 									[],

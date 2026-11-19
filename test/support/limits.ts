@@ -1,4 +1,3 @@
-import { clientCheckInterval } from "@bjornpagen/grizzle-pg/settings"
 /**
  * The test tiers' limits: every time a case of a search, a hook or a test's own connection is bounded by, as a Limit
  * with its evidence. No test is bounded by the clock: a search runs exactly its
@@ -9,7 +8,7 @@ import { clientCheckInterval } from "@bjornpagen/grizzle-pg/settings"
  * (orphanExitBound), and its slack is measured on its own.
  */
 import { Duration } from "effect"
-import { testPoolMax } from "#pg/lease.ts"
+import { testPoolMax } from "#test/support/substrate/lease.ts"
 
 /**
  * How long one case of a search, one hook of `pnpm test`, one substrate's build past its lease, or one wait inside a
@@ -120,7 +119,7 @@ export const testExitWait = hangLimit
 export const backendWaitStep = 100
 
 /**
- * How long past the cluster's client check interval (packages/pg/src/settings.ts clientCheckInterval) a test gives the
+ * How long past the cluster's client check interval (its client_connection_check_interval) a test gives the
  * backend of a client it killed mid-statement to be seen gone from pg_stat_activity: the backend's exit once its poll
  * finds the socket closed, and the test's own step to see it (backendWaitStep). A backend that polls no client never
  * leaves, so no slack passes it.
@@ -155,7 +154,9 @@ const orphanExitSlack = 1000
 
 /**
  * How long a test waits, from killing a client mid-statement, for its backend to be seen gone from pg_stat_activity:
- * the cluster's client check interval, then the slack for the exit and the test's step (orphanExitSlack).
+ * `interval`, the client check interval its server runs (client_connection_check_interval, in milliseconds, as the
+ * server reports it: the testing library's every member holds one), then the slack for the exit and the test's step
+ * (orphanExitSlack).
  *
  * @limitKind derived
  * @owner grizzle's network tier (test/pg/substrate/orphan.test.ts)
@@ -165,9 +166,9 @@ const orphanExitSlack = 1000
  * @derivation a backend polls its client once each interval while its statement runs (the timer start_xact_command
  *   arms and each poll re-arms, REL_19_RC2 src/backend/tcop/postgres.c#L2818 and #L3453), so its first poll after the
  *   kill comes at most one interval later; the slack takes in its exit and the test's step to see it
- * @from {@link clientCheckInterval}, {@link orphanExitSlack}
+ * @from the server's client_connection_check_interval, {@link orphanExitSlack}
  */
-export const orphanExitBound = clientCheckInterval + orphanExitSlack
+export const orphanExitBound = (interval: number): number => interval + orphanExitSlack
 
 /**
  * How many cases of a search run at once, each on state of its own that holds `sessions` sessions of the test's pool:

@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer"
 import net, { connect as netConnect } from "node:net"
 import { checkServerIdentity, type PeerCertificate, connect as tlsConnect } from "node:tls"
+import type { PgMember } from "@bjornpagen/testing/pg"
 import {
 	Array as Arr,
 	Data,
@@ -33,12 +34,11 @@ import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { testPoolMax } from "#pg/lease.ts"
 import { succeeded } from "#test/support/assert.ts"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
-import { pgPin } from "#test/support/env.ts"
+import { pgCluster, pgPin } from "#test/support/env.ts"
 import { testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
+import { testPoolMax } from "#test/support/substrate/lease.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 
 import { regex } from "arkregex"
@@ -189,9 +189,9 @@ export const devSession = (
 	applicationName: Option.Option<string>
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
 	session(cluster, {
-		database: pgPin.devRole,
-		username: pgPin.devRole,
-		password: cluster.devPassword,
+		database: pgCluster.owner,
+		username: pgCluster.owner,
+		password: cluster.password,
 		applicationName
 	})
 
@@ -552,7 +552,7 @@ const harnessSessionOptions = Arr.join(
 )
 
 const connectOnce = (
-	cluster: InitializedClusterShape,
+	cluster: PgMember,
 	options: SessionOptions,
 	reading: ValueReading
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
@@ -560,7 +560,7 @@ const connectOnce = (
 		const target: Target = {
 			host: pgPin.host,
 			port: cluster.port,
-			ca: cluster.caPem,
+			ca: cluster.ca,
 			servername: pgPin.host
 		}
 		const client = new Client({
@@ -709,7 +709,7 @@ export const clusterTransport = (cluster: BudgetedCluster): Transport =>
 		host: pgPin.host,
 		port: cluster.port,
 		open: () => new net.Socket(),
-		ca: cluster.caPem,
+		ca: cluster.ca,
 		servername: pgPin.host
 	})
 
@@ -787,7 +787,7 @@ const codeOf = (error: SqlError): string | undefined =>
 /**
  * The settings every test database runs with, as database-level defaults (a clone does not copy its template's):
  * - a low deadlock_timeout, so the concurrency driver's wait for each blocked step's deadlock check is short
- *   (test/support/schedules/interleave.ts). It is superuser-only; the owner holds SET on it (scripts/pg/init.sh);
+ *   (test/support/schedules/interleave.ts). It is superuser-only; the owner holds SET on it (@bjornpagen/testing/pg grants it every owner);
  * - SERIALIZABLE as every transaction's default, the only level at which grizzle admits a write, so a plain client's
  *   seeding and resets are admitted.
  * A commit waits for its WAL to reach the disk, PostgreSQL's default, since a test can tell an asynchronous commit
@@ -828,14 +828,12 @@ export const ensureDatabase = (cluster: BudgetedCluster, name: string) =>
 				[name]
 			)
 			if (exists.length === 0) {
-				yield* admin
-					.query(`CREATE DATABASE "${name}" TEMPLATE "${pgPin.templateDatabase}"`, [])
-					.pipe(
-						Effect.catchIf(
-							(error) => codeOf(error) === "42P04",
-							() => Effect.void
-						)
+				yield* admin.query(`CREATE DATABASE "${name}" TEMPLATE "${pgCluster.template}"`, []).pipe(
+					Effect.catchIf(
+						(error) => codeOf(error) === "42P04",
+						() => Effect.void
 					)
+				)
 			}
 			yield* configureDatabase(admin, name)
 		})
@@ -856,7 +854,7 @@ export const freshDatabase = (cluster: BudgetedCluster): Effect.Effect<string, S
 		Effect.gen(function* () {
 			const admin = yield* devSession(cluster, Option.none())
 			const name = `gz_t_${process.pid}_${randomHex(8)}`
-			yield* admin.query(`CREATE DATABASE "${name}" TEMPLATE "${pgPin.templateDatabase}"`, [])
+			yield* admin.query(`CREATE DATABASE "${name}" TEMPLATE "${pgCluster.template}"`, [])
 			yield* configureDatabase(admin, name)
 			return name
 		})

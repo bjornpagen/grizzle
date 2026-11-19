@@ -14,7 +14,7 @@ import {
 } from "#compiler/physical/install/extension.ts"
 import { eq, key, on, onWhere, type SchemaDesc, textDesc } from "#test/support/fixtures/ir/desc.ts"
 
-/** The local cluster's migration identity (scripts/pg/init.sh), which an installation names as its owner.
+/** The local cluster's migration identity (pg.config.ts), which an installation names as its owner.
  *
  * Beside it, Ledger: one schema for the fresh-install compiler's tests that reaches every native object it installs. */
 export const owner = "grizzle_dev"

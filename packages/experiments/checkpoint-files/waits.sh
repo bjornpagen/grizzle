@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# waits.sh <port> <out>: the local cluster <port>'s active client backends every second, by what each waits on (its
+# waits.sh <port> <out>: the local cluster's member on <port>: its active client backends every second, by what each waits on (its
 # wait event, or the CPU), a `W <time> <event>=<count> ...` line appended to <out> until killed.
 set -u
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../../../scripts/pg/lib.sh
-source "$here/../../../scripts/pg/lib.sh"
+# shellcheck source=cluster.sh
+source "$here/cluster.sh"
 member_env "$1"
 {
 	cat <<'SQL'

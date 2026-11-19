@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { type PayrollProgram, payrollPrograms } from "#test/pg/oracle/payroll/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { pgPin } from "#test/support/env.ts"
+import { pgCluster } from "#test/support/env.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import {
 	appliedHistory,
@@ -66,7 +66,7 @@ export const payrollTemplate = installTemplate({
 				[{ schema: P.Reporting, logins: [], declarations: noDeclarations }],
 				options,
 				names.schema,
-				pgPin.devRole
+				pgCluster.owner
 			),
 			(history) => ({ names, history, programs: payrollPrograms(names.schema) })
 		),

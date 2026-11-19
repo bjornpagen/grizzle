@@ -1,80 +1,41 @@
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import { type ClusterFailed, clusterUp, type PgMember, type Platform } from "@bjornpagen/testing/pg"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { regex } from "arkregex"
-import {
-	Array as Arr,
-	Config,
-	Context,
-	Data,
-	Effect,
-	FileSystem,
-	Layer,
-	Option,
-	Redacted,
-	String as Str
-} from "effect"
-import { currentWorker, FamilyUnrecorded, memberOf, readFamily } from "#pg/family.ts"
-import { type LocalCluster, localCluster } from "#pg/local-cluster.ts"
-import { pgPin } from "#test/support/env.ts"
+import { Array as Arr, Config, Context, Data, Effect, Layer, Option } from "effect"
+import { pgCluster } from "#test/support/env.ts"
 
 /**
- * A file scripts/pg/init.sh writes into a member's state directory cannot be read: the member is not initialised.
+ * The members of grizzle's local cluster (pg.config.ts), in member order, each as a client reaches it (PgMember: its
+ * port, socket, owner's password and CA certificates): the cluster made when it is missing and started when it is
+ * stopped, under its lock, and a running one taken as it is (@bjornpagen/testing/pg clusterUp). Every connection test
+ * support opens reaches a member through these.
  */
-class ClusterNotInitialized extends Data.TaggedError("ClusterNotInitialized")<{
-	readonly file: string
-	readonly cause: unknown
+export const clusterMembers: Effect.Effect<
+	Arr.NonEmptyReadonlyArray<PgMember>,
+	ClusterFailed,
+	Platform
+> = clusterUp(pgCluster)
+
+/** A port a process was told to reach that is none of the cluster's members. */
+class MemberUnknown extends Data.TaggedError("MemberUnknown")<{
+	readonly port: number
+	readonly why: string
 }> {
 	override get message(): string {
-		return `the PostgreSQL ${pgPin.version} cluster is not initialised: ${this.file} cannot be read; run pnpm pg:init`
+		return `port ${this.port} is no member of grizzle's local cluster (pg.config.ts): ${this.why}`
 	}
 }
 
-/**
- * What exists of one member of the local cluster family only once scripts/pg/init.sh has initialised it, read from its
- * state directory: where it listens, the owner role's password, and the certificates of the local CA, which signed the
- * server's, and of a CA that did not. Every connection test support opens reaches the member through these, its port
- * and its socket among them, so a process reaches one member alone.
- */
-export interface InitializedClusterShape {
-	/** The member's port on localhost, its name. */
-	readonly port: number
-	/** The directory of the member's Unix socket, where the bootstrap superuser connects by peer authentication. */
-	readonly socket: string
-	/** The password init.sh gave the owner role, grizzle_dev, the migration identity. */
-	readonly devPassword: Redacted.Redacted
-	/** The local CA's PEM file, for a client that reads one: psql, and a connection URL's sslrootcert. */
-	readonly caFile: string
-	/** The local CA's PEM text, which every verify-full connection chains the server's certificate to. */
-	readonly caPem: string
-	/** The PEM text of a CA that signed nothing the server presents, for the refusal checks. */
-	readonly wrongCaPem: string
-}
-
-/** The one read of `member`'s files: each once, or ClusterNotInitialized for the first that cannot be read. */
-export const readCluster = (
-	member: LocalCluster
-): Effect.Effect<InitializedClusterShape, ClusterNotInitialized, FileSystem.FileSystem> =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const read = (file: string): Effect.Effect<string, ClusterNotInitialized> =>
-			Effect.mapError(
-				fs.readFileString(file),
-				(cause) => new ClusterNotInitialized({ file, cause })
-			)
-		const caFile = `${member.tls}/ca.crt`
-		const [devPassword, caPem, wrongCaPem] = yield* Effect.all([
-			read(member.passwordFile),
-			read(caFile),
-			read(`${member.tls}/wrong-ca.crt`)
-		])
-		return {
-			port: member.port,
-			socket: member.socket,
-			devPassword: Redacted.make(Str.trim(devPassword)),
-			caFile,
-			caPem,
-			wrongCaPem
-		}
-	})
+/** The member of `members` at `port`, or MemberUnknown saying who named it (`why`). */
+export const memberAt = (
+	members: Arr.NonEmptyReadonlyArray<PgMember>,
+	port: number,
+	why: string
+): Effect.Effect<PgMember, MemberUnknown> =>
+	Effect.mapError(
+		Effect.fromOption(Arr.findFirst(members, (member) => member.port === port)),
+		() => new MemberUnknown({ port, why })
+	)
 
 /**
  * The variable a case's child process is lent its parent's place on the cluster by (shared.ts lend):
@@ -112,49 +73,61 @@ export const lentPlace: Effect.Effect<Option.Option<Lent>> = Effect.map(
 )
 
 /**
- * The member of the family GRIZZLE_PG_CLUSTER names that this process reaches, read once: the family as its family file
- * records it (packages/pg/src/family.ts readFamily), and that member's files. A child its parent lent a place to
- * reaches the parent's member (lentPlace); any other process its Vitest worker's (memberOf, worker w on member (w − 1)
- * mod K; a process outside a worker on the first). A lent port the family does not list is FamilyUnrecorded.
+ * The Vitest worker this process is, from VITEST_POOL_ID, read through Config: a positive decimal integer, else none,
+ * a process outside a worker.
  */
-const selectedCluster: Effect.Effect<
-	InitializedClusterShape,
-	ClusterNotInitialized | FamilyUnrecorded,
-	FileSystem.FileSystem
-> = Effect.gen(function* () {
-	const family = yield* readFamily(localCluster)
-	const lent = yield* lentPlace
-	const member = yield* Option.match(lent, {
-		onNone: () => Effect.map(currentWorker, (worker) => memberOf(family, worker)),
-		onSome: (place) =>
-			Effect.mapError(
-				Effect.fromOption(Arr.findFirst(family.members, (m) => m.port === place.port)),
-				() =>
-					new FamilyUnrecorded({
-						file: localCluster.state,
-						reason: `the lent member ${place.port} is none of the family's`
-					})
-			)
-	})
-	return yield* readCluster(member)
-})
+const currentWorker: Effect.Effect<Option.Option<number>> = Effect.map(
+	Effect.orDie(Config.option(Config.String("VITEST_POOL_ID"))),
+	(value) =>
+		Option.flatMap(value, (text) =>
+			regex("^[1-9][0-9]*$").test(text) ? Option.some(Number(text)) : Option.none()
+		)
+)
 
 /**
- * The initialised member of the local cluster family this process reaches, parsed once from its family file and state
- * directory when the layer is built. Nothing reads the cluster when a module loads: code that reaches the cluster's
- * facts needs this service, or the substrate built from it (substrate/substrate.ts), so a test that provides neither
- * cannot reach them, and an unrecorded family or an uninitialised member is the typed failure of the layer's build. The
- * database tier provides it: Substrate's layers build it, a bench's sweep, and a CLI child's configuration
- * (cli/config.child.ts); the network run's global setup and teardown build one for each member (`member`).
+ * The member a Vitest process reaches among `members`: worker w's, member (w − 1) mod K, so a run's workers spread over
+ * the members as the testing library sized them, none serving more than its share; a process outside a worker reaches
+ * the first.
  */
-export class InitializedCluster extends Context.Service<
-	InitializedCluster,
-	InitializedClusterShape
->()("grizzle-workspace/test/support/cluster/InitializedCluster") {
-	static readonly layer = Layer.effect(InitializedCluster, selectedCluster).pipe(
-		Layer.provide(NodeFileSystem.layer)
+const workerMember = (
+	members: Arr.NonEmptyReadonlyArray<PgMember>,
+	worker: Option.Option<number>
+): PgMember =>
+	Option.match(worker, {
+		onNone: () => Arr.headNonEmpty(members),
+		onSome: (w) => Arr.getUnsafe(members, (w - 1) % members.length)
+	})
+
+/**
+ * The member of grizzle's local cluster this process reaches, read once: a child its parent lent a place to reaches the
+ * parent's member (lentPlace); any other process its Vitest worker's (workerMember). A lent port that is no member is
+ * MemberUnknown.
+ */
+const selectedMember: Effect.Effect<PgMember, ClusterFailed | MemberUnknown, Platform> = Effect.gen(
+	function* () {
+		const members = yield* clusterMembers
+		const lent = yield* lentPlace
+		return yield* Option.match(lent, {
+			onNone: () => Effect.map(currentWorker, (worker) => workerMember(members, worker)),
+			onSome: (place) => memberAt(members, place.port, `the place ${lentVariable} lent`)
+		})
+	}
+)
+
+/**
+ * The member of grizzle's local cluster this process reaches, brought up and read once when the layer is built. Nothing
+ * reads the cluster when a module loads: code that reaches a member's facts needs this service, or the substrate built
+ * from it (substrate/substrate.ts), so a test that provides neither cannot reach them, and a cluster that cannot be
+ * brought up is the typed failure of the layer's build. The database tier provides it: Substrate's layers build it, a
+ * bench's sweep, and a CLI child's configuration (cli/config.child.ts); the network run's global setup and teardown
+ * provide each member in turn (`member`).
+ */
+export class InitializedCluster extends Context.Service<InitializedCluster, PgMember>()(
+	"grizzle-workspace/test/support/cluster/InitializedCluster"
+) {
+	static readonly layer = Layer.effect(InitializedCluster, selectedMember).pipe(
+		Layer.provide(NodeServices.layer)
 	)
-	/** The member `member` of the family, which the global setup and teardown reach one after another. */
-	static readonly member = (member: LocalCluster) =>
-		Layer.effect(InitializedCluster, readCluster(member)).pipe(Layer.provide(NodeFileSystem.layer))
+	/** The member `member`, which the global setup and teardown reach one after another. */
+	static readonly member = (member: PgMember) => Layer.succeed(InitializedCluster, member)
 }

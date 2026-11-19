@@ -31,14 +31,12 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcessSpawner } from "effect/process"
-import { Client } from "pg"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { advisoryKey } from "#compiler/sql/catalog.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
-import { testPoolMax } from "#pg/lease.ts"
 import { InitializedCluster, lentPlace, lentVariable } from "#test/support/cluster.ts"
-import { adminUrl, pgPin } from "#test/support/env.ts"
+import { pgCluster, pgPin } from "#test/support/env.ts"
 import {
 	type ClientBackend,
 	endBackend,
@@ -59,7 +57,7 @@ import {
 	sqlErrorOf,
 	type PgStatement
 } from "#test/support/pg.ts"
-import { sqlNeedFailed } from "#test/support/runner.ts"
+import { memberLease, sqlNeedFailed, WorkerLeases } from "#test/support/runner.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
 import {
 	type BudgetedCluster,
@@ -68,6 +66,7 @@ import {
 	leaseBudget
 } from "#test/support/substrate/budget.ts"
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
+import { testPoolMax } from "#test/support/substrate/lease.ts"
 import {
 	defaultSchemaLabel,
 	ownerLoginName,
@@ -105,6 +104,7 @@ import {
 	leaseConnections,
 	leftovers,
 	leftoversCheck,
+	superuserClient,
 	undoInstallEffects
 } from "#test/support/substrate/shared.ts"
 
@@ -159,7 +159,7 @@ export const roleSession = (credentials: Credentials): ConnectOptions => ({
 export const ownerSession = (): ConnectOptions => ({
 	as: { _tag: "Owner" },
 	role: Option.none(),
-	label: pgPin.devRole
+	label: pgCluster.owner
 })
 
 /**
@@ -407,33 +407,6 @@ const releaseRole = (
  * session answer.
  */
 export type TextRows = ReadonlyArray<ReadonlyArray<string | null>>
-
-/** A column's text as pg hands it over, unparsed. */
-const asText = (text: string): string => text
-
-/** Every column as its text: pg's parsers bypassed. */
-const textTypes = { getTypeParser: (): ((text: string) => string) => asText } as const
-
-/**
- * A connection to `database` as the bootstrap superuser `postgres`, over the cluster's local socket, where peer
- * authentication maps this OS user to it (scripts/pg/init.sh); the TLS sessions of test/support/pg.ts reach no
- * superuser. It lives for the scope, drawing one of its budget's permits; a connection refused is a failure its caller
- * makes a defect of the run.
- */
-const superuserClient = (cluster: BudgetedCluster, database: string, applicationName: string) =>
-	cluster.budget.opened(
-		Effect.acquireRelease(
-			Effect.suspend(() => {
-				const c = new Client({
-					connectionString: adminUrl(cluster, database),
-					application_name: applicationName,
-					types: textTypes
-				})
-				return Effect.as(Effect.tryPromise({ try: () => c.connect(), catch: sqlErrorOf }), c)
-			}),
-			(c) => Effect.promise(() => c.end())
-		)
-	)
 
 /** Statements in `database` as the bootstrap superuser, in order, on one connection of their own (superuserClient). */
 const asSuperuser = (
@@ -1075,7 +1048,7 @@ const formerBuildDropped = (
  * of waiting pass, so a build returns only when none is left.
  */
 const backendsEnded = (cluster: BudgetedCluster, name: string): Effect.Effect<void> =>
-	asSuperuser(cluster, pgPin.devRole, [
+	asSuperuser(cluster, pgCluster.owner, [
 		`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait}) FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = ${quoteString(name)}::name AND a.pid <> pg_catalog.pg_backend_pid()`
 	])
 
@@ -1108,7 +1081,7 @@ export const installTemplate = <P, T, E1, E2>(
 			Effect.scoped(
 				Effect.gen(function* () {
 					const { digest, plan } = yield* planned(database)
-					const { cluster } = yield* target.member.leased
+					const { cluster } = yield* memberLease(target.member)
 					const failed = sqlNeedFailed(spec.name, `the install in ${target.name}`)
 					const settings = yield* Effect.mapError(
 						devSession(cluster, Option.some("template settings")),
@@ -1138,7 +1111,7 @@ export const installTemplate = <P, T, E1, E2>(
 					)
 				}).pipe(
 					Effect.andThen(
-						Effect.flatMap(target.member.leased, ({ cluster }) =>
+						Effect.flatMap(memberLease(target.member), ({ cluster }) =>
 							backendsEnded(cluster, target.name)
 						)
 					)
@@ -1167,10 +1140,11 @@ export const installTemplate = <P, T, E1, E2>(
 const substrateOver = (
 	form: string,
 	taken: Database,
+	leases: Context.Service.Shape<typeof WorkerLeases>,
 	spawning: Context.Context<ChildProcessSpawner.ChildProcessSpawner>
 ): Effect.Effect<SubstrateShape, NeedFailed, Scope.Scope> =>
 	Effect.gen(function* () {
-		const { cluster, held } = yield* taken.member.leased
+		const { cluster, held } = yield* leases.on(taken.member)
 		const failed = sqlNeedFailed(form, `the substrate in ${taken.name}`)
 		const admin = yield* Effect.mapError(
 			connect(cluster, {
@@ -1200,11 +1174,16 @@ const substrateCases = <T>(
 	key: `grizzle ${form} ${database.key}`,
 	template: database.template,
 	open: Effect.map(
-		Effect.all([database.open, Layer.build(nodeSpawner), template.bound]),
-		([take, spawning, bind]) =>
+		Effect.all([
+			database.open,
+			Layer.build(nodeSpawner),
+			template.bound,
+			Effect.service(WorkerLeases)
+		]),
+		([take, spawning, bind, leases]) =>
 			Effect.gen(function* () {
 				const taken = yield* take
-				const substrate = yield* substrateOver(form, taken, spawning)
+				const substrate = yield* substrateOver(form, taken, leases, spawning)
 				const value = bind(substrate)
 				yield* Effect.addFinalizer(() => settled(substrate, value))
 				return { substrate, value }
@@ -1265,6 +1244,7 @@ WHERE c.relkind = 'S' AND c.relnamespace IN (SELECT oid FROM pg_catalog.pg_names
 /** Clones the template into a scope of its own under `parent` and opens the owner connection to the clone there. */
 const heldTransactions = (
 	opened: Opened<Database>,
+	leases: Context.Service.Shape<typeof WorkerLeases>,
 	parent: Scope.Scope
 ): Effect.Effect<HeldTransactions, NeedFailed> =>
 	Effect.gen(function* () {
@@ -1273,7 +1253,7 @@ const heldTransactions = (
 			Scope.provide(
 				Effect.gen(function* () {
 					const database = yield* opened.clone
-					const { cluster } = yield* database.member.leased
+					const { cluster } = yield* leases.on(database.member)
 					const failed = sqlNeedFailed("Substrate.rolledBack", `the connection to ${database.name}`)
 					const connection = yield* Effect.mapError(
 						connect(cluster, {
@@ -1432,15 +1412,16 @@ const rolledBackCases = <T>(
 		Effect.all([
 			template.database.open,
 			template.bound,
+			Effect.service(WorkerLeases),
 			Effect.scope,
 			Ref.make(Option.none<HeldTransactions>())
 		]),
-		([opened, bind, parent, holding]) =>
+		([opened, bind, leases, parent, holding]) =>
 			Effect.gen(function* () {
 				const current = yield* Ref.get(holding)
 				const held = Option.isSome(current)
 					? current.value
-					: yield* Effect.tap(heldTransactions(opened, parent), (made) =>
+					: yield* Effect.tap(heldTransactions(opened, leases, parent), (made) =>
 							Ref.set(holding, Option.some(made))
 						)
 				const failed = sqlNeedFailed(form, `the case's transaction on ${held.database}`)
@@ -1461,7 +1442,7 @@ const rolledBackCases = <T>(
 					bare: held.connection,
 					session: {
 						label: form,
-						role: pgPin.devRole,
+						role: pgCluster.owner,
 						database: held.database,
 						pid: connection.processId,
 						query: connection.query,
@@ -1569,7 +1550,7 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		Option.some(leftoversCheck)
 	)
 	/**
-	 * The worker's place on its member (runner.ts PgMember leased): its lease's budget and the backend that holds the
+	 * The worker's place on its member (runner.ts WorkerLeases): its lease's budget and the backend that holds the
 	 * lease, and no database, for a case that opens connections of its own in the owner's database (a lease's own
 	 * tables).
 	 */
@@ -1580,7 +1561,7 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 				const cluster = yield* PgCluster
 				const worker = yield* WorkerIndex
 				const member = yield* cluster.memberOf(worker)
-				return yield* member.leased
+				return yield* memberLease(member)
 			}),
 			Effect.succeed
 		)
@@ -1637,7 +1618,7 @@ export type CaseSubstrate = (width: number) => Effect.Effect<SubstrateShape, Sql
  *   template (pg.ts freshDatabase), which the case's own budget creates. The file clones as many as its cases ran at
  *   once at most, each handed from case to case, as the file's one database is between cases run one at a time.
  * A case first waits for its width among the test pool's permits (testPoolMax), which the file's lease grants beyond
- * its substrate's own sessions (packages/pg/src/lease.ts leaseGrant), so the cases at once never ask the file's budget
+ * its substrate's own sessions (test/support/substrate/lease.ts leaseGrant), so the cases at once never ask the file's budget
  * past what it holds free. A width past the whole test pool could never be admitted, and dies with
  * LeaseBudgetExhausted, the suite's defect.
  */

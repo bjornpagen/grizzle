@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# sample.sh <port> <out> <seconds>: the local cluster <port>, every <seconds>, appended to <out> as tab-separated rows
+# sample.sh <port> <out> <seconds>: the local cluster's member on <port>, every <seconds>, appended to <out> as tab-separated rows
 # until killed: F, each database's files under the data directory; R, each database's relations with storage by the
 # label of their schema's name (its `gz_<label>_` lead, or the schema's name otherwise).
 set -u
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../../../scripts/pg/lib.sh
-source "$here/../../../scripts/pg/lib.sh"
+# shellcheck source=cluster.sh
+source "$here/cluster.sh"
 member_env "$1"
 out=$2
 every=$3

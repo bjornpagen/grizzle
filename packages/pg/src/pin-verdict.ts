@@ -32,7 +32,7 @@ class PinOlder extends Data.TaggedError("PinOlder")<{
  * Prints what build.sh does with this checkout's pin over the build the installation holds
  * (installation.ts verdict): `build` or `built`. A pin older than the installation is refused instead, its
  * fault and the patches it lacks printed, with a failing exit. Its arguments are the installation, the stem of a
- * stamp's name (scripts/pg/lib.sh stamp_stem), and the pin's release commit and patches, PG_PIN_COMMIT and
+ * stamp's name (scripts/pg/build.sh stamp_stem), and the pin's release commit and patches, PG_PIN_COMMIT and
  * PG_PIN_PATCHES; any other arguments are refused.
  */
 const main = Effect.gen(function* () {

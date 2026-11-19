@@ -1,10 +1,13 @@
 import net from "node:net"
+import type { PgMember, Platform } from "@bjornpagen/testing/pg"
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner"
 import {
 	Array as Arr,
 	Clock,
 	DateTime,
 	Effect,
 	FileSystem,
+	Layer,
 	Path,
 	type PlatformError,
 	Redacted,
@@ -25,11 +28,9 @@ import { type CliReport, type ConfigLoader, runCli } from "#cli/run.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { servedPath } from "#compiler/served/forms.ts"
-import { FamilyUnrecorded, readFamily } from "#pg/family.ts"
-import { localCluster } from "#pg/local-cluster.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
-import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
-import { pgPin } from "#test/support/env.ts"
+import { clusterMembers, memberAt as clusterMemberAt } from "#test/support/cluster.ts"
+import { pgCluster, pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
@@ -116,7 +117,7 @@ export type ConfigSpec = {
 }
 
 /** The migration identity on `database` of `cluster`, the member this process reaches, with its password. */
-export const ownerOn = (cluster: InitializedClusterShape, database: string): ConnectionSpec => ({
+export const ownerOn = (cluster: PgMember, database: string): ConnectionSpec => ({
 	database,
 	port: cluster.port,
 	as: { kind: "migration identity", password: "owner" }
@@ -124,12 +125,12 @@ export const ownerOn = (cluster: InitializedClusterShape, database: string): Con
 
 /**
  * The connection of a configuration no command of the test connects with: generate, check and names never read it,
- * and a migrate on it finds no such database. Its port is the cluster family's name (local-cluster.ts localCluster),
- * which no module-level value reaches through a member.
+ * and a migrate on it finds no such database. Its port is the cluster's name (pg.config.ts), which no module-level
+ * value reaches through a member.
  */
 export const unconnected: ConnectionSpec = {
 	database: "unconnected",
-	port: localCluster.port,
+	port: pgCluster.port,
 	as: { kind: "migration identity", password: "owner" }
 }
 
@@ -150,7 +151,7 @@ export const offlineConnection: DbConnection = {
 	transport: {
 		kind: "sslRequest",
 		host: pgPin.host,
-		port: localCluster.port,
+		port: pgCluster.port,
 		open: () => new net.Socket(),
 		ca: "-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n",
 		servername: pgPin.host
@@ -161,7 +162,10 @@ export const offlineConnection: DbConnection = {
 }
 
 /** The migration identity's connection to no cluster, for a configuration no test migrates with. */
-export const offlineOwner: MigrationConnectionConfig = { ...offlineConnection, role: pgPin.devRole }
+export const offlineOwner: MigrationConnectionConfig = {
+	...offlineConnection,
+	role: pgCluster.owner
+}
 
 /**
  * A connection's role and password as its spec names them: the migration identity's password, the wrong one, or an
@@ -169,7 +173,7 @@ export const offlineOwner: MigrationConnectionConfig = { ...offlineConnection, r
  * Effect ran; or a test's role, with its password.
  */
 const credentialsOf = (
-	cluster: InitializedClusterShape,
+	cluster: PgMember,
 	as: ConnectionAs
 ): Pick<MigrationConnectionConfig, "role" | "password"> => {
 	if (as.kind === "role") {
@@ -177,11 +181,11 @@ const credentialsOf = (
 	}
 	switch (as.password) {
 		case "wrong":
-			return { role: pgPin.devRole, password: Redacted.make(wrongPassword) }
+			return { role: pgCluster.owner, password: Redacted.make(wrongPassword) }
 		case "effect":
-			return { role: pgPin.devRole, password: Effect.sync(() => cluster.devPassword) }
+			return { role: pgCluster.owner, password: Effect.sync(() => cluster.password) }
 		case "owner":
-			return { role: pgPin.devRole, password: cluster.devPassword }
+			return { role: pgCluster.owner, password: cluster.password }
 	}
 }
 
@@ -235,30 +239,15 @@ const specFileName = "grizzle.spec.json"
 export const commandConnections = ["migration session", "cancel request"].length
 
 /**
- * The member of the local cluster family at `port`, read once: the member a spec's connection names by its port, so a
+ * The member of grizzle's local cluster at `port`, read once: the member a spec's connection names by its port, so a
  * configuration connects with that member's CA and migration identity's password whichever process builds it, a case's
  * runner worker (on the member its runner places it, which no variable of the process names) or a command line's child.
- * A port the family does not list is FamilyUnrecorded.
+ * A port that is no member is MemberUnknown.
  */
-const memberAt = (
-	port: number
-): Effect.Effect<
-	InitializedClusterShape,
-	FamilyUnrecorded | Effect.Error<ReturnType<typeof readCluster>>,
-	FileSystem.FileSystem
-> =>
-	Effect.gen(function* () {
-		const family = yield* readFamily(localCluster)
-		const member = yield* Effect.mapError(
-			Effect.fromOption(Arr.findFirst(family.members, (m) => m.port === port)),
-			() =>
-				new FamilyUnrecorded({
-					file: localCluster.state,
-					reason: `a configuration's port ${port} is none of the family's`
-				})
-		)
-		return yield* readCluster(member)
-	})
+const memberAt = (port: number) =>
+	Effect.flatMap(clusterMembers, (members) =>
+		clusterMemberAt(members, port, "a configuration's connection names it")
+	)
 
 /**
  * The configuration of the spec in `dir`, as its grizzle.config.ts and an in-process run build it: its password and
@@ -272,7 +261,7 @@ export const specConfig = (
 ): Effect.Effect<
 	GrizzleConfig,
 	PlatformError.PlatformError | Effect.Error<ReturnType<typeof memberAt>>,
-	FileSystem.FileSystem
+	Platform
 > =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
@@ -391,7 +380,13 @@ const workspaceConfig: ConfigLoader = (file) =>
 		if (!(yield* Effect.orDie(fs.exists(file)))) {
 			return yield* cliError(new ConfigMissing({ file }))
 		}
-		const config = yield* Effect.orDie(specConfig(path.dirname(file)))
+		const config = yield* Effect.orDie(
+			Effect.scoped(
+				Effect.flatMap(Layer.build(NodeChildProcessSpawner.layer), (spawning) =>
+					Effect.provideContext(specConfig(path.dirname(file)), spawning)
+				)
+			)
+		)
 		const value = defineConfig(config)
 		const loaded: ConfigFile = { file, value }
 		return loaded

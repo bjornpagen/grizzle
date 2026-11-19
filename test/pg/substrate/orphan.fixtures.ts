@@ -1,12 +1,11 @@
 /** What the property of orphan.test.ts reads: its forms and their space, the throwaway postmaster, and one case's run. */
 import { boolean, type Space } from "@bjornpagen/testing/gen"
 import { liveMillis, liveSleep } from "@bjornpagen/testing/live"
+import type { Platform } from "@bjornpagen/testing/pg"
 import {
 	Array as Arr,
 	Duration,
 	Effect,
-	Fiber,
-	FileSystem,
 	Formatter,
 	Record as Rec,
 	type Scope,
@@ -16,12 +15,11 @@ import {
 import { ChildProcess, type ChildProcessSpawner } from "effect/process"
 import { Client } from "pg"
 import { trusted } from "#compiler/core/trusted.ts"
-import { freePort } from "#pg/ports.ts"
-import { clusterSettings } from "#pg/settings.ts"
 import { assert } from "#test/support/assert.ts"
 import { pgPin } from "#test/support/env.ts"
 import { backendWaitStep, orphanExitBound, testExitWait } from "#test/support/limits.ts"
 import { type SqlError, sqlErrorOf } from "#test/support/pg.ts"
+import { privateCluster } from "#test/support/private-cluster.ts"
 import type { TextRows } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -76,38 +74,40 @@ const slotName = "grizzle_orphan"
 
 /**
  * This process's environment without a libpq or server variable (PG*), which every child runs under, so each reaches
- * the throwaway postmaster by its arguments alone and no PGOPTIONS sets a session's client check.
+ * the case's cluster by its arguments alone and no PGOPTIONS sets a session's client check.
  */
 const childEnvironment: Readonly<Record<string, string | undefined>> = Rec.filter(
 	process.env,
 	(_, key) => !Str.startsWith("PG")(key)
 )
 
-/** The throwaway postmaster: its port on localhost and its directory. */
+/** The case's cluster's one member, as the bootstrap superuser reaches it: its port, and its socket's directory. */
 export interface Throwaway {
 	readonly port: number
-	readonly directory: string
+	readonly socket: string
 }
 
-/** psql's arguments to reach `server` as the bootstrap superuser, plaintext, under `name`, with `extra` added. */
+/** psql's arguments to reach `server` as the bootstrap superuser over its socket, under `name`, with `extra` added. */
 const conninfo = (server: Throwaway, name: string, extra: string): string =>
-	`host=${pgPin.host} port=${server.port} user=postgres dbname=postgres sslmode=disable application_name='${name}'${extra}`
+	`host=${server.socket} port=${server.port} user=postgres dbname=postgres application_name='${name}'${extra}`
 
 /** Every column as its text: pg's parsers bypassed. */
 const textTypes = {
 	getTypeParser: (): ((text: string) => string) => (text: string) => text
 } as const
 
-/** A connection to `server` as the bootstrap superuser under `name`, ended when the scope closes. */
+/**
+ * A connection to `server` as the bootstrap superuser over its socket, by peer authentication, under `name`, ended when
+ * the scope closes.
+ */
 const connected = (server: Throwaway, name: string): Effect.Effect<Client, SqlError, Scope.Scope> =>
 	Effect.acquireRelease(
 		Effect.suspend(() => {
 			const client = new Client({
-				host: pgPin.host,
+				host: server.socket,
 				port: server.port,
 				user: "postgres",
 				database: "postgres",
-				ssl: false,
 				application_name: name,
 				types: textTypes
 			})
@@ -164,87 +164,15 @@ const completed = (
 	)
 
 /**
- * Polls `server` until it admits a connection, at backendWaitStep, as a client of a starting server does: each
- * attempt is refused until the postmaster has opened its socket and finished starting up. A postmaster that never
- * admits one holds the case past the runner's case deadline, which reports it hung.
+ * The case's cluster (test/support/private-cluster.ts privateCluster), for the scope: one member of grizzle's spec made
+ * by the testing library as every member is, the settings every member holds among what it made (its
+ * client_connection_check_interval, the logical WAL a slot needs), on a free port, its socket in its own state, stopped
+ * and removed when the scope closes.
  */
-const admitted = (server: Throwaway): Effect.Effect<void> =>
-	Effect.gen(function* () {
-		for (;;) {
-			const tried = yield* Effect.exit(
-				Effect.scoped(Effect.andThen(connected(server, "grizzle-orphan start"), Effect.void))
-			)
-			if (tried._tag === "Success") {
-				return
-			}
-			yield* liveSleep(Duration.millis(backendWaitStep))
-		}
-	})
-
-/**
- * The throwaway postmaster, for the scope, in the case's own `directory` (Scratch.dir): initdb's cluster in it, with
- * clusterSettings, as scripts/pg/init.sh writes them, the logical WAL a slot needs, localhost on a free port and its
- * socket in the directory. The postmaster runs under setpriv's parent-death signal, so it is SIGKILLed if this process
- * dies first, and its backends end with it; the scope's close stops it with SIGQUIT, PostgreSQL's immediate shutdown,
- * before the directory goes. It is admitted once it accepts a connection; the case fails with its log once it exits
- * first.
- */
-export const throwaway = (
-	directory: string
-): Effect.Effect<
-	Throwaway,
-	never,
-	Scope.Scope | FileSystem.FileSystem | ChildProcessSpawner.ChildProcessSpawner
-> =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const data = `${directory}/data`
-		const port = yield* Effect.orDie(freePort([]))
-		yield* completed(`${pgPin.prefix}/bin/initdb`, [
-			"-D",
-			data,
-			"-U",
-			"postgres",
-			"--auth=trust",
-			"--no-sync",
-			"--no-locale"
-		])
-		const settings = Arr.join(
-			[
-				`port = ${port}`,
-				"listen_addresses = 'localhost'",
-				`unix_socket_directories = '${directory}'`,
-				"wal_level = logical",
-				...Arr.map(clusterSettings, ([setting, value]) => `${setting} = ${value}`)
-			],
-			"\n"
-		)
-		yield* Effect.orDie(
-			fs.writeFileString(`${data}/postgresql.conf`, `\n${settings}\n`, { flag: "a" })
-		)
-		const postmaster = yield* Effect.orDie(
-			ChildProcess.make(
-				"setpriv",
-				["--pdeathsig", "KILL", "--", `${pgPin.prefix}/bin/postgres`, "-D", data],
-				{ env: childEnvironment, stdin: "ignore", stdout: "ignore", killSignal: "SIGQUIT" }
-			)
-		)
-		const log = yield* Effect.forkScoped(Stream.mkString(Stream.decodeText(postmaster.stderr)))
-		const server = { port, directory }
-		yield* Effect.raceFirst(
-			admitted(server),
-			Effect.flatMap(Effect.exit(postmaster.exitCode), (exit) =>
-				Effect.flatMap(Effect.orDie(Fiber.join(log)), (said) =>
-					Effect.die(
-						new Error(
-							`the throwaway postmaster exited before it admitted a connection (${Formatter.format(exit)}): ${said}`
-						)
-					)
-				)
-			)
-		)
-		return server
-	})
+export const throwaway: Effect.Effect<Throwaway, never, Scope.Scope | Platform> = Effect.map(
+	privateCluster,
+	(member) => ({ port: member.port, socket: member.socket })
+)
 
 /** The pid of the one backend named orphanName whose statement runs as `form` shows it (forms), polled for. */
 const runningBackend = (observer: Client, form: Form): Effect.Effect<number, SqlError> =>
@@ -262,9 +190,14 @@ const runningBackend = (observer: Client, form: Form): Effect.Effect<number, Sql
 		}
 	})
 
+/** The client check interval the server runs, in milliseconds, as pg_settings reports it. */
+const checkIntervalQuery =
+	"SELECT s.setting FROM pg_catalog.pg_settings AS s WHERE s.name = 'client_connection_check_interval'"
+
 /**
  * Polls pg_stat_activity for backend `pid` at backendWaitStep until it is gone, then answers how long after `killed`
- * it was seen gone; once it is still there at `killed` plus orphanExitBound, the case fails with what it shows.
+ * it was seen gone; once it is still there at `killed` plus orphanExitBound of the server's client check interval, the
+ * case fails with what it shows.
  */
 const goneAfter = (
 	observer: Client,
@@ -272,6 +205,11 @@ const goneAfter = (
 	killed: number
 ): Effect.Effect<number, SqlError> =>
 	Effect.gen(function* () {
+		const [[interval] = []] = yield* rowsOf(observer, checkIntervalQuery, [])
+		if (interval === undefined || interval === null) {
+			return assert.fail("pg_settings holds no client_connection_check_interval")
+		}
+		const bound = orphanExitBound(Number(interval))
 		for (;;) {
 			const listed = yield* rowsOf(
 				observer,
@@ -282,9 +220,9 @@ const goneAfter = (
 			if (listed.length === 0) {
 				return now - killed
 			}
-			if (now - killed >= orphanExitBound) {
+			if (now - killed >= bound) {
 				return assert.fail(
-					`the backend ${pid} of a client killed ${now - killed} ms ago still runs, past ${orphanExitBound} ms: ${Formatter.format(listed)}`
+					`the backend ${pid} of a client killed ${now - killed} ms ago still runs, past ${bound} ms: ${Formatter.format(listed)}`
 				)
 			}
 			yield* liveSleep(Duration.millis(backendWaitStep))

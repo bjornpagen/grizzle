@@ -144,7 +144,7 @@ export const atName = (name: string): InstalledAt => ({
 })
 
 /**
- * The schema the local cluster installs the vector extension in (scripts/pg/init.sh: CREATE EXTENSION vector SCHEMA
+ * The schema the local cluster installs the vector extension in (pg.config.ts: CREATE EXTENSION vector SCHEMA
  * vector_ext).
  */
 export const localVectorSchema = "vector_ext"

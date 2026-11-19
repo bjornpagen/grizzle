@@ -21,6 +21,7 @@
 		"#http/*": "./packages/grizzle/src/http/*",
 		"#index.ts": "./packages/grizzle/src/index.ts",
 		"#pg/*": "./packages/pg/src/*",
+		"#pg.config.ts": "./pg.config.ts",
 		"#oxlint.config.ts": "./oxlint.config.ts",
 		"#toolchain.config.ts": "./toolchain.config.ts"
 	},
@@ -46,9 +47,7 @@
 		"bench:full": "node bench/main.ts full",
 		"pg:build": "scripts/pg/build.sh",
 		"pg:source": "scripts/pg/source.sh",
-		"pg:init": "scripts/pg/init.sh",
-		"pg:doctor": "scripts/pg/doctor.sh",
-		"pg": "scripts/pg/ctl.sh"
+		"pg": "toolchain-pg"
 	},
 	"dependencies": {
 		"@effect/platform-node": "catalog:",
@@ -77,7 +76,6 @@
 		"turbo": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",
-		"vitest": "catalog:",
-		"@bjornpagen/grizzle-pg": "workspace:*"
+		"vitest": "catalog:"
 	}
 }

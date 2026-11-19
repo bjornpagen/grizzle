@@ -16,7 +16,7 @@ import { regex } from "arkregex"
  * A build of a pinned PostgreSQL release: the release's commit (pin.env's PG_PIN_COMMIT) and the source patches applied
  * to it, in order, each `<file>=<its SHA-256>` as PG_PIN_PATCHES lists it, so a patch is its file and its content, and
  * one rewritten under its old name is another patch. A checkout's pin.env names the build it makes; the stamp build.sh
- * writes last into a build's tree (scripts/pg/lib.sh core_stamp) records the build that tree holds.
+ * writes last into a build's tree (scripts/pg/build.sh core_stamp) records the build that tree holds.
  */
 export interface Build {
 	readonly commit: string
@@ -95,7 +95,7 @@ const unlessAbsent = <A>(
 
 /**
  * The build the installation at `installation` holds, read from its stamp, the one file of its top directory whose name
- * starts with `stem` (scripts/pg/lib.sh core_stamp), the release's commit after it and the patches its text: none when
+ * starts with `stem` (scripts/pg/build.sh core_stamp), the release's commit after it and the patches its text: none when
  * there is no installation or no stamp in it, a build that never finished. Several stamps are refused.
  */
 export const installedBuild = (
@@ -164,26 +164,19 @@ const deleted = " (deleted)"
 const startedFrom = (executable: string): string =>
 	Str.endsWith(deleted)(executable) ? Str.slice(0, -deleted.length)(executable) : executable
 
-/** Whether two files are one: the same device and the same inode. */
-const sameFile = (a: FileSystem.File.Info, b: FileSystem.File.Info): boolean =>
-	a.dev === b.dev && Option.isSome(a.ino) && Option.isSome(b.ino) && a.ino.value === b.ino.value
-
 /**
- * Every postmaster running the bin/postgres of one of `trees`, other than the one whose data directory is `selected`:
- * each process whose executable, as /proc/<pid>/exe names it, is or was one of those files, and whose data directory's
- * lock file names the process itself. A postmaster works in its data directory, so /proc/<pid>/cwd is that directory,
- * and its backends, which share it, are not the process the lock file names. A process that ends while it is read, or
- * whose executable this user may not read, is none; any other failure to read is Unreadable, so the list is never
- * short of a postmaster this user can see.
+ * Every postmaster running the bin/postgres of one of `trees`: each process whose executable, as /proc/<pid>/exe names
+ * it, is or was one of those files, and whose data directory's lock file names the process itself. A postmaster works
+ * in its data directory, so /proc/<pid>/cwd is that directory, and its backends, which share it, are not the process
+ * the lock file names. A process that ends while it is read, or whose executable this user may not read, is none; any
+ * other failure to read is Unreadable, so the list is never short of a postmaster this user can see.
  */
 export const postmastersOf = (
-	trees: ReadonlyArray<string>,
-	selected: string
+	trees: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<Postmaster>, Unreadable | LockFileUnparsed, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const binaries = Arr.map(trees, (tree) => `${tree}/bin/postgres`)
-		const selectedData = yield* unlessAbsent(selected, fs.stat(selected))
 		const postmaster = (
 			pid: string
 		): Effect.Effect<Option.Option<Postmaster>, Unreadable | LockFileUnparsed> =>
@@ -211,12 +204,7 @@ export const postmastersOf = (
 					return yield* new LockFileUnparsed({ path: lock, text: text.value })
 				}
 				const [, holder, data, port] = lines
-				const directory = yield* unlessAbsent(cwd, fs.stat(cwd))
-				if (
-					holder !== pid ||
-					Option.isNone(directory) ||
-					Option.exists(selectedData, (info) => sameFile(info, directory.value))
-				) {
+				if (holder !== pid) {
 					return Option.none()
 				}
 				return Option.some({

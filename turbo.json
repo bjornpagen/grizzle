@@ -27,14 +27,9 @@
 			"dependsOn": ["^typecheck:full"],
 			"outputs": ["types/**"]
 		},
-		"@bjornpagen/grizzle-pg#typecheck": {
-			"description": "The local cluster's package checks with --noEmit against the engine's declarations; its output is its build info alone. The testing library it imports compiles in its program, so its source hash is an input, never its typecheck: the toolchain's packages are its own gate's.",
-			"dependsOn": ["^source", "@bjornpagen/grizzle-engine#typecheck"],
-			"outputs": ["types/**"]
-		},
 		"@bjornpagen/grizzle-pg#typecheck:full": {
-			"description": "Not incremental: no build info is read or written, so there is no output.",
-			"dependsOn": ["^source", "@bjornpagen/grizzle-engine#typecheck:full"],
+			"description": "The pin's package checks with --noEmit and --incremental false: no build info is read or written, so there is no output.",
+			"dependsOn": ["^typecheck:full"],
 			"outputs": []
 		},
 		"oxlint": {

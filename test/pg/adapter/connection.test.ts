@@ -3,7 +3,7 @@
  *
  * - verify-full TLS, exhaustively over the axes a deployment sets (CA bundle, host dialled, name verified): a session
  *   is accepted exactly when the CA is the server's and the verified name is one its certificate carries, and it logs
- *   in as the role it named, over TLS; there is no unverified mode. Oracle: the certificate's names (scripts/pg/init.sh)
+ *   in as the role it named, over TLS; there is no unverified mode. Oracle: the certificate's names (@bjornpagen/testing/pg)
  *   and its CA, as a checker.
  * - no plaintext fallback, over drawn answers of a server to the SSLRequest (the protocol's letters and any byte, one
  *   to three of them): exactly `S` starts a TLS handshake, which a server that speaks no TLS refuses with TlsRefused,
@@ -23,6 +23,7 @@ import { createServer, type Socket } from "node:net"
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import { array, constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import type { PgMember } from "@bjornpagen/testing/pg"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -40,7 +41,6 @@ import {
 	substrateLogin
 } from "#test/pg/adapter/support.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
-import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { clusterTransport } from "#test/support/pg.ts"
@@ -271,7 +271,7 @@ type CredentialFeature =
 	| "reused while no new session could open"
 
 /**
- * The names the local server's certificate carries (scripts/pg/init.sh: DNS:localhost, IP:127.0.0.1, IP:::1): verify-full
+ * The names the local server's certificate carries (@bjornpagen/testing/pg: DNS:localhost, IP:127.0.0.1, IP:::1): verify-full
  * accepts a session exactly when the CA bundle is the local CA and the name it verifies is one of these.
  */
 const certificateNames: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "::1"])
@@ -283,9 +283,9 @@ type CaChoice = "local" | "wrong"
  * to verify against, never reaches a pool, since the parse of the connection refuses it at stage config
  * (test/unit/adapter/layer.test.ts).
  */
-const caOf = (cluster: InitializedClusterShape): { readonly [C in CaChoice]: string } => ({
-	local: cluster.caPem,
-	wrong: cluster.wrongCaPem
+const caOf = (cluster: PgMember): { readonly [C in CaChoice]: string } => ({
+	local: cluster.ca,
+	wrong: cluster.wrongCa
 })
 
 /** The name a pool verifies: the very host it dials, or another (a tunnel's), each stated in full. */

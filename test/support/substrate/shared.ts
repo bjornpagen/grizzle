@@ -1,36 +1,37 @@
 import { waitingOn } from "@bjornpagen/testing/live"
+import type { PgMember } from "@bjornpagen/testing/pg"
 import { testWorkers } from "@bjornpagen/testing/workers"
+import { regex } from "arkregex"
 import { Array as Arr, Config, Effect, Exit, Option, Scope, String as Str } from "effect"
+import { Client } from "pg"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import {
-	InitializedCluster,
-	type InitializedClusterShape,
-	lentVariable
-} from "#test/support/cluster.ts"
+import { InitializedCluster, lentVariable } from "#test/support/cluster.ts"
+import { adminUrl } from "#test/support/env.ts"
 import {
 	devSession,
 	ensureDatabase,
 	type PgConnection,
 	type SqlError,
+	sqlErrorOf,
 	type PgStatement,
 	testDatabaseSettings
 } from "#test/support/pg.ts"
 import { type BudgetedCluster, budgeted, leaseBudget } from "#test/support/substrate/budget.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { allocatingPid } from "#test/support/substrate/names.ts"
-import { connect, ownerCredentials } from "#test/support/substrate/session.ts"
-import { upTo } from "#test/support/up-to.ts"
-
-import { regex } from "arkregex"
 import {
 	type LeaseTables,
 	leaseGrant,
 	leaseSlots,
+	leaseTableNames,
 	substrateLease,
 	unleasedConnections
-} from "#pg/lease.ts"
+} from "#test/support/substrate/lease.ts"
+import { allocatingPid } from "#test/support/substrate/names.ts"
+import { connect, ownerCredentials } from "#test/support/substrate/session.ts"
+import { upTo } from "#test/support/up-to.ts"
+
 const claimKey = 1735289960
 const claimStatement = "SELECT pg_catalog.pg_try_advisory_lock($1::int4, $2::int4)"
 
@@ -142,6 +143,37 @@ export const undoInstallEffects = (admin: PgConnection): Effect.Effect<void> =>
 		yield* admin.query("ALTER DEFAULT PRIVILEGES GRANT USAGE ON TYPES TO PUBLIC", [])
 	}).pipe(Effect.ignore)
 
+/** A column's text as pg hands it over, unparsed. */
+const asText = (text: string): string => text
+
+/** Every column as its text: pg's parsers bypassed. */
+const textTypes = { getTypeParser: (): ((text: string) => string) => asText } as const
+
+/**
+ * A connection to `database` as the bootstrap superuser `postgres`, over the cluster's local socket, where peer
+ * authentication maps this OS user to it (@bjornpagen/testing/pg's hba); the TLS sessions of test/support/pg.ts reach no
+ * superuser. It lives for the scope, drawing one of its budget's permits; a connection refused is a failure its caller
+ * makes a defect of the run.
+ */
+export const superuserClient = (
+	cluster: BudgetedCluster,
+	database: string,
+	applicationName: string
+) =>
+	cluster.budget.opened(
+		Effect.acquireRelease(
+			Effect.suspend(() => {
+				const c = new Client({
+					connectionString: adminUrl(cluster, database),
+					application_name: applicationName,
+					types: textTypes
+				})
+				return Effect.as(Effect.tryPromise({ try: () => c.connect(), catch: sqlErrorOf }), c)
+			}),
+			(c) => Effect.promise(() => c.end())
+		)
+	)
+
 /** The three settings leaseSlots reads, from the server a lease is taken on. */
 const slotSettingsQuery = `SELECT pg_catalog.current_setting('max_connections')::int4,
 	pg_catalog.current_setting('superuser_reserved_connections')::int4,
@@ -151,9 +183,80 @@ const slotSettingsQuery = `SELECT pg_catalog.current_setting('max_connections'):
 const leaseTable = (name: string): string => `public.${quoteIdent(name)}`
 
 /**
+ * The parameters grizzle's tests SET as the owner beyond deadlock_timeout, which the testing library grants every
+ * cluster's owner: session_replication_role, which the oracle's reset sets to replica as grizzle_dev, so its truncates
+ * fire no trigger and check no foreign key.
+ */
+const ownerParameters = ["session_replication_role"] as const
+
+/**
+ * Whether grizzle's own setup of a member is whole, as the owner's session reads it, which the testing library's
+ * making of the member leaves out: every name of its first parameter names a table in the owner's own database's
+ * public schema (the lease's tables), and the owner holds SET on every parameter of its second.
+ */
+const setUpQuery = `SELECT NOT EXISTS (SELECT FROM pg_catalog.unnest($1::text[]) AS t
+		WHERE pg_catalog.to_regclass(pg_catalog.format('public.%I', t)) IS NULL)
+	AND (SELECT pg_catalog.bool_and(pg_catalog.has_parameter_privilege(p, 'SET')) FROM pg_catalog.unnest($2::text[]) AS p)`
+
+/**
+ * The member setup's lock: a transaction-level advisory lock in the owner's own database, which a lease that finds
+ * grizzle's setup of its member missing holds while it makes it, so two first leases on a member never create one
+ * table at once (CREATE TABLE IF NOT EXISTS of one name at once fails one of them on pg_type's unique index) nor update
+ * one parameter's ACL at once.
+ */
+const memberSetupKey = 1735289963
+
+/**
+ * grizzle's own setup of the member `initialized`, which the testing library's making of a cluster leaves out: the
+ * owner's SET on ownerParameters, and the lease's tables `names`, owned by the owner. The owner's session `session`
+ * reads whether it is whole (setUpQuery); when it is not, the bootstrap superuser makes all of it in the owner's
+ * own database, in one transaction under the setup lock (memberSetupKey), the tables as the owner: what the first
+ * lease on a member does. A lease that finds nothing missing takes no lock, so only the first leases on a member, or
+ * those after a member grows past the slots its tables cover, wait on it; the wait is a declared one (waitingOn), behind
+ * a holder that only grants and creates tables.
+ */
+const ensureMemberSetUp = (
+	initialized: PgMember,
+	session: PgConnection,
+	names: ReadonlyArray<string>
+): Effect.Effect<void, SqlError> =>
+	Effect.gen(function* () {
+		const [[whole] = []] = yield* session.queryValues(setUpQuery, [names, ownerParameters])
+		if (whole === true) {
+			return
+		}
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const admin = yield* superuserClient(
+					budgeted(initialized, leaseBudget(1)),
+					initialized.owner,
+					"grizzle-member setup"
+				)
+				const run = (sql: string, params: ReadonlyArray<unknown>) =>
+					Effect.tryPromise({ try: () => admin.query(sql, [...params]), catch: sqlErrorOf })
+				const owner = quoteIdent(initialized.owner)
+				yield* run("BEGIN", [])
+				yield* waitingOn(run("SELECT pg_catalog.pg_advisory_xact_lock($1::int8)", [memberSetupKey]))
+				yield* Effect.forEach(
+					ownerParameters,
+					(parameter) => run(`GRANT SET ON PARAMETER ${parameter} TO ${owner}`, []),
+					{ discard: true }
+				)
+				yield* run(`SET LOCAL ROLE ${owner}`, [])
+				yield* Effect.forEach(
+					names,
+					(name) => run(`CREATE TABLE IF NOT EXISTS ${leaseTable(name)} ()`, []),
+					{ discard: true }
+				)
+				yield* run("COMMIT", [])
+			})
+		)
+	})
+
+/**
  * Locks the lease table `table` IN EXCLUSIVE MODE in a transaction left open on `lock`: true when it is taken, false
  * when another process holds it (55P03, lock_not_available), the transaction then rolled back. A table that does not
- * exist fails the lease (42P01): its cluster was set up without it.
+ * exist fails the lease (42P01): its lease made none (ensureMemberSetUp).
  */
 const tryLock = (lock: PgConnection, table: string): Effect.Effect<boolean, SqlError> =>
 	Effect.gen(function* () {
@@ -249,19 +352,18 @@ export interface Lease {
 
 /**
  * A lease on `initialized`, held for the current scope: a slot of the cluster's (takeLease over substrateLease, the
- * slots leaseSlots gives the server's settings), whose connection it returns with the budget it grants. The scope's
+ * slots leaseSlots gives the server's settings, their tables made first when absent: ensureMemberSetUp), whose
+ * connection it returns with the budget it grants. The scope's
  * close ends that connection, and so frees the slot. A lease covers one holder's connections (connectionsPerLease): a
  * Vitest file's substrate (leaseConnections), or a runner worker for its life (test/support/runner.ts), so a process
  * holds none once its holders are released: nothing of the lease outlives them, so a process whose work is done exits.
  * A holder waiting for a free slot behind other processes waits as long as they hold the slots; a run alone never waits
- * on a cluster init.sh sized, which holds a slot for each of its workers (clusterConnections).
+ * on a member pg.config.ts sized, which holds a slot for each worker it serves (connectionsPerWorker).
  *
  * The lease's own connections draw from budgets of their own: the read of the settings, one connection; then the
  * lease's, its queued connection and one racer for each slot at most (takeLease), the one it wins held for the scope.
  */
-export const leaseOn = (
-	initialized: InitializedClusterShape
-): Effect.Effect<Lease, SqlError, Scope.Scope> =>
+export const leaseOn = (initialized: PgMember): Effect.Effect<Lease, SqlError, Scope.Scope> =>
 	Effect.gen(function* () {
 		const name = Option.some("grizzle-substrate lease")
 		const slots = yield* Effect.scoped(
@@ -272,7 +374,9 @@ export const leaseOn = (
 					trusted<readonly [maxConnections: number, superuserReserved: number, reserved: number]>(
 						row
 					)
-				return leaseSlots(maxConnections, superuserReserved, reserved)
+				const admitted = leaseSlots(maxConnections, superuserReserved, reserved)
+				yield* ensureMemberSetUp(initialized, settings, leaseTableNames(substrateLease, admitted))
+				return admitted
 			})
 		)
 		const connection = yield* takeLease(
@@ -507,7 +611,7 @@ const decoderOfAllocation = (role: string): string =>
 const sweepKey = 1735289962
 
 /**
- * Drops what ended test processes left on the cluster: their gz_t_ and gz_doctor_ databases, their `<schema>__<access>`
+ * Drops what ended test processes left on the cluster: their gz_t_ databases, their `<schema>__<access>`
  * roles and each one's allocation's decoder login (decoderOfAllocation), and every unclaimed shared database that is not
  * clean. A run in progress is never touched: its processes are
  * running, and its shared databases are claimed. It is the one place a database is dropped, and its callers call it
@@ -531,12 +635,12 @@ export const sweep = (
 			const admin = yield* devSession(cluster, Option.none())
 			yield* admin.queryValues("SELECT pg_catalog.pg_advisory_lock($1::int8)", [sweepKey])
 			const databases = yield* admin.queryValues(
-				"SELECT datname::text FROM pg_catalog.pg_database WHERE datname::text ~ '^gz_(t|doctor|shared)_' ORDER BY 1",
+				"SELECT datname::text FROM pg_catalog.pg_database WHERE datname::text ~ '^gz_(t|shared)_' ORDER BY 1",
 				[]
 			)
 			for (const [value] of databases) {
 				const database = String(value)
-				const pid = regex("^gz_(?:t|doctor)_([0-9]+)").exec(database)?.[1]
+				const pid = regex("^gz_t_([0-9]+)").exec(database)?.[1]
 				if (pid !== undefined) {
 					if (ended(Number(pid))) {
 						yield* Effect.ignore(dropDatabase(admin, database))

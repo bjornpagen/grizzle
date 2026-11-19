@@ -263,7 +263,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 								database: s.database,
 								role: writer.role,
 								password: writer.password,
-								ca: s.cluster.caPem,
+								ca: s.cluster.ca,
 								connectTimeoutMs: testConnectTimeout,
 								secrets: [own]
 							}
@@ -289,7 +289,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 								case "no such database":
 									return { ...direct, database: `${s.database}_absent` }
 								case "a CA that is not the server's":
-									return { ...direct, ca: s.cluster.wrongCaPem }
+									return { ...direct, ca: s.cluster.wrongCa }
 								case "a server that offers no TLS":
 									return { ...direct, port: (yield* fakeServer("N")).port }
 								case "a server that answers neither":

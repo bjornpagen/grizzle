@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # The ssi-summary experiment (README.md): a lone SERIALIZABLE writer fails with 40001 against its own earlier write
 # once PostgreSQL's SSI has summarized that write while another transaction holds the cluster's horizon. Run it on a
-# private family only, never the default cluster: it fills the cluster's pool of finished SERIALIZABLE transactions.
-#   GRIZZLE_PG_CLUSTER=<port> packages/experiments/ssi-summary/run.sh
+# private cluster only, never the shared one: it fills the cluster's pool of finished SERIALIZABLE transactions.
+#   TOOLCHAIN_PG_CLUSTER=<port> packages/experiments/ssi-summary/run.sh
 # Exits 0 when PostgreSQL behaves as README.md states (the shrink fails as a pivot with a conflict out to the write,
 # and the same sequence with no holder commits), 1 otherwise: the verdict that ends the experiment.
 set -uo pipefail
-if [[ -z "${GRIZZLE_PG_CLUSTER:-}" ]]; then
-	echo "name a private family with GRIZZLE_PG_CLUSTER=<port>: this run fills the cluster's SSI state" >&2
+if [[ -z "${TOOLCHAIN_PG_CLUSTER:-}" ]]; then
+	echo "name a private cluster with TOOLCHAIN_PG_CLUSTER=<port>: this run fills the cluster's SSI state" >&2
 	exit 2
 fi
-source "$(dirname "$0")/../../../scripts/pg/lib.sh"
+repo_root="$(cd "$(dirname "$0")/../../.." && pwd)"
+source "$repo_root/scripts/pg/pin.env"
+# The cluster's first member, brought up, as the testing library prints it (TOOLCHAIN_PG_PORT, TOOLCHAIN_PG_SOCKET).
+eval "$(cd "$repo_root" && node_modules/.bin/toolchain-pg env)"
 db=gz_ssi_summary
-q() { "$(pg_bin psql)" -X -h "$GRIZZLE_PG_SOCKET" -p "$PG_PORT" -U postgres "$@"; }
+q() { "$GRIZZLE_PG_PREFIX/bin/psql" -X -h "$TOOLCHAIN_PG_SOCKET" -p "$TOOLCHAIN_PG_PORT" -U postgres "$@"; }
 q -d postgres -qc "DROP DATABASE IF EXISTS $db WITH (FORCE)" -c "CREATE DATABASE $db"
 q -d $db -qc "CREATE TABLE o (id int PRIMARY KEY, n int NOT NULL)" -c "CREATE TABLE m (id int PRIMARY KEY, v int NOT NULL)" -c "CREATE TABLE f (x int)"
 # The pool of SERIALIZABLEXACTs: ten per backend slot and prepared transaction (predicate.c InitPredicateLocks).
@@ -34,7 +37,7 @@ sequence() {
 	q -d $db -q -f "$rest" >/dev/null
 	q -d $db -qAt -c "BEGIN ISOLATION LEVEL SERIALIZABLE" -c "UPDATE o SET n = n - 1 WHERE id = 0" -c "DELETE FROM m" -c "COMMIT" 2>&1
 }
-echo "# $(date -u) family $GRIZZLE_PG_CLUSTER, pool about $pool, $(q -d $db -Atc 'SELECT version()')"
+echo "# $(date -u) cluster $TOOLCHAIN_PG_CLUSTER, pool about $pool, $(q -d $db -Atc 'SELECT version()')"
 printf "BEGIN ISOLATION LEVEL SERIALIZABLE;\nSELECT pg_catalog.pg_current_xact_id();\nSELECT pg_catalog.pg_sleep(86400);\n" | q -d $db -qAt >/dev/null 2>&1 &
 holder=$!
 q -d $db -q -f "$fill" >/dev/null

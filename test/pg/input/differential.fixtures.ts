@@ -37,7 +37,7 @@ import {
 	workloadOver
 } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
-import { pgPin } from "#test/support/env.ts"
+import { pgCluster } from "#test/support/env.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -269,7 +269,7 @@ export const shopTemplate = installTemplate({
 				})
 			)
 			const params = Arr.flatMap([...templates.values()], (t) => t.params)
-			const options = installOptions(owned, pgPin.devRole)
+			const options = installOptions(owned, pgCluster.owner)
 			const installed = compileInstallation(owned, {
 				...options,
 				levels: [installationName],

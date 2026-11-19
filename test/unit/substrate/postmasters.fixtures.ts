@@ -13,21 +13,15 @@ type Binary = (typeof binaries)[number]
 const locks = ["naming it", "naming another process", "absent", "malformed"] as const
 type Lock = (typeof locks)[number]
 
-/** Whether the process's data directory is the selected cluster's, which is no foreign postmaster. */
-const directories = ["another cluster's", "the selected cluster's"] as const
-type Directory = (typeof directories)[number]
-
-/** A case: one process, by the binary it runs, its lock file and its data directory. */
+/** A case: one process, by the binary it runs and its lock file. */
 interface Sketch {
 	readonly binary: Binary
 	readonly lock: Lock
-	readonly directory: Directory
 }
 
 export const sketchGen: Gen<Sketch> = (source) => ({
 	binary: source.draw(element(binaries)),
-	lock: source.draw(element(locks)),
-	directory: source.draw(element(directories))
+	lock: source.draw(element(locks))
 })
 
 /** What postmastersOf finds of a case's process: it, nothing, or a lock file it refuses. */
@@ -40,7 +34,6 @@ export type PostmasterFeature =
 	| "another tree's process unlisted"
 	| "a backend's directory unlisted"
 	| "a process without a lock file unlisted"
-	| "the selected cluster's postmaster unlisted"
 	| "a malformed lock file refused"
 
 /** The model: what postmastersOf finds of a case's process, and why. */
@@ -56,14 +49,12 @@ export const predicted = (s: Sketch): readonly [Verdict, PostmasterFeature] => {
 		case "naming another process":
 			return ["unlisted", "a backend's directory unlisted"]
 		case "naming it":
-			return s.directory === "the selected cluster's"
-				? ["unlisted", "the selected cluster's postmaster unlisted"]
-				: [
-						"listed",
-						s.binary === "the tree's"
-							? "a postmaster of the tree listed"
-							: "a postmaster of a replaced binary listed"
-					]
+			return [
+				"listed",
+				s.binary === "the tree's"
+					? "a postmaster of the tree listed"
+					: "a postmaster of a replaced binary listed"
+			]
 	}
 }
 
@@ -86,10 +77,9 @@ export const caseOf = (root: string, s: Sketch) =>
 		const tree = `${root}/tree`
 		const other = `${root}/other`
 		const data = `${root}/data`
-		const selected = s.directory === "the selected cluster's" ? data : `${root}/selected`
 		yield* fs.copyFile(process.execPath, binary)
 		yield* Effect.forEach(
-			[`${tree}/bin`, `${other}/bin`, data, `${root}/selected`],
+			[`${tree}/bin`, `${other}/bin`, data],
 			(path) => fs.makeDirectory(path, { recursive: true }),
 			{ discard: true }
 		)
@@ -115,7 +105,7 @@ export const caseOf = (root: string, s: Sketch) =>
 			yield* fs.remove(`${tree}/bin/postgres`)
 			yield* fs.link(binary, `${tree}/bin/postgres`)
 		}
-		const found = yield* Effect.result(postmastersOf([tree], selected))
+		const found = yield* Effect.result(postmastersOf([tree]))
 		return {
 			found,
 			listed: {

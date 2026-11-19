@@ -1308,7 +1308,7 @@ Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/
 
 The agent guide is `vendor/grizzle/packages/grizzle/skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
 
-To run grizzle's local PostgreSQL, the pinned build and a cluster of it ([Development](#development)), add `vendor/grizzle/packages/pg` to the workspace too, with the toolchain's `packages/testing` it takes `@bjornpagen/testing` from, and `@bjornpagen/grizzle-pg` (`workspace:*`) to your package's devDependencies. Its dependencies come from your install, so never run `pnpm install` inside `vendor/grizzle`: that gives grizzle a second copy of `effect`, and a `Redacted` made by one copy is unreadable by the other ("Unable to get redacted value"). Then `pnpm exec grizzle-pg build`, `pnpm exec grizzle-pg init` and `pnpm exec grizzle-pg doctor`, and `pnpm exec grizzle-pg <start|stop|status|psql|env|destroy>`; `GRIZZLE_PG_CLUSTER=<port>` names a cluster of your own beside the default one. The pin those commands build, `scripts/pg/pin.env`, is also a typed value: `import { pin } from "@bjornpagen/grizzle-pg/pin"` gives every assignment by its name (`pin.PG_PIN_VERSION`, `pin.GRIZZLE_PG_DEFAULT_STATE`, the patches as a list), parsed from the same file the scripts source; a pin.env that does not parse fails the import.
+To build grizzle's pinned PostgreSQL ([Development](#development)), add `vendor/grizzle/packages/pg` to the workspace too, and `@bjornpagen/grizzle-pg` (`workspace:*`) to your package's devDependencies. Its dependencies come from your install, so never run `pnpm install` inside `vendor/grizzle`: that gives grizzle a second copy of `effect`, and a `Redacted` made by one copy is unreadable by the other ("Unable to get redacted value"). Then `pnpm exec grizzle-pg build`, and `pnpm exec grizzle-pg source` for its source tree. A cluster of the build is the toolchain's testing library's: state it in your package's `pg.config.ts` with `` bin: { kind: "directory", directory: `${pin.GRIZZLE_PG_PREFIX}/bin` } `` and run it with `toolchain-pg`. The pin those commands build, `scripts/pg/pin.env`, is also a typed value: `import { pin } from "@bjornpagen/grizzle-pg/pin"` gives every assignment by its name (`pin.PG_PIN_VERSION`, `pin.GRIZZLE_PG_PREFIX`, the patches as a list), parsed from the same file the scripts source; a pin.env that does not parse fails the import.
 
 In full:
 
@@ -4576,8 +4576,8 @@ Everything runs natively on Linux, with no Docker. There is no build step: Node 
 git submodule update --init       # the toolchain, vendor/toolchain: the dev tools and the testing library
 pnpm install                      # and the git hooks, lefthook.yml
 pnpm pg:build                     # build the pinned PostgreSQL 19rc2 from source, with its patches and pgvector
-pnpm pg:init                      # create the local cluster on port 5433: TLS and SCRAM only
-pnpm pg:doctor                    # the go/no-go check of the cluster
+pnpm pg start                     # make and start the local cluster on port 5442 (pg.config.ts): TLS and SCRAM only
+pnpm pg doctor                    # the go/no-go check of the cluster
 pnpm test                         # the unit and types tiers, which need no network
 pnpm test:network                 # the pg and schedules tiers, against the local cluster
 pnpm test <file>                  # some files
@@ -4585,15 +4585,17 @@ pnpm types                        # after every edit: the incremental typecheck,
 pnpm check                        # before a release (turbo, cached): typecheck, workspace gate, oxlint, format, fallow, dedupe
 ```
 
-Every script and test reaches one local cluster, which `GRIZZLE_PG_CLUSTER` names by its port: unset, it is the default cluster on 5433. Any other port names a cluster of its own, built from the same installed PostgreSQL, with its own state directory beside the default's (`pg19rc2-<port>`), TLS material, socket, roles and databases, sized to the machine as the default is. PostgreSQL's SERIALIZABLE bookkeeping is per cluster, so a heavy run in a cluster of its own neither waits on the shared cluster's nor makes it wait. `pnpm pg:init` refuses a port already taken on localhost, and `pnpm pg destroy` refuses the default:
+Every script and test reaches one local cluster, `pg.config.ts`, which the testing library makes and runs (`@bjornpagen/testing/pg`, `pnpm pg <command>` for `toolchain-pg`): made and started the first time a test or a command reaches it, on port 5442, its members spread over a run's workers, each sized to its share of the machine, its state under `~/.local/var/toolchain-pg/5442`. `TOOLCHAIN_PG_CLUSTER=<port>` names a cluster of your own of the same spec, built from the same installed PostgreSQL, with its own state, TLS material, sockets, roles and databases. PostgreSQL's SERIALIZABLE bookkeeping is per cluster, so a heavy run in a cluster of its own neither waits on the shared cluster's nor makes it wait:
 
 ```sh
-GRIZZLE_PG_CLUSTER=<port> pnpm pg:init              # create and start a cluster of your own
-GRIZZLE_PG_CLUSTER=<port> pnpm pg:doctor
-GRIZZLE_PG_CLUSTER=<port> pnpm pg env               # its port and paths: state directory, CA, owner's password file
-GRIZZLE_PG_CLUSTER=<port> pnpm test:network <file>  # every test, and every child a test starts, reaches it
-GRIZZLE_PG_CLUSTER=<port> pnpm pg destroy           # stop it and delete its state directory
+TOOLCHAIN_PG_CLUSTER=<port> pnpm pg start                   # make and start a cluster of your own
+TOOLCHAIN_PG_CLUSTER=<port> pnpm pg doctor
+TOOLCHAIN_PG_CLUSTER=<port> pnpm pg env                     # its first member's port, socket, CA and owner's password file
+TOOLCHAIN_PG_CLUSTER=<port> pnpm test:network <file>        # every test, and every child a test starts, reaches it
+TOOLCHAIN_PG_CLUSTER=<port> pnpm pg destroy                 # stop it and delete its state
 ```
+
+`pnpm pg:build` refuses to exchange the installed build while any cluster runs from it: `pnpm pg stop` first, and `pnpm pg start` after.
 
 Every generated suite draws from one seed, `TEST_SEED`, which a run prints first. Setting it reproduces a run, and whether a suite reaches what it requires never depends on it. [CONTRIBUTING.md](CONTRIBUTING.md) has the code rules and how the tests are built on the testing library.
 
@@ -4606,8 +4608,9 @@ Every generated suite draws from one seed, `TEST_SEED`, which a run prints first
     - `skills/grizzle/`: the agent guide.
 - `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
 - `bench/`: performance gates.
-- `scripts/pg/`: the pinned PostgreSQL's source, build, cluster, doctor and patches, whose commands the `grizzle-pg` bin runs.
-- `packages/pg/`: `@bjornpagen/grizzle-pg`, the TypeScript those commands run and the formulas they and the tests share: the cluster a port names, its size and its connection lease.
+- `scripts/pg/`: the pinned PostgreSQL's pin, source, build and patches, whose commands the `grizzle-pg` bin runs.
+- `packages/pg/`: `@bjornpagen/grizzle-pg`, the TypeScript those commands run: the pin, as a typed value, and the installed build's stamp and postmasters.
+- `pg.config.ts`: the local cluster the tests and benchmarks reach, its port, template and sizes, which the testing library makes and runs.
 - `scripts/dev/`: the mutation tester and the profiler.
 - `vendor/toolchain/`: the [toolchain](https://github.com/bjornpagen/toolchain), a git submodule pinned by commit, whose packages join the workspace: `@bjornpagen/devtools`, the lint tooling (the oxlint preset and plugin, the workspace gate, the hooks' gate), which `toolchain.config.ts` and `oxlint.config.ts` configure, and `@bjornpagen/testing`, the testing library every test runs on, with `pnpm fuzz`'s script.
 

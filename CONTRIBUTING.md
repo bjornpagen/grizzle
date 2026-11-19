@@ -69,14 +69,13 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
   takes its source from `pnpm pg:source`, runs PostgreSQL's own regression suites, and builds pgvector at its pinned
   tag. The installation goes under `~/.local/opt/postgresql/<version>/`, and every build product beside it: the build
   directory `<version>.build/`, and a staging tree in which the build is installed and which one rename puts in the
-  installation's place only once it is complete, so a failed build leaves the previous installation as it was. The
-  cluster runs from the installation, so a cluster running at the rename is stopped just before it and started again
-  just after. An installation that already holds the pin is kept unless `--force` is given. A checkout older than the
-  installation is refused before anything changes, `--force` or not: one whose pin is of the installation's release
-  and lacks a patch the installation carries, a patch being its file and its SHA-256. A pin of another release is a
-  repin, and builds. While a postmaster other than the selected cluster's runs from the installation, found by its
-  executable wherever its data directory is, the rename is refused unless `--force` is given, since it would replace
-  that postmaster's binaries under it: before the build, and again just before the rename.
+  installation's place only once it is complete, so a failed build leaves the previous installation as it was. An
+  installation that already holds the pin is kept unless `--force` is given. A checkout older than the installation is
+  refused before anything changes, `--force` or not: one whose pin is of the installation's release and lacks a patch
+  the installation carries, a patch being its file and its SHA-256. A pin of another release is a repin, and builds.
+  While any postmaster runs from the installation, found by its executable wherever its data directory is, the rename
+  is refused unless `--force` is given, since it would replace that postmaster's binaries under it: before the build,
+  and again just before the rename. Stop the cluster first (`pnpm pg stop`), and start it after (`pnpm pg start`).
 - **`pnpm pg:source`** puts the pin's source in `~/Documents/postgres`, the one PostgreSQL source tree, and the build
   directory beside the installation, made anew and configured to install there. `pnpm pg:build` runs it first. The
   source is a git repository on the branch `grizzle`: the release, fetched alone from PostgreSQL's repository and
@@ -85,42 +84,45 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
   patches are kept as they are. It refuses, and leaves the tree as it is, when making it again would lose work: a change
   not committed, a stash, a branch or tag of its own, or a commit on `grizzle` that is not one of the pin's patches.
   After a repin the repository holds the new release alone.
-- **`pnpm pg:init`** creates the one cluster under `~/.local/var/grizzle/pg<version>/`:
-    - a builtin C.UTF-8 cluster on port 5433, localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP,
-      `max_pred_locks_per_relation = 1023`, where production's `max_pred_locks_per_transaction = 2048` promotes a
-      transaction's page locks to its relation's, `wal_level = logical`, and `timezone` and `log_timezone` at UTC
-      whatever the machine's zone;
-    - sized to the machine (`packages/pg/src/size.ts` `clusterSize`, `packages/pg/src/cluster-size.ts`):
-      `max_connections` holds a connection lease for each of the network tier's workers, one per core, and
-      `shared_buffers` each worker's database, no more, since PostgreSQL scans every shared buffer at each commit that
-      drops a relation, and `max_pred_locks_per_transaction` a worker's predicate locks for each worker, spread over
-      the connections, since every index drop and every read of `pg_locks` scans the whole predicate-lock table;
-    - the same on every member whatever the machine (`packages/pg/src/settings.ts` `clusterSettings`,
-      `packages/pg/src/cluster-settings.ts`): `client_connection_check_interval = 1000`, so a backend whose client died
-      mid-statement (a test process ended by its hang guard or a SIGKILL) ends at its next poll of the client and lets
-      go of its transaction id, which every logical slot's creation on the member waits behind;
+- **`pg.config.ts`** states the one local cluster, which the testing library makes and runs (`@bjornpagen/testing/pg`,
+  the toolchain's README "one local cluster maker"): made and started the first time a test, a benchmark or a command
+  reaches it, under its port's lock, and taken as it is when it runs. Its state is `~/.local/var/toolchain-pg/5442/`:
+    - a family of builtin C.UTF-8 members, the first on port 5442 and the rest on ports free when each was made, each
+      serving at most 16 of a run's workers (`workersPerMember`, measured: SSI's LWLocks and the checkpointer are a
+      member's own), localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP, `wal_level = logical`,
+      `max_pred_locks_per_transaction = 2048`, production's, whose relation promotion PostgreSQL derives at 1023, and
+      `timezone` and `log_timezone` at UTC whatever the machine's zone;
+    - each member sized to its share of a full-width run (`pg.config.ts` `sizing`): `max_connections` holds a connection
+      lease and its race connection for each worker it serves (`test/support/substrate/lease.ts`) and the connections no
+      lease covers, `max_replication_slots` and `max_wal_senders` a live source for each worker and each standing
+      installation, and `shared_buffers` each worker's largest database, no more, since PostgreSQL scans every shared
+      buffer at each commit that drops a relation;
+    - the same on every member whatever the machine (the testing library's settings): `client_connection_check_interval
+      = 1000`, so a backend whose client died mid-statement (a test process ended by its hang guard or a SIGKILL) ends
+      at its next poll of the client and lets go of its transaction id, which every logical slot's creation on the member
+      waits behind, and `fsync = off`, a throwaway cluster's;
     - a local CA and server certificate, plus an unrelated CA for the refusal tests;
     - the role `grizzle_dev` (the migration identity and owner, not a superuser, with CREATEROLE to create the logins
-      and world roles a migration declares, and REPLICATION), with SET on `deadlock_timeout`;
-    - `grizzle_template`, from which every test database is cloned and which accepts no connections. A test database
-      runs `deadlock_timeout = 10ms` and `default_transaction_isolation = serializable` as its own defaults, and commits
-      synchronously, PostgreSQL's default, so a VACUUM after a load settles the visibility map
-      (`test/support/pg.ts` `testDatabaseSettings`).
-- **`pnpm pg:doctor`** is the go/no-go check: version and build, the machine's sizing, the settings every member
-  holds, `jit` off, `max_pred_locks_per_relation`, `wal_level`,
-  extensions, locale, money formatting, `ON CONFLICT DO SELECT`, verify-full TLS with a wrong CA, a wrong host name
-  and plaintext all refused, and the owner's SET on `deadlock_timeout`. `--quick` runs the checks
-  that need no scratch database, and every database test run starts with it.
-- **`packages/pg`** (`@bjornpagen/grizzle-pg`) is the TypeScript these scripts run (scripts/pg/lib.sh `pg_node`) and the
-  formulas they and the tests share (the cluster a port names, its size, its connection lease), a workspace member so a
-  consumer's install, never one inside its submodule, gives it its dependencies; its `grizzle-pg` bin runs the
-  scripts. test/pg/package/consumer.test.ts runs init, doctor and a migrate through a consumer's links in each install
+      and world roles a migration declares, and REPLICATION), with SET on `deadlock_timeout`, and on
+      `session_replication_role`, which grizzle grants itself, as the bootstrap superuser, beside the lease's tables in
+      the owner's own database, the first time a lease reaches a member (`test/support/substrate/shared.ts`
+      `ensureMemberSetUp`);
+    - `grizzle_template`, carrying pgvector in `vector_ext`, from which every test database is cloned and which accepts no
+      connections. A test database runs `deadlock_timeout = 10ms` and `default_transaction_isolation = serializable` as
+      its own defaults, and commits synchronously, PostgreSQL's default, so a VACUUM after a load settles the visibility
+      map (`test/support/pg.ts` `testDatabaseSettings`).
+- **`pnpm pg <command>`** runs the testing library's `toolchain-pg` on it: `start`, `stop` and `status`; `doctor`, the
+  go/no-go check (the server that made it, the machine's sizing, the settings every member holds, the owner's grants,
+  verify-full TLS with a wrong CA, a wrong host name and plaintext all refused, and without `--quick` a database made
+  from the template with its extensions and locale), whose quick checks every network run starts with; `psql`,
+  verify-full as `grizzle_dev`; `admin`, as the bootstrap superuser over the socket; `env`; `reset`, which drops test
+  databases and roles; `destroy`; and `init --force` or `--adopt`, which make it again or size it to this machine.
+  `TOOLCHAIN_PG_CLUSTER=<port>` names a cluster of the same spec of your own, for every command and test.
+- **`packages/pg`** (`@bjornpagen/grizzle-pg`) is the TypeScript `pnpm pg:build` runs (the pin's verdict over the
+  installed build, the postmasters that run from it) and the pin as a typed value, a workspace member so a consumer's
+  install, never one inside its submodule, gives it its dependencies; its `grizzle-pg` bin runs `build` and `source`.
+  test/pg/package/consumer.test.ts imports the pin and runs a migrate through a consumer's links in each install
   layout.
-- **`pnpm pg <command>`** runs `scripts/pg/ctl.sh`:
-    - `start`, `stop` and `status`;
-    - `psql`, verify-full as `grizzle_dev`;
-    - `admin`, as the bootstrap superuser over the socket;
-    - `reset`, which drops test databases and roles.
 
 Every TCP connection to the cluster, the tests' included, is verify-full TLS. The bootstrap superuser alone connects
 over the local socket, by peer authentication: `pnpm pg admin` and the tests' superuser sessions
@@ -182,8 +184,8 @@ Everyone commits and pushes straight to `main`. There are no branches and no int
 
 | Command                          | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm types`                     | The typecheck to run after every edit, which the hooks run too: `turbo run typecheck` over each package's project and the root's, each built incrementally in the order their references set (`pnpm typecheck` below), so a run after a small edit re-checks only what the edit reaches, in seconds, and a run after none replays from turbo's cache. It covers the cluster package too, which `pnpm typecheck` at the root does not. |
-| `pnpm typecheck`                 | `toolchain-typecheck -b`: tsrs, the Rust TypeScript 7.1 checker, Effect-patched by `@effect/tsgo`, over three projects joined by project references: `packages/engine/tsconfig.json`, the engine, which emits its declarations into `packages/engine/types`; `packages/grizzle/tsconfig.json`, the shell, against the engine's declarations, emitting its own into `packages/grizzle/types`; and `tsconfig.json`, test, bench, scripts and `oxlint.config.ts`, against both packages' declarations. Each package's `typecheck` task runs `toolchain-typecheck -b` on its own project, after the projects it references. The declarations and the build info are gitignored. The three tsconfigs extend the root's `tsconfig.base.json` alone, by relative path: grizzle's module settings and the compiler's strictness. The engine's project names no plugin, so the Effect language service never compiles the engine; the shell's project and `tsconfig.json` state the plugin with their per-file `overrides`, and the workspace gate holds each to the dev tools' `tsconfig.base.json`, which lists every diagnostic the service does not deprecate, `missingConcurrencyOption` off, as the toolchain drops it for every repository. Every Effect diagnostic fails it, suggestions included. Every project builds incrementally, from the build info its last build left (`tsconfig.base.json`'s `incremental`; the two package projects are composite, which needs it): each package's in its `types/`, beside its declarations, and the tooling project's in `tsconfig.tsbuildinfo` at the root. Every typecheck (these three builds, each `typecheck:full`, and the cluster package's `typecheck`) runs `toolchain-typecheck`, the toolchain's `effect-tsgo tsrs` with the caller's arguments. The toolchain's packages are checked by the toolchain's own gate; the modules of theirs grizzle imports compile in `tsconfig.json`'s project. |
+| `pnpm types`                     | The typecheck to run after every edit, which the hooks run too: `turbo run typecheck` over each package's project and the root's, each built incrementally in the order their references set (`pnpm typecheck` below), so a run after a small edit re-checks only what the edit reaches, in seconds, and a run after none replays from turbo's cache. It covers the pin's package too, which `pnpm typecheck` at the root does not. |
+| `pnpm typecheck`                 | `toolchain-typecheck -b`: tsrs, the Rust TypeScript 7.1 checker, Effect-patched by `@effect/tsgo`, over three projects joined by project references: `packages/engine/tsconfig.json`, the engine, which emits its declarations into `packages/engine/types`; `packages/grizzle/tsconfig.json`, the shell, against the engine's declarations, emitting its own into `packages/grizzle/types`; and `tsconfig.json`, test, bench, scripts and `oxlint.config.ts`, against both packages' declarations. Each package's `typecheck` task runs `toolchain-typecheck -b` on its own project, after the projects it references. The declarations and the build info are gitignored. The three tsconfigs extend the root's `tsconfig.base.json` alone, by relative path: grizzle's module settings and the compiler's strictness. The engine's project names no plugin, so the Effect language service never compiles the engine; the shell's project and `tsconfig.json` state the plugin with their per-file `overrides`, and the workspace gate holds each to the dev tools' `tsconfig.base.json`, which lists every diagnostic the service does not deprecate, `missingConcurrencyOption` off, as the toolchain drops it for every repository. Every Effect diagnostic fails it, suggestions included. Every project builds incrementally, from the build info its last build left (`tsconfig.base.json`'s `incremental`; the two package projects are composite, which needs it): each package's in its `types/`, beside its declarations, and the tooling project's in `tsconfig.tsbuildinfo` at the root. Every typecheck (these three builds, each `typecheck:full`, and the pin package's `typecheck`) runs `toolchain-typecheck`, the toolchain's `effect-tsgo tsrs` with the caller's arguments. The toolchain's packages are checked by the toolchain's own gate; the modules of theirs grizzle imports compile in `tsconfig.json`'s project. |
 | `pnpm format`                    | oxfmt's check over the repository, with `.oxfmtrc.json`, whose ignore list leaves markdown alone. `pnpm format:write` rewrites the files.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `pnpm workspace-gate`            | The toolchain's repository-wide checks (`workspace-gate`), which read the tree's JSON and git's file list and open no TypeScript program: every tsconfig that states the Effect plugin lists every diagnostic the installed service ships at the shared base's severity but those `toolchain.config.ts` rejects (`rejected-diagnostics`, `diagnostic-roster`, `effect-plugin-block`), the Effect-free package's tsconfig and manifest (`effect-free-packages`), and no JavaScript file (`ts-only-extensions`, but the one reproduction `toolchain.config.ts`'s `exceptions` names). |
 | `pnpm oxlint`                    | `toolchain-oxlint`, oxlint, type-aware through tsgolint, over `test`, `bench`, `scripts`, `oxlint.config.ts`, `oxlint.ast.config.ts` and `toolchain.config.ts`; each package's `oxlint` task lints that package. `oxlint.config.ts` is the dev tools' `lintConfig` with grizzle's lists: its restricted imports, the library that reads no environment and its readers, its Effect-free files (`packages/engine/**`), the plugin's names (the import doors, the naming door's brands, the tuple-returning functions a spread may take, the searches and generators `no-case-list` reads, the test helpers, the naming rule's markers) and its per-file exceptions, each with its reason. Every rule of the toolchain's plugin reads syntax alone. `oxlint.ast.config.ts` is the same configuration without its type-aware rules, which the pre-commit hook runs on a commit's files. The test rules hold in the preset's test files, `*.test.ts`, and the testing plugin's every-file rules, a clamped count and an implicit weight, in every file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -198,8 +200,8 @@ Everyone commits and pushes straight to `main`. There are no branches and no int
 
 Vitest runs each test file in a process of its own, never through Vite's module runner: Node runs the files as it runs
 the code, by type stripping. `pnpm test` runs as many files at once as the testing library's `testWorkers`: one per
-core. `pnpm test:network` runs as many, on a cluster family `pnpm pg:init` sized to a connection lease for each of
-them (`packages/pg/src/family.ts` `familyMembers` and `memberShare`, from the same `testWorkers`). Vitest's own process,
+core. `pnpm test:network` runs as many, on the cluster `pg.config.ts` states, its members sized to a connection lease
+for each of them (worker w on member (w − 1) mod K, `test/support/cluster.ts`, from the same `testWorkers`). Vitest's own process,
 every test process and every child a file spawns run under the hardened flags, which the test scripts put in
 `NODE_OPTIONS` (`test/support/process.ts` `hardenedNode`, `vendor/toolchain/packages/testing/src/vitest/config.ts` `HARDENED_FLAGS`):
 `--disable-proto=delete`, `--disable-sigusr1`, `--throw-deprecation`, `--pending-deprecation`, `--force-context-aware`,
@@ -214,7 +216,7 @@ open past its own work, and a file that changes its database itself builds a dat
 (Substrate.isolatedLayer). Each pg or
 schedules file uses its worker's long-lived
 database, `gz_shared_<VITEST_POOL_ID>`, and unique schema names, because roles are cluster-wide. The network run's
-global setup (`test/support/pg-global-setup.ts`) runs the doctor's quick checks, sweeps what ended runs left behind, and
+global setup (`test/support/pg-global-setup.ts`) brings the cluster up, runs the doctor's quick checks, sweeps what ended runs left behind, and
 clones the worker databases. Once every file has ended, its teardown sweeps again. Nothing drops a database while files
 run: DROP DATABASE holds its transaction id through the checkpoint it forces, which makes PostgreSQL summarize every
 other file's SERIALIZABLE transactions, and their writes then fail with 40001. The type tier runs on the toolchain's
@@ -543,7 +545,7 @@ text match. A type agreement's requirements are its property's situations, which
   session of the login that has taken on its role (`worldSession`, `worldPsql`). A schedule's direct actors take on
   their role through a login of their own, so a grizzle writer's actor is the one backend of its login.
 - **The connection lease:** every process that opens test connections first takes one of the cluster's leases
-  (`test/support/substrate/shared.ts`), slots sized from `max_connections`, each a table the cluster's init created,
+  (`test/support/substrate/shared.ts`), slots sized from `max_connections`, each a table the first lease on a member created,
   locked by a transaction left open, covering a test's pool, one connection per core, and the four sessions its
   substrate holds. A process with every slot held queues at the lease's gate, in the order processes asked, and the
   gate's holder races every slot at once, so the first slot to free admits it. Neither a lease nor a wait for one holds

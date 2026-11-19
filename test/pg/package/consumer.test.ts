@@ -9,18 +9,18 @@
  *
  * Features: a case of one note and one of several, and a read after an earlier case's write.
  *
- * The local cluster's commands through a submodule consumer's own install (test/unit/dev/consumer.ts
- * submoduleConsumer), in every layout of that install: the consumer's link to grizzle-pg runs init and doctor on a
- * cluster of the case's own, on a free port, and its link to grizzle runs generate and migrate into that cluster; the
- * checkout never holds a node_modules of its own, and grizzle's source finds the project's effect, the one package
- * whose Redacted carries the configuration's password, so a second copy fails the migrate. The project's import of
- * `@bjornpagen/grizzle-pg/pin` resolves through its link and agrees with the shell: every assignment of pin.env as
- * scripts/pg/lib.sh sources it in the checkout, and the installed build's stamp, the release's commit and its patches
- * (packages/pg/src/installation.ts installedBuild). Box: the layouts.
+ * The package's pin and command line through a submodule consumer's own install (test/unit/dev/consumer.ts
+ * submoduleConsumer), in every layout of that install: the consumer's link to grizzle runs generate and migrate into a
+ * cluster of the case's own (test/support/private-cluster.ts privateCluster); the checkout never holds a node_modules of
+ * its own, and grizzle's source finds the project's effect, the one package whose Redacted carries the configuration's
+ * password, so a second copy fails the migrate. The project's import of `@bjornpagen/grizzle-pg/pin` resolves through
+ * its link and agrees with the shell: every assignment of pin.env as scripts/pg/build.sh and source.sh source it in
+ * the checkout. Box: the layouts.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
+import type { PgMember } from "@bjornpagen/testing/pg"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -45,8 +45,6 @@ import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
-import { installedBuild } from "#pg/installation.ts"
-import { clusterVariable, type LocalCluster, selectCluster } from "#pg/local-cluster.ts"
 import type { Pin } from "#pg/pin.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
@@ -54,6 +52,7 @@ import { answered, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { caseHang, testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
+import { privateCluster } from "#test/support/private-cluster.ts"
 import { hardenedNode } from "#test/support/process.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -61,7 +60,6 @@ import { fullWorld } from "#test/support/worlds.ts"
 import {
 	consumerProject,
 	exitedCleanly,
-	freePort,
 	type Layout,
 	layoutGen,
 	layouts,
@@ -192,7 +190,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 						jsonText({
 							host: pgPin.host,
 							port: installed.cluster.port,
-							ca: installed.cluster.caPem,
+							ca: installed.cluster.ca,
 							database: installed.database,
 							password: Redacted.value(installed.as(own.server).password),
 							connectTimeoutMs: testConnectTimeout,
@@ -273,23 +271,17 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 	}
 )
 
-/** The command line of a workspace member's bin, as pnpm links it under the directory a layout puts it in. */
-const grizzlePg = (consumer: SubmoduleConsumer): string =>
-	`${consumer.modules}/node_modules/@bjornpagen/grizzle-pg/bin/grizzle-pg.sh`
-
 /** A program the project runs: it imports the pin through its link to grizzle-pg and prints it as JSON. */
 const pinProgram = `import { pin } from "@bjornpagen/grizzle-pg/pin"
 process.stdout.write(JSON.stringify(pin))
 `
 
 /**
- * A program bash runs with the checkout and pin.env's names as its arguments: it sources scripts/pg/lib.sh as every
- * script does, and prints the stem of a build's stamp (stamp_stem), then each name's value as the shell holds it, one
- * `<name>=<value>` line each.
+ * A program bash runs with the checkout and pin.env's names as its arguments: it sources scripts/pg/pin.env as the
+ * build's scripts do, and prints each name's value as the shell holds it, one `<name>=<value>` line each.
  */
-const shellPin = `source "$1/scripts/pg/lib.sh" || exit 1
+const shellPin = `source "$1/scripts/pg/pin.env" || exit 1
 shift
-printf '%s\n' "$stamp_stem"
 for name in "$@"; do
 	printf '%s=%s\n' "$name" "\${!name}"
 done
@@ -308,7 +300,7 @@ const grizzleCli = (consumer: SubmoduleConsumer): string =>
  * its TLS and the owner's password, which the configuration wraps in the project's Redacted, so grizzle reads it
  * only when its effect is the project's.
  */
-const consumerConfig = (cluster: LocalCluster): string => `import { readFileSync } from "node:fs"
+const consumerConfig = (member: PgMember): string => `import { readFileSync } from "node:fs"
 import net from "node:net"
 import { Effect, Redacted } from "effect"
 import pgDriver from "pg"
@@ -326,30 +318,30 @@ export default defineConfig({
 		transport: {
 			kind: "sslRequest",
 			host: "localhost",
-			port: ${cluster.port},
+			port: ${member.port},
 			open: () => new net.Socket(),
-			ca: readFileSync(${jsonText(`${cluster.tls}/ca.crt`)}, "utf8"),
+			ca: readFileSync(${jsonText(member.caFile)}, "utf8"),
 			servername: "localhost"
 		},
-		database: ${jsonText(pgPin.devRole)},
-		role: ${jsonText(pgPin.devRole)},
-		password: Effect.succeed(Redacted.make(readFileSync(${jsonText(cluster.passwordFile)}, "utf8").trim())),
+		database: ${jsonText(member.owner)},
+		role: ${jsonText(member.owner)},
+		password: Effect.succeed(Redacted.make(readFileSync(${jsonText(member.passwordFile)}, "utf8").trim())),
 		connectTimeoutMs: ${testConnectTimeout}
 	})
 })
 `
 
 layer(NodeServices.layer)(
-	"the local cluster's commands through a submodule consumer's install",
+	"the package's pin and command line through a submodule consumer's install",
 	(it) => {
 		it.effect(
-			"a consumer's own install runs grizzle-pg init and doctor and a migrate, its checkout holding no node_modules and effect one package",
+			"a consumer's own install imports the pin and runs a migrate, its checkout holding no node_modules and effect one package",
 			(ctx) =>
 				searched(
 					ctx,
 					exhaust(
 						{
-							suite: "package/local-cluster",
+							suite: "package/submodule-consumer",
 							generator: layoutGen,
 							literal: Formatter.format,
 							coverage: requiredInSpace<Layout>(
@@ -369,27 +361,12 @@ layer(NodeServices.layer)(
 									const fs = yield* FileSystem.FileSystem
 									const path = yield* Path.Path
 									const consumer = yield* submoduleConsumer(layout)
-									const port = yield* freePort
-									const env = { [clusterVariable]: `${port}` }
-									const cluster = yield* Effect.orDie(selectCluster(env))
-									const command = (args: ReadonlyArray<string>) =>
-										runChild(grizzlePg(consumer), args, consumer.project, env)
-									yield* Effect.addFinalizer(() =>
-										Effect.asVoid(Effect.orDie(command(["destroy"])))
-									)
-									for (const step of ["init", "doctor"]) {
-										const ran = yield* command([step])
-										assert.equal(
-											ran.exitCode,
-											exitedCleanly,
-											`grizzle-pg ${step}: ${ran.stdout}${ran.stderr}`
-										)
-									}
+									const member = yield* privateCluster
 									const imported = yield* runChild(
 										process.execPath,
 										[...hardenedNode, "--input-type=module", "-e", pinProgram],
 										consumer.project,
-										env
+										{}
 									)
 									assert.equal(
 										imported.exitCode,
@@ -402,35 +379,30 @@ layer(NodeServices.layer)(
 										"bash",
 										["-c", shellPin, "bash", consumer.checkout, ...names],
 										consumer.project,
-										env
+										{}
 									)
 									assert.equal(
 										sourced.exitCode,
 										exitedCleanly,
-										`scripts/pg/lib.sh sourced: ${sourced.stderr}`
+										`scripts/pg/pin.env sourced: ${sourced.stderr}`
 									)
-									const [stemLine, ...assigned] = Str.split(Str.trimEnd(sourced.stdout), "\n")
-									const stem = defined(stemLine, "the shell printed no stamp stem")
 									const shellValues = Record.fromEntries(
-										Arr.map(assigned, (line): readonly [string, string] => {
-											const [name, ...value] = Str.split(line, "=")
-											return [defined(name, `a line of no name: ${line}`), Arr.join(value, "=")]
-										})
+										Arr.map(
+											Str.split(Str.trimEnd(sourced.stdout), "\n"),
+											(line): readonly [string, string] => {
+												const [name, ...value] = Str.split(line, "=")
+												return [defined(name, `a line of no name: ${line}`), Arr.join(value, "=")]
+											}
+										)
 									)
 									assert.deepEqual(
 										Record.map(pin, shellSpelling),
 										shellValues,
 										"the pin the project imports is pin.env as the shell sources it"
 									)
-									const installed = yield* Effect.orDie(installedBuild(pin.GRIZZLE_PG_PREFIX, stem))
-									assert.deepEqual(
-										installed,
-										Option.some({ commit: pin.PG_PIN_COMMIT, patches: pin.PG_PIN_PATCHES }),
-										"the pin the project imports is the build the installation's stamp records"
-									)
 									yield* fs.writeFileString(
 										path.join(consumer.project, "grizzle.config.ts"),
-										consumerConfig(cluster)
+										consumerConfig(member)
 									)
 									for (const step of ["generate", "migrate"]) {
 										const ran = yield* runChild(

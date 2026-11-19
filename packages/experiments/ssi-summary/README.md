@@ -10,7 +10,7 @@ counts as concurrent because the shrink's snapshot xmin precedes the grow's fini
 shrink then reads versions its write created, and the write, summarized, is looked up with no concurrency test
 (predicate.c 3980-4012, heapam.c 9504-9555).
 
-Run it on a private family: `GRIZZLE_PG_CLUSTER=<port> packages/experiments/ssi-summary/run.sh`.
+Run it on a private cluster: `TOOLCHAIN_PG_CLUSTER=<port> packages/experiments/ssi-summary/run.sh`.
 It fills the pool of finished SERIALIZABLE transactions twice over, about 50,000 transactions for 2,215 connections.
 
 Verdict that ends it: `run.sh` exits 1, the shrink committing with the horizon held, on a PostgreSQL grizzle pins. Then
