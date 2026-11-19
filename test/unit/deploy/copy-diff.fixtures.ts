@@ -552,7 +552,8 @@ const ownColumns = (e: Expr): ReadonlyArray<string> => {
 /** A column of a table, by its table's name and its own. */
 const at = (table: string, column: string): string => `${table}.${column}`
 
-/** What a migration touches: the columns it drops, adds, converts, re-expresses, renames or updates, and the
+/** What a migration touches: the columns it drops, adds, converts, re-expresses, renames or updates to another value
+ * (an UPDATE's assignment of a column to itself, the anchor sql/generation.ts assigns, writes no value), and the
  * constraints and indexes it drops or creates, each by its table's name and its own, a swap's temporary index by the
  * constraint it becomes or the name it is renamed to. */
 interface Touched {
@@ -617,7 +618,11 @@ const touchedBy = (statements: ReadonlyArray<SqlStatement>): Touched => {
 			columns.add(at(s.table.name, s.to))
 		} else if (s.kind === "update") {
 			for (const a of s.set) {
-				columns.add(at(s.table.name, a.column))
+				const itself =
+					a.value.kind === "column" && a.value.table === s.alias && a.value.column === a.column
+				if (!itself) {
+					columns.add(at(s.table.name, a.column))
+				}
 			}
 		} else if (s.kind === "createIndex") {
 			objects.add(`index ${s.name}`)
