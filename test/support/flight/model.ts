@@ -303,28 +303,53 @@ const framedSlot = (frame: Transaction, slot: Slot, sqlOf: SqlOf): Framed => {
 }
 
 /**
- * Each flight of a call as framingOf states it: a framed call's one flight; statements alone in front of a
- * transaction (runAlongside) send theirs and the transaction's BEGIN and statements in a first flight and its end in a
- * second, which a first flight that ended the call never sends.
+ * Each flight of a call as framingOf states it, by whether it sends its transaction's end (sendsEnd): a framed call's
+ * one flight; statements alone in front of a transaction (runAlongside) send theirs and the transaction's BEGIN and
+ * statements in a first flight, and its end in a second where it sends it.
  */
-export const framingOf = (call: Call, sqlOf: SqlOf): ReadonlyArray<ReadonlyArray<Framed>> => {
+export const framingOf = (
+	call: Call,
+	sqlOf: SqlOf,
+	endSent: boolean
+): ReadonlyArray<ReadonlyArray<Framed>> => {
 	const frame = frames[call.frame]
 	const framed = Arr.map(layoutOf(call), (slot) => framedSlot(frame, slot, sqlOf))
-	return call.kind === "alongside" ? [framed.slice(0, -1), framed.slice(-1)] : [framed]
+	if (call.kind === "framed") {
+		return [framed]
+	}
+	const opening = framed.slice(0, -1)
+	return endSent ? [opening, framed.slice(-1)] : [opening]
 }
 
 /**
- * The end of a transaction a call never sent, its first flight having lost the connection: the answer its second
- * flight would have carried, which no server made, read as the lost connection's, and delivered after every answer, so
- * an interruption came before it.
+ * Whether an alongside call sends its transaction's end, from its first flight's answers once it has drained, as
+ * runAlongside decides it: where the transaction stands open, BEGIN having run and the connection standing, no query of
+ * the first flight having failed or ended the session; never where BEGIN did not run, or the first flight ended the
+ * session, whose connection's end ended the transaction, since an ended session sends nothing.
+ */
+const sendsEnd = (
+	call: Extract<Call, { readonly kind: "alongside" }>,
+	first: ReadonlyArray<Delivered | undefined>
+): boolean => {
+	/** BEGIN follows the statements alone (layoutOf). */
+	const begun = first[call.alone.length]?.answer._tag
+	return (
+		(begun === "result" || begun === "unreadable") &&
+		!Arr.some(first, (d) => d?.answer._tag === "failed" || d?.answer._tag === "terminated")
+	)
+}
+
+/**
+ * The end of a transaction a call never sent (sendsEnd): the answer its second flight would have carried, which no
+ * server made, read as the lost connection's, and delivered after every answer, so an interruption came before it.
  */
 const unsentEnd: Delivered = { answer: { _tag: "failed" }, ordinal: Number.POSITIVE_INFINITY }
 
 /**
- * A call's answers by its layout's positions (layoutOf) over every flight it sent, and whether it sent its
- * transaction's end: a framed call's one flight's, its end among them; an alongside call's first flight's, then its
- * second's one answer, its transaction's end, or, where it never sent the second, the end unsent (unsentEnd), which the
- * server never made.
+ * A call's answers by its layout's positions (layoutOf) over every flight it sent, and whether it sends its
+ * transaction's end, as the model decides it: a framed call's one flight's, its end among them; an alongside call's
+ * first flight's, then, where it sends its end (sendsEnd), its second's one answer, the end's, and otherwise the end
+ * unsent (unsentEnd), which the server never made.
  */
 export const callAnswers = (
 	call: Call,
@@ -338,16 +363,17 @@ export const callAnswers = (
 	if (call.kind === "framed" || first === undefined) {
 		return { delivered: first?.delivered ?? [], made: first?.made ?? [], endSent: true }
 	}
-	return second === undefined
+	const endSent = sendsEnd(call, first.delivered)
+	return endSent && second !== undefined
 		? {
-				delivered: [...first.delivered, unsentEnd],
-				made: [...first.made, undefined],
-				endSent: false
-			}
-		: {
 				delivered: [...first.delivered, ...second.delivered],
 				made: [...first.made, ...second.made],
-				endSent: true
+				endSent
+			}
+		: {
+				delivered: [...first.delivered, unsentEnd],
+				made: [...first.made, undefined],
+				endSent
 			}
 }
 
@@ -729,8 +755,8 @@ const judgeTransaction = (
 /**
  * Where an interruption came: none, or before the completed call; while a statement the call waits for was in flight
  * (a statement alone, a transaction's last statement or BEGIN when it has none, or for statements alone in front of
- * a transaction, the whole flight); while a write awaited COMMIT's answer, every statement answered; or while the
- * flight drained after a refusal decided it.
+ * a transaction, both its flights, or its first alone where that decided the call); while a write awaited COMMIT's
+ * answer, every statement answered; or while the flight drained after a refusal decided it.
  */
 export type InterruptionPoint = "none" | "in flight" | "awaiting COMMIT" | "draining"
 
@@ -747,8 +773,9 @@ export const interruptionPoint = (
 	const beginAt = Arr.findFirstIndex(layout, (slot) => slot.role === "begin")
 	const endAt = layout.length - 1
 	/**
-	 * Whether an alongside call's first flight decided it whole (runAlongside): an answer alone it cannot read or a lost
-	 * connection, or BEGIN refused, after which the wait for its end, where it sends one, cancels nothing.
+	 * Whether an alongside call's first flight decided it before its end (runAlongside Next): an answer alone it cannot
+	 * read or a lost connection, BEGIN refused, or a statement's refusal or lost connection, after which the wait for its
+	 * end, where it sends one, cancels nothing.
 	 */
 	const firstDecides =
 		call.kind === "alongside" &&
@@ -758,9 +785,8 @@ export const interruptionPoint = (
 				case "alone":
 					return tag !== "result" && tag !== "refused"
 				case "begin":
-					return tag !== "result" && tag !== "unreadable"
 				case "statement":
-					return tag === "terminated" || tag === "failed"
+					return tag !== "result" && tag !== "unreadable"
 				case "prologue":
 				case "end":
 					return false

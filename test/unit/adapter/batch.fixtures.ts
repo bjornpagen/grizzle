@@ -149,7 +149,8 @@ const runOnce = (
 	const sent: ReadonlyArray<ReadonlyArray<Framed>> = Arr.map(session.flights(), (flight) =>
 		Arr.map(flight.pipeline, framed)
 	)
-	assert.deepEqual(sent, framingOf(c.call, sqlOf).slice(0, sent.length), "the flights' texts")
+	const answers = callAnswers(c.call, session.flights())
+	assert.deepEqual(sent, framingOf(c.call, sqlOf, answers.endSent), "the flights' texts")
 	assert.equal(session.open(), false, "the server holds no transaction open")
 	assert.equal(session.deliverable(), false, "every answer was read")
 	/**
@@ -195,7 +196,7 @@ const runOnce = (
 			k.note(`prologue ${slot.step} ${slot.answer}`)
 		}
 	}
-	const { delivered } = callAnswers(c.call, session.flights())
+	const delivered = answers.delivered
 	const point = interruptionPoint(c.call, delivered, observations.interruption)
 	if (point !== "none") {
 		k.note(`interrupted ${point}`)
