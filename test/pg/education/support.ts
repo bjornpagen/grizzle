@@ -1347,8 +1347,11 @@ type EducationSuite = Realization & {
 
 /**
  * The education fixture's world as a template (execute/template.ts worldTemplate), under the cluster's own ambient: what
- * a suite realized once realized per test, made once per member, each case seated on the worker's clone of it, its
- * tables emptied after it, as each case reset the one world the suite's cases shared.
+ * a suite realized once realized per test, made once per member, each case realizing it over a fresh clone of its own
+ * (Substrate.freshOf), as each case reset the one world the suite's cases shared: a case's reset refreshes the
+ * fixture's derived relation sectionPoints (execute/index.ts RealWorld reset), a materialized view whose rows no seat's
+ * reset empties, so a seat would hold the clone unlike its template after the first case that stages a section's
+ * points, and refuse the next case's take.
  */
 const educationWorld = worldTemplate({
 	declaredIn: import.meta,
@@ -1389,7 +1392,7 @@ const educationCase = (
 
 /**
  * An education suite's property: its cases (educationCase) climb toward the required features in the steered phase. A
- * suite realized once seats each case on the worker's clone of the fixture's world (educationWorld); one realized per
+ * suite realized once takes a fresh clone of the fixture's world for each case (educationWorld); one realized per
  * case realizes the case's own world in a database of its own (drive/suite.ts ownWorld).
  *
  * Its pre-conversion budget: runs `cases`, coverage cases `cases` (test/pg/education/support.ts at c568eb123).
@@ -1415,7 +1418,7 @@ const educationProperty = (spec: EducationSuite) => {
 		case "once":
 			return property.explore(space, {
 				...stated,
-				needs: { world: Substrate.seat(educationWorld) },
+				needs: { world: Substrate.freshOf(educationWorld) },
 				check:
 					({ world }, c: Case<Feature>) =>
 					(pc) =>

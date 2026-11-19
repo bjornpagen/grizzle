@@ -31,14 +31,14 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { templateWorld } from "#test/support/worlds/execute/template.ts"
 
 /**
- * The leak scan reports every hidden value a refusal spells, in the field that spells it, each case on the worker's
- * seat of the documents world, reset to its reality.
+ * The leak scan reports every hidden value a refusal spells, in the field that spells it, each case on a fresh clone of
+ * the documents world of its own (Substrate.freshOf), reset to its reality.
  *
  * Its pre-conversion budget: runs 21, coverage cases 84 (test/pg/world-model/execute.test.ts at 10a0cd919).
  */
 export const theLeakScanReportsEveryHiddenValueARefusalSpellsInTheFieldThatSpellsIt =
 	property.explore(leakCases, {
-		needs: { docs: Substrate.seat(docsWorld) },
+		needs: { docs: Substrate.freshOf(docsWorld) },
 		situations: situations satisfies ReadonlyArray<Reached<Reported>>,
 		check:
 			({ docs }, c: Case<Reported>) =>

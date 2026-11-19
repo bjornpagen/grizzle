@@ -327,7 +327,12 @@ export const cases = 21
  */
 export const leakCases = caseGen(hostSchemaOf(docsInstall.base, installedNames(docsInstall)))
 
-/** The documents installation's world as a template (execute/template.ts worldTemplate), which each case seats on. */
+/**
+ * The documents installation's world as a template (execute/template.ts worldTemplate), installed once per member, each
+ * case taking a fresh clone of it (Substrate.freshOf): a case's reset refreshes the world's derived relation OrgDocs
+ * (execute/index.ts RealWorld reset), a materialized view whose rows no seat's reset empties, so a seat would hold the
+ * clone unlike its template after the first case whose reality holds a document, and refuse the next case's take.
+ */
 export const docsWorld = worldTemplate({
 	declaredIn: import.meta,
 	name: "leak scan docs",
