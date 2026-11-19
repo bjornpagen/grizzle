@@ -1364,3 +1364,273 @@ export const changeCase = (c: ChangeCase, k: Case<ChangeFeature>) =>
 				})
 		})
 	})
+
+/**
+ * How many of a changed filler's stored rows its new filler draws as the old one drew them: a row is alike where its
+ * second field holds its first's, a member's y its x and its h its g, an owner's or a node's tag2 its tag, so a fold
+ * over y, a copy of tag2 or a family grouped by h draws it as before. `every` makes the change a re-draw that moves no
+ * value, as C18's Node string-value fold is; `some` one that moves the values of the rows left apart; `drawn` leaves
+ * the rows as drawn.
+ */
+const alikes = ["drawn", "some", "every"] as const
+
+type Alike = (typeof alikes)[number]
+
+/** A changed filler over stored rows whose second fields are alike to their first as `alike` says. */
+interface RedrawCase {
+	readonly change: ChangeCase
+	readonly alike: Alike
+}
+
+/** `rows` with the second field of each row `chosen` picks set to its first's. */
+const alikeRows = (
+	stored: ReadonlyArray<Stored>,
+	chosen: (relation: RelationName, i: number) => boolean
+): ReadonlyArray<Stored> =>
+	Arr.map(stored, (r) => ({
+		...r,
+		rows: Arr.map(r.rows, (row, i) => {
+			if (!chosen(r.relation, i)) {
+				return row
+			}
+			switch (r.relation) {
+				case "Member":
+					return { ...row, y: valueOf(row, "x"), h: valueOf(row, "g") }
+				case "Owner":
+				case "Node":
+					return { ...row, tag2: valueOf(row, "tag") }
+				case "Spare":
+					return row
+			}
+		})
+	}))
+
+/** A changed filler on a counted, ordered or tree family, a group change on a counted one alone, whose stored rows are
+ * alike as drawn: no data step runs between its versions, so every row the third version's migration writes is one its
+ * backfill writes. */
+export const redrawCaseGen: Gen<RedrawCase> = (source) => {
+	const change = source.draw(
+		changeCaseOf(
+			element<Change>(["fold step", "copy target", "group", "fold added"]),
+			(drawn) => (drawn === "group" ? ["counted"] : kinds),
+			rowsOf,
+			swarmedRegroup
+		)
+	)
+	const alike = source.draw(element(alikes))
+	const picks = new Map<string, boolean>()
+	const chosen = (relation: RelationName, i: number): boolean => {
+		switch (alike) {
+			case "drawn":
+				return false
+			case "every":
+				return true
+			case "some": {
+				const at = `${relation}:${i}`
+				const known = picks.get(at)
+				if (known !== undefined) {
+					return known
+				}
+				const pick = source.draw(boolean)
+				picks.set(at, pick)
+				return pick
+			}
+		}
+	}
+	return { change: { ...change, stored: alikeRows(change.stored, chosen) }, alike }
+}
+
+export type RedrawFeature =
+	| Kind
+	| Change
+	| "every row alike"
+	| "some rows alike"
+	| "a family emptied by its regroup"
+	| "a table the re-draw writes no row of"
+	| "a table the re-draw writes some rows of"
+
+/** Whether a group change empties some owner's family: an owner with members under g and none under h. */
+const emptiesAFamily = (c: ChangeCase): boolean => {
+	const members = storedRows(c.stored, "Member")
+	return (
+		c.change === "group" &&
+		Arr.some(
+			storedRows(c.stored, "Owner"),
+			(o) =>
+				Arr.some(members, (m) => valueOf(m, "g") === valueOf(o, "id")) &&
+				!Arr.some(members, (m) => valueOf(m, "h") === valueOf(o, "id"))
+		)
+	)
+}
+
+/** One table of a version as the re-draw oracle reads it: its relfilenode; each live column's attribute number and,
+ * where its rows predating it read a fast default, that value as text; and each row, in the order of its primary key,
+ * by its key, its xmin and its value of each column, as text. */
+interface RowsRead {
+	readonly table: string
+	readonly relfilenode: string
+	readonly columns: ReadonlyArray<{
+		readonly attnum: string
+		readonly missing: Option.Option<string>
+	}>
+	readonly rows: ReadonlyArray<{
+		readonly key: string
+		readonly xmin: string
+		readonly values: ReadonlyArray<Option.Option<string>>
+	}>
+}
+
+/** The family's tables of a version (RowsRead). */
+const rowsReadOf = (schemaName: string, kind: Kind) =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const oids = yield* oidsOf(schemaName, relationsOf(kind))
+		/** A value as the admin's session reads it, the server's text, or NULL. */
+		const cell = (v: unknown): Option.Option<string> =>
+			typeof v === "string" ? Option.some(v) : Option.none()
+		return yield* Effect.forEach(oids, (oid) =>
+			Effect.gen(function* () {
+				const query = (sql: string) => Effect.orDie(substrate.admin.queryValues(sql, []))
+				const [named] = yield* query(
+					`SELECT c.oid::regclass::text, c.relfilenode::text FROM pg_catalog.pg_class AS c WHERE c.oid = ${oid}`
+				)
+				const table = String(defined(named, "a table")[0])
+				const relfilenode = String(defined(named, "a table")[1])
+				const attributes = yield* query(
+					`SELECT a.attnum::text, a.attname::text, CASE WHEN a.atthasmissing THEN (a.attmissingval::text::text[])[1] END FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = ${oid} AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`
+				)
+				const keys = yield* query(
+					`SELECT a.attname::text FROM pg_catalog.pg_index AS i CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, place) JOIN pg_catalog.pg_attribute AS a ON a.attrelid = i.indrelid AND a.attnum = k.attnum WHERE i.indrelid = ${oid} AND i.indisprimary ORDER BY k.place`
+				)
+				const key = Arr.join(
+					Arr.map(keys, (k) => quoteIdent(String(k[0]))),
+					", "
+				)
+				const rows = yield* query(
+					`SELECT ROW(${key})::text, xmin::text, ${Arr.join(
+						Arr.map(attributes, (a) => `${quoteIdent(String(a[1]))}::text`),
+						", "
+					)} FROM ${table} ORDER BY ${key}`
+				)
+				const read: RowsRead = {
+					table,
+					relfilenode,
+					columns: Arr.map(attributes, (a) => ({ attnum: String(a[0]), missing: cell(a[2]) })),
+					rows: Arr.map(rows, (row) => ({
+						key: String(row[0]),
+						xmin: String(row[1]),
+						values: Arr.map(Arr.drop(row, 2), cell)
+					}))
+				}
+				return read
+			})
+		)
+	})
+
+/** Whether two stored values, as text, are one: both NULL, or both the same text. */
+const sameText = (x: Option.Option<string>, y: Option.Option<string>): boolean =>
+	Option.isNone(x) ? Option.isNone(y) : Option.isSome(y) && x.value === y.value
+
+/**
+ * Each row of `after` the re-draw changed, by key: one whose value of a column `before` holds too differs, or whose
+ * value of a column the migration added differs from the fast default every row predating the column reads, as
+ * PostgreSQL stores them, compared as text. The rows of a table a re-draw keeps are those it held, by key.
+ */
+const changedRows = (before: RowsRead, after: RowsRead): ReadonlySet<string> => {
+	const was = new Map(Arr.map(before.rows, (r) => [r.key, r] as const))
+	const at = new Map(Arr.map(before.columns, (c, i) => [c.attnum, i] as const))
+	return new Set(
+		Arr.flatMap(after.rows, (r) => {
+			const old = defined(was.get(r.key), `${after.table}'s row ${r.key} before the re-draw`)
+			const moved = Arr.some(after.columns, (c, i) => {
+				const now = defined(r.values[i], "a row's value of each column")
+				const j = at.get(c.attnum)
+				const then =
+					j === undefined ? c.missing : defined(old.values[j], "a row's value of each column")
+				return !sameText(now, then)
+			})
+			return moved ? [r.key] : []
+		})
+	)
+}
+
+/** The rows of `after` its version's migration wrote, by key: each whose xmin is not the one it had. */
+const writtenRows = (before: RowsRead, after: RowsRead): ReadonlySet<string> => {
+	const was = new Map(Arr.map(before.rows, (r) => [r.key, r.xmin] as const))
+	return new Set(Arr.flatMap(after.rows, (r) => (was.get(r.key) === r.xmin ? [] : [r.key])))
+}
+
+/**
+ * A changed filler drawn again over stored rows, judged by PostgreSQL: the migration commits with every law validated,
+ * which holds every value it draws to the target's natives, the values the target's fill draws over those rows; and
+ * on every table it does not rewrite, the rows its backfill writes, those whose xmin moved, are exactly the rows whose
+ * values it changed. A re-draw that moves no value writes no row; one that moves the values of k rows writes those k.
+ */
+export const redrawCase = (r: RedrawCase, k: Case<RedrawFeature>) =>
+	Effect.gen(function* () {
+		const c = r.change
+		k.noteAll([
+			c.shape.kind,
+			c.change,
+			...(r.alike === "every" && c.change !== "fold added" ? (["every row alike"] as const) : []),
+			...(r.alike === "some" && c.change !== "fold added" ? (["some rows alike"] as const) : []),
+			...(emptiesAFamily(c) ? (["a family emptied by its regroup"] as const) : [])
+		])
+		const outcome = yield* Effect.result(
+			migrateHistory(
+				"family_redraws",
+				[
+					{ desc: (name) => versionOf(name, c.shape, { kind: "plain" }), declared: noDeclarations },
+					{
+						desc: (name) =>
+							versionOf(name, shapeBefore(c), {
+								kind: "family",
+								naming: asFirst,
+								reading: firstReading
+							}),
+						declared: noDeclarations
+					},
+					{
+						desc: (name) =>
+							versionOf(name, c.shape, {
+								kind: "family",
+								naming: asFirst,
+								reading: changedReading(c.change)
+							}),
+						declared: noDeclarations
+					}
+				],
+				c.stored,
+				() => [],
+				(step, name) =>
+					step === 0 ? Effect.succeed<ReadonlyArray<RowsRead>>([]) : rowsReadOf(name, c.shape.kind)
+			)
+		)
+		if (outcome._tag === "Failure") {
+			return assert.fail(
+				`a changed filler over lawful rows was refused: ${outcome.failure.message}\n${Formatter.format(r)}`
+			)
+		}
+		const before = defined(outcome.success[1], "the family's tables before the re-draw")
+		const after = defined(outcome.success[2], "the family's tables after the re-draw")
+		for (const [i, now] of after.entries()) {
+			const was = defined(before[i], "a table both versions hold")
+			if (was.relfilenode !== now.relfilenode) {
+				continue
+			}
+			const written = writtenRows(was, now)
+			const changed = changedRows(was, now)
+			if (now.rows.length > 0) {
+				k.note(
+					written.size === 0
+						? "a table the re-draw writes no row of"
+						: "a table the re-draw writes some rows of"
+				)
+			}
+			assert.deepEqual(
+				Arr.sort([...written], Order.String),
+				Arr.sort([...changed], Order.String),
+				`the re-draw of ${now.table} writes exactly the rows whose values it changes\n${Formatter.format(r)}`
+			)
+		}
+	})

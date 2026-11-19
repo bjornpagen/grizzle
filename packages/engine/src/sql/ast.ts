@@ -242,8 +242,10 @@ export type BinaryOperator = (typeof binaryOperators)[number]
  * functions of the compile-target catalog, the exact value of a double's bits (float8send and
  * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, a bytes value's chunks
  * (lower/delivery.ts), the runtime probes, the rule judge's reads of its session tables in the catalog
- * (physical/ddl/rules.ts judged), a text's image an index holds (sql/image.ts) and the database default's
- * statement; a relation input's arrays are a FROM
+ * (physical/ddl/rules.ts judged), a text's image an index holds (sql/image.ts), the database default's
+ * statement and the binary comparison of two rows, the function of PostgreSQL's `*<>` (record_image_ne), by which a
+ * migration's backfill writes only the rows whose drawn values change (deploy/diff/backfill.ts staged); a relation
+ * input's arrays are a FROM
  * item of their own. Extension functions (pgvector) are qualified by their extension's schema instead.
  */
 export const builtinFunctionNames = [
@@ -329,7 +331,8 @@ export const builtinFunctionNames = [
 	"to_regclass",
 	"to_regprocedure",
 	"pg_get_userbyid",
-	"pg_my_temp_schema"
+	"pg_my_temp_schema",
+	"record_image_ne"
 ] as const
 export type BuiltinFunctionName = (typeof builtinFunctionNames)[number]
 

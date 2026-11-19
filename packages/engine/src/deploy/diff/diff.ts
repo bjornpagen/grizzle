@@ -68,6 +68,7 @@ import {
 import {
 	type AnyObject,
 	type BuiltOver,
+	type BuiltOverKind,
 	builtOver,
 	constraintColumns,
 	type Installed,
@@ -197,18 +198,30 @@ const ownedAside = (a: Aside): string =>
 		? ", with each index, identity sequence and statistics object it owns, whose names a relation of its old name would take, renamed aside too"
 		: ""
 
-/** What a migration does to a column of a table it keeps (ColumnFates): kept as it is; converted in place, a field
- * whose type changes; redefined, a law column whose definition changes, a field rewritten (rewrittenOver), or one the
- * target no longer holds whose generation reads a column the migration replaces (generatedOver), dropped before
- * Structure's alteration and added again where the target holds it; or dropped, at the end of the migration, a field or
- * law column the target no longer holds. */
+/** What a migration does to a column of a table it keeps (ColumnFates): kept as it is; revalued, kept with its values
+ * changed in place, a field or law column the backfill draws again (FieldChange redrawn) or a generated column that
+ * reads one (generatedOver), which PostgreSQL computes again on each row the backfill writes; converted in place, a
+ * field whose type changes; redefined, a law column whose definition changes, a field rewritten (rewrittenOver), or one
+ * the target no longer holds whose generation reads a column the migration replaces or revalues (generatedOver), dropped
+ * before Structure's alteration and added again where the target holds it; or dropped, at the end of the migration, a
+ * field or law column the target no longer holds.
+ *
+ * A revalued column keeps what PostgreSQL maintains on each row an UPDATE writes, its indexes, statistics and the
+ * generated columns over it; every constraint over it and every rule trigger its update fires is taken away before the
+ * backfill and built again after it (takenByReplacement, revaluationTakes), as over a replaced column: PostgreSQL checks
+ * a key that is not deferrable at each row the UPDATE writes and a foreign key at the end of each statement, and a
+ * backfill that draws two rows' values into each other's place, or one table's before another's, passes through
+ * states that break them on its way to one that holds them; and a constraint the target replaces would read the drawn
+ * values by the previous definition. */
 type ColumnFate =
 	| { readonly kind: "kept" }
+	| { readonly kind: "revalued" }
 	| { readonly kind: "converted" }
 	| { readonly kind: "redefined" }
 	| { readonly kind: "dropped" }
 
 const keptColumn: ColumnFate = { kind: "kept" }
+const revaluedColumn: ColumnFate = { kind: "revalued" }
 const convertedColumn: ColumnFate = { kind: "converted" }
 const droppedColumn: ColumnFate = { kind: "dropped" }
 const redefinedColumn: ColumnFate = { kind: "redefined" }
@@ -884,9 +897,12 @@ class Differ {
 	/** The columns the target's families draw, each with the placeholder default it is added under to a table that may
 	 * hold rows (backfill.ts drawnColumns). */
 	readonly drawn: DrawnColumns
-	/** The drawn columns this migration adds to tables that may hold rows under their placeholders, by table key, which
-	 * the backfill draws and then drops the default of. */
-	readonly backfilled = new Map<string, BackfilledTable>()
+	/** The drawn columns this migration adds to tables that may hold rows under their placeholders, by table key, in the
+	 * order it adds them, which the backfill draws and then drops the default of. */
+	readonly backfilled = new Map<
+		string,
+		{ readonly table: ObjectName; readonly added: ReadonlyArray<string> }
+	>()
 	/** The privileges Structure grants again right after the world object it creates again (regrantWorld), by key
 	 * (privileges.ts HeldPrivilege), which Publish's grants leave out. */
 	readonly regranted = new Set<string>()
@@ -1118,7 +1134,7 @@ class Differ {
 			fillReadsOf(this.input.installation),
 			tables.flatMap(({ key, own, lawColumns }) => [
 				...[...own].flatMap(([column, change]) =>
-					change.kind === "rewritten" || change.kind === "reexpressed"
+					change.kind === "rewritten" || change.kind === "reexpressed" || change.kind === "redrawn"
 						? [columnAt(key, column)]
 						: []
 				),
@@ -1143,11 +1159,10 @@ class Differ {
 					const { order } = at
 					const old = at.old
 					const own = new Map(
-						[...recordedChanges].map(([column, change]): readonly [string, FieldChange] =>
-							change.kind !== "rewritten" && drawnAgain(key, column)
-								? [column, { kind: "rewritten" }]
-								: [column, change]
-						)
+						[...recordedChanges].map(([column, change]): readonly [string, FieldChange] => [
+							column,
+							drawnAgain(key, column) ? drawnAnew(change) : change
+						])
 					)
 					const changes = rewrittenOver(
 						shared,
@@ -1171,7 +1186,9 @@ class Differ {
 									? convertedColumn
 									: change.kind === "rewritten"
 										? redefinedColumn
-										: keptColumn
+										: change.kind === "redrawn"
+											? revaluedColumn
+											: keptColumn
 							]
 						]
 					})
@@ -1181,10 +1198,14 @@ class Differ {
 							: [{ column: b.name, reads: generationReads(b), fate: droppedColumn }]
 					)
 					const lawColumns = recorded.map((c) =>
-						c.fate.kind === "kept" && drawnAgain(key, c.column)
-							? { ...c, fate: redefinedColumn }
-							: c
+						c.fate.kind === "kept" && drawnAgain(key, c.column) ? { ...c, fate: revaluedColumn } : c
 					)
+					const fieldFates = new Map(fields)
+					const generatedFields = old.columns.flatMap((b) => {
+						const fate = fieldFates.get(b.name)
+						const reads = generationReads(b)
+						return fate === undefined || !isNonEmpty(reads) ? [] : [{ column: b.name, reads, fate }]
+					})
 					return [
 						o.ident,
 						{
@@ -1192,7 +1213,7 @@ class Differ {
 							order,
 							old,
 							create,
-							fates: generatedOver(new Map(fields), [...removed, ...lawColumns]),
+							fates: generatedOver(fieldFates, [...generatedFields, ...removed, ...lawColumns]),
 							changes
 						}
 					]
@@ -1526,12 +1547,15 @@ class Differ {
 	/** The previous objects built over a column this migration replaces (ColumnFate converted or redefined), by identity,
 	 * each with how and its own drop (Replaced): what is built over the column (objects.ts builtOver: a constraint, an
 	 * index, a statistics object, a law column computed from it or a rule trigger fired by its update), and each foreign
-	 * key referencing a key over one, which dropReplaced drops before the column is converted or dropped. */
+	 * key referencing a key over one, which dropReplaced drops before the column is converted or dropped. Over a column
+	 * the backfill revalues in place, what a revaluation takes (revaluationTakes), dropped before the backfill and built
+	 * again after it as over a column dropped and added again. */
 	takenByReplacement(): ReadonlyMap<string, Replaced> {
 		const out = new Map<string, Replaced>()
-		/** How each of `columns` of `table` is replaced, of those this migration replaces: only a table both hold has
-		 * a column replaced. */
+		/** How each of `columns` of `table` is replaced for an object of `kind`, of those this migration replaces: only a
+		 * table both hold has a column replaced. */
 		const hows = (
+			kind: BuiltOverKind,
 			table: ObjectName,
 			columns: ReadonlyArray<string>
 		): ReadonlyArray<Replacement> => {
@@ -1539,10 +1563,7 @@ class Differ {
 			if (kept === undefined) {
 				return []
 			}
-			return columns.flatMap((c) => {
-				const how = columnFate(kept, c).kind
-				return how === "converted" || how === "redefined" ? [how] : []
-			})
+			return columns.flatMap((c) => replacementBy(columnFate(kept, c).kind, revaluationTakes[kind]))
 		}
 		for (const o of this.prev.values()) {
 			const over = builtOver(installed(o), (c) => keyOrCheckDefinition(c, this.prev))
@@ -1551,9 +1572,10 @@ class Differ {
 			}
 			const v = over.part
 			const how = strongestReplacement([
-				...hows(over.table, over.columns),
+				...hows(v.kind, over.table, over.columns),
 				...(v.kind === "foreignKey"
 					? hows(
+							v.kind,
 							v.constraint.references,
 							v.constraint.referencedColumns.map((k) => k.column)
 						)
@@ -2102,14 +2124,14 @@ class Differ {
 	/** What a field both tables hold drafts for its change from `b` to `c` (fieldChangesOf), besides the rename of its
 	 * identity sequence, which its table's visit drafts before its alteration (keptTable): a rewritten field dropped before
 	 * anything is converted, in structure.drop, since PostgreSQL refuses to convert a column a generated column reads,
-	 * and added again once the conversions ran (rewriteField); a kept one, nothing; otherwise its steps in place
-	 * (changeInPlace). */
+	 * and added again once the conversions ran (rewriteField); a kept one, nothing, nor a redrawn one, whose values the
+	 * backfill draws again in place (backfill); otherwise its steps in place (changeInPlace). */
 	changeField(t: ObjectName, b: ColumnDef, c: ColumnDef, change: FieldChange): void {
 		if (change.kind === "rewritten") {
 			this.rewriteField(t, c)
 			return
 		}
-		if (change.kind === "kept") {
+		if (change.kind === "kept" || change.kind === "redrawn") {
 			return
 		}
 		this.changeInPlace(t, b, c, change)
@@ -2143,23 +2165,43 @@ class Differ {
 	 * the default. A column no family draws, or one added to a table that holds no row, takes none. */
 	drawnColumn(t: ObjectName, c: ColumnDef): Alteration | undefined {
 		const key = nameKey(t)
-		const value = this.drawn.get(key)?.get(c.name)
-		if (value === undefined || c.generated !== undefined || !this.mayHoldRows(t)) {
+		const drawn = this.drawn.get(key)?.get(c.name)
+		if (drawn === undefined || c.generated !== undefined || !this.mayHoldRows(t)) {
 			return undefined
 		}
-		const had = this.backfilled.get(key)
-		this.backfilled.set(key, { table: t, columns: [...(had?.columns ?? []), c.name] })
-		return { kind: "addColumnDefault", column: c, default: value }
+		this.backfilled.set(key, {
+			table: t,
+			added: [...(this.backfilled.get(key)?.added ?? []), c.name]
+		})
+		return { kind: "addColumnDefault", column: c, default: drawn.placeholder }
 	}
 
-	/** The backfill of the families new to stored rows (backfill.ts), once every column it draws is added: its UPDATEs,
-	 * then each drawn column's DROP DEFAULT, before any constraint that reads them (structure.constraints). */
+	/** The backfill of the families new to stored rows and of the columns drawn again (backfill.ts), once every column it
+	 * draws is added: its UPDATEs, then each added column's DROP DEFAULT, before any constraint that reads them
+	 * (structure.constraints). It draws, on each table both install, every column of it a family draws that this
+	 * migration revalues in place (ColumnFate revalued) beside those it adds. */
 	backfill(): boolean {
+		const drawn = new Map<string, BackfilledTable>(
+			[...this.backfilled].map(
+				([key, { table, added }]) => [key, { table, added, redrawn: [] }] as const
+			)
+		)
+		for (const k of this.keptTables.values()) {
+			const table = k.create.table
+			const key = nameKey(table)
+			const of = this.drawn.get(key)
+			const redrawn = [...k.fates].flatMap(([column, fate]) =>
+				fate.kind === "revalued" && of?.has(column) === true ? [column] : []
+			)
+			if (redrawn.length > 0) {
+				drawn.set(key, { table, added: drawn.get(key)?.added ?? [], redrawn })
+			}
+		}
 		const { checks, updates, dropDefaults } = backfillOf({
 			installation: this.input.installation,
 			previous: this.input.previous.theory,
 			mayHoldRows: (t) => this.mayHoldRows(t),
-			added: this.backfilled
+			drawn
 		})
 		for (const c of checks) {
 			this.push("structure.backfill", { kind: "violation", law: c.law, query: c.query })
@@ -3326,6 +3368,40 @@ interface Replaced {
 	readonly drop: Drop
 }
 
+/**
+ * Whether a revaluation of a column in place (ColumnFate revalued) takes away an object of each kind built over it,
+ * dropped before the backfill and built again after it: every constraint, a key, a unique index, a CHECK and a foreign
+ * key, from the column or onto it, and every rule trigger its update fires, since each reads rows the backfill writes
+ * by a rule PostgreSQL holds while it writes them (ColumnFate); never an index that holds no key, a statistics object or
+ * a law column computed from it, which PostgreSQL maintains on each row the backfill writes.
+ */
+const revaluationTakes: { readonly [K in BuiltOverKind]: boolean } = {
+	index: false,
+	uniqueIndex: true,
+	statistics: false,
+	primaryKey: true,
+	unique: true,
+	check: true,
+	foreignKey: true,
+	lawColumn: false,
+	lawTrigger: true
+}
+
+/** How an object over a column of fate `fate` is replaced: as the column is, converted or dropped and added again; as
+ * dropped and added again where a revaluation of it takes the object (`takes`, revaluationTakes); otherwise not. */
+const replacementBy = (fate: ColumnFate["kind"], takes: boolean): ReadonlyArray<Replacement> => {
+	switch (fate) {
+		case "converted":
+		case "redefined":
+			return [fate]
+		case "revalued":
+			return takes ? ["redefined"] : []
+		case "kept":
+		case "dropped":
+			return []
+	}
+}
+
 /** The strongest of `hows`: a conversion in place takes more than a law column dropped and added again. */
 const strongestReplacement = (hows: ReadonlyArray<Replacement>): Replacement | undefined =>
 	hows.includes("converted") ? "converted" : hows.includes("redefined") ? "redefined" : undefined
@@ -3347,6 +3423,10 @@ type DrawnBefore =
  * - converted in place, its type changed, with what becomes of its draw when it was serial;
  * - re-expressed, a generated field whose generation expression changes and whose type does not, by SET EXPRESSION,
  *   which recomputes every row and keeps what is built over the column;
+ * - redrawn, a field the target draws or accumulates whose values the migration draws again, its filler or what its
+ *   fill reads changed (redrawn, keptTablesOf drawnAgain), and whose column is otherwise kept: the same column, its
+ *   values drawn again in place by the backfill, which writes only the rows whose values change (backfill.ts passes),
+ *   and what is built over it kept but what a revaluation takes (ColumnFate revalued);
  * - rewritten, dropped and added again: a field whose writing changes between its caller and a generation, a generated
  *   field whose type changes, which PostgreSQL converts by no expression of the reviewer's, or a generated field that
  *   reads a field its table converts in place, which PostgreSQL refuses to convert under it;
@@ -3361,6 +3441,7 @@ type FieldChange =
 	| { readonly kind: "kept" }
 	| { readonly kind: "converted"; readonly drawn: DrawnBefore }
 	| { readonly kind: "reexpressed"; readonly expr: Expr }
+	| { readonly kind: "redrawn" }
 	| { readonly kind: "rewritten" }
 	| { readonly kind: "serialDeclared"; readonly sequence: ObjectName }
 	| { readonly kind: "serialRemoved"; readonly sequence: ObjectName }
@@ -3508,13 +3589,12 @@ const isDrawn = (w: SnapshotWriting | undefined): boolean =>
 
 /**
  * The field changes of a table with each field the target draws or accumulates otherwise than the previous snapshot
- * records it rewritten: a field its caller wrote, or one drawn or accumulated by another
- * filler (SnapshotWriting), its family, fold, copy or start changed. Its column is added again under its placeholder
- * and backfilled, so its stale values give way to the drawn ones. A field whose filler a declaration only renames, and
- * an ordered family's or a tree's index whose family only changes its group, reads as its previous record
- * (deploy/diff/declared.ts) and is kept. A drawn or accumulated field the target leaves to its
- * caller keeps its column and its values, which are lawful, as the caller's data; its family's law columns and natives
- * go with the family.
+ * records it drawn anew (drawnAnew): a field its caller wrote, or one drawn or accumulated by another filler
+ * (SnapshotWriting), its family, fold, copy or start changed, so its stale values give way to the drawn ones. A field
+ * whose filler a declaration only renames, and an ordered family's or a tree's index whose family only changes its
+ * group, reads as its previous record (deploy/diff/declared.ts) and is kept. A drawn or accumulated field the target
+ * leaves to its caller keeps its column and its values, which are lawful, as the caller's data; its family's law columns
+ * and natives go with the family.
  */
 const redrawn = (
 	changes: ReadonlyMap<string, FieldChange>,
@@ -3524,18 +3604,43 @@ const redrawn = (
 	new Map(
 		[...changes].map(([column, change]): readonly [string, FieldChange] =>
 			isDrawn(after.get(column)) && !sameText(before.get(column), after.get(column))
-				? [column, { kind: "rewritten" }]
+				? [column, drawnAnew(change)]
 				: [column, change]
 		)
 	)
 
+/** A field the backfill draws again, from its own change: redrawn in place where its column is otherwise kept, since a
+ * column of its type holds the drawn values as it holds the stale ones; dropped and added again (rewritten) where its
+ * column is converted or rewritten besides. */
+const drawnAnew = (change: FieldChange): FieldChange => {
+	switch (change.kind) {
+		case "kept":
+		case "redrawn":
+			return { kind: "redrawn" }
+		case "converted":
+		case "reexpressed":
+		case "rewritten":
+		case "serialDeclared":
+		case "serialRemoved":
+		case "uuidv7Declared":
+		case "uuidv7Removed":
+		case "retirementDeclared":
+		case "retirementRemoved":
+			return { kind: "rewritten" }
+	}
+}
+
 /**
  * A kept table's column fates: those of the fields the target holds, read off their changes (rewrittenOver), and those
- * of the columns whose fate what they read decides, the fields the target no longer holds and the law columns: each its
- * own (kept, redefined or dropped), but one whose generation reads a column the migration replaces (converted in place,
- * or dropped and added again), through any chain of generated columns, is redefined: PostgreSQL drops or converts a
- * column only once every generated column that reads it is gone (2BP01, 0A000), so the migration drops it before the
- * column it reads, with everything built over it (dropReplaced, keptTable), and adds it again where the target holds it.
+ * of the columns whose fate what they read decides, the generated fields, the fields the target no longer holds and the
+ * law columns: each its own (kept, revalued, redefined or dropped), but one whose generation reads a column the
+ * migration replaces (converted in place, or dropped and added again), through any chain of generated columns, is
+ * redefined: PostgreSQL drops or converts a column only once every generated column that reads it is gone (2BP01,
+ * 0A000), so the migration drops it before the column it reads, with everything built over it (dropReplaced,
+ * keptTable), and adds it again where the target holds it. One the target holds whose generation reads a column the
+ * backfill draws again in place is revalued, since PostgreSQL computes it again on each row the backfill writes; and one
+ * the target no longer holds is redefined, dropped before the backfill with what is built over it, so nothing over it
+ * reads the values the backfill would give it.
  */
 const generatedOver = (
 	fields: ReadonlyMap<string, ColumnFate>,
@@ -3549,14 +3654,33 @@ const generatedOver = (
 		...fields,
 		...generated.map((c) => [c.column, c.fate] as const)
 	])
+	const kindOf = (column: string): ColumnFate["kind"] | undefined => fates.get(column)?.kind
 	const replaced = (column: string): boolean => {
-		const fate = fates.get(column)?.kind
+		const fate = kindOf(column)
 		return fate === "converted" || fate === "redefined"
 	}
+	const revalued = (column: string): boolean => kindOf(column) === "revalued"
+	/** The fate a generated column moves to from what it reads, none where it stays. */
+	const moved = (c: (typeof generated)[number]): ColumnFate | undefined => {
+		const now = kindOf(c.column)
+		if (replaced(c.column)) {
+			return undefined
+		}
+		if (c.reads.some(replaced)) {
+			return redefinedColumn
+		}
+		if (now !== "revalued" && c.reads.some(revalued)) {
+			return now === "dropped" ? redefinedColumn : revaluedColumn
+		}
+		return undefined
+	}
 	for (let grew = true; grew;) {
-		const reached = generated.filter((c) => !replaced(c.column) && c.reads.some(replaced))
+		const reached = generated.flatMap((c) => {
+			const fate = moved(c)
+			return fate === undefined ? [] : [{ column: c.column, fate }]
+		})
 		for (const c of reached) {
-			fates.set(c.column, redefinedColumn)
+			fates.set(c.column, c.fate)
 		}
 		grew = reached.length > 0
 	}
@@ -3626,6 +3750,8 @@ const inPlace = (
 		}
 		case "reexpressed":
 			return steps([altering({ kind: "setExpression", column: c.name, expr: change.expr })])
+		case "redrawn":
+			return steps([])
 		case "rewritten":
 			return steps([altering({ kind: "dropColumn", column: b.name }), altering(add(c))])
 		case "serialDeclared":

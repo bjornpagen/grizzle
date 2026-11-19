@@ -56,6 +56,9 @@ import {
 	changeCaseGen,
 	type ChangeFeature,
 	kinds,
+	redrawCase,
+	redrawCaseGen,
+	type RedrawFeature,
 	renameCase,
 	renameCaseGen,
 	type RenameFeature
@@ -164,6 +167,61 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 			original: '\t\t\t\t\t{ option: "CONSTRAINT", value: lit.text(law, types.text) }',
 			replacement: `\t\t\t\t\t{ option: "CONSTRAINT", value: lit.text(\`\${law}_elsewhere\`, types.text) }`,
 			why: "The violation check raises under `<law>_elsewhere` (render/sql.ts), so a broken regroup's refusal names no law of the family."
+		}
+	]
+})
+
+/** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19rc2 a fold's step, an axis copy's target or a counted family's group changed over stored rows, or a fold added, is drawn again in place and writes exactly the rows whose values it changes: none where the new filler draws every row as the old one did, k where it moves k rows' values, every law validated over what it leaves. */
+export const redrawWrites = property.explore(redrawCaseGen, {
+	needs: { substrate: Substrate.installing },
+	situations: [
+		...kinds,
+		"fold step",
+		"copy target",
+		"group",
+		"fold added",
+		"every row alike",
+		"some rows alike",
+		"a family emptied by its regroup",
+		"a table the re-draw writes no row of",
+		"a table the re-draw writes some rows of"
+	] satisfies ReadonlyArray<Reached<RedrawFeature>>,
+	budget: { runs: 4, steered: 40 },
+	check:
+		({ substrate }, c: Case<RedrawFeature>) =>
+		(value) =>
+			Effect.provideServiceEffect(redrawCase(value, c), Substrate, substrate),
+	oracle: {
+		kind: "postgresql",
+		name: "PostgreSQL validates every constraint the migration builds over the values it draws again, and each row's xmin moves exactly where one of its stored values changes, on every table the migration does not rewrite"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/deploy/diff/backfill.ts",
+			original:
+				'\t\t\t\treturn call("record_image_ne", [image(valueOf), image((c) => col("k", c))])',
+			replacement: "\t\t\t\treturn undefined",
+			why: "The guard removed: a table's UPDATE writes every row of it, so a re-draw that moves no value writes every row and its xmin moves where no value changed; the property fails."
+		},
+		{
+			file: "packages/engine/src/deploy/diff/backfill.ts",
+			original:
+				'\t\tredrawn.has(cellKey(cell)) ? columnAtCell(cell).placeholder : col("k", cell.column)',
+			replacement: '\t\tcol("k", cell.column)',
+			why: "A column drawn again in place stands before the backfill as stored: an owner whose regroup empties its family keeps its stale count, which its family's natives refuse at VALIDATE; the property fails."
+		},
+		{
+			file: "packages/engine/src/deploy/diff/diff.ts",
+			original: "\tcheck: true,\n\tforeignKey: true,",
+			replacement: "\tcheck: false,\n\tforeignKey: false,",
+			why: "A revaluation takes no constraint over the column: the previous fold's CHECK and its foreign keys read the values the backfill draws by the previous definition, and refuse the migration at the backfill's UPDATE; the property fails."
+		},
+		{
+			file: "packages/engine/src/deploy/diff/diff.ts",
+			original: '\t\tcase "kept":\n\t\tcase "redrawn":\n\t\t\treturn { kind: "redrawn" }',
+			replacement: '\t\tcase "kept":\n\t\tcase "redrawn":\n\t\t\treturn { kind: "rewritten" }',
+			why: "A field drawn again dropped and added again under its placeholder: the backfill writes every row whose drawn value is not the placeholder, its xmin moved where its value is the one it stored; the property fails."
 		}
 	]
 })

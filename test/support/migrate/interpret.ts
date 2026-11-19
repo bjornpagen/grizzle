@@ -677,6 +677,26 @@ const compared = (a: SqlValue, b: SqlValue, holds: (order: number) => boolean): 
 		? undefined
 		: { kind: "bool", value: holds(compareValues(a, b)) }
 
+/** Whether two values are one image, as record_image_ne compares a row's columns: both NULL, or of one kind and one
+ * value; the model's values are their images, every text's bytes its code points, every integer of the base type both
+ * sides are cast to. */
+const sameImage = (a: SqlValue, b: SqlValue): boolean => {
+	if (a === undefined || b === undefined) {
+		return a === b
+	}
+	switch (a.kind) {
+		case "int":
+			return b.kind === "int" && a.value === b.value
+		case "text":
+		case "bits":
+			return b.kind === a.kind && a.value === b.value
+		case "bool":
+			return b.kind === "bool" && a.value === b.value
+		case "names":
+			return b.kind === "names" && Arr.makeEquivalence(Str.Equivalence)(a.value, b.value)
+	}
+}
+
 /** The truth of a Boolean value: true, false, or NULL; Unevaluable for a value of another kind. */
 const truthOf = (v: SqlValue): boolean | undefined => {
 	if (v === undefined) {
@@ -909,6 +929,22 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 				return {
 					kind: "bits",
 					value: Str.slice(first - 1, Math.max(last - 1, first - 1))(bits.value)
+				}
+			}
+			if (e.fn.name === "record_image_ne") {
+				const [left, right] = e.args
+				if (
+					left?.kind !== "row" ||
+					right?.kind !== "row" ||
+					left.items.length !== right.items.length ||
+					e.args.length !== 2
+				) {
+					return unevaluable("record_image_ne of other than two rows of one arity")
+				}
+				const images = Arr.zip(left.items, right.items)
+				return {
+					kind: "bool",
+					value: Arr.some(images, ([a, b]) => !sameImage(evaluate(a, scope), evaluate(b, scope)))
 				}
 			}
 			return unevaluable(`the function ${e.fn.name}`)

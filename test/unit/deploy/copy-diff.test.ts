@@ -71,9 +71,9 @@ export const oneChangeToAnAxissCopiesOrAMembersGeneratedFieldTouchesOnlyItAndWha
 			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
-				original: 'change.kind !== "rewritten" && drawnAgain(key, column)',
+				original: "drawnAgain(key, column) ? drawnAnew(change) : change",
 				replacement:
-					'change.kind !== "rewritten" && (drawnAgain(key, column) || (this.drawn.get(key)?.has(column) === true && at.old.columns.length !== create.columns.length))',
+					"drawnAgain(key, column) || (this.drawn.get(key)?.has(column) === true && at.old.columns.length !== create.columns.length) ? drawnAnew(change) : change",
 				why: "A family drawn again on any change of its member's columns: a sibling copy and the family's drawn values drawn again where nothing they read changed; the property fails."
 			}
 		]

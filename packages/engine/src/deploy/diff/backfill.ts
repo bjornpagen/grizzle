@@ -5,9 +5,12 @@
  *
  * Each column the backfill writes is added with a placeholder DEFAULT (AlterTableAction addColumnDefault): the value it
  * holds where its family is empty, 0 for a count or an index and the fold's identity for an accumulator or an end, which
- * the backfill overwrites on every row that has a member before the DROP DEFAULT. The backfill runs after every column's
- * ADD COLUMN and before every constraint that reads one (slots structure.backfill, structure.constraints), and VALIDATE
- * then proves it: a value it drew wrongly is a violation of the family's own natives, never a silent state.
+ * the backfill overwrites on every row that has a member before the DROP DEFAULT; or it is a column the previous
+ * installation's families drew that the migration draws again (deploy/diff/diff.ts FieldChange redrawn), its filler or
+ * what its fill reads changed, kept in place with its values, which the backfill presents at its placeholder where no
+ * derivation meets a row, as a fresh column holds it (Presented). The backfill runs after every column's ADD COLUMN and
+ * before every constraint that reads one (slots structure.backfill, structure.constraints), and VALIDATE then proves
+ * it: a value it drew wrongly is a violation of the family's own natives, never a silent state.
  *
  * - **Members:** each family's member columns, its index, its copy of the count and its folds' accumulators, are drawn by
  *   the family's served scan (write/family/scan.ts scanOf), run over the stored rows from slot 0, every group whole from
@@ -42,10 +45,10 @@
  * no such order, and is refused, naming the cycle.
  *
  * Each table the backfill draws on is written by one UPDATE (passes), every column of it the backfill draws set at
- * once, each derivation a CTE of its WITH: a migration writes one new version of each row it backfills, however many of
- * its families' columns it draws. Every UPDATE is a join of sets of rows, each derivation met at a key by a LEFT JOIN, so
- * none is a probe run once per row, which before any index of the table exists (structure.backfill runs before them)
- * would read the whole table for each of its rows.
+ * once, each derivation a CTE of its WITH: a migration writes one new version of each row whose drawn values change,
+ * however many of its families' columns it draws, and none of a row that already holds them. Every UPDATE is a join of
+ * sets of rows, each derivation met at a key by a LEFT JOIN, so none is a probe run once per row, which before any index
+ * of the table exists (structure.backfill runs before them) would read the whole table for each of its rows.
  *
  * Window functions are admitted here: a migration is reviewed text, and grizzle's limits on them are limits on its
  * run-time queries. No derivation recurs: each is sorts and windows over its table's rows, so its cost is its rows'
@@ -94,6 +97,7 @@ import type {
 	SetCore,
 	SqlStatement,
 	Target,
+	TypeRef,
 	Update,
 	WindowSpec,
 	With
@@ -115,7 +119,6 @@ import {
 	lit,
 	not,
 	objectName,
-	or,
 	provedCore,
 	select,
 	targetAs,
@@ -134,27 +137,40 @@ import {
 	scanOf
 } from "#compiler/write/family/scan.ts"
 
-/** The columns of each table the target's families draw, by table key (nameKey), then column, each with the value it
- * holds where its family is empty: the placeholder DEFAULT a migration adds it under to a table that may hold rows. */
-export type DrawnColumns = ReadonlyMap<string, ReadonlyMap<string, Expr>>
-
-/** The columns this migration adds to a table under their placeholder defaults, in the order it adds them. */
-export interface BackfilledTable {
-	readonly table: ObjectName
-	readonly columns: ReadonlyArray<string>
+/** A column a family draws: the value it holds where its family is empty, the placeholder DEFAULT a migration adds it
+ * under to a table that may hold rows, a literal of its base type; and that base type, the type its values are compared
+ * in, byte for byte, where the backfill writes only the rows whose drawn values differ from those they store (passes). */
+export interface DrawnColumn {
+	readonly placeholder: Expr
+	readonly base: TypeRef
 }
 
-/** Each table's columns this migration adds under their placeholder defaults, by table key (nameKey). */
+/** The columns of each table the target's families draw, by table key (nameKey), then column (DrawnColumn). */
+export type DrawnColumns = ReadonlyMap<string, ReadonlyMap<string, DrawnColumn>>
+
+/**
+ * The columns the backfill draws on a table that may hold rows: those this migration adds under their placeholder
+ * defaults, in the order it adds them, which every stored row holds until the backfill draws it and whose default it
+ * then drops; and those it draws again in place (deploy/diff/diff.ts FieldChange redrawn), whose column, values and
+ * what is built over them stand as the previous installation left them.
+ */
+export interface BackfilledTable {
+	readonly table: ObjectName
+	readonly added: ReadonlyArray<string>
+	readonly redrawn: ReadonlyArray<string>
+}
+
+/** Each table's columns the backfill draws, by table key (nameKey). */
 export type Backfilled = ReadonlyMap<string, BackfilledTable>
 
 /** What the backfill of a migration reads besides its target: the previous snapshot's theory, which names the key the
  * stored rows of a relation are distinct by; whether a table of the target holds rows before the migration; and the
- * columns the migration adds under their placeholder defaults (DrawnColumns). */
+ * columns it draws, added under their placeholder defaults or drawn again in place (BackfilledTable). */
 export interface BackfillInput {
 	readonly installation: Installation
 	readonly previous: SnapshotTheory
 	readonly mayHoldRows: (table: ObjectName) => boolean
-	readonly added: Backfilled
+	readonly drawn: Backfilled
 }
 
 /**
@@ -207,16 +223,26 @@ const columnOf = (c: NativeColumn): string => (c.kind === "field" ? c.field.colu
 const literalOf = (installation: Installation, value: TypedLiteral, type: ScalarType): Expr =>
 	lowerLiteral(installation.names, value, type)
 
+/** A drawn column of `type` whose family's emptiness holds `value` (DrawnColumn). */
+const drawnOf = (
+	installation: Installation,
+	value: TypedLiteral,
+	type: ScalarType
+): DrawnColumn => ({
+	placeholder: literalOf(installation, value, type),
+	base: baseTypeRef(installation.names, type)
+})
+
 const zero: TypedLiteral = { kind: "int", value: 0n }
 
-/** The value 0 of a family's counts and indices, typed by its count's base. */
-const zeroOf = (installation: Installation, family: Family): Expr =>
-	literalOf(installation, zero, family.count.type)
+/** A family's counts and indices, 0 where it is empty, typed by its count's base. */
+const zeroOf = (installation: Installation, family: Family): DrawnColumn =>
+	drawnOf(installation, zero, family.count.type)
 
-/** A fold plane's identity, typed by its end's base: its accumulators' value at the first slot, and its end's for an
- * empty family. */
-const identityOf = (installation: Installation, plane: FoldPlane): Expr =>
-	literalOf(installation, plane.identity, plane.end.type)
+/** A fold plane's accumulators and end, typed by its end's base: its identity at the first slot, and an empty family's
+ * end. */
+const identityOf = (installation: Installation, plane: FoldPlane): DrawnColumn =>
+	drawnOf(installation, plane.identity, plane.end.type)
 
 /**
  * The columns the target's families draw (DrawnColumns): on a member, the counted index ‹i› or the ordered index, the
@@ -225,11 +251,11 @@ const identityOf = (installation: Installation, plane: FoldPlane): Expr =>
  * empty, but an accumulator or an end, which holds its plane's identity, and a copy, which holds its base.
  */
 export const drawnColumns = (installation: Installation): DrawnColumns => {
-	const out = new Map<string, Map<string, Expr>>()
+	const out = new Map<string, Map<string, DrawnColumn>>()
 	const families = familyCells(installation)
-	const put = (relation: string, column: string, value: Expr): void => {
+	const put = (relation: string, column: string, value: DrawnColumn): void => {
 		const key = nameKey(tableOf(installation, relation))
-		const of = out.get(key) ?? new Map<string, Expr>()
+		const of = out.get(key) ?? new Map<string, DrawnColumn>()
 		of.set(column, value)
 		out.set(key, of)
 	}
@@ -1474,9 +1500,9 @@ const copiesOf = (
 }
 
 /** A copy's base: an accumulated field's declared start; a law column has none, so a copy of one is never drawn. */
-const baseOf = (installation: Installation, c: NativeColumn): Expr | undefined =>
+const baseOf = (installation: Installation, c: NativeColumn): DrawnColumn | undefined =>
 	c.kind === "field" && c.field.writing.kind === "accumulated"
-		? literalOf(installation, c.field.writing.start, c.field.type)
+		? drawnOf(installation, c.field.writing.start, c.field.type)
 		: undefined
 
 /** Whether every member of a tree but its root is the row a column reference names: a tree's family leaves the root
@@ -1494,9 +1520,12 @@ const nonRoot = (names: OperatorNames, family: Family, alias: string): ReadonlyA
 			]
 		: []
 
-/** The columns a migration adds to `table` under their placeholders, where it may hold rows. */
-const addedOn = (input: BackfillInput, table: ObjectName): ReadonlySet<string> =>
-	new Set(input.mayHoldRows(table) ? (input.added.get(nameKey(table))?.columns ?? []) : [])
+/** The columns the backfill draws on `table`, where it may hold rows: those a migration adds under their placeholders
+ * and those it draws again in place (BackfilledTable). */
+const drawnOn = (input: BackfillInput, table: ObjectName): ReadonlySet<string> => {
+	const of = input.drawn.get(nameKey(table))
+	return new Set(input.mayHoldRows(table) && of !== undefined ? [...of.added, ...of.redrawn] : [])
+}
 
 /**
  * A copy's derivation: its column on every source row, `to` on the row its axis names; a source row whose axis names
@@ -1615,7 +1644,7 @@ interface Placing {
  * as drafted: a depth-first walk that places, before each derivation, the derivations drawing what it reads. A
  * derivation reading a column it draws itself is a copy of itself along its axis (a tree's column copied from its
  * parent's, a member's from its predecessor's), which holds its base on every row, its placeholder: it reads itself as
- * it stands. A derivation the walk reaches while placing what it reads closes a cycle, each derivation of which reads a
+ * it stands before the backfill (Presented). A derivation the walk reaches while placing what it reads closes a cycle, each derivation of which reads a
  * column the next draws: no order draws them, and the cycle is refused, each derivation named by the columns it draws
  * and the one it reads.
  */
@@ -1680,19 +1709,51 @@ interface Named {
 }
 
 /**
- * The rows of `table`, one per row it stores, its tid (rowColumn) and each of `columns` under its own name: the value it
- * stores, but a column a derivation draws (`drawer`), which is that derivation's value on the row it meets, and the value
- * it stores, its placeholder, where it meets none. Each derivation it reads is a LEFT JOIN at the row's tid, one column,
- * so it is one join of sets of rows, hashed or merged on its whole key. With `onlyMet`, the rows some derivation it reads
- * meets.
+ * How the backfill presents a column of a table to what reads it, a derivation or its table's UPDATE, which is how the
+ * column would stand had the migration added it under its placeholder: as stored, a column no derivation draws; at a
+ * row a derivation drawing it meets, as that one draws it (`drawn`); at every other row, as it stands before the
+ * backfill (`before`), its placeholder. A column the migration adds holds its placeholder on every stored row, so it
+ * stands before the backfill as stored; one the backfill draws again in place holds what its earlier filler drew, so
+ * it stands before the backfill at its placeholder, and no stale value of it reaches a row or a reader: an owner whose
+ * family is now empty reads its count's 0 and its end's identity, as a fresh column holds them. A derivation reads a
+ * column it draws itself as it stands before the backfill (`ordered`).
+ */
+type Presented =
+	| { readonly kind: "stored" }
+	| { readonly kind: "before"; readonly value: Expr }
+	| { readonly kind: "drawn"; readonly by: Named; readonly before: Expr }
+
+const stored: Presented = { kind: "stored" }
+
+/** Which rows of a table its staging holds: every row, a view a derivation reads (derivationCte); or only those whose
+ * presented values differ from those they store, byte for byte in each column's base type, its UPDATE's (passes). */
+type StagedRows =
+	| { readonly kind: "every" }
+	| { readonly kind: "changed"; readonly base: (column: string) => TypeRef }
+
+/**
+ * The rows of `table`, its tid (rowColumn) and each of `columns` under its own name, as presented (Presented). Each
+ * derivation it reads is a LEFT JOIN at the row's tid, one column, so it is one join of sets of rows, hashed or merged on
+ * its whole key. Its `rows` (StagedRows): every row, or those whose presented row differs from the row it stores,
+ * `record_image_ne(ROW(<presented>::<base>, …), ROW(<stored>::<base>, …))`: every value it presents in its column's base
+ * type, which an UPDATE assigning it writes, beside the stored one in the same, compared as PostgreSQL stores them,
+ * NULL equal to NULL, so a row is held exactly when writing it would change a byte of what it stores: two numerics of
+ * one value but another scale, or 0 and -0, differ, as `IS DISTINCT FROM` would not tell them.
  */
 const staged = (
 	table: ObjectName,
 	columns: NonEmptyReadonlyArray<string>,
-	drawer: (column: string) => Named | undefined,
-	onlyMet: boolean
+	presented: (column: string) => Presented,
+	rows: StagedRows
 ): Select => {
-	const drawers = [...new Set(columns.flatMap((c) => drawer(c) ?? []))]
+	const drawers = [
+		...new Set(
+			columns.flatMap((c) => {
+				const p = presented(c)
+				return p.kind === "drawn" ? [p.by] : []
+			})
+		)
+	]
 	const aliasOf = (n: Named): string => `d${drawers.indexOf(n) + 1}`
 	const first: FromSource = { kind: "table", table, alias: "k" }
 	const steps = drawers.map((n): JoinStep => ({
@@ -1701,50 +1762,61 @@ const staged = (
 		on: eq(col("k", rowColumn), col(aliasOf(n), rowColumn))
 	}))
 	const valueOf = (column: string): Expr => {
-		const by = drawer(column)
-		if (by === undefined) {
-			return col("k", column)
-		}
-		const drawn = defined(
-			by.derivation.set.find((d) => d.column === column),
-			"the drawer of a column sets it"
-		)
-		return {
-			kind: "case",
-			operand: undefined,
-			whens: [{ when: col(aliasOf(by), hitName), result: col(aliasOf(by), drawn.value) }],
-			else: col("k", column)
+		const p = presented(column)
+		switch (p.kind) {
+			case "stored":
+				return col("k", column)
+			case "before":
+				return p.value
+			case "drawn": {
+				const drawn = defined(
+					p.by.derivation.set.find((d) => d.column === column),
+					"the drawer of a column sets it"
+				)
+				return {
+					kind: "case",
+					operand: undefined,
+					whens: [{ when: col(aliasOf(p.by), hitName), result: col(aliasOf(p.by), drawn.value) }],
+					else: p.before
+				}
+			}
 		}
 	}
+	const unique = dedupeNonEmpty(columns)
+	const where = ((): Expr | undefined => {
+		switch (rows.kind) {
+			case "every":
+				return undefined
+			case "changed": {
+				const image = (value: (column: string) => Expr): Expr => ({
+					kind: "row",
+					items: mapNonEmpty(unique, (c) => cast(value(c), rows.base(c)))
+				})
+				return call("record_image_ne", [image(valueOf), image((c) => col("k", c))])
+			}
+		}
+	})()
 	return select(
 		provedCore(
 			"keyed",
-			[
-				targetAs(col("k", rowColumn), rowColumn),
-				...dedupeNonEmpty(columns).map((c) => targetAs(valueOf(c), c))
-			],
+			[targetAs(col("k", rowColumn), rowColumn), ...unique.map((c) => targetAs(valueOf(c), c))],
 			[isNonEmpty(steps) ? { kind: "joins", first, steps } : first],
-			onlyMet && isNonEmpty(drawers)
-				? or(mapNonEmpty(drawers, (n) => ({ kind: "isTrue", expr: col(aliasOf(n), hitName) })))
-				: undefined
+			where
 		)
 	)
 }
 
 /**
- * A derivation's CTE: its rows, each marked `__hit`, under its own WITH, where each table its FROM reads a column of that
- * another derivation draws is read staged (a view of that WITH, staged), so every column it reads holds its drawn value;
- * every other table it reads as stored. The derivations it reads are its CTE's dependencies.
+ * A derivation's CTE: its rows, each marked `__hit`, under its own WITH, where each table its FROM reads a column of
+ * that is presented other than as stored (`presented`, Presented) is read staged (a view of that WITH, staged), so every
+ * column it reads holds the value the backfill presents it at: another derivation's drawn value, or its value before the
+ * backfill; every other table it reads as stored. The derivations it reads are its CTE's dependencies.
  */
 const derivationCte = (
 	n: Named,
-	drawerOf: (cell: Cell) => Named | undefined
+	presented: (cell: Cell) => Presented
 ): { readonly cte: Cte; readonly reads: ReadonlyArray<Named> } => {
 	const { derivation } = n
-	const other = (cell: Cell): Named | undefined => {
-		const by = drawerOf(cell)
-		return by === n ? undefined : by
-	}
 	const columnsOn = new Map<string, Array<string>>()
 	for (const cell of derivation.reads) {
 		const key = nameKey(cell.table)
@@ -1771,7 +1843,7 @@ const derivationCte = (
 				const columns = columnsOn.get(key) ?? []
 				if (
 					!isNonEmpty(columns) ||
-					!columns.some((column) => other({ table, column }) !== undefined)
+					columns.every((column) => presented({ table, column }).kind === "stored")
 				) {
 					return undefined
 				}
@@ -1785,7 +1857,7 @@ const derivationCte = (
 					cte(
 						name,
 						[],
-						staged(table, columns, (column) => other({ table, column }), false)
+						staged(table, columns, (column) => presented({ table, column }), { kind: "every" })
 					)
 				)
 				return cteRefAs(name, source.alias)
@@ -1798,22 +1870,44 @@ const derivationCte = (
 			...read,
 			with: isNonEmpty(ctes) ? { recursive: read.with?.recursive ?? false, ctes } : undefined
 		}),
-		reads: [...new Set(derivation.reads.flatMap((cell) => other(cell) ?? []))]
+		reads: [
+			...new Set(
+				derivation.reads.flatMap((cell) => {
+					const p = presented(cell)
+					return p.kind === "drawn" ? [p.by] : []
+				})
+			)
+		]
 	}
 }
 
 /**
  * The backfill's UPDATEs: one of each table a derivation draws on, in the order its first derivation is placed, writing
- * every column the backfill draws on it in one write of each row some derivation meets:
- * `WITH <derivations> UPDATE <table> AS "t" SET <column> = "b"."<column>", … FROM <the table staged> AS "b" WHERE
- * "t"."ctid" = "b"."ctid"`, each row met at its own tid, which PostgreSQL reads by a TID scan, a hash or a merge. Its WITH holds the CTE of every derivation it reads, its own and every derivation one of
- * them reads, transitively, each after those it reads (`ordered`), and no UPDATE reads a column another writes: what one
- * reads of another table's drawn columns it draws itself, by the same derivations. Each table's rows are written once,
- * so a migration writes one new version of each row it backfills, however many of its families' columns it draws.
+ * every column the backfill draws on it in one write of each row whose values change:
+ * `WITH <derivations> UPDATE <table> AS "t" SET <column> = "b"."<column>", … FROM <the table's changed rows staged> AS
+ * "b" WHERE "t"."ctid" = "b"."ctid"`, each row met at its own tid, which PostgreSQL reads by a TID scan, a hash or a
+ * merge. Its WITH holds the CTE of every derivation it reads, its own and every derivation one of them reads,
+ * transitively, each after those it reads (`ordered`), and no UPDATE reads a column another writes: what one reads of
+ * another table's drawn columns it draws itself, by the same derivations. Each table's rows are written once, so a
+ * migration writes one new version of each row it backfills, however many of its families' columns it draws.
+ *
+ * The UPDATE compares and writes exactly the rows whose facts change: `b` holds the rows whose drawn values differ from
+ * those they store, byte for byte (staged, StagedRows changed), its comparison over the drawn columns alone and never
+ * the anchor `assignments` adds to the SET list, which assigns a row its own value. Every other row already holds what
+ * the UPDATE would write, so the table ends as an UPDATE of every row would leave it: a row no derivation meets of a
+ * column the migration adds holds its placeholder, and a derivation that draws a row's values as it stores them, as a
+ * re-draw of a definition that moves no value does on every row, leaves it as it is. What the backfill costs then is
+ * its read, the derivations and their comparison, where an UPDATE of every row wrote each row's new version, its WAL
+ * and an entry in every index of its table. A row the UPDATE leaves fires none of the triggers grizzle installs, which
+ * is what an UPDATE of it would have fired them to: a capture logs no row whose image an UPDATE leaves as it was
+ * (physical/ddl/rules.ts captured), and a foreign key's check of a row whose columns it compares are unchanged finds
+ * what it found when the row was written.
  */
 const passes = (
 	derivations: ReadonlyArray<Derivation>,
-	generationOf: (table: ObjectName) => TableGeneration
+	generationOf: (table: ObjectName) => TableGeneration,
+	columns: DrawnColumns,
+	redrawn: ReadonlySet<string>
 ): ReadonlyArray<Update> => {
 	const named = derivations.map((derivation, i): Named => ({
 		name: drawingName(i + 1),
@@ -1825,9 +1919,29 @@ const passes = (
 			drawer.set(cellKey(c), n)
 		}
 	}
-	const built = new Map(
-		named.map((n) => [n, derivationCte(n, (cell) => drawer.get(cellKey(cell)))] as const)
-	)
+	const columnAtCell = (cell: Cell): DrawnColumn =>
+		defined(
+			columns.get(nameKey(cell.table))?.get(cell.column),
+			`the backfill draws ${cellName(cell)}, a column a family draws`
+		)
+	/** `cell` as it stands before the backfill: as stored, the migration's own column, or at its placeholder, one it
+	 * draws again in place. */
+	const before = (cell: Cell): Expr =>
+		redrawn.has(cellKey(cell)) ? columnAtCell(cell).placeholder : col("k", cell.column)
+	/** `cell` as `reader` reads it (Presented): a derivation, or none, the UPDATE of its table. */
+	const presentedTo =
+		(reader: Named | undefined) =>
+		(cell: Cell): Presented => {
+			const by = drawer.get(cellKey(cell))
+			if (by === undefined) {
+				return stored
+			}
+			if (by === reader) {
+				return redrawn.has(cellKey(cell)) ? { kind: "before", value: before(cell) } : stored
+			}
+			return { kind: "drawn", by, before: before(cell) }
+		}
+	const built = new Map(named.map((n) => [n, derivationCte(n, presentedTo(n))] as const))
 	const builtOf = (n: Named) => defined(built.get(n), "every derivation is built")
 	const tables = new Map<string, NonEmptyReadonlyArray<Named>>()
 	for (const n of named) {
@@ -1845,13 +1959,12 @@ const passes = (
 		own.forEach(need)
 		const [{ derivation: first }] = own
 		const { table } = first
-		const columns = flatMapNonEmpty(own, (n) => mapNonEmpty(n.derivation.set, (d) => d.column))
-		const ownerOf = (column: string): Named | undefined =>
-			own.find((n) => n.derivation.set.some((d) => d.column === column))
+		const written = flatMapNonEmpty(own, (n) => mapNonEmpty(n.derivation.set, (d) => d.column))
 		const ctes = named.filter((n) => needed.has(n)).map((n) => builtOf(n).cte)
 		if (!isNonEmpty(ctes)) {
 			throw defect("a table's UPDATE reads its own derivations")
 		}
+		const presented = presentedTo(undefined)
 		return {
 			kind: "update",
 			with: { recursive: false, ctes },
@@ -1860,9 +1973,19 @@ const passes = (
 			set: assignments(
 				generationOf(table),
 				"t",
-				mapNonEmpty(columns, (column) => ({ column, value: col("b", column) }))
+				mapNonEmpty(written, (column) => ({ column, value: col("b", column) }))
 			),
-			from: [derived(staged(table, columns, ownerOf, true), "b", [], false)],
+			from: [
+				derived(
+					staged(table, written, (column) => presented({ table, column }), {
+						kind: "changed",
+						base: (column) => columnAtCell({ table, column }).base
+					}),
+					"b",
+					[],
+					false
+				)
+			],
 			where: eq(col("t", rowColumn), col("b", rowColumn)),
 			returning: []
 		}
@@ -1976,8 +2099,8 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 	for (const family of installation.laws.families) {
 		const memberTable = tableOf(installation, family.member.name)
 		const ownerTable = tableOf(installation, family.owner.name)
-		const onMember = addedOn(input, memberTable)
-		const onOwner = addedOn(input, ownerTable)
+		const onMember = drawnOn(input, memberTable)
+		const onOwner = drawnOn(input, ownerTable)
 		const memberColumns = new Set<string>([
 			columnOf(family.index),
 			family.copy,
@@ -2026,16 +2149,16 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 	for (const family of installation.laws.families) {
 		for (const c of copiesOf(installation, family, families)) {
 			const cell = cellKey({ table: c.source, column: columnOf(c.from) })
-			if (!copied.has(cell) && addedOn(input, c.source).has(columnOf(c.from))) {
+			if (!copied.has(cell) && drawnOn(input, c.source).has(columnOf(c.from))) {
 				copied.add(cell)
 				plan(family, copyDerivation(input, c))
 			}
 		}
 	}
 	const checks = keyChecks(input, planned)
-	const dropDefaults = [...input.added.values()].flatMap(
-		({ table, columns }): ReadonlyArray<SqlStatement> => {
-			const [first, ...rest] = columns
+	const dropDefaults = [...input.drawn.values()].flatMap(
+		({ table, added }): ReadonlyArray<SqlStatement> => {
+			const [first, ...rest] = added
 			return first === undefined
 				? []
 				: [
@@ -2048,5 +2171,14 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		}
 	)
 	const generationOf = migrationGenerations(installation.laws, (r) => tableOf(installation, r))
-	return { checks, updates: passes(ordered(planned), generationOf), dropDefaults }
+	const redrawn = new Set(
+		[...input.drawn.values()].flatMap(({ table, redrawn: columns }) =>
+			cellsOf(table, columns).map(cellKey)
+		)
+	)
+	return {
+		checks,
+		updates: passes(ordered(planned), generationOf, drawnColumns(installation), redrawn),
+		dropDefaults
+	}
 }
