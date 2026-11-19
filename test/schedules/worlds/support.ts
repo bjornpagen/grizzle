@@ -1,13 +1,9 @@
-import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
-import { required, type Situations } from "@bjornpagen/testing/features"
-import { constant, type Gen, weighted } from "@bjornpagen/testing/gen"
+import type { Situations } from "@bjornpagen/testing/features"
+import { type Aimed, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import type { Nature, PctSchedule } from "@bjornpagen/testing/interleave"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { type Case, type Kept, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { every, type Strategy } from "#test/support/schedules/interleave.ts"
 import {
 	type RaceOp,
@@ -137,49 +133,39 @@ export const pctOf =
 		return { kind: "pct", schedule, nature }
 	}
 
-/** Cases per race test: each explores its interleavings, so a few drawn cases cover each environment choice. */
+/** Cases per race property: each explores its interleavings, so a few drawn cases cover each environment choice. */
 const raceRuns = 6
 
 /**
- * A worlds race suite: cases drawn from `draw`, each resolved to a race (its installation realized, its Dbs opened, its
- * interleavings explored under its strategy, nature the case itself, and each run judged by the worlds model), and the
- * features every run of the suite must reach.
+ * A worlds race property: cases drawn from `space`, each resolved to a race (its installation realized, its Dbs opened,
+ * its interleavings explored under its strategy, nature the case itself, and each run judged by the worlds model), on
+ * the worker's clone of the base template held across its cases (Substrate.installing), and the features every run must
+ * reach; `kept`, the cases a run once failed on, replayed by token.
+ *
+ * Its pre-conversion budget: runs 6, coverage cases 6 (test/schedules/worlds/support.ts at 27203b46b).
  */
 export const worldRaceSuite = <C>(spec: {
-	readonly file: string
-	readonly test: string
-	readonly draw: Gen<C>
+	readonly space: Gen<C> | Aimed<C, WorldRaceFeature>
 	readonly race: (c: C, nature: Nature) => WorldRace
 	readonly required: Situations<WorldRaceFeature>
-	/** The cases a run of the suite once failed on, replayed before its streams (explore's Kept). */
-	readonly kept: ReadonlyArray<Kept<C, WorldRaceFeature>>
-}): void => {
-	layer(Substrate.layer, { excludeTestServices: true })(spec.file, (it) => {
-		it.effect(spec.test, (ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "the worlds model, stepped through every serial order of the race's actions: each run's observations and what it committed, read back as the owner"
-						},
-						suite: `worlds/${spec.file}`,
-						draw: drawn(spec.draw),
-						literal: Formatter.format,
-						coverage: required<WorldRaceFeature>(spec.required, {
-							cases: raceRuns,
-							sense: notesOnly
-						}),
-						kept: spec.kept,
-						runs: raceRuns,
-						shrink: { kind: "bounded", candidates: 30 },
-						steerEvery: 16,
-						caseHang
-					},
-					(c, k) => Effect.scoped(runWorldRace({ race: spec.race(c, k), note: k.note }))
-				)
-			)
-		)
+	readonly kept: ReadonlyArray<Kept>
+}) =>
+	property.explore(spec.space, {
+		needs: { substrate: Substrate.installing },
+		situations: spec.required,
+		check:
+			({ substrate }, k: Case<WorldRaceFeature>) =>
+			(c) =>
+				Effect.provideServiceEffect(
+					Effect.scoped(runWorldRace({ race: spec.race(c, k), note: k.note })),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the worlds model, stepped through every serial order of the race's actions: each run's observations and what it committed, read back as the owner"
+		},
+		budget: { runs: raceRuns, steered: raceRuns },
+		kept: spec.kept,
+		kills: []
 	})
-}

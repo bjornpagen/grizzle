@@ -1,15 +1,11 @@
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
-import { required, type Situations } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
+import type { Situations } from "@bjornpagen/testing/features"
+import { type Aimed, boolean, element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { pctSchedule } from "@bjornpagen/testing/interleave"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+import { type Case, property } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Data,
 	Effect,
-	Formatter,
 	Layer,
 	Option,
 	pipe,
@@ -39,7 +35,6 @@ import { defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { type Names, namesOf, roleNamesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	type GrizzleActor,
@@ -723,46 +718,30 @@ const runDerivedRace = (
 const derivedRuns = 4
 
 /**
- * A suite of refresh races: its races drawn from `draw`, the kept races replayed first, and the situations its floor
- * and steered cases must reach.
+ * A property of refresh races: its races drawn from `space`, on the worker's clone of the base template held across
+ * its cases (Substrate.installing), and the situations its floor and steered cases must reach.
+ *
+ * Its pre-conversion budget: runs 4, coverage cases 4 (test/schedules/derived/support.ts at 27203b46b).
  */
 export const derivedRaceSuite = (spec: {
-	readonly file: string
-	readonly test: string
-	readonly suite: string
-	readonly draw: Gen<DerivedRace>
+	readonly space: Gen<DerivedRace> | Aimed<DerivedRace, DerivedFeature>
 	readonly required: Situations<DerivedFeature>
-	readonly kept: ReadonlyArray<Kept<DerivedRace, DerivedFeature>>
-}): void => {
-	layer(Substrate.layer, { excludeTestServices: true })(spec.file, (it) => {
-		it.effect(spec.test, (ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "the race's serial reference (test/support/schedules/serial.ts): each transaction run alone, in an order that respects real time, shows what the run showed and leaves its state"
-						},
-						suite: spec.suite,
-						draw: drawn(spec.draw),
-						literal: Formatter.format,
-						coverage: required<DerivedFeature>(spec.required, {
-							cases: derivedRuns,
-							sense: notesOnly
-						}),
-						kept: spec.kept,
-						runs: derivedRuns,
-						shrink: { kind: "bounded", candidates: 20 },
-						steerEvery: derivedRuns,
-						caseHang
-					},
-					(race, c) => Effect.scoped(runDerivedRace(race, c))
-				)
-			)
-		)
+}) =>
+	property.explore(spec.space, {
+		needs: { substrate: Substrate.installing },
+		situations: spec.required,
+		check:
+			({ substrate }, c: Case<DerivedFeature>) =>
+			(race) =>
+				Effect.provideServiceEffect(Effect.scoped(runDerivedRace(race, c)), Substrate, substrate),
+		oracle: {
+			kind: "specification",
+			name: "the race's serial reference (test/support/schedules/serial.ts): each transaction run alone, in an order that respects real time, shows what the run showed and leaves its state"
+		},
+		budget: { runs: derivedRuns, steered: derivedRuns },
+		kept: [],
+		kills: []
 	})
-}
 
 /** The sittings a race draws among: numbers 1 to 6, students 1 to 3, weeks 1 and 2. */
 const satGen =

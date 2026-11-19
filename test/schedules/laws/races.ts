@@ -10,15 +10,12 @@
  * Features: each population's required situations (its threats, writers, put forms, planted writers below
  * SERIALIZABLE, its write skew), each paired with its mode. The test of each family runs this suite.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required, type Situations } from "@bjornpagen/testing/features"
+import type { Situations } from "@bjornpagen/testing/features"
 import { array, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { pctSchedule } from "@bjornpagen/testing/interleave"
-import { notesOnly } from "@bjornpagen/testing/sense"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { fullSwarm, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Option, String as Str } from "effect"
 import { Cause, Effect, Record, type Scope } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -75,7 +72,6 @@ import {
 	type HistoryEnv,
 	immediacyGen
 } from "#test/support/history/run.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
@@ -90,7 +86,6 @@ import {
 } from "#test/support/schedules/interleave.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-import { regex } from "arkregex"
 import { upTo } from "#test/support/up-to.ts"
 /**
  * The threats a transaction draws, and the writers' features: each writer kind, immediate constraints, each form of a
@@ -1497,98 +1492,77 @@ const modeRaces = <P>(h: HistoryFamily<P>, population: Population<P>) => {
 }
 
 /**
- * The generated law races of one family, over every population of its box in one exploration: a case's variant names
- * its schema and so its population, every feature a race notes is paired with its population's mode, and each
- * population must reach, in its own races, everything a family requires, its write skew included when it makes one.
- * Each population's window starts name its schemas past those of the populations before it.
+ * The generated law races of one family, over every population of its box in one property: a case's variant names its
+ * schema and so its population, every feature a race notes is paired with its population's mode, and each population
+ * must reach, in its own races, everything a family requires, its write skew included when it makes one. Each
+ * population's window starts name its schemas past those of the populations before it. A case runs on the worker's
+ * clone of its schema's template (history/families.ts HistoryFamily templates, Substrate.oneOf with Substrate.seat),
+ * whose installation is checked to enforce the host's laws as the host states them (enforcementProblem), where the
+ * search installed each schema before its first case. `declaredIn` is the module that states the suite.
+ *
+ * Its pre-conversion budget: runs 60, coverage cases 240 (test/schedules/laws/races.ts at 27203b46b).
  */
-export const raceSuite = <P>(h: HistoryFamily<P>): void => {
-	layer(Substrate.layer, { excludeTestServices: true })(
-		`generated law races: ${h.family.label}`,
-		(it) => {
-			const populations = Arr.map(populationsOf(h.family), (population) => modeRaces(h, population))
-			/** Each population with the number of schemas before it, which its windows are offset by. */
-			const placed = Arr.map(populations, (population, i) => ({
-				...population,
-				offset: Arr.reduce(Arr.take(populations, i), 0, (n, q) => n + q.variants.length)
-			}))
-			const variants = Arr.flatMap(placed, (q) => q.variants)
-			const windows: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<WindowStart>> = Arr.map(
-				placed,
-				(q) => Arr.map(q.windows, (w) => ({ ...w, variant: w.variant + q.offset }))
-			)
-			const reach: Situations<RaceFeature> = Arr.flatMap(placed, (q) =>
-				Arr.map(q.reach, (f) => [q.mode, f] as const)
-			)
-			const races = Effect.gen(function* () {
-				/** Every variant's installation, made before the first race and checked against its host. */
-				const installs = yield* Effect.forEach(variants, (p) =>
-					Effect.gen(function* () {
-						const i = yield* h.install(p)
-						const problem = enforcementProblem(i.host, i.names)
-						if (problem !== undefined) {
-							return yield* new CaseFailed({ report: problem })
-						}
-						return i
-					}).pipe(
-						Effect.mapError((e) =>
-							e instanceof CaseFailed
-								? e
-								: new CaseFailed({
-										report: `${h.family.describe(p)} did not install: ${messageOf(e)}`
-									})
-						)
-					)
-				)
-				return yield* explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "the host model of the family's laws, as a serial reference of every interleaving"
-						},
-						suite: `races/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(h.family.label)}`,
-						draw: drawn(raceCaseGen(variants.length, windows, skewStartsOf(h, variants))),
-						literal: Formatter.format,
-						coverage: required<RaceFeature>(reach, { cases: 8 * runsPerTest, sense: notesOnly }),
-						kept: [],
-						runs: 2 * runsPerTest,
-						shrink: { kind: "bounded", candidates: 300 },
-						steerEvery: 16,
-						caseHang
-					},
-					(rc, c) =>
-						Effect.gen(function* () {
-							const variant = elementAt(variants, rc.variant, "the family's schemas")
-							const host = h.family.host(variant)
-							const mode = modeOf(host)
-							/** The case as the race sees it: every feature it notes is also noted beside its mode. */
-							const modal: Case<RaceFeature> = {
-								...c,
-								note: (feature) => {
-									c.note(feature)
-									c.note(mode)
-									c.pair(mode, feature)
-								},
-								noteAll: (noted) => {
-									for (const feature of noted) {
-										c.note(feature)
-										c.pair(mode, feature)
-									}
-									c.note(mode)
-								}
-							}
-							modal.note(`variant: ${h.family.describe(variant)}`)
-							/** The race on its variant's model, the one the variant's installation holds. */
-							const race = c.draw(resolveRaceGen({ host, domains: h.family.domains }, rc.race))
-							const i = elementAt(installs, rc.variant, "the family's installations")
-							yield* Effect.scoped(runRace(h, i, race, modal))
-						})
-				)
-			})
-			it.effect(
-				"every race is lawful, serial and every abort explained, on immutable and mutable schemas",
-				(ctx) => searched(ctx, races)
-			)
-		}
+export const raceSuite = <P>(declaredIn: ImportMeta, h: HistoryFamily<P>) => {
+	const populations = Arr.map(populationsOf(h.family), (population) => modeRaces(h, population))
+	/** Each population with the number of schemas before it, which its windows are offset by. */
+	const placed = Arr.map(populations, (population, i) => ({
+		...population,
+		offset: Arr.reduce(Arr.take(populations, i), 0, (n, q) => n + q.variants.length)
+	}))
+	const variants = Arr.flatMap(placed, (q) => q.variants)
+	const windows: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<WindowStart>> = Arr.map(
+		placed,
+		(q) => Arr.map(q.windows, (w) => ({ ...w, variant: w.variant + q.offset }))
 	)
+	const reach: Situations<RaceFeature> = Arr.flatMap(placed, (q) =>
+		Arr.map(q.reach, (f) => [q.mode, f] as const)
+	)
+	return property.explore(raceCaseGen(variants.length, windows, skewStartsOf(h, variants)), {
+		needs: Substrate.oneOf(h.templates(declaredIn), Substrate.seat),
+		situations: reach,
+		check: (seats, c: Case<RaceFeature>) => (rc) =>
+			Effect.scoped(
+				Effect.gen(function* () {
+					const variant = elementAt(variants, rc.variant, "the family's schemas")
+					const host = h.family.host(variant)
+					const mode = modeOf(host)
+					/** The case as the race sees it: every feature it notes is also noted beside its mode. */
+					const modal: Case<RaceFeature> = {
+						...c,
+						note: (feature) => {
+							c.note(feature)
+							c.note(mode)
+							c.pair(mode, feature)
+						},
+						noteAll: (noted) => {
+							for (const feature of noted) {
+								c.note(feature)
+								c.pair(mode, feature)
+							}
+							c.note(mode)
+						}
+					}
+					modal.note(`variant: ${h.family.describe(variant)}`)
+					/** The race on its variant's model, the one the variant's installation holds. */
+					const race = c.draw(resolveRaceGen({ host, domains: h.family.domains }, rc.race))
+					const seat = yield* defined(
+						seats[String(h.family.variants.indexOf(variant))],
+						"the family's seats"
+					)
+					const install = seat.value
+					const problem = enforcementProblem(install.host, install.names)
+					if (problem !== undefined) {
+						return yield* new CaseFailed({ report: `${h.family.describe(variant)}: ${problem}` })
+					}
+					yield* Effect.provideService(runRace(h, install, race, modal), Substrate, seat.substrate)
+				})
+			),
+		oracle: {
+			kind: "specification",
+			name: "the host model of the family's laws, as a serial reference of every interleaving"
+		},
+		budget: { runs: 2 * runsPerTest, steered: 8 * runsPerTest },
+		kept: [],
+		kills: []
+	})
 }

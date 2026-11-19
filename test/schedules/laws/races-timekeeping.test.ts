@@ -3,4 +3,4 @@
 import { raceSuite } from "#test/schedules/laws/races.ts"
 import { timekeepingHistory } from "#test/support/history/families.ts"
 
-raceSuite(timekeepingHistory)
+export const timekeepingRaces = raceSuite(import.meta, timekeepingHistory)

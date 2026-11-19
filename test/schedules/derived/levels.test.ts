@@ -15,55 +15,12 @@
  * WeekBusy after it refreshed the levels below, while the reader reads.
  */
 
-import { constant, type Gen } from "@bjornpagen/testing/gen"
-import {
-	callGen,
-	type DerivedRace,
-	derivedRaceSuite,
-	endGen,
-	heldGen,
-	initialGen,
-	initialSats,
-	labelsGen,
-	sat
-} from "#test/schedules/derived/support.ts"
+import { aimed } from "@bjornpagen/testing/gen"
+import { derivedRaceSuite } from "#test/schedules/derived/support.ts"
 
-const raceGen: Gen<DerivedRace> = (source) => {
-	const initial = source.draw(initialGen(constant(true)))
-	const view = source.draw(heldGen(initial))
-	return {
-		labels: source.draw(labelsGen),
-		initial,
-		holder: { kind: "holds", view, end: source.draw(endGen) },
-		calls: [source.draw(callGen(view, initial))],
-		writer: { kind: "none" },
-		reader: true
-	}
-}
+import { raceGen, raceAims } from "#test/schedules/derived/levels.fixtures.ts"
 
-derivedRaceSuite({
-	file: "db.refresh across levels",
-	test: "every race of a level chain's refresh and a reader of every view is serializable",
-	suite: "schedules/derived/levels",
-	draw: raceGen,
-	required: ["a call waited", "reader committed"],
-	kept: [
-		{
-			note: "one commit: the call names WeekBusy, StudentTotal and StudentWeekly, and waits on the holder at WeekBusy after refreshing the level below, while the reader reads every view",
-			sketch: {
-				labels: { student: 0, sitting: 0, week: 0 },
-				initial: {
-					kind: "populated",
-					viewed: initialSats,
-					stored: [...initialSats, sat(40, 6, 7, true)]
-				},
-				holder: { kind: "holds", view: "WeekBusy", end: "rollback" },
-				calls: [["WeekBusy", "StudentTotal", "StudentWeekly"]],
-				writer: { kind: "none" },
-				reader: true
-			},
-			draws: "",
-			reaches: ["a read while a call waited", "reader committed"]
-		}
-	]
+export const everyRaceOfALevelChainsRefreshAndAReaderOfEveryViewIsSerializable = derivedRaceSuite({
+	space: aimed(raceGen, raceAims),
+	required: ["a call waited", "reader committed"]
 })

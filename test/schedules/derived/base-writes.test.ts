@@ -18,64 +18,14 @@
  * the holder, while a writer reads StudentWeekly and adds a sitting of a student the call read.
  */
 
-import { boolean, type Gen } from "@bjornpagen/testing/gen"
-import {
-	callGen,
-	changeGen,
-	type DerivedRace,
-	derivedRaceSuite,
-	endGen,
-	heldGen,
-	initialGen,
-	initialSats,
-	labelsGen,
-	sat
-} from "#test/schedules/derived/support.ts"
+import { aimed } from "@bjornpagen/testing/gen"
+import { derivedRaceSuite } from "#test/schedules/derived/support.ts"
 
-const raceGen: Gen<DerivedRace> = (source) => {
-	const initial = source.draw(initialGen(boolean))
-	const view = source.draw(heldGen(initial))
-	return {
-		labels: source.draw(labelsGen),
-		initial,
-		holder: { kind: "holds", view, end: source.draw(endGen) },
-		calls: [source.draw(callGen(view, initial))],
-		writer: {
-			kind: "writes",
-			reads: initial.kind === "populated" && source.draw(boolean),
-			change: source.draw(changeGen(initial.stored))
-		},
-		reader: false
+import { raceGen, raceAims } from "#test/schedules/derived/base-writes.fixtures.ts"
+
+export const everyRaceOfARefreshAndABaseWriterMeetingARawRefresherIsSerializable = derivedRaceSuite(
+	{
+		space: aimed(raceGen, raceAims),
+		required: ["a call waited", "writer committed"]
 	}
-}
-
-derivedRaceSuite({
-	file: "db.refresh under concurrent base writes",
-	test: "every race of a refresh and a base writer meeting a raw refresher is serializable",
-	suite: "schedules/derived/base-writes",
-	draw: raceGen,
-	required: ["a call waited", "writer committed"],
-	kept: [
-		{
-			note: "a writer in a cycle: the call is parked between StudentWeekly and WeekBusy by the holder, the writer reads StudentWeekly and adds a sitting of student 5, which the call read; the writer commits first and the call retries with it",
-			sketch: {
-				labels: { student: 0, sitting: 0, week: 0 },
-				initial: {
-					kind: "populated",
-					viewed: initialSats,
-					stored: [...initialSats, sat(30, 5, 4, true)]
-				},
-				holder: { kind: "holds", view: "WeekBusy", end: "rollback" },
-				calls: [["StudentWeekly", "WeekBusy"]],
-				writer: {
-					kind: "writes",
-					reads: true,
-					change: { kind: "add", sats: [sat(31, 5, 4, false)] }
-				},
-				reader: false
-			},
-			draws: "",
-			reaches: ["a call waited", "refused: SerializationFailure", "writer committed"]
-		}
-	]
-})
+)
