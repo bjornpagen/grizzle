@@ -1,8 +1,10 @@
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
 import {
-	analyzePhysical,
+	analyzePhysicalUnder,
 	type PhysicalAnalysis,
 	type PhysicalNode,
+	type PropsUnder,
+	propsUnder,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
@@ -14,7 +16,7 @@ import type { FinishedCells } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Pass, PassContext } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import type { Cell, RelDag, Rooted, Roots, VarDecl } from "#compiler/ir/rel.ts"
+import type { Cell, Rooted, Roots, VarDecl } from "#compiler/ir/rel.ts"
 import { type CellState, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 
 /**
@@ -149,9 +151,12 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 const settle = (query: LogicalQuery, editor: DagEditor<Rooted>): LogicalQuery =>
 	editor.version === 0 ? query : { ...query, dag: editor.finish() }
 
-/** The physical analysis of a finished DAG in a pass context's evidence context, under its catalog. */
-const physicalOf = (dag: RelDag, ctx: PassContext): PhysicalAnalysis =>
-	analyzePhysical(dag, {
+/**
+ * The physical properties a pass reads its DAG's physical analyses through, in the pass context's evidence context,
+ * under its catalog: one for every state of the DAG the pass edits, so a node an edit kept is computed once.
+ */
+const passProps = (ctx: PassContext): PropsUnder =>
+	propsUnder({
 		context: ctx.evidenceContext,
 		catalog: ctx.catalog,
 		realization: unplaced,
@@ -167,9 +172,9 @@ export const demandAnalyses = (editor: DagEditor): DemandAnalyses => {
 	return { dag, demand: cellDemand(dag, analyzeDemand(dag.dag, noPins)) }
 }
 
-/** The demand analyses `demand`, with the physical analysis of their DAG. */
-const physicalAnalyses = (demand: DemandAnalyses, ctx: PassContext): PhysicalAnalyses => {
-	const analysis = physicalOf(demand.dag.dag, ctx)
+/** The demand analyses `demand`, with the physical analysis of their DAG through the pass's properties `props`. */
+const physicalAnalyses = (demand: DemandAnalyses, props: PropsUnder): PhysicalAnalyses => {
+	const analysis = analyzePhysicalUnder(demand.dag.dag, props)
 	return { ...demand, physical: { analysis, of: (cell) => analysis.of(demand.dag.node(cell)) } }
 }
 
@@ -199,13 +204,13 @@ const withDemand = (
 /** The physical analyses of the editor's DAG, `computed`'s or computed now, and what is computed then. */
 const withPhysical = (
 	editor: DagEditor,
-	ctx: PassContext,
+	props: PropsUnder,
 	computed: Computed
 ): { readonly analyses: PhysicalAnalyses; readonly computed: Computed } => {
 	if (computed.kind === "physical") {
 		return { analyses: computed.analyses, computed }
 	}
-	const analyses = physicalAnalyses(withDemand(editor, computed).analyses, ctx)
+	const analyses = physicalAnalyses(withDemand(editor, computed).analyses, props)
 	return { analyses, computed: { kind: "physical", analyses } }
 }
 
@@ -264,13 +269,14 @@ export const rewritePass = (spec: RewritePassSpec): Pass<LogicalQuery, LogicalQu
 	run: (query, ctx) =>
 		catchRefusal(() => {
 			const editor = new DagEditor(query.dag)
+			const props = passProps(ctx)
 			let cx = rewriteCx(editor, ctx, spec.name)
 			const potential = spec.potential(cx)
 			let start = measured(potential, cx, noneComputed)
 			for (
-				let fired = fireNext(spec.rules, cx, start.computed);
+				let fired = fireNext(spec.rules, cx, props, start.computed);
 				fired !== undefined;
-				fired = fireNext(spec.rules, cx, start.computed)
+				fired = fireNext(spec.rules, cx, props, start.computed)
 			) {
 				cx = rewriteCx(editor, ctx, spec.name)
 				const after = measured(potential, cx, noneComputed)
@@ -292,12 +298,13 @@ interface Fired {
 
 /**
  * Applies the first rule that fires at the first cell in topological order where one does, over the analyses of the
- * current DAG `computed` holds and those its decisions read, each computed once (rewritePass). No rule is applied at a
- * cell that reads a recursion's feedback.
+ * current DAG `computed` holds and those its decisions read, each computed once, the physical ones through the pass's
+ * properties `props` (rewritePass). No rule is applied at a cell that reads a recursion's feedback.
  */
 const fireNext = (
 	rules: ReadonlyArray<Rule>,
 	cx: RewriteCx,
+	props: PropsUnder,
 	computed: Computed
 ): Fired | undefined => {
 	const editor = cx.editor
@@ -315,7 +322,7 @@ const fireNext = (
 					break
 				}
 				case "physical": {
-					const read = withPhysical(editor, cx.ctx, known)
+					const read = withPhysical(editor, props, known)
 					known = read.computed
 					at = at.decide(read.analyses)
 					break

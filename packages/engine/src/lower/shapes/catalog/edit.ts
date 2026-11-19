@@ -2,7 +2,13 @@ import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { allocatedKinds, ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { cellTable, type FinishedCells, finishCells, topoOrder } from "#compiler/ir/dag.ts"
+import {
+	cellTable,
+	type FinishedCells,
+	type FoldedCell,
+	finishCells,
+	topoOrder
+} from "#compiler/ir/dag.ts"
 import { builtExpr, type ExprSpec, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
@@ -87,6 +93,8 @@ export class CatalogEditor<R extends Roots = Roots> {
 	readonly #fresh: Readonly<Record<Kind, FreshIds>>
 	/** The undo log: each redefined cell with the body it had, in the order of the redefinitions. */
 	readonly #log: Array<{ readonly cell: Cell; readonly previous: EditNode }> = []
+	/** What the last finish folded each cell into, which the next one keeps where the cell is as it was (finishCells). */
+	#folded: ReadonlyMap<Cell, FoldedCell> = new Map()
 
 	constructor(dag: ValidDag<R>) {
 		this.base = dag
@@ -187,10 +195,11 @@ export class CatalogEditor<R extends Roots = Roots> {
 	 * structural field computed. A cycle a rewrite made through the cells is that rewrite's refusal.
 	 */
 	finished(): FinishedCells<R> {
-		const done = finishCells(this.base.roots, (root) => this.cellOf(root))
+		const done = finishCells(this.base.roots, (root) => this.cellOf(root), this.#folded)
 		if (!done.ok) {
 			throw new Refusal(done.error)
 		}
+		this.#folded = done.value.folded
 		return done.value
 	}
 

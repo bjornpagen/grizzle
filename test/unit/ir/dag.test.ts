@@ -231,7 +231,7 @@ export const traversalsOfGeneratedDAGsHandleAChainOfAnyDepthPastWhatTheCallStack
 				const cells: Array<Cell> = []
 				const cellOf = cellTable(built.roots, (cell) => cells.push(cell))
 				const finished = succeeded(
-					finishCells(built.roots, (root) => defined(cellOf.get(root), "a root's cell"))
+					finishCells(built.roots, (root) => defined(cellOf.get(root), "a root's cell"), new Map())
 				)
 				assert.equal(cells.length, depth + 1)
 				assert.equal(succeeded(dagDigest(finished.dag, "dag")), succeeded(dagDigest(built, "dag")))

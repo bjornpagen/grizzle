@@ -26,6 +26,12 @@ export const freshCopy = <R extends Roots>(dag: ValidDag<R>): ValidDag<R> =>
 /** What the frame suites reach: a pass that delivered the DAG it was given, and one that changed it. */
 export type FrameFeature = "a pass delivered the settled DAG" | "a pass changed the DAG"
 
+/** What the finish suite reaches: a redefinition that changes a node, a cell an edit kept, a cell above a redefined one. */
+export type FinishFeature =
+	| "a redefinition that changes a node's content"
+	| "a cell an edit kept"
+	| "a cell above a redefined one"
+
 /** What the search built once before its cases (chain), now once per worker: every case on it reads them. */
 export const chainNeed = {
 	key: "test/unit/lower/rewrite/frame.fixtures.ts chainNeed",

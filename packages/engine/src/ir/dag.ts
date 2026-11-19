@@ -34,6 +34,7 @@ import { drive, Fold } from "#compiler/ir/fold.ts"
 import {
 	type Cell,
 	type DagTable,
+	type EditNode,
 	type EditRefs,
 	edgesOf,
 	exprsOf,
@@ -162,7 +163,10 @@ export function* edgeValues<A>(node: RelNode): Generator<RelNode, NodeOver<Value
 }
 
 /** Whether a rebuilt reading of `node` (edgeValues over a rebuild) holds the node's own inputs, edge for edge. */
-export const unchangedEdges = (node: RelNode, rebuilt: NodeOver<ValueRefs<RelNode>>): boolean => {
+export const unchangedEdges = (
+	node: RelNode,
+	rebuilt: NodeOver<ValueRefs<RelNode>> | NodeSpec
+): boolean => {
 	const before = edgesOf(node)
 	const after = edgesOf(rebuilt)
 	return before.length === after.length && before.every((edge, i) => after[i] === edge)
@@ -570,9 +574,17 @@ const cellCycle = (roots: ReadonlyArray<Cell>): Cell | undefined => {
 	return undefined
 }
 
+/** What a finish folded a cell into: the edit form the cell held, and the node the one constructor built of it. */
+export interface FoldedCell {
+	readonly current: EditNode
+	readonly node: RelNode
+}
+
 /** What an editor's cells hold now: the DAG, and the node each cell stands as in it. */
 export interface FinishedCells<R extends Roots> {
 	readonly dag: ValidDag<R>
+	/** Each cell this finish folded, what it folded it into: the next finish's `previous` (finishCells). */
+	readonly folded: ReadonlyMap<Cell, FoldedCell>
 	/**
 	 * The node `cell` stands as in `dag`: a cell the roots reach is folded already; any other is folded on demand, over
 	 * inputs no rewrite left in a cycle.
@@ -586,10 +598,17 @@ export interface FinishedCells<R extends Roots> {
  * so every structural field is computed from what the edits left; `node` reads each cell's node in it, so a rewrite
  * holding cells analyzes the finished DAG. A cell no root reaches is left behind. A cycle a rewrite made through the
  * cells' edges is MalformedDescription, the CompileError the rewrite throws, as builders do.
+ *
+ * The one constructor's node is a function of its label, its form and its inputs' nodes, so a cell that holds the edit
+ * form it held at the editor's previous finish (`previous`, that finish's `folded`), over inputs folded into the very
+ * nodes they were then, is that finish's node again, the same value: a rewrite's edit rebuilds the cells it redefined
+ * and the cells above them alone, and a reader keyed by node (an analysis's fold) reads every other node of the new DAG
+ * as it read it in the old.
  */
 export const finishCells = <R extends Roots>(
 	roots: R,
-	cellOf: (root: RelNode) => Cell
+	cellOf: (root: RelNode) => Cell,
+	previous: ReadonlyMap<Cell, FoldedCell>
 ): Result.Result<FinishedCells<R>, CompileError> => {
 	const cycle = cellCycle(roots.map((root) => cellOf(root)))
 	if (cycle !== undefined) {
@@ -597,12 +616,20 @@ export const finishCells = <R extends Roots>(
 			malformed(["nodes", cycle.id], "an acyclic DAG: the node reaches itself through its inputs")
 		)
 	}
+	const folded = new Map<Cell, FoldedCell>()
 	const built = new Fold<Cell, RelNode>(function* (cell) {
-		const spec = yield* mapNode<EditRefs, SpecRefs>(cell.current, keptRefs)
-		return relNode(cell.id, spec)
+		const current = cell.current
+		const spec = yield* mapNode<EditRefs, SpecRefs>(current, keptRefs)
+		const before = previous.get(cell)
+		const node =
+			before !== undefined && before.current === current && unchangedEdges(before.node, spec)
+				? before.node
+				: relNode(cell.id, spec)
+		folded.set(cell, { current, node })
+		return node
 	})
 	const dag = assembledDag(mapRoots(roots, (root) => built.of(cellOf(root))))
-	return Result.ok({ dag, node: (cell) => built.of(cell) })
+	return Result.ok({ dag, folded, node: (cell) => built.of(cell) })
 }
 
 /** The highest numeric suffix of each allocated kind among a DAG's labels, so fresh labels can follow it. */

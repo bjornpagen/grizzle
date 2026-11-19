@@ -7,22 +7,34 @@
  * - the same input rewrites to the same DAG, certificates and SQL, run after run;
  * - a pass given a DAG a frame settled delivers that very DAG where it changes nothing, and otherwise one whose content
  *   differs, the DAG a fresh copy of the same content gives;
- * - a pass computed cold from a fresh copy of a DAG equals the pass computed warm from the one a pass delivered.
+ * - a pass computed cold from a fresh copy of a DAG equals the pass computed warm from the one a pass delivered;
+ * - a finish after an edit keeps the node of every cell the edit left as it was, and folds the redefined cell and every
+ *   cell above it anew, into the DAG a finish with no memory of the last gives, whose physical analysis read through
+ *   one pass's properties is the analysis computed from scratch.
  *
  * Oracle: the frame's statement over an exhaustive space of root positions (a specification); for the rest, universal
  * laws over generated queries: determinism, and a pass's result a function of its input's content alone.
  *
- * Features: the query's root and a later root replaced; a pass that delivered the settled DAG; a pass that changed it.
+ * Features: the query's root and a later root replaced; a pass that delivered the settled DAG; a pass that changed it; a
+ * redefinition that changes a node's content, a cell an edit kept, and a cell above a redefined one.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import {
+	analyzePhysical,
+	analyzePhysicalUnder,
+	type PhysicalEnv,
+	propsUnder,
+	unplaced
+} from "#compiler/analysis/physical/analyze.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
-import { conservativeMeta, type Rooted } from "#compiler/ir/rel.ts"
+import { type Cell, conservativeMeta, type Rooted } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
+import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import { relationalRewrites } from "#compiler/lower/optimize/demand/phases.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 
@@ -37,6 +49,7 @@ import { upTo } from "#test/support/up-to.ts"
 import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	chainNeed,
+	type FinishFeature,
 	type FrameFeature,
 	freshCopy,
 	passesNeed,
@@ -106,9 +119,10 @@ export const aDAGsRootsARootStaysAtItsPositionAmongTheDAGsRootsWhenARewriteRepla
 			kills: [
 				{
 					file: "packages/engine/src/lower/optimize/demand/editor.ts",
-					original: "\t\tconst done = finishCells(this.base.roots, (root) => this.#rootCell(root))",
+					original:
+						"\t\tconst done = finishCells(this.base.roots, (root) => this.#rootCell(root), this.#folded)",
 					replacement:
-						"\t\tconst done = finishCells([...this.base.roots].reverse(), (root) => this.#rootCell(root))",
+						"\t\tconst done = finishCells([...this.base.roots].reverse(), (root) => this.#rootCell(root), this.#folded)",
 					why: "The editor finishes a DAG with its roots reversed; the frame-root-position search fails."
 				}
 			]
@@ -283,6 +297,117 @@ export const determinismAPassComputedColdFromAFreshCopyOfADAGEqualsThePassComput
 				original: "\t\tif (exprsOf(node).some((e) => e.deps.nodes.includes(read))) {",
 				replacement: "\t\tif (exprsOf(node).some((e) => true)) {",
 				why: "Operator mutant (boolean-return) at packages/engine/src/ir/rel.ts:550 in semiJoinRight: `e.deps.nodes.includes(read)` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
+	})
+
+/**
+ * A finish after an edit keeps the node of every cell the edit left as it was (ir/dag.ts finishCells): with the cell at
+ * each position of a generated query's topological order redefined under another cardinality claim, a finish reads
+ * structure and never its claims' truth, so the editor's finish is the
+ * DAG a finish with no memory of the last gives, the redefined cell and every cell above it fold into new nodes, every
+ * other cell into the very node the last finish built, and the physical analysis of the new DAG read through the
+ * properties the old one's was (analysis/physical/analyze.ts PropsUnder) is the analysis computed from scratch.
+ *
+ * Budget: 120 runs and 120 steered cases, the frame-determinism suite's.
+ */
+export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFoldsTheRedefinedCellAndEveryCellAboveItAnew =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		budget: { runs: 120, steered: 120 },
+		situations: [
+			"a redefinition that changes a node's content",
+			"a cell an edit kept",
+			"a cell above a redefined one"
+		] satisfies ReadonlyArray<Reached<FinishFeature>>,
+		check: (_, c: Case<FinishFeature>) => (q) =>
+			Effect.sync(() => {
+				const query = caseQuery(q)
+				const ctx = passContext({ catalog: genCatalog(q.schema), evidence: "snapshot" })
+				const env: PhysicalEnv = {
+					context: ctx.evidenceContext,
+					catalog: ctx.catalog,
+					realization: unplaced,
+					roots: "result"
+				}
+				const positions = new DagEditor(query.dag).topoOrder().length
+				for (const at of upTo(positions, (i) => i)) {
+					/** The editor's edit: the cell at position `at` redefined under another cardinality claim. */
+					const edited = (editor: DagEditor): Cell => {
+						const cell = defined(editor.topoOrder()[at], "a cell at the position")
+						const { meta } = cell.current
+						editor.set(cell, {
+							...cell.current,
+							meta: { ...meta, card: meta.card === "many" ? "atMostOne" : "many" }
+						})
+						return cell
+					}
+					const editor = new DagEditor(query.dag)
+					const before = editor.finished()
+					const props = propsUnder(env)
+					analyzePhysicalUnder(before.dag, props)
+					const redefined = edited(editor)
+					const after = editor.finished()
+					const fresh = new DagEditor(query.dag)
+					edited(fresh)
+					assert.deepEqual(after.dag, fresh.finished().dag)
+					if (
+						succeeded(encode(after.node(redefined), everyProperty)) !==
+						succeeded(encode(before.node(redefined), everyProperty))
+					) {
+						c.note("a redefinition that changes a node's content")
+					}
+					for (const cell of editor.topoOrder()) {
+						if (DagEditor.subtree(cell).has(redefined)) {
+							assert.notEqual(after.node(cell), before.node(cell), `${cell.id} is folded anew`)
+							if (cell !== redefined) {
+								c.note("a cell above a redefined one")
+							}
+						} else {
+							assert.equal(after.node(cell), before.node(cell), `${cell.id} keeps its node`)
+							c.note("a cell an edit kept")
+						}
+					}
+					const shared = analyzePhysicalUnder(after.dag, props)
+					const scratch = analyzePhysical(after.dag, env)
+					assert.deepEqual(
+						Arr.map(shared.order, (n) => shared.of(n)),
+						Arr.map(scratch.order, (n) => scratch.of(n))
+					)
+					assert.deepEqual(shared.obligations, scratch.obligations)
+				}
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a finish's DAG is its cells' content alone, and a node an edit left is the node the last finish built"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/dag.ts",
+				original:
+					"\t\t\tbefore !== undefined && before.current === current && unchangedEdges(before.node, spec)",
+				replacement: "\t\t\tbefore !== undefined && unchangedEdges(before.node, spec)",
+				why: "A finish keeps the node of a cell an edit redefined; the redefined cell is not folded anew."
+			},
+			{
+				file: "packages/engine/src/ir/dag.ts",
+				original:
+					"\t\t\tbefore !== undefined && before.current === current && unchangedEdges(before.node, spec)",
+				replacement: "\t\t\tbefore !== undefined && before.current === current",
+				why: "A finish keeps the node of a cell whose input was folded anew; the cell above a redefined one is stale."
+			},
+			{
+				file: "packages/engine/src/ir/dag.ts",
+				original: "\t\t\t\t? before.node\n",
+				replacement: "\t\t\t\t? relNode(cell.id, spec)\n",
+				why: "A finish folds every cell anew; a cell the edit left loses its node."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/demand/editor.ts",
+				original: "\t\tthis.#folded = done.value.folded\n",
+				replacement: "",
+				why: "The editor forgets what its last finish folded; a cell the edit left loses its node."
 			}
 		]
 	})

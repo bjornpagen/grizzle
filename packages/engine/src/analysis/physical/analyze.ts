@@ -107,7 +107,58 @@ export interface PhysicalAnalysis {
  * duplicate-elimination placement reads.
  */
 export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis =>
-	analysisOver(dag, topoOrder(dag), env, new Map())
+	analysisOver(dag, topoOrder(dag), propsUnder(env))
+
+/** No node's properties carried: every node is computed from its inputs'. */
+const noneKept: ReadonlyMap<RelNode, PhysicalProps> = new Map()
+
+/**
+ * Each node's physical properties under one env, its inputs' first, each computed once for as long as its holder holds
+ * it: a node's properties read its own realization, its inputs' properties and, for a SelfRef, its Recursive's
+ * realization (rules.ts), so one value answers every DAG under `env` that holds the node, whichever state of an edit
+ * it is read in (analyzePhysicalUnder). A node `kept` holds carries the properties it holds there.
+ */
+export class PropsUnder {
+	readonly env: PhysicalEnv
+	readonly #props: Fold<RelNode, PhysicalProps>
+
+	constructor(env: PhysicalEnv, kept: ReadonlyMap<RelNode, PhysicalProps>) {
+		this.env = env
+		/** Each node's physical properties, its inputs' first: every input is yielded before its rule reads it. */
+		const props = new Fold<RelNode, PhysicalProps>(function* (node) {
+			const carried = kept.get(node)
+			if (carried !== undefined) {
+				return carried
+			}
+			for (const input of inputsOf(node)) {
+				yield input
+			}
+			return physicalPropsOf(node, rules)
+		})
+		const rules: RuleContext = {
+			props: (input) => props.of(input),
+			catalog: env.catalog,
+			placed: env.realization
+		}
+		this.#props = props
+	}
+
+	/** The physical properties of `node` under the env. */
+	of(node: RelNode): PhysicalProps {
+		return this.#props.of(node)
+	}
+}
+
+/** Each node's physical properties under `env`, none carried (PropsUnder). */
+export const propsUnder = (env: PhysicalEnv): PropsUnder => new PropsUnder(env, noneKept)
+
+/**
+ * The analysis of `dag` under `under`'s env, every node's properties `under`'s: a rewrite pass reads every state of its
+ * edited DAG through one, so a node an edit kept (ir/dag.ts finishCells) is computed once for the pass. It is the
+ * analysis analyzePhysical computes under that env.
+ */
+export const analyzePhysicalUnder = (dag: RelDag, under: PropsUnder): PhysicalAnalysis =>
+	analysisOver(dag, topoOrder(dag), under)
 
 /**
  * The analysis of `previous`'s DAG under `env`, whose realization differs from the one `previous` was computed under at
@@ -135,31 +186,19 @@ export const reanalyzePhysical = (
 			kept.set(node, previous.of(node).props)
 		}
 	}
-	return analysisOver(previous.dag, previous.order, env, kept)
+	return analysisOver(previous.dag, previous.order, new PropsUnder(env, kept))
 }
 
-/** The analysis of `dag`, its nodes in topological order `order`, under `env`, each node `kept` holds carrying the
- * properties it holds and every other computed from its inputs'. */
+/** The analysis of `dag`, its nodes in topological order `order`, under `props`'s env, each node's properties
+ * `props`'s. */
 const analysisOver = (
 	dag: RelDag,
 	order: ReadonlyArray<RelNode>,
-	env: PhysicalEnv,
-	kept: ReadonlyMap<RelNode, PhysicalProps>
+	props: PropsUnder
 ): PhysicalAnalysis => {
-	const { context, catalog } = env
+	const { env } = props
+	const { context } = env
 	const realization = (node: RelNode): Realization => realizationOf(env.realization, node)
-	/** Each node's physical properties, its inputs' first: every input is yielded before its rule reads it. */
-	const props = new Fold<RelNode, PhysicalProps>(function* (node) {
-		const carried = kept.get(node)
-		if (carried !== undefined) {
-			return carried
-		}
-		for (const input of inputsOf(node)) {
-			yield input
-		}
-		return physicalPropsOf(node, rules)
-	})
-	const rules: RuleContext = { props: (input) => props.of(input), catalog, placed: env.realization }
 	const edges = classifyEdges(dag, order, {
 		props: (node) => props.of(node),
 		realization,

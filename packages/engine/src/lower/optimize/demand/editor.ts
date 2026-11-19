@@ -1,7 +1,13 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, OccurrenceId, type ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { cellOrder, cellTable, type FinishedCells, finishCells } from "#compiler/ir/dag.ts"
+import {
+	cellOrder,
+	cellTable,
+	type FinishedCells,
+	type FoldedCell,
+	finishCells
+} from "#compiler/ir/dag.ts"
 import {
 	builtExpr,
 	type ColumnRef,
@@ -265,6 +271,8 @@ export class DagEditor<R extends Roots = Roots> {
 		scope: new FreshIds("sw", [])
 	}
 	#version = 0
+	/** What the last finish folded each cell into, which the next one keeps where the cell is as it was (finishCells). */
+	#folded: ReadonlyMap<Cell, FoldedCell> = new Map()
 
 	/** The DAG the editor started from. */
 	readonly base: ValidDag<R>
@@ -574,10 +582,11 @@ export class DagEditor<R extends Roots = Roots> {
 	 * field computed from what the edits left. A cycle a rewrite made through the cells is that rewrite's refusal.
 	 */
 	finished(): FinishedCells<R> {
-		const done = finishCells(this.base.roots, (root) => this.#rootCell(root))
+		const done = finishCells(this.base.roots, (root) => this.#rootCell(root), this.#folded)
 		if (!done.ok) {
 			throw new Refusal(done.error)
 		}
+		this.#folded = done.value.folded
 		return done.value
 	}
 
