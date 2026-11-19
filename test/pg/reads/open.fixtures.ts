@@ -123,7 +123,7 @@ const wrongRoleDefault: { readonly [P in RoleDefaultParameter]: string } = {
  * The database a Db is opened against: the one Work and Search were installed in, with pgvector; a libc database
  * holding neither; or a builtin C.UTF-8 database without pgvector, where Work is installed too.
  */
-export type OpenDatabase = "installed" | "libc" | "builtin without pgvector"
+type OpenDatabase = "installed" | "libc" | "builtin without pgvector"
 
 /** What a role default of the opened login is when the open runs: as installed, removed, or set to a wrong value. */
 type DefaultChange = "kept" | "reset" | "wrong"

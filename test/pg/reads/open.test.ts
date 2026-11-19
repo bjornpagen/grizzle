@@ -27,7 +27,7 @@
 
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Layer, Option, Result } from "effect"
+import { Array as Arr, Effect, Layer, Option, Result, type Scope } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import {
 	anyOpenGen,
@@ -37,7 +37,6 @@ import {
 	holdsSchema,
 	layerIn,
 	noLedger,
-	type OpenDatabase,
 	type OpenFeature,
 	openFeatures,
 	qs,
@@ -56,6 +55,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigratedIn as installIn } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import type { SqlError } from "#test/support/pg.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -75,61 +75,52 @@ export const dbOpenYieldsADbWhateverTheDatabaseWhoseReadsMeetTheFenceTheStoredDe
 			(c) =>
 				Effect.provideServiceEffect(
 					Effect.gen(function* () {
-						const work = yield* installed(W.Work, workFacts, {
-							label: "real",
-							programs: { task: W.Task, vectorProbe }
-						})
-						const stamping = yield* installed(
-							Stamps,
-							{},
-							{ label: "real", programs: { stamp: Stamp } }
-						)
 						const s = yield* Substrate
-						const stampNames = namesOf(stamping.installed)
-						const searching = yield* installed(
-							search.Search,
-							{},
-							{
-								label: "real",
-								programs: { document: search.Document, searchProbe }
-							}
-						)
-						const libc = yield* bareDatabase(
-							"bare",
-							"ENCODING 'UTF8' LOCALE_PROVIDER libc LOCALE 'C'"
-						)
-						const builtin = yield* bareDatabase("bare", builtinCUtf8)
-						yield* installIn(builtin, work.installed)
-						const databaseOf = (d: OpenDatabase): string => {
-							switch (d) {
+						/**
+						 * The database the case reads its target in, made for the case as it draws it: its target's own, a
+						 * libc one holding none, or a builtin one without pgvector, holding Work for a Work target alone
+						 * (`installTarget`), the one schema whose read there the case judges as held.
+						 */
+						const databaseFor = (
+							installedIn: string,
+							installTarget: (builtin: string) => Effect.Effect<void, never, Substrate>
+						): Effect.Effect<string, SqlError, Substrate | Scope.Scope> => {
+							switch (c.database) {
 								case "installed":
-									return work.installed.database
+									return Effect.succeed(installedIn)
 								case "libc":
-									return libc
+									return bareDatabase("bare", "ENCODING 'UTF8' LOCALE_PROVIDER libc LOCALE 'C'")
 								case "builtin without pgvector":
-									return builtin
+									return Effect.tap(bareDatabase("bare", builtinCUtf8), installTarget)
 							}
 						}
-
-						const database = databaseOf(c.database)
-						const loginRole =
-							c.target.schema === "Work"
-								? work.installed.as(work.server).role
-								: c.target.schema === "Search"
-									? searching.installed.as(searching.server).role
-									: stamping.installed.as(stamping.server).role
-						yield* Effect.forEach(
-							c.defaults,
-							(d) => changedDefault(loginRole, d.setting, d.change),
-							{ discard: true }
-						)
-						for (const d of c.defaults) {
-							if (d.change !== "kept") {
-								k.note(`role default ${d.change} ${d.setting.parameter}`)
-							}
-						}
+						/**
+						 * The target's login with its drawn stored defaults: the case changes the login itself, which is
+						 * the cluster's, so its fixture is installed for the case alone, and only the target's.
+						 */
+						const withDefaults = (loginRole: string) =>
+							Effect.gen(function* () {
+								yield* Effect.forEach(
+									c.defaults,
+									(d) => changedDefault(loginRole, d.setting, d.change),
+									{ discard: true }
+								)
+								for (const d of c.defaults) {
+									if (d.change !== "kept") {
+										k.note(`role default ${d.change} ${d.setting.parameter}`)
+									}
+								}
+							})
 						if (c.target.schema === "Stamps") {
 							const stamp = c.target.stamp
+							const stamping = yield* installed(
+								Stamps,
+								{},
+								{ label: "real", programs: { stamp: Stamp } }
+							)
+							const stampNames = namesOf(stamping.installed)
+							const database = yield* databaseFor(stamping.installed.database, () => Effect.void)
+							yield* withDefaults(stamping.installed.as(stamping.server).role)
 							yield* Effect.orDie(
 								replaceRows(s.admin, installationGroup(stampNames), [
 									{
@@ -177,6 +168,14 @@ export const dbOpenYieldsADbWhateverTheDatabaseWhoseReadsMeetTheFenceTheStoredDe
 							return
 						}
 						if (c.target.schema === "Work") {
+							const work = yield* installed(W.Work, workFacts, {
+								label: "real",
+								programs: { task: W.Task, vectorProbe }
+							})
+							const database = yield* databaseFor(work.installed.database, (builtin) =>
+								installIn(builtin, work.installed)
+							)
+							yield* withDefaults(work.installed.as(work.server).role)
 							yield* Effect.flatMap(Db.open(work.served.login.roles.app, {}), (db) =>
 								Effect.gen(function* () {
 									const found = yield* Effect.result(
@@ -215,6 +214,16 @@ export const dbOpenYieldsADbWhateverTheDatabaseWhoseReadsMeetTheFenceTheStoredDe
 							).pipe(Effect.orDie, withLayer(Layer.fresh(layerIn(database, work))))
 							return
 						}
+						const searching = yield* installed(
+							search.Search,
+							{},
+							{
+								label: "real",
+								programs: { document: search.Document, searchProbe }
+							}
+						)
+						const database = yield* databaseFor(searching.installed.database, () => Effect.void)
+						yield* withDefaults(searching.installed.as(searching.server).role)
 						yield* Effect.flatMap(Db.open(searching.served.login.roles.app, {}), (db) =>
 							Effect.gen(function* () {
 								assert.equal(searching.installed.names.vectorSchema, testTypeSchema("vector_ext"))
