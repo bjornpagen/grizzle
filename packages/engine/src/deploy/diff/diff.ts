@@ -105,28 +105,29 @@ import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent, parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
-import type {
-	AlterRole,
-	AlterTable,
-	AlterTableAction,
-	Collation,
-	ColumnDef,
-	CreateDomain,
-	CreateIndex,
-	CreateTable,
-	Expr,
-	ForeignKey,
-	FunctionName,
-	Grant,
-	GrantColumns,
-	Grantee,
-	GrantRole,
-	ObjectName,
-	Revoke,
-	SqlStatement,
-	TableConstraint,
-	TypeRef,
-	TypeSchema
+import {
+	addedColumn,
+	type AlterRole,
+	type AlterTable,
+	type AlterTableAction,
+	type Collation,
+	type ColumnDef,
+	type CreateDomain,
+	type CreateIndex,
+	type CreateTable,
+	type Expr,
+	type ForeignKey,
+	type FunctionName,
+	type Grant,
+	type GrantColumns,
+	type Grantee,
+	type GrantRole,
+	type ObjectName,
+	type Revoke,
+	type SqlStatement,
+	type TableConstraint,
+	type TypeRef,
+	type TypeSchema
 } from "#compiler/sql/ast.ts"
 
 import { dropLiveSlot } from "#compiler/physical/ddl/live.ts"
@@ -617,35 +618,6 @@ const generationReads = (c: ColumnDef): ReadonlyArray<string> => {
 		case "retirement":
 		case undefined:
 			return []
-	}
-}
-
-/** The column a subcommand of a table's alteration adds, under whatever value it adds it; none for any other. */
-const addedColumn = (a: AlterTableAction): ColumnDef | undefined => {
-	switch (a.kind) {
-		case "addColumn":
-		case "addColumnPlaceholder":
-		case "addColumnDefault":
-		case "addColumnUnchecked":
-			return a.column
-		case "setNotNull":
-		case "dropColumn":
-		case "dropDefault":
-		case "setUuidv7Default":
-		case "setRetirementDefault":
-		case "alterColumnType":
-		case "addIdentity":
-		case "dropIdentity":
-		case "addConstraint":
-		case "addConstraintUsingIndex":
-		case "validateConstraint":
-		case "alterConstraintDeferral":
-		case "dropConstraint":
-		case "enableRowSecurity":
-		case "disableRowSecurity":
-		case "replicaIdentity":
-		case "setExpression":
-			return undefined
 	}
 }
 

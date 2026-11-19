@@ -1404,6 +1404,36 @@ export type AlterTableAction =
 			readonly expr: Expr
 	  }
 
+/** The column an ALTER TABLE subcommand adds, under whatever value it adds it, each taking its table's next attribute
+ * number; none for any other subcommand. */
+export const addedColumn = (a: AlterTableAction): ColumnDef | undefined => {
+	switch (a.kind) {
+		case "addColumn":
+		case "addColumnPlaceholder":
+		case "addColumnDefault":
+		case "addColumnUnchecked":
+			return a.column
+		case "setNotNull":
+		case "dropColumn":
+		case "dropDefault":
+		case "setUuidv7Default":
+		case "setRetirementDefault":
+		case "alterColumnType":
+		case "addIdentity":
+		case "dropIdentity":
+		case "addConstraint":
+		case "addConstraintUsingIndex":
+		case "validateConstraint":
+		case "alterConstraintDeferral":
+		case "dropConstraint":
+		case "enableRowSecurity":
+		case "disableRowSecurity":
+		case "replicaIdentity":
+		case "setExpression":
+			return undefined
+	}
+}
+
 /**
  * An ALTER COLUMN ... TYPE's USING: the conversion of each stored value, or a drafted placeholder the reviewer replaces
  * with one (print.ts placeholderToken).

@@ -113,6 +113,13 @@ export const backfillingAFamilyAddedToStoredRowsGeneratedDrawsEveryValueItsRefer
 				original: "\t\tconst key = nameKey(n.derivation.table)",
 				replacement: `\t\tconst key = \`\${nameKey(n.derivation.table)}\\u0000\${n.name}\``,
 				why: "The backfill writes a table once per derivation, not by one UPDATE; the check that the backfill writes each table's rows by one UPDATE fails."
+			},
+			{
+				file: "packages/engine/src/deploy/snapshot/build.ts",
+				original: "\t\tactions.filter((a) => addedColumn(a) !== undefined).length",
+				replacement:
+					'\t\tactions.filter((a) => addedColumn(a) !== undefined && a.kind !== "addColumnDefault").length',
+				why: "A drawn column added under its placeholder default spends no attribute number, as snapshot/build.ts addedColumns counted before it read plan.ts addedColumn; the recorded attribute numbers fall short of the ADD COLUMNs the SQL spells."
 			}
 		]
 	})

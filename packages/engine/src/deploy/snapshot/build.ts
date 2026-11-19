@@ -94,6 +94,8 @@ import { namedIdent } from "#compiler/physical/obligations/graph.ts"
 import { levelChain, type Owned, ownLevel } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import {
+	addedColumn,
+	type AlterTableAction,
 	type CreateIndex,
 	type CreateTable,
 	type ObjectName,
@@ -366,26 +368,20 @@ export const codebookOf = (snapshot: DeploySnapshot): Codebook =>
 		)
 	)
 
-/** The columns a migration adds to each table, by its name: each ADD COLUMN its plan drafts, and each column of a
- * CREATE TABLE. A field set aside (deploy/diff/plan.ts SetAside) takes one more: its set-aside column's ADD COLUMN
- * (addColumnUnchecked) holds a new attribute number, renamed into the field's name, while its old column's stays
- * spent once dropped. */
+/** The columns a migration adds to each table, by its name: each column a subcommand of its plan's alterations and ALTER
+ * TABLEs adds (sql/ast.ts addedColumn), whatever value it adds it under, and each column of a CREATE TABLE. A
+ * field set aside (deploy/diff/plan.ts SetAside) takes one more: its set-aside column's ADD COLUMN (addColumnUnchecked)
+ * holds a new attribute number, renamed into the field's name, while its old column's stays spent once dropped. */
 const addedColumns = (plan: MigrationPlan): ReadonlyMap<string, number> => {
 	const out = new Map<string, number>()
 	const add = (table: string, n: number): void => {
 		out.set(table, (out.get(table) ?? 0) + n)
 	}
+	const adds = (actions: ReadonlyArray<AlterTableAction>): number =>
+		actions.filter((a) => addedColumn(a) !== undefined).length
 	for (const { draft: d } of plan.steps) {
 		if (d.kind === "alteration") {
-			add(
-				d.table.name,
-				d.actions.filter(
-					(a) =>
-						a.kind === "addColumn" ||
-						a.kind === "addColumnUnchecked" ||
-						a.kind === "addColumnPlaceholder"
-				).length
-			)
+			add(d.table.name, adds(d.actions))
 			continue
 		}
 		const statements = d.kind === "statement" ? [d.statement] : d.kind === "confirm" ? d.keep : []
@@ -393,7 +389,7 @@ const addedColumns = (plan: MigrationPlan): ReadonlyMap<string, number> => {
 			if (s.kind === "createTable") {
 				add(s.table.name, s.columns.length)
 			} else if (s.kind === "alterTable") {
-				add(s.table.name, s.actions.filter((a) => a.kind === "addColumn").length)
+				add(s.table.name, adds(s.actions))
 			}
 		}
 	}

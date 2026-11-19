@@ -9,6 +9,7 @@ import {
 	type Rename
 } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
+import { splitStatements, statementTokens } from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { SlotsDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -1664,9 +1665,53 @@ const foldCaseOf = (family: Extract<Backfill, { readonly kind: "fold" }>["family
 	}
 }
 
-/** The catalog a migration leaves is the one its target installs from nothing, every constraint validated. */
-const assertFresh = (m: Migration, state: State): void =>
+/** The columns a draft's SQL adds to each table, by its name, read off the text its files hold as PostgreSQL's scanner
+ * reads it: each ADD COLUMN of an ALTER TABLE "<schema>"."<table>", each taking the table's next attribute number. A
+ * statement the file holds commented, a loss undecided, is no statement. */
+const spelledAdds = (draft: GenerateResult): ReadonlyMap<string, number> => {
+	const out = new Map<string, number>()
+	for (const file of draft.folder.files) {
+		for (const statement of splitStatements(file.text)) {
+			const tokens = statementTokens(statement)
+			const [alter, table, , dot, name] = tokens
+			const word = (i: number, upper: string): boolean => {
+				const t = tokens[i]
+				return t?.kind === "word" && t.upper === upper
+			}
+			if (
+				alter?.kind !== "word" ||
+				alter.upper !== "ALTER" ||
+				table?.kind !== "word" ||
+				table.upper !== "TABLE" ||
+				dot?.kind !== "punct" ||
+				name?.kind !== "quotedIdent"
+			) {
+				continue
+			}
+			const adds = Arr.filter(tokens, (_, i) => word(i, "ADD") && word(i + 1, "COLUMN"))
+			out.set(name.text, (out.get(name.text) ?? 0) + adds.length)
+		}
+	}
+	return out
+}
+
+/** The catalog a migration leaves is the one its target installs from nothing, every constraint validated; and each
+ * table both drafts install records the attribute numbers its migrations spent: the first draft's, then one per column
+ * the second draft's SQL adds to it (spelledAdds), whatever value it adds it under, since PostgreSQL never reuses one. */
+const assertFresh = (m: Migration, state: State): void => {
 	assert.deepEqual(catalogOf(state), catalogOf(freshState(m.second.names.schema, m.second)))
+	const adds = spelledAdds(m.secondDraft)
+	for (const [name, r] of Rec.toEntries(m.secondDraft.snapshot.theory.relations)) {
+		const was = m.firstDraft.snapshot.theory.relations[name]
+		if (r.kind === "relation" && was?.kind === "relation" && was.ident === r.ident) {
+			assert.equal(
+				r.attnums,
+				was.attnums + (adds.get(r.ident) ?? 0),
+				`${name}: the attribute numbers its first draft recorded, and one per column the second's SQL adds`
+			)
+		}
+	}
+}
 
 /** What a folded family drawn over `stored` and then reshaped must hold: the reference fold's values over the stored
  * rows in key order, and the catalog its reshaped target installs from nothing. */
