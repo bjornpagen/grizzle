@@ -455,8 +455,10 @@ const canonicalTexts: CanonicalTexts = {
 /**
  * Canonical value encoding for fact identity.
  *
- * One logical value must compare the same in codecs, PostgreSQL equality, DISTINCT, keys, grouping and the test
- * oracle. This module is that host side, per scalar carrier:
+ * One logical value compares the same in codecs, PostgreSQL equality, DISTINCT, keys, grouping and the test oracle,
+ * and every value is in its one form, but a float's zero: -0 and +0 are two values, each its own fact identity, and one
+ * key under PostgreSQL's equality (keyText), so a write compares two facts of one key by their identity (ir/compare.ts
+ * factEq) and two keys by their key texts. This module is the host side, per scalar carrier:
  *
  * - `parseValue` is the boundary: the exact parse of a host value as its carrier's, which refuses a value its column
  *   would store as another (a numeric past its scale, a double no binary32 value holds) and alters none: two spellings
@@ -668,6 +670,16 @@ export const admittedText = <C extends Carrier>(
 	spec: SpecOf<C> & CarrierSpec,
 	value: unknown
 ): string => canonicalText(spec, admitted(spec, value))
+
+/**
+ * The text a key compares a value by, of its canonical text (canonicalText): the text itself, but a float zero's, -0's
+ * and +0's alike, since PostgreSQL's equality holds them one key: two values of one type share a key text exactly when
+ * that equality holds them equal, as a key's same-key refusal reads them, where a fact's identity tells them apart.
+ */
+export const keyText = (spec: CarrierSpec, text: string): string =>
+	(spec.carrier === "float4" || spec.carrier === "float8") && text === floatText(-0)
+		? floatText(0)
+		: text
 
 export interface HeadingField {
 	readonly name: string

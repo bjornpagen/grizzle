@@ -510,9 +510,9 @@ const attachedOf = (
 			record,
 			parent: Arr.map(parentKey, (c) => ({
 				at: parent.own(c.at),
-				cell: scalarReader(c.type, codes).cellText
+				cell: scalarReader(c.type, codes).keyText
 			})),
-			child: Arr.map(parentKey, (c, at) => ({ at, cell: scalarReader(c.type, codes).cellText }))
+			child: Arr.map(parentKey, (c, at) => ({ at, cell: scalarReader(c.type, codes).keyText }))
 		},
 		layout: { layouts: [record.layout], proved: attach.judged }
 	}
@@ -538,7 +538,10 @@ export const programRecords = (
 	return { records: Arr.flatten(Arr.map(delivered, recordsUnder)), delivered }
 }
 
-/** A parent key's map key: the identities of the cells `key` reads, in its order. */
+/**
+ * A parent key's map key: the key texts of the cells `key` reads, in its order (codec/read.ts keyText), so a parent and
+ * the children PostgreSQL matched to it meet whichever zero each float holds.
+ */
 const keyOf = (cells: ReadonlyArray<Cell>, key: ReadonlyArray<KeyRead>): ReadonlyArray<string> =>
 	key.map((read) => read.cell(rowCell(cells, read.at)))
 

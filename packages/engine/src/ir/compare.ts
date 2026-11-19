@@ -1,8 +1,8 @@
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, floatCarrierOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Expr, TypeSchema } from "#compiler/sql/ast.ts"
-import { and, binary, or, row } from "#compiler/sql/build.ts"
+import { and, binary, or, row, sameZeroSign, zerosOfTwoSigns } from "#compiler/sql/build.ts"
 
 /** The installation's names a comparison's operator resolves through: the schema of each type an extension defines. */
 export type OperatorNames = Pick<PhysicalNames, "vectorSchema">
@@ -70,10 +70,11 @@ export const typedCompare = (
  *
  * A match binding shared by two occurrences, a constant or parameter binding, a variable equality, a correlation, a
  * semi-join, attach, union or take stitch, a read-back's delivery check, the insert protocol's DO SELECT predicate and
- * inserted marker, a put's key and payload, a family's keys and groups, a probe function's key and an exact or
- * displacing deletion all compare two values of one heading column, each at the operator its type resolves
- * (`operatorSchemaOf`): over a vector the extension's own B-tree operator, `a OPERATOR("vector_ext".=) b` (native
- * float32 component equality, -0 = +0), and over every other type the builtin operator, unqualified.
+ * inserted marker, a put's key, a family's keys and groups, a probe function's key and a deletion's key all compare two
+ * values of one heading column, each at the operator its type resolves (`operatorSchemaOf`): over a vector the
+ * extension's own B-tree operator, `a OPERATOR("vector_ext".=) b` (native float32 component equality, -0 = +0), and
+ * over every other type the builtin operator, unqualified. Two stored and requested facts of one key compare as facts
+ * (factEq, factNe): a put's payload, the insert protocol's exact repeat, an exact or displacing deletion's fields.
  *
  * A row comparison resolves each column's operator by name too (make_row_comparison_op), so a row that holds a column
  * whose operators are qualified is spelled as the comparisons it stands for: `(a, v) = (b, w)` is
@@ -116,5 +117,33 @@ export const rowEq = <F>(sides: RowSides<F>, names: OperatorNames): Expr =>
 	rowCompare("=", sides, names)
 
 /** `(left) <> (right)` over the fields; one field compares as a scalar. */
-export const rowNe = <F>(sides: RowSides<F>, names: OperatorNames): Expr =>
-	rowCompare("<>", sides, names)
+const rowNe = <F>(sides: RowSides<F>, names: OperatorNames): Expr => rowCompare("<>", sides, names)
+
+/** Each float field of `sides`, with its carrier. */
+const floatFields = <F>(
+	sides: RowSides<F>
+): ReadonlyArray<{ readonly field: F; readonly carrier: "float4" | "float8" }> =>
+	sides.fields.flatMap((field) => {
+		const carrier = floatCarrierOf(sides.typeOf(field))
+		return carrier === undefined ? [] : [{ field, carrier }]
+	})
+
+/**
+ * Whether two rows of one heading are one fact, as its identity reads them (scalar/values/identity.ts canonicalText),
+ * where a key compares them under its equality (rowEq): equal, each float field a zero of one sign where it is a zero,
+ * since -0 and +0 are one key and two facts. A row of no float field compares as rowEq does.
+ */
+export const factEq = <F>(sides: RowSides<F>, names: OperatorNames): Expr => {
+	const signs = floatFields(sides).map(({ field, carrier }) =>
+		sameZeroSign(sides.left(field), sides.right(field), carrier)
+	)
+	return and([rowEq(sides, names), ...signs])
+}
+
+/** Whether two rows of one heading are two facts (factEq's negation): unequal, or a float field -0 in one and +0 in the other. */
+export const factNe = <F>(sides: RowSides<F>, names: OperatorNames): Expr => {
+	const signs = floatFields(sides).map(({ field, carrier }) =>
+		zerosOfTwoSigns(sides.left(field), sides.right(field), carrier)
+	)
+	return or([rowNe(sides, names), ...signs])
+}

@@ -7,7 +7,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { rowNe, typedEq } from "#compiler/ir/compare.ts"
+import { factNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
@@ -427,7 +427,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 							value: { kind: "excluded", column: column(f) }
 						}))
 					),
-					where: rowNe(
+					where: factNe(
 						{
 							fields: payload,
 							typeOf: (f) => f.type,
@@ -529,7 +529,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 						mapNonEmpty(pk, (field) => ({ field, column: inputs.of(field) }))
 					),
 					[
-						rowNe(
+						factNe(
 							{
 								fields: payload,
 								typeOf: (f) => f.type,
@@ -671,7 +671,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 				{
 					match: "MATCHED",
 					condition: gatedBy(
-						rowNe(
+						factNe(
 							{
 								fields: payload,
 								typeOf: (f) => f.type,

@@ -192,8 +192,10 @@ export const aWriteWorksOutEachNestedAndFreshValuesCanonicalTextOnceAtItsAdmissi
 			},
 			{
 				file: "packages/engine/src/runtime/write/normalize.ts",
-				original: "\t\treturn (row) => at.map((c) => textAt(row.values, row.texts, c.at, c.spec))",
-				replacement: "\t\treturn (row) => at.map((c) => textAt(row.values, [], c.at, c.spec))",
+				original:
+					"\t\treturn (row) => at.map((c) => keyText(c.spec, textAt(row.values, row.texts, c.at, c.spec)))",
+				replacement:
+					"\t\treturn (row) => at.map((c) => keyText(c.spec, textAt(row.values, [], c.at, c.spec)))",
 				why: "The same-key checks work a nested row's key texts out again from its values, beside the texts its write holds."
 			},
 			{

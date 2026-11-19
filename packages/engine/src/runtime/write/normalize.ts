@@ -51,6 +51,7 @@ import { DigestBook, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitted,
 	admittedText,
+	keyText,
 	type Carrier,
 	type CarrierHost,
 	type CarrierSpec,
@@ -259,8 +260,9 @@ interface FactEntry {
 }
 
 /**
- * How the same-key checks read one kind of entry: their canonical order, the order they are judged in; the texts of an
- * entry's fields, in the fields' order, which a key compares; and an entry's value of a field, which a span's overlap
+ * How the same-key checks read one kind of entry: their canonical order, the order they are judged in; the key texts of
+ * an entry's fields, in the fields' order, which a key compares (identity.ts keyText: a float's -0 and +0 one key, as
+ * PostgreSQL's equality holds them); and an entry's value of a field, which a span's overlap
  * and a refusal's witness read; each reader built once for its fields and read per entry. An admitted fact is read by
  * its fields' names (`factReading`), a nested row at its cells' positions, its texts the ones its write holds
  * (`rowReading`), so no nested row is read through a record of its fields.
@@ -272,21 +274,22 @@ interface EntryReading<E> {
 }
 
 /** An admitted fact's reading (`EntryReading`): in its identities' canonical order, each field read by its name, its
- * text worked out from its value, which the fact's carriers already admitted. */
+ * key text worked out from its value, which the fact's carriers already admitted (identity.ts keyText). */
 const factReading: EntryReading<FactEntry> = {
 	order: (a, b) => compareFactIdentities(a.identity, b.identity),
 	texts: (fields) => (entry) =>
-		fields.map(({ field, spec }) => admittedText(spec, entry.fact[field])),
+		fields.map(({ field, spec }) => keyText(spec, admittedText(spec, entry.fact[field]))),
 	value: (field) => (entry) => entry.fact[field]
 }
 
 /** A nested row's reading (`EntryReading`), a relation's of `columns`: in its identities' order, each field read at its
- * column's position among the relation's, its text the one its write holds (cells.ts textAt). */
+ * column's position among the relation's, its key text of the text its write holds (cells.ts textAt, identity.ts
+ * keyText). */
 const rowReading = (columns: Columns): EntryReading<NestedRow> => ({
 	order: (a, b) => compareTextTuples(a.identity, b.identity),
 	texts: (fields) => {
 		const at = fields.map(({ field, spec }) => ({ at: columns.at(columnKeyOf(field)), spec }))
-		return (row) => at.map((c) => textAt(row.values, row.texts, c.at, c.spec))
+		return (row) => at.map((c) => keyText(c.spec, textAt(row.values, row.texts, c.at, c.spec)))
 	},
 	value: (field) => {
 		const at = columns.at(columnKeyOf(field))

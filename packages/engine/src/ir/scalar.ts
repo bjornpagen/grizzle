@@ -714,6 +714,15 @@ export type ScalarType = PlainType | ContractTypes
 export const baseOf = (t: ScalarType): PlainType =>
 	t.contract === undefined ? t : baseOf(t.contract.base)
 
+/**
+ * A float type's carrier, real's or double precision's, whose two zeros are one value under PostgreSQL's equality and
+ * two values, -0 and +0; undefined for a type of any other carrier.
+ */
+export const floatCarrierOf = (t: ScalarType): "float4" | "float8" | undefined => {
+	const carrier = baseOf(t).carrier
+	return carrier === "float4" || carrier === "float8" ? carrier : undefined
+}
+
 /** The capabilities of a descriptor, a contract's its base's. */
 export const capsOf = (t: ScalarType): CapabilitySet => baseOf(t).caps
 

@@ -48,7 +48,12 @@ import {
 	convertByCarrier,
 	type TextCarrier
 } from "#compiler/scalar/values/convert.ts"
-import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
+import {
+	type CarrierHost,
+	type CarrierSpec,
+	keyText,
+	type SpecOf
+} from "#compiler/scalar/values/identity.ts"
 
 /** A column's reader: its cell's host value, and the one text of the value its cell holds. */
 export interface ScalarReader {
@@ -72,6 +77,12 @@ export interface ScalarReader {
 	 * allocation where the cell is already the one text.
 	 */
 	readonly cellText: (cell: Cell) => string
+	/**
+	 * The text a key compares a cell by (scalar/values/identity.ts keyText): its cell text, but a float's -0 as 0, since
+	 * PostgreSQL's equality holds the two zeros one key, so a parent's key and a child's that PostgreSQL matched are one
+	 * text whichever zero each holds.
+	 */
+	readonly keyText: (cell: Cell) => string
 }
 
 const itself = (cell: string): string => cell
@@ -156,7 +167,8 @@ const textReaderOf = <C extends TextCarrier>(
 		type,
 		spec,
 		convert: (cell: Cell) => convert(outputTextOf(cell)),
-		cellText: (cell: Cell) => text(outputTextOf(cell))
+		cellText: (cell: Cell) => text(outputTextOf(cell)),
+		keyText: (cell: Cell) => keyText(spec, text(outputTextOf(cell)))
 	})
 }
 
@@ -168,7 +180,8 @@ export const scalarReader = (type: ScalarType, codes: Codebook): ScalarReader =>
 				type,
 				spec,
 				convert: (cell: Cell) => new AdmittedBytes(bytesValueOf(cell)),
-				cellText: (cell: Cell) => sha256Hex(bytesValueOf(cell))
+				cellText: (cell: Cell) => sha256Hex(bytesValueOf(cell)),
+				keyText: (cell: Cell) => sha256Hex(bytesValueOf(cell))
 			})
 		: textReaderOf(type, spec)
 }

@@ -6,7 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { LawId } from "#compiler/core/ids.ts"
-import { rowEq, typedEq } from "#compiler/ir/compare.ts"
+import { factEq, typedEq } from "#compiler/ir/compare.ts"
 import type { Stamped } from "#compiler/ir/instant.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -619,7 +619,7 @@ export const buildInsert = (
 				isNonEmpty(payload) && differing !== verdictClass.met
 					? [
 							{
-								when: rowEq({ fields: payload, typeOf, left: stored, right: inCol }, w.names),
+								when: factEq({ fields: payload, typeOf, left: stored, right: inCol }, w.names),
 								result: integer(verdictClass.met)
 							}
 						]

@@ -3,7 +3,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { rowEq, rowNe } from "#compiler/ir/compare.ts"
+import { factEq, factNe } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
 import { needsOf } from "#compiler/logical/needs.ts"
@@ -191,13 +191,13 @@ const buildDelete = (
 		const where =
 			mode.kind === "exact"
 				? and([
-						rowEq({ fields: compared, typeOf, left: stored, right: inCol }, w.names),
+						factEq({ fields: compared, typeOf, left: stored, right: inCol }, w.names),
 						...keyedAmong(w, supply, relation.name, r3, r1, keys)
 					])
 				: and(
 						appendNonEmpty(
 							joinedAtKey(w, supply, relation.name, r3, { name: r1, at: r1 }, keys),
-							rowNe({ fields: mode.payload, typeOf, left: stored, right: inCol }, w.names)
+							factNe({ fields: mode.payload, typeOf, left: stored, right: inCol }, w.names)
 						)
 					)
 		return deletion(

@@ -364,6 +364,33 @@ const integer = (value: number): Expr => lit.int(value, types.integer)
 const bitsByte = (x: Expr, i: number): Expr =>
 	call("get_byte", [call("float8send", [x]), integer(i)])
 
+/**
+ * Byte 0 of a float's bits, its sign bit first: of a zero, 128 for -0 and 0 for +0. A real's is its double's, every
+ * binary32 value exact in binary64, its sign kept.
+ */
+const signByte = (x: Expr, carrier: "float4" | "float8"): Expr =>
+	bitsByte(carrier === "float4" ? cast(x, types.double) : x, 0)
+
+/** A float type's +0, a literal of its SQL type. */
+const floatZero = (carrier: "float4" | "float8"): Expr =>
+	lit.float(0, carrier === "float4" ? types.real : types.double)
+
+/**
+ * Of two floats PostgreSQL's equality holds equal, whether they are one value, as a fact's identity reads them: either
+ * is no zero, or both are zeros of one sign. PostgreSQL stops at the first operand of OR that holds, so a nonzero value
+ * reads no bits.
+ */
+export const sameZeroSign = (a: Expr, b: Expr, carrier: "float4" | "float8"): Expr =>
+	or([ne(a, floatZero(carrier)), eq(signByte(a, carrier), signByte(b, carrier))])
+
+/** Whether two floats are zeros of two signs, -0 and +0: equal under PostgreSQL's equality and two values. */
+export const zerosOfTwoSigns = (a: Expr, b: Expr, carrier: "float4" | "float8"): Expr =>
+	and([
+		eq(a, floatZero(carrier)),
+		eq(b, floatZero(carrier)),
+		ne(signByte(a, carrier), signByte(b, carrier))
+	])
+
 /** The biased exponent field e of a double's bits, 0..2047: byte 0's low 7 bits, then byte 1's high 4. */
 const exponentField = (x: Expr): Expr =>
 	binary(

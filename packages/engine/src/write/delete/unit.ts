@@ -73,7 +73,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { rowEq, typedEq } from "#compiler/ir/compare.ts"
+import { factEq, typedEq } from "#compiler/ir/compare.ts"
 import { type Family, isSequence, type TreeMembers } from "#compiler/ir/family.ts"
 import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
@@ -675,7 +675,7 @@ export const unitSql = (
 							held,
 							hops: [{ kind: "key", relation: unit.relation, alias: t, at }],
 							where: isNonEmpty(rest)
-								? rowEq(
+								? factEq(
 										{
 											fields: rest,
 											typeOf: rowType,
