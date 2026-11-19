@@ -208,22 +208,33 @@ const isPureState = (e: ResolvedExpr, column: string, b: Bindings): boolean => {
 }
 
 /**
- * A comparison's bound: an integer literal, `known`, or an operand fixed for the statement (a parameter or a parent
- * variable), whose value admission does not know (`known` undefined).
+ * A comparison's bound: an integer literal, or an operand fixed for the statement (a parameter or a parent variable),
+ * whose value admission does not know.
  */
-interface Bound {
-	readonly known: bigint | undefined
-}
+type Bound = { readonly kind: "literal"; readonly value: bigint } | { readonly kind: "fixed" }
+
+const fixedBound: Bound = { kind: "fixed" }
 
 const boundOf = (e: ResolvedExpr): Bound | undefined => {
 	if (e.kind === "literal") {
-		const i = integer(e.value)
-		return i === undefined ? undefined : { known: i }
+		const value = integer(e.value)
+		return value === undefined ? undefined : { kind: "literal", value }
 	}
 	if (e.kind === "param" || e.kind === "parent") {
-		return { known: undefined }
+		return fixedBound
 	}
 	return undefined
+}
+
+/** The value a guard's bound stops a counter at, at worst: a literal's own, or a fixed operand's at the type's end the
+ * counter moves towards, `extreme`, since its value is any the type holds. */
+const boundAt = (bound: Bound, extreme: bigint): bigint => {
+	switch (bound.kind) {
+		case "literal":
+			return bound.value
+		case "fixed":
+			return extreme
+	}
 }
 
 type GuardOp = "lt" | "le" | "eq" | "ge" | "gt"
@@ -375,8 +386,10 @@ class Analysis {
 		const [min, max] = range
 		/** The last current value each guard lets the counter advance from, towards the side it moves. */
 		const [first, ...more] = guards(rule, column, b).flatMap((g) => {
-			const v = g.bound.known
-			const last = delta > 0n ? risingLast(g.op, v ?? max) : fallingLast(g.op, v ?? min)
+			const last =
+				delta > 0n
+					? risingLast(g.op, boundAt(g.bound, max))
+					: fallingLast(g.op, boundAt(g.bound, min))
 			return last === undefined ? [] : [last]
 		})
 		if (first === undefined) {

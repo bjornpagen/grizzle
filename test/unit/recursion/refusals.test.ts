@@ -661,9 +661,9 @@ export const unboundedComputedStateAdmitsOnlyACounterOverAnIntegerCarrierBounded
 				{
 					file: "packages/engine/src/check/recursion/termination.ts",
 					original:
-						"\t\t\tconst last = delta > 0n ? risingLast(g.op, v ?? max) : fallingLast(g.op, v ?? min)",
+						"\t\t\t\t\t? risingLast(g.op, boundAt(g.bound, max))\n\t\t\t\t\t: fallingLast(g.op, boundAt(g.bound, min))",
 					replacement:
-						"\t\t\tconst last =\n\t\t\t\tdelta > 0n\n\t\t\t\t\t? (risingLast(g.op, v ?? max) ?? fallingLast(g.op, v ?? min))\n\t\t\t\t\t: (fallingLast(g.op, v ?? min) ?? risingLast(g.op, v ?? max))",
+						"\t\t\t\t\t? (risingLast(g.op, boundAt(g.bound, max)) ?? fallingLast(g.op, boundAt(g.bound, min)))\n\t\t\t\t\t: (fallingLast(g.op, boundAt(g.bound, min)) ?? risingLast(g.op, boundAt(g.bound, max)))",
 					why: "A counter bounded on the side it moves away from admitted; the unbounded-counter search fails."
 				}
 			]
