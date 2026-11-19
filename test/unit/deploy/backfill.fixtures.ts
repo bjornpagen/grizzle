@@ -71,6 +71,7 @@ import {
 	owedKeyChecks,
 	perRowReads,
 	recursions,
+	rederived,
 	rewrittenTables
 } from "#test/support/migrate/probes.ts"
 import { plainPlan } from "#test/support/migrate/review.ts"
@@ -1735,6 +1736,11 @@ const judgePlaces = (
 			Order.String
 		),
 		"each value holds its attempt's place, which its containment carries"
+	)
+	assert.deepEqual(
+		rederived(m.secondDraft.plan.steps),
+		[],
+		"each place and each carried column is drawn by one statement of the migration, every later UPDATE reading it as stored"
 	)
 	assertFresh(m, state)
 }

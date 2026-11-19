@@ -1,4 +1,4 @@
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Option, String as Str } from "effect"
 import type { Step } from "#compiler/deploy/diff/plan.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
@@ -159,6 +159,35 @@ export const rewrittenTables = (steps: ReadonlyArray<Step>): ReadonlyArray<strin
 	}
 	return Arr.flatMap(Arr.fromIterable(writes), ([name, count]) =>
 		count > 1 ? [`${name}, written by ${count} UPDATEs`] : []
+	)
+}
+
+/**
+ * The derivations a migration's backfill draws in more than one statement, the oracle of "each derived column is drawn
+ * once per migration": every derivation is a CTE of the WITH of each UPDATE of structure.backfill that reads it, named
+ * by its place in the backfill's order (deploy/diff/backfill.ts drawingName, `__drawing_<n>`), and a later UPDATE reads
+ * a column an earlier one wrote as stored, so no derivation of a table whose UPDATE ran before stands in the WITH of an
+ * UPDATE after it. Each derivation drawn again is named with the tables of the UPDATEs that draw it.
+ */
+export const rederived = (steps: ReadonlyArray<Step>): ReadonlyArray<string> => {
+	const drawnBy = new Map<string, Array<string>>()
+	for (const step of steps) {
+		if (
+			step.slot !== "structure.backfill" ||
+			step.draft.kind !== "statement" ||
+			step.draft.statement.kind !== "update"
+		) {
+			continue
+		}
+		const { table, with: w } = step.draft.statement
+		for (const cte of w?.ctes ?? []) {
+			if (Str.startsWith("__drawing_")(cte.name)) {
+				drawnBy.set(cte.name, [...(drawnBy.get(cte.name) ?? []), `${table.schema}.${table.name}`])
+			}
+		}
+	}
+	return Arr.flatMap(Arr.fromIterable(drawnBy), ([name, tables]) =>
+		tables.length > 1 ? [`${name}, drawn by the UPDATEs of ${Arr.join(tables, ", ")}`] : []
 	)
 }
 

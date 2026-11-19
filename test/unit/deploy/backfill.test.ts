@@ -220,6 +220,12 @@ export const aPlaceAMigrationAddsToStoredRowsNumbersEachGroupByItsByFromZeroAndE
 				original: "\treturn objectName(table.schema, table.name)\n",
 				replacement: "\treturn objectName(installation.names.schema, table.name)\n",
 				why: "A level's tables are named in the root's schema, so the backfill of a place over a level writes tables the level does not hold and its UPDATEs' generations are no stored relation's: the draft dies, as qti-database's ledger did."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/backfill.ts",
+				original: "\t\t\tif (by === undefined || ran.has(nameKey(by.derivation.table))) {\n",
+				replacement: "\t\t\tif (by === undefined) {\n",
+				why: "A later UPDATE draws again every column an earlier one wrote that it reads, so the values' UPDATE derives the sessions' places and the attempts' carried n a second time, as follow-up 5's ledger draft does once per attempt sidecar."
 			}
 		]
 	})

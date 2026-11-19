@@ -68,8 +68,9 @@ import {
  * no such order, and is refused, naming the cycle.
  *
  * Each table the backfill draws on is written by one UPDATE (passes), every column of it the backfill draws set at
- * once, each derivation a CTE of its WITH: a migration writes one new version of each row whose drawn values change,
- * however many of its families' columns it draws, and none of a row that already holds them. Every UPDATE is a join of
+ * once, each derivation a CTE of its WITH, a column an earlier UPDATE wrote read as stored and never drawn again: a
+ * migration writes one new version of each row whose drawn values change, however many of its families' columns it
+ * draws, and none of a row that already holds them. Every UPDATE is a join of
  * sets of rows, each derivation met at a key by a LEFT JOIN, so none is a probe run once per row, which before any index
  * of the table exists (structure.backfill runs before them) would read the whole table for each of its rows.
  *
@@ -2246,9 +2247,14 @@ const derivationCte = (
  * `WITH <derivations> UPDATE <table> AS "t" SET <column> = "b"."<column>", … FROM <the table's changed rows staged> AS
  * "b" WHERE "t"."ctid" = "b"."ctid"`, each row met at its own tid, which PostgreSQL reads by a TID scan, a hash or a
  * merge. Its WITH holds the CTE of every derivation it reads, its own and every derivation one of them reads,
- * transitively, each after those it reads (`ordered`), and no UPDATE reads a column another writes: what one reads of
- * another table's drawn columns it draws itself, by the same derivations. Each table's rows are written once, so a
- * migration writes one new version of each row it backfills, however many of its families' columns it draws.
+ * transitively, each after those it reads (`ordered`), but for a column an earlier UPDATE of the backfill wrote: that
+ * one it reads as stored, since the earlier statement left it holding at every row what its derivation presents, and no
+ * derivation behind it is drawn again. A column a later UPDATE writes it never reads as stored: it draws it itself, by
+ * the same derivations. So in the order the UPDATEs run, each reads a column another writes only after that one has
+ * written it, and where no table's UPDATE reads a column a later table's writes, as a chain of tables each carrying
+ * what the one before it holds does, every derivation is drawn by one statement of the migration alone. Each table's
+ * rows are written once, so a migration writes one new version of each row it backfills, however many of its
+ * families' columns it draws.
  *
  * The UPDATE compares and writes exactly the rows whose facts change: `b` holds the rows whose drawn values differ from
  * those they store, byte for byte (staged, StagedRows changed), its comparison over the drawn columns alone and never
@@ -2295,12 +2301,16 @@ const passes = (
 	 * draws again in place. */
 	const before = (cell: Cell): Expr =>
 		redrawn.has(cellKey(cell)) ? columnAtCell(cell).placeholder : col("k", cell.column)
-	/** `cell` as `reader` reads it (Presented): a derivation, or none, the UPDATE of its table. */
+	/**
+	 * `cell` as `reader` reads it (Presented), a derivation or none, the UPDATE of its table, in an UPDATE that runs after
+	 * the UPDATEs of the `ran` tables: as stored where an earlier UPDATE wrote it, which left it holding what its
+	 * derivation presents, at every row; otherwise as it stands, its own drawing's, or as the derivation drawing it draws.
+	 */
 	const presentedTo =
-		(reader: Named | undefined) =>
+		(ran: ReadonlySet<NameKey>, reader: Named | undefined) =>
 		(cell: Cell): Presented => {
 			const by = drawer.get(cellKey(cell))
-			if (by === undefined) {
+			if (by === undefined || ran.has(nameKey(by.derivation.table))) {
 				return stored
 			}
 			if (by === reader) {
@@ -2308,14 +2318,19 @@ const passes = (
 			}
 			return { kind: "drawn", by, before: before(cell) }
 		}
-	const built = new Map(named.map((n) => [n, derivationCte(n, presentedTo(n))] as const))
-	const builtOf = (n: Named) => defined(built.get(n), "every derivation is built")
 	const tables = new Map<NameKey, NonEmptyReadonlyArray<Named>>()
 	for (const n of named) {
 		const key = nameKey(n.derivation.table)
 		tables.set(key, appendNonEmpty(tables.get(key) ?? [], n))
 	}
-	return [...tables.values()].map((own): Update => {
+	/** The tables whose UPDATE an earlier statement of the backfill ran, whose drawn columns now stand as stored. */
+	const updated = new Set<NameKey>()
+	return [...tables].map(([key, own]): Update => {
+		/** The tables whose UPDATE ran before this one's, as it begins. */
+		const ran: ReadonlySet<NameKey> = new Set(updated)
+		updated.add(key)
+		const built = new Map(named.map((n) => [n, derivationCte(n, presentedTo(ran, n))] as const))
+		const builtOf = (n: Named) => defined(built.get(n), "every derivation is built")
 		const needed = new Set<Named>()
 		const need = (n: Named): void => {
 			if (!needed.has(n)) {
@@ -2331,7 +2346,7 @@ const passes = (
 		if (!isNonEmpty(ctes)) {
 			throw defect("a table's UPDATE reads its own derivations")
 		}
-		const presented = presentedTo(undefined)
+		const presented = presentedTo(ran, undefined)
 		return {
 			kind: "update",
 			with: { recursive: false, ctes },
