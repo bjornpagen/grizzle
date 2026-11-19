@@ -177,8 +177,17 @@ type Session<O extends string, C> = Readonly<{
 }>
 
 /**
+ * The header a response carries when the server closes its connection after it: a request that asked to close it is
+ * answered with `close` too (RFC 9112 §9.6, "The server SHOULD send a "close" connection option in its final response
+ * on that connection"), so a client that reaches the server through the recording proxy, which relays the answer and
+ * then closes its own connection, never sends a next request on that connection.
+ */
+const CLOSE: Header = ["Connection", "close"]
+
+/**
  * Serves one connection for a session: reads each request, records it, answers it by the script, and ends the
- * connection after a request that asked to close it, or when the client closes it or sends what is not a request.
+ * connection after a request that asked to close it, saying so on its answer (CLOSE), or when the client closes it or
+ * sends what is not a request.
  */
 const serveConnection = <O extends string, C>(
 	conn: NetSocket,
@@ -213,13 +222,16 @@ const serveConnection = <O extends string, C>(
 						const attempt = Option.getOrElse(MutableHashMap.get(session.attempts, path), () => 0)
 						MutableHashMap.set(session.attempts, path, attempt + 1)
 						session.requests.push(request)
-						return writeResponse(
-							writer,
-							session.script(request, attempt),
-							request.method === "HEAD"
-						).pipe(
-							Effect.andThen(closesConnection(request.headers) ? Effect.void : next(parsed.rest))
-						)
+						const scripted = session.script(request, attempt)
+						return closesConnection(request.headers)
+							? writeResponse(
+									writer,
+									{ ...scripted, headers: Arr.append(scripted.headers, CLOSE) },
+									request.method === "HEAD"
+								)
+							: writeResponse(writer, scripted, request.method === "HEAD").pipe(
+									Effect.andThen(next(parsed.rest))
+								)
 					}
 				}
 			}
