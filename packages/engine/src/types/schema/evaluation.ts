@@ -4,6 +4,7 @@
  * generated field's value, each row check's verdict and whether its source selects it, as PostgreSQL computes them.
  */
 import type { Result } from "effect"
+import type { CodecFault } from "#compiler/core/errors.ts"
 import type { Fact } from "#compiler/types/schema/relation.ts"
 import type { RelationOf, StatementsOf } from "#compiler/types/schema/schema.ts"
 import type { Selection } from "#compiler/types/schema/statements.ts"
@@ -61,6 +62,18 @@ export interface DomainRefused<R> {
 }
 
 /**
+ * A row PostgreSQL refuses before it reads any domain: `field` holds no value of its column's type, which the type's
+ * input function refuses (an integer that is none or past its type's range, a text holding NUL, a date no calendar
+ * holds, a numeric past its typmod, a handle no roster holds), by the codec's fault, the word every other admission of
+ * the column's values refuses it by (codec/scalar.ts hostText, as codecText and a ChangeSet's EncodingFailure read it).
+ */
+export interface ValueRefused<R> {
+	readonly _tag: "ValueRefused"
+	readonly field: keyof EvaluatedRow<R> & string
+	readonly fault: CodecFault
+}
+
+/**
  * A row's evaluation over S: each generated field of its relation, its value or NULL, null; each row check of its
  * relation, its verdict; and whether its source selects it, the truth of the source's predicate, a relation's being
  * select(R, TRUE). Each item is its own Result, Effect's, so an item the host cannot evaluate leaves the others theirs.
@@ -88,7 +101,7 @@ declare const admittedOf: unique symbol
 
 /**
  * The host's evaluation of rows of S's sources (program/evaluate.ts rowEvaluator): `admit(R, row)` holds a row of R to
- * its domains once, DomainRefused or the admitted row; the evaluator itself evaluates an admitted row of R as a row of
+ * its column types and its domains once, ValueRefused, DomainRefused or the admitted row; the evaluator itself evaluates an admitted row of R as a row of
  * any source of R, its items computed once, where it is first evaluated, and shared by every source of R over the
  * admitted row, each column of it read once for them all.
  */
@@ -100,5 +113,5 @@ export interface RowEvaluator<S> {
 	readonly admit: <R extends RelationOf<S>>(
 		relation: R,
 		row: EvaluatedRow<R>
-	) => Result.Result<AdmittedRow<R>, DomainRefused<R>>
+	) => Result.Result<AdmittedRow<R>, ValueRefused<R> | DomainRefused<R>>
 }

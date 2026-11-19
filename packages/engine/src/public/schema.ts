@@ -49,7 +49,8 @@ export type {
 	RowEvaluator,
 	RowSource,
 	SourceRelation,
-	Unevaluated
+	Unevaluated,
+	ValueRefused
 } from "#compiler/types/schema/evaluation.ts"
 export { schemaNameOf } from "#compiler/program/names.ts"
 export { login } from "#compiler/program/workload/login.ts"

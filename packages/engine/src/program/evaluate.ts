@@ -18,9 +18,11 @@
  * relations by any predicate, which the migration's violation query reads). Its evaluation has no generated field and no
  * row check, since closed.relation refuses a field grizzle writes and the schema a check over facts it fixes.
  *
- * Before any of it, PostgreSQL holds each value to its domain: a value outside its type's contract or pattern is
- * refused (DomainRefused), which a brand, unchecked, does not exclude. That is admit's, once a row (`evaluate.admit(R,
- * row)`): an admitted row is evaluated as a row of any source of R with no domain judged again, over one reading of it,
+ * Before any of it, PostgreSQL reads each value as its column's type and holds it to its domain: a value that is none
+ * of its type's, an integer that is none or past its range, a text holding NUL, a date no calendar holds, a numeric past
+ * its typmod, is refused by its type's input function (ValueRefused, the codec's fault, codec/scalar.ts hostText), and a
+ * value outside its type's contract or pattern by its domain (DomainRefused), which a brand, unchecked, does not
+ * exclude. That is admit's, once a row (`evaluate.admit(R, row)`), every refusal of it a Result, none thrown: an admitted row is evaluated as a row of any source of R with no domain judged again, over one reading of it,
  * each column read once (runtime/write/witness.ts RowReading), its relation's items computed in one pass where it is
  * first evaluated, kept on the admitted row and shared by every source of R. A row inside its domains meets every partial
  * operation's proof, so an evaluation that finds a precondition undefined is a defect of grizzle's, never an outcome.
@@ -33,7 +35,8 @@ import type { Result as Public } from "effect"
 import { typingEnv } from "#compiler/analysis/theory/theory.ts"
 import { rowNode } from "#compiler/check/generated.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { hostText } from "#compiler/codec/scalar.ts"
+import { type CodecFault, type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
 import { connectiveExpr, type ExprDesc } from "#compiler/ir/desc.ts"
@@ -70,7 +73,8 @@ import type {
 	RowEvaluator,
 	RowSource,
 	SourceRelation,
-	Unevaluated
+	Unevaluated,
+	ValueRefused
 } from "#compiler/types/schema/evaluation.ts"
 import type { AnySchema, RelationOf } from "#compiler/types/schema/schema.ts"
 import { closedTableOf, lawChecksOf, witnessField } from "#compiler/write/program/decide.ts"
@@ -91,6 +95,7 @@ type Lowered = Result.Result<ExprTable, Unevaluated>
 interface RelationReading {
 	readonly name: string
 	readonly table: JudgedTable
+	readonly stated: ReadonlyArray<StatedField>
 	readonly refined: ReadonlyArray<JudgedField>
 	readonly generated: ReadonlyArray<string>
 	readonly checks: ReadonlyArray<RowCheck>
@@ -159,6 +164,15 @@ const rowPredicate = (
 const statedFields = (heading: ReadonlyArray<HeadingColumn>): ReadonlyArray<JudgedField> =>
 	heading.map((c) => ({ name: c.name, type: c.type, writing: { kind: "caller" } }))
 
+/**
+ * A field a row states, as admission reads its value: by its type's input function, the codec's exact parse of a value
+ * of the type (codec/scalar.ts hostText), whose refusal is the fault every other admission of the column's values gives.
+ */
+interface StatedField {
+	readonly name: string
+	readonly admit: (value: unknown) => Result.Result<string, CodecFault>
+}
+
 /** A relation's reading (RelationReading) over its fields and its row checks. */
 const relationReading = (
 	name: string,
@@ -167,6 +181,9 @@ const relationReading = (
 ): RelationReading => ({
 	name,
 	table: { fields, lawColumns: new Map() },
+	stated: fields.flatMap((f) =>
+		f.writing.kind === "generated" ? [] : [{ name: f.name, admit: hostText(f.type) }]
+	),
 	refined: fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type)),
 	generated: fields.flatMap((f) => (f.writing.kind === "generated" ? [f.name] : [])),
 	checks
@@ -454,18 +471,30 @@ const isItemsOf = <S, R>(
 ): items is Items & Pick<RowEvaluation<S, R>, "generated" | "checks"> => items.relation === relation
 
 /**
- * A row of R admitted (see rowEvaluator's admit): each refined field of R the row holds is held to its domain, its
- * contract and its patterns, as PostgreSQL holds each value before it computes anything of it; a value outside its
- * domain is DomainRefused, the row's one refusal, and a row inside every one is admitted, its evaluation then free of any
- * domain judgment. A brand is unchecked, so this is the only place a domain is judged.
+ * A row of R admitted (see rowEvaluator's admit): each field of R the row states is read as its column's type, as
+ * PostgreSQL's input function reads it, a value that is none of the type's ValueRefused by the codec's fault; then each
+ * refined field is held to its domain, its contract and its patterns, as PostgreSQL holds each value before it computes
+ * anything of it, a value outside its domain DomainRefused. The first refusal is the row's, and a row inside every one
+ * is admitted, its evaluation then free of any type or domain judgment. A brand is unchecked, so this is the only place
+ * either is judged, and neither throws.
  */
 const admitted = <R>(
 	judge: Judge,
 	answers: Answers,
 	relation: RelationReading,
 	row: EvaluatedRow<R>
-): Result.Result<AdmittedRow<R>, DomainRefused<R>> => {
+): Result.Result<AdmittedRow<R>, ValueRefused<R> | DomainRefused<R>> => {
 	const fields: Readonly<Record<string, unknown>> = row
+	for (const field of relation.stated) {
+		const read = field.admit(fields[field.name])
+		if (read.ok) {
+			continue
+		}
+		if (!isRowField<R>(fields, field.name)) {
+			throw defect(`the type of a field ${field.name} the row states`)
+		}
+		return Result.err({ _tag: "ValueRefused", field: field.name, fault: read.error })
+	}
 	for (const field of relation.refined) {
 		const member = judge.member(hostOf(field.type.carrier, fields[field.name]), field.type)
 		if (member === undefined) {
@@ -560,7 +589,7 @@ export const rowEvaluatorOver = <S extends AnySchema>(
 			admit: <R extends RelationOf<S>>(
 				relation: R,
 				row: EvaluatedRow<R>
-			): Public.Result<AdmittedRow<R>, DomainRefused<R>> =>
+			): Public.Result<AdmittedRow<R>, ValueRefused<R> | DomainRefused<R>> =>
 				answer(admitted<R>(judge, answers, preparedOf(relation).relation, row))
 		})
 	})
