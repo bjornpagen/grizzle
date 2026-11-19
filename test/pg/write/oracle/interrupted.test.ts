@@ -17,89 +17,33 @@
  *   budget holds open (substrate/budget.ts HeldConnection): a socket the Db's pool has destroyed is no longer held,
  *   whatever its backend's exit has reached.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, element, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Deferred, Effect, Exit, Fiber, Formatter } from "effect"
-import { ambientSessionGen } from "#test/support/ambient.ts"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Deferred, Effect, Exit, Fiber } from "effect"
+import { type InterruptFeature, runGen } from "#test/pg/write/oracle/interrupted.fixtures.ts"
 import { assert } from "#test/support/assert.ts"
 import { heldBackends, roleBackendsQuery } from "#test/support/kernel/sanitize.ts"
-import { caseHang } from "#test/support/limits.ts"
-import {
-	CurrentRestorage,
-	type Restorage,
-	restorageGen
-} from "#test/support/oracle/gen/restorage.ts"
-import {
-	CurrentPerturbation,
-	type Perturbation,
-	perturbationGen
-} from "#test/support/oracle/perturb.ts"
-import {
-	plantedCasesGen,
-	type WriteOracleFeature,
-	writeCaseGen
-} from "#test/support/oracle/write/harness.ts"
-import {
-	installRun,
-	resolveRun,
-	runCases,
-	type WriteRun
-} from "#test/support/oracle/write/index.ts"
+import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
+import { CurrentPerturbation } from "#test/support/oracle/perturb.ts"
+import type { WriteOracleFeature } from "#test/support/oracle/write/harness.ts"
+import { installRun, resolveRun, runCases } from "#test/support/oracle/write/index.ts"
 import { withTarget } from "#test/support/oracle/write/run.ts"
-import { schemaSketchGen } from "#test/support/oracle/write/schema.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Where a run's cases stood when the property stopped them, and whether a backend of the writer's login was still
- * listed, its session ended and the backend on its way out, when the property read them.
+ * An interrupted write run a write run interrupted mid-case leaves no session of its writer open.
+ *
+ * Its pre-conversion budget: runs 4, coverage cases 4 (test/pg/write/oracle/interrupted.test.ts at d8eed1786).
  */
-type InterruptFeature =
-	| "interrupted after a commit"
-	| "ended before any commit"
-	| "a backend on its way out"
-
-/** A small write run, drawn with the plan perturbation and the restorage it runs under. */
-const runGen: Gen<readonly [WriteRun, Perturbation, Restorage]> = (source) =>
-	[
-		{
-			schema: source.draw(schemaSketchGen),
-			statistics: source.draw(element(["analyzed", "none"] as const)),
-			ambient: source.draw(ambientSessionGen),
-			cases: source.draw(array(writeCaseGen, { min: 1, max: 2 })),
-			planted: source.draw(plantedCasesGen)
-		},
-		source.draw(perturbationGen),
-		source.draw(restorageGen)
-	] as const
-
-layer(Substrate.layer, { excludeTestServices: true })("an interrupted write run", (it) => {
-	it.effect("a write run interrupted mid-case leaves no session of its writer open", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "postgresql",
-						name: "pg_stat_activity's backends of the writer's login, by client port, against the connections the process holds"
-					},
-					suite: "write/interrupted",
-					draw: drawn(runGen),
-					literal: Formatter.format,
-					coverage: required<InterruptFeature>(["interrupted after a commit"], {
-						cases: 4,
-						sense: notesOnly
-					}),
-					kept: [],
-					runs: 4,
-					shrink: { kind: "bounded", candidates: 20 },
-					steerEvery: 16,
-					caseHang
-				},
-				([run, perturbation, restorage], c) =>
+export const anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfItsWriterOpen =
+	property.explore(runGen, {
+		needs: { substrate: Substrate.installing },
+		situations: ["interrupted after a commit"] satisfies ReadonlyArray<Reached<InterruptFeature>>,
+		check:
+			({ substrate }, c: Case<InterruptFeature>) =>
+			([run, perturbation, restorage]) =>
+				Effect.provideServiceEffect(
 					Effect.gen(function* () {
 						const s = yield* Substrate
 						const resolved = c.draw(resolveRun(run))
@@ -135,8 +79,15 @@ layer(Substrate.layer, { excludeTestServices: true })("an interrupted write run"
 							[],
 							`the backends of ${login} whose session the interrupted run still holds`
 						)
-					})
-			)
-		)
-	)
-})
+					}),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "postgresql",
+			name: "pg_stat_activity's backends of the writer's login, by client port, against the connections the process holds"
+		},
+		budget: { runs: 4, steered: 4 },
+		kept: [],
+		kills: []
+	})
