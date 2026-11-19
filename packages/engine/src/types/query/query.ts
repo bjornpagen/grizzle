@@ -41,6 +41,7 @@ import type {
 	UnionEvidence
 } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
+import type { AllDigits, NumeralAbove } from "#compiler/types/fields/source.ts"
 import type { Rule } from "#compiler/types/query/rule.ts"
 import type {
 	Aggregate,
@@ -617,7 +618,13 @@ export interface Query<
 	 * the source's (TakeEvidence), as the engine proves of the sealed node.
 	 */
 	approximateNearest<const K extends number>(
-		spec: SearchSource<AsOneArm<Arms, Head, Hc>, K>
+		spec: SearchSource<AsOneArm<Arms, Head, Hc>, K> & {
+			readonly take: PositiveBound<
+				K,
+				"9007199254740991",
+				"a search's take, the requested result bound, is a positive integer of at most 9007199254740991, the largest safe integer"
+			>
+		}
 	): Query<
 		S,
 		Head,
@@ -790,6 +797,46 @@ type BoundGroups<Arms extends UnionArms, Head, Hc extends Carriers> = [
 ] extends [true, true]
 	? true
 	: false
+
+/**
+ * Whether a number literal's numeral is a positive integer of at most Max: digits alone, none leading with zero (a
+ * literal's numeral leads with zero only as zero itself), and no greater than Max, so neither zero, a negative, a
+ * fraction nor an exponent's numeral (1e+21) is one.
+ */
+type PositiveAtMost<S extends string, Max extends string> = S extends `0${string}`
+	? false
+	: AllDigits<S> extends true
+		? NumeralAbove<S, Max> extends true
+			? false
+			: true
+		: false
+
+/**
+ * A bound K the run time reads as a positive integer of at most Max, each member of a union of literals: refused under
+ * M where a member is no such literal; a widened number, whose value only the run time reads, admitted.
+ */
+type PositiveBound<K extends number, Max extends string, M extends Refused> = number extends K
+	? unknown
+	: false extends (K extends unknown ? PositiveAtMost<`${K}`, Max> : never)
+		? Refusal<M>
+		: unknown
+
+/**
+ * Ordered.take's k, each member of a union at once: a positive integer literal of int4's range, at most 2147483647,
+ * the most rows the checker bounds a take by (check/checker.ts int4TakeBound), or a parameter's name, which is any
+ * nonempty string (query/build/query.ts takeOf); a widened number or string, whose value only the run time reads,
+ * admitted. A search's take is at most 9007199254740991, the largest safe integer (query/build/query.ts
+ * positiveInteger).
+ */
+type TakeBound<K extends number | string> = false extends (
+	K extends string ? (K extends "" ? false : true) : true
+)
+	? Refusal<"take's k is a positive integer of at most 2147483647, int4's, or a parameter's nonempty name">
+	: PositiveBound<
+			Extract<K, number>,
+			"2147483647",
+			"take's k is a positive integer of at most 2147483647, int4's, or a parameter's nonempty name"
+		>
 
 /** A take over a query: refused over a union of several headings a take bounds already (BoundGroups). */
 type OneTakeOverGroups<Arms extends UnionArms, Head, Hc extends Carriers> =
@@ -1047,11 +1094,11 @@ export interface Ordered<
 		}> {
 	/**
 	 * The first k under the completed total order; a set again; take(1) is atMostOne (TakeEvidence). k is a positive
-	 * literal, or the name of an integer parameter, take("batch"), which joins the query's parameters as pg.integer.
-	 * A union of several headings is bounded by one take (OneTakeOverGroups).
+	 * literal of int4's range, or the name of an integer parameter, take("batch"), which joins the query's parameters
+	 * as pg.integer (TakeBound). A union of several headings is bounded by one take (OneTakeOverGroups).
 	 */
 	take<const K extends number | string>(
-		k: K & OneTakeOverGroups<Arms, Head, Hc>
+		k: K & TakeBound<K> & OneTakeOverGroups<Arms, Head, Hc>
 	): Query<
 		S,
 		Head,

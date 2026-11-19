@@ -499,7 +499,7 @@ export interface Rejected<out Message extends string> {
 }
 
 /** Whether T is one or more decimal digits. */
-type AllDigits<T extends string> = T extends `${Digit}${infer Rest}`
+export type AllDigits<T extends string> = T extends `${Digit}${infer Rest}`
 	? Rest extends ""
 		? true
 		: AllDigits<Rest>
@@ -543,7 +543,7 @@ type CompareLength<A extends string, B extends string> = A extends `${string}${i
 		: "shorter"
 
 /** Whether decimal numeral A denotes a greater number than B. */
-type NumeralAbove<A extends string, B extends string> =
+export type NumeralAbove<A extends string, B extends string> =
 	CompareLength<StripZeros<A>, StripZeros<B>> extends infer L
 		? L extends "longer"
 			? true
