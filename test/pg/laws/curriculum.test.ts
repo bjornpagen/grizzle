@@ -44,7 +44,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
 export const curriculumHistories = property.batched(aimed(curriculumCaseGen, curriculumAims), {
-	size: 16,
+	window: 16,
+	batches: 1,
 	needs: { seat: Substrate.seat(curriculumTemplate) },
 	situations: [
 		"a publish's second stratum writes a membership",

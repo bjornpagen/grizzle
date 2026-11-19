@@ -4179,7 +4179,7 @@ const rootedAt =
  * @owner the Compute type/engine agreement (test/types/compute/compute.test.ts)
  * @unit steered cases
  * @scope the steered phase of the drawn Compute agreement's search, aimed by computeAimed, its windows of 150 cases
- *   (typeBatchSize), on the steered stream its property's identity fixes; the phase ends once every required situation is
+ *   (typeWindow), on the steered stream its property's identity fixes; the phase ends once every required situation is
  *   reached
  * @evidence ~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/compute-steered-run8.txt: toolchain-test run
  *   test/types/compute/compute.test.ts#compute with this limit set to 3000, its report line naming the steered cases the
@@ -4196,7 +4196,7 @@ const rootedAt =
  * @decision 900, the 750 the search needs and one window of 150 more: the steered stream is fixed by the property's
  *   identity, so the need is the same on every run seed, and a window the search does not need never runs, so the margin
  *   costs nothing while every situation is reached
- * @revalidate the Compute generator, its aims or its required situations change; typeBatchSize or the runner's steering
+ * @revalidate the Compute generator, its aims or its required situations change; typeWindow or the runner's steering
  *   changes; a run that fails unreached under this limit
  */
 export const computeSteeredCases = 900

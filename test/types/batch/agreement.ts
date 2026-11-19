@@ -22,7 +22,7 @@ import {
 	type Program,
 	type TypesDisagreed
 } from "#test/types/batch/batch.ts"
-import { typeBatchSize } from "#test/types/batch/size.ts"
+import { typeBatches, typeWindow } from "#test/types/batch/size.ts"
 
 /**
  * A type agreement: a property whose cases are entries of a generated program, checked a batch at a time (batch.ts),
@@ -31,11 +31,11 @@ import { typeBatchSize } from "#test/types/batch/size.ts"
  * witnesses of the search must reach, which each case notes as `notes` reads it. The compiler reads the sources from
  * disk, so the agreement needs the checkout (Checkout.dir): a mutant reaches it only in a worker tree. It states what
  * a batched property states (situations, oracle, kept, kills, and any budget it cites), less what the agreement
- * supplies: its batch size, its needs, how a case prints and the batch's check.
+ * supplies: its window and batches (size.ts), its needs, how a case prints and the batch's check.
  */
 export type AgreementSpec<C, F extends string> = Omit<
 	BatchedSpec<C, F, typeof agreementNeeds, AgreementFailure>,
-	"size" | "needs" | "show" | "checkAll"
+	"window" | "batches" | "needs" | "show" | "checkAll"
 > &
 	Readonly<{
 		/** What a case reaches: each feature it notes, and each pair of features it reaches together. */
@@ -133,7 +133,8 @@ export const agreement = <C, const F extends string>(
 	property.batched<C, F, typeof agreementNeeds, AgreementFailure>(space, {
 		caseDeadline: agreementCaseDeadline,
 		...spec,
-		size: typeBatchSize,
+		window: typeWindow,
+		batches: typeBatches,
 		needs: agreementNeeds,
 		show: shownOf(spec),
 		checkAll: checkAllOf(spec)
@@ -157,7 +158,8 @@ export const boxAgreement = <C, const F extends string>(
 	property.exhaustBatched<C, F, typeof agreementNeeds, AgreementFailure>(box, {
 		caseDeadline: agreementCaseDeadline,
 		...spec,
-		size: typeBatchSize,
+		window: typeWindow,
+		batches: typeBatches,
 		needs: agreementNeeds,
 		show: shownOf(spec),
 		checkAll: checkAllOf(spec)
