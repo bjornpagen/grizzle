@@ -74,15 +74,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { LaidLayout } from "#compiler/runtime/write/nesting.ts"
-import type {
-	Assignment,
-	Cte,
-	Expr,
-	FromItem,
-	JoinStep,
-	Select,
-	SetArm
-} from "#compiler/sql/ast.ts"
+import type { Cte, Expr, FromItem, JoinStep, Select, SetArm } from "#compiler/sql/ast.ts"
 import {
 	and,
 	arrays,
@@ -113,7 +105,6 @@ import {
 	unionAll,
 	windowOf
 } from "#compiler/sql/build.ts"
-import { assignments } from "#compiler/sql/generation.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
 	type Deferring,
@@ -147,16 +138,14 @@ import {
 	installed,
 	internal,
 	one,
-	recountFields,
 	type FamilyReturning,
 	rowNumber,
 	sameGroupExprs,
 	shapedCte,
 	type SlotReader,
 	slotReader,
+	recountUpdate,
 	taggedRows,
-	updatedResult,
-	updateReturning,
 	written
 } from "#compiler/write/family/written.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
@@ -2379,64 +2368,8 @@ const recountOf = (
 			}
 		}
 	})()
-	const sets: Array<Assignment> = []
-	const changed: Array<Expr> = []
-	for (const x of lasts) {
-		const { family, last } = x
-		const assign = (field: LawField, column: string): void => {
-			const installedColumn = w.names.column(name, field.name)
-			/** The column's recounted value, its stored one where the row's key recounts no group of the family: a
-			 * recounted count or end is never NULL. */
-			const value = (): Expr =>
-				written(w, recount.value(x, column, col(o, installedColumn)), field.type)
-			sets.push({ column: installedColumn, value: value() })
-			changed.push({
-				kind: "not",
-				expr: typedEq(field.type, col(o, installedColumn), value(), w.names)
-			})
-		}
-		assign(family.count, last.count)
-		for (const [key, column] of last.columns) {
-			assign(
-				defined(
-					endColumns(family).find((f) => columnKeyOf(f.name) === key),
-					`the end ${key} of ${name}`
-				),
-				column
-			)
-		}
-	}
-	const [firstSet, ...restSets] = sets
-	const [firstChange, ...restChanges] = changed
-	if (firstSet === undefined || firstChange === undefined) {
-		throw defect(`a recount of ${name} sets its counts`)
-	}
-	const fields = recountFields(
-		owner,
-		recounted.map((r) => r.family)
-	)
-	const update = supply.relation(internal("family recount"))
-	const returning = updateReturning(w, supply, owner, fields, update)
-	ctes.push(
-		cte(update, [], {
-			kind: "update",
-			with: undefined,
-			table: w.names.relation(name),
-			alias: o,
-			set: assignments(w.generation(name), o, [firstSet, ...restSets]),
-			from: [cteRefAs(recount.source, row)],
-			where: and([
-				recount.at,
-				restChanges.length === 0 ? firstChange : { kind: "or", args: [firstChange, ...restChanges] }
-			]),
-			returning: returning.returning
-		})
-	)
-	return {
-		cte: update,
-		columns: returning.columns,
-		relation: name,
-		result: updatedResult(owner, fields),
-		rows: "counts"
-	}
+	return recountUpdate(w, supply, ctes, owner, o, lasts, recount.value, () => ({
+		from: [cteRefAs(recount.source, row)],
+		at: recount.at
+	}))
 }

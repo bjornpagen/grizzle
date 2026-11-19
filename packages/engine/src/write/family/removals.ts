@@ -116,7 +116,6 @@ import {
 	installed,
 	internal,
 	one,
-	recountFields,
 	type FamilyReturning,
 	rowNumber,
 	sameGroupExprs,
@@ -124,6 +123,7 @@ import {
 	type SlotReader,
 	slotReader,
 	tableAs,
+	recountUpdate,
 	taggedRows,
 	updatedResult,
 	updateReturning,
@@ -2216,60 +2216,20 @@ const recountOf = (
 			stored
 		])
 	}
-	const sets: Array<Assignment> = []
-	const changed: Array<Expr> = []
-	for (const { family, last } of lasts) {
-		const assign = (field: LawField, column: string): void => {
-			const installedColumn = w.names.column(name, field.name)
-			/** The column's recounted value, built apart for the SET and for the WHERE that tests it changed. */
-			const value = (): Expr =>
-				written(w, recounted(family, last, column, col(o, installedColumn)), field.type)
-			sets.push({ column: installedColumn, value: value() })
-			changed.push(not(typedEq(field.type, col(o, installedColumn), value(), w.names)))
-		}
-		assign(family.count, last.count)
-		for (const [key, column] of last.columns) {
-			assign(
-				defined(
-					endColumns(family).find((f) => columnKeyOf(f.name) === key),
-					`the end ${key} of ${name}`
-				),
-				column
-			)
-		}
-	}
-	const [firstSet, ...restSets] = sets
-	const [firstChange, ...restChanges] = changed
-	if (firstSet === undefined || firstChange === undefined) {
-		throw defect(`a recount of ${name} sets its counts`)
-	}
-	const fields = recountFields(
+	return recountUpdate(
+		w,
+		supply,
+		ctes,
 		owner,
-		list.map((r) => r.family)
+		o,
+		lasts,
+		(x, column, stored) => recounted(x.family, x.last, column, stored),
+		() => {
+			const b = supply.relation(internal("recount after deletions"))
+			return {
+				from: [cteRefAs(barrier, b), cteRefAs(keyset.name, k)],
+				at: keyedAt(w, k, keyset, o)
+			}
+		}
 	)
-	const update = supply.relation(internal("family recount"))
-	const returning = updateReturning(w, supply, owner, fields, update)
-	const b = supply.relation(internal("recount after deletions"))
-	ctes.push(
-		cte(update, [], {
-			kind: "update",
-			with: undefined,
-			table: w.names.relation(name),
-			alias: o,
-			set: assignments(w.generation(name), o, [firstSet, ...restSets]),
-			from: [cteRefAs(barrier, b), cteRefAs(keyset.name, k)],
-			where: and([
-				keyedAt(w, k, keyset, o),
-				restChanges.length === 0 ? firstChange : or([firstChange, ...restChanges])
-			]),
-			returning: returning.returning
-		})
-	)
-	return {
-		cte: update,
-		columns: returning.columns,
-		relation: name,
-		result: updatedResult(owner, fields),
-		rows: "counts"
-	}
 }

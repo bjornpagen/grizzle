@@ -26,6 +26,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import type {
+	Assignment,
 	Cte,
 	EmittedSql,
 	Expr,
@@ -47,7 +48,9 @@ import {
 	cte,
 	cteRef,
 	lit,
+	not,
 	operandSelect,
+	or,
 	provedCore,
 	select,
 	table,
@@ -58,6 +61,7 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
+import { assignments } from "#compiler/sql/generation.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import type { Shaped } from "#compiler/write/family/scan.ts"
 import { endColumns } from "#compiler/write/family/statements.ts"
@@ -228,7 +232,7 @@ export const updatedResult = (
  * The owner fields a recount returns: the owner's key, then each recounted family's count and ends, each once, the
  * columns it sets: a member's writer holds SELECT on no other column of its owner.
  */
-export const recountFields = (
+const recountFields = (
 	owner: RelationInfo,
 	families: ReadonlyArray<Family>
 ): NonEmptyReadonlyArray<LawField> => {
@@ -400,5 +404,85 @@ export const taggedRows = (
 			rows: r.rows,
 			width: r.columns.length
 		}))
+	}
+}
+
+/** A recounted family's last member as its owner's recount reads it: the column of its count, and the column of each
+ * end the family's last axis carries, by the owner's field's key. */
+export interface RecountedLast {
+	readonly family: Family
+	readonly last: { readonly count: string; readonly columns: ReadonlyMap<ColumnKey, string> }
+}
+
+/**
+ * The UPDATE of a mutable owner relation's rows a recount changes, as both recounts write it (write/family/additions.ts
+ * and removals.ts recountOf): for each recounted family, its count and each end its last member carries set to `value`
+ * of the last member's column over the owner's stored one, written at its field's type, on the owner rows `reach`
+ * joins under the alias `o` where any of them changes; returning the owner's key, counts and ends (recountFields), a part
+ * of the family write's rows of `counts`. `reach` names its sources after the UPDATE and its RETURNING are named.
+ */
+export const recountUpdate = <L extends RecountedLast>(
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	owner: RelationInfo,
+	o: string,
+	lasts: NonEmptyReadonlyArray<L>,
+	value: (last: L, column: string, stored: Expr) => Expr,
+	reach: () => { readonly from: ReadonlyArray<FromItem>; readonly at: Expr }
+): FamilyReturning => {
+	const name = owner.name
+	const sets: Array<Assignment> = []
+	const changed: Array<Expr> = []
+	for (const x of lasts) {
+		const assign = (field: LawField, column: string): void => {
+			const installedColumn = w.names.column(name, field.name)
+			/** The column's recounted value, built apart for the SET and for the WHERE that tests it changed. */
+			const recounted = (): Expr =>
+				written(w, value(x, column, col(o, installedColumn)), field.type)
+			sets.push({ column: installedColumn, value: recounted() })
+			changed.push(not(typedEq(field.type, col(o, installedColumn), recounted(), w.names)))
+		}
+		assign(x.family.count, x.last.count)
+		for (const [key, column] of x.last.columns) {
+			assign(
+				defined(
+					endColumns(x.family).find((f) => columnKeyOf(f.name) === key),
+					`the end ${key} of ${name}`
+				),
+				column
+			)
+		}
+	}
+	const [firstSet, ...restSets] = sets
+	const [firstChange, ...restChanges] = changed
+	if (firstSet === undefined || firstChange === undefined) {
+		throw defect(`a recount of ${name} sets its counts`)
+	}
+	const fields = recountFields(
+		owner,
+		lasts.map((x) => x.family)
+	)
+	const update = supply.relation(internal("family recount"))
+	const returning = updateReturning(w, supply, owner, fields, update)
+	const reached = reach()
+	ctes.push(
+		cte(update, [], {
+			kind: "update",
+			with: undefined,
+			table: w.names.relation(name),
+			alias: o,
+			set: assignments(w.generation(name), o, [firstSet, ...restSets]),
+			from: reached.from,
+			where: and([reached.at, or([firstChange, ...restChanges])]),
+			returning: returning.returning
+		})
+	)
+	return {
+		cte: update,
+		columns: returning.columns,
+		relation: name,
+		result: updatedResult(owner, fields),
+		rows: "counts"
 	}
 }
