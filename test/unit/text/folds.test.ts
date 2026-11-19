@@ -167,8 +167,10 @@ export const theRegexIRsFoldsNarrowReverseAndMapAPatternExactlyAsTheirDefinition
 			},
 			{
 				file: "packages/text/src/regex/folds.ts",
-				original: '\t\t\tcase "repeat":\n\t\t\t\treturn of(n.body)\n',
-				replacement: '\t\t\tcase "repeat":\n\t\t\t\treturn []\n',
+				original:
+					'\t\t\tcase "repeat":\n\t\t\t\treturn of(n.body)\n\t\t\tcase "empty":\n\t\t\tcase "start":\n\t\t\tcase "end":\n\t\t\tcase "never":\n\t\t\t\treturn []',
+				replacement:
+					'\t\t\tcase "repeat":\n\t\t\t\treturn []\n\t\t\tcase "empty":\n\t\t\tcase "start":\n\t\t\tcase "end":\n\t\t\tcase "never":\n\t\t\t\treturn []',
 				why: "alphabetOf drops a repetition's code points."
 			},
 			{

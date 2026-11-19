@@ -1,4 +1,5 @@
-import type { CharSet } from "@bjornpagen/grizzle-text/regex/charset"
+import { type CharSet, charSet } from "@bjornpagen/grizzle-text/regex/charset"
+import { RegexBuilder, type RegexNode, seq, set } from "@bjornpagen/grizzle-text/regex/ir"
 import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { codePointsText } from "@bjornpagen/grizzle-text/text"
 import {
@@ -856,3 +857,71 @@ export const walkTape = 240
  */
 export const walkGen = (nfa: Nfa): Gen<string | undefined> =>
 	map(array(pickGen, { min: 0, max: walkTape }), (tape) => walk(nfa, tape, walkLength))
+
+/** A set of `alphabet`'s code points: one, or a few of them. */
+const wholeSetGen =
+	(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<RegexNode> =>
+	(source) => {
+		const picked = Arr.filter(alphabet, () => source.draw(int(0, 2)) === 0)
+		const cps = picked.length > 0 ? picked : [source.draw(element(alphabet))]
+		return set(charSet(Arr.map(cps, (cp): readonly [number, number] => [cp, cp])))
+	}
+
+/**
+ * A language of whole texts over `alphabet`, a node of no assertion: sets in sequences, alternations and repetitions,
+ * at most `depth` deep.
+ */
+export const wholeLanguageGen = (
+	alphabet: Arr.NonEmptyReadonlyArray<number>,
+	depth: number
+): Gen<RegexNode> => {
+	const builder = new RegexBuilder()
+	if (depth === 0) {
+		return wholeSetGen(alphabet)
+	}
+	const inner = wholeLanguageGen(alphabet, depth - 1)
+	return weighted<RegexNode>([
+		[3, wholeSetGen(alphabet)],
+		[2, (source) => seq(source.draw(array(inner, { min: 1, max: 3 })))],
+		[2, (source) => builder.alt(source.draw(array(inner, { min: 2, max: 3 })))],
+		[
+			2,
+			(source) => {
+				const min = source.draw(int(0, 2))
+				const max = source.draw(element<number | "unbounded">(["unbounded", min, min + 1, min + 2]))
+				return builder.repeat(source.draw(inner), min, max)
+			}
+		]
+	])
+}
+
+/** A word of a node's language, drawn along its shape: a set's code point, a sequence's parts, an arm, some iterations. */
+export const wordOf =
+	(node: RegexNode): Gen<ReadonlyArray<number>> =>
+	(source) => {
+		switch (node.kind) {
+			case "set": {
+				const [lo, hi] = defined(
+					node.set[source.draw(int(0, node.set.length - 1))],
+					"a live set's interval"
+				)
+				return [source.draw(int(lo, hi))]
+			}
+			case "seq":
+				return Arr.flatMap(node.items, (item) => source.draw(wordOf(item)))
+			case "alt":
+				return source.draw(
+					wordOf(defined(node.arms[source.draw(int(0, node.arms.length - 1))], "an arm"))
+				)
+			case "repeat": {
+				const most = node.max === "unbounded" ? node.min + 2 : node.max
+				const count = source.draw(int(node.min, most))
+				return Array.from({ length: count }, () => source.draw(wordOf(node.body))).flat()
+			}
+			case "empty":
+			case "start":
+			case "end":
+			case "never":
+				return []
+		}
+	}

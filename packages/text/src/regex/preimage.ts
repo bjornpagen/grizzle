@@ -10,7 +10,7 @@ import {
 	intersection,
 	union
 } from "#text/regex/charset.ts"
-import { lastIn, mapSets } from "#text/regex/folds.ts"
+import { assertsAnywhere, lastIn, mapSets } from "#text/regex/folds.ts"
 import {
 	folded,
 	type LiveNode,
@@ -386,26 +386,6 @@ const spacesToRuns = (node: LiveNode): RegexNode => {
 	}
 	return of(root)
 }
-
-/** Whether a node tests an assertion anywhere: a language of whole texts tests none. */
-const assertsAnywhere = (node: RegexNode): boolean =>
-	folded(new Map<RegexNode, boolean>(), node, (n, of) => {
-		switch (n.kind) {
-			case "start":
-			case "end":
-				return true
-			case "seq":
-				return n.items.some((item) => of(item))
-			case "alt":
-				return n.arms.some((arm) => of(arm))
-			case "repeat":
-				return of(n.body)
-			case "set":
-			case "empty":
-			case "never":
-				return false
-		}
-	})
 
 /**
  * The texts whose `collapse`d form lies in `node`'s language, a language of whole texts, exactly: whitespace at either

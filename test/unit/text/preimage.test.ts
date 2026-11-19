@@ -16,15 +16,7 @@
  * space and one whose words hold two together.
  */
 
-import { charSet } from "@bjornpagen/grizzle-text/regex/charset"
-import {
-	end,
-	RegexBuilder,
-	type RegexNode,
-	seq,
-	set,
-	start
-} from "@bjornpagen/grizzle-text/regex/ir"
+import { end, type RegexNode, seq, start } from "@bjornpagen/grizzle-text/regex/ir"
 import { collapsePreimage, replacePreimage, tokenOf } from "@bjornpagen/grizzle-text/regex/preimage"
 import { printSource } from "@bjornpagen/grizzle-text/regex/print"
 import {
@@ -35,12 +27,12 @@ import {
 	xmlWhitespace
 } from "@bjornpagen/grizzle-text/text"
 import type { Reached } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
-import { jsMatcher, stringsOver } from "#test/unit/text/generators.ts"
+import { assert } from "#test/support/assert.ts"
+import { jsMatcher, stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"
 
 type PreimageFeature =
 	| "replace held"
@@ -54,35 +46,6 @@ type PreimageFeature =
 
 /** The alphabet a case draws its sets and texts from: two letters, the space and the three breaks. */
 const alphabet: Arr.NonEmptyReadonlyArray<number> = [0x61, 0x62, 0x20, 0x09, 0x0a, 0x0d]
-
-/** A set of the alphabet's code points: a letter, the space, a break, or a few of them. */
-const setGen: Gen<RegexNode> = (source) => {
-	const picked = Arr.filter(alphabet, () => source.draw(int(0, 2)) === 0)
-	const cps = picked.length > 0 ? picked : [source.draw(element(alphabet))]
-	return set(charSet(Arr.map(cps, (cp): readonly [number, number] => [cp, cp])))
-}
-
-/** A language of whole texts: sets in sequences, alternations and repetitions, at most `depth` deep. */
-const nodeGen = (depth: number): Gen<RegexNode> => {
-	const builder = new RegexBuilder()
-	if (depth === 0) {
-		return setGen
-	}
-	const inner = nodeGen(depth - 1)
-	return weighted<RegexNode>([
-		[3, setGen],
-		[2, (source) => seq(source.draw(array(inner, { min: 1, max: 3 })))],
-		[2, (source) => builder.alt(source.draw(array(inner, { min: 2, max: 3 })))],
-		[
-			2,
-			(source) => {
-				const min = source.draw(int(0, 2))
-				const max = source.draw(element<number | "unbounded">(["unbounded", min, min + 1, min + 2]))
-				return builder.repeat(source.draw(inner), min, max)
-			}
-		]
-	])
-}
 
 interface PreimageCase {
 	readonly node: RegexNode
@@ -101,41 +64,10 @@ const spacesWritten =
 			)
 		)
 
-/** A word of a node's language, drawn along its shape: a set's code point, a sequence's parts, an arm, some iterations. */
-const memberOf =
-	(node: RegexNode): Gen<ReadonlyArray<number>> =>
-	(source) => {
-		switch (node.kind) {
-			case "set": {
-				const [lo, hi] = defined(
-					node.set[source.draw(int(0, node.set.length - 1))],
-					"a live set's interval"
-				)
-				return [source.draw(int(lo, hi))]
-			}
-			case "seq":
-				return Arr.flatMap(node.items, (item) => source.draw(memberOf(item)))
-			case "alt":
-				return source.draw(
-					memberOf(defined(node.arms[source.draw(int(0, node.arms.length - 1))], "an arm"))
-				)
-			case "repeat": {
-				const most = node.max === "unbounded" ? node.min + 2 : node.max
-				const count = source.draw(int(node.min, most))
-				return Array.from({ length: count }, () => source.draw(memberOf(node.body))).flat()
-			}
-			case "empty":
-			case "start":
-			case "end":
-			case "never":
-				return []
-		}
-	}
-
 const preimageCaseGen: Gen<PreimageCase> = (source) => {
-	const node = source.draw(nodeGen(3))
+	const node = source.draw(wholeLanguageGen(alphabet, 3))
 	const texts = source.draw(array(stringsOver(element(alphabet), 6), { min: 6, max: 16 }))
-	const members = source.draw(array(memberOf(node), { min: 4, max: 8 }))
+	const members = source.draw(array(wordOf(node), { min: 4, max: 8 }))
 	return {
 		node,
 		texts: [

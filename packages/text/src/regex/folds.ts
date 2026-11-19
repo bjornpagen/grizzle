@@ -83,3 +83,23 @@ export const reversed = (node: RegexNode): RegexNode => {
  */
 export const lastIn = (node: RegexNode, within: CharSet): RegexNode =>
 	reversed(new RegexBuilder().firstIn(reversed(node), within))
+
+/** Whether a node tests an assertion anywhere: a language of whole texts tests none. */
+export const assertsAnywhere = (node: RegexNode): boolean =>
+	folded(new Map<RegexNode, boolean>(), node, (n, of) => {
+		switch (n.kind) {
+			case "start":
+			case "end":
+				return true
+			case "seq":
+				return n.items.some((item) => of(item))
+			case "alt":
+				return n.arms.some((arm) => of(arm))
+			case "repeat":
+				return of(n.body)
+			case "set":
+			case "empty":
+			case "never":
+				return false
+		}
+	})
