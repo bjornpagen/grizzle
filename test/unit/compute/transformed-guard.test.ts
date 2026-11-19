@@ -24,6 +24,7 @@ import { regexField } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { checkedIn } from "#test/support/policy.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import {
 	boundedTargets,
 	byteCaseSpace,
@@ -55,7 +56,6 @@ import {
 	stepped,
 	typedWithin
 } from "#test/unit/compute/transformed-guard.fixtures.ts"
-import { jsMatcher } from "#test/unit/text/generators.ts"
 
 /** A guard over a transformed text proves a partial operation exactly when the transform's image and the guard's pattern together lie inside its form. Its budget is its suite's before it was a property (test/unit/compute/transformed-guard.test.ts at 4ca3036a): 800 runs and 800 steered cases. */
 export const aGuardOverATransformedTextProvesAPartialOperationExactlyWhenTheTransformsImageAndTheGuardsPatternTogetherLieInsideItsForm =

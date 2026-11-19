@@ -4,7 +4,7 @@
  * the intersection holds a text exactly when both languages do, or is refused only where the second's DFA passes its
  * bound.
  *
- * Oracle: ECMAScript's RegExp test (generators.ts jsMatcher) of each language and of the intersection printed in
+ * Oracle: ECMAScript's RegExp test (test/support/regex.ts jsMatcher) of each language and of the intersection printed in
  * grizzle's grammar (print.ts printSource).
  *
  * Features: a text both hold, one only the first holds, one only the second holds, one neither holds, and an empty
@@ -21,7 +21,8 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import { assert } from "#test/support/assert.ts"
-import { jsMatcher, stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"
+import { jsMatcher } from "#test/support/regex.ts"
+import { stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"
 
 type IntersectionFeature =
 	| "both hold"

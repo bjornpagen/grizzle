@@ -8,7 +8,7 @@
  * - alphabetOf holds every code point of every text the pattern holds;
  * - mapSets, each set narrowed to the drawn set, holds exactly the pattern's texts whose every code point lies in it.
  *
- * Oracle: ECMAScript's RegExp test (generators.ts jsMatcher) of the pattern as written and of each fold printed in
+ * Oracle: ECMAScript's RegExp test (test/support/regex.ts jsMatcher) of the pattern as written and of each fold printed in
  * grizzle's grammar (print.ts printSource), against the definitions restated over the text's code points.
  *
  * Features: a text held and refused by each fold; a fold that keeps every text and one that keeps none.
@@ -32,12 +32,8 @@ import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { assert } from "#test/support/assert.ts"
-import {
-	admittedPatternOver,
-	families,
-	jsMatcher,
-	stringsOver
-} from "#test/unit/text/generators.ts"
+import { jsMatcher } from "#test/support/regex.ts"
+import { admittedPatternOver, families, stringsOver } from "#test/unit/text/generators.ts"
 
 type FoldFeature =
 	| "firstIn held"

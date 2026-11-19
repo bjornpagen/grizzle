@@ -17,7 +17,7 @@
  *   many steps over among them, and a text it read is read again for nothing: each pattern's search language is
  *   determinized where texts reach it and kept (scalar/regex/match.ts Matcher).
  *
- * Oracle: ECMAScript's RegExp test (generators.ts jsMatcher), which appears only here, never under src/; for the
+ * Oracle: ECMAScript's RegExp test (test/support/regex.ts jsMatcher), which appears only here, never under src/; for the
  * spellings, the finite language's members its construction gives; for the work, its bound, the subset construction's
  * charge (scalar/regex/subset.ts Step), counted, never timed.
  *
@@ -37,8 +37,9 @@ import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { refinementBounds } from "#test/support/text.ts"
-import { jsMatcher, walk, walkLength } from "#test/unit/text/generators.ts"
+import { walk, walkLength } from "#test/unit/text/generators.ts"
 import {
 	acceptances,
 	admittedPatterns,

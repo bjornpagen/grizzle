@@ -1,7 +1,7 @@
 /**
  * A conjunction of patterns (str.and), whose language is the intersection of its members', as the text analysis keys,
  * bounds, matches, compares and enforces it. Each search draws its patterns from the generated grammar and finite
- * languages over a small alphabet, ECMAScript's own membership of every member (generators.ts jsMatcher) the oracle of
+ * languages over a small alphabet, ECMAScript's own membership of every member (test/support/regex.ts jsMatcher) the oracle of
  * the intersection:
  *
  * - **its language:** the host's membership of a drawn text (scalar/regex/patterns.ts) and the intersection's canonical
@@ -183,7 +183,7 @@ export const aConjunctionsLanguageIsEveryMembersAtOnceByTheHostAndByTheIntersect
 					}),
 			oracle: {
 				kind: "second-implementation",
-				name: "ECMAScript's membership of every member (generators.ts jsMatcher)"
+				name: "ECMAScript's membership of every member (test/support/regex.ts jsMatcher)"
 			},
 			kept: [],
 			kills: [

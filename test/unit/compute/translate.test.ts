@@ -57,6 +57,7 @@ import {
 	throwsRefused
 } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import {
 	baseParams,
 	type LeafBinding,
@@ -96,7 +97,7 @@ import {
 	variable,
 	vars
 } from "#test/unit/compute/translate.fixtures.ts"
-import { jsMatcher, stringsOver } from "#test/unit/text/generators.ts"
+import { stringsOver } from "#test/unit/text/generators.ts"
 
 /** Compute's translate and lowerAscii translate and lowerAscii agree with the map on the host and in the reference. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const computesTranslateAndLowerAsciiTranslateAndLowerAsciiAgreeWithTheMapOnTheHostAndInTheReference =

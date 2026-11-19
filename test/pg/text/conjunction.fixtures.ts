@@ -8,12 +8,12 @@ import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
+import { jsMatcher } from "#test/support/regex.ts"
 import {
 	families,
 	type Family,
 	finiteLanguageOver,
 	flagsGen,
-	jsMatcher,
 	mostFiniteMembers,
 	patternOver,
 	stringsOver,

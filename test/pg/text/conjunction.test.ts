@@ -3,7 +3,7 @@
  * every regex family, on texts drawn over the family's alphabet and walked over each member's own automaton, five
  * answers agree on every text:
  *
- * 1. ECMAScript's membership of every member (generators.ts jsMatcher), the oracle;
+ * 1. ECMAScript's membership of every member (test/support/regex.ts jsMatcher), the oracle;
  * 2. the host's membership of the conjunction (scalar/regex/patterns.ts), which the evaluator and the witness read;
  * 3. the canonical DFA of the members' intersection, where the analysis builds one, which keys the conjunction;
  * 4. PostgreSQL's own CHECK verdict: the domain the analysis's enforcement installs (an IN list, `VALUE ~ p AND VALUE ~

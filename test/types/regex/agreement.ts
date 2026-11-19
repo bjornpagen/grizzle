@@ -8,9 +8,10 @@ import { regexMaxDepth } from "#compiler/scalar/regex/space.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { typeUnionLimit, type RegexScan } from "#compiler/types/fields/source.ts"
 import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
-import { families, type Flags, jsMatcher, patternOver } from "#test/unit/text/generators.ts"
+import { families, type Flags, patternOver } from "#test/unit/text/generators.ts"
 
 /**
  * The regex agreement: str.regex calls drawn from the regex generators and from dictionaries of the constructs the

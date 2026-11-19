@@ -1,7 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import {
 	type ColumnRef,
@@ -12,6 +11,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
+import { ecmaMatches } from "#test/support/regex.ts"
 
 import {
 	type CompletedOrder,
@@ -27,9 +27,7 @@ import {
 import { type RegexRef, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { analyzeText } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
-import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	type Atom,
 	Identities,
@@ -133,13 +131,12 @@ const statedTerm = (v: ModelValue, type: ScalarType): ValueIdentity => [
 ]
 
 /**
- * Membership of a text value in a regex refinement, or in a descriptor's pattern, the text package's NFA: what a domain
- * cast into a refined text type checks.
+ * Membership of a text value in a regex refinement, or in a descriptor's pattern, by ECMAScript's own test of each of
+ * its patterns (test/support/regex.ts ecmaMatches), which shares no code with the engine's automata: what a domain cast
+ * into a refined text type checks, `VALUE ~ p` for each pattern p.
  */
-export const patternMember = (regex: Pick<RegexRef, "patterns">, text: string): boolean => {
-	const analyzed = analyzeText(regex.patterns, SourceLoc("a regex refinement", []))
-	return analyzed.ok && accepts(analyzed.value, text)
-}
+export const patternMember = (regex: Pick<RegexRef, "patterns">, text: string): boolean =>
+	Arr.every(regex.patterns, (p) => ecmaMatches(p.source, p.flags, text))
 
 /**
  * The admitted patterns a lowering under test reads, its membership and its matches the reference's (patternMember)

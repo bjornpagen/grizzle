@@ -43,8 +43,8 @@ import { assert, defined } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { jsMatcher } from "#test/unit/text/generators.ts"
 
 /**
  * Compute's text terms on PostgreSQL match, prefix, suffix, concatenation and equation agree with the host and with ECMAScript.

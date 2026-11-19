@@ -1,6 +1,4 @@
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
-import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
-import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints, compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
@@ -58,6 +56,7 @@ import {
 import * as N from "#test/support/oracle/evaluate/numeric.ts"
 import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
 import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
+import { ecmaMatches } from "#test/support/regex.ts"
 
 /**
  * How the oracle computes a node's value. It never claims a value it cannot reproduce bit for bit:
@@ -402,13 +401,14 @@ const collapsedText = (text: string): string => {
 	)
 }
 
-/** A text's match of a pattern, read under the flags of every Compute.matches pattern, by its parse's automaton. */
-const patternMatch = (text: string, source: string): CatalogResult => {
-	const parsed = parsePattern(source, matchFlags)
-	return parsed.ok
-		? Result.succeed(Matcher.of(buildNfa(parsed.value)).matches(text))
+/**
+ * A text's match of a pattern, read under the flags of every Compute.matches pattern, by ECMAScript's own test
+ * (test/support/regex.ts ecmaMatches), which shares no code with the engine's automata, of a pattern in the grammar.
+ */
+const patternMatch = (text: string, source: string): CatalogResult =>
+	parsePattern(source, matchFlags).ok
+		? Result.succeed(ecmaMatches(source, matchFlags, text))
 		: unsupported(`the pattern /${source}/${matchFlags}, outside the grammar`)
-}
 
 /** An operand of a kind the IR's typing rules out. */
 const mismatch = (op: NativeOp): CatalogResult =>

@@ -18,13 +18,13 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { pickGen } from "#test/support/pick.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { patternNfa, searchOf } from "#test/unit/text/emptiness.fixtures.ts"
 import {
 	families,
 	finiteLanguageOver,
 	type Flags,
 	flagsGen,
-	jsMatcher,
 	mostFiniteMembers,
 	nestedPattern,
 	patternOver,

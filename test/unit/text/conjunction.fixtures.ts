@@ -20,11 +20,11 @@ import type { Inclusion } from "#compiler/scalar/regex/inclusion.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { domainValue, membership, type TextRefinement } from "#compiler/text/refinement.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	finiteLanguageOver,
 	flagsGen,
-	jsMatcher,
 	mostFiniteMembers,
 	patternOver,
 	walkGen

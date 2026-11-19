@@ -25,10 +25,10 @@ import { Effect, Formatter } from "effect"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import {
 	finiteLanguageOver,
 	flagsGen,
-	jsMatcher,
 	mostFiniteMembers,
 	nestedPattern
 } from "#test/unit/text/generators.ts"

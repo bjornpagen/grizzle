@@ -10,7 +10,7 @@
  *    migrated catalog compared with a fresh install's, and serves a login over each level: the author's over Base and the
  *    editor's over Media, both inserting Attribute. Each drawn row, breaking any subset of Base's checks and Media's, is
  *    inserted through each login. Oracle: the predicates evaluated on the host (`holds`, each match by ECMAScript's own
- *    test, test/unit/text/generators.ts jsMatcher):
+ *    test, test/support/regex.ts jsMatcher):
  *    - a row every check holds on is stored through both;
  *    - through the editor's login, whose compile holds every check, a row that breaks some is refused naming `every`
  *      check it breaks, each by its CHECK on Attribute's table as constraintNamesOf names it, its witness the row's key;

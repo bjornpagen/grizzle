@@ -15,7 +15,7 @@ import { generated, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { owning } from "#test/support/policy.ts"
-import { jsMatcher } from "#test/unit/text/generators.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 
 /**
  * A text type a case draws, with the ECMAScript test of its language and its byte bound: capitals, small letters,

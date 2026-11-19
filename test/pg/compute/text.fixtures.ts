@@ -20,6 +20,7 @@ import { defined } from "#test/support/assert.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	baseParams,
@@ -32,7 +33,6 @@ import {
 import {
 	admittedPatternOver,
 	families,
-	jsMatcher,
 	patternOver,
 	stringsOver
 } from "#test/unit/text/generators.ts"

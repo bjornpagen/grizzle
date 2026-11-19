@@ -31,13 +31,9 @@ import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { defined } from "#test/support/assert.ts"
 import { levelNameAt } from "#test/support/compile.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import {
-	admittedPatternOver,
-	families,
-	jsMatcher,
-	stringsOver
-} from "#test/unit/text/generators.ts"
+import { admittedPatternOver, families, stringsOver } from "#test/unit/text/generators.ts"
 
 /** Text of no byte bound: a query matches no pattern over it, and a row check matches any. */
 const Wild = str.regex("^.*$", "su")

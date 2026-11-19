@@ -8,7 +8,7 @@
  *   spaces may leave the language, a refusal its proof never gives where every two spaces a word holds merge;
  * - tokenOf holds exactly the language's nonempty texts of no whitespace.
  *
- * Oracle: ECMAScript's RegExp test (generators.ts jsMatcher) of the language and of each pre-image printed in grizzle's
+ * Oracle: ECMAScript's RegExp test (test/support/regex.ts jsMatcher) of the language and of each pre-image printed in grizzle's
  * grammar (print.ts printSource), against grizzle-text's own `replaced` and `collapsed` of each text, XML Schema's
  * definitions by code points.
  *
@@ -32,7 +32,8 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { jsMatcher, stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"
+import { jsMatcher } from "#test/support/regex.ts"
+import { stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"
 
 type PreimageFeature =
 	| "replace held"

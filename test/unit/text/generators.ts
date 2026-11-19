@@ -17,7 +17,6 @@ import { Array as Arr, Option, pipe, String as Str } from "effect"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-import { regex } from "arkregex"
 /**
  * Generators for the regex differential tests: admitted patterns written in every spelling the grammar
  * accepts, and strings over alphabets chosen to probe one semantic edge each. ECMAScript RegExp appears only in the
@@ -723,69 +722,6 @@ export const nestedPattern: Gen<string> = (() => {
 	}
 	return map(node(0), (body) => `${body}b`)
 })()
-
-/**
- * A class's body from `from`, just past its opening, to its closing `]`, each escape kept whole, and where the `]` is.
- */
-const classBody = (
-	chars: ReadonlyArray<string>,
-	from: number
-): { readonly body: string; readonly close: number } => {
-	let body = ""
-	let j = from
-	while (j < chars.length && chars[j] !== "]") {
-		body += chars[j] === "\\" ? `\\${chars[j + 1] ?? ""}` : chars[j]
-		j += chars[j] === "\\" ? 2 : 1
-	}
-	return { body, close: j }
-}
-
-/**
- * V8 (14.6, Node 26) computes the complement of a class holding U+10FFFE without U+10FFFF, so `/[^\u{10FFFE}]/u`
- * refuses "\u{10FFFF}", against ECMA-262 (CharacterComplement is every code point outside the set). The oracle
- * therefore spells each negated class `[^X]` as `(?:(?![X])[\0-\u{10FFFF}])`: a negative lookahead over the positive
- * class, then any code point, which is the specification's meaning with no complement computed by the engine.
- */
-const withoutComplements = (source: string): string => {
-	const chars = Arr.fromIterable(source)
-	let out = ""
-	let i = 0
-	while (i < chars.length) {
-		const ch = defined(chars[i], "a character")
-		if (ch === "\\") {
-			out += ch + (chars[i + 1] ?? "")
-			i += 2
-		} else if (ch === "[" && chars[i + 1] === "^") {
-			const { body, close } = classBody(chars, i + 2)
-			/** A body that starts with ^ would negate the positive class again; escaped, it is the literal. */
-			const positive = Str.startsWith("^")(body) ? `\\${body}` : body
-			out += `(?:(?![${positive}])[\\0-\\u{10FFFF}])`
-			i = close + 1
-		} else if (ch === "[") {
-			/** A positive class is copied whole, so a `[^` inside it is not taken for a negated class. */
-			const { body, close } = classBody(chars, i + 1)
-			out += `[${body}]`
-			i = close + 1
-		} else {
-			out += ch
-			i += 1
-		}
-	}
-	return out
-}
-
-/**
- * The development oracle: ECMAScript's own membership test of a pattern, compiled once, on the source with its negated
- * classes spelled without an engine complement. The search is spelled as an anchored match after a lazy prefix, which
- * accepts exactly the strings an unanchored `test` does: V8 in Node 26.11 misses an unanchored match of a class that
- * reaches the supplementary planes followed by `$` under the u flag (`/[\s\S]$/u.test("\u{1F600}")` is false), which
- * a rotating seed of the membership suite found as /[^]$/u refusing U+10FFFF. The flags hold neither g nor y, so a
- * test reads no lastIndex and the one RegExp answers every value alike.
- */
-export const jsMatcher = (source: string, flags: Flags): ((value: string) => boolean) => {
-	const compiled = regex.as(`^[\\s\\S]*?(?:${withoutComplements(source)})`, flags)
-	return (value) => compiled.test(value)
-}
 
 /**
  * One code point of a set, from three picks: an interval endpoint half the time, which reaches the edges of ranges,

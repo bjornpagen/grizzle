@@ -37,12 +37,12 @@ import {
 } from "#compiler/scalar/regex/space.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	admittedPatternOver,
 	families,
 	flagsGen,
-	jsMatcher,
 	nestedPattern,
 	walkGen
 } from "#test/unit/text/generators.ts"

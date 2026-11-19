@@ -55,9 +55,9 @@ import type { AnyClosed, Relation } from "#compiler/types/schema/relation.ts"
 import { buildSwarm, featuresGen, type SwarmSpec, swarmSpecGen } from "#test/pg/write/swarm/spec.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { identityText, ownedStatementText } from "#test/support/kernel/naming.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { bareContract } from "#test/unit/schema/support.ts"
-import { jsMatcher } from "#test/unit/text/generators.ts"
 
 type Flags = "u" | "su"
 

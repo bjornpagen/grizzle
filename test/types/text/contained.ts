@@ -5,6 +5,7 @@ import { Array as Arr, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import {
 	batchOwned,
 	caseOwned,
@@ -16,7 +17,6 @@ import {
 	type Family,
 	type Flags,
 	families,
-	jsMatcher,
 	patternOver,
 	stringsOver,
 	walkGen

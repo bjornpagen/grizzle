@@ -17,9 +17,9 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { jsMatcher } from "#test/unit/text/generators.ts"
 
 /** A case's pattern: every text, at most so many code points, or letters of every width of no bound. */
 type Pattern =

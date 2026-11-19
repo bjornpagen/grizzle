@@ -48,6 +48,7 @@ import {
 	succeeded,
 	throwsRefused
 } from "#test/support/assert.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import { baseParams, lowerWith, plainRender, sqlOf, testPg, v } from "#test/unit/compute/support.ts"
 import {
 	affix,
@@ -77,7 +78,6 @@ import {
 	variable,
 	vars
 } from "#test/unit/compute/text.fixtures.ts"
-import { jsMatcher } from "#test/unit/text/generators.ts"
 
 /** Compute's text terms matches agrees with ECMAScript on the host and in the reference evaluator. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheReferenceEvaluator =

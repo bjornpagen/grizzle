@@ -37,6 +37,7 @@ import {
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { pickGen } from "#test/support/pick.ts"
+import { jsMatcher } from "#test/support/regex.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -45,7 +46,6 @@ import {
 	type Flags,
 	families,
 	flagsGen,
-	jsMatcher,
 	nestedPattern,
 	patternOver,
 	stringsOver,
