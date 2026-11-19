@@ -19,6 +19,7 @@ import {
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, numericTypmodOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -121,8 +122,8 @@ import { pickFrom, pickGen, pickIndex, pickOf } from "#test/support/pick.ts"
  *
  * A comparison, and what it compares a variable with; a literal is the floor.
  *
- * A relation's second field a double precision, whose zero has a twin spelling, -0, stored and printed apart while
- * equal by value (gen/domain.ts twinSpellings); an attachment's correlation on such a column where its parent has one.
+ * A relation's second field a double precision, whose two zeros, 0 and -0, are stored and printed apart while its
+ * equality holds them equal; an attachment's correlation on such a column where its parent has one.
  *
  * A head of variables finds every variable of its rule, up to four.
  *
@@ -781,8 +782,8 @@ interface LiteralHeadSketch {
 
 /**
  * The picks of the planted case (plantedCase): one name per slot of plantedNames, the value class its two parent rows
- * share at the spelled field and the first of the two spellings (the signed field's zero is the first row's 0 and the
- * second's -0), and the handle its arm reads.
+ * share at the spelled field and the first of the two spellings (the signed field's two zeros are the first row's 0
+ * and the second's -0), and the handle its arm reads.
  */
 interface PlantedSketch {
 	readonly names: ReadonlyArray<number>
@@ -1190,12 +1191,11 @@ export const plantedNameCount = plantedNames.length
  * What the population is for:
  *
  * - Spelling per fact. Every stored value picks its own spelling of its value class (gen/domain.ts valueClasses), so
- *   1.0, 1.00 and 1 are written to one wide numeric column, which stores them alike at its scale, and 0 and -0 to one
- *   double precision column, which prints them apart, and the "dense" feature narrows each column to two classes, so
+ *   1.0, 1.00 and 1 are written to one wide numeric column, which stores them alike at its scale, and the "dense" feature narrows each column to two classes, so
  *   equal values of different spellings meet often: among the parent keys of an attachment above all, where the
  *   adapter must stitch children by value, not by text.
  * - Correlation by any column. An attachment's child binds a field to a parent column of the same type, chosen with
- *   the columns whose equal values print apart (double precision, a vector; twinned) first among equals, so a spelled
+ *   the columns whose equal values print apart (double precision, a vector; printsApart) first among equals, so a spelled
  *   relation's double precision second field is often the parent key.
  * - Drawn names. Relation, field, head and attachment names come from the identifier dictionary (kernel/dict.ts):
  *   aliases, digit boundaries, reserved words and names longer than an identifier holds, each scope holding names of
@@ -1515,7 +1515,7 @@ const resolveRelation = (
 	const handled = kept("handle field")
 	/**
 	 * The first field is always one a key can hold, since every relation has a primary key; a spelled relation's
-	 * second is a double precision, whose 0 and -0 are stored and printed apart, and a handled relation's last, after
+	 * second is a double precision, whose two zeros are stored and printed apart, and a handled relation's last, after
 	 * it, a handle outside the primary key; a relation gains the fields they need.
 	 */
 	const needed = 1 + (spelled ? 1 : 0) + (handled ? 1 : 0)
@@ -2937,13 +2937,18 @@ const statedTakeOrder = (
 }
 
 /**
- * Whether equal values of a type print apart (gen/domain.ts twinSpellings), which a stitch by text misreads: a double
- * precision's 0 and -0, a vector's -0 components, a computed numeric's display scales; never a numeric(p, s)'s, which
- * stores every spelling of a value at its scale s.
+ * Whether values a type's equality holds equal print apart, which a stitch by text misreads: the spellings of one value
+ * (gen/domain.ts twinSpellings: a vector's -0 components, a computed numeric's display scales, never a numeric(p, s)'s,
+ * which stores every spelling of a value at its scale s), and a float's two zeros, 0 and -0, two values since
+ * c067533e8 that `=` holds equal.
  */
-const twinned = (type: ScalarType): boolean => {
+const printsApart = (type: ScalarType): boolean => {
 	const base = baseOf(type)
-	return twinSpellings[base.carrier].kind === "twins" && numericTypmodOf(base) === undefined
+	return (
+		(twinSpellings[base.carrier].kind === "twins" && numericTypmodOf(base) === undefined) ||
+		base.carrier === "float4" ||
+		base.carrier === "float8"
+	)
 }
 
 /**
@@ -2951,8 +2956,8 @@ const twinned = (type: ScalarType): boolean => {
  * by text instead of by the type's equality would misread.
  */
 const linkable = (parent: ReadonlyArray<Column>): ReadonlyArray<Column> => [
-	...Arr.filter(parent, (c) => twinned(c.type)),
-	...Arr.filter(parent, (c) => !twinned(c.type))
+	...Arr.filter(parent, (c) => printsApart(c.type)),
+	...Arr.filter(parent, (c) => !printsApart(c.type))
 ]
 
 /** The parent columns of a field's type. */
@@ -2998,7 +3003,7 @@ const plainFirst = (
 			)
 		)
 	const reachable = Arr.filter(linkable(parent), (c) => targetsOf(c).length > 0)
-	const spelled = Arr.filter(reachable, (c) => twinned(c.type))
+	const spelled = Arr.filter(reachable, (c) => printsApart(c.type))
 	const column = pickAmong(
 		weightOf(scope.swarm, "spelled") > 0 && spelled.length > 0 ? spelled : reachable,
 		sketch.link
@@ -3557,8 +3562,8 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
 
 /**
  * The planted case: one relation P(k int4, v numeric(161, 40), d double precision, h handle) keyed by k, two of whose
- * facts hold one value of v in two input spellings, which a numeric(p, s) stores alike, the zero of d as 0 and as -0,
- * which a double precision stores and prints apart, and differ in h, beside the facts the first relation sketch draws
+ * facts hold one value of v in two input spellings, which a numeric(p, s) stores alike, d's two zeros, 0 and -0, which
+ * a double precision's equality holds equal and which it stores and prints apart, and differ in h, beside the facts the first relation sketch draws
  * at other keys; one relation V(k int4, u vector(3)) keyed by k, whose two facts hold one vector, the second with -0
  * components; one relation T(k int4, g int4) keyed by k, whose facts (k, g) are (0, 0), (1, 0), (2, 1) and (3, 0); and
  * these reads, every padding pad(v) at the sketch's display scale:
@@ -3580,12 +3585,12 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
  *
  * q3 collapses the two facts' v, one value, into one row, beside its padding and its readings at the display scale;
  * q4 means it, and its padding, over P's distinct values of v. q5's child of one field is pipelined, as every
- * attachment over exact parents is, so the host stitches its children to the two rows whose d is one value stored as 0
- * and as -0; q6's child is pipelined, so the host stitches it to parents whose vector keys are one value, one stored
+ * attachment over exact parents is, so the host stitches its children to the two rows whose d are the two zeros, equal
+ * under the type's equality; q6's child is pipelined, so the host stitches it to parents whose vector keys are one value, one stored
  * with -0 components.
  *
  * The arm delivers Some to the parent row whose h is H, one of the two, and None to the other. The signed
- * attachment's parents include the two rows whose d is one value stored as 0 and as -0, each with the children of
+ * attachment's parents include the two rows whose d are the two zeros, equal under the type's equality, each with the children of
  * both, and it is pipelined, since a child with an attachment of its own is never fused
  * (lower/shapes/index.ts rowsStatement): the stitch by key must use the type's equality, never the cell's
  * text. q1 imports an attached query, whose attachments deliver nothing to its rows. q2 is a heterogeneous union whose
@@ -3672,11 +3677,16 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	const value = pickFrom(twice, planted.value.cls)
 	const spellings = twinsOf(spelled.type, value).length + 1
 	const at = pickIndex(planted.value.sp, spellings)
-	/** The shared value of d: the zero, stored as 0 by the first fact and as -0, its twin, by the second. */
+	/**
+	 * The two zeros of d, two values since c067533e8 that the type's equality holds equal and that print apart: 0, a
+	 * value class of d's, held by the first fact, and -0, the float literal of the number -0 (ir/carriers.ts
+	 * floatLiteral, as a user's -0 is), by the second.
+	 */
 	const zero = Option.getOrThrowWith(
-		Arr.findFirst(valuesOf(signed.type, false), (l) => twinsOf(signed.type, l).length > 0),
+		Arr.findFirst(valuesOf(signed.type, false), (l) => l.kind === "float" && l.value === 0),
 		() => new Error("no generated double precision value is a zero")
 	)
+	const negativeZero = floatLiteral(-0)
 	const selected = pickFrom(roster.handles, planted.handle)
 	const other = elementOf(
 		roster.handles,
@@ -3687,13 +3697,13 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		[
 			canonicallySpelled({ kind: "int", value: 0n }),
 			spelledAt(spelled.type, value, at),
-			spelledAt(signed.type, zero, 0),
+			canonicallySpelled(zero),
 			canonicallySpelled({ kind: "handle", handle: selected })
 		],
 		[
 			canonicallySpelled({ kind: "int", value: 1n }),
 			spelledAt(spelled.type, value, (at + 1) % spellings),
-			spelledAt(signed.type, zero, 1),
+			canonicallySpelled(negativeZero),
 			canonicallySpelled({ kind: "handle", handle: other })
 		]
 	]
@@ -3965,7 +3975,8 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	/**
 	 * The sixth read: P{k, d} find {k, d} with a child of one field and no attachment of its own, which the optimized
 	 * artifact pipelines as every attachment over exact parents (lower/shapes/index.ts rowsStatement),
-	 * correlated on d: the two rows whose d is one value stored as 0 and as -0 each get the children of both.
+	 * correlated on d: the two rows whose d are the two zeros, equal under the type's equality, each get the children of
+	 * both.
 	 */
 	const fusedNames = new Names(kinds)
 	const [fusedKey, fusedValue] = [mint(key), mint(signed)]

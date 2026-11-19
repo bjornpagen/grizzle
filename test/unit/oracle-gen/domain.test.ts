@@ -19,7 +19,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { literalProblem } from "#compiler/ir/expr.ts"
+import { literalProblem, nativeEqualityKey } from "#compiler/ir/expr.ts"
 import { isRefined, numericBoundOf, textOf } from "#compiler/ir/scalar.ts"
 import { refined } from "#compiler/scalar/compute/evaluate.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -30,7 +30,6 @@ import {
 	compareParamType,
 	fieldDescOf,
 	keyFieldType,
-	literalEqualityKey,
 	resolveStored,
 	resolveValue,
 	twinsOf,
@@ -76,8 +75,8 @@ export const generatedScalarTypesHoldOnlyExactlyStoredValuesOneNativeEqualityVal
 					if (t.contract?.predicate !== undefined) {
 						c.note("a contract's predicate")
 					}
-					const keys = Arr.map(classes, literalEqualityKey)
-					assert.equal(new Set(keys).size, classes.length, "distinct classes")
+					const values = Arr.map(classes, nativeEqualityKey)
+					assert.equal(new Set(values).size, classes.length, "distinct values")
 					assert.equal(isRefined(compareParamType(t)), false)
 					const bound = numericBoundOf(t)
 					if (bound !== undefined) {

@@ -205,7 +205,7 @@ const spelledLiteral = (
  * and the statement audit checks it. Nothing is coerced on the host: a value outside its type is
  * refused with the column's location, and PostgreSQL's own input function decides everything else (numeric typmod
  * rounding, float4 rounding of an exact binary32 value). A value is written in its canonical form,
- * or, as an InputSpelling, in the twin spelling its case drew: "1.000" stays a padded numeric text, -0 stays -0, so the
+ * or, as an InputSpelling, in the twin spelling its case drew: "1.000" stays a padded numeric text, so the
  * database holds the spellings no answer may depend on; supplementary-plane text passes through unchanged.
  *
  * The SQL literal of one fact value for a column of `type`.

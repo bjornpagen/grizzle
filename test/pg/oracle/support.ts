@@ -82,9 +82,9 @@ const isNaNLiteral = (l: TypedLiteral): boolean =>
 	(l.kind === "numeric" && decimalPayload(l.value) === "NaN") ||
 	(l.kind === "floatSpecial" && l.value === "NaN")
 
-/** A float zero stored as -0, its twin spelling. */
+/** A float's -0, a value of its own (c067533e8). */
 const isNegativeZero = (v: SpelledValue): boolean =>
-	v.literal.kind === "float" && v.spelling.kind === "twin"
+	v.literal.kind === "floatSpecial" && v.literal.value === "-0"
 const isSupplementary = (l: TypedLiteral): boolean =>
 	l.kind === "text" &&
 	Arr.some(Array.from(l.value), (ch) =>

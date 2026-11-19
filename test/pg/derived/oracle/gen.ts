@@ -1,6 +1,7 @@
 import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -29,7 +30,6 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import type { StorageCarrier } from "#test/support/oracle/gen/domain.ts"
-import { floatLiteralOf } from "#test/support/oracle/gen/domain.ts"
 import {
 	inputRespelling,
 	type Restorage,
@@ -1109,7 +1109,7 @@ const literalOfBase = (k: BaseKind, value: unknown): TypedLiteral => {
 		case "dec":
 			return typeof value === "string" ? { kind: "numeric", value: Decimal.of(value) } : wrong()
 		case "f8":
-			return typeof value === "number" ? floatLiteralOf(value) : wrong()
+			return typeof value === "number" ? floatLiteral(value) : wrong()
 	}
 }
 

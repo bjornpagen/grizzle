@@ -1,5 +1,6 @@
 import { Array as Arr, Formatter, pipe, Record as Rec, String as Str } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
+import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { closedId, Decimal, pg } from "#compiler/public/fields.ts"
@@ -11,7 +12,6 @@ import type { CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
-import { floatLiteralOf } from "#test/support/oracle/gen/domain.ts"
 import { toastLengths, toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
 
 /** The exact decimals, one kind per typmod. */
@@ -364,7 +364,7 @@ export const literalOfKind = (kind: TypeKind, value: unknown): TypedLiteral => {
 		case "numeric(3, 0)":
 			return value instanceof Decimal ? { kind: "numeric", value } : wrong()
 		case "float8":
-			return typeof value === "number" ? floatLiteralOf(value) : wrong()
+			return typeof value === "number" ? floatLiteral(value) : wrong()
 	}
 }
 

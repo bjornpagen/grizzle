@@ -97,7 +97,7 @@ export const valuesCaseGen: Gen<ValuesCase> = (source) => ({
 	backward: source.draw(int(1, 4))
 })
 
-/** Every class, edges included, in every spelling, so a sketch reaches each: a double's -0 is 0's twin spelling. */
+/** Every class, edges included, in every spelling, so a sketch reaches each: a double's -0 a class of its own. */
 const storedOf = (field: Field, sketch: ValueSketch): SpelledValue =>
 	resolveStored(fields[field], sketch, true)
 

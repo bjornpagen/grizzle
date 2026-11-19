@@ -1,5 +1,6 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
+import { floatSpecials } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { VectorText, floatLiteral } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
@@ -28,6 +29,7 @@ import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
@@ -41,7 +43,7 @@ export type StorageCarrier = Exclude<Carrier, ExactValueCarrier>
  *
  * The differential harness runs over small generated domains, so that joins, projections, groups and keys collide
  * often, and over the values whose equality and spelling PostgreSQL treats specially: NaN (equal to itself, sorting
- * greatest), numeric display scale (1.0 = 1.00), and text beyond the Basic Multilingual Plane
+ * greatest), the signed zeros (two values, equal), numeric display scale (1.0 = 1.00), and text beyond the Basic Multilingual Plane
  * (code point order, not UTF-16 order, under C.UTF-8). Every value is a typed Literal of the scalar IR, in its one form,
  * so the fact loader and the conservative lowering print it exactly.
  *
@@ -491,15 +493,6 @@ const special = (value: "NaN" | "Infinity" | "-Infinity"): TypedLiteral => ({
 	kind: "floatSpecial",
 	value
 })
-/** A double as the IR's literal: a special for NaN and either infinity, a float with the one zero otherwise. */
-export const floatLiteralOf = (x: number): TypedLiteral =>
-	Number.isNaN(x)
-		? special("NaN")
-		: x === Number.POSITIVE_INFINITY
-			? special("Infinity")
-			: x === Number.NEGATIVE_INFINITY
-				? special("-Infinity")
-				: flt(x)
 const cash = (minor: bigint): TypedLiteral => ({ kind: "money", value: Money.of(minor) })
 const text = (value: string): TypedLiteral => ({ kind: "text", value })
 const uuid = (value: string): TypedLiteral => ({ kind: "uuid", value })
@@ -555,7 +548,9 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "code">, Classes>> = {
 	/**
 	 * Besides the small values, the edge of a narrowing into a typmod wider than a float's significant digits
 	 * (compute.ts floatEdges): the widest value whose numeric cast fits numeric(7, 0) and numeric(16, 0), and values
-	 * whose cast rounds past them, last so shrinking moves away from them.
+	 * whose cast rounds past them, last so shrinking moves away from them; and -0, a value of its own since c067533e8
+	 * that `=` holds equal to 0 and that prints apart from it, last of all, so a class drawn before it picks what it
+	 * picked.
 	 */
 	float4: [
 		flt(0),
@@ -568,7 +563,8 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "code">, Classes>> = {
 		flt(3),
 		flt(9999994),
 		flt(9999995),
-		flt(-9999998)
+		flt(-9999998),
+		flt(-0)
 	],
 	float8: [
 		flt(0),
@@ -581,7 +577,8 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "code">, Classes>> = {
 		flt(3),
 		flt(9999999999999994),
 		flt(9999999999999996),
-		flt(-9999999999999998)
+		flt(-9999999999999998),
+		flt(-0)
 	],
 	money: [cash(0n), cash(100n), cash(1n), cash(-250n), cash(99999n)],
 	bool: [
@@ -978,8 +975,26 @@ export const resolveParamValue = (
 export const resolveStored = (type: ScalarType, sketch: ValueSketch, edge: boolean): SpelledValue =>
 	spelledAt(type, resolveValue(type, sketch, edge), sketch.sp)
 
-/** A literal's identity under native equality, the identity keys and fact equality use. */
-export const literalEqualityKey = (literal: TypedLiteral): string => nativeEqualityKey(literal)
+/**
+ * The float a literal is, NaN, an infinity and -0 among them, or none for a literal of no float: what the domain's
+ * equality on floats (scalar/values/float.ts compareFloat) compares.
+ */
+const floatOf = (literal: TypedLiteral): number | undefined =>
+	literal.kind === "float"
+		? literal.value
+		: literal.kind === "floatSpecial"
+			? floatSpecials[literal.value]
+			: undefined
+
+/**
+ * A literal's class under PostgreSQL's native equality, which a key and a fact's equality hold: its native identity
+ * (ir/expr.ts nativeEqualityKey), but a float equal to 0 under the domain's equality (compareFloat), -0, a value of its
+ * own since c067533e8, in 0's class.
+ */
+export const literalEqualityKey = (literal: TypedLiteral): string => {
+	const x = floatOf(literal)
+	return nativeEqualityKey(x !== undefined && compareFloat(x, 0) === 0 ? flt(0) : literal)
+}
 
 export const literalRowKey = (
 	row: ReadonlyArray<TypedLiteral>,
