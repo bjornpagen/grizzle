@@ -31,6 +31,7 @@ import {
 	hostSpan
 } from "#test/support/laws/model.ts"
 
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {
 	type AlternativesLaws,
@@ -264,9 +265,12 @@ const drawnRuns = (p: RunsParams) => {
 	const DrawnStage = closed.ordered("Stage", names)
 	const Run = relation("Run", { id: pg.integer, stage: closedId(DrawnStage), note: label }, ["id"])
 	const pays = Arr.map(p.arms, (arm, j) => {
-		const value = relation(`Pay${j}`, { id: pg.integer, run: pg.integer, amount: pg.integer }, [
-			"id"
-		])
+		const value = relationBuilder(
+			`Pay${j}`,
+			{ id: pg.integer, run: pg.integer, amount: pg.integer },
+			["id"],
+			[]
+		)
 		return { handles: arm.handles, mutable: arm.mutable, value, runKey: key(on(value, "run")) }
 	})
 	const byHandle: Record<string, (typeof pays)[number]["runKey"]> = {}

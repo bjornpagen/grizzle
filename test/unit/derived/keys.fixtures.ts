@@ -22,7 +22,10 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { key, on, type Relation, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
+import {
+	materializedDerived as runtimeDerived,
+	relationBuilder
+} from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
@@ -187,10 +190,11 @@ type JoinRelationValue = Relation<
 /** The base schema of a join's relations: R0, R1, ... of uuid fields, each keyed by its keys. */
 const joinBase = (relations: Arr.NonEmptyReadonlyArray<JoinRelation>) => {
 	const keyed = Arr.map(relations, (r, i) => {
-		const value: JoinRelationValue = relation(
+		const value: JoinRelationValue = relationBuilder(
 			`R${i}`,
 			Rec.fromEntries(Arr.map(indices(r.width), (f) => [fieldName(f), uuid] as const)),
-			nonEmpty(Arr.map(bitsOf(r.keys[0], r.width), fieldName), "a primary key")
+			nonEmpty(Arr.map(bitsOf(r.keys[0], r.width), fieldName), "a primary key"),
+			[]
 		)
 		const candidates = Arr.map(r.keys.slice(1), (candidate) =>
 			key(

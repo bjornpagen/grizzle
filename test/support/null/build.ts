@@ -12,7 +12,7 @@ import {
 	pg,
 	span
 } from "#compiler/public/fields.ts"
-import { closed, relation } from "#compiler/public/schema.ts"
+import { closed, relation, type RelationName } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
 import { type SqlValue, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
@@ -146,7 +146,7 @@ export const itemFields = (c: Closed) => ({
 })
 
 /** An open relation of the row fields. */
-export const itemRelation = <const N extends string>(c: Closed, name: N) =>
+export const itemRelation = <const N extends string>(c: Closed, name: RelationName<N>) =>
 	relation(name, itemFields(c), ["id"])
 
 /** The family a fold's step reads: owners counting their members, each member a row with its owner and slot. */

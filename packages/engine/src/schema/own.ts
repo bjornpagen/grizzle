@@ -5,7 +5,8 @@ import {
 	type CompileReason,
 	malformedDescription,
 	type ProseTag,
-	prose
+	prose,
+	undeclaredRelation
 } from "#compiler/core/errors.ts"
 import { type SchemaLevel, schemaLevel } from "#compiler/core/fingerprint.ts"
 import {
@@ -1307,11 +1308,7 @@ class Owner {
 	#statementRelation(name: string, s: StatementEntry): RelationEntry {
 		const entry = this.#relations.get(name)
 		if (entry === undefined) {
-			return failWith({
-				_tag: "Refused",
-				at: s.desc.loc,
-				refusal: "a statement names a relation no level of the schema declares"
-			})
+			return failWith(undeclaredRelation(s.desc.loc, name))
 		}
 		return entry
 	}

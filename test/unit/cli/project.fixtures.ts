@@ -67,9 +67,10 @@ import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
-import { closed, login, type Relation, relation, role, schema } from "#compiler/public/schema.ts"
+import { closed, login, type Relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -942,7 +943,7 @@ const builtOf = (spec: SchemaSpec) => {
 		for (const f of r.fields) {
 			fields[f.name] = fieldOf(f.kind, Kind)
 		}
-		relations[r.name] = relation(r.name, fields, ["id"])
+		relations[r.name] = relationBuilder(r.name, fields, ["id"], [])
 	}
 	const value = schemaOf(spec.name, relations)
 	return { schema: value, server: login(value, "server", [role(value, "reader", value.relations)]) }

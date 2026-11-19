@@ -14,7 +14,6 @@ import {
 	mutable,
 	on,
 	type Relation,
-	relation as declareRelation,
 	role,
 	type Statement,
 	schema,
@@ -22,6 +21,7 @@ import {
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { nonEmpty } from "#test/support/assert.ts"
@@ -695,10 +695,11 @@ export const buildWSchema = (w: WSchema, name: string): WBuiltSchema => {
 		for (const c of r.columns) {
 			fields[c.name] = fieldOf(c.kind, roster)
 		}
-		relations[r.name] = declareRelation(
+		relations[r.name] = relationBuilder(
 			r.name,
 			fields,
-			nonEmpty(r.primaryKey, `${r.name}'s primary key`)
+			nonEmpty(r.primaryKey, `${r.name}'s primary key`),
+			[]
 		)
 	}
 	for (const r of all) {

@@ -18,14 +18,8 @@ import {
 import { memberCalls } from "#adapter/db/handles.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { pg } from "#compiler/public/fields.ts"
-import {
-	key,
-	on,
-	type Relation,
-	relation,
-	schema,
-	type Statement
-} from "#compiler/public/schema.ts"
+import { key, on, type Relation, schema, type Statement } from "#compiler/public/schema.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -389,10 +383,11 @@ const copyOf = (shape: Shape, renaming: Renaming, name: string) => {
 		fields[renaming[role]] = pg.integer
 	}
 	const names = (roles: KeyRoles) => Arr.map(roles, (role) => renaming[role])
-	const value: CopyValue = relation(
+	const value: CopyValue = relationBuilder(
 		name,
 		fields,
-		shape.primary === "drawn" ? ["id"] : nonEmpty(names(shape.primary), "the primary key")
+		shape.primary === "drawn" ? ["id"] : nonEmpty(names(shape.primary), "the primary key"),
+		[]
 	)
 	const keys = Arr.map(
 		shape.keys,

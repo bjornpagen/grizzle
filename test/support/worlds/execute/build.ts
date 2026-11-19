@@ -6,20 +6,18 @@ import {
 	type AnyRelation,
 	type AnySchema,
 	check,
-	closed,
 	contained,
 	context,
 	key,
 	mutable,
 	on,
-	relation,
 	type RowScalars,
 	schema,
 	select,
 	type Statement
 } from "#compiler/public/schema.ts"
 import { compute } from "#compiler/scalar/compute/builders.ts"
-import { materializedDerived } from "#compiler/schema/relation.ts"
+import { materializedDerived, closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { alternativesBuilder } from "#compiler/schema/statements.ts"
 import { contextDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import { regexField } from "#compiler/text/field.ts"
@@ -233,7 +231,9 @@ const relationOf = (spec: RelationSpec, kit: Kit): Effect.Effect<BuiltRelation, 
 	Effect.gen(function* () {
 		const fields = yield* recordOf(spec.fields, (domain) => fieldOf(domain, kit))
 		const primary = yield* nonEmpty(spec.key, `the primary key of ${spec.name}`)
-		return yield* attempt(`relation ${spec.name}`, () => relation(spec.name, fields, primary))
+		return yield* attempt(`relation ${spec.name}`, () =>
+			relationBuilder(spec.name, fields, primary, [])
+		)
 	})
 
 /** A context of the spec, built by `context` handed its fields and its claim object's key, if any. */
@@ -459,7 +459,9 @@ export const buildBase = (
 	Effect.gen(function* () {
 		const rosters: Record<string, BuiltClosed> = {}
 		for (const c of spec.closed) {
-			rosters[c.name] = yield* attempt(`closed ${c.name}`, () => closed.ordered(c.name, c.members))
+			rosters[c.name] = yield* attempt(`closed ${c.name}`, () =>
+				closedBuilder(c.name, c.members, "ordered", [])
+			)
 		}
 		const kit: Kit = { rosters, contracts: yield* contractsOf(spec) }
 		const relations: Record<string, BuiltRelation> = {}

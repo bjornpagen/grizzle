@@ -27,7 +27,7 @@ import {
 } from "#compiler/core/causes.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import { formatLoc, formatPath, prefixedLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { formatLoc, formatPath, prefixedLoc, sitedLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 
@@ -1036,6 +1036,16 @@ const relocated = (reason: CompileReason, path: Path): CompileReason =>
 /** The user's schema or program value, refused at `at` for `refusal`, a rule the types name too. */
 export const ruleRefused = (at: SourceLoc, refusal: Refused): CompileError =>
 	new CompileError({ _tag: "Refused", at, refusal })
+
+/**
+ * The refusal of a statement at `at` that names the relation `name`, which no level of the schema declares: located at
+ * the statement, under a label that names the relation, so a statement over several relations says which one it is.
+ */
+export const undeclaredRelation = (at: SourceLoc, name: string): CompileReason => ({
+	_tag: "Refused",
+	at: sitedLoc(`the relation ${name} of ${at.label}`, at.path, at.site),
+	refusal: "a statement names a relation no level of the schema declares"
+})
 
 /** The user's schema or program value, malformed at `at`: `what` is the rule it breaks. */
 export const malformedDescription = (at: SourceLoc, what: string): CompileError =>

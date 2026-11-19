@@ -12,13 +12,13 @@ import {
 	closed,
 	login,
 	type Relation,
-	relation,
 	role,
 	schema,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, bareRecord, defined, nonEmpty } from "#test/support/assert.ts"
@@ -155,7 +155,12 @@ const schemaAt = (name: string, p: Plan, after: boolean) => {
 			}
 			fields[fieldName(j, after, f)] = f.kind === "code" ? closedId(Kind) : pg.int4
 		}
-		relations[relationName(i, after, r)] = relation(relationName(i, after, r), fields, ["id"])
+		relations[relationName(i, after, r)] = relationBuilder(
+			relationName(i, after, r),
+			fields,
+			["id"],
+			[]
+		)
 	}
 	return schemaOf(name, relations)
 }

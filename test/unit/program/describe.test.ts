@@ -5,7 +5,8 @@ import * as Result from "#compiler/core/result.ts"
 import { describeQuery, lowerQuery } from "#compiler/program/describe.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { schema } from "#compiler/public/schema.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { fromQueryDescription, queryFromDescription } from "#test/support/describe.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
@@ -79,7 +80,7 @@ export const describeQueryQueryFromDescriptionAndLowerQueryCheckADescriptionAgai
 		situations: ["elsewhere"] satisfies ReadonlyArray<Reached<"elsewhere">>,
 		check: (_, k: Case<"elsewhere">) => (name) =>
 			Effect.sync(() => {
-				const Elsewhere = relation(name, { task: uuid, budget: pg.bigint }, ["task"])
+				const Elsewhere = relationBuilder(name, { task: uuid, budget: pg.bigint }, ["task"], [])
 				const Elsewheres = schema("Elsewhere", [Elsewhere], [])
 				const d = describeQuery(
 					query(Elsewheres).rule((r) => {

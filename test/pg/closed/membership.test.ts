@@ -54,6 +54,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
+import { closedBuilder } from "#compiler/schema/relation.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
@@ -151,7 +152,7 @@ const schemaOf = (name: string, c: MembershipCase) => {
 	const declared: Record<string, AnyRelation | AnyClosed> = {}
 	const keyFields: Record<string, ReturnType<typeof closedId>> = {}
 	for (const [i, state] of c.rosters.entries()) {
-		const roster = closed.ordered(state.closed, liveOf(state))
+		const roster = closedBuilder(state.closed, liveOf(state), "ordered", [])
 		declared[state.closed] = roster
 		keyFields[keyField(i)] = closedId(roster)
 	}
@@ -175,7 +176,7 @@ const schemaOf = (name: string, c: MembershipCase) => {
 		: keyFields
 	const Grid = closed.relation("Grid", gridFields, key, rows)
 	const ids = itemIdsOf(c)
-	const ItemId = closed.ordered(ids.closed, liveOf(ids))
+	const ItemId = closedBuilder(ids.closed, liveOf(ids), "ordered", [])
 	const itemFields: Record<string, ReturnType<typeof closedId>> = {
 		id: closedId(ItemId),
 		...keyFields

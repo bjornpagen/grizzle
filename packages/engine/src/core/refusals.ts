@@ -54,6 +54,7 @@ export const refusals = [
 	"a recursion has at least one base arm and at least one recursive arm",
 	"a relation parameter binds a relation parameter of the importing rule, r.relation(name, heading)",
 	"a relation parameter has at least one field, as a relation does",
+	"a relation's name is one string literal, the key its schema's types hold it under",
 	"a retirable body is a relation other than its header",
 	"a retirable body is every fact of its relation",
 	"a retirable header has exactly one retirement field",

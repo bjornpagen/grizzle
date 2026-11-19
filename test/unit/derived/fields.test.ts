@@ -22,11 +22,15 @@ import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import * as Result from "#compiler/core/result.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
-import { closed, relation, schema } from "#compiler/public/schema.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
+import {
+	materializedDerived as runtimeDerived,
+	closedBuilder,
+	relationBuilder
+} from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
@@ -66,7 +70,9 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 		] satisfies ReadonlyArray<Reached<DeclaredFeature>>,
 		check: (_, c: Case<DeclaredFeature>) => (d) =>
 			Effect.sync(() => {
-				const rosters = Arr.map(d.rosters, (count, i) => closed.ordered(`K${i}`, handlesOf(count)))
+				const rosters = Arr.map(d.rosters, (count, i) =>
+					closedBuilder(`K${i}`, handlesOf(count), "ordered", [])
+				)
 				const Line = relation(
 					"Line",
 					{
@@ -150,7 +156,7 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 							? [
 									[
 										`Holder${i}`,
-										relation(`Holder${i}`, { id: uuid, price: cents }, ["id"])
+										relationBuilder(`Holder${i}`, { id: uuid, price: cents }, ["id"], [])
 									] as const
 								]
 							: []

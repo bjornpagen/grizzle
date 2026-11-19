@@ -21,11 +21,11 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { closed, derived, login, relation, role, schema } from "#compiler/public/schema.ts"
+import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
+import { materializedDerived as runtimeDerived, closedBuilder } from "#compiler/schema/relation.ts"
 import { printObjectName, printType } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -409,7 +409,7 @@ const descriptorCaseGen: Gen<DescriptorCase> = (source) => {
 /** The schema of a case: Base's one relation R, and its derived relation D over it. */
 const descriptorSchemaOf = (c: DescriptorCase) => {
 	const rosters = Arr.map(c.rosters, (count, i) =>
-		closed.ordered(
+		closedBuilder(
 			`K${i}`,
 			Arr.prepend(
 				Arr.map(
@@ -417,7 +417,9 @@ const descriptorSchemaOf = (c: DescriptorCase) => {
 					(h) => `h${h}`
 				),
 				"h0"
-			)
+			),
+			"ordered",
+			[]
 		)
 	)
 	const fieldName = (i: number) => `f${i}`

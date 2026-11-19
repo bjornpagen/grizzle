@@ -11,7 +11,7 @@ import type {
 	UnionArms
 } from "#compiler/types/query/query.ts"
 import type { Producer } from "#compiler/types/query/terms.ts"
-import type { FactOfFields } from "#compiler/types/schema/relation.ts"
+import type { FactOfFields, RelationName } from "#compiler/types/schema/relation.ts"
 
 /** A definition: a query holding its heading of carriers. */
 export type DefinitionQuery = QueryBase & Headed<Carriers>
@@ -162,11 +162,11 @@ export type DefinitionCheck<Q> =
  * query reads as of its last refresh; a rule over it still reads its definition.
  */
 export type DerivedConstructor = (<const Name extends string, Q extends DefinitionQuery>(
-	name: Name,
+	name: RelationName<Name>,
 	definition: Q & DefinitionCheck<Q>
 ) => Derived<Name, Q, "live">) & {
 	readonly materialized: <const Name extends string, Q extends DefinitionQuery>(
-		name: Name,
+		name: RelationName<Name>,
 		definition: Q & DefinitionCheck<Q>
 	) => Derived<Name, Q, "materialized">
 }

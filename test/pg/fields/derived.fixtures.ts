@@ -440,22 +440,22 @@ export interface Built {
  * one role of the login `desk`.
  */
 export const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
-	const Tier = closed.ordered(tierName, declaration)
+	const Tier = closed.ordered("Tier", declaration)
 	const Weight = closed.relation(
-		weightName,
+		"Weight",
 		{ tier: closedId(Tier), w: pg.integer, v: pg.integer },
 		["tier"],
 		m.closedRows.weight
 	)
 	const Pair = closed.relation(
-		pairName,
+		"Pair",
 		{ from: closedId(Tier), to: closedId(Tier) },
 		["from", "to"],
 		m.closedRows.pair
 	)
 	const g = m.generated
 	const R = relation.generated(
-		relationName,
+		"R",
 		{ id: pg.integer, tier: closedId(Tier), a: bits(Tier), b: bits(Tier) },
 		["id"],
 		(r) => {

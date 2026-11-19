@@ -33,6 +33,7 @@ import {
 import { closed, fin, relation } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { describeFieldOrThrow, type SqlTag } from "#compiler/scalar/registry.ts"
+import { closedBuilder } from "#compiler/schema/relation.ts"
 import type { StoredOnlySql } from "#compiler/types/fields/field.ts"
 import { kindHandles, setHandles, setWidths } from "#test/pg/codec/scalar.fixtures.ts"
 import { type SqlNames, textOut, wireSql } from "#test/pg/codec/support.ts"
@@ -148,7 +149,7 @@ const declaredCarriers: Arr.NonEmptyReadonlyArray<DeclaredCarrier> = [
 	kindCarrier,
 	declaredOf("set", bits(Kind)),
 	...Arr.map(setWidths, (w) =>
-		declaredOf(`set over ${w} codes`, bits(closed.ordered(`Set${w}`, setHandles(w))))
+		declaredOf(`set over ${w} codes`, bits(closedBuilder(`Set${w}`, setHandles(w), "ordered", [])))
 	),
 	declaredOf("int4range", span(pg.integer, undefined)),
 	declaredOf("int8range", span(pg.bigint, undefined)),

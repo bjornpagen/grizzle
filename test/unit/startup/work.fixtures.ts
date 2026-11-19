@@ -22,6 +22,7 @@ import {
 	type Statement
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -139,7 +140,7 @@ const schemaOf = (size: Size) => {
 	const fields: Record<string, FieldBase> = { id: Ident, parent: Ident, code: Ident }
 	const primary: readonly [string, ...Array<string>] = ["id"]
 	const ordinary: ReadonlyArray<Generated> = upTo(size.relations, (i) =>
-		relation(`G${i}`, fields, primary)
+		relationBuilder(`G${i}`, fields, primary, [])
 	)
 	const Pick = relation("Pick", { id: Ident, a: closedId(A), b: closedId(B) }, ["id"])
 	const declared: Record<string, AnyRelation | AnyClosed> = { GuardA: A, GuardB: B, Weight, Pick }

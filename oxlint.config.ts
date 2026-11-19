@@ -31,6 +31,7 @@ const DICTIONARY_MINTS = [
 	"test/types/api/config.dictionary.ts",
 	"test/types/api/decoder.dictionary.ts",
 	"test/types/api/handle.dictionary.ts",
+	"test/types/api/names.dictionary.ts",
 	"test/types/api/surface.dictionary.ts",
 	"test/types/api/untyped.dictionary.ts",
 	"test/types/changeset/budget/members.dictionary.ts",

@@ -37,8 +37,7 @@ import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { carrierSql, describeField } from "#compiler/scalar/registry.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
-import { closed } from "#compiler/schema/api.ts"
-import { admittedClosedId, writingOf } from "#compiler/schema/relation.ts"
+import { admittedClosedId, writingOf, closedBuilder } from "#compiler/schema/relation.ts"
 import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { floatOf } from "#test/support/descriptors.ts"
 import { spanDescriptor } from "#test/support/fixtures/descriptors.ts"
@@ -531,7 +530,7 @@ export const closedIdNamesTheRosterKeepsTheClosedRelationAndKeepsDeclaredHandleO
 					c.note(other === name ? "one name twice" : "two names")
 					const [first, ...rest] = handles
 					const listed: Arr.NonEmptyReadonlyArray<string> = [defined(first, "a handle"), ...rest]
-					const roster = closed.ordered(name, listed)
+					const roster = closedBuilder(name, listed, "ordered", [])
 					const field = admittedClosedId(roster)
 					assert.equal(field.roster, roster)
 					assert.equal(field.sql, carrierSql.code)
@@ -547,7 +546,7 @@ export const closedIdNamesTheRosterKeepsTheClosedRelationAndKeepsDeclaredHandleO
 					if (other !== name) {
 						assert.equal(
 							sameScalarType(
-								scalarOf(admittedClosedId(closed.ordered(other, listed))),
+								scalarOf(admittedClosedId(closedBuilder(other, listed, "ordered", []))),
 								scalarOf(field)
 							),
 							false

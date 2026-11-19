@@ -28,10 +28,10 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { lowerQuery } from "#compiler/program/describe.ts"
-import { closed } from "#compiler/public/schema.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { ownLogin, ownRole } from "#compiler/schema/own.ts"
+import { closedBuilder } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import {
 	admitContext,
@@ -94,7 +94,7 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 		check: (_, k: Case<ContextFeature>) => (c) =>
 			Effect.sync(() => {
 				const rosters: Arr.NonEmptyReadonlyArray<DrawnRoster> = Arr.map(c.rosters, (count, i) =>
-					closed.ordered(
+					closedBuilder(
 						`K${i}`,
 						Arr.prepend(
 							Arr.map(
@@ -102,7 +102,9 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 								(h) => `h${h}`
 							),
 							"h0"
-						)
+						),
+						"ordered",
+						[]
 					)
 				)
 				const fields = Rec.fromEntries(

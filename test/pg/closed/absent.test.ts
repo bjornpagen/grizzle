@@ -130,7 +130,8 @@ import {
 	ordered,
 	relation,
 	schema,
-	select
+	select,
+	type RelationName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
@@ -929,7 +930,8 @@ const schemaOf = (c: AbsentCase) => {
 		u: Units,
 		p: Short
 	}
-	const itemOf = (name: string) => relation(name, itemFields, ["id"])
+	const itemOf = <const N extends string>(name: RelationName<N>) =>
+		relation(name, itemFields, ["id"])
 	type ItemRow = RowScalars<ReturnType<typeof itemOf>>
 	const flagTerm = (r: ItemRow, of: FlagSource) => {
 		switch (of) {

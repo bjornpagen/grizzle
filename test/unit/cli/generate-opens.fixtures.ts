@@ -5,7 +5,7 @@ import { noParamTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstalledSource } from "#compiler/program/schema.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { login, relation, role, schema } from "#compiler/public/schema.ts"
+import { login, relation, role, schema, type RelationName } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -42,7 +42,11 @@ export const widthsOf = (head: Head): ReadonlyArray<Width> => [
  * A relation keyed by `id`, with `count` boolean fields named `<prefix><i>` beside it: one byte each, so a row fits one
  * heap tuple, which the select list is the first limit past.
  */
-const side = <const Name extends string>(name: Name, prefix: string, count: number) => {
+const side = <const Name extends string>(
+	name: RelationName<Name>,
+	prefix: string,
+	count: number
+) => {
 	const fields: Readonly<Record<string, typeof uuid | typeof pg.boolean>> = {
 		id: uuid,
 		...Rec.fromEntries(upTo(count, (i) => [`${prefix}${i}`, pg.boolean] as const))

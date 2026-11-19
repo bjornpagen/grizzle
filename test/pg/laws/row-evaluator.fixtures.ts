@@ -17,7 +17,8 @@ import {
 	relation,
 	rowEvaluator,
 	schema,
-	type Unevaluated
+	type Unevaluated,
+	type RelationName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { query, v } from "#compiler/query/build/query.ts"
@@ -265,7 +266,7 @@ const builtOf = (ec: EvalCase) => {
 		Arr.flatMap(checks, (check) => [check.inAll, check.inEach])
 	)
 	const derivedOf = <const N extends string>(
-		name: N,
+		name: RelationName<N>,
 		Src: typeof Src0 | typeof Src1 | typeof Src2
 	) =>
 		derived(

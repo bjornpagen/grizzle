@@ -24,8 +24,7 @@ import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { isOwnedDescriptor } from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
-import { closed } from "#compiler/schema/api.ts"
-import { admittedClosedId, writingOf } from "#compiler/schema/relation.ts"
+import { admittedClosedId, writingOf, closedBuilder } from "#compiler/schema/relation.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { floatOf } from "#test/support/descriptors.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
@@ -85,7 +84,7 @@ export const descriptorOf = (sketch: DescriptorSketch): unknown => {
 		case "uuid":
 			return uuidDescriptor
 		case "closedId":
-			return admittedClosedId(closed[sketch.order](sketch.name, sketch.handles))
+			return admittedClosedId(closedBuilder(sketch.name, sketch.handles, sketch.order, []))
 		case "span":
 			return Option.match(sketch.width, {
 				onNone: () => spanDescriptor(descriptorOf(sketch.endpoint)),

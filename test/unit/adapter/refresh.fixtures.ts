@@ -41,7 +41,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { materializedDerived as derivedOver } from "#compiler/schema/relation.ts"
+import { materializedDerived as derivedOver, relationBuilder } from "#compiler/schema/relation.ts"
 import { admitRole, roleDescOf } from "#compiler/schema/world.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -177,7 +177,7 @@ export const built = (c: TargetsCase) => {
 		for (const [position, kind] of kinds.entries()) {
 			const n = count++
 			if (kind === "base") {
-				const value = relation(`X${n}`, { id: uuid }, ["id"])
+				const value = relationBuilder(`X${n}`, { id: uuid }, ["id"], [])
 				record[`X${n}`] = value
 				entries[`X${n}`] = value
 			} else {

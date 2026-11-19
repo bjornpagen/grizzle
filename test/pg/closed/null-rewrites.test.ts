@@ -49,7 +49,8 @@ import {
 	on,
 	relation,
 	schema,
-	select
+	select,
+	type RelationName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Predicate, Term } from "#compiler/types/core/phantom.ts"
@@ -409,7 +410,7 @@ const schemaOf = (c: RewriteCase) => {
 		n: pg.integer,
 		m: pg.integer
 	}
-	const itemOf = (name: string) => relation(name, fields, ["id"])
+	const itemOf = <const N extends string>(name: RelationName<N>) => relation(name, fields, ["id"])
 	/** A row's reads, built where the row's own type is known: its text and double, and Pick's at its kind. */
 	const readsOf = (t: TextTerm, x: DoubleTerm, pickT: TextTerm, pickF: DoubleTerm): Reads => ({
 		t,

@@ -33,6 +33,7 @@ import { uuid } from "#compiler/public/fields.ts"
 import { login, relation as relationValue, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -322,7 +323,7 @@ const subjectOf = (box: Box, at: "start" | "target"): Subject => {
 	const stored = Rec.fromEntries(
 		Arr.map(
 			heldOf(box, "relation", at),
-			(n) => [upper(n), relationValue(upper(n), { id: uuid }, ["id"])] as const
+			(n) => [upper(n), relationBuilder(upper(n), { id: uuid }, ["id"], [])] as const
 		)
 	)
 	const base = schema("Renames", [...Rec.values(stored), Doc], [])

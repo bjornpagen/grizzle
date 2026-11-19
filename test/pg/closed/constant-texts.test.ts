@@ -61,7 +61,8 @@ import {
 	on,
 	relation,
 	schema,
-	select
+	select,
+	type RelationName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Predicate, Term } from "#compiler/types/core/phantom.ts"
@@ -434,7 +435,7 @@ const schemaOf = (c: ConstantCase) => {
 		}
 	}
 	const fields = { id: pg.integer, kind: closedId(Kind), n: pg.integer, m: pg.integer }
-	const itemOf = (name: string) => relation(name, fields, ["id"])
+	const itemOf = <const N extends string>(name: RelationName<N>) => relation(name, fields, ["id"])
 	type Row = { readonly n: Term<number, unknown, unknown, "integer"> }
 	const phiOf = (phi: Phi, r: Row): Predicate => {
 		const constant = constOf(phi.constant)

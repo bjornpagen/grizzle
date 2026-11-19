@@ -45,6 +45,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
+import { closedBuilder } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
@@ -316,7 +317,7 @@ export interface Built {
  * `writer` writing Held and Sets whole, `reader` reading them, both of the one login `desk`.
  */
 export const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
-	const Tier = closed.ordered(m.tier.closed, declaration)
+	const Tier = closedBuilder(m.tier.closed, declaration, "ordered", [])
 	const Node = closed.ordered("Node", nodeHandles)
 	const Allowed = closed.relation(
 		"Allowed",

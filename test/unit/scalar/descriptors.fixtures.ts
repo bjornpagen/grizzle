@@ -43,7 +43,7 @@ import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type RosterOrder, rosterOrders, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Described, describeField } from "#compiler/scalar/registry.ts"
-import { closed } from "#compiler/schema/api.ts"
+import { closedBuilder } from "#compiler/schema/relation.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { fieldIdentity } from "#test/support/fixtures/descriptors.ts"
 import { plainSketches } from "#test/unit/scalar/descriptors.dictionary.ts"
@@ -355,7 +355,7 @@ const at = (value: unknown, site: string): ReadonlyArray<Broken<"MalformedDescri
 
 /** A closed relation of a name, an order and a roster of distinct handles. */
 const liveClosed = (name: string, order: RosterOrder, handles: Arr.NonEmptyReadonlyArray<string>) =>
-	closed[order](name, handles)
+	closedBuilder(name, handles, order, [])
 
 /** A closed relation: a drawn name, a drawn order, and a drawn roster of distinct handles. */
 const closedGen: Gen<ReturnType<typeof liveClosed>> = (source) =>

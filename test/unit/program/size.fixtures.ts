@@ -5,9 +5,10 @@ import { Array as Arr, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
-import { type Relation, relation, schema } from "#compiler/public/schema.ts"
+import { type Relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -62,7 +63,7 @@ const keyedRelation = (
 	for (const f of integers) {
 		descriptors[f] = pg.integer
 	}
-	return relation(name, descriptors, ["id"])
+	return relationBuilder(name, descriptors, ["id"], [])
 }
 
 /** The rule matching `source` on its every field, each bound to its own variable or to `fixed`'s term, finding the rest. */

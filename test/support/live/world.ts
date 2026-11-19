@@ -6,6 +6,7 @@ import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, counted, fin, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
@@ -457,8 +458,8 @@ export const paramsOf = (subscription: LiveSubscription): Readonly<Record<string
  */
 export const liveWorld = (c: LiveCase, name: string) => {
 	const fields = { id: pg.integer, g: pg.integer, o: pg.integer, val: pg.integer }
-	const Item0 = relation(relationName(0), fields, ["id"])
-	const Item1 = relation(relationName(1), fields, ["id"])
+	const Item0 = relationBuilder(relationName(0), fields, ["id"], [])
+	const Item1 = relationBuilder(relationName(1), fields, ["id"], [])
 	const Probe = relation(probeRelation, { id: pg.integer }, ["id"])
 	const Shelf = relation(familyRelations.owner, { id: pg.integer, n: drawn(natural) }, ["id"])
 	const Book = relation(familyRelations.member, { id: pg.integer, shelf: pg.integer }, ["id"])

@@ -12,6 +12,7 @@ import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { key, on, relation, schema, select, type Statement } from "#compiler/public/schema.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import { defineConfig } from "#index.ts"
@@ -141,7 +142,9 @@ export const heapBound = (pushes: number): number => {
 /** The heap's pushes and comparisons ordering the installation of r relations, each keyed by its id, no law between. */
 export const orderedAt = (r: number) =>
 	Effect.gen(function* () {
-		const relations = upTo(r, (i) => relation(`R${i}`, { id: uuid, a: pg.integer }, ["id"]))
+		const relations = upTo(r, (i) =>
+			relationBuilder(`R${i}`, { id: uuid, a: pg.integer }, ["id"], [])
+		)
 		const owned = succeeded(
 			ownedInput(
 				schema(

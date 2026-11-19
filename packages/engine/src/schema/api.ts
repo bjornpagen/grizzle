@@ -56,6 +56,7 @@ import type {
 	Relation,
 	ConflictsAtKey,
 	KeyLawRefusal,
+	RelationName,
 	Roster
 } from "#compiler/types/schema/relation.ts"
 
@@ -171,7 +172,7 @@ const ordinaryRelation = <
 	const Fields extends Record<string, FieldBase>,
 	const PrimaryKey extends readonly [KeyFieldOf<Fields>, ...KeyFieldOf<Fields>[]]
 >(
-	name: Name,
+	name: RelationName<Name>,
 	fields: Fields,
 	primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
 	...extra: ReadonlyArray<never>
@@ -203,7 +204,7 @@ const generated = <
 	const PrimaryKey extends readonly [KeyFieldOf<Written>, ...KeyFieldOf<Written>[]],
 	const G extends Record<string, GeneratedField<FieldBase>>
 >(
-	name: Name,
+	name: RelationName<Name>,
 	written: Written,
 	primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
 	generate: (
@@ -239,7 +240,7 @@ const orderedRoster = <
 	const Name extends string,
 	const Handles extends readonly [string, ...string[]]
 >(
-	name: Name,
+	name: RelationName<Name>,
 	handles: Handles & NonEmptyReadonlyArray<Handles[number]> & DistinctHandles<Handles>,
 	...extra: ReadonlyArray<never>
 ): Roster<Name, readonly [...Handles], "ordered"> =>
@@ -255,7 +256,7 @@ const unorderedRoster = <
 	const Name extends string,
 	const Handles extends readonly [string, ...string[]]
 >(
-	name: Name,
+	name: RelationName<Name>,
 	handles: Handles & NonEmptyReadonlyArray<Handles[number]> & DistinctHandles<Handles>,
 	...extra: ReadonlyArray<never>
 ): Roster<Name, readonly [...Handles], "unordered"> =>
@@ -273,7 +274,7 @@ const closedRelation = <
 	const KeyFields extends readonly [ClosedIdFieldOf<Fields>, ...ClosedIdFieldOf<Fields>[]],
 	const Rows extends ReadonlyArray<FactOfFields<Fields>>
 >(
-	name: Name,
+	name: RelationName<Name>,
 	fields: Fields & ClosedFieldsCheck<Fields>,
 	key: KeyFields & DistinctFields<KeyFields>,
 	rows: Rows & DistinctRows<Name, Rows, KeyFields>,

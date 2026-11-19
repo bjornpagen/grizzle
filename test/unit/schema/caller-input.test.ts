@@ -18,8 +18,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { closed } from "#compiler/schema/api.ts"
 import { carrierUnion } from "#compiler/schema/record.ts"
+import { closedBuilder } from "#compiler/schema/relation.ts"
 import type { Carrier } from "#compiler/types/core/phantom.ts"
 import { throwsRefused } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -57,7 +57,7 @@ export const callerInputRefusesAUnionOfCarriersThatMeetNoColumnAndUnitesEveryOth
 			check: (_, k: Case<UnionFeature>) => (c) =>
 				Effect.sync(() => {
 					const rosters: Arr.NonEmptyReadonlyArray<DrawnRoster> = Arr.map(c.rosters, (r) =>
-						closed.ordered(
+						closedBuilder(
 							rosterName(r),
 							Arr.prepend(
 								Arr.map(
@@ -65,7 +65,9 @@ export const callerInputRefusesAUnionOfCarriersThatMeetNoColumnAndUnitesEveryOth
 									(h) => `h${h}`
 								),
 								"h0"
-							)
+							),
+							"ordered",
+							[]
 						)
 					)
 					const carrierOf = (s: CarrierSketch): Carrier =>

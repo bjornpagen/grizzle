@@ -43,15 +43,14 @@ import { closedId, pg } from "#compiler/public/fields.ts"
 import {
 	type AnySchema,
 	check,
-	closed,
 	contained,
 	key,
 	on,
-	relation,
 	schema,
 	select,
 	type Statement
 } from "#compiler/public/schema.ts"
+import { closedBuilder, closedRelation, relationBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import { regexField } from "#compiler/text/field.ts"
@@ -175,7 +174,7 @@ const handles = (prefix: string, count: number): readonly [string, ...Array<stri
 /** A roster of the generated schema: its handles, and the first, which the statements compare with. */
 const rosterOf = (k: number, scale: Scale) => {
 	const members = handles(`h${k}_`, scale.handles)
-	return { roster: closed.ordered(`Ros${k}`, members), first: members[0] }
+	return { roster: closedBuilder(`Ros${k}`, members, "ordered", []), first: members[0] }
 }
 
 type GeneratedRoster = ReturnType<typeof rosterOf>
@@ -196,11 +195,12 @@ const closedOf = (rosters: Arr.NonEmptyReadonlyArray<GeneratedRoster>, k: number
 		b: `h${(k + 1) % rosters.length}_${i % scale.handles}`,
 		w: i % 1_000
 	}))
-	return closed.relation(
+	return closedRelation(
 		`Pairs${k}`,
 		{ a: closedId(a), b: closedId(b), w: pg.integer },
 		["a", "b"],
-		facts
+		facts,
+		[]
 	)
 }
 
@@ -213,7 +213,7 @@ const ordinaryOf = (
 	domains: Arr.NonEmptyReadonlyArray<ReturnType<typeof domainOf>>,
 	rosters: Arr.NonEmptyReadonlyArray<GeneratedRoster>
 ) =>
-	relation(
+	relationBuilder(
 		`R${i}`,
 		{
 			id: around(domains, i),
@@ -222,7 +222,8 @@ const ordinaryOf = (
 			mode: closedId(around(rosters, i + 1).roster),
 			weight: pg.integer
 		},
-		["id"]
+		["id"],
+		[]
 	)
 
 /** One ordinary relation of the generated schema. */

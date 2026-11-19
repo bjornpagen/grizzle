@@ -1,6 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { sameContent } from "#compiler/core/canonical.ts"
-import { CompileError, ruleRefused } from "#compiler/core/errors.ts"
+import { CompileError, undeclaredRelation } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -118,10 +118,7 @@ const statementsDeclared = (
 			const d = declarationOf(value, `${label} statement relation`)
 			const prior = below.get(d.meaning.name) ?? declared.get(d.meaning.name)
 			if (prior === undefined) {
-				throw ruleRefused(
-					s.desc.loc,
-					"a statement names a relation no level of the schema declares"
-				)
+				throw new CompileError(undeclaredRelation(s.desc.loc, d.meaning.name))
 			}
 			if (!sameContent(prior.meaning, d.meaning)) {
 				throw declaredTwice(d, prior)

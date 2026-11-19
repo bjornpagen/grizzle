@@ -44,11 +44,11 @@ import {
 	check,
 	constraintNamesOf,
 	lawsOf,
-	relation,
 	type Statement,
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { relationBuilder } from "#compiler/schema/relation.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
@@ -379,7 +379,7 @@ const requiredForms: Arr.NonEmptyReadonlyArray<Feature> = [
 
 const Txt = str.regex("^[a-c]{0,3}$")
 const itemOf = (name: string) =>
-	relation(name, { id: pg.integer, a: pg.integer, b: pg.integer, t: Txt }, ["id"])
+	relationBuilder(name, { id: pg.integer, a: pg.integer, b: pg.integer, t: Txt }, ["id"], [])
 type Item = ReturnType<typeof itemOf>
 type ItemRow = RowScalars<Item>
 

@@ -8,6 +8,7 @@ import type {
 	Derived,
 	DerivedConstructor
 } from "#compiler/types/derived/derived.ts"
+import type { RelationName } from "#compiler/types/schema/relation.ts"
 
 export {
 	alternatives,
@@ -91,6 +92,7 @@ export type {
 	HeadingOf,
 	NameOf,
 	Relation,
+	RelationName,
 	Roster,
 	SerialFieldsOf
 } from "#compiler/types/schema/relation.ts"
@@ -161,13 +163,13 @@ export type {
 export const derived: DerivedConstructor = Object.freeze(
 	Object.assign(
 		<const Name extends string, Q extends DefinitionQuery>(
-			name: Name,
+			name: RelationName<Name>,
 			definition: Q & DefinitionCheck<Q>,
 			...extra: ReadonlyArray<unknown>
 		): Derived<Name, Q, "live"> => derivedBuilder<Name, Q>(name, definition, extra),
 		{
 			materialized: <const Name extends string, Q extends DefinitionQuery>(
-				name: Name,
+				name: RelationName<Name>,
 				definition: Q & DefinitionCheck<Q>,
 				...extra: ReadonlyArray<unknown>
 			): Derived<Name, Q, "materialized"> => materializedBuilder<Name, Q>(name, definition, extra)

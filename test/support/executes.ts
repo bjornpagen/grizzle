@@ -2,7 +2,8 @@ import { array, element, type Gen, subset, weighted } from "@bjornpagen/testing/
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Bits, bits, closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
-import { check, closed, contained, login, on, relation, select } from "#compiler/public/schema.ts"
+import { check, contained, login, on, select } from "#compiler/public/schema.ts"
+import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
@@ -281,11 +282,12 @@ const Count = contract("Count", pg.integer, (x) => x.gt(0))
 
 /**
  * The world built through the public builders under the declared name `name`: its schema and its login `desk`, whose
- * roles hold their drawn relations whole and write their drawn ones.
+ * roles hold their drawn relations whole and write their drawn ones. Its rosters and relations, whose names are drawn,
+ * are the engine's builders' (schema/relation.ts), which take a name no literal type states.
  */
 export const buildExecutesWorld = (w: ExecutesWorld, name: string) => {
 	const rosters = new Map(
-		Arr.map(w.rosters, (r) => [r.name, closed.ordered(r.name, r.handles)] as const)
+		Arr.map(w.rosters, (r) => [r.name, closedBuilder(r.name, r.handles, "ordered", [])] as const)
 	)
 	const rosterOf = (n: RosterName) => defined(rosters.get(n), `the roster ${n}`)
 	const descriptor = (f: FieldSketch): FieldBase => {
@@ -308,7 +310,7 @@ export const buildExecutesWorld = (w: ExecutesWorld, name: string) => {
 			for (const f of r.fields) {
 				fields[f.name] = descriptor(f)
 			}
-			return [r.name, relation(r.name, fields, ["id"])] as const
+			return [r.name, relationBuilder(r.name, fields, ["id"], [])] as const
 		})
 	)
 	const relationOf = (n: RelationName) => defined(relations.get(n), `the relation ${n}`)

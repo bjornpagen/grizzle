@@ -11,14 +11,19 @@ import {
 import { Roster, type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { bits, closedId, contract, generated, pg, uuid } from "#compiler/public/fields.ts"
-import { check, closed, relation, type Statement } from "#compiler/public/schema.ts"
+import { check, type RowScalars, type Statement } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { type Owned, rostersOf } from "#compiler/schema/own.ts"
-import { materializedDerived } from "#compiler/schema/relation.ts"
+import {
+	materializedDerived,
+	closedBuilder,
+	generatedRelation,
+	relationBuilder
+} from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
-import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
+import type { AnyClosed, AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type BuiltSchema, generatedSchemaName } from "#test/support/oracle/public/build.ts"
 import type { ProgramSchema } from "#test/support/oracle/public/program.ts"
@@ -138,24 +143,30 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 		upTo(level.trailing, (j) => `goneLast${j}`)
 	)
 	const kindName = fresh("LawKind", taken)
-	const Kind = closed[level.order](kindName, live)
+	const Kind = closedBuilder(kindName, live, level.order, [])
 	const Count = contract("LawCount", pg.integer, (x) => x.ge(level.least[0]))
 	const Tally = contract("LawTally", pg.integer, (x) => x.ge(level.least[1]))
 	const holderName = fresh("LawHolder", taken)
 	const holderFields = { id: uuid, code: closedId(Kind), marks: bits(Kind), count: Count }
 	const Holder =
 		level.key === "id"
-			? relation(holderName, holderFields, ["id"])
+			? relationBuilder(holderName, holderFields, ["id"], [])
 			: level.key === "code"
-				? relation(holderName, holderFields, ["code"])
-				: relation(holderName, holderFields, ["id", "code"])
+				? relationBuilder(holderName, holderFields, ["code"], [])
+				: relationBuilder(holderName, holderFields, ["id", "code"], [])
 	const counterName = fresh("LawCounter", taken)
 	const counterFields = { id: uuid, tally: Tally, base: pg.integer }
 	const Counter = level.generated
-		? relation.generated(counterName, counterFields, ["id"], (r) => ({
-				spare: generated(pg.integer, Compute.base(r.tally))
-			}))
-		: relation(counterName, counterFields, ["id"])
+		? generatedRelation(
+				counterName,
+				counterFields,
+				["id"],
+				(r: RowScalars<Relation<string, typeof counterFields, readonly ["id"]>>) => ({
+					spare: generated(pg.integer, Compute.base(r.tally))
+				}),
+				[]
+			)
+		: relationBuilder(counterName, counterFields, ["id"], [])
 	const viewName = fresh("LawView", taken)
 	const [first] = s.relations
 	const read = built.relation(first)

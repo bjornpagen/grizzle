@@ -80,11 +80,11 @@ import {
 	type AnyClosed,
 	type AnyRelation,
 	type AnyRole,
-	closed,
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
+import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
@@ -184,8 +184,13 @@ const probesOf = (name: string, states: ReadonlyArray<RosterState>): Probes => {
 	const declared: Record<string, AnyRelation | AnyClosed> = {}
 	const probes: Record<string, AnyRelation> = {}
 	for (const state of states) {
-		const roster = closed.ordered(state.closed, liveOf(state))
-		const probe = relation(probeOf(state), { id: pg.integer, code: closedId(roster) }, ["id"])
+		const roster = closedBuilder(state.closed, liveOf(state), "ordered", [])
+		const probe = relationBuilder(
+			probeOf(state),
+			{ id: pg.integer, code: closedId(roster) },
+			["id"],
+			[]
+		)
 		declared[state.closed] = roster
 		declared[probeOf(state)] = probe
 		probes[probeOf(state)] = probe
@@ -466,7 +471,7 @@ const serverOf = (e: MigrateError) => {
 
 /** A bits relation's version: roster G of `handles`, Sets of an id and a set over G, written by `writer`. */
 const setsOf = (name: string, state: RosterState) => {
-	const roster = closed.ordered(state.closed, liveOf(state))
+	const roster = closedBuilder(state.closed, liveOf(state), "ordered", [])
 	const Sets = relation("Sets", { id: pg.integer, members: bits(roster) }, ["id"])
 	const declared: Record<string, AnyRelation | AnyClosed> = { [state.closed]: roster, Sets }
 	const base = schema(name, Rec.values(declared), [])

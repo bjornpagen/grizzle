@@ -5,12 +5,10 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { date, closedId, contract, pg, span, uuid, Vector } from "#compiler/public/fields.ts"
 import {
-	closed,
 	key,
 	login,
 	on,
 	type Relation,
-	relation,
 	role,
 	type Statement,
 	schema,
@@ -27,6 +25,7 @@ import {
 } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
 import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
@@ -68,7 +67,8 @@ const text = str.regex("^.{0,2}$", "su")
 /** Unbounded text, no key. */
 const prose = str.regex("^.*$", "su")
 
-const rosterValue = (s: ProgramSchema) => closed.ordered(s.roster.name, s.roster.handles)
+const rosterValue = (s: ProgramSchema) =>
+	closedBuilder(s.roster.name, s.roster.handles, "ordered", [])
 type RosterValue = ReturnType<typeof rosterValue>
 
 /**
@@ -242,7 +242,7 @@ export const buildSchema = (s: ProgramSchema): BuiltSchema => {
 		for (const f of r.fields) {
 			fields[f.name] = descriptor(f.kind, roster)
 		}
-		const value = relation(r.name, fields, fieldNames(r.primaryKey))
+		const value = relationBuilder(r.name, fields, fieldNames(r.primaryKey), [])
 		relations.set(r.name, value)
 		for (const c of r.candidates) {
 			const statement = key(on(value, ...nonEmptyArgumentsOf(fieldNames(c))))
