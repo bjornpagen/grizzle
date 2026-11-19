@@ -9,8 +9,8 @@ import type { SubstrateShape, TextRows } from "#test/support/substrate/substrate
  * copies the heap (src/backend/commands/tablecmds.c ATRewriteTables, EventTriggerTableRewrite), and never for a
  * statement that only scans the table or changes the catalog. The observer installs one such trigger in the substrate's
  * database, as the bootstrap superuser, whose function appends the rewritten table's OID to a log; the scope's
- * finalizer drops the trigger, its function and the log. An event trigger is the database's, so a file that observes
- * rewrites builds Substrate.isolatedLayer, a database of its own.
+ * finalizer drops the trigger, its function and the log. An event trigger is the database's, so a case that observes
+ * rewrites runs in a database of its own (Substrate.fresh).
  *
  * A rewrite rolled back with its transaction leaves no entry. A table is logged by its OID, which a rename keeps, and
  * read back under the name pg_class holds for it when the log is read.

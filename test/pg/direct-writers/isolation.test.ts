@@ -30,7 +30,7 @@
  * enabled, and that the database's settings name SERIALIZABLE, is the installed-catalog checker's, which every
  * installation runs (test/support/catalog/installed.ts).
  *
- * The file resets a database setting, so it runs in a database of its own (Substrate.isolatedLayer).
+ * A case that resets a database setting runs in a database of its own (Substrate.fresh).
  *
  * - Property: at every point of the box, the outcome PostgreSQL gives is the model's, and every table holds its starting
  *   rows after the point (a refusal that wrote anyway, or an admitted write that committed, fails).

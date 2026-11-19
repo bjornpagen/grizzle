@@ -3,7 +3,7 @@
  * and print values under, and every session of its pool sends them again as startup options, so a login one of whose
  * pins is gone answers the same.
  *
- * The file runs in a database of its own (Substrate.isolatedLayer), because a case sets that database's own defaults
+ * Each case runs in a database of its own (Substrate.fresh), because a case sets that database's own defaults
  * (ALTER DATABASE ... SET), which every session that starts in the database while they stand starts under, and resets
  * each once its run ends: no other file's session starts there. Its cases run one at a time.
  *

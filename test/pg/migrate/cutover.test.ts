@@ -92,7 +92,7 @@
  * whose depths and levels the parent's backfill numbers: a single-node tree, a chain four levels deep, three siblings
  * or more under one parent, and one level under two parents, each aimed at by a steered case that constructs it.
  *
- * The file builds Substrate.isolatedLayer: the rewrite observer's event trigger is the database's.
+ * Each case runs in a database of its own (Substrate.fresh): the rewrite observer's event trigger is the database's.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
