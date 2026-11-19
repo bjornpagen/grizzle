@@ -641,6 +641,70 @@ const atMostOneFact = (node: RelNode, cx: RuleContext): PhysicalProps => {
 }
 
 /**
+ * The plain properties of the leaves of one reading of a relation under one catalog: a Base's and a Delta's, by the
+ * catalog and the reading's text (leafProps), computed where the first node of the reading is analyzed and read by every
+ * other, of any query of the catalog's compile.
+ */
+const leaves = new WeakMap<EvidenceCatalog, Map<string, PhysicalProps>>()
+
+/** How a leaf's properties are read: as its relation's reading's, by that reading's text, or as the node's own. */
+type LeafReading = { readonly kind: "reading"; readonly text: string } | { readonly kind: "node" }
+
+/**
+ * What a leaf's properties are a function of. A stored or derived relation's Base and a Delta, realized plainly, rest
+ * on the catalog's constraints over their relation, heading and keys alone: their reading, its text those. A world
+ * relation's keys rest on the node itself (baseProps), and a distinct realization identifies the node's own row
+ * (finish), so either reading is the node's.
+ */
+const leafReading = (node: NodeOf<"Base"> | NodeOf<"Delta">, cx: RuleContext): LeafReading => {
+	if (
+		(node.kind === "Base" && node.relationKind === "world") ||
+		realizationOf(cx.placed, node) !== "plain"
+	) {
+		return { kind: "node" }
+	}
+	const keys = node.kind === "Base" ? [node.primaryKey, ...node.keys] : node.keys
+	return {
+		kind: "reading",
+		text: [
+			node.kind,
+			node.relation,
+			node.kind === "Base" ? node.relationKind : "delta",
+			node.heading.map((c) => c.name).join("\u0001"),
+			keys.map((k) => k.join("\u0001")).join("\u0002")
+		].join("\u0000")
+	}
+}
+
+/**
+ * A leaf's physical properties: its reading's, computed (`compute`) by the first node of the reading under the
+ * catalog and read by every other as itself (leafReading), or the node's own.
+ */
+const leafProps = (
+	node: NodeOf<"Base"> | NodeOf<"Delta">,
+	cx: RuleContext,
+	compute: () => PhysicalProps
+): PhysicalProps => {
+	const reading = leafReading(node, cx)
+	switch (reading.kind) {
+		case "node":
+			return compute()
+		case "reading": {
+			const byText = leaves.get(cx.catalog) ?? new Map<string, PhysicalProps>()
+			if (byText.size === 0) {
+				leaves.set(cx.catalog, byText)
+			}
+			const known = byText.get(reading.text)
+			const read = known ?? compute()
+			if (known === undefined) {
+				byText.set(reading.text, read)
+			}
+			return { ...read, node: node.id }
+		}
+	}
+}
+
+/**
  * The physical uniqueness inference rules, one per node kind.
  *
  * Each rule computes what a node's SQL delivers when it is realized plainly, or under the exact deduplication its
@@ -678,7 +742,7 @@ const atMostOneFact = (node: RelNode, cx: RuleContext): PhysicalProps => {
 export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps => {
 	switch (node.kind) {
 		case "Base":
-			return baseProps(node, cx)
+			return leafProps(node, cx, () => baseProps(node, cx))
 		case "Closed":
 			return closedProps(node, cx)
 		case "InputSet": {
@@ -710,7 +774,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 		case "Context":
 			return atMostOneFact(node, cx)
 		case "Delta":
-			return deltaProps(node, cx)
+			return leafProps(node, cx, () => deltaProps(node, cx))
 		case "MatchRegion":
 			return regionProps(node, cx)
 		case "Filter":

@@ -74,75 +74,45 @@ const sameValue = (a: Value, b: Value): boolean =>
 	(a.kind === "param" && b.kind === "param" && a.param === b.param) ||
 	(a.kind === "outer" && b.kind === "outer" && a.node === b.node && a.column === b.column)
 
-/** The faults of the parts a proof rests on, each checked before the parts that rest on it. */
+/**
+ * The faults of the parts a proof rests on, each checked at the node it is held at before the parts that rest on it. A
+ * part names no node (ir/keys.ts Implication): it is relative to the node holding it, and a part a rule or a basis
+ * rests on is held at the node the rule reads it from (KeyKernel #located).
+ */
 interface Checked {
-	readonly proof: (p: KeyProof) => ReadonlyArray<string>
-	readonly implication: (i: Implication) => ReadonlyArray<string>
+	readonly proof: (p: KeyProof, at: RelNode) => ReadonlyArray<string>
+	readonly implication: (i: Implication, at: RelNode) => ReadonlyArray<string>
 }
 
-/** The proofs and derivations a rule's side condition rests on. */
-const ruleParts = (rule: Rule): ReadonlyArray<KeyProof | Implication> => {
-	switch (rule.rule) {
-		case "fixed":
-			return rule.witness.kind === "semiJoinPair" ? [rule.witness.right] : []
-		case "equal":
-			return rule.witness.kind === "arms"
-				? rule.witness.arms
-				: rule.witness.kind === "lateralFixed"
-					? [rule.witness.fixed]
-					: []
-		case "match":
-			return [rule.source]
-		case "projection":
-		case "grouped":
-		case "kept":
-		case "produced":
-			return [rule.input]
-		case "agreed":
-			return rule.arms
-		case "unionKey":
-			return [rule.proof]
-		case "separated":
-			return [...rule.arms, ...Arr.flatMap(rule.separations, (s) => s.fixed)]
-		case "declared":
-		case "viewAlternative":
-		case "correlated":
-		case "group":
-		case "atMostOne":
-		case "distinct":
-		case "ranked":
-		case "numbered":
-			return []
-	}
+/** A part of a proof, a sub-proof or a derivation, at the node it is held at. */
+interface Located {
+	readonly part: KeyProof | Implication
+	readonly at: RelNode
 }
 
-/** The proofs and derivations a part of a proof rests on: its basis's, its members', and its steps' rules'. */
-const partsBeneath = (part: KeyProof | Implication): ReadonlyArray<KeyProof | Implication> => {
-	if ("steps" in part) {
-		return Arr.flatMap(part.steps, (s) => ruleParts(s.rule))
-	}
-	const members = [
-		...Arr.map(part.members, (m) => m.determines),
-		...Arr.flatMap(part.factors, (f) => Arr.map(f.alternatives, (a) => a.determines))
-	]
-	switch (part.basis.kind) {
-		case "rows":
-			return [part.basis.implication, ...members]
-		case "union":
-			return [
-				...part.basis.arms,
-				...Arr.flatMap(part.basis.separations, (s) => s.fixed),
-				...members
-			]
-		case "within":
-			return [part.basis.implication, part.basis.inner, ...members]
-	}
-}
+/** Each arm of a union, in the order its rules name them. */
+const armsOf = (n: NodeOf<"Union">): ReadonlyArray<RelNode> => Arr.flatMap(n.groups, (g) => g.arms)
+
+/** The parts held at `at`, each paired with it. */
+const at = (n: RelNode, parts: ReadonlyArray<KeyProof | Implication>): ReadonlyArray<Located> =>
+	Arr.map(parts, (part) => ({ part, at: n }))
+
+/** Each part paired with the node of the same place in `nodes`, none past their end. */
+const zipped = (
+	parts: ReadonlyArray<KeyProof | Implication>,
+	nodes: ReadonlyArray<RelNode>
+): ReadonlyArray<Located> =>
+	Arr.flatMap(parts, (part, i) => {
+		const n = nodes[i]
+		return n === undefined ? [] : [{ part, at: n }]
+	})
 
 /**
- * The kernel over one DAG. A proof names nodes by label, so the kernel reads them through the DAG's labels, gathered by
- * one walk when it is made: its own traversal state, as a proof's check is. A witness names a conjunct by label, which
- * the kernel finds among the conjuncts of the filter the witness stands at.
+ * The kernel over one DAG. A proof names no node: it is checked at the node holding it (check), and each part it rests
+ * on at the node its rule reads it from, an input, an arm or an occurrence's source (#beneath). An attachment's
+ * correlation names its attachment by label, which the kernel reads through the DAG's labels, gathered by one walk when
+ * it is made. A witness names a conjunct by label, which the kernel finds among the conjuncts of the filter the witness
+ * stands at.
  */
 export class KeyKernel {
 	readonly #nodes: ReadonlyMap<NodeId, RelNode>
@@ -318,8 +288,11 @@ export class KeyKernel {
 	 * The value `i`, a derivation at an input of node `n`, fixes the input's column `column` to, as a value of `n`: what
 	 * the input names it by, a column the input reads from outside read again at `n`, which may bind it (#outer).
 	 */
-	#carried(n: RelNode, i: Implication, column: string): Value {
-		const value = this.#value(i, column) ?? { kind: "opaque" }
+	#carried(n: RelNode, i: Implication, held: RelNode | undefined, column: string): Value {
+		const value = held === undefined ? undefined : this.#value(i, held, column)
+		if (value === undefined) {
+			return { kind: "opaque" }
+		}
 		return value.kind === "outer" ? this.#outer(n, value.node, value.column) : value
 	}
 
@@ -361,33 +334,165 @@ export class KeyKernel {
 	}
 
 	/**
-	 * Checks a proof; the faults found, none for a valid one. Every part it rests on, a sub-proof or a derivation, is
-	 * checked once, before the parts that rest on it, however many of them share it.
+	 * Checks a proof `held` at a node, its node's meta holding it; the faults found, none for a valid one. Every part it
+	 * rests on, a sub-proof or a derivation, is checked once at each node it is held at, before the parts that rest on
+	 * it, however many of them share it.
 	 */
-	check(proof: KeyProof): ReadonlyArray<string> {
-		const proofs = new Map<KeyProof, ReadonlyArray<string>>()
-		const implications = new Map<Implication, ReadonlyArray<string>>()
-		const checked: Checked = {
-			proof: (p) => defined(proofs.get(p), "a proof checked before the parts resting on it"),
-			implication: (i) =>
-				defined(implications.get(i), "a derivation checked before the parts resting on it")
-		}
-		for (const part of postorder<KeyProof | Implication>([proof], partsBeneath)) {
-			if ("steps" in part) {
-				implications.set(part, this.#implication(part, checked))
-			} else {
-				proofs.set(part, this.#proof(part, checked))
+	check(proof: KeyProof, held: RelNode): ReadonlyArray<string> {
+		const faults = new Map<KeyProof | Implication, Map<RelNode, ReadonlyArray<string>>>()
+		const read = (part: KeyProof | Implication, n: RelNode): ReadonlyArray<string> =>
+			defined(faults.get(part)?.get(n), "a part checked before the parts resting on it")
+		const checked: Checked = { proof: read, implication: read }
+		/** One object per part and node, so the walk meets a part at a node once. */
+		const located = new Map<KeyProof | Implication, Map<RelNode, Located>>()
+		const intern = (l: Located): Located => {
+			const byNode = located.get(l.part) ?? new Map<RelNode, Located>()
+			located.set(l.part, byNode)
+			const known = byNode.get(l.at)
+			if (known !== undefined) {
+				return known
 			}
+			byNode.set(l.at, l)
+			return l
 		}
-		return checked.proof(proof)
+		for (const l of postorder<Located>([intern({ part: proof, at: held })], (x) =>
+			Arr.map(this.#beneath(x), intern)
+		)) {
+			const byNode = faults.get(l.part) ?? new Map<RelNode, ReadonlyArray<string>>()
+			faults.set(l.part, byNode)
+			byNode.set(
+				l.at,
+				"steps" in l.part
+					? this.#implication(l.part, l.at, checked)
+					: this.#proof(l.part, l.at, checked)
+			)
+		}
+		return read(proof, held)
 	}
 
-	#proof(p: KeyProof, checked: Checked): ReadonlyArray<string> {
-		const n = this.#node(p.node)
-		if (n === undefined) {
-			return [`proof of [${Arr.join(p.key, ", ")}] at ${p.node}, no node of the DAG`]
+	/**
+	 * The parts a part held at a node rests on, each at the node it is held at: a derivation's steps' rules' parts, each at
+	 * the input, the arm or the occurrence's source the rule reads it from; a proof's basis's (its derivation and members
+	 * at its node, a union's arm proofs at their arms, a within key's inner key at the node and at each input whose rows
+	 * it keeps, one of which holds it).
+	 */
+	#beneath(l: Located): ReadonlyArray<Located> {
+		const n = l.at
+		const part = l.part
+		if ("steps" in part) {
+			return Arr.flatMap(part.steps, (s) => this.#ruleParts(n, s.rule))
 		}
-		const at = `${p.node} [${Arr.join(p.key, ", ")}]`
+		const members = at(n, [
+			...Arr.map(part.members, (m) => m.determines),
+			...Arr.flatMap(part.factors, (f) => Arr.map(f.alternatives, (a) => a.determines))
+		])
+		switch (part.basis.kind) {
+			case "rows":
+				return [...at(n, [part.basis.implication]), ...members]
+			case "union": {
+				const arms = n.kind === "Union" ? armsOf(n) : []
+				return [
+					...zipped(part.basis.arms, arms),
+					...this.#separationParts(arms, part.basis.separations),
+					...members
+				]
+			}
+			case "within": {
+				const inner = part.basis.inner
+				return [
+					...at(n, [part.basis.implication, inner]),
+					...Arr.map(this.#keptInputs(n), (k) => ({ part: inner, at: k.input })),
+					...members
+				]
+			}
+		}
+	}
+
+	/** Each separation's two derivations, at the arms it tells apart. */
+	#separationParts(
+		arms: ReadonlyArray<RelNode>,
+		separations: ReadonlyArray<Separation>
+	): ReadonlyArray<Located> {
+		return Arr.flatMap(separations, (s) => [
+			...zipped(
+				[s.fixed[0]],
+				Arr.filter([arms[s.arms[0]]], (a) => a !== undefined)
+			),
+			...zipped(
+				[s.fixed[1]],
+				Arr.filter([arms[s.arms[1]]], (a) => a !== undefined)
+			)
+		])
+	}
+
+	/** The node a carried rule's input derivation is held at: the kept input, an intersection's right side, a group's input. */
+	#carriedAt(n: RelNode, rule: "kept" | "intersected" | "grouped"): RelNode | undefined {
+		switch (rule) {
+			case "kept":
+				return this.#keptInputs(n)[0]?.input
+			case "intersected":
+				return n.kind === "Intersect" ? n.right : undefined
+			case "grouped":
+				return n.kind === "Group" || n.kind === "OrderedSetAggregate" ? n.input : undefined
+		}
+	}
+
+	/** The occurrence of a region a rule names. */
+	#occurrence(
+		n: RelNode,
+		occurrence: OccurrenceId
+	): NodeOf<"MatchRegion">["occurrences"][number] | undefined {
+		return n.kind === "MatchRegion"
+			? Option.getOrUndefined(Arr.findFirst(n.occurrences, (x) => x.id === occurrence))
+			: undefined
+	}
+
+	/** The proofs and derivations a rule's side condition at node `n` rests on, each at the node it is held at. */
+	#ruleParts(n: RelNode, rule: Rule): ReadonlyArray<Located> {
+		const arms = n.kind === "Union" ? armsOf(n) : []
+		const one = (part: KeyProof | Implication, held: RelNode | undefined): ReadonlyArray<Located> =>
+			held === undefined ? [] : [{ part, at: held }]
+		switch (rule.rule) {
+			case "fixed":
+				return rule.witness.kind === "semiJoinPair" && n.kind === "SemiJoin"
+					? one(rule.witness.right, n.right)
+					: []
+			case "equal":
+				return rule.witness.kind === "arms"
+					? zipped(rule.witness.arms, arms)
+					: rule.witness.kind === "lateralFixed"
+						? one(rule.witness.fixed, this.#occurrence(n, rule.witness.occurrence)?.source)
+						: []
+			case "match":
+				return one(rule.source, this.#occurrence(n, rule.occurrence)?.source)
+			case "projection":
+				return one(rule.input, n.kind === "ProjectSet" ? n.input : undefined)
+			case "grouped":
+			case "kept":
+			case "intersected":
+				return one(rule.input, this.#carriedAt(n, rule.rule))
+			case "produced":
+				return one(rule.input, n.kind === "Produce" ? n.input : undefined)
+			case "agreed":
+				return zipped(rule.arms, arms)
+			case "unionKey":
+				return one(rule.proof, n)
+			case "separated":
+				return [...zipped(rule.arms, arms), ...this.#separationParts(arms, rule.separations)]
+			case "declared":
+			case "viewAlternative":
+			case "correlated":
+			case "group":
+			case "atMostOne":
+			case "distinct":
+			case "ranked":
+			case "numbered":
+				return []
+		}
+	}
+
+	#proof(p: KeyProof, n: RelNode, checked: Checked): ReadonlyArray<string> {
+		const at = `${n.id} [${Arr.join(p.key, ", ")}]`
 		const faults: Array<string> = []
 		const heading = this.#heading(n)
 		if (!within(p.key, heading)) {
@@ -399,8 +504,8 @@ export class KeyKernel {
 				if (this.#severalGroups(n)) {
 					faults.push(`${at}: a rows basis on a node of several heading groups`)
 				}
-				appendAll(faults, checked.implication(i))
-				if (i.node !== p.node || !sameSet(i.from, p.key)) {
+				appendAll(faults, checked.implication(i, n))
+				if (!sameSet(i.from, p.key)) {
 					faults.push(`${at}: its derivation starts elsewhere than the key`)
 				}
 				if (!within(heading, this.#derived(i))) {
@@ -413,15 +518,17 @@ export class KeyKernel {
 					faults.push(`${at}: a union basis on a ${n.kind}`)
 					break
 				}
-				const arms = Arr.flatMap(n.groups, (g) => g.arms)
+				const arms = armsOf(n)
 				if (arms.length !== p.basis.arms.length) {
 					faults.push(`${at}: one arm proof per arm`)
 				}
 				for (const [i, arm] of p.basis.arms.entries()) {
-					if (arm.node !== arms[i]?.id || !sameSet(arm.key, p.key)) {
-						faults.push(`${at}: arm ${i} proves another key or node`)
+					const armNode = arms[i]
+					if (armNode === undefined || !sameSet(arm.key, p.key)) {
+						faults.push(`${at}: arm ${i} proves another key or no arm's`)
+						continue
 					}
-					appendAll(faults, checked.proof(arm))
+					appendAll(faults, checked.proof(arm, armNode))
 				}
 				appendAll(
 					faults,
@@ -431,18 +538,18 @@ export class KeyKernel {
 			}
 			case "within": {
 				const { implication: i, inner } = p.basis
-				appendAll(faults, [...checked.implication(i), ...checked.proof(inner)])
-				if (i.node !== p.node || !sameSet(i.from, p.key)) {
+				appendAll(faults, checked.implication(i, n))
+				if (!sameSet(i.from, p.key)) {
 					faults.push(`${at}: its derivation starts elsewhere than the key`)
 				}
 				if (!within(inner.key, this.#derived(i))) {
 					faults.push(`${at}: its derivation does not reach the inner key`)
 				}
-				if (
-					inner.node !== p.node &&
-					!Arr.some(this.#keptInputs(n), (k) => k.input.id === inner.node)
-				) {
-					faults.push(`${at}: an inner key of neither the node nor an input whose rows it keeps`)
+				const holders = [n, ...Arr.map(this.#keptInputs(n), (k) => k.input)]
+				if (!Arr.some(holders, (h) => checked.proof(inner, h).length === 0)) {
+					faults.push(
+						`${at}: an inner key proved at neither the node nor an input whose rows it keeps: ${Arr.join(checked.proof(inner, n), "; ")}`
+					)
 				}
 				break
 			}
@@ -454,13 +561,12 @@ export class KeyKernel {
 		for (const f of p.factors) {
 			for (const a of f.alternatives) {
 				const stands = `${at}: alternative [${Arr.join(a.columns, ", ")}] for [${Arr.join(f.key, ", ")}]`
-				appendAll(faults, checked.implication(a.determines))
+				appendAll(faults, checked.implication(a.determines, n))
 				if (!within(a.columns, heading)) {
 					faults.push(`${stands}: not heading columns`)
 				}
 				const given = Arr.filter(a.determines.from, (c) => !a.columns.includes(c))
 				if (
-					a.determines.node !== p.node ||
 					!within(a.columns, a.determines.from) ||
 					!within(
 						given,
@@ -480,17 +586,13 @@ export class KeyKernel {
 		])
 		for (const m of p.members) {
 			const stands = `${at}: member ${m.column} for ${m.of}`
-			appendAll(faults, checked.implication(m.determines))
+			appendAll(faults, checked.implication(m.determines, n))
 			if (!standable.has(m.of) || p.key.includes(m.column) || !heading.includes(m.column)) {
 				faults.push(
 					`${stands}: not a heading column outside the key standing for a column of the key or an alternative`
 				)
 			}
-			if (
-				m.determines.node !== p.node ||
-				!sameSet(m.determines.from, [m.column]) ||
-				!this.#derived(m.determines).has(m.of)
-			) {
+			if (!sameSet(m.determines.from, [m.column]) || !this.#derived(m.determines).has(m.of)) {
 				faults.push(`${stands}: its derivation does not derive the key column from it`)
 			}
 		}
@@ -598,19 +700,15 @@ export class KeyKernel {
 		return new Set([...i.from, ...Arr.flatMap(i.steps, (s) => s.to)])
 	}
 
-	#implication(i: Implication, checked: Checked): ReadonlyArray<string> {
-		const n = this.#node(i.node)
-		if (n === undefined) {
-			return [`a derivation at ${i.node}, no node of the DAG`]
-		}
+	#implication(i: Implication, n: RelNode, checked: Checked): ReadonlyArray<string> {
 		const attributes = this.#attributes(n)
 		const faults: Array<string> = []
 		if (!within(i.from, attributes)) {
-			faults.push(`${i.node}: a derivation from attributes the node does not have`)
+			faults.push(`${n.id}: a derivation from attributes the node does not have`)
 		}
 		const reached = new Set(i.from)
 		for (const step of i.steps) {
-			const at = `${i.node} ${step.rule.rule} [${Arr.join(step.from, ", ")}] -> [${Arr.join(step.to, ", ")}]`
+			const at = `${n.id} ${step.rule.rule} [${Arr.join(step.from, ", ")}] -> [${Arr.join(step.to, ", ")}]`
 			if (!within(step.from, reached)) {
 				faults.push(`${at}: a step before its determinants are known`)
 			}
@@ -698,23 +796,26 @@ export class KeyKernel {
 				const name = (a: string) =>
 					keys.includes(a) || isHidden(a) ? a : hiddenAttribute(input.id, a)
 				const attributes = [...keys, ...this.#hidden(n)]
-				return r.input.node === input.id &&
-					within(d.from, attributes) &&
+				return within(d.from, attributes) &&
 					within(d.to, attributes) &&
 					within(Arr.map(r.input.from, name), d.from) &&
 					within(d.to, Arr.map([...this.#derived(r.input)], name))
-					? [...checked.implication(r.input)]
+					? [...checked.implication(r.input, input)]
 					: ["not an input dependency among the group key and what it determines"]
 			}
-			case "kept": {
-				const kept = Option.getOrUndefined(
-					Arr.findFirst(this.#keptInputs(n), (k) => k.input.id === r.input.node)
-				)
+			case "kept":
+			case "intersected": {
+				const kept =
+					r.rule === "kept"
+						? this.#keptInputs(n)[0]
+						: n.kind === "Intersect"
+							? this.#keptInputs(n)[1]
+							: undefined
 				return kept !== undefined &&
 					within(Arr.map(r.input.from, kept.name), d.from) &&
 					within(d.to, Arr.map([...this.#derived(r.input)], kept.name)) &&
 					within(d.to, this.#attributes(n))
-					? [...checked.implication(r.input)]
+					? [...checked.implication(r.input, kept.input)]
 					: ["not a dependency of an input whose rows the node keeps"]
 			}
 			case "atMostOne":
@@ -741,16 +842,12 @@ export class KeyKernel {
 					: ["columns whose value tuples repeat"]
 			}
 			case "produced": {
-				if (
-					n.kind !== "Produce" ||
-					r.input.node !== n.input.id ||
-					!within(r.input.key, n.carried)
-				) {
+				if (n.kind !== "Produce" || !within(r.input.key, n.carried)) {
 					return ["not a carried key of the produce's input"]
 				}
 				const from = n.producer === "spanIntersection" ? r.input.key : [...r.input.key, n.out]
 				return sameSet(d.from, from)
-					? [...checked.proof(r.input)]
+					? [...checked.proof(r.input, n.input)]
 					: ["not the carried key and its span"]
 			}
 			case "numbered":
@@ -773,44 +870,48 @@ export class KeyKernel {
 					return ["a column every arm fixes, outside a union"]
 				}
 				const column = d.to[0] ?? ""
-				const arms = Arr.flatMap(n.groups, (g) => g.arms)
+				const arms = armsOf(n)
 				if (arms.length !== r.arms.length) {
 					return ["one derivation per arm"]
 				}
-				const values = Arr.map(r.arms, (a, i) =>
-					a.node === arms[i]?.id && a.from.length === 0 ? this.#value(a, column) : undefined
-				)
+				const values = Arr.map(r.arms, (a, i) => {
+					const arm = arms[i]
+					return arm !== undefined && a.from.length === 0 ? this.#value(a, arm, column) : undefined
+				})
 				const [first] = values
 				const agree =
 					first !== undefined &&
 					first.kind !== "opaque" &&
 					Arr.every(values, (v) => v !== undefined && sameValue(v, first))
 				return agree
-					? Arr.flatMap(r.arms, (a) => checked.implication(a))
+					? Arr.flatMap(r.arms, (a, i) => {
+							const arm = arms[i]
+							return arm === undefined ? [`arm ${i}: no such arm`] : checked.implication(a, arm)
+						})
 					: ["arms that fix the column to different values"]
 			}
 			case "unionKey":
 				return n.kind === "Union" &&
-					r.proof.node === n.id &&
 					r.proof.basis.kind === "union" &&
 					sameSet(d.from, r.proof.key) &&
 					within(d.to, heading)
-					? [...checked.proof(r.proof)]
+					? [...checked.proof(r.proof, n)]
 					: ["not a union key determining the union's row"]
 			case "separated": {
 				if (n.kind !== "Union") {
 					return ["what every arm derives, outside a union"]
 				}
-				const arms = Arr.flatMap(n.groups, (g) => g.arms)
+				const arms = armsOf(n)
 				if (arms.length !== r.arms.length) {
 					return ["one derivation per arm"]
 				}
 				return [
-					...Arr.flatMap(r.arms, (a, i) =>
-						a.node === arms[i]?.id && sameSet(a.from, d.from) && within(d.to, this.#derived(a))
-							? checked.implication(a)
+					...Arr.flatMap(r.arms, (a, i) => {
+						const arm = arms[i]
+						return arm !== undefined && sameSet(a.from, d.from) && within(d.to, this.#derived(a))
+							? checked.implication(a, arm)
 							: [`arm ${i}'s derivation does not derive it from its determinants`]
-					),
+					}),
 					...(within(d.from, heading) && within(d.to, heading)
 						? []
 						: ["not columns of the union's heading"]),
@@ -841,11 +942,15 @@ export class KeyKernel {
 					continue
 				}
 				const [fi, fj] = s.fixed
-				appendAll(faults, [...checked.implication(fi), ...checked.implication(fj)])
-				const vi =
-					fi.node === arms[i]?.id && fi.from.length === 0 ? this.#value(fi, s.column) : undefined
-				const vj =
-					fj.node === arms[j]?.id && fj.from.length === 0 ? this.#value(fj, s.column) : undefined
+				const ai = arms[i]
+				const aj = arms[j]
+				if (ai === undefined || aj === undefined) {
+					faults.push(`arms ${i} and ${j}: no such arms`)
+					continue
+				}
+				appendAll(faults, [...checked.implication(fi, ai), ...checked.implication(fj, aj)])
+				const vi = fi.from.length === 0 ? this.#value(fi, ai, s.column) : undefined
+				const vj = fj.from.length === 0 ? this.#value(fj, aj, s.column) : undefined
 				if (vi?.kind !== "literal" || vj?.kind !== "literal" || vi.key === vj.key) {
 					faults.push(`arms ${i} and ${j} not told apart by differing literals on ${s.column}`)
 				}
@@ -963,10 +1068,9 @@ export class KeyKernel {
 				const pair = n.kind === "SemiJoin" ? n.on[w.index] : undefined
 				return n.kind === "SemiJoin" &&
 					pair?.left === column &&
-					w.right.node === n.right.id &&
 					w.right.from.length === 0 &&
 					this.#derived(w.right).has(pair.right)
-					? [...checked.implication(w.right)]
+					? [...checked.implication(w.right, n.right)]
 					: ["no semi-join pair with a fixed right column"]
 			}
 			case "attachCorrelation": {
@@ -1067,36 +1171,37 @@ export class KeyKernel {
 				}
 				const o = Option.getOrUndefined(Arr.findFirst(n.occurrences, (x) => x.id === w.occurrence))
 				const fixed = w.fixed
-				if (o === undefined || fixed.node !== o.source.id || fixed.from.length > 0) {
+				if (o === undefined || fixed.from.length > 0) {
 					return ["no derivation from nothing at the occurrence's source"]
 				}
 				const bound = Arr.map(
 					Arr.filter(o.bindings, (x) => x.column === w.column),
 					(x) => x.var.name
 				)
-				const value = this.#value(fixed, w.column)
+				const value = this.#value(fixed, o.source, w.column)
 				const other =
 					value?.kind === "outer" ? this.#varFor(n, value.node, value.column) : undefined
 				const holds =
 					other !== undefined &&
 					((bound.includes(a) && other === b) || (bound.includes(b) && other === a))
 				return holds
-					? [...checked.implication(fixed)]
+					? [...checked.implication(fixed, o.source)]
 					: ["no variable bound to a source column fixed to the other variable's region column"]
 			}
 			case "arms": {
 				if (n.kind !== "Union") {
 					return ["columns equal in every arm, outside a union"]
 				}
-				const arms = Arr.flatMap(n.groups, (g) => g.arms)
+				const arms = armsOf(n)
 				if (arms.length !== w.arms.length) {
 					return ["one derivation per arm"]
 				}
-				return Arr.flatMap(w.arms, (arm, i) =>
-					arm.node === arms[i]?.id
-						? [...checked.implication(arm), ...this.#equalChain(arm, a, b)]
-						: [`arm ${i}: a derivation at another node`]
-				)
+				return Arr.flatMap(w.arms, (arm, i) => {
+					const held = arms[i]
+					return held === undefined
+						? [`arm ${i}: no such arm`]
+						: [...checked.implication(arm, held), ...this.#equalChain(arm, held, a, b)]
+				})
 			}
 		}
 	}
@@ -1108,20 +1213,16 @@ export class KeyKernel {
 	 * its input derivation makes equal, every group's key values one input row's, ending at `b`. That one
 	 * column determines another is no equality: two arms of a union may each determine b from a, differently.
 	 */
-	#equalChain(i: Implication, a: string, b: string): ReadonlyArray<string> {
-		const n = this.#node(i.node)
-		if (n === undefined) {
-			return [`an equality at ${i.node}, no node of the DAG`]
-		}
+	#equalChain(i: Implication, n: RelNode, a: string, b: string): ReadonlyArray<string> {
 		if (!sameSet(i.from, [a])) {
-			return [`${i.node}: an equality from other than ${a}`]
+			return [`${n.id}: an equality from other than ${a}`]
 		}
 		let at = a
 		for (const step of i.steps) {
 			const [from] = step.from
 			const [to] = step.to
 			if (step.from.length !== 1 || step.to.length !== 1 || from !== at || to === undefined) {
-				return [`${i.node}: an equality step from other than ${at} alone to one column`]
+				return [`${n.id}: an equality step from other than ${at} alone to one column`]
 			}
 			const faults = this.#equalChainStep(n, step.rule, from, to)
 			if (faults.length > 0) {
@@ -1129,7 +1230,7 @@ export class KeyKernel {
 			}
 			at = to
 		}
-		return at === b ? [] : [`${i.node}: an equality reaching ${at}, not ${b}`]
+		return at === b ? [] : [`${n.id}: an equality reaching ${at}, not ${b}`]
 	}
 
 	/** The faults of one step of an equality at node `n`, from `x` to `y`, beside its rule's own. */
@@ -1150,15 +1251,20 @@ export class KeyKernel {
 				if (cx === undefined || cy === undefined) {
 					return ["an equality through an output copying no input column"]
 				}
-				return cx === cy ? [] : this.#equalChain(r.input, cx, cy)
+				return cx === cy ? [] : this.#equalChain(r.input, n.input, cx, cy)
 			}
 			case "kept":
-				return this.#equalChain(r.input, x, y)
+			case "intersected": {
+				const held = this.#carriedAt(n, r.rule)
+				return held === undefined
+					? [`a ${r.rule} step at a node that keeps no such input's rows`]
+					: this.#equalChain(r.input, held, x, y)
+			}
 			case "grouped":
 				return (n.kind === "Group" || n.kind === "OrderedSetAggregate") &&
 					n.keys.includes(x) &&
 					n.keys.includes(y)
-					? this.#equalChain(r.input, x, y)
+					? this.#equalChain(r.input, n.input, x, y)
 					: ["an equality through a group's columns outside its key"]
 			case "declared":
 			case "viewAlternative":
@@ -1189,10 +1295,10 @@ export class KeyKernel {
 			return ["a match outside a region"]
 		}
 		const o = Option.getOrUndefined(Arr.findFirst(n.occurrences, (x) => x.id === occurrence))
-		if (o === undefined || source.node !== o.source.id) {
+		if (o === undefined) {
 			return ["no such occurrence over the derivation's source"]
 		}
-		const faults: Array<string> = [...checked.implication(source)]
+		const faults: Array<string> = [...checked.implication(source, o.source)]
 		const from = new Set(d.from)
 		for (const c of source.from) {
 			const bound =
@@ -1242,7 +1348,7 @@ export class KeyKernel {
 		input: Implication,
 		checked: Checked
 	): ReadonlyArray<string> {
-		if (n.kind !== "ProjectSet" || input.node !== n.input.id) {
+		if (n.kind !== "ProjectSet") {
 			return ["a projection over another node"]
 		}
 		const copyOf = (o: string): string | undefined => {
@@ -1265,7 +1371,7 @@ export class KeyKernel {
 			const c = copyOf(o) ?? hiddenFrom.get(o)
 			return c === undefined ? [] : [c]
 		})
-		const faults: Array<string> = [...checked.implication(input)]
+		const faults: Array<string> = [...checked.implication(input, n.input)]
 		if (!within(input.from, copies)) {
 			faults.push("an input derivation from attributes no determinant copies or hides")
 		}
@@ -1329,16 +1435,15 @@ export class KeyKernel {
 	 * that carries an input's column reads the input's value again at the node, where a column the node binds is opaque,
 	 * as the analysis names none by it.
 	 */
-	#value(i: Implication, column: string): Value | undefined {
-		return this.#derived(i).has(column) ? this.#valueAmong(i, i.steps, column) : undefined
+	#value(i: Implication, n: RelNode, column: string): Value | undefined {
+		return this.#derived(i).has(column) ? this.#valueAmong(i, n, i.steps, column) : undefined
 	}
 
-	/** The value `column` holds by the first of `steps`, a prefix of `i`'s, that names one; opaque where none does. */
-	#valueAmong(i: Implication, steps: ReadonlyArray<Dependency>, column: string): Value {
-		const n = this.#node(i.node)
-		if (n === undefined) {
-			return { kind: "opaque" }
-		}
+	/**
+	 * The value `column` holds by the first of `steps`, a prefix of `i`'s (held at `n`), that names one; opaque where none
+	 * does.
+	 */
+	#valueAmong(i: Implication, n: RelNode, steps: ReadonlyArray<Dependency>, column: string): Value {
 		for (const [at, step] of steps.entries()) {
 			if (!step.to.includes(column)) {
 				continue
@@ -1369,7 +1474,7 @@ export class KeyKernel {
 			}
 			case "equal": {
 				const [from] = step.from
-				return from === undefined ? { kind: "opaque" } : this.#valueAmong(i, before, from)
+				return from === undefined ? { kind: "opaque" } : this.#valueAmong(i, n, before, from)
 			}
 			case "match": {
 				if (n.kind !== "MatchRegion") {
@@ -1388,7 +1493,7 @@ export class KeyKernel {
 				)
 				return constant !== undefined
 					? this.#classify(n, constant.expr)
-					: this.#carried(n, r.source, b.column)
+					: this.#carried(n, r.source, o.source, b.column)
 			}
 			case "projection": {
 				if (n.kind !== "ProjectSet") {
@@ -1400,14 +1505,15 @@ export class KeyKernel {
 					? { kind: "opaque" }
 					: copied === undefined
 						? this.#classify(n, out.expr)
-						: this.#carried(n, r.input, copied)
+						: this.#carried(n, r.input, n.input, copied)
 			}
 			case "kept":
+			case "intersected":
 			case "grouped":
-				return this.#carried(n, r.input, column)
+				return this.#carried(n, r.input, this.#carriedAt(n, r.rule), column)
 			case "agreed": {
 				const [first] = r.arms
-				return this.#carried(n, first, column)
+				return this.#carried(n, first, n.kind === "Union" ? armsOf(n)[0] : undefined, column)
 			}
 			case "declared":
 			case "viewAlternative":
@@ -1458,7 +1564,9 @@ export class KeyKernel {
 			}
 			case "semiJoinPair": {
 				const pair = n.kind === "SemiJoin" ? n.on[w.index] : undefined
-				return pair === undefined ? { kind: "opaque" } : this.#carried(n, w.right, pair.right)
+				return pair === undefined || n.kind !== "SemiJoin"
+					? { kind: "opaque" }
+					: this.#carried(n, w.right, n.right, pair.right)
 			}
 			case "attachCorrelation": {
 				const attach = this.#node(w.attach)
@@ -1526,6 +1634,7 @@ export class KeyKernel {
 					case "projection":
 					case "grouped":
 					case "kept":
+					case "intersected":
 						fromImplication(r.input)
 						break
 					case "produced":

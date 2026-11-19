@@ -50,6 +50,7 @@ import {
 	matchBinds,
 	producedFact,
 	projectionCloses,
+	rightKeeps,
 	rowsKeep,
 	rowsKey,
 	type Separation,
@@ -66,7 +67,6 @@ import {
 import {
 	type Card,
 	closedColumn,
-	edgesOf,
 	type Heading,
 	type KeySet,
 	type KindOver,
@@ -612,9 +612,70 @@ const own = (value: ValueAt): StepSource => ({ kind: "own", name: namedOf(value)
 /** A step's own value that names nothing: what a hidden attribute holds. */
 const opaque: StepSource = { kind: "own", name: undefined }
 
-/** The input of a reading whose label is `input`, by which a rule carries its columns. */
-const inputOf = (reading: PropsReading, input: NodeId): Props | undefined =>
-	edgesOf<Props>(reading).find((p) => p.node.id === input)
+/**
+ * The input whose rows a node keeps, whose dependencies its `kept` rule carries (an intersection's right side's are its
+ * `intersected` rule's); none for a node that keeps no input's rows.
+ */
+const keptInputOf = (reading: PropsReading): Props | undefined => {
+	switch (reading.kind) {
+		case "Filter":
+		case "Take":
+		case "Produce":
+		case "OrderedResult":
+		case "Window":
+		case "Step":
+			return reading.input
+		case "SemiJoin":
+		case "AntiJoin":
+		case "Difference":
+		case "Intersect":
+			return reading.left
+		case "ApproximateNearest":
+			return reading.source
+		case "Attach":
+			return reading.parent
+		case "Forbid":
+			return reading.violation
+		case "Base":
+		case "Closed":
+		case "Context":
+		case "InputSet":
+		case "Delta":
+		case "MatchRegion":
+		case "ProjectSet":
+		case "Union":
+		case "Group":
+		case "Recursive":
+		case "SelfRef":
+		case "OrderedSetAggregate":
+			return undefined
+	}
+}
+
+/** The input a carried rule's derivation is held at: the kept input's, an intersection's right side's, a group's input's. */
+const carriedInputOf = (reading: PropsReading, rule: "kept" | "intersected" | "grouped"): Props => {
+	switch (rule) {
+		case "kept":
+			return defined(keptInputOf(reading), "a kept rule's node keeps an input's rows")
+		case "intersected":
+			if (reading.kind !== "Intersect") {
+				throw defect("an intersected rule is an intersection's")
+			}
+			return reading.right
+		case "grouped":
+			if (reading.kind !== "Group" && reading.kind !== "OrderedSetAggregate") {
+				throw defect("a grouped rule is a group's")
+			}
+			return reading.input
+	}
+}
+
+/** The constructor of each carried rule, which carries an input's derivation of one column again. */
+const carriers = {
+	kept: rowsKeep,
+	intersected: rightKeeps,
+	grouped: groupKeeps
+} as const
 
 /** Where step `d` reads the value it fixes `column` to at a node. */
 const stepSource = (props: Table, d: Dependency, column: string): StepSource => {
@@ -700,12 +761,10 @@ const stepSource = (props: Table, d: Dependency, column: string): StepSource => 
 					}
 		}
 		case "kept":
+		case "intersected":
 		case "grouped": {
-			const input = defined(
-				inputOf(node, rule.input.node),
-				"a carried rule's input is an input of its node"
-			)
-			const carry = rule.rule === "kept" ? rowsKeep : groupKeeps
+			const input = carriedInputOf(node, rule.rule)
+			const carry = carriers[rule.rule]
 			return { kind: "input", input, column, over: (derived) => carry(d.from, [column], derived) }
 		}
 		case "agreed":
@@ -769,7 +828,7 @@ const stepNames = (
 		const steps = before()
 		return steps.some((s) => s.to.includes(column))
 			? []
-			: [{ name, derivation: implication(props.node.id, [], [...steps, step()]) }]
+			: [{ name, derivation: implication([], [...steps, step()]) }]
 	}
 	const determinants = () => derivation(reached, positions(row.from)).steps
 	const source = stepSource(props, d, column)
@@ -1011,11 +1070,7 @@ const rootIn = (forest: ReadonlyMap<string, Edge>, column: string): string => {
  * The path from `a` to `b` at a node (Props.forest): up from `a` to the lowest column it shares with `b`'s way up, then
  * down to `b`. Undefined when they are of different classes.
  */
-const pathOf = (
-	props: Pick<Props, "node" | "forest">,
-	a: string,
-	b: string
-): EqualPath | undefined => {
+const pathOf = (props: Pick<Props, "forest">, a: string, b: string): EqualPath | undefined => {
 	const upA = climb(props.forest, a)
 	const upB = climb(props.forest, b)
 	const above = (start: string, edges: ReadonlyArray<readonly [string, Edge]>) => [
@@ -1038,7 +1093,6 @@ const pathOf = (
 	return {
 		by: edges.every((e) => e.by === "equalities") ? "equalities" : "determination",
 		derivation: implication(
-			props.node.id,
 			[a],
 			edges.map((e) => e.step)
 		)
@@ -1052,9 +1106,9 @@ const equalPath = (props: Props, a: string, b: string): Implication | undefined 
 }
 
 /** A column equal to itself, by no step. */
-const sameColumn = (node: NodeId, column: string): EqualPath => ({
+const sameColumn = (column: string): EqualPath => ({
 	by: "equalities",
-	derivation: implication(node, [column], [])
+	derivation: implication([column], [])
 })
 
 /**
@@ -1326,7 +1380,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		attachment: subject.attachment,
 		outer: subject.outer,
 		columns,
-		stated: rowsOf(node.id, attributes, dependencies)
+		stated: rowsOf(attributes, dependencies)
 	}
 	const forest = forestOf(columns, rest.equal)
 	const classes = classesIn(columns, forest)
@@ -1338,7 +1392,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		const held = new Set(cs)
 		return cs.flatMap((k) =>
 			(classes.get(k) ?? []).flatMap((m) => {
-				const path = held.has(m) ? undefined : pathOf({ node, forest }, m, k)
+				const path = held.has(m) ? undefined : pathOf({ forest }, m, k)
 				return path === undefined ? [] : [keyMember(k, m, path.derivation)]
 			})
 		)
@@ -1359,14 +1413,12 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 	const proofOf = (key: KeySet, reach: Reach): KeyProof =>
 		reach.kind === "rows"
 			? rowsKey(
-					node.id,
 					key,
 					derivation(reach.reached, attributes.headingAt),
 					membersOf(key),
 					soleFactor(key)
 				)
 			: keyWithin(
-					node.id,
 					key,
 					derivation(reach.reached, positionsOf(attributes, reach.inner.key)),
 					reach.inner,
@@ -1491,7 +1543,6 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		}
 		const key = attributeNames(attributes, intersect(chosen, heading))
 		return rowsKey(
-			node.id,
 			key,
 			derivation(coverOf(table, intersect(chosen, heading)), attributes.headingAt),
 			membersOf([...key, ...found.flatMap((f) => f.alternatives.flatMap((a) => a.columns))]),
@@ -1618,6 +1669,73 @@ const viewDependencies = (keys: ReadonlyArray<ViewKey>, all: KeySet): Stated => 
 }
 
 /**
+ * The properties of every leaf of one reading of a relation, a Base's or a Delta's, by the schema's own object its
+ * reading is anchored at and its text (leafProps): computed once, where the first node of the reading is analyzed, and
+ * read by every other, of any query, the schema's lifetime long.
+ */
+const leaves = new WeakMap<object, Map<string, Props>>()
+
+/** The text of a key list, each key's columns in its order. */
+const keysText = (keys: ReadonlyArray<KeySet>): string =>
+	keys.map((k) => k.join("\u0001")).join("\u0002")
+
+/**
+ * What a Base's properties are a function of, beside its anchor (its relation's declared key, or its view's keys): its
+ * relation, the kind of it, its heading's columns, the keys it is read by, and whether the view's own keys are admitted.
+ */
+const baseText = (reading: ReadingOf<"Base">, env: PropsEnv): string =>
+	[
+		reading.relation,
+		reading.relationKind,
+		reading.heading.map((c) => c.name).join("\u0001"),
+		keysText([reading.primaryKey, ...reading.keys]),
+		reading.relationKind !== "relation" && env.keyedViews ? "viewed" : "unviewed"
+	].join("\u0000")
+
+/** What a Delta's properties are a function of, beside its anchor (its keys): its relation, heading and keys. */
+const deltaText = (reading: ReadingOf<"Delta">): string =>
+	[
+		reading.relation,
+		reading.heading.map((c) => c.name).join("\u0001"),
+		keysText(reading.keys)
+	].join("\u0000")
+
+/**
+ * A leaf's properties (a Base's or a Delta's), relative to its relation's reading: every rule a leaf states (a declared
+ * key, a view's alternative or member) reads nothing of the node, and its derivations name none (ir/keys.ts
+ * Implication), so the reading's keys, classes, closures and fixed columns are every such node's. The first node of a
+ * reading computes them (`compute`), keyed by `anchor`, an object of the schema's own every leaf of the reading holds
+ * (its relation's declared key, its view's keys, a Delta's keys), and `text`, the rest of what they are a function of;
+ * every other node of it reads them and adds its own: itself, its reading, its outer columns and `provenance`, the
+ * stored facts its columns are read from by its own scan.
+ */
+const leafProps = (
+	subject: Subject,
+	anchor: object,
+	text: string,
+	provenance: (column: string) => ReadonlyArray<Provenance>,
+	compute: () => Props
+): Props => {
+	const byText = leaves.get(anchor) ?? new Map<string, Props>()
+	if (byText.size === 0) {
+		leaves.set(anchor, byText)
+	}
+	const known = byText.get(text)
+	const read = known ?? compute()
+	if (known === undefined) {
+		byText.set(text, read)
+	}
+	return {
+		...read,
+		node: subject.node,
+		reading: subject.reading,
+		attachment: undefined,
+		outer: subject.outer,
+		provenance
+	}
+}
+
+/**
  * The logical properties of a node from its inputs': `reading` is the node with each input replaced by that input's
  * properties (ir/dag.ts edgeValues). A world relation's facts are a view's, read under the view's name, which may be a
  * base relation's: no containment between stored facts speaks of them.
@@ -1641,31 +1759,38 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 	switch (reading.kind) {
 		case "Base": {
 			const relation = reading.relation
-			const stated: Stated =
-				reading.relationKind === "relation"
-					? {
-							dependencies: [reading.primaryKey, ...reading.keys].map((k, i) =>
-								declaredKey(k, all, [storedKeyPremise(relation, k, i === 0)], "immediate")
-							),
-							equal: []
-						}
-					: viewDependencies(env.keyedViews ? reading.view : [], all)
 			const occurrence = reading.occurrence
-			return finish(
+			return leafProps(
 				subject,
-				stated.dependencies,
-				oneGroup(
-					{
-						exactlyOne: false,
-						provenance:
-							reading.relationKind === "world"
-								? noProvenance
-								: (c) => [{ scan: occurrence, relation, field: c }],
-						context: "immediate",
-						equal: stated.equal
-					},
-					[]
-				)
+				reading.relationKind === "relation" ? reading.primaryKey : reading.view,
+				baseText(reading, env),
+				reading.relationKind === "world"
+					? noProvenance
+					: provenanceOver(all, (c) => [{ scan: occurrence, relation, field: c }]),
+				() => {
+					const stated: Stated =
+						reading.relationKind === "relation"
+							? {
+									dependencies: [reading.primaryKey, ...reading.keys].map((k, i) =>
+										declaredKey(k, all, [storedKeyPremise(relation, k, i === 0)], "immediate")
+									),
+									equal: []
+								}
+							: viewDependencies(env.keyedViews ? reading.view : [], all)
+					return finish(
+						subject,
+						stated.dependencies,
+						oneGroup(
+							{
+								exactlyOne: false,
+								provenance: noProvenance,
+								context: "immediate",
+								equal: stated.equal
+							},
+							[]
+						)
+					)
+				}
 			)
 		}
 		case "Context":
@@ -1780,22 +1905,24 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		}
 		case "Delta": {
 			const relation = reading.relation
-			const deps = reading.keys.map((k, i) =>
-				declaredKey(k, all, [storedKeyPremise(relation, k, i === 0)], "immediate")
-			)
-			return finish(
-				subject,
-				deps,
-				oneGroup(
-					{
-						exactlyOne: false,
-						provenance: noProvenance,
-						context: deps.length > 0 ? "immediate" : "queryLocal",
-						equal: []
-					},
-					[]
+			return leafProps(subject, reading.keys, deltaText(reading), noProvenance, () => {
+				const deps = reading.keys.map((k, i) =>
+					declaredKey(k, all, [storedKeyPremise(relation, k, i === 0)], "immediate")
 				)
-			)
+				return finish(
+					subject,
+					deps,
+					oneGroup(
+						{
+							exactlyOne: false,
+							provenance: noProvenance,
+							context: deps.length > 0 ? "immediate" : "queryLocal",
+							equal: []
+						},
+						[]
+					)
+				)
+			})
 		}
 		case "MatchRegion":
 			return regionProps(subject, reading, env)
@@ -1853,11 +1980,19 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			const right = reading.right
 			/** The right's rows are the left's, column for column; its hidden attributes are its own rows' others. */
 			const rightName = (a: string) => (isHidden(a) ? hiddenAttribute(right.node.id, a) : a)
-			const deps = [...carried(left, sameName, rowsKeep), ...carried(right, rightName, rowsKeep)]
+			const deps = [...carried(left, sameName, rowsKeep), ...carried(right, rightName, rightKeeps)]
 			const rest = keptRest(reading, left, strongest([left.context, right.context]))
 			return finish(subject, deps, {
 				...rest,
-				equal: [...rest.equal, ...keptEqualities(right, (c) => all.includes(c))],
+				equal: [
+					...rest.equal,
+					...inputEqualities(
+						right,
+						(c) => all.includes(c),
+						(from, to, path) => rightKeeps([from], [to], path),
+						(by) => by
+					)
+				],
 				attributes: attributesOver(all, [
 					...rest.attributes.hidden,
 					...right.stated.attributes.hidden.map(rightName)
@@ -2332,8 +2467,8 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 	for (const copying of byClass.values()) {
 		for (const [i, [x, cx]] of copying.entries()) {
 			for (const [y, cy] of copying.slice(i + 1)) {
-				const there = cx === cy ? sameColumn(inputId, cx) : pathOf(input, cx, cy)
-				const back = cx === cy ? sameColumn(inputId, cx) : pathOf(input, cy, cx)
+				const there = cx === cy ? sameColumn(cx) : pathOf(input, cx, cy)
+				const back = cx === cy ? sameColumn(cx) : pathOf(input, cy, cx)
 				if (there !== undefined && back !== undefined) {
 					equal.push({
 						a: x,
@@ -2573,7 +2708,7 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 		const separations = separationsOn(cs)
 		return proofs === undefined || separations === undefined
 			? undefined
-			: unionKey(subject.node.id, cs, proofs, separations)
+			: unionKey(cs, proofs, separations)
 	}
 	/** A union's keys rest on its arms' keys and its separators. */
 	const unionKeys = minimalKeys(

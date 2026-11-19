@@ -3,8 +3,10 @@
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
 import { type Dependency, implication, projectionCloses } from "#compiler/ir/keys.ts"
+import { conservativeMeta, type DeclaredKey, type ValidDag } from "#compiler/ir/rel.ts"
+import { Ir, type SchemaModel } from "#test/support/fixtures/ir/build.ts"
+import { workModel } from "#test/support/fixtures/ir/work.ts"
 import { type CallSite } from "#test/support/kernel/calls.ts"
 import { type Table, tableGen } from "#test/unit/analysis/logical/keys.fixtures.ts"
 
@@ -27,13 +29,13 @@ export const columnsOf = (table: Table): ReadonlyArray<string> =>
 export const columnsIn = (table: Table, mask: number): ReadonlyArray<string> =>
 	Arr.filter(columnsOf(table), (_, i) => (mask & (1 << i)) !== 0)
 
-/** A drawn table's dependencies at `node`, each a projection's closing over an input of no steps. */
-export const dependenciesOf = (table: Table, node: NodeId): ReadonlyArray<Dependency> =>
+/** A drawn table's dependencies, each a projection's closing over an input of no steps. */
+export const dependenciesOf = (table: Table): ReadonlyArray<Dependency> =>
 	Arr.map(table.dependencies, (d) =>
 		projectionCloses(
 			columnsIn(table, d.from),
 			columnsIn(table, d.to),
-			implication(node, columnsIn(table, d.from), [])
+			implication(columnsIn(table, d.from), [])
 		)
 	)
 
@@ -78,3 +80,74 @@ export const interning = Object.freeze({
 } satisfies Readonly<Record<string, CallSite>>)
 
 export type InterningFeature = "one relation" | "several relations"
+
+/** Where a node's logical properties are built, and a Base's and a Delta's physical properties. */
+export const readings = Object.freeze({
+	finish: { file: "packages/engine/src/logical/props.ts", name: "finish" },
+	baseProps: { file: "packages/engine/src/analysis/physical/rules.ts", name: "baseProps" },
+	deltaProps: { file: "packages/engine/src/analysis/physical/rules.ts", name: "deltaProps" }
+} satisfies Readonly<Record<string, CallSite>>)
+
+export type ReadingFeature = "one query of a reading" | "several queries of a reading"
+
+/**
+ * The work model's tasks as every query of one schema reads them: the model, the primary key each Base of Task is read
+ * by and the keys each Delta of it holds, one array each, as a schema's are its relation's (check/checker.ts
+ * deltaKeys), each this reading's own, so no other case's reading shares them.
+ */
+export interface TaskReading {
+	readonly model: SchemaModel
+	readonly primaryKey: DeclaredKey
+	readonly deltaKeys: ReadonlyArray<DeclaredKey>
+}
+
+/** A fresh schema's reading of its tasks (TaskReading). */
+export const taskReading = (): TaskReading => {
+	const model = workModel()
+	const task = model.relation("Task")
+	if (task.kind === "closed") {
+		throw new Error("fixture: the work model's Task is an ordinary relation")
+	}
+	const [first, ...rest] = task.primaryKey
+	const primaryKey: DeclaredKey = [first, ...rest]
+	return { model, primaryKey, deltaKeys: [primaryKey, ...task.keys] }
+}
+
+/**
+ * One query of a schema's tasks, a DAG of its own: a Base over Task semi-joined on its primary key to the tasks a
+ * write added, a Delta of Task.
+ */
+export const readingQuery = (reading: TaskReading): ValidDag => {
+	const q = new Ir(reading.model)
+	const task = reading.model.relation("Task")
+	if (task.kind === "closed") {
+		throw new Error("fixture: the work model's Task is an ordinary relation")
+	}
+	const added = q.b.node({
+		kind: "Delta",
+		relation: task.name,
+		side: "added",
+		keys: reading.deltaKeys,
+		heading: task.heading,
+		loc: undefined,
+		meta: conservativeMeta
+	})
+	const base = q.b.node({
+		kind: "Base",
+		relation: task.name,
+		occurrence: q.b.ids.occurrence(),
+		primaryKey: reading.primaryKey,
+		keys: task.keys,
+		relationKind: "relation",
+		heading: task.heading,
+		loc: undefined,
+		meta: conservativeMeta
+	})
+	return q.build(
+		q.semi(
+			base,
+			added,
+			Arr.map(reading.primaryKey, (k) => [k, k] as const)
+		)
+	).dag
+}

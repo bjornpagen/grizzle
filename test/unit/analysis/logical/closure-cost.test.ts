@@ -8,19 +8,24 @@
  * - Interning (logical/props.ts finish, logical/attributes.ts attributesOver, logical/closure.ts rowsOf): each node's
  *   attributes, and its dependencies over them, are interned once, where its properties are built, however many
  *   closures its own properties and its parents' read off them. Oracle: the specification, one interning a node.
+ * - A relation's reading (logical/props.ts leafProps, analysis/physical/rules.ts leafProps): a Base's and a Delta's
+ *   logical properties are their relation's reading's, built once for every query of the schema that reads the relation
+ *   so, and their physical properties under one catalog likewise, where every Base and every Delta of each query built
+ *   both again. Oracle: the specification, one build a reading however many queries read it.
  *
  * The counts are work, never time: V8's precise coverage counts each function's calls (kernel/calls.ts callCounts), so
  * neither guard depends on the machine.
  *
  * Features: a closure that adds nothing, one of three passes or more, and a dependency that never fires; one relation
- * and several joined.
+ * and several joined; one query of a reading and several.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { makeIdSupply } from "#compiler/core/ids.ts"
+import { analyzePhysical, type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
+import { indices } from "#compiler/core/array.ts"
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
 import { attributesOver, bitsOf, namesOf } from "#compiler/logical/attributes.ts"
 import { closure, namesNothing, rowsOf } from "#compiler/logical/closure.ts"
@@ -34,6 +39,10 @@ import {
 	dependenciesOf,
 	type InterningFeature,
 	interning,
+	type ReadingFeature,
+	readingQuery,
+	readings,
+	taskReading,
 	sizeOfMask,
 	startedGen,
 	steps
@@ -54,9 +63,8 @@ export const aClosureVisitsEachDependencyOnceAPassAndPassesAtMostOnceMoreThanThe
 			(_, c: Case<ClosureFeature>) =>
 			({ table, start }) =>
 				Effect.gen(function* () {
-					const node = makeIdSupply().node()
 					const attributes = attributesOver(columnsOf(table), [])
-					const rows = rowsOf(node, attributes, dependenciesOf(table, node))
+					const rows = rowsOf(attributes, dependenciesOf(table))
 					const [reached, counts] = yield* callCounts(
 						Effect.sync(() =>
 							closure(rows, bitsOf(attributes, columnsIn(table, start)), namesNothing)
@@ -135,8 +143,76 @@ export const eachNodesAttributesAndDependenciesAreInternedOnceHoweverManyClosure
 				original:
 					"const coverOf = (props: Table, start: Bits): Closure<never> =>\n\tclosure<never>(props.stated, start, namesNothing)",
 				replacement:
-					"const coverOf = (props: Table, start: Bits): Closure<never> =>\n\tclosure<never>(\n\t\trowsOf(\n\t\t\tprops.node.id,\n\t\t\tattributesOver(props.columns, props.stated.attributes.hidden),\n\t\t\tprops.stated.rows.map((row) => row.dependency)\n\t\t),\n\t\tstart,\n\t\tnamesNothing\n\t)",
+					"const coverOf = (props: Table, start: Bits): Closure<never> =>\n\tclosure<never>(\n\t\trowsOf(\n\t\t\tattributesOver(props.columns, props.stated.attributes.hidden),\n\t\t\tprops.stated.rows.map((row) => row.dependency)\n\t\t),\n\t\tstart,\n\t\tnamesNothing\n\t)",
 				why: "Each closure interns its node's attributes and dependencies again, sets built per closure (logical/props.ts coverOf); the interning property fails."
 			}
 		]
 	})
+
+/**
+ * A relation's reading is analyzed once however many queries read it: n queries of one schema, each its own DAG, each
+ * a Base and a Delta over one relation, build the Base's and the Delta's logical properties once each, and each query's
+ * own join of them once; and their physical properties under the schema's catalog once each.
+ */
+export const aRelationsReadingIsAnalyzedOnceHoweverManyQueriesReadIt = property.exhaust(
+	finite(int(1, 6)),
+	{
+		needs: {},
+		situations: ["one query of a reading", "several queries of a reading"] satisfies ReadonlyArray<
+			Reached<ReadingFeature>
+		>,
+		check: (_, c: Case<ReadingFeature>) => (n) =>
+			Effect.gen(function* () {
+				c.note(n === 1 ? "one query of a reading" : "several queries of a reading")
+				const reading = taskReading()
+				/** The schema's catalog, an object of this case's own, so no other case's analysis shares its readings. */
+				const env: PhysicalEnv = {
+					context: "snapshot",
+					catalog: { ...reading.model.fixture.catalog },
+					realization: unplaced,
+					roots: "result"
+				}
+				const [, counts] = yield* callCounts(
+					Effect.sync(() => {
+						for (const _ of indices(n)) {
+							analyzePhysical(
+								succeeded(analyzeLogical(readingQuery(reading), checkerEvidence)).dag,
+								env
+							)
+						}
+					}),
+					readings
+				)
+				assert.equal(
+					counts.finish,
+					2 + n,
+					"the Base's and the Delta's logical properties once, and each query's semi-join's"
+				)
+				assert.deepEqual(
+					{ baseProps: counts.baseProps, deltaProps: counts.deltaProps },
+					{ baseProps: 1, deltaProps: 1 },
+					"the Base's and the Delta's physical properties once"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "one build of a relation's reading however many queries read it, counted by V8's precise coverage"
+		},
+		box: "n queries from one to six",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\tconst known = byText.get(text)\n",
+				replacement: "\tconst known: Props | undefined = undefined\n",
+				why: "Every Base and every Delta builds its reading's properties again (logical/props.ts leafProps), as every node of every query did; the reading property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/physical/rules.ts",
+				original: "\t\t\tconst known = byText.get(reading.text)\n",
+				replacement: "\t\t\tconst known: PhysicalProps | undefined = undefined\n",
+				why: "Every Base and every Delta builds its reading's physical properties again (analysis/physical/rules.ts leafProps); the reading property fails."
+			}
+		]
+	}
+)

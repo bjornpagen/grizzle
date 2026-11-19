@@ -133,6 +133,7 @@ export type Rule =
 	| { readonly rule: "group" }
 	| { readonly rule: "grouped"; readonly input: Implication }
 	| { readonly rule: "kept"; readonly input: Implication }
+	| { readonly rule: "intersected"; readonly input: Implication }
 	| { readonly rule: "atMostOne"; readonly witness: AtMostOneWitness }
 	| { readonly rule: "distinct" }
 	| { readonly rule: "produced"; readonly input: KeyProof }
@@ -159,11 +160,17 @@ export interface Dependency {
 }
 
 /**
- * That `from` determines more of node `node`'s columns: the dependencies applied in order, each one's determinants
- * among `from` and the columns the earlier ones determined. What it determines is `from` with every step's `to`.
+ * That `from` determines more of the columns of the node it is held at: the dependencies applied in order, each one's
+ * determinants among `from` and the columns the earlier ones determined. What it determines is `from` with every step's
+ * `to`.
+ *
+ * A derivation names no node: it is relative to the node whose properties hold it, and a rule that carries an input's
+ * derivation holds it at the input its node reads it from, by the rule alone (a kept input's, an intersection's right
+ * side's, a projection's or a group's input, a match's occurrence, a union's arms in order, a semi-join's right side).
+ * So the derivations of a node read alike wherever its reading is read: a relation's keys are derived once for every
+ * Base and Delta that reads it so (logical/props.ts leafProps).
  */
 export interface Implication {
-	readonly node: NodeId
 	readonly from: KeySet
 	readonly steps: ReadonlyArray<Dependency>
 }
@@ -188,7 +195,7 @@ export type KeyBasis =
 	| { readonly kind: "within"; readonly implication: Implication; readonly inner: KeyProof }
 
 /**
- * A proved key of node `node` of the checked DAG, in heading order: its derivation (`basis`, built rule by rule by the
+ * A proved key of the node whose properties hold it, in heading order (relative to it, as an Implication is): its derivation (`basis`, built rule by rule by the
  * constructors below) and the grounds the derivation rests on, collected from it once. The logical analysis builds it
  * (logical/props.ts), the consumers of a key take it (unique-index emission, db.get, db.page, attach deliveries, put
  * proofs, the lowering's rewrites), and the test kernel re-checks its derivation.
@@ -204,7 +211,6 @@ export type KeyBasis =
  * on: multiplicity reasons, native equality operators, coercions and outer columns.
  */
 export interface KeyProof extends Grounds {
-	readonly node: NodeId
 	readonly key: KeySet
 	readonly basis: KeyBasis
 	/**
@@ -497,6 +503,10 @@ export const groupKeeps = (from: KeySet, to: KeySet, input: Implication): Depend
 export const rowsKeep = (from: KeySet, to: KeySet, input: Implication): Dependency =>
 	dependency(from, to, { rule: "kept", input })
 
+/** An intersection's rows are its right side's too, so it keeps the right side's dependencies. */
+export const rightKeeps = (from: KeySet, to: KeySet, input: Implication): Dependency =>
+	dependency(from, to, { rule: "intersected", input })
+
 /** At most one row: nothing determines the row. */
 export const atMostOneRow = (heading: KeySet, witness: AtMostOneWitness): Dependency =>
 	dependency([], heading, { rule: "atMostOne", witness })
@@ -536,12 +546,9 @@ export const separated = (
 	separations: ReadonlyArray<Separation>
 ): Dependency => dependency(from, to, { rule: "separated", arms, separations })
 
-/** The derivation that `from` determines more columns of `node` by `steps`. */
-export const implication = (
-	node: NodeId,
-	from: KeySet,
-	steps: ReadonlyArray<Dependency>
-): Implication => Object.freeze({ node, from, steps: Object.freeze([...steps]) })
+/** The derivation that `from` determines more columns of the node holding it by `steps`. */
+export const implication = (from: KeySet, steps: ReadonlyArray<Dependency>): Implication =>
+	Object.freeze({ from, steps: Object.freeze([...steps]) })
 
 /**
  * The context an at-most-one witness holds in by itself: a session's one fact, a membership's one row and a closed
@@ -584,6 +591,7 @@ const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 		case "group":
 		case "grouped":
 		case "kept":
+		case "intersected":
 		case "produced":
 		case "ranked":
 		case "numbered":
@@ -655,6 +663,7 @@ const groundRule = (g: Collected, rule: Rule): void => {
 		case "projection":
 		case "grouped":
 		case "kept":
+		case "intersected":
 			groundImplication(g, rule.input)
 			return
 		case "produced":
@@ -687,9 +696,8 @@ const groundRule = (g: Collected, rule: Rule): void => {
 	}
 }
 
-/** A proof of `key` at `node` on `basis`, with its members, its premises and context those of their derivations. */
+/** A proof of `key` on `basis`, with its members, its premises and context those of their derivations. */
 const proved = (
-	node: NodeId,
 	key: KeySet,
 	basis: KeyBasis,
 	members: ReadonlyArray<KeyMember>,
@@ -724,7 +732,6 @@ const proved = (
 	}
 	const premises = [...g.premises].toSorted(([a], [b]) => compareStrings(a, b)).map(([, p]) => p)
 	return Object.freeze({
-		node,
 		key: Object.freeze([...key]),
 		premises: Object.freeze(premises),
 		context: strongest(g.contexts),
@@ -754,30 +761,27 @@ export const soleFactor = (key: KeySet): ReadonlyArray<KeyFactor> =>
 
 /** A key of a node of one heading group: `key`, its factors' keys together, determines its heading. */
 export const rowsKey = (
-	node: NodeId,
 	key: KeySet,
 	determines: Implication,
 	members: ReadonlyArray<KeyMember>,
 	factors: ReadonlyArray<KeyFactor>
-): KeyProof => proved(node, key, { kind: "rows", implication: determines }, members, factors)
+): KeyProof => proved(key, { kind: "rows", implication: determines }, members, factors)
 
 /**
  * A key of a union: every arm proves it, and every two arms are told apart on it. It lists no members: the union's keys
  * over its classes, the columns every arm makes equal, are proved from it at the union.
  */
 export const unionKey = (
-	node: NodeId,
 	key: KeySet,
 	arms: NonEmptyReadonlyArray<KeyProof>,
 	separations: ReadonlyArray<Separation>
-): KeyProof => proved(node, key, { kind: "union", arms, separations }, [], soleFactor(key))
+): KeyProof => proved(key, { kind: "union", arms, separations }, [], soleFactor(key))
 
-/** A key of a node of several heading groups: `key` determines `inner`, a key of it or of the input it keeps. */
+/** A key of a node of several heading groups: `key` determines `inner`, a key of it or of the input whose rows it keeps. */
 export const keyWithin = (
-	node: NodeId,
 	key: KeySet,
 	determines: Implication,
 	inner: KeyProof,
 	members: ReadonlyArray<KeyMember>
 ): KeyProof =>
-	proved(node, key, { kind: "within", implication: determines, inner }, members, soleFactor(key))
+	proved(key, { kind: "within", implication: determines, inner }, members, soleFactor(key))

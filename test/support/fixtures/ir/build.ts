@@ -7,7 +7,7 @@ import {
 } from "#compiler/allen/atoms.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { AllenMask } from "#compiler/allen/mask.ts"
-import { makeIdSupply, NodeId, ParamId } from "#compiler/core/ids.ts"
+import { makeIdSupply, type NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
@@ -371,17 +371,13 @@ const plainRegion: RegionOptions = {
 	equalities: []
 }
 
-/** The node a fixture's stated key names, which no fixture builds: a stated key has no node it was proved over. */
-const statedNode = NodeId("stated")
-
 /**
  * A key a fixture states of a node it builds, where a test hands a lowering the keys the logical analysis would prove:
- * a proof whose derivation is the statement alone, on no premise, over the node `stated`, which no key kernel reads.
+ * a proof whose derivation is the statement alone, on no premise, which no key kernel reads.
  */
 export const statedKey = (key: KeySet): KeyProof => ({
-	node: statedNode,
 	key,
-	basis: { kind: "rows", implication: { node: statedNode, from: key, steps: [] } },
+	basis: { kind: "rows", implication: { from: key, steps: [] } },
 	members: [],
 	factors: soleFactor(key),
 	premises: [],

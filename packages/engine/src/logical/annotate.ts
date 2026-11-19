@@ -11,7 +11,7 @@ import {
 	topoOrder,
 	unchangedEdges
 } from "#compiler/ir/dag.ts"
-import { samePremise, strongest, type TemplateContext } from "#compiler/ir/evidence.ts"
+import { strongest, type TemplateContext } from "#compiler/ir/evidence.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
 import { type KeyProof, keyFactors, keyIn } from "#compiler/ir/keys.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -106,25 +106,15 @@ const sameKeySets = (a: ReadonlyArray<KeySet>, b: ReadonlyArray<KeySet>): boolea
 			return other !== undefined && sameOrder(k, other)
 		}))
 
-/** Whether two proofs prove the same key at the same node, on the same premises in the same context. */
-const sameProof = (k: KeyProof, other: KeyProof): boolean =>
-	k.node === other.node &&
-	k.context === other.context &&
-	sameOrder(k.key, other.key) &&
-	k.premises.length === other.premises.length &&
-	k.premises.every((p, j) => {
-		const q = other.premises[j]
-		return q !== undefined && samePremise(p, q)
-	})
-
-/** Whether two key lists claim the same keys, each proof proving the same as the other's. */
+/**
+ * Whether two key lists are the same proofs, each the very proof the other is. A proof is relative to the node holding
+ * it (ir/keys.ts Implication), so one a rename or a rewrite carries to another node (rel.ts MetaSpec) may name that
+ * node's occurrences and conjuncts no more: only the proof an analysis computes of a node holds of it, and a node whose
+ * meta carries another is rebuilt with its own. A leaf's proofs are its relation's reading's (logical/props.ts
+ * leafProps), one object however many analyses read it.
+ */
 const sameClaims = (a: ReadonlyArray<KeyProof>, b: ReadonlyArray<KeyProof>): boolean =>
-	a === b ||
-	(a.length === b.length &&
-		a.every((k, i) => {
-			const other = b[i]
-			return other !== undefined && sameProof(k, other)
-		}))
+	a === b || (a.length === b.length && a.every((k, i) => k === b[i]))
 
 /** Whether two metadata records make the same claims: the structural fields are the constructor's, never claimed. */
 const sameMeta = (a: MetaSpec, b: MetaSpec): boolean =>

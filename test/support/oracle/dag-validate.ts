@@ -2228,7 +2228,6 @@ const keyProofShape: S.Shape<KeyProof> = S.ref("a key proof", () => keyProofBody
 
 /** The decoder keyProofShape refers to (S.ref). */
 const keyProofBody: S.Shape<KeyProof> = S.struct({
-	node: nodeIdShape,
 	key: keySetShape,
 	premises: S.array(premiseShape),
 	context: evidenceContextShape,
@@ -2310,6 +2309,7 @@ const ruleShape: S.Shape<Rule> = S.tagged("rule", {
 	group: S.struct({}),
 	grouped: S.struct({ input: implicationShape }),
 	kept: S.struct({ input: implicationShape }),
+	intersected: S.struct({ input: implicationShape }),
 	atMostOne: S.struct({ witness: atMostOneWitnessShape }),
 	distinct: S.struct({}),
 	produced: S.struct({ input: keyProofShape }),
@@ -2332,7 +2332,6 @@ const dependencyShape: S.Shape<Dependency> = S.struct({
 
 /** The decoder implicationShape refers to (S.ref). */
 const implicationBody: S.Shape<Implication> = S.struct({
-	node: nodeIdShape,
 	from: keySetShape,
 	steps: S.array(dependencyShape)
 })

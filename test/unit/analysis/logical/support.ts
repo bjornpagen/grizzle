@@ -272,7 +272,7 @@ export const logicalUnsound = (
 	const nodes = topoOrder(dag)
 	for (const node of nodes) {
 		for (const proof of node.meta.logicalKeys) {
-			const [fault] = kernel.check(proof)
+			const [fault] = kernel.check(proof, node)
 			if (fault !== undefined) {
 				return unsound(
 					`${node.id} (${node.kind}) proves [${Arr.join(proof.key, ", ")}], which the kernel refuses: ${fault}`
@@ -375,9 +375,9 @@ export const logicalUnsound = (
 
 /**
  * Whether the key kernel refuses every corruption of the proofs the analysis emits: a derivation missing its last step,
- * a proof stripped of its premises, and a proof moved to another node. A kernel that accepted everything would pass
- * logicalUnsound; this is its other half. A proof the corruption leaves valid (no step, no premise, one node) is passed
- * over for that corruption.
+ * a proof stripped of its premises, and a proof held at another node, one whose heading lacks a column of its key. A
+ * kernel that accepted everything would pass logicalUnsound; this is its other half. A proof the corruption leaves valid
+ * (no step, no premise, no node lacking a key column) is passed over for that corruption.
  */
 export const kernelRefusesCorruptions = (dag: RelDag, env: KernelEnv): Soundness => {
 	const kernel = new KeyKernel(dag, env)
@@ -389,31 +389,45 @@ export const kernelRefusesCorruptions = (dag: RelDag, env: KernelEnv): Soundness
 				continue
 			}
 			const steps = basis.implication.steps
-			const other = Arr.findFirst(nodes, (n) => n.id !== proof.node)
-			const corrupted: ReadonlyArray<readonly [string, KeyProof]> = [
+			/** A node whose heading lacks a column of the key, where the proof cannot hold. */
+			const other = Arr.findFirst(nodes, (n) =>
+				Arr.some(proof.key, (k) => !Arr.some(n.heading, (c) => c.name === k))
+			)
+			const corrupted: ReadonlyArray<{
+				readonly what: string
+				readonly bad: KeyProof
+				readonly held: RelNode
+			}> = [
 				...(steps.length > 0
 					? [
-							[
-								"a derivation missing its last step",
-								{
+							{
+								what: "a derivation missing its last step",
+								bad: {
 									...proof,
 									basis: {
 										...basis,
 										implication: { ...basis.implication, steps: steps.slice(0, -1) }
 									}
-								}
-							] as const
+								},
+								held: node
+							}
 						]
 					: []),
 				...(proof.premises.length > 0
-					? [["a proof stripped of its premises", { ...proof, premises: [] }] as const]
+					? [
+							{
+								what: "a proof stripped of its premises",
+								bad: { ...proof, premises: [] },
+								held: node
+							}
+						]
 					: []),
 				...(Option.isSome(other)
-					? [["a proof moved to another node", { ...proof, node: other.value.id }] as const]
+					? [{ what: "a proof moved to another node", bad: proof, held: other.value }]
 					: [])
 			]
-			for (const [what, bad] of corrupted) {
-				if (kernel.check(bad).length === 0) {
+			for (const { what, bad, held } of corrupted) {
+				if (kernel.check(bad, held).length === 0) {
 					return unsound(
 						`the kernel accepts ${what}: ${node.id} (${node.kind}) [${Arr.join(proof.key, ", ")}]`
 					)

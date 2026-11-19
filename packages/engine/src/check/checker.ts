@@ -77,6 +77,7 @@ import {
 	type CompletedOrder,
 	type Correlation,
 	conservativeMeta,
+	type DeclaredKey,
 	type FoldInput,
 	type Heading,
 	type HeadingColumn,
@@ -204,6 +205,33 @@ type BindValue =
  * A bound constant at a use of `type`: the use's literal, refused when the bind entry states a type the use's is not
  * compatible with.
  */
+/**
+ * The keys a Delta of a relation is read by, one array for each relation and each of its readings (`declared`, its
+ * declared keys; `none`, under a region read or of a world relation), held by every Delta of it: the schema's own
+ * object, by which the logical analysis reads a reading's properties once for every Delta of every query
+ * (logical/props.ts leafProps).
+ */
+const deltaKeysOf = new WeakMap<object, Map<"declared" | "none", ReadonlyArray<DeclaredKey>>>()
+
+/** The keys of `info`'s Delta under `reading`, built by `keys` the first time and read after (deltaKeysOf). */
+const deltaKeys = (
+	info: object,
+	reading: "declared" | "none",
+	keys: () => ReadonlyArray<DeclaredKey>
+): ReadonlyArray<DeclaredKey> => {
+	const byReading =
+		deltaKeysOf.get(info) ?? new Map<"declared" | "none", ReadonlyArray<DeclaredKey>>()
+	if (byReading.size === 0) {
+		deltaKeysOf.set(info, byReading)
+	}
+	const known = byReading.get(reading)
+	const read = known ?? Object.freeze(keys())
+	if (known === undefined) {
+		byReading.set(reading, read)
+	}
+	return read
+}
+
 const boundConstant = (
 	schema: SchemaReading,
 	constant: Extract<BindValue, { readonly kind: "literal" }>,
@@ -1748,7 +1776,13 @@ export class Checker {
 				if (info.kind === "world") {
 					const heading = info.analysis.read.heading.toSorted(byName)
 					return this.node(
-						{ kind: "Delta", relation: info.name, side: src.side, keys: [], heading },
+						{
+							kind: "Delta",
+							relation: info.name,
+							side: src.side,
+							keys: deltaKeys(info, "none", () => []),
+							heading
+						},
 						loc
 					)
 				}
@@ -1764,7 +1798,10 @@ export class Checker {
 						kind: "Delta",
 						relation: info.name,
 						side: src.side,
-						keys: this.options.read === "region" ? [] : [info.primaryKey, ...info.keys],
+						keys:
+							this.options.read === "region"
+								? deltaKeys(info, "none", () => [])
+								: deltaKeys(info, "declared", () => [info.primaryKey, ...info.keys]),
 						heading: headingColumns(info.heading)
 					},
 					loc

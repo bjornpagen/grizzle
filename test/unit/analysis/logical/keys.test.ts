@@ -272,7 +272,11 @@ export const keysOverClassesOfEqualColumnsAreOneKeyForKPairsOfEqualColumnsNever2
 						),
 						"its members are every other column of its classes, each standing for its class's first"
 					)
-					assert.deepEqual(kernel.check(proof), [], "the key kernel accepts the proof")
+					assert.deepEqual(
+						kernel.check(proof, analysis.of(at).node),
+						[],
+						"the key kernel accepts the proof"
+					)
 				}
 				check(filtered, heading)
 				if (drawnCase.projected) {
@@ -402,7 +406,11 @@ export const keysOfAUnionAreClosedUnderTheColumnsEveryArmMakesEqualAndOnlyThose 
 				assert.ok(props.keys.length > 0, "the union is keyed by tag and its columns")
 				const index = (column: string) => columns.indexOf(column)
 				for (const proof of props.keys) {
-					assert.deepEqual(kernel.check(proof), [], "the key kernel accepts the union's key")
+					assert.deepEqual(
+						kernel.check(proof, analysis.of(union).node),
+						[],
+						"the key kernel accepts the union's key"
+					)
 					assert.deepEqual(
 						Arr.sort(
 							Arr.map(proof.members, (m) => `${m.of}->${m.column}`),
@@ -432,7 +440,11 @@ export const keysOfAUnionAreClosedUnderTheColumnsEveryArmMakesEqualAndOnlyThose 
 								props.prove(swapped),
 								`the union proves [${Arr.join(swapped, ", ")}]`
 							)
-							assert.deepEqual(kernel.check(direct), [], "the key kernel accepts it")
+							assert.deepEqual(
+								kernel.check(direct, analysis.of(union).node),
+								[],
+								"the key kernel accepts it"
+							)
 						}
 					}
 				}
@@ -534,8 +546,13 @@ export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDet
 					const kernel = new KeyKernel(analysis.dag, {
 						keyedViews: false
 					})
+					const held = analysis.of(union).node
 					const proof = defined(analysis.of(union).props.keys[0], "a key of the union")
-					assert.deepEqual(kernel.check(proof), [], "the kernel accepts the union's key as proved")
+					assert.deepEqual(
+						kernel.check(proof, held),
+						[],
+						"the kernel accepts the union's key as proved"
+					)
 					const basis = proof.basis
 					if (basis.kind !== "rows") {
 						assert.fail("a union of one heading group proves its keys by its rows")
@@ -545,15 +562,12 @@ export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDet
 						...proof,
 						basis: {
 							...basis,
-							implication: implication(proof.node, basis.implication.from, [
-								...basis.implication.steps,
-								step
-							])
+							implication: implication(basis.implication.from, [...basis.implication.steps, step])
 						}
 					})
 					/** Each arm's derivation that `from` determines b: a projection step over its input's x and y. */
 					const derivations = (from: string) =>
-						Arr.map(arms, ({ node, input, mapping }) => {
+						Arr.map(arms, ({ input, mapping }) => {
 							const inputProps = analysis.of(input).props
 							const through =
 								mapping.kind === "filtered"
@@ -570,13 +584,13 @@ export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDet
 										]
 									: []
 							return implication(
-								analysis.of(node).props.node.id,
 								[from],
-								[projectionCloses([from], ["b"], implication(inputProps.node.id, ["x"], through))]
+								[projectionCloses([from], ["b"], implication(["x"], through))]
 							)
 						})
 					const faults = kernel.check(
-						forged(equalColumns("a", "b", { kind: "arms", arms: derivations("a") }))
+						forged(equalColumns("a", "b", { kind: "arms", arms: derivations("a") })),
+						held
 					)
 					assert.equal(
 						faults.length === 0,
@@ -586,13 +600,17 @@ export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDet
 							: "the kernel refuses a = b where an arm only determines b"
 					)
 					assert.ok(
-						kernel.check(forged(equalColumns("a", ghost, { kind: "arms", arms: derivations("a") })))
-							.length > 0,
+						kernel.check(
+							forged(equalColumns("a", ghost, { kind: "arms", arms: derivations("a") })),
+							held
+						).length > 0,
 						"the kernel refuses an equal step citing a column the union lacks"
 					)
 					assert.ok(
-						kernel.check(forged(equalColumns("a", "b", { kind: "arms", arms: derivations(ghost) })))
-							.length > 0,
+						kernel.check(
+							forged(equalColumns("a", "b", { kind: "arms", arms: derivations(ghost) })),
+							held
+						).length > 0,
 						"the kernel refuses arm derivations from a column the arms lack"
 					)
 				})

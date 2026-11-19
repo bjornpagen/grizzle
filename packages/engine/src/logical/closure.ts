@@ -1,6 +1,5 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { postorder, stronglyConnected } from "#compiler/core/graph.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Dependency, type Implication, implication } from "#compiler/ir/keys.ts"
@@ -57,7 +56,6 @@ export interface Row {
 
 /** A node's dependencies as its closures read them: over its attributes interned, each a row, in table order. */
 export interface Rows {
-	readonly node: NodeId
 	readonly attributes: Attributes
 	readonly rows: ReadonlyArray<Row>
 }
@@ -66,12 +64,7 @@ export interface Rows {
  * A node's dependencies interned over its attributes: each one's determinants, every one an attribute of the node, as
  * every builder of a node's dependencies states them (logical/props.ts), and its targets among the attributes.
  */
-export const rowsOf = (
-	node: NodeId,
-	attributes: Attributes,
-	dependencies: ReadonlyArray<Dependency>
-): Rows => ({
-	node,
+export const rowsOf = (attributes: Attributes, dependencies: ReadonlyArray<Dependency>): Rows => ({
 	attributes,
 	rows: dependencies.map((dependency) => ({
 		dependency,
@@ -90,7 +83,6 @@ export const rowsOf = (
 
 /** The rows of a node's dependencies `kept` holds, in table order: a closure over some of its dependencies. */
 export const rowsAmong = (rows: Rows, kept: ReadonlyArray<Row>): Rows => ({
-	node: rows.node,
 	attributes: rows.attributes,
 	rows: kept
 })
@@ -296,7 +288,6 @@ export const derivationRows = <V>(c: Closure<V>, targets: Iterable<number>): Rea
  */
 export const derivation = <V>(c: Closure<V>, targets: Iterable<number>): Implication =>
 	implication(
-		c.rows.node,
 		namesOf(c.rows.attributes, c.start),
 		derivationRows(c, targets).map((row) => row.dependency)
 	)

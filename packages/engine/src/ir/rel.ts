@@ -70,8 +70,9 @@ export interface MetaSpec {
 	 * The keys relative to the node's inputs, parameters and, inside an attachment, the parent's variables, each a
 	 * distinct set of heading columns: the logical analysis's minimal keys, each with its proof (ir/keys.ts KeyProof),
 	 * a node a rewrite builds as much as one the checker built; the empty key, at most one row, only on a node of card
-	 * atMostOne or one. A proof is a value about the DAG its analysis ran over: a rename or a rewrite of the DAG carries the claim
-	 * and leaves the proof describing the nodes it was proved for, which the key kernel checks it against.
+	 * atMostOne or one. A proof is relative to the node it was proved at (ir/keys.ts Implication), naming its
+	 * occurrences and conjuncts: a rename or a rewrite of the DAG carries the claim and leaves the proof describing the
+	 * node it was proved at, and an analysis of the DAG proves every node again (logical/annotate.ts sameClaims).
 	 */
 	readonly logicalKeys: ReadonlyArray<KeyProof>
 	readonly card: Card
