@@ -1,5 +1,6 @@
 /** What the properties of ledger.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	boolean,
 	constant,
@@ -21,7 +22,6 @@ import {
 } from "#compiler/deploy/ledger/ledger.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { folderOrdinal } from "#compiler/physical/ddl/ledger.ts"
-import { defined } from "#test/support/assert.ts"
 
 interface Folder {
 	readonly name: string

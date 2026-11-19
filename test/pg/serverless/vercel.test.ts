@@ -20,6 +20,7 @@
  * served file.
  */
 import { timerMinMs } from "@bjornpagen/grizzle/runtime"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -38,7 +39,6 @@ import {
 	vercelLogin,
 	type VercelPoolFeature
 } from "#test/pg/serverless/vercel.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"

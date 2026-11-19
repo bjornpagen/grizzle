@@ -1,3 +1,4 @@
+import { assert, containsEqual, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -24,7 +25,6 @@ import {
 	spansInstall,
 	spansTemplate
 } from "#test/pg/write/span-key/span-key.fixtures.ts"
-import { assert, containsEqual, unorderedEqual } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"

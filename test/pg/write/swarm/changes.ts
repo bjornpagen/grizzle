@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 /**
  * The ChangeSets of the family swarm search (test/pg/write/swarm/families.test.ts), built over an installed schema from
  * a case's steps (oracle.ts Step): the facts of an instance's rows, top facts with their sequences nested, a stored
@@ -41,7 +42,6 @@ import {
 	swarmFacts,
 	type SwarmSpec
 } from "#test/pg/write/swarm/spec.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	followUpMembers,
 	followUpRows,

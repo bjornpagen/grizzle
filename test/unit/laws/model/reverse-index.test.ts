@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A containment's reverse index never refuses it: its reverse probe binds every referencing column by equality, and an
  * index over a leading run of them serves it, PostgreSQL rechecking the rest. The law model plans a B-tree over the
@@ -26,7 +27,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { assertReferencesServed } from "#test/support/laws/referencing.ts"
 import {
 	columnNames,

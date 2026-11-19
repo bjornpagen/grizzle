@@ -20,6 +20,7 @@
  * Features: each primary key and declared key that holds the index, each write, a generated key that refuses nothing.
  */
 
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -32,7 +33,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"

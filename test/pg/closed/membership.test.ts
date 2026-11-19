@@ -23,6 +23,7 @@
  * payload left unread, no fact, every live point a fact, a sparse key set, and R07's read.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -42,7 +43,7 @@ import {
 	schemaOf,
 	sorted
 } from "#test/pg/closed/membership.fixtures.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
 import {
 	compileTemplate,

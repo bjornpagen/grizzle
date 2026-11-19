@@ -18,6 +18,7 @@
  * Features: a member refused from its lengths, a member bound, two bytes columns.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -31,7 +32,7 @@ import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { checking } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {

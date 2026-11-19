@@ -22,11 +22,12 @@
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { executionsOf } from "#compiler/runtime/write/staged.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	bindOf,
 	expected,

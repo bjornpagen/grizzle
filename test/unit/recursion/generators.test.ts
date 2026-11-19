@@ -13,10 +13,10 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, containsEqual, like, matchers } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert, containsEqual, like, matchers } from "#test/support/assert.ts"
 import {
 	defaultRecursiveLimits,
 	edgePairs,

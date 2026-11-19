@@ -1,11 +1,11 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { aimed, element, type Gen, recorded } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { runCase } from "#test/pg/oracle/public/run.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import { type PlannerSetting, unperturbed } from "#test/support/oracle/perturb.ts"
 import {

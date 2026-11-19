@@ -17,6 +17,7 @@
  * Features: each comparison equal and unequal; a type equal by identity and one equal by its order.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -24,7 +25,6 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { comparisonHolds, evaluatorOrder } from "#compiler/scalar/compute/evaluate.ts"
 import { compareValues, type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
-import { assert } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { T } from "#test/unit/lower/conservative/fixtures.ts"
 

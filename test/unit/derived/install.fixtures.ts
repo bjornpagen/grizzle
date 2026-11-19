@@ -1,8 +1,8 @@
 /** What the properties of install.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { decodedQuery, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 
 const Org = relation("Org", { id: f.uuid }, ["id"])

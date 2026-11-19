@@ -1,3 +1,4 @@
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * What the property of fresh-groups.test.ts reads: schemas of counted families over relations every ChangeSet inserts
  * at its top level, each relation mutable, an instance of each, the instance's writes by depth, and each table's rows,
@@ -7,7 +8,6 @@ import { aimed, boolean, constant, element, type Gen, int, shuffled } from "@bjo
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	admittedSources,
 	type CopySource,

@@ -4,6 +4,7 @@
  * bounds no bytes (Attr's `lexical`), installed with a rule over it.
  */
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -27,7 +28,6 @@ import { contained, derived, on, relation, schema } from "#compiler/public/schem
 import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { type Generated, generatedTemplate } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

@@ -1,4 +1,5 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import {
@@ -27,7 +28,7 @@ import { servedFile } from "#compiler/served/json.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyContext, EntryValue } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compiledSnapshot } from "#test/support/compiled-served.ts"
 import { type BuiltSchema, buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import {

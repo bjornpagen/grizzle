@@ -1,5 +1,6 @@
 /** What the properties of sharing.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
@@ -8,7 +9,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { Edge, plainRegion, Q, T } from "#test/unit/lower/conservative/fixtures.ts"

@@ -1,5 +1,6 @@
 /** What the properties of folder.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -35,7 +36,7 @@ import {
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 
 const words = regex("^[a-z0-9]+(?:[_-][a-z0-9]+)*$")

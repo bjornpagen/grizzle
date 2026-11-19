@@ -21,6 +21,7 @@
  * a row breaking both laws; the root refused.
  */
 
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, constant, type Gen, int, recursive } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -40,7 +41,7 @@ import { hostJudgement, type LawCheckData } from "#compiler/runtime/write/witnes
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { type ModelValue, evaluate } from "#test/support/oracle/evaluate/catalog.ts"

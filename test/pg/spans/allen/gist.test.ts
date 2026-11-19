@@ -12,6 +12,7 @@
  * Features: each relation, predicate kind and prefix, and each data size.
  */
 
+import { contains, defined, lacks } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -34,7 +35,6 @@ import {
 	spanTop
 } from "#test/pg/spans/allen/gist.fixtures.ts"
 import { compileSpanDesc } from "#test/pg/spans/allen/support.ts"
-import { contains, defined, lacks } from "#test/support/assert.ts"
 import { declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

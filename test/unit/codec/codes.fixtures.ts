@@ -1,5 +1,6 @@
 /** What the properties of codes.test.ts read: its spaces, models and helpers. */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
@@ -13,7 +14,7 @@ import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { compareValues } from "#compiler/scalar/values/identity.ts"
-import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { echoed, outputText, paramText } from "#test/support/wire.ts"
 

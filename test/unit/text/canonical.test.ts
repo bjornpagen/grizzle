@@ -14,11 +14,11 @@
 
 import { canonicalText } from "@bjornpagen/grizzle-text/regex/ir"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	alternations,
 	anyPattern,

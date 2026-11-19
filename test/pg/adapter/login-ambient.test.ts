@@ -26,6 +26,7 @@
  * standing and each pin reset, a refused write and a later page.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -57,7 +58,6 @@ import {
 } from "#test/pg/adapter/login-ambient.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { ambientFeatures } from "#test/support/ambient.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { answered, oneOf, rowsOf } from "#test/support/calls.ts"
 import { installedSchemas, replaceMigrated } from "#test/support/install-migrate.ts"
 import { pickFrom } from "#test/support/pick.ts"

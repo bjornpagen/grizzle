@@ -5,6 +5,7 @@
  */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, type Weighted, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
@@ -17,7 +18,7 @@ import { schema } from "#compiler/public/schema.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { buildTerm, closedOf, itemFields, storedField } from "#test/support/null/build.ts"
 import {
 	type Item,

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /** What the properties of rosters.test.ts read: its spaces, models and helpers. */
 import {
 	accepted,
@@ -40,7 +41,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	closed,

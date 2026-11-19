@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -9,7 +10,6 @@ import {
 	sketchGen
 } from "#test/pg/recursion/graph/seed-sites.fixtures.ts"
 import { isGraphRule, optimizedLoweringWith } from "#test/pg/recursion/graph/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	conservative,
 	defaultRunOptions,

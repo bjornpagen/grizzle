@@ -1,5 +1,6 @@
 /** What the properties of closed-refined.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -10,7 +11,6 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
-import { defined } from "#test/support/assert.ts"
 import { closed, decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { installationOf, localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { fixtureCodes } from "#test/unit/ir/fixture.ts"

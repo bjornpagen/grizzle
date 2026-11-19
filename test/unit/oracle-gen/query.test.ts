@@ -1,3 +1,4 @@
+import { assert, defined, lacks } from "@bjornpagen/testing/assert"
 /**
  * Generated query cases: the conservative-oracle gate's case population.
  *
@@ -22,7 +23,6 @@ import { Array as Arr, Effect, Order, Record } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
 import { literalProblem } from "#compiler/ir/expr.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
-import { assert, defined, lacks } from "#test/support/assert.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { literalRowKey } from "#test/support/oracle/gen/domain.ts"

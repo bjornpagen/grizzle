@@ -2,6 +2,7 @@
 
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, constant, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
@@ -10,7 +11,6 @@ import type { CreateTable, SqlStatement } from "#compiler/sql/ast.ts"
 import { builtinType, cUtf8Collation } from "#compiler/sql/build.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert } from "#test/support/assert.ts"
 import { type ShapeFeature } from "#test/support/kernel/shape.ts"
 import {
 	resolveStatement,

@@ -1,8 +1,8 @@
 /** What the properties of step.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { sameValues } from "#test/support/laws/model.ts"
 import { asDrafted, compile } from "#test/support/migrate/kit.ts"
 import { baseBuild } from "#test/support/worlds/execute/build.ts"

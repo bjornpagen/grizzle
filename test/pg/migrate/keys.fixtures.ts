@@ -1,5 +1,6 @@
 /** What the properties of keys.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
@@ -10,7 +11,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { type Aim, apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	type DraftedVersion,
 	draftVersion,

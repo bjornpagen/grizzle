@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 /**
  * A process's whole life over the test substrate, run as a child by test/pg/substrate/exit.test.ts: it builds
  * Substrate.lentLayer in a scope, in the place the case that runs it lent it (its database, its member, its permits), installs a schema of one relation in it and opens `dbs` Dbs over it one after
@@ -15,7 +16,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { defined } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

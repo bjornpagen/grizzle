@@ -15,12 +15,12 @@
  * Features: each spelling of a character, an escaped surrogate pair; each foreign tag, a concurrent change's DETAIL.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { readChangeDetail, readLawDetail } from "#compiler/runtime/write/refusal.ts"
-import { assert } from "#test/support/assert.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
 import { outputText } from "#test/support/wire.ts"
 import {

@@ -1,5 +1,6 @@
 /** What the properties of derived.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	accepted,
 	type Machine,
@@ -59,7 +60,7 @@ import { ownLogin } from "#compiler/schema/own.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	codeAt,

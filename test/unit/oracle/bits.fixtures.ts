@@ -1,5 +1,6 @@
 /** What the properties of bits.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
@@ -9,7 +10,7 @@ import { builtExpr, OpId, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 
 const size = 5

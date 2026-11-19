@@ -18,6 +18,7 @@
  * Features: a second take while the first consumer waits, one after it stopped, one after it heard a change.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -26,7 +27,6 @@ import type { ChangeSink, ChangeSource } from "#adapter/live/source.ts"
 import { makeSubscriptions } from "#adapter/live/subscriptions.ts"
 import { type SetEvent } from "#compiler/live/index.ts"
 import { type RouteKey } from "#compiler/plan/runtime.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	answer,
 	diedTakenTwice,

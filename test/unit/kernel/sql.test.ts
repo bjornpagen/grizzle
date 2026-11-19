@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The SQL kernel's test vocabulary: the query and statement generators (test/support/kernel/sqlgen.ts), the shape
  * (test/support/kernel/shape.ts) and the one-hole walker, each over generated SQL.
@@ -20,7 +21,7 @@ import { Effect } from "effect"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { aimedSteered } from "#test/support/aims.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	featureCount,
 	type ShapeFeature,

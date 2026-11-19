@@ -19,6 +19,7 @@
  * native capability excluded", "a spannable carrier", "a discrete range named as a limit" and "no discrete range".
  */
 
+import { assert, contains, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, finite, int, oneOf } from "@bjornpagen/testing/gen"
@@ -45,7 +46,6 @@ import {
 	typmodGen,
 	unspanned
 } from "#test/pg/scalar/registry.fixtures.ts"
-import { assert, contains, defined, unorderedEqual } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { spelled } from "#test/unit/scalar/support.ts"
 

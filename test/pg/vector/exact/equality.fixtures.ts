@@ -1,5 +1,6 @@
 /** What the properties of equality.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -45,7 +46,7 @@ import type { PutStatement } from "#compiler/write/put/statement.ts"
 import { textRows } from "#test/pg/codec/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	installedCodes,

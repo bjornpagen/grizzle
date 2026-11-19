@@ -1,5 +1,6 @@
 /** What the properties of evidence.test.ts read: the proving shapes, the contexts a case is read under, and the harnesses each property is one call of. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	aimed,
@@ -35,7 +36,6 @@ import {
 import { typeLabel } from "#compiler/ir/scalar.ts"
 import { analyzeLogical, type LogicalEnv } from "#compiler/logical/annotate.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import {

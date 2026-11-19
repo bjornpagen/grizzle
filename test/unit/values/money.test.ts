@@ -10,11 +10,12 @@
  * count at an int8 bound, each a named arm of the count's draw.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { countGen, type Feature, featuresOf } from "#test/unit/values/money.fixtures.ts"
 
 /** Money round-trips its minor units through numeric. Its budget is its suite's before it was a property (test/unit/values/money.test.ts at 4ca3036a): 2000 runs and 200 steered cases. */

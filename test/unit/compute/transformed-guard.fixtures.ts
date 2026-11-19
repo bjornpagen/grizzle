@@ -6,6 +6,7 @@ import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { sourceSet } from "@bjornpagen/grizzle-text/regex/print"
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -32,7 +33,7 @@ import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField, type RegexText } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { asDrafted, compile } from "#test/support/migrate/kit.ts"

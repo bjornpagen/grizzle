@@ -1,5 +1,6 @@
 /** What the properties of monoid.test.ts read: its spaces, models and helpers. */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Result } from "effect"
@@ -11,7 +12,7 @@ import { type CombineBuild, combine, type MonoidSpec, monoidSpecs } from "#compi
 import { Roster, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
-import { assert, nonEmpty, succeeded, throwsDefect } from "#test/support/assert.ts"
+import { succeeded, throwsDefect } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { declaredTypeGen, setTypeGen } from "#test/unit/ir/types.ts"
 

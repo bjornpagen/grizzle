@@ -1,6 +1,7 @@
 /** What the property of rule-image.test.ts reads: its schema and template, its space, and each case's run. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
@@ -17,7 +18,7 @@ import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"

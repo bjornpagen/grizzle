@@ -1,3 +1,4 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, element, type Gen } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
@@ -60,7 +61,6 @@ import {
 	Work,
 	Writer
 } from "#test/support/agreement/changeset-schema.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
 import { refinedMember } from "#test/support/oracle/refinement.ts"

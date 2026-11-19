@@ -24,11 +24,12 @@
  * parents (cases.ts): a case aimed at either situation draws their shape with its correlation drawn.
  */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplateOver, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import {

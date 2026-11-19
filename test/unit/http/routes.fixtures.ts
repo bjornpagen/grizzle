@@ -1,6 +1,7 @@
 /** What the properties of routes.test.ts read: its spaces, models and helpers. */
 
 import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	characterOf,
 	constant,
@@ -17,7 +18,6 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import { type CallErrorKind, callErrors } from "#compiler/live/index.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { type HttpHandler } from "#http/index.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { readStream, type StreamRead } from "#test/support/event-stream.ts"
 import {
 	type CaseSketch,

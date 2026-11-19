@@ -1,8 +1,8 @@
 /** What the properties of tree.test.ts read: its spaces, models and helpers. */
 
+import { deepEquals, defined } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { deepEquals, defined } from "#test/support/assert.ts"
 import { type KeyedRow, numbered, treeOfParents } from "#test/support/families/tree.ts"
 import { f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { drawnNatural, schemaOf, theoryOf } from "#test/unit/analysis/theory/support.ts"

@@ -42,6 +42,7 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -68,14 +69,7 @@ import {
 } from "#compiler/core/canonical.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
-import {
-	artifactRefusal,
-	assert,
-	defined,
-	refusalLoc,
-	refused,
-	succeeded
-} from "#test/support/assert.ts"
+import { artifactRefusal, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
 import {
 	build,

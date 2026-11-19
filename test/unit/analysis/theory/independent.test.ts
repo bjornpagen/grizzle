@@ -16,11 +16,11 @@
  * Features: each arrangement for the shape; each family's verdict, and the other's state beside it, for the laws.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	axisColumnsOf,
 	familyAt,

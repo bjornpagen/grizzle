@@ -11,6 +11,7 @@
  * Features: how two spans meet; no spans, spans merged and kept apart; each generated query shape and relation.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -35,7 +36,7 @@ import {
 	sameRows,
 	tableMaskPredicate
 } from "#test/pg/spans/oracle/reference.fixtures.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	defaultSpanCaseLimits,
 	endpointLimits,

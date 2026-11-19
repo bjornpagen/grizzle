@@ -25,6 +25,7 @@ import { regex as arkregex } from "arkregex"
 import { Array as Arr, Effect, Option, Record, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own } from "#compiler/schema/own.ts"
@@ -49,7 +50,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { assert, defined, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import {
 	contained,
 	eq,

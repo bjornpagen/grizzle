@@ -20,6 +20,7 @@
  * Features: "overflow by rounding", "negative scale" and "scale above precision", the coercions the typmod turns on.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
@@ -37,7 +38,7 @@ import {
 	typmodSql,
 	value
 } from "#test/pg/values/numeric.fixtures.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Numeric agreement with PostgreSQL parses every literal to the value numeric_in gives it, in its one form. */

@@ -24,6 +24,7 @@
  * Features: each predicate class judged both ways and each class's CHECK dropped.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -38,7 +39,6 @@ import {
 	situations,
 	withoutCheck
 } from "#test/pg/physical/checks.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { filledStatements, installationSql } from "#test/support/compile.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

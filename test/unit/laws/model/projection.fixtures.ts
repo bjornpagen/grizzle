@@ -1,5 +1,6 @@
 /** What the properties of projection.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import {
 	type Aimed,
@@ -46,7 +47,6 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { installationNamesOf, type Names } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"

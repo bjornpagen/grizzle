@@ -16,6 +16,7 @@
  *   binding outside the facts, each from a host model of the query over the drawn facts.
  */
 
+import { unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -34,7 +35,6 @@ import {
 	topOver
 } from "#test/pg/reads/bind-literal.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { unorderedEqual } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"

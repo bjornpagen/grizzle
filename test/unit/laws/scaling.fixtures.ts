@@ -1,5 +1,6 @@
 /** What the properties of scaling.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -18,7 +19,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	alternatives,
 	and,

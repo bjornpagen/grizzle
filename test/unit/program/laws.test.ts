@@ -54,6 +54,7 @@
  * count work, never time (kernel/calls.ts callCounts).
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
@@ -70,7 +71,7 @@ import {
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
-import { assert, throwsRefused } from "#test/support/assert.ts"
+import { throwsRefused } from "#test/support/assert.ts"
 import { relationName, rootTextFieldsOf, rootTextPattern } from "#test/support/families/fill.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { identityText, installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"

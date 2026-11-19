@@ -27,6 +27,7 @@
  * deletion refused from above, a sitting added and deleted, a dangling sitting refused, and a fused read of a sitting.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -61,7 +62,6 @@ import {
 	sameRows,
 	Sitting
 } from "#test/pg/levels/levels.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { levelNameAt } from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"

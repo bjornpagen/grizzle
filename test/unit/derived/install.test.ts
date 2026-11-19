@@ -26,13 +26,14 @@
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { own } from "#compiler/schema/own.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { type Feature, pairGen, pairs, spell } from "#test/unit/derived/install.fixtures.ts"

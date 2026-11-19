@@ -1,5 +1,6 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, constant, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
 import {
@@ -61,7 +62,7 @@ import {
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
 import { printType } from "#compiler/sql/print.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type {
 	SchemaDesc as AuthoredSchemaDesc,
 	AuthoredStatementDesc as StatementDesc

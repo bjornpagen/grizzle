@@ -21,6 +21,7 @@
  * every owner with its label, count and fold end, and every member, exactly as the families model states them.
  */
 
+import { assert, deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -53,7 +54,6 @@ import {
 } from "#test/pg/fin/folds.ts"
 import { cleared, replaced, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, deepEquals, defined, unorderedEqual } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { stepPut, swapWithLast } from "#test/support/families/counted.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"

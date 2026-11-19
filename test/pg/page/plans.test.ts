@@ -30,6 +30,7 @@
  * Features: each order, each anchor kind, and each seek direction the plans name.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
@@ -54,7 +55,7 @@ import {
 } from "#test/pg/page/plans.fixtures.ts"
 import { pageTemplate, windowOf } from "#test/pg/page/support.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { pickIndex } from "#test/support/pick.ts"
 import { recordingContext } from "#test/support/plans.ts"

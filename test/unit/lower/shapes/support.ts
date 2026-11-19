@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr } from "effect"
 import {
 	analyzePhysical,
@@ -23,7 +24,6 @@ import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
 import { takeLowerer } from "#compiler/lower/shapes/take/index.ts"
 import { unionLowerer } from "#compiler/lower/shapes/union/index.ts"
-import { defined } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { fixtureCodes } from "#test/unit/ir/fixture.ts"
 import { ledgerCatalog } from "#test/unit/lower/rewrite/support.ts"

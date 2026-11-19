@@ -1,5 +1,6 @@
 /** What the properties of delta.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -15,7 +16,6 @@ import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { relationIdentity } from "#compiler/runtime/write/net.ts"
 import { type FactIdentity } from "#compiler/scalar/values/identity.ts"
-import { defined } from "#test/support/assert.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { type Fact, type FactSet, factSetOf, identityOrder } from "#test/support/oracle/delta.ts"
 import { upTo } from "#test/support/up-to.ts"

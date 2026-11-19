@@ -1,7 +1,7 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	blogOf,

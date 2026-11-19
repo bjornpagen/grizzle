@@ -1,3 +1,4 @@
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * A direct SQL writer meets PostgreSQL's native errors for the two kinds of object the generated direct-writer
  * populations do not draw. The direct-writer model (model.ts) owns keys, candidate keys, foreign keys at the statement
@@ -45,7 +46,6 @@ import {
 	statementOf
 } from "#test/pg/direct-writers/native-errors.fixtures.ts"
 import { DeskReports, Entry, Pair, writer } from "#test/pg/direct-writers/schema.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { failure, fixtureIn } from "#test/support/open-fixture.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"

@@ -1,5 +1,6 @@
 /** What the properties of worlds.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, map, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
@@ -17,7 +18,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Aim } from "#test/pg/migrate/support.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** What a version holds, each a knob a history turns. */

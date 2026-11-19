@@ -1,7 +1,7 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record, Scope, String as Str } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { sameIdentity, valueIdentityOrder } from "#test/support/kernel/identity.ts"
 import {
 	type HostSchema,

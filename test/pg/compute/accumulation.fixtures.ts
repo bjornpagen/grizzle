@@ -17,8 +17,8 @@ import * as N from "#compiler/scalar/compute/numeric.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 
+import { assert } from "@bjornpagen/testing/assert"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { assert } from "#test/support/assert.ts"
 import type {
 	AuthoredExprDesc as ExprDesc,
 	HeadTermDesc,

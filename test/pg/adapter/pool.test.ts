@@ -19,6 +19,7 @@
  * flight; every standing, a release before any answer and mid-answer.
  */
 
+import { assert, lacks } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -48,7 +49,6 @@ import {
 	substrateLogin,
 	until
 } from "#test/pg/adapter/support.ts"
-import { assert, lacks } from "#test/support/assert.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { pickFrom } from "#test/support/pick.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 /**
  * The generated law races of a family (raceSuite), on PostgreSQL 19rc2: every interleaving of a drawn race over a
  * schema of the family's box, from a drawn lawful state, is a history the history oracle passes
@@ -19,7 +20,6 @@ import { fullSwarm, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/s
 import { Array as Arr, Option, String as Str } from "effect"
 import { Cause, Effect, Record, type Scope } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
-import { defined } from "#test/support/assert.ts"
 import type { DirectAbort, GrizzleSettled, Outcome } from "#test/support/history/check.ts"
 import {
 	enforcementProblem,

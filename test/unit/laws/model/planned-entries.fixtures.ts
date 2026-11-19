@@ -15,8 +15,8 @@ import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Order } from "effect"
 import type { KeyFault } from "#compiler/core/causes.ts"
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import {
 	octetLengthAtMost,

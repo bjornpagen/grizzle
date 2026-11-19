@@ -1,5 +1,6 @@
 /** What the properties of tamper.test.ts read: its spaces, models and helpers. */
 
+import { assert, containsEqual, defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import {
@@ -30,7 +31,7 @@ import {
 	workspace,
 	writeConfig
 } from "#test/pg/cli/support.ts"
-import { assert, containsEqual, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 

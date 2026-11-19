@@ -28,11 +28,11 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { admitDerived } from "#compiler/schema/relation.ts"
 import { buildSchema } from "#test/pg/derived/oracle/gen.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import {
 	entries,

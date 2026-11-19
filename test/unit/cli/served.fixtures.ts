@@ -1,5 +1,6 @@
 /** What the properties of served.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	array,
@@ -22,7 +23,7 @@ import { servedFile, servedText } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { admittedNames, dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"

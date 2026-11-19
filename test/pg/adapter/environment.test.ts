@@ -18,6 +18,7 @@
  * the login's own admitted beside another, and admitted under a PGOPTIONS that is set.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, FileSystem, Option, Path, Redacted } from "effect"
@@ -35,7 +36,6 @@ import {
 	situations
 } from "#test/pg/adapter/environment.fixtures.ts"
 import { defaultPool, poolFor, roleDefaults, rowsOn } from "#test/pg/adapter/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { noPassword } from "#test/support/pg.ts"
 import { processEnvironment, processValue } from "#test/support/process-env.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

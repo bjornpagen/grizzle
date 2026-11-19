@@ -1,3 +1,4 @@
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, subset, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -15,7 +16,6 @@ import {
 	transformStatement
 } from "#compiler/sql/transform.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /**

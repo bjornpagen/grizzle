@@ -9,12 +9,12 @@
  * then each dimension's length and lower bound, then each element's length and bytes), and the values as admitted.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { byteaArray } from "#compiler/codec/bytea.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { arraysOf, cases, type Feature, readArray } from "#test/unit/codec/bytea.fixtures.ts"
 
 /**

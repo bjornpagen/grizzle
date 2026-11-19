@@ -1,5 +1,6 @@
 /** What the properties of check-identity.test.ts read: their spaces, the schema's versions and the checks they draft. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
@@ -23,7 +24,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 

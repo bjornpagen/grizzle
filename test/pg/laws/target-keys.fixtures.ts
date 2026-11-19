@@ -1,5 +1,6 @@
 /** What the properties of target-keys.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -12,7 +13,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Option } from "effect"
 import type { ExprDesc, SideDesc, TermDesc } from "#compiler/ir/desc.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import {
 	contained,
 	f,

@@ -14,6 +14,7 @@
  * Features: no, one and several element fields, a correlated column, no child; an empty array and a quoted element.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -21,7 +22,6 @@ import { Array as Arr, Effect, Option, Result } from "effect"
 import { outputTextOf } from "#compiler/core/decoder.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import { arrayElements, fusedElement, fusedTexts } from "#compiler/runtime/lower/fused.ts"
-import { assert } from "#test/support/assert.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
 import { outputRows, outputText } from "#test/support/wire.ts"
 import {

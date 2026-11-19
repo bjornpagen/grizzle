@@ -28,12 +28,12 @@
  * families, folded and unfolded.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { NativeOf } from "#compiler/ir/law.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	checkDisjoint,
 	checkShape,

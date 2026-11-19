@@ -22,6 +22,7 @@
  * value and a value, several rows.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { agree, exact } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -31,7 +32,6 @@ import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
 import { persistentClosed } from "#compiler/physical/ddl/expr.ts"
 import { compiledExpr, type EvalLeaves, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { assert } from "#test/support/assert.ts"
 import { hostColumns } from "#test/support/null/build.ts"
 import { evalTerm, type Item, silent } from "#test/support/null/language.ts"
 import {

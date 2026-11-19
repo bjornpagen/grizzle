@@ -2,6 +2,7 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { contains, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Aimed, aimed, type Gen, map, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -23,7 +24,7 @@ import type { Select } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
-import { contains, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import {

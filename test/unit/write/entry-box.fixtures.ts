@@ -1,10 +1,10 @@
 /** What the properties of entry-box.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
-import { defined } from "#test/support/assert.ts"
 import { knownNonEmpty, pooled } from "#test/support/worlds/generate/domain.ts"
 import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import type { Written } from "#test/support/worlds/model/session/writes.ts"

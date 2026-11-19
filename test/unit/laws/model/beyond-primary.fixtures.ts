@@ -6,6 +6,7 @@ import { Array as Arr, Order, Record as Rec } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { PrimaryKeyObject, UniqueObject, UniqueObjects } from "#compiler/laws/model/uniques.ts"
 
+import { defined } from "@bjornpagen/testing/assert"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
@@ -17,7 +18,6 @@ import {
 } from "#compiler/schema/statements.ts"
 import type { rowHelpers, RowTerm } from "#compiler/schema/terms.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** A conjunct of a key's selection of T. */

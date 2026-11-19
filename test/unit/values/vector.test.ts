@@ -16,6 +16,7 @@
  * several components.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, map } from "@bjornpagen/testing/gen"
 import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
@@ -25,7 +26,7 @@ import { decode, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { assert, faulted, refused, succeeded } from "#test/support/assert.ts"
+import { faulted, refused, succeeded } from "#test/support/assert.ts"
 import {
 	anyFloat,
 	type Buffer,

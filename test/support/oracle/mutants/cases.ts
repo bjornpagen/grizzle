@@ -41,7 +41,7 @@ import {
 	undrawn
 } from "#test/support/oracle/gen/query.ts"
 
-import { nonEmpty } from "#test/support/assert.ts"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	type GenRelation,
 	type GenSchema,

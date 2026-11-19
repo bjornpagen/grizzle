@@ -1,6 +1,7 @@
 /** What the properties of absent.test.ts read: its spaces, models and helpers. */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -50,7 +51,6 @@ import { str } from "#compiler/public/text.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered, type WriteAnswer } from "#test/support/calls.ts"
 import { setText } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

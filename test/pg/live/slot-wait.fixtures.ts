@@ -1,9 +1,9 @@
 /** What slot-wait.test.ts reads: its cases, the slot checks a tap's sessions sent, and the case itself. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Fiber, Formatter, Order } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { worldSurfaces } from "#test/support/live/calls.ts"
 import { installLive } from "#test/support/live/harness.ts"
 import { standingOn } from "#test/support/live/standing.ts"

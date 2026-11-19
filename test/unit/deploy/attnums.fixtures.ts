@@ -1,5 +1,6 @@
 /** What the properties of attnums.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
@@ -17,7 +18,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"

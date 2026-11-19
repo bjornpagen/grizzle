@@ -1,5 +1,6 @@
 /** What the properties of missing-role.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	characterOf,
 	codePoint,
@@ -13,7 +14,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { worldTemplate } from "#test/support/worlds/execute/template.ts"
 import { docsInstall } from "#test/support/worlds/model/bases/docs.ts"

@@ -1,3 +1,4 @@
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	boolean,
 	characterOf,
@@ -14,7 +15,6 @@ import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effec
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { decimalTextMaxBytes, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"
 import { referenceDouble } from "#test/support/oracle/evaluate/double-text.ts"
 

@@ -2,6 +2,7 @@ import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { toEcma } from "@bjornpagen/grizzle-text/regex/print"
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A refined text's patterns reach its JSON Schema as ECMA-262 patterns printed from their IR (scalar/regex/print.ts toEcma
  * toEcma), and a schema's `pattern` is read under the `u` flag, unanchored, as JSON Schema 2020-12 reads one: every
@@ -23,7 +24,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { schemaAdmits } from "#test/support/openapi/validator.ts"
 import { bmpLast, endsAstral, type Feature, patternSpace } from "#test/unit/live/ecma.fixtures.ts"
 import { walkGen } from "#test/unit/text/generators.ts"

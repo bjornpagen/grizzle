@@ -1,5 +1,6 @@
 /** What the properties of derived.test.ts read: its spaces, models and helpers. */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { boolean, constant, type Gen, oneOf, subarray } from "@bjornpagen/testing/gen"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { Array as Arr, Cause, DateTime, Effect, FileSystem, Order, Record as Rec } from "effect"
@@ -14,7 +15,6 @@ import {
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 
 /**

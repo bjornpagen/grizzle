@@ -14,6 +14,7 @@
  * member holds and the conjunction does not, so a CHECK of the first member alone fails here.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -35,7 +36,7 @@ import {
 	jsAll,
 	truth
 } from "#test/pg/text/conjunction.fixtures.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { textInfo } from "#test/support/text.ts"
 

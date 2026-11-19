@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * The reference side of the oracle discriminates the structure of a program: the reference derives the delivered
  * statements from the IR, so a lowering that drops an attachment's part, delivers one under another name, or reports a
@@ -29,7 +30,6 @@ import {
 	plantOf,
 	structureSpace
 } from "#test/pg/oracle/reference.fixtures.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import {
 	conservative,
 	defaultRunOptions,

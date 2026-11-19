@@ -1,6 +1,7 @@
 /** What the properties of shapes.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, pipe, Record as Rec, String as Str } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
@@ -16,7 +17,6 @@ import {
 	flight
 } from "#compiler/lower/conservative/types.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
-import { defined } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { fixtureGroup, type ResetGroup } from "#test/support/substrate/replace.ts"
 import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"

@@ -1,4 +1,5 @@
 import type * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * What the property of preview.test.ts reads: a case's schema, every relation of a drawn schema of families
  * (test/support/families/fill.ts, the fill order's and the fresh groups' specifications) beside a palette of closed ids
@@ -68,7 +69,7 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { freshCases } from "#test/pg/write/fresh-groups/fresh-groups.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	admittedFillSpecGen,
 	buildFill,

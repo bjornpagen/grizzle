@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
@@ -50,7 +51,7 @@ import {
 	ToneWeight,
 	ToneWeightTyped
 } from "#test/support/agreement/schema.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplateOver,
 	type FixtureSchema,

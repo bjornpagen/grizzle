@@ -13,12 +13,13 @@
  * occurrence written first.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"

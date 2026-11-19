@@ -1,3 +1,4 @@
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Real, refused, runProgram, took } from "@bjornpagen/testing/commands"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -57,7 +58,6 @@ import {
 	weights,
 	worldOf
 } from "#test/pg/write/whole/whole.fixtures.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { applicationOf, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"

@@ -1,5 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Relation inputs: the host codec owns the set property and the null ban, deduplicating by fact identity after native
  * coercion and encoding canonically as one array literal per column. The host collects a Stream member whole before it
@@ -34,7 +35,7 @@ import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { EncodingFailure } from "#compiler/core/errors.ts"
 import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { arraysEncoder, readArrayLiteral } from "#test/support/arrays.ts"
-import { assert, defined, failed, succeeded } from "#test/support/assert.ts"
+import { failed, succeeded } from "#test/support/assert.ts"
 import { paramText, textOfParam } from "#test/support/wire.ts"
 import {
 	boundCases,

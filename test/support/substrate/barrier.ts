@@ -1,6 +1,6 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { trusted } from "#compiler/core/trusted.ts"
-import { defined } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /**

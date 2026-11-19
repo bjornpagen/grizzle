@@ -1,4 +1,5 @@
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import {
 	atomOperands,
@@ -69,7 +70,6 @@ import {
  */
 import { plainType } from "#compiler/scalar/native.ts"
 import { scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { defined } from "#test/support/assert.ts"
 import type { OwnedFixture } from "#test/support/evidence.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"

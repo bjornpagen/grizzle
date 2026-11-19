@@ -15,11 +15,11 @@
  * guard, written, admitted.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	type Feature,
 	kinds,

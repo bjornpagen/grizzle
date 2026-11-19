@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A guarded float form binds its compound operands once per row, never in a SubPlan PostgreSQL runs again for every
  * row (lower/conservative/expr/lateral.ts), and computes what the reference evaluator computes.
@@ -38,7 +39,6 @@ import {
 	queryOf,
 	subplansOf
 } from "#test/pg/compute/float-binding.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	comparisonFailed,
 	defaultRunOptions,

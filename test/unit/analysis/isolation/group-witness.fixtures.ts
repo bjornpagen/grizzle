@@ -1,5 +1,6 @@
 /** What the property of group-witness.test.ts reads: its schemas, its space, and each case's certification. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
@@ -14,7 +15,6 @@ import { check, derived, login, relation, schema, wholeEntriesOf } from "#compil
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { file } from "#test/unit/cli/served-certified.fixtures.ts"
 

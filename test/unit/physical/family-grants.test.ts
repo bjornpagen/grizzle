@@ -29,12 +29,12 @@
  * under its owner's row security, and a writable entry whose key holds a drawn index refused when declared.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { lit } from "#compiler/sql/build.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import {
 	columnsOf,

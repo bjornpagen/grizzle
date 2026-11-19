@@ -1,5 +1,6 @@
 /** What the properties of scalar.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -25,7 +26,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { StrictFault } from "#test/support/kernel/strict.ts"

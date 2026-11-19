@@ -1,6 +1,7 @@
 /** What the properties of discharge.test.ts read: the box's schemas, each law's discharge in an installation, and the
  * checks a drafted migration runs. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
@@ -20,7 +21,6 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
-import { defined } from "#test/support/assert.ts"
 
 /** A unit's header, each of its groups open until retired. */
 const H = relation("H", { g: pg.integer, retired: retirement }, ["g"])

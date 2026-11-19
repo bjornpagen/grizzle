@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -15,7 +16,6 @@ import {
 	bodiesTemplate,
 	downstreamAims
 } from "#test/pg/write/nested-identity/nested-identity.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"

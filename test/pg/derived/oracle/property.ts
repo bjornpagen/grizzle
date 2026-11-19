@@ -18,6 +18,7 @@ import {
 	restoredDerivedFacts
 } from "#test/pg/derived/oracle/gen.ts"
 
+import { assert, failureOf, unorderedEqual } from "@bjornpagen/testing/assert"
 import {
 	type CaseDb,
 	everyFact,
@@ -30,7 +31,6 @@ import {
 	snapshotOf,
 	withCaseDb
 } from "#test/pg/derived/oracle/harness.ts"
-import { assert, failureOf, unorderedEqual } from "#test/support/assert.ts"
 import { exactValue, identicalValue, valueHash } from "#test/support/equivalence.ts"
 import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
 import type { SqlError } from "#test/support/pg.ts"

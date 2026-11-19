@@ -24,6 +24,7 @@
  * each reach change across a migration.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -45,7 +46,6 @@ import {
 	worldsOf
 } from "#test/pg/physical/search-policy.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { migrated, type Version } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"

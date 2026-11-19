@@ -2,6 +2,7 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as EngineResult from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import {
 	accepted,
 	type Machine,
@@ -58,7 +59,7 @@ import {
 	reviewedSource,
 	type Reviewer
 } from "#test/pg/migrate/support.ts"
-import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {

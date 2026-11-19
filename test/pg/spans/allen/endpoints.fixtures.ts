@@ -1,5 +1,6 @@
 /** What the properties of endpoints.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -41,7 +42,6 @@ import {
 	optimizedRules,
 	runArtifact
 } from "#test/pg/spans/allen/support.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import {

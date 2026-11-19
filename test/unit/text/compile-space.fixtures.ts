@@ -9,6 +9,7 @@ import {
 } from "@bjornpagen/grizzle-text/regex/ir"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -36,7 +37,7 @@ import {
 	withoutAliases
 } from "#compiler/scalar/regex/space.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {

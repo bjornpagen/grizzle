@@ -13,6 +13,7 @@
  * a schema constructed to reach it (releaseAims).
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -26,7 +27,6 @@ import {
 	rolesUnder
 } from "#test/pg/substrate/substrate.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 

@@ -1,3 +1,4 @@
+import { assert, containsText } from "@bjornpagen/testing/assert"
 /**
  * A case on the worker's held transaction session (substrate.ts Substrate.transaction) leaves nothing to the next case
  * by construction: every case runs inside one owner transaction on the worker's own clone of the base template, each
@@ -24,7 +25,6 @@ import { fnv1a32 } from "@bjornpagen/testing/random"
 import { Effect, Formatter } from "effect"
 import { plantingWords } from "#test/pg/substrate/transaction.dictionary.ts"
 import { plantedThenRead, plantingName } from "#test/pg/substrate/transaction.fixtures.ts"
-import { assert, containsText } from "#test/support/assert.ts"
 import { workerCluster } from "#test/support/runner.ts"
 
 /** Nothing a case does outlives its transaction, and a case that ends its transaction fails. */

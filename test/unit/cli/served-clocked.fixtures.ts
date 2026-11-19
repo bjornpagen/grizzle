@@ -1,5 +1,6 @@
 /** What the properties of served-clocked.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
@@ -25,7 +26,7 @@ import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 

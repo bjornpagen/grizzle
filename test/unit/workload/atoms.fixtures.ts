@@ -1,12 +1,13 @@
 /** What the properties of atoms.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { predicateAtoms } from "#compiler/physical/access/atoms.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { checkedInput, checkOptions } from "#test/support/policy.ts"
 import { Sp } from "#test/unit/workload/fixtures.ts"
 

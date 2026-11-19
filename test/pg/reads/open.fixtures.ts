@@ -1,5 +1,6 @@
 /** What the properties of open.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	bytes as bytesGen,
@@ -21,7 +22,6 @@ import {
 	roleDefaults,
 	type RoleDefaultSetting
 } from "#test/pg/adapter/support.ts"
-import { assert } from "#test/support/assert.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1 } from "#test/support/fixtures/golden/work.ts"

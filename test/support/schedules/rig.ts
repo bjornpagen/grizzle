@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, type Context, Effect, Layer, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
@@ -6,7 +7,6 @@ import type { DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	type Generated,
 	generatedTemplate,

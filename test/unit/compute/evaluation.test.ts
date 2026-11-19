@@ -7,11 +7,11 @@
  * Features: an outcome claimed at both ends, a declined one.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { describeOp } from "#compiler/ir/expr.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	atLibmEnd,
 	caseGen,

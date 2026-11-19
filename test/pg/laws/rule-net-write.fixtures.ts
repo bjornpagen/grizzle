@@ -1,5 +1,6 @@
 /** What the properties of rule-net-write.test.ts read: the schema and its template, the spaces, and each case's run. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
@@ -19,7 +20,7 @@ import { str } from "#compiler/public/text.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { type JudgedStatement, judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

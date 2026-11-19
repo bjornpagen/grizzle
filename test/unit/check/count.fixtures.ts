@@ -1,6 +1,7 @@
 /** What the property of count.test.ts reads: its box, its model and the readings it builds. */
 
 import type * as EngineResult from "@bjornpagen/grizzle-text/base/result"
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Result } from "effect"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
@@ -16,7 +17,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { changeSetOver as ChangeSet, type MemberInput } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"

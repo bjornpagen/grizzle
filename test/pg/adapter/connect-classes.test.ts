@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A connection that fails is classified, and every class states its own reason, the same through `grizzle migrate` and
  * through a Db's call, never with a password (packages/grizzle/src/adapter/errors/failures.ts ConnectRefusal).
@@ -38,7 +39,6 @@ import {
 	throughCall,
 	throughMigrate
 } from "#test/pg/adapter/connect-classes.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

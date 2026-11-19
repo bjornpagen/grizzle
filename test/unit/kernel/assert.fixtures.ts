@@ -1,10 +1,10 @@
 /** What the properties of assert.test.ts read: its spaces, models and helpers. */
 
+import { AssertionError } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Result } from "effect"
 import { CompileError, type CompileReasonTag, prose, type ProseTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { AssertionError } from "#test/support/assert.ts"
 
 /**
  * What a thunk does: return, throw a located refusal or a collision (two CompileError variants), throw a look-alike

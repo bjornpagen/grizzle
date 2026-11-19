@@ -12,6 +12,13 @@
  * delivers exactly the values it bound.
  */
 
+import {
+	assert,
+	assertVariant,
+	deepEquals,
+	nonEmpty,
+	unorderedEqual
+} from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
@@ -29,14 +36,7 @@ import {
 	patternsTemplate
 } from "#test/pg/parameters/pattern.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import {
-	assert,
-	assertVariant,
-	bareRecord,
-	deepEquals,
-	nonEmpty,
-	unorderedEqual
-} from "#test/support/assert.ts"
+import { bareRecord } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

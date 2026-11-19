@@ -24,6 +24,7 @@
  * Features: an option or bare child, and a take, over an identity projection's input; each roster form.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite, shuffled } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -32,7 +33,6 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
-import { assert } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"

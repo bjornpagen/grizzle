@@ -30,12 +30,12 @@
 
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import { assert } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { refinementBounds } from "#test/support/text.ts"

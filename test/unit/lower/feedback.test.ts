@@ -23,11 +23,12 @@
  * Features: each verdict: lowered, refused for a block, for an unhashable state, for a second scan.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	closure,
 	conservative,

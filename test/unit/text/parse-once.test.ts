@@ -19,6 +19,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
@@ -27,7 +28,7 @@ import { predicateTable } from "#compiler/ir/expr.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { closedLeaf, evaluatedRelation, hostEvaluator } from "#compiler/runtime/write/fill.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { ownedInput } from "#test/support/policy.ts"

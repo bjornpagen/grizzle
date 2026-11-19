@@ -1,6 +1,7 @@
 /** What the properties of refusals.test.ts read: its spaces, models and helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { checkedSchema, derivedAnalysis } from "#compiler/analysis/schema.ts"
@@ -19,7 +20,6 @@ import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { type CaseSketch, caseSketchGen, type GenSchema } from "#test/pg/derived/oracle/gen.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	alternatives,
 	check as checkDesc,

@@ -1,6 +1,7 @@
 /** What the properties of backfill-cost.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import {
@@ -13,7 +14,7 @@ import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { splitStatements } from "#compiler/plan/migration.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {
 	column,

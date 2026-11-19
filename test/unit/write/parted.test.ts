@@ -17,13 +17,13 @@
  * S1 whose parameter is empty.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { prepared } from "#compiler/core/prepared.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { wholeForms } from "#test/support/whole-forms.ts"
 import {
 	boxGen,

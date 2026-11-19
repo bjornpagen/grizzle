@@ -25,6 +25,7 @@
  * the catalog read's shared and apart arms; each privilege outcome; and a literal at an integer type's bound.
  */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -69,7 +70,6 @@ import {
 	textOf,
 	zero
 } from "#test/pg/sql/print.fixtures.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { freshSchema, roleSession, Substrate } from "#test/support/substrate/substrate.ts"

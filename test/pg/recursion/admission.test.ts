@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -7,7 +8,6 @@ import {
 	recursions,
 	sketchGen
 } from "#test/pg/recursion/admission.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	conservative,
 	defaultRunOptions,

@@ -20,12 +20,13 @@
  * cycle; and a containment over a selection, and one with a pred term, which carry nothing.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { StampSource } from "#compiler/ir/instant.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	type InstantsFeature,
 	instantsGen,

@@ -16,12 +16,12 @@
  * a function replaced. The box, exhausted: every rule an earlier grizzle lacked.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, HashMap } from "effect"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	draftedOf,
 	type MeaningCase,

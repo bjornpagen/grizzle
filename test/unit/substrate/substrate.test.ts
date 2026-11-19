@@ -11,12 +11,12 @@
  * generators plant, drawn by explicit weight beside the lawful ones. Features: each of its verdicts.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, int, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Option, Result, String as Str } from "effect"
 import { maxIdentifierBytes, identifierOf, identity } from "#compiler/core/identity.ts"
-import { assert } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	allocatingPid,

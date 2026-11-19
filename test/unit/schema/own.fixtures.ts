@@ -1,6 +1,7 @@
 /** What the properties of own.test.ts read: its spaces, models and helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -37,7 +38,6 @@ import {
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	on,
 	type SchemaDesc,

@@ -19,12 +19,13 @@
  * immediate containment, a deferred containment.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	type BeyondFeature,

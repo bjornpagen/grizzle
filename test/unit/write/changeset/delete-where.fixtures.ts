@@ -1,5 +1,6 @@
 /** What the properties of delete-where.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, shuffled, subarray, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order as Ord, Record as Rec } from "effect"
 import { noClock } from "#compiler/ir/clock.ts"
@@ -28,7 +29,7 @@ import {
 	Work
 } from "#test/support/agreement/changeset-schema.ts"
 import { Wherer } from "#test/support/agreement/delete-where.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { conservativeWrite } from "#test/support/conservative.ts"
 import { checking } from "#test/support/policy.ts"

@@ -17,6 +17,7 @@
  * Features: a candidacy failing, one dying of a defect, one interrupted, and a candidacy started after one died.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -25,7 +26,6 @@ import { type LeaderReason } from "#adapter/live/leader.ts"
 import { type Leadership, leading } from "#adapter/live/listen.ts"
 import type { ChangeSource } from "#adapter/live/source.ts"
 import { makeSubscriptions } from "#adapter/live/subscriptions.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	answer,
 	type HeldCandidacy,

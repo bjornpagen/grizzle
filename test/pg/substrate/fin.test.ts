@@ -1,4 +1,5 @@
 import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, deepEquals, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	type Answer,
 	accepted,
@@ -69,7 +70,6 @@ import {
 	storedOfRows,
 	writeOf
 } from "#test/pg/substrate/fin.ts"
-import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	BREAKING_FORMS,
 	type Form,

@@ -23,6 +23,7 @@
  * user-facing location skips.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -39,7 +40,6 @@ import {
 	sitedLoc,
 	siteFromStack
 } from "#compiler/core/loc.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	callLine,
 	captureGen,

@@ -20,6 +20,7 @@
  * request opened, and a Db per request at volume.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Order } from "effect"
@@ -37,7 +38,6 @@ import {
 	worldsOver
 } from "#test/pg/serverless/logins.fixtures.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

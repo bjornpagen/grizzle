@@ -1,5 +1,6 @@
 /** What the properties of errors.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Option, Stream } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
@@ -21,7 +22,6 @@ import {
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { errorOf } from "#test/support/live/calls.ts"
 import type { RawEvent } from "#test/support/live/system.ts"
 

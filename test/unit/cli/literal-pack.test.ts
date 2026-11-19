@@ -20,6 +20,7 @@
  */
 
 import { headNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, FileSystem, Option, Order, String as Str } from "effect"
@@ -37,7 +38,7 @@ import {
 	resolvedConfig,
 	workspace
 } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 import {

@@ -1,3 +1,4 @@
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 /**
@@ -25,7 +26,6 @@ import {
 	predBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { type KeyedRow, numbered, treeOfParents } from "#test/support/families/tree.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { OldFormTree } from "#test/support/migrate/old-form-tree.ts"

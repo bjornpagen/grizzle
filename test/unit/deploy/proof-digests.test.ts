@@ -13,6 +13,7 @@
  * - **Features:** a first version, a changed version, an unchanged one, and the environment's change.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -21,7 +22,7 @@ import { manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 import { proofDigests, replayedOver } from "#compiler/deploy/admission/proof.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"

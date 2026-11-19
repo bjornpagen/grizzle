@@ -1,5 +1,6 @@
 /** What the properties of plans.test.ts read: the plans template, the fixtures' queries and the plan readings. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
@@ -31,7 +32,7 @@ import {
 	relationNames,
 	Task
 } from "#test/pg/plans/fixture.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	type TemplateDeclarations,

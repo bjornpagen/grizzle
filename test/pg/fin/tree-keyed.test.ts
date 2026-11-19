@@ -1,3 +1,4 @@
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 /**
  * A tree keyed by its root fields then its drawn start, on PostgreSQL 19rc2, written whole through grizzle's own write
  * and read back: three relations of root arity 1, 2 and 3 over text, integer and uuid root fields, each folded by the
@@ -61,7 +62,6 @@ import {
 	twoRootsTemplate
 } from "#test/pg/fin/tree-keyed.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { canonicalRows, type Forest, lawful, numbered } from "#test/support/families/tree.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

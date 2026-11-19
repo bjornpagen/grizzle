@@ -13,6 +13,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -46,7 +47,7 @@ import {
 	workTables
 } from "#test/pg/reads/reads.fixtures.ts"
 import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { readOnce, rowsOf } from "#test/support/calls.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"

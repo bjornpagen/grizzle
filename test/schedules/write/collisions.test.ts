@@ -40,6 +40,7 @@
  * (`aims`).
  */
 
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -75,7 +76,6 @@ import {
 	doubleStartAims,
 	collisionsRig
 } from "#test/schedules/write/collisions.fixtures.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"

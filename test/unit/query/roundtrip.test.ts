@@ -17,6 +17,7 @@
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { codePoint, element, finite, string, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -24,7 +25,6 @@ import { Effect } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { queryState } from "#compiler/query/build/state.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { descOf } from "#test/unit/query/fixtures.ts"
 import {

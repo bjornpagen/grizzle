@@ -1,6 +1,7 @@
 /** What the properties of validate.test.ts read: its spaces, models and helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, deepEquals, nonEmpty } from "@bjornpagen/testing/assert"
 import { constant, type Gen, map, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { type Corrupted, corrupted, type CorruptedFeature } from "@bjornpagen/testing/lsw"
 import { Array as Arr, String as Str } from "effect"
@@ -8,15 +9,7 @@ import { makeIdSupply } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath, SourceLoc } from "#compiler/core/loc.ts"
 import type { DagTable, RelKind } from "#compiler/ir/rel.ts"
 import { decodeWith } from "#compiler/ir/shape.ts"
-import {
-	assert,
-	deepEquals,
-	nonEmpty,
-	type Place,
-	placeOf,
-	refusalLoc,
-	succeeded
-} from "#test/support/assert.ts"
+import { type Place, placeOf, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import {
 	dagProblems,

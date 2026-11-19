@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
@@ -12,7 +13,6 @@ import {
 	type RoleFeature,
 	type Start
 } from "#test/pg/direct-writers/missing-role.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { templateWorld } from "#test/support/worlds/execute/template.ts"
 

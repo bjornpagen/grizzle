@@ -22,12 +22,12 @@
  * the draw's modes reach (see `situations`).
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option, Record as Rec, Result } from "effect"
 import { type Claims, claimsOf } from "#adapter/db/claims.ts"
 import { ClaimRefused, type ExpiryRefused } from "#adapter/errors/failures.ts"
-import { assert } from "#test/support/assert.ts"
 import { docsBase } from "#test/support/worlds/model/bases/docs.ts"
 import { claimsText, payloadFacts } from "#test/support/worlds/model/session/claims.ts"
 import {

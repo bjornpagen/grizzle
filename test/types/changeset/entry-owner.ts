@@ -1,6 +1,6 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	type EntryOwnerCase,
 	entryName,

@@ -1,3 +1,4 @@
+import { deepEquals } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option } from "effect"
 import { findNodes, type PlanNode } from "#bench/harness/explain.ts"
 import {
@@ -8,7 +9,6 @@ import {
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
-import { deepEquals } from "#test/support/assert.ts"
 
 import {
 	compareVariants,

@@ -30,11 +30,11 @@ import {
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { printSource } from "@bjornpagen/grizzle-text/regex/print"
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { admittedPatternOver, families, stringsOver } from "#test/unit/text/generators.ts"
 

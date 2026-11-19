@@ -2,6 +2,7 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as EngineResult from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -39,7 +40,7 @@ import {
 	type Tuple
 } from "#compiler/ir/cells.ts"
 import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
-import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { failed, succeeded } from "#test/support/assert.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 
 /** A product layout, which most of these rules are stated over: each key coordinate's and payload coordinate's codes. */

@@ -13,6 +13,7 @@
  * bound tuple and a scoped stage kept.
  */
 
+import { assert, contains } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -21,7 +22,6 @@ import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
-import { assert, contains } from "#test/support/assert.ts"
 import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	type Bound,

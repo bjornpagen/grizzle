@@ -1,6 +1,7 @@
 /** What the properties of slice.test.ts read: their spaces, the slice computed from a draw, and their helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -36,7 +37,7 @@ import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { fullRoleDesc, type OwnedLogin, type OwnedRole, ownLogin } from "#compiler/schema/own.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredRelationDesc,
 	type AuthoredStatementDesc,

@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -15,7 +16,6 @@ import {
 	situations,
 	verdictFeatures
 } from "#test/pg/world-model/roles.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, runStep } from "#test/support/worlds/drive/index.ts"
 import { unnoted } from "#test/support/worlds/drive/suite.ts"

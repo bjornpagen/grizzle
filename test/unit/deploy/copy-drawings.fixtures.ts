@@ -1,11 +1,12 @@
 /** What the properties of copy-drawings.test.ts read: its space of copies a migration adds along one axis, and its
  * judge. */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
 	contained,

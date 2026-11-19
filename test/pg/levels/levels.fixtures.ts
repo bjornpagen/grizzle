@@ -20,8 +20,8 @@ import {
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 
+import { defined } from "@bjornpagen/testing/assert"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { levelNameAt } from "#test/support/compile.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { type Generated, generatedTemplate } from "#test/support/install-migrate.ts"

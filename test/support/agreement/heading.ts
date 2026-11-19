@@ -1,4 +1,5 @@
 import { longest, membersWithin } from "@bjornpagen/grizzle-text/regex/dfa"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { Column } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -16,7 +17,6 @@ import {
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import type { Carriers } from "#compiler/types/core/phantom.ts"
-import { defined } from "#test/support/assert.ts"
 
 /**
  * The engine's decoded heading, written as the TypeScript type its records have, so a generated program asserts the

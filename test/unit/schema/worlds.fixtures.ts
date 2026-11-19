@@ -1,6 +1,7 @@
 /** What the properties of worlds.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -32,7 +33,6 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { admitRole } from "#compiler/schema/world.ts"
 import { buildSchema } from "#test/pg/derived/oracle/gen.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { fieldSketchGen, pgField, type SketchedField } from "#test/unit/schema/field-sketch.ts"

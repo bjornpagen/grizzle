@@ -1,6 +1,7 @@
 /** What the properties of temporal.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Option, type Scope } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -12,7 +13,6 @@ import {
 	type Span,
 	SPANS
 } from "#test/pg/substrate/temporal.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {

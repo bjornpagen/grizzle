@@ -17,6 +17,7 @@
  * class of double.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed, constant, element, finite, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -36,7 +37,7 @@ import {
 	writeDoBlock,
 	writeStatement
 } from "#compiler/sql/print.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import {
 	blockSketch,

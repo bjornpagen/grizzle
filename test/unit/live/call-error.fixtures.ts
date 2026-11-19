@@ -40,10 +40,11 @@ import type { MemberWire, RoleWitness, WireOptions } from "#compiler/live/shape.
 import type { WireJson, WireScalar } from "#compiler/live/wire.ts"
 import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
 
+import { assert } from "@bjornpagen/testing/assert"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"

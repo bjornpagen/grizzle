@@ -21,11 +21,11 @@
  * Oracle: a specification read off the schema's own reads. The box, exhausted: every change.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	type Change,
 	changeGen,

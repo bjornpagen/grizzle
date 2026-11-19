@@ -26,12 +26,12 @@
  * with T immutable or mutable.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	type Change,
 	changedBy,

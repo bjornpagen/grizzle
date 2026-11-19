@@ -22,6 +22,7 @@
  * Features: every candidate shape of test/support/lexical.ts.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -35,7 +36,6 @@ import {
 	roundDouble,
 	targetKey
 } from "#test/pg/scalar/lexical.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { type Candidate, candidateGen, type Shape, shapes } from "#test/support/lexical.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

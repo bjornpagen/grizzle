@@ -14,6 +14,7 @@
  */
 
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -25,7 +26,7 @@ import {
 	validateText
 } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 import {
 	plantedFault,
 	type PlantedFeature,

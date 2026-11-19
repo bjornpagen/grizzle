@@ -1,5 +1,6 @@
 /** What the properties of endpoints.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { type EndpointComparison } from "#compiler/allen/endpoints.ts"
@@ -10,7 +11,6 @@ import {
 	type SpanEndpoint
 } from "#compiler/allen/mask.ts"
 import { type AllenRelation } from "#compiler/core/allen.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import {
 	type HalfOpen,
 	type PairFacts,

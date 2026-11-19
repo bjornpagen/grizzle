@@ -13,13 +13,13 @@
  * Features: fetched on each evidence; held back by each guard; a correlated take held back.
  */
 
-import { assertNone } from "@bjornpagen/testing/assert"
+import { assert, lacks } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { lateFetchPass } from "#compiler/lower/optimize/late-fetch/index.ts"
-import { assert, lacks, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import {
@@ -84,7 +84,7 @@ export const latePayloadFetchSelectsTheNarrowKeyUnderTheBoundThenJoinsThePayload
 					}
 					return
 				}
-				assertNone(cert)
+				assert.deepEqual(cert, Option.none())
 			}),
 		oracle: {
 			kind: "specification",

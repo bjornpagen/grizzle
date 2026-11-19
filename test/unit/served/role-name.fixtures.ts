@@ -27,6 +27,7 @@ import {
 } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 
+import { assert } from "@bjornpagen/testing/assert"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyLogin,
@@ -38,7 +39,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { assert, throwsRefused } from "#test/support/assert.ts"
+import { throwsRefused } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { compiledLogin } from "#test/support/served-login.ts"

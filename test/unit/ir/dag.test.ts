@@ -18,6 +18,7 @@
  * spelling not in normal form.
  */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -54,15 +55,7 @@ import { builtExpr, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { type Cell, conservativeMeta, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import {
-	assert,
-	defined,
-	refusalLoc,
-	refused,
-	succeeded,
-	throwsDefect,
-	unorderedEqual
-} from "#test/support/assert.ts"
+import { refusalLoc, refused, succeeded, throwsDefect } from "#test/support/assert.ts"
 import { normalizeDag, toTable } from "#test/support/dag.ts"
 import { normalizeExprTable } from "#test/support/fixtures/ir/scalar.ts"
 import { validateDag, validateTable } from "#test/support/oracle/dag-validate.ts"

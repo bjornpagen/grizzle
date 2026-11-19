@@ -21,6 +21,7 @@
  * Features: each relation's insert and put applied, a refusal by each law, and an unchanged write.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
@@ -39,7 +40,6 @@ import {
 	genqueryInstall,
 	genqueryTemplate
 } from "#test/pg/write/generated-source/generated-source.fixtures.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"

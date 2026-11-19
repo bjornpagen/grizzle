@@ -18,6 +18,7 @@
  * Features: each search's verdicts, pairings and contexts.
  */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, finite, int, shuffled, subarray } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -25,7 +26,7 @@ import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { immediateEvidence, lawIdentityOf } from "#compiler/analysis/theory/theory.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { FieldId } from "#compiler/core/ids.ts"
-import { assert, defined, refused, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import * as G from "#test/support/fixtures/golden/work.ts"
 import {

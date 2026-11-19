@@ -14,13 +14,14 @@
  * Features: one heading, a heading within the other, a field of another type.
  */
 
+import { deepEquals } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { deepEquals, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"

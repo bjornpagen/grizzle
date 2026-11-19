@@ -1,5 +1,6 @@
 /** What the properties of simplify.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
@@ -9,7 +10,7 @@ import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { Account, Posting, Q, T, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
 import {

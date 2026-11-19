@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The cosine domain of a vector field (scalar/values/vector.ts, ir/expr.ts): the float32 buffers of the field's
  * dimensions, every component finite, whose norm lies in [cosineNormMin, cosineNormMax].
@@ -19,7 +20,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { EncodingFailure, isCompileError } from "#compiler/core/errors.ts"
 import { Vector } from "#compiler/public/fields.ts"
-import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 import { paramText } from "#test/support/wire.ts"
 import {
 	bufferGen,

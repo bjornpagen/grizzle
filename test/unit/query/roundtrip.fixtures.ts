@@ -1,5 +1,6 @@
 /** What the properties of roundtrip.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -29,7 +30,6 @@ import {
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { queryState } from "#compiler/query/build/state.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { assert } from "#test/support/assert.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
 import { AutomaticTask, Kind, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { at, Booking, descOf, Schedule } from "#test/unit/query/fixtures.ts"

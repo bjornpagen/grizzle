@@ -24,6 +24,7 @@
  * it shrinks does, not on the rows that case left (a duplicate owner key, 23505, at the long family's first INSERT).
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { measureTransaction } from "#bench/harness/transaction.ts"
@@ -41,7 +42,6 @@ import {
 } from "#test/pg/fin/scale.fixtures.ts"
 import { nodeBatchParams, nodeBatchSql, RELATIONS } from "#test/pg/fin/tree.ts"
 import { loadTree } from "#test/pg/substrate/tree.ts"
-import { assert } from "#test/support/assert.ts"
 import { breachesOf } from "#test/support/families/theorem.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"

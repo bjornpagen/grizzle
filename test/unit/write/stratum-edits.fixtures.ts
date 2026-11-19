@@ -1,5 +1,6 @@
 /** What the properties of stratum-edits.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { array, type Gen, subset, weighted } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -14,7 +15,7 @@ import {
 } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"

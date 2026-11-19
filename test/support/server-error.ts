@@ -1,7 +1,7 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { DatabaseError } from "pg"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
-import { assert } from "#test/support/assert.ts"
 
 /**
  * A ServerError as the wire parses it (packages/grizzle/src/adapter/wire/failure.ts serverFailure): the ErrorResponse pg reports as a

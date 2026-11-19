@@ -1,6 +1,7 @@
 /** What the properties of codes.test.ts read: its spaces, models and helpers. */
 
 import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
@@ -21,7 +22,7 @@ import {
 	type RosterRenames
 } from "#compiler/ir/codes.ts"
 import { Roster, type RosterOrder } from "#compiler/ir/scalar.ts"
-import { assert, defined, failed, nonEmpty, succeeded, throwsDefect } from "#test/support/assert.ts"
+import { failed, succeeded, throwsDefect } from "#test/support/assert.ts"
 
 /**
  * The first of `rosters` whose codes `book` does not hold exactly as its live handles, an ordered roster's in declared

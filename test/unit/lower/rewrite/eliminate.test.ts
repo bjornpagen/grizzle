@@ -16,13 +16,12 @@
  * Features: eliminated in each evidence context and on each kind of evidence; held back for each missing premise.
  */
 
-import { assertNone } from "@bjornpagen/testing/assert"
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { OpId } from "#compiler/ir/expr.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import {
 	accountKey,
 	type Containment,
@@ -84,7 +83,7 @@ export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentA
 							c.note("held back: the match does more than match a key")
 						}
 						if (!(containmentAdmitted && keyed && match === "key match")) {
-							assertNone(found)
+							assert.deepEqual(found, Option.none())
 							return
 						}
 						const cert = Option.getOrThrowWith(

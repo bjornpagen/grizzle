@@ -1,3 +1,4 @@
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
@@ -43,7 +44,7 @@ import {
 	orderCodes,
 	orderedBy
 } from "#test/pg/values/order.fixtures.ts"
-import { type AnyResult, assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { type AnyResult, succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { codecOf } from "#test/unit/codec/support.ts"

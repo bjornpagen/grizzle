@@ -19,6 +19,7 @@
  * situations each check could silently stop reaching.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -28,7 +29,6 @@ import { allenFormula } from "#compiler/allen/lower.ts"
 import { AllenMask, allenMaskOf, converseMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { allenTable } from "#compiler/allen/table.generated.ts"
 import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	everyDisjunctIndexable,
 	formulaAtomCount,

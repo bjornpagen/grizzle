@@ -14,10 +14,10 @@
  */
 
 import { resolveReference } from "@bjornpagen/grizzle-text/uri"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
 import { referenceCaseGen, type UriFeature } from "#test/unit/text/uri.fixtures.ts"
 

@@ -1,3 +1,4 @@
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * A role that writes nothing runs the read-backs its login serves: Learning Commons' reader (edullm
  * packages/data/learning-commons logins.ts), one role over every relation whole and writing none, serves its reads as
@@ -35,7 +36,6 @@ import {
 	modelOf,
 	readerApp
 } from "#test/pg/served/unwritten-read-backs.fixtures.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { loadMigrated } from "#test/support/install-migrate.ts"
 import { Served } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

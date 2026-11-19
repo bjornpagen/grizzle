@@ -28,12 +28,12 @@
  * a fold before the removed one and one after it.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	checkShape,
 	type Feature,

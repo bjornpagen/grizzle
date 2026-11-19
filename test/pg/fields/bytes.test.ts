@@ -15,6 +15,7 @@
  * Features: the vocabulary Feature below, each value's length class and each path it is written and read by.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Option, Order } from "effect"
@@ -35,7 +36,6 @@ import {
 	blobsTemplate
 } from "#test/pg/fields/bytes.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

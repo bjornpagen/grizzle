@@ -26,6 +26,7 @@
  * broken rule refused at each slot, an extension schema that is the schema, and each spelling installed.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { shuffled } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -33,7 +34,7 @@ import { Array as Arr, Effect } from "effect"
 import type { DeployPhase, PhysicalKind } from "#compiler/ir/products.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { phaseOrder } from "#compiler/physical/obligations/graph.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"
 import {

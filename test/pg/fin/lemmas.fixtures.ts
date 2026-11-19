@@ -5,11 +5,11 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Oracle } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { quoteString } from "#compiler/core/text.ts"
 import { type FamilySeat, familyTemplates, installedOf } from "#test/pg/fin/family.ts"
 import { type EndFeature } from "#test/pg/fin/installed.ts"
 import { predicted as substratePredicted } from "#test/pg/substrate/fin.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import {
 	BREAKING_FORMS,
 	type Form,

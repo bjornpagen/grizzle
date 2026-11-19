@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Two imports of unrelated packages whose Entry bytes pass one Bind message (write/program/staged.ts), in overlapping
  * SERIALIZABLE transactions, every interleaving: each is pantry's import shape, a fresh immutable Package with its
@@ -32,7 +33,6 @@ import { bytes, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

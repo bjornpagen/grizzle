@@ -12,6 +12,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -28,7 +29,6 @@ import {
 	outcomes,
 	predicate
 } from "#test/pg/allen/table.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { formulaSql } from "#test/support/oracle/allen-sql.ts"
 import {
 	canonicalizationSurvey,

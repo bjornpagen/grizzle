@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The type oracle (test/support/oracle/verify/types.ts) judges each part of a statement of tagged parts as lowered,
  * before its executable form casts its columns to texts, and not only through the rows the differential compares: over
@@ -15,7 +16,6 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { typedPlants } from "#test/pg/oracle/optimized/support.ts"
 import { type PlantFeature, plantsOf } from "#test/pg/oracle/optimized/type-plant.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { optimizerGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { namedPlacement, oracleProperty, PropertyFailed } from "#test/support/oracle/runner.ts"
 

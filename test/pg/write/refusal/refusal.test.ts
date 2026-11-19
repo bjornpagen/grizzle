@@ -9,6 +9,7 @@
  * - Features: a law's refusal and a concurrent change.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -34,7 +35,6 @@ import {
 	raisedFeatures,
 	refusalTemplate
 } from "#test/pg/write/refusal/refusal.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

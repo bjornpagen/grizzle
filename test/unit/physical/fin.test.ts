@@ -24,6 +24,7 @@
  * and one past it refused.
  */
 
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -31,15 +32,7 @@ import { Effect } from "effect"
 import { cellMaxCodes, cellCodesBound } from "#compiler/physical/ddl/constants.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
-import {
-	assert,
-	assertVariant,
-	defined,
-	refusalLoc,
-	refused,
-	succeeded,
-	throwsRefused
-} from "#test/support/assert.ts"
+import { refusalLoc, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import {
 	type Bounded,
 	codesGen,

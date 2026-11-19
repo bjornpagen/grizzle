@@ -1,5 +1,6 @@
 /** What the property of places.test.ts reads: its schema, its space, its model and its helpers. */
 
+import { deepEquals } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { constant, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
@@ -8,7 +9,6 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, place } from "#compiler/public/fields.ts"
 import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { deepEquals } from "#test/support/assert.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import { rigTemplate } from "#test/support/schedules/rig.ts"
 

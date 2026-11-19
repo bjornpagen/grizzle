@@ -43,6 +43,7 @@
  * update moving a row between groups, each read shape, each writer, a sealed copy of the last fence's notification.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { awaitFact } from "@bjornpagen/testing/fact"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -69,7 +70,7 @@ import {
 	marksOf,
 	Misrouted
 } from "#test/pg/live/routing.fixtures.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { commitLive, inputOf, worldRegistrations, worldSurfaces } from "#test/support/live/calls.ts"
 import { commitDirectly, fenceStatement } from "#test/support/live/direct.ts"
 import { installLive } from "#test/support/live/harness.ts"

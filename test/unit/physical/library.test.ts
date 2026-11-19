@@ -15,6 +15,7 @@
  * Features: each place the schema calls it, and none.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -35,7 +36,6 @@ import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import type { FunctionName, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 

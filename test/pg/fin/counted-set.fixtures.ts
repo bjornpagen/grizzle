@@ -1,5 +1,6 @@
 /** What the properties of counted-set.test.ts read: its spaces, models and helpers. */
 
+import { deepEquals, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option } from "effect"
@@ -25,7 +26,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { int4, setOf, Tag } from "#test/pg/fin/folds.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { deepEquals, defined } from "#test/support/assert.ts"
 import { type FoldMonoid, foldStoredOf } from "#test/support/families/fold.ts"
 import { installedTemplate } from "#test/support/install-migrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"

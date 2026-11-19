@@ -1,8 +1,8 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, String as Str } from "effect"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { ComputeFn } from "#compiler/ir/desc.ts"
 import { computeSpecs } from "#compiler/scalar/compute/registry.ts"
-import { defined } from "#test/support/assert.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 

@@ -20,12 +20,13 @@
  * Features: each truth of a check and of the selection, a generated value and a NULL one, several rows.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { agree, exact } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { fromHost, itemFact } from "#test/support/null/build.ts"
 import { evalPred, evalTerm, type Item, silent, sortOf } from "#test/support/null/language.ts"

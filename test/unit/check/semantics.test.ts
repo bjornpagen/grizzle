@@ -1,3 +1,4 @@
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -8,15 +9,7 @@ import { exprsOf } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import {
-	assert,
-	failed,
-	placeOf,
-	refusalLoc,
-	refused,
-	succeeded,
-	unorderedEqual
-} from "#test/support/assert.ts"
+import { failed, placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"

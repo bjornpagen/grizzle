@@ -16,11 +16,11 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { replaceRows, rowsGroup } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

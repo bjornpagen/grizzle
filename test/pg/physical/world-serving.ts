@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -97,7 +98,7 @@ import {
 	withoutOthers
 } from "#test/pg/physical/serving.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installedCodes, testArtifacts } from "#test/support/compile.ts"
 import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import { workloadOf } from "#test/support/installed.ts"

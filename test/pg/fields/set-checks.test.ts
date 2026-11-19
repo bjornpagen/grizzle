@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A set compared with a set value in a row check, on PostgreSQL 19rc2: `Compute.disjoint` and `Compute.subset` take a
  * set value of the first operand's roster (Bits.of) as their second operand, a literal that takes the set's type, so its
@@ -28,7 +29,6 @@ import {
 	situationOf
 } from "#test/pg/fields/set-checks.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"

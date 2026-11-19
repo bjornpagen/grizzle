@@ -19,6 +19,7 @@
  * planted or none; each way a window's rows fail.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -28,7 +29,7 @@ import type { SentRuns } from "#adapter/reader/execution.ts"
 import { deliveredRows } from "#adapter/reader/run.ts"
 import { type Delivery, licenses, type Row, UnlawfulDelivery } from "#compiler/core/decoder.ts"
 import { bindGroups, named, record } from "#compiler/schema/record.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { outputRows } from "#test/support/wire.ts"

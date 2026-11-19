@@ -16,6 +16,7 @@
  * Features: ordered by a cast output, ordered by two outputs, the tag alone.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -25,7 +26,7 @@ import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { directions } from "#compiler/core/order.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { lowerAligned, programAsts } from "#test/support/compile.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {

@@ -7,6 +7,7 @@ import { draftSchema } from "#cli/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload, workloadState } from "#compiler/program/workload/value.ts"
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyLogin,
@@ -20,7 +21,6 @@ import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { sittingShape } from "#test/pg/isolation/support/shapes.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { platformAt } from "#test/support/fixtures/api/platform.ts"
 import { Id } from "#test/support/ids.ts"

@@ -1,5 +1,6 @@
 /** What the properties of superkey-orders.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, shuffled, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
@@ -14,7 +15,7 @@ import {
 	reviewedSource,
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installationSql, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
 	contained,

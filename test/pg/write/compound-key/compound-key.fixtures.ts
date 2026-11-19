@@ -1,5 +1,6 @@
 /** What the properties of compound-key.test.ts read: its spaces, models and helpers. */
 
+import { assert, deepEquals, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -30,7 +31,6 @@ import {
 	onBuilder
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"

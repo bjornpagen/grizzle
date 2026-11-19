@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Contract predicates against PostgreSQL 19 domains: a contract over each base (bigint, integer, numeric, double
  * precision and text), its predicate the installed domain's CHECK.
@@ -27,7 +28,7 @@ import {
 	roundingBatch
 } from "#test/pg/compute/contract.fixtures.ts"
 import { parseAnswer } from "#test/pg/compute/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { adoptedLiteral, plainRender, renderSql } from "#test/unit/compute/support.ts"
 

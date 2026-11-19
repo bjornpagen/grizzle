@@ -20,6 +20,7 @@
  * test/pg/reads/open.test.ts's.
  */
 
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -54,7 +55,6 @@ import {
 	rowsOn,
 	substrateLogin
 } from "#test/pg/adapter/support.ts"
-import { assert, assertVariant } from "#test/support/assert.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { clusterTransport } from "#test/support/pg.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"

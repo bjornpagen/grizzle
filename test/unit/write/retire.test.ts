@@ -24,11 +24,12 @@
  * Stream, beside a write of Other, in two strata, over the retirer role; nothing retired.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { slotsRead } from "#test/support/slot-carriers.ts"
 import {
 	compiledOf,

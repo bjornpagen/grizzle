@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, failureOf } from "@bjornpagen/testing/assert"
 /**
  * The wire's flights (adapter/wire/batch.ts) on pg in pipeline mode, observed on the protocol through the tap
  * (test/support/wire-tap.ts), one session to a schema of the test's own with a write's frame.
@@ -45,7 +46,6 @@ import {
 	verdictAlone
 } from "#test/pg/adapter/batch-parity.fixtures.ts"
 import { refusedAts, refusedCases } from "#test/pg/adapter/batch-parity.fixtures.ts"
-import { assert, failureOf } from "#test/support/assert.ts"
 import { replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows, paramText } from "#test/support/wire.ts"

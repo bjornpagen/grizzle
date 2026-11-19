@@ -11,13 +11,14 @@
  */
 
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { textArray } from "#compiler/codec/bytea.ts"
 import { readArrayBinary } from "#test/support/arrays.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	endsTwoByte,
 	holdsTwoByte,

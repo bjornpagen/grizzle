@@ -30,6 +30,7 @@
  * than leave the situation to the tape: its fixed floor witnesses missed it once bbf0a29d drew a law level's order.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -38,7 +39,6 @@ import { served } from "#adapter/public/layer.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { httpHandler, httpRoutes } from "#http/index.ts"
 import { offlineConnection } from "#test/pg/cli/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { resolveCase } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"

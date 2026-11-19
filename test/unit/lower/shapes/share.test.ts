@@ -7,13 +7,14 @@
  * Features: shared and apart.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Q, Task } from "#test/unit/lower/conservative/fixtures.ts"
 import { params, tasksOf } from "#test/unit/lower/shapes/share.fixtures.ts"
 

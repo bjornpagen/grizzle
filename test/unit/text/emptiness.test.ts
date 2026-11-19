@@ -18,6 +18,7 @@
 import { minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { emptyLanguageAre } from "@bjornpagen/grizzle-text/regex/print"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -25,7 +26,7 @@ import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import {
 	caseGen,

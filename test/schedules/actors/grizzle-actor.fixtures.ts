@@ -1,10 +1,10 @@
 /** What the properties of grizzle-actor.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Fiber, Option } from "effect"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { rowsOn } from "#test/pg/adapter/support.ts"
-import { defined } from "#test/support/assert.ts"
 import { timekeepingHistory } from "#test/support/history/families.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import type { GrizzleActor } from "#test/support/schedules/actors.ts"

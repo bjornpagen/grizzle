@@ -1,5 +1,6 @@
 /** What the properties of readback-placement.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { NamedSide, ReadBackCrossing } from "#compiler/core/errors.ts"
@@ -19,7 +20,7 @@ import {
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"

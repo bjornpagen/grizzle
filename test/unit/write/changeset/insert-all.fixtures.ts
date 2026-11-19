@@ -1,5 +1,6 @@
 /** What the properties of insert-all.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Stream } from "effect"
 import { noClock } from "#compiler/ir/clock.ts"
@@ -25,7 +26,7 @@ import {
 	Ticket,
 	Work
 } from "#test/support/agreement/changeset-schema.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { conservativeWrite } from "#test/support/conservative.ts"
 import { checking } from "#test/support/policy.ts"

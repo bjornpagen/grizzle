@@ -1,3 +1,4 @@
+import { deepEquals } from "@bjornpagen/testing/assert"
 /**
  * The folds of the fin suites as grizzle lowers them: one schema per (monoid, carrier), an owner `Owner(id, n, …ends)`
  * and its ordered family `Member(member, g, at, x, …accumulators)` folded by `fold(family, Monoid.m, step, end)`, with
@@ -56,7 +57,6 @@ import {
 	ended,
 	type Seat
 } from "#test/pg/fin/installed.ts"
-import { deepEquals } from "#test/support/assert.ts"
 import { cellAt, cellsOf } from "#test/support/cells.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
 import {

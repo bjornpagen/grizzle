@@ -14,6 +14,7 @@
  * the thirteen bits, no integer, no number.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -29,7 +30,6 @@ import {
 	fullAllenMask,
 	parseAllenMask
 } from "#compiler/allen/mask.ts"
-import { assert } from "#test/support/assert.ts"
 import { classify, spanText } from "#test/support/oracle/allen.ts"
 import {
 	allenTerm,

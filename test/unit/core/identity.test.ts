@@ -23,6 +23,7 @@
  * minted again, meeting a standing name, meeting another temporary.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -36,7 +37,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { IdentityKind } from "#compiler/core/ids.ts"
 import { installationAbstraction } from "#test/pg/migrate/support.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"

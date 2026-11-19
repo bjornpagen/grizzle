@@ -1,5 +1,6 @@
 /** What the properties of foreign-key-types.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import type {
@@ -12,7 +13,6 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { cUtf8Collation, lit, namedType, types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { messageOf } from "#test/support/message.ts"
 import { emptyState, interpret, type ModelFile } from "#test/support/migrate/interpret.ts"

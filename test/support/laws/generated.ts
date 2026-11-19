@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -20,7 +21,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
-import { defined } from "#test/support/assert.ts"
 import { namedText } from "#test/support/closed/stored.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {

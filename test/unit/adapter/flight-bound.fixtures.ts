@@ -3,6 +3,7 @@
 import { Buffer } from "node:buffer"
 import { createServer, type Server, Socket } from "node:net"
 import { TLSSocket } from "node:tls"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	bytes,
@@ -47,7 +48,6 @@ import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { servedSession } from "#compiler/program/served.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { flightPrologue } from "#test/support/flight/model.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import { tlsMaterial } from "#test/support/memory-tls.ts"

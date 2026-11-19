@@ -17,6 +17,7 @@
  * here, as int8range and daterange literals.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -34,7 +35,6 @@ import {
 	type Where
 } from "#test/pg/spans/laws/selected-coverage.fixtures.ts"
 import { spanInstallIn, writerOf } from "#test/pg/spans/laws/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

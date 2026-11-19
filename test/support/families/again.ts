@@ -1,3 +1,4 @@
+import { deepEquals, defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * A stored instance of a fill specification (fill.ts) inserted again, identically or with drawn differences, and the
  * README's set rule as the model of what that insert does ("Writes": "add these rows; a row already present is no
@@ -30,7 +31,6 @@
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order } from "effect"
-import { deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	familyAt,
 	type FamilyKind,

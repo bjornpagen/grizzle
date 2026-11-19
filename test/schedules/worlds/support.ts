@@ -1,9 +1,9 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { Situations } from "@bjornpagen/testing/features"
 import { type Aimed, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import type { Nature, PctSchedule } from "@bjornpagen/testing/interleave"
 import { type Case, type Kept, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { every, type Strategy } from "#test/support/schedules/interleave.ts"
 import {
 	type RaceOp,

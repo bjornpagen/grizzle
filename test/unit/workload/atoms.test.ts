@@ -8,12 +8,12 @@
  * Features: a partial mask, the full mask.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { allenMaskMax } from "#compiler/core/allen.ts"
-import { assert } from "#test/support/assert.ts"
 import { allenQuery, filterAtoms } from "#test/unit/workload/atoms.fixtures.ts"
 
 /** What an Allen mask came to: a partial mask, or the full one. */

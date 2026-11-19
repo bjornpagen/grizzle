@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The package as a git submodule consumer takes it (consumer.ts): the README's and SKILL.md's programs, mirrored line
  * for line in test/types/examples/fixtures, typecheck as a consumer's, against the package's source reached through its
@@ -12,7 +13,6 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, FileSystem, Path, String as Str } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { consumerProject, exitedCleanly, runChild } from "#test/unit/dev/consumer.ts"
 import { type Mirror, mirrorBox, mirrors, mirrorTsconfig } from "#test/unit/dev/package.fixtures.ts"
 

@@ -1,3 +1,4 @@
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 /** What the properties of contract.test.ts read: its contracts, their values and each contract's property. */
 import type { Reached } from "@bjornpagen/testing/features"
 import {
@@ -29,7 +30,7 @@ import {
 	type PgAnswer,
 	parseAnswer
 } from "#test/pg/compute/support.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type CatalogResult, constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {

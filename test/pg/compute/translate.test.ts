@@ -23,6 +23,7 @@
  */
 
 import { codePoints, codePointsText, collapsed, translated } from "@bjornpagen/grizzle-text/text"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -46,7 +47,6 @@ import {
 	textColumn,
 	variable
 } from "#test/pg/compute/translate.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"

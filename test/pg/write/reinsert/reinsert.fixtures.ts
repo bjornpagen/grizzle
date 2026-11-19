@@ -1,5 +1,6 @@
 /** What the properties of reinsert.test.ts read: its spaces, models and helpers. */
 
+import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import { constant, element, type Gen, int, oneOf, subset, weighted } from "@bjornpagen/testing/gen"
 import { swarm } from "@bjornpagen/testing/swarm"
@@ -8,7 +9,6 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
-import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import {
 	type AgainVerdict,
 	againVerdict,

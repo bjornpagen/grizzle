@@ -1,5 +1,6 @@
 /** What the properties of project.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	accepted,
 	type Answer,
@@ -81,7 +82,7 @@ import {
 	offlineOwner,
 	resolvedConfig
 } from "#test/pg/cli/support.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"

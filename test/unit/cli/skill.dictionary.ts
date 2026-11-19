@@ -1,5 +1,5 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { dictionary } from "@bjornpagen/testing/dictionary"
-import { nonEmpty } from "#test/support/assert.ts"
 import { documentedTexts } from "#test/support/refusals.ts"
 
 /**

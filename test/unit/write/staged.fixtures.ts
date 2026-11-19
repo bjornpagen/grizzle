@@ -2,6 +2,7 @@
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -25,7 +26,7 @@ import type { Transport } from "#compiler/runtime/write/transport.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { testSql } from "#test/support/sql.ts"
 import { paramText } from "#test/support/wire.ts"
 

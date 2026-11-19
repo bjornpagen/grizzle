@@ -1,3 +1,4 @@
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -21,7 +22,6 @@ import {
 	verdictLabel
 } from "#test/pg/write/reinsert/reinsert.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { againVerdict, differed, unitDelete, unitRelations } from "#test/support/families/again.ts"
 import {
 	buildFill,

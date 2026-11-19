@@ -19,6 +19,7 @@
  * and overlapping sets; every native operation over two rosters' sets.
  */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
@@ -28,7 +29,7 @@ import { bits } from "#compiler/public/fields.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { NativeFn } from "#compiler/scalar/compute/registry.ts"
 import { closed } from "#compiler/schema/api.ts"
-import { defined, nonEmpty, throwsRefused } from "#test/support/assert.ts"
+import { throwsRefused } from "#test/support/assert.ts"
 import { twoSetOperations } from "#test/unit/compute/bits.dictionary.ts"
 import {
 	agrees,

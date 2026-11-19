@@ -1,6 +1,7 @@
 /** What the properties of null-rewrites.test.ts read: its spaces, models and helpers. */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Case, Steered } from "@bjornpagen/testing/explore"
 import { array, boolean, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
@@ -24,7 +25,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import type { Predicate, Term } from "#compiler/types/core/phantom.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered, rowsOf, type WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"

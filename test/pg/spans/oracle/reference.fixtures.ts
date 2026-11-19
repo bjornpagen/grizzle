@@ -1,5 +1,6 @@
 /** What the properties of reference.test.ts read: its spaces, models and helpers. */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Formatter, Option, Order } from "effect"
@@ -7,7 +8,6 @@ import { AllenMask } from "#compiler/allen/mask.ts"
 import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { col } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import { maskSql } from "#test/support/oracle/allen-sql.ts"
 import { classify, type HalfOpen, spanText, windowSpans } from "#test/support/oracle/allen.ts"
 import {

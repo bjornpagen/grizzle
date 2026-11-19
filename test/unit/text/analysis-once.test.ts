@@ -24,6 +24,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import {
@@ -37,7 +38,7 @@ import { containedBuilder, keyBuilder, onBuilder } from "#compiler/schema/statem
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { ownedInput } from "#test/support/policy.ts"

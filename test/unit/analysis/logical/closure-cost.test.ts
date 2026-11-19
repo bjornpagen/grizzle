@@ -21,6 +21,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -29,7 +30,7 @@ import { analyzePhysical, type PhysicalEnv, unplaced } from "#compiler/analysis/
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
 import { attributesOver, bitsOf, namesOf } from "#compiler/logical/attributes.ts"
 import { closure, namesNothing, rowsOf } from "#compiler/logical/closure.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	type ClosureFeature,

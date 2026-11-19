@@ -12,6 +12,7 @@
  * Features: the vocabulary Feature below, each member value's length class about a chunk.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Order } from "effect"
@@ -28,7 +29,6 @@ import {
 	filesTemplate
 } from "#test/pg/fields/bytes-family.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"

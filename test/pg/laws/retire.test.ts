@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A retirable unit served whole, as den serves its runs: a worker role that inserts every relation of the unit and an
  * application's audits beside it, and a retirer role of its own that retires runs (ChangeSet.retire), each certified
@@ -38,7 +39,6 @@ import {
 	flowsTemplate,
 	stepOf
 } from "#test/pg/laws/retire.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { type Installed, loadMigrated } from "#test/support/install-migrate.ts"
 import { Served } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

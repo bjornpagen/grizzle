@@ -1,5 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	Array as Arr,
 	Effect,
@@ -53,7 +54,6 @@ import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import {
 	appliedHistory,

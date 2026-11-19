@@ -19,12 +19,12 @@
  * generator's, which test/unit/allen/table.test.ts holds.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, int, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
 import { rowsAs, runArtifact } from "#test/pg/spans/allen/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { rangeTypes } from "#test/support/oracle/allen.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

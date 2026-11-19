@@ -18,12 +18,13 @@
 
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { toAre } from "@bjornpagen/grizzle-text/regex/print"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, constant, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import {

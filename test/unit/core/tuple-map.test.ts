@@ -15,10 +15,10 @@
  */
 
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	type ModelEntry,
 	prefixOf,

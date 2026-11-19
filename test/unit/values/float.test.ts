@@ -19,11 +19,11 @@
  * kept; a NaN against another value, two NaNs, -0 against 0, an infinity, and two distinct finite values.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { compareFloat, floatText } from "#compiler/scalar/values/float.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	doubleGen,
 	modelOrder,

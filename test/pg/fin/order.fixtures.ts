@@ -1,10 +1,10 @@
 /** What the properties of order.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { familyTemplates } from "#test/pg/fin/family.ts"
 import type { EndFeature } from "#test/pg/fin/installed.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import type { MutationStatement } from "#test/support/families/mutate.ts"
 import {
 	type Families,

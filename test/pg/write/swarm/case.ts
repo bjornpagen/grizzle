@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 /**
  * The cases the family swarm search draws (test/pg/write/swarm/families.test.ts): a schema (spec.ts), then its
  * ChangeSets, each drawn from the state the ones before it leave where they are accepted: the first inserts an
@@ -34,7 +35,6 @@ import {
 	type SwarmSpec,
 	swarmSpecGen
 } from "#test/pg/write/swarm/spec.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	type FillSpec,
 	followUpGen,

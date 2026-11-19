@@ -1,6 +1,7 @@
 /** What the properties of schema-input.test.ts read: its spaces, models and helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import type { Corruption } from "@bjornpagen/testing/lsw"
 import type { Need } from "@bjornpagen/testing/property"
@@ -13,7 +14,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	type FixtureSchema,

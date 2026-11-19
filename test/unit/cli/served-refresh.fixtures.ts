@@ -1,5 +1,6 @@
 /** What the properties of served-refresh.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { Array as Arr, Cause, DateTime, Effect, Equivalence, FileSystem, Option } from "effect"
@@ -13,7 +14,7 @@ import { servedPath } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { upTo } from "#test/support/up-to.ts"

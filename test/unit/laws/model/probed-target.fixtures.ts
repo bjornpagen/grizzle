@@ -1,5 +1,6 @@
 /** What the properties of probed-target.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Order, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
@@ -21,7 +22,7 @@ import {
 import { type InstallBasis, installBasis } from "#compiler/physical/install/plan.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	contained,
 	eq,

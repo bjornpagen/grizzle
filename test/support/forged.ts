@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Result } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
@@ -12,7 +13,6 @@ import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { defined } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 

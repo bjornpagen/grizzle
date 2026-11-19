@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A query entry's write meets every unique object of its target a stored fact at any unique object, inside the entry or outside it, is that object's law with the submitted key.
  *
@@ -23,7 +24,6 @@ import {
 	Seat,
 	seatsAt
 } from "#test/pg/write/entry-occupants/entry-occupants.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { servedFixture } from "#test/support/served-db.ts"

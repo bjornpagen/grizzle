@@ -1,3 +1,4 @@
+import { assert, failureOf } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
@@ -21,7 +22,6 @@ import {
 	rowsAt,
 	Tag
 } from "#test/pg/write/refusal/delivered.fixtures.ts"
-import { assert, failureOf } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { conservativeServedJson, servedFixtureOf } from "#test/support/served-db.ts"

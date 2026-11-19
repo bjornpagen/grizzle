@@ -14,6 +14,7 @@
  * and its codes; and nothing of a snapshot.json that records no format, or another, is served.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
@@ -35,7 +36,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { installationsOf, own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { caseGen, type Placement, schemaOf } from "#test/unit/deploy/snapshot-levels.fixtures.ts"
 

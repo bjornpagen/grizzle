@@ -1,4 +1,5 @@
 import { inspect } from "node:util"
+import { assert, lacksText } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Cause, Effect, Exit, Option, String as Str } from "effect"
@@ -14,7 +15,6 @@ import {
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { DbConfigShape } from "#adapter/types/layer.ts"
-import { assert, lacksText } from "#test/support/assert.ts"
 import { memoryEndpoint, memoryTransport } from "#test/support/memory-tls.ts"
 import { processEnvironment, valueMark } from "#test/support/process-env.ts"
 import { withLayer } from "#test/support/with-layer.ts"

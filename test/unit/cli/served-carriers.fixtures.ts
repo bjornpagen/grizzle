@@ -1,5 +1,6 @@
 /** What the properties of served-carriers.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Record as Rec, Result, String as Str } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
@@ -20,7 +21,7 @@ import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { interpret, type ModelFile, type State } from "#test/support/migrate/interpret.ts"
 import { draftActions } from "#test/support/migrate/review.ts"

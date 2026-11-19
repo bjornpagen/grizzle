@@ -24,6 +24,7 @@
  * Features: each class of drawn bytes and each lowering the digest is checked through.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
@@ -56,7 +57,6 @@ import {
 import { textCell } from "#test/pg/compute/support.ts"
 import { probe } from "#test/pg/physical/checks.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

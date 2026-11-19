@@ -1,5 +1,6 @@
 /** What the properties of differential.test.ts read: its spaces, models and helpers. */
 
+import { deepEquals } from "@bjornpagen/testing/assert"
 import {
 	array,
 	codePoint,
@@ -29,7 +30,6 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { deepEquals } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	installationSql,

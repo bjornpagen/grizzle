@@ -33,6 +33,7 @@
  */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { assert, lacks } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -81,7 +82,6 @@ import {
 	interleavingAims
 } from "#test/pg/serverless/pool.fixtures.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
-import { assert, lacks } from "#test/support/assert.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 

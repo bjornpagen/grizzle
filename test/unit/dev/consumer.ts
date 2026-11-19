@@ -1,3 +1,4 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
@@ -11,7 +12,6 @@ import {
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 
 /** What a consumer installs beside grizzle, from its package.json: its peers. */
 type Manifest = {

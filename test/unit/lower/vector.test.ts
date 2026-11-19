@@ -18,11 +18,12 @@
  * Features: each placement shape paired with its outcome; a search admitted and refused by its purpose and score.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { programAsts } from "#test/support/compile.ts"
 import { candidates } from "#test/support/fixtures/api/search.ts"
 import {

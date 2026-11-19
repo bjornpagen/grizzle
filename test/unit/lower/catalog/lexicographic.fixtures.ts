@@ -1,5 +1,6 @@
 /** What the properties of lexicographic.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -18,7 +19,6 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { connectiveOps, definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { defined } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 type Cmp = "eq" | "ne" | "lt" | "le" | "gt" | "ge"

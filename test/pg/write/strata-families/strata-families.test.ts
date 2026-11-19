@@ -22,6 +22,7 @@
  * stratum.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -37,7 +38,6 @@ import {
 	strataInstall,
 	strataTemplate
 } from "#test/pg/write/strata-families/strata-families.fixtures.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

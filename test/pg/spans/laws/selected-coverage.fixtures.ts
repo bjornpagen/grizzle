@@ -1,5 +1,6 @@
 /** What the properties of selected-coverage.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, map, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import {
@@ -11,7 +12,6 @@ import {
 } from "#compiler/ir/date.ts"
 import { visits, type VisitsEndpoint } from "#test/pg/spans/laws/schemas.ts"
 import { spanLawsTemplate } from "#test/pg/spans/laws/support.ts"
-import { defined } from "#test/support/assert.ts"
 
 const int8Min = -(2n ** 63n)
 

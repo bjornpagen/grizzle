@@ -35,13 +35,13 @@
  */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { AnyLoginRole } from "#compiler/public/schema.ts"
 import { applyFacts, openedPlatform } from "#test/pg/e2e-platform/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { pickIndex } from "#test/support/pick.ts"
 import { plannedIndexes, recordingMembers, sentProblems, unanalyzed } from "#test/support/plans.ts"

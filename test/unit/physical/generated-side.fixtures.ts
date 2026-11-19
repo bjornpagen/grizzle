@@ -1,6 +1,7 @@
 /** What the properties of generated-side.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { pg } from "#compiler/public/fields.ts"
@@ -21,7 +22,6 @@ import { rowHelpers } from "#compiler/schema/terms.ts"
 import type { ColumnDef, Expr } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { regex } from "#test/unit/schema/support.ts"
 
 /**

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Compute.power on PostgreSQL 19.
  *
@@ -47,7 +48,6 @@ import {
 	parseAnswer,
 	runCases
 } from "#test/pg/compute/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { edges, powerBatch } from "#test/support/power-pairs.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

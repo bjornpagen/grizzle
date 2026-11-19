@@ -1,11 +1,11 @@
 /** What the properties of cost.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import { type FamilySeat, familyTemplates } from "#test/pg/fin/family.ts"
 import { cleared, type Seat, seatTemplate } from "#test/pg/fin/installed.ts"
 import { Trees } from "#test/pg/fin/tree.ts"
-import { assert } from "#test/support/assert.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A case: the smallest size measured, and the tree's fan-out. */

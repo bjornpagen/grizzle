@@ -16,6 +16,7 @@
  * value admitted and refused.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -24,7 +25,6 @@ import { CallInputRefused } from "#adapter/errors/failures.ts"
 import { windowCall } from "#adapter/page/window.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { scalarCodec } from "#compiler/plan/runtime.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	comparatorNames,
 	comparatorTypes,

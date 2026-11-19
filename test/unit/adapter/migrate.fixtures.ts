@@ -1,6 +1,7 @@
 /** What the properties of migrate.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	array,
@@ -27,7 +28,7 @@ import type { InstallationNames } from "#compiler/deploy/render/variables.ts"
 import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { databaseLock } from "#compiler/sql/catalog.ts"
 import { placeholderToken, printStatement } from "#compiler/sql/print.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {

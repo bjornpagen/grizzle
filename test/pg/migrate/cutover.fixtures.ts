@@ -1,6 +1,7 @@
 /** What the properties of cutover.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	accepted,
 	type Command,
@@ -72,7 +73,7 @@ import {
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { writeOnce } from "#test/support/calls.ts"
 import { filledSql } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"

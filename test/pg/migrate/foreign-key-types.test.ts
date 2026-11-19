@@ -23,6 +23,7 @@
  * installation has.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -38,7 +39,6 @@ import {
 	statementsOf,
 	ways
 } from "#test/pg/migrate/foreign-key-types.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The migration model's foreign key types a key between two column types, created or converted on either side, is refused by PostgreSQL exactly when by the model. */

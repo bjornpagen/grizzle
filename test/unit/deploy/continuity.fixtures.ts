@@ -1,5 +1,6 @@
 /** What the properties of continuity.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -15,7 +16,7 @@ import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { codebookOf, noWorkload, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installedCodes } from "#test/support/compile.ts"
 import {
 	closed,

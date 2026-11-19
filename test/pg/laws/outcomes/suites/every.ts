@@ -1,3 +1,4 @@
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
@@ -21,7 +22,6 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"

@@ -1,10 +1,10 @@
 /** What the properties of alternatives.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	alternatives,
 	closed,

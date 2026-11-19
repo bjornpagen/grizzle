@@ -1,6 +1,7 @@
 /** What the properties of ledger.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import {
 	accepting,
 	type Machine,
@@ -57,7 +58,7 @@ import {
 	refusal,
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
-import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"

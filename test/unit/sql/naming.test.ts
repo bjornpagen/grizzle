@@ -13,11 +13,11 @@
  * core, a set operation, a passthrough arm, a heading of the wrong width. Kept: a UNION of two one-column cores.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { bodyPositionNames, renameToPublicHeading } from "#compiler/sql/naming.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	admitted,
 	headings,

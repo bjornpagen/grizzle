@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A text's bytes have one proof in every mode (scalar/compute/typing.ts textBytes): its type's byte bound, or the
  * Compute.when whose guard bounds Compute.octetLength of it, at every occurrence of the text in the guard's branch. A
@@ -25,7 +26,6 @@ import {
 	loweredInQuery,
 	withinBound
 } from "#test/pg/text/bounded.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { values } from "#test/unit/compute/text.fixtures.ts"
 

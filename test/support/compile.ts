@@ -66,6 +66,7 @@ import {
 	schemaArtifacts
 } from "#compiler/program/schema.ts"
 
+import { defined } from "@bjornpagen/testing/assert"
 import { publishingLedger } from "#compiler/deploy/ledger/ledger.ts"
 import { resolveVariables } from "#compiler/deploy/render/variables.ts"
 import { type LivePlan, noLive } from "#compiler/live/notify.ts"
@@ -94,7 +95,7 @@ import type { AnyRole } from "#compiler/types/schema/world.ts"
 import type { CompiledWrite, CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type OracleTemplate, withConservative } from "#test/support/conservative.ts"
 import { checkedLowering, templateLowering } from "#test/support/oracle/verify/index.ts"
 

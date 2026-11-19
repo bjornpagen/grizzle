@@ -41,6 +41,7 @@ import {
 	type WriteOp
 } from "#compiler/ir/desc.ts"
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver as query, type QueryValue, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -56,7 +57,7 @@ import {
 	streamSlot
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
-import { assert, defined, nonEmpty, throwsRefused } from "#test/support/assert.ts"
+import { throwsRefused } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { Employer, Payroll, Reporting } from "#test/support/fixtures/api/payroll.ts"
 import {

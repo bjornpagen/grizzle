@@ -19,6 +19,7 @@
  * Features: one pattern and several; each refusal.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite, type Gen, int, uniqueArray } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -32,7 +33,7 @@ import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import { textArrayLiteral } from "#compiler/sql/print.ts"
-import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"
 import { admittedPatternOver, families } from "#test/unit/text/generators.ts"

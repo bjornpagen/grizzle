@@ -1,5 +1,6 @@
 /** What the property of parted.test.ts reads: its schema and template, its box, and each run's call. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, Record as Rec, String as Str } from "effect"
 import type { LoadedChange } from "#adapter/served/load.ts"
@@ -11,7 +12,6 @@ import { str } from "#compiler/public/text.ts"
 import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import type { FlightStatement, FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 

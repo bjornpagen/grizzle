@@ -1,3 +1,4 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 /** What the properties of order.test.ts read: the carriers' cases, a case's batch and PostgreSQL's order of it. */
 import { array, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -15,7 +16,7 @@ import { plainType } from "#compiler/scalar/native.ts"
 import { type CarrierSpec, type HostValue, parseValue } from "#compiler/scalar/values/identity.ts"
 import { cases as codecCases, kindRosterCodes, setupIn } from "#test/pg/codec/scalar.fixtures.ts"
 import { type SqlNames, wireSql } from "#test/pg/codec/support.ts"
-import { nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { closedIdTypeOf, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"

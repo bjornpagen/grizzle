@@ -1,5 +1,6 @@
 /** What the properties of unique-witness.test.ts read: its spaces, models and helpers. */
 
+import { deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import { boolean, element, type Gen, int, oneOf, subarray, weighted } from "@bjornpagen/testing/gen"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
@@ -18,7 +19,6 @@ import {
 } from "#compiler/public/schema.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
-import { deepEquals, defined, unorderedEqual } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { type StateRow, tableState } from "#test/support/substrate/state.ts"
 

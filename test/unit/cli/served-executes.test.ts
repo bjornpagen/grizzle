@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Every function of the installation's own that a role's served file calls is one the installation grants the role
  * EXECUTE on (physical/ddl/roles.ts addRole): PostgreSQL checks EXECUTE against the role a transaction's SET ROLE
@@ -22,7 +23,6 @@
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { caseGen, type Feature, servedRoles } from "#test/unit/cli/served-executes.fixtures.ts"
 
 /** Every function of the installation's own a role's served file calls is granted to the role. */

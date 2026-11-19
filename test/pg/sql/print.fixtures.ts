@@ -1,5 +1,6 @@
 /** What the properties of print.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -25,7 +26,6 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { cast, lit, objectName, types } from "#compiler/sql/build.ts"
 import { printCommands, printExpr } from "#compiler/sql/print.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 

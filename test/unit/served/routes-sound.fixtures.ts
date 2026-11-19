@@ -1,5 +1,6 @@
 /** What the properties of routes-sound.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Result as Answered, Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -10,7 +11,7 @@ import { role, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	compileTestWorkload,
 	inputArtifacts,

@@ -22,6 +22,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, constant, element, finite, int, map, weighted } from "@bjornpagen/testing/gen"
@@ -30,15 +31,7 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import * as S from "#compiler/ir/shape.ts"
-import {
-	assert,
-	nonEmpty,
-	placeOf,
-	refusalLoc,
-	refused,
-	succeeded,
-	unorderedEqual
-} from "#test/support/assert.ts"
+import { placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import type { ConsumerRecord } from "#test/unit/ir/shape-record.child.ts"
 import {

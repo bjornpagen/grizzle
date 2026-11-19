@@ -40,6 +40,7 @@
  * violation committed before the law or refused by it.
  */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -85,7 +86,6 @@ import {
 	workerColumns,
 	workerName
 } from "#test/schedules/migrate/validate.fixtures.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { lawIdOf, lawNamesOf } from "#test/support/kernel/naming.ts"
 import { type GrizzleActor, openActors } from "#test/support/schedules/actors.ts"
 import {

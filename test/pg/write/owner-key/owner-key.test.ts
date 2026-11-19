@@ -1,3 +1,4 @@
+import { assert, containsEqual, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -20,7 +21,6 @@ import {
 	ownersInstall,
 	ownersTemplate
 } from "#test/pg/write/owner-key/owner-key.fixtures.ts"
-import { assert, containsEqual, unorderedEqual } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"

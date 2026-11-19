@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
@@ -16,7 +17,6 @@ import {
 	type IndexRow,
 	reportsTemplate
 } from "#test/pg/derived/workload-index.fixtures.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { namesOf, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"

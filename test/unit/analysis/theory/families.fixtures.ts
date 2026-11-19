@@ -1,5 +1,6 @@
 /** What the properties of families.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import { boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { type CorruptedFeature, type Corruption } from "@bjornpagen/testing/lsw"
@@ -20,7 +21,6 @@ import {
 } from "#compiler/ir/desc.ts"
 import type { AxisKind, AxisPair } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	f,
 	type FixtureField,

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Plan properties of the optimized lowering on PostgreSQL 19 (the R04, R17, R20 and R22 mechanisms).
  *
@@ -75,7 +76,7 @@ import {
 	takeCaseGen,
 	withDistinctBound
 } from "#test/pg/plans/plans.fixtures.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { paramTexts, programAsts } from "#test/support/compile.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import { Substrate, ownerSession } from "#test/support/substrate/substrate.ts"

@@ -9,6 +9,7 @@
  * member array carries every fact. Features: a few facts, a hundred thousand or more.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
@@ -19,7 +20,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { paramArrayElements } from "#test/support/arrays.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	type CountFeature,

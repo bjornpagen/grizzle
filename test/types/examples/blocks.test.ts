@@ -1,7 +1,7 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 /**
  * README.md's and packages/grizzle/skills/grizzle/SKILL.md's ```ts blocks are checked code. Each block is mirrored, line
  * for line and in order, in a fixture of test/types/examples: README.md in fixtures/readme.ts, SKILL.md in

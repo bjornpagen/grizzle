@@ -1,12 +1,12 @@
 /** What the properties of literal-pack.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, DateTime, Option, String as Str } from "effect"
 import { type CheckFinding } from "#cli/check.ts"
 import type { PackFault } from "#compiler/physical/ddl/literal.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
-import { defined } from "#test/support/assert.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 
 const Row = closed.ordered("Row", ["r0", "r1", "r2"])

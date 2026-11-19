@@ -10,6 +10,7 @@
  * Features: every parameter given, a parameter left out, a parameter given a number.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { subset } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -20,7 +21,7 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, failed } from "#test/support/assert.ts"
+import { failed } from "#test/support/assert.ts"
 import { parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	fact,

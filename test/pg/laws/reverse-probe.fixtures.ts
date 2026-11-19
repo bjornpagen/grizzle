@@ -1,13 +1,14 @@
 /** What the properties of reverse-probe.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Case as SearchCase } from "@bjornpagen/testing/explore"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
 	axesBox,

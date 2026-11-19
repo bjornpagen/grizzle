@@ -1,5 +1,6 @@
 /** What the properties of universe.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, finite, type Gen } from "@bjornpagen/testing/gen"
 import {
 	type Case,
@@ -14,7 +15,6 @@ import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { rewritePipeline } from "#compiler/lower/optimize/pipeline.ts"
-import { defined } from "#test/support/assert.ts"
 import { type ReferenceInput, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {

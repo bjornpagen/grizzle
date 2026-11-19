@@ -23,6 +23,7 @@
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
@@ -36,7 +37,7 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { mutableBuilder, statementDescOf } from "#compiler/schema/statements.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
-import { assert, defined, placeOf, succeeded } from "#test/support/assert.ts"
+import { placeOf, succeeded } from "#test/support/assert.ts"
 import {
 	type Drawn,
 	drawnGen,

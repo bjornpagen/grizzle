@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * The family writer under a swarm every lawful ChangeSet stores the reference's rows, every unlawful one is refused by a law it breaks, and every refusal when it compiles is one the oracle states.
  *
@@ -33,7 +34,6 @@ import {
 } from "#test/pg/write/swarm/oracle.ts"
 import { buildSwarm } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"

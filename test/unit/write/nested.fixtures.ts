@@ -1,5 +1,6 @@
 /** What the properties of nested.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int, parents } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { identity } from "#compiler/core/identity.ts"
@@ -19,7 +20,7 @@ import {
 } from "#compiler/public/schema.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { lawNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"

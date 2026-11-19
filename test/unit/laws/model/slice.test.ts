@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -15,7 +16,7 @@ import { baseArtifacts, parseSchemaInput, raisableOf } from "#compiler/program/s
 import { type OwnedRole, own, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice, sliceOf, writesOf } from "#compiler/schema/reach.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {

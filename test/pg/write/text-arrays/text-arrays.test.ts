@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A text column's array parameter, which travels as a binary text[] of its values' UTF-8 bytes (codec/bytea.ts
  * textArray), on PostgreSQL 19rc2: every text a write's insert, put and delete slots carry, and every text a read's
@@ -38,7 +39,6 @@ import {
 	textsInstall,
 	textsTemplate
 } from "#test/pg/write/text-arrays/text-arrays.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"

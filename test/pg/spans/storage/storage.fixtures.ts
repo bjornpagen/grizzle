@@ -15,6 +15,7 @@ import { bigint } from "@bjornpagen/testing/values"
 import { Effect, Result } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -22,7 +23,6 @@ import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { spansTemplate } from "#test/pg/spans/allen/support.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import {
 	type Canonical,

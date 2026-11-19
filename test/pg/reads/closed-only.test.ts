@@ -1,3 +1,4 @@
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
@@ -13,7 +14,6 @@ import {
 	plansCaseGen
 } from "#test/pg/reads/closed-only.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

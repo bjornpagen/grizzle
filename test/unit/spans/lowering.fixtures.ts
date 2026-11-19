@@ -1,5 +1,6 @@
 /** What the properties of lowering.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { identity } from "#compiler/core/identity.ts"
@@ -11,7 +12,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"

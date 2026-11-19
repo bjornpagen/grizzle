@@ -14,12 +14,13 @@
  * domain of two lines.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Record } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { digest, schemaLevel } from "#compiler/core/fingerprint.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	type Change,
 	changed,

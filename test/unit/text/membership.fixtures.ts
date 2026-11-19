@@ -3,6 +3,7 @@
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	element,
@@ -16,7 +17,6 @@ import {
 import { Array as Arr, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { patternNfa, searchOf } from "#test/unit/text/emptiness.fixtures.ts"

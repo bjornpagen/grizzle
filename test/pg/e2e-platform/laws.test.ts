@@ -33,11 +33,11 @@
  * Features: each fault refused by its law.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { applyFacts, openedPlatform } from "#test/pg/e2e-platform/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { buildPlatform, resolvePlatform } from "#test/support/platform/generate.ts"
 import { decideSet, stateOf } from "#test/support/platform/laws.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

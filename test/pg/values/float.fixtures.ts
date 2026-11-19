@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -16,7 +17,6 @@ import { double, float } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Result } from "effect"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { compareFloat, floatText, toReal } from "#compiler/scalar/values/float.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

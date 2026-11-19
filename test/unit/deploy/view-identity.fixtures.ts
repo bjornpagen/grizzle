@@ -1,5 +1,6 @@
 /** What the property of view-identity.test.ts reads: its space, the schema's versions and the views they draft. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
@@ -11,7 +12,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import type { CreateMaterializedView, Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	asDrafted,
 	draftChain,

@@ -1,5 +1,6 @@
 /** What the properties of claims.test.ts read: the universe's truth of a plan, the judge of a plan's claims against it, and the harness each property is one call of. */
 
+import { unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached, Situations } from "@bjornpagen/testing/features"
 import { element, finite, type Gen } from "@bjornpagen/testing/gen"
 import {
@@ -25,7 +26,6 @@ import { assembledDag, topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { Card, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical } from "#compiler/logical/annotate.ts"
-import { unorderedEqual } from "#test/support/assert.ts"
 import {
 	noBindings,
 	type Bindings,

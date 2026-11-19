@@ -1,9 +1,9 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
-import { assert } from "#test/support/assert.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import {
 	type Feature,

@@ -289,7 +289,7 @@ const NAME_MARKERS = [
 const HOOK_FREE_NAME = "^(?:[^u]|u$|u[^s]|us$|us[^e]|use$|use[^A-Z0-9])"
 
 const ASSERTIONS_MESSAGE =
-	"Import assertions from #test/support/assert.ts: its equalities type the expected value by the actual one."
+	"Import assertions from @bjornpagen/testing/assert (grizzle's own from #test/support/assert.ts): its equalities type the expected value by the actual one."
 
 /** grizzle's lists for the shared standard; everything else comes from the dev tools' preset. */
 export default defineConfig(
@@ -352,20 +352,20 @@ export default defineConfig(
 					{
 						module: "node:assert",
 						guards: { kind: "module" },
-						doors: ["test/support/assert.ts"],
+						doors: [],
 						message: ASSERTIONS_MESSAGE
 					},
 					{
 						module: "node:assert/strict",
 						guards: { kind: "module" },
-						doors: ["test/support/assert.ts"],
+						doors: [],
 						message: ASSERTIONS_MESSAGE
 					},
 					{
 						module: "node:util",
 						guards: { kind: "exports", names: ["isDeepStrictEqual"] },
-						doors: ["test/support/assert.ts"],
-						message: "Use the typed deepEqual of #test/support/assert.ts."
+						doors: [],
+						message: "Use the typed deepEquals of @bjornpagen/testing/assert."
 					},
 					{
 						module: "@bjornpagen/testing/dictionary",
@@ -710,7 +710,7 @@ export default defineConfig(
 			{
 				files: ["test/support/assert.ts"],
 				rules: active({
-					/** A boxed primitive is an object of its wrapper class, which no typeof check sees. */
+					/** A defect is an Error raised by grizzle's invariants (throwsDefect), which no typeof check sees. */
 					"unicorn/no-instanceof-builtins": "off"
 				})
 			},

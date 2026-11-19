@@ -1,5 +1,6 @@
 /** What the properties of numeric.test.ts read: its spaces, models and helpers. */
 
+import { assert, contains, unorderedEqual } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
@@ -7,7 +8,7 @@ import type { ValueFault } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { assert, contains, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { decimalGen, numericText, orderOf } from "#test/unit/values/support.ts"

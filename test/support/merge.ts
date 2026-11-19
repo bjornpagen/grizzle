@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert } from "@bjornpagen/testing/assert"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -14,7 +15,6 @@ import {
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
-import { assert } from "#test/support/assert.ts"
 
 /** The runtime merge of heading-group statements (R21), as a test orders decoded rows. */
 interface MergeSpec {

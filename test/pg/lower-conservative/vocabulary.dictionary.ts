@@ -1,7 +1,7 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import { Array as Arr } from "effect"
 import { opForms } from "#compiler/lower/conservative/expr/ops.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 
 /**
  * The default operator table's entries, each a function's identity and the operator form it is spelled by

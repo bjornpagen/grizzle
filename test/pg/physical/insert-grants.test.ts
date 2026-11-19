@@ -19,6 +19,7 @@
  * Features: each role's probes of each statement kind, admitted and refused.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -41,7 +42,6 @@ import {
 	versionOf,
 	ways
 } from "#test/pg/physical/insert-grants.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 

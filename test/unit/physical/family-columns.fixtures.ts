@@ -1,5 +1,6 @@
 /** What the properties of family-columns.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
@@ -17,7 +18,7 @@ import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import type { SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
-import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { succeeded, throwsRefused } from "#test/support/assert.ts"
 import {
 	admittedFillSpecGen,
 	buildFill,

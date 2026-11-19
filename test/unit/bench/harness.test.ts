@@ -16,7 +16,7 @@ import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 
 import { gateOwner, ownerDirectories } from "#bench/harness/rules.ts"
 
-import { assert } from "#test/support/assert.ts"
+import { assert } from "@bjornpagen/testing/assert"
 import { catalogIds } from "#test/unit/bench/harness.dictionary.ts"
 import {
 	gatesNeed,

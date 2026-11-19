@@ -1,5 +1,6 @@
 /** What the properties of value.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	constant,
@@ -16,7 +17,6 @@ import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { schemaNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"

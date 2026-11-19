@@ -1,5 +1,6 @@
 /** What the properties of refinement.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import { bigint } from "@bjornpagen/testing/values"
@@ -15,7 +16,6 @@ import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	charLength,
 	closed as closedDesc,

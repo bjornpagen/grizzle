@@ -16,13 +16,14 @@
  * bound, a varlena and mixed alignments for the law model.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { heapTupleMaxBytes } from "#compiler/laws/model/model.ts"
 import { rowBytes, rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
-import { assert, refused } from "#test/support/assert.ts"
+import { refused } from "#test/support/assert.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { compiledModel, modelOf } from "#test/unit/laws/model/natives.ts"

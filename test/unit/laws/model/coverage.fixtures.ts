@@ -1,11 +1,12 @@
 /** What the properties of coverage.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import type { NativeColumn, NativeOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
 	contained,

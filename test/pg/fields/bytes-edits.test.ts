@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Edits of stored bytes values on PostgreSQL 19rc2, which the host knows only by their SHA-256 digests: a write returns
  * a bytes column's digest (write/insert/statement.ts returnedColumn), the outcome nets its rows by it, and a member's
@@ -34,7 +35,6 @@ import {
 	sameBytes
 } from "#test/pg/fields/bytes-edits.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

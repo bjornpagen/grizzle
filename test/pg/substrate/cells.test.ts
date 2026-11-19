@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, containsText, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19rc2: the migration's pack, the table CHECK a
  * closed law is, over its digit columns, the roster domains that keep each digit in range, function application with absence as
@@ -39,7 +40,7 @@ import {
 	spaceSize,
 	type Tuple
 } from "#compiler/ir/cells.ts"
-import { assert, containsText, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { qualified, refusalOf, refusalText, tuple } from "#test/support/substrate.ts"

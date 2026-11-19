@@ -1,5 +1,6 @@
 /** What the properties of probe-held.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { exact } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Option, Record as Rec } from "effect"
@@ -8,7 +9,7 @@ import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/des
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { probedRule } from "#test/support/probed.ts"
 

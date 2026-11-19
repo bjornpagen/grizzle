@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { corrupted, corruptedFeature, type CorruptedFeature } from "@bjornpagen/testing/lsw"
@@ -11,7 +12,7 @@ import { installOptions } from "#compiler/physical/install/compile.ts"
 import { queryInput, querySchema } from "#compiler/program/compile.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { assert, refusalLoc, succeeded } from "#test/support/assert.ts"
+import { refusalLoc, succeeded } from "#test/support/assert.ts"
 import {
 	compileInputTemplate,
 	compileInputWorkload,

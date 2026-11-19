@@ -1,5 +1,6 @@
 /** What the properties of codes.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import { type Reached } from "@bjornpagen/testing/features"
 import { subset } from "@bjornpagen/testing/gen"
@@ -14,7 +15,7 @@ import { scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	codeAt,

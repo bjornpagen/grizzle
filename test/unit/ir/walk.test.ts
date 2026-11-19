@@ -16,13 +16,13 @@
  * bind map binds, and an imported query's own variable.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { boundIn, mapLeaves, varsOf } from "#compiler/analysis/theory/leaves.ts"
 import { leavesOf } from "#compiler/check/scan.ts"
 import { exprChildren, type InferredExpr, mapExprChildren } from "#compiler/ir/desc.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	bindOnly,
 	directTerms,

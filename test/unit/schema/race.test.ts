@@ -12,12 +12,13 @@
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { ownInput } from "#test/support/policy.ts"
 import {
 	caseText,

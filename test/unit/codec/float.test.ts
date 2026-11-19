@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Float text forms: the exact decimal-to-binary32 reading of real and vector component texts, which never double-rounds
  * a float32 midpoint, both the library's trusting conversion (values/float.ts) and the kernel's strict reading
@@ -27,7 +28,7 @@ import {
 	convertReal,
 	floatText
 } from "#compiler/scalar/values/float.ts"
-import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 import { strictComponent, strictDouble, strictReal } from "#test/support/kernel/strict.ts"
 import {
 	type Binary32Feature,

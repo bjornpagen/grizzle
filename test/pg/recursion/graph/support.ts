@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Option, Record as Rec } from "effect"
 import {
 	explainStatementWith,
@@ -20,7 +21,6 @@ import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	type FixtureSchema,
 	lowerAligned,

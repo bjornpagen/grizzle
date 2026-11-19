@@ -1,3 +1,4 @@
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * The law model's own judgments of a compiled write's binding (runtime/write/binding.ts Binding), read off the write's
  * front end and its law model as binding read them on every application before they were decided at compile time: the
@@ -15,7 +16,6 @@ import type { Binding } from "#compiler/runtime/write/binding.ts"
 import { endColumns, rowLayout } from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput, SlotGroup, WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 
 /** Which facts of a member slot its statement proposes, by the law model: an INSERT into a relation of drawn or
  * accumulated fields proposes only those at no stored key, but for a generated addition; anything else every one. */

@@ -14,6 +14,7 @@
  * Features: each guard in each position over each contract predicate's relation to zero.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
@@ -33,7 +34,7 @@ import {
 	valueText
 } from "#test/pg/compute/fact-guards.fixtures.ts"
 import { compareAnswers, type EvalCase, type PgAnswer } from "#test/pg/compute/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

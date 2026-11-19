@@ -34,13 +34,13 @@
  * waiting behind another; the kept case reaches every abandonment, loss, starvation and refusal on a pool of two.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Scheduler, Scope } from "effect"
 import pgDriver from "pg"
 import { makePool, type PoolState } from "#adapter/wire/session.ts"
 import { servedSession } from "#compiler/program/served.ts"
-import { assert } from "#test/support/assert.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import { noPassword } from "#test/support/pg.ts"
 import { parsedConnection } from "#test/support/pg.ts"

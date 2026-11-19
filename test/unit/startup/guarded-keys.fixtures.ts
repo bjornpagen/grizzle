@@ -1,5 +1,6 @@
 /** What the properties of guarded-keys.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { int, map } from "@bjornpagen/testing/gen"
 import type { ScratchDir } from "@bjornpagen/testing/resources"
 import { Array as Arr, Effect, FileSystem, Layer, Record as Rec } from "effect"
@@ -23,7 +24,7 @@ import {
 	offlineConnection,
 	offlineOwner
 } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { callCounts, type CallSite } from "#test/support/kernel/calls.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"

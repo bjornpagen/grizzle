@@ -59,7 +59,7 @@ import {
 	wrongPassword
 } from "#test/pg/substrate/budget.fixtures.ts"
 
-import { assert } from "#test/support/assert.ts"
+import { assert } from "@bjornpagen/testing/assert"
 import { rowsOf } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"

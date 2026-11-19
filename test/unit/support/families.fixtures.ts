@@ -1,17 +1,11 @@
 /** What the properties of families.test.ts read: its spaces, models and helpers. */
 
 import { firstIndex, indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, assertVariant, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Result } from "effect"
-import {
-	assert,
-	assertVariant,
-	defined,
-	failed,
-	succeeded,
-	unorderedEqual
-} from "#test/support/assert.ts"
+import { failed, succeeded } from "#test/support/assert.ts"
 import {
 	applied,
 	type Form,

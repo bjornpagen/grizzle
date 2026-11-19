@@ -23,6 +23,7 @@
  * Features: per lookup, "<lookup> refused alike" and "<lookup> admitted alike".
  */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, Formatter, Option } from "effect"
@@ -39,7 +40,6 @@ import {
 	shopCodes,
 	shopTemplate
 } from "#test/pg/input/differential.fixtures.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import { paramValues } from "#test/support/compile.ts"
 import { refinedMember } from "#test/support/oracle/refinement.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

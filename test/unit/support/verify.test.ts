@@ -13,11 +13,11 @@
  * Features: a text admitted, a text refused, and a byte order mark before the JSON.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Exit, Formatter, Option } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { testVerify, tokenText } from "#test/support/worlds.ts"
 import {
 	parsedAsWritten,

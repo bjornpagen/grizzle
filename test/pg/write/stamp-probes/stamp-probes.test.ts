@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A stamping insert reads its clock's head once per child it stamps, on PostgreSQL 19: an insert of Log's rows, Log(child,
  * at, note) keyed (child, at, note), its at a clock of child `child`, each row leaving at out, so the insert stamps
@@ -31,7 +32,6 @@ import {
 	stampingGen,
 	writeOf
 } from "#test/pg/write/stamp-probes/stamp-probes.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { writeAuditViolations } from "#test/support/write-audit.ts"

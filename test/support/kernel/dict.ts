@@ -1,4 +1,5 @@
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, proportional } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
@@ -13,7 +14,6 @@ import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { isName } from "#compiler/schema/protocol.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { catalogAlphabet, catalogTypeAlphabet } from "#test/support/kernel/catalog-alphabet.ts"
 
 export type IdentifierFeature =

@@ -1,5 +1,6 @@
 /** What the properties of fill-order.test.ts read: its spaces, models and helpers. */
 
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { aimed, boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
@@ -21,7 +22,7 @@ import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, deepEquals, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { cellAt } from "#test/support/cells.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {

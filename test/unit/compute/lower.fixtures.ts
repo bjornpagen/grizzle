@@ -1,5 +1,6 @@
 /** What the properties of lower.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import {
 	boolean,
@@ -21,7 +22,7 @@ import { sameScalarType, type ScalarType, typeLabel } from "#compiler/ir/scalar.
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { commonType, widening } from "#compiler/scalar/compute/types.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { definedness } from "#test/support/compute.ts"
 import { widensTo } from "#test/support/fixtures/ir/scalar.ts"
 import {

@@ -1,8 +1,9 @@
 /** What the properties of routing.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Formatter, Option, Record as Rec } from "effect"
 import { servedFile } from "#compiler/served/json.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { LiveInstallation } from "#test/support/live/harness.ts"
 import {
 	expectedRoutes,

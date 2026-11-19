@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 /**
  * The isolation certifier's soundness, against PostgreSQL 19: a role it certifies READ COMMITTED runs its change members
  * at READ COMMITTED, and every run of concurrent calls must still be one some serial order of the same calls explains.
@@ -93,7 +94,6 @@ import {
 	readersShape,
 	sittingShape
 } from "#test/pg/isolation/support/shapes.ts"
-import { defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"

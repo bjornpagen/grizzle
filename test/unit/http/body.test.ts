@@ -12,12 +12,12 @@
  * Features: a body read, a body refused, a byte order mark before the JSON, a body that is no UTF-8.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Exit, Formatter, Option } from "effect"
 import { bodyJson } from "#http/request.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	type BodyFeature,
 	bodyOf,

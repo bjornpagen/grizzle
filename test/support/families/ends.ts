@@ -1,3 +1,4 @@
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * Every fold's end and running values as the README's family semantics state them ("Families": fold), a host model that
  * never runs grizzle's filler: each owner's end is its members' step values combined by the monoid from its identity,
@@ -58,7 +59,6 @@ import {
 } from "#compiler/schema/statements.ts"
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The family kinds a fold folds. */

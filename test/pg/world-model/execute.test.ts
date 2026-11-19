@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The executor's leak scan, the oracle every worlds suite's "no hidden value" rests on, held to real refusals with a
  * planted hidden value: a value a refusal does spell, named hidden, is reported as a leak in the field that spells it,
@@ -26,7 +27,6 @@ import {
 	type Reported,
 	situations
 } from "#test/pg/world-model/execute.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { templateWorld } from "#test/support/worlds/execute/template.ts"
 

@@ -1,10 +1,11 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 import {

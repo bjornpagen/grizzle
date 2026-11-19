@@ -1,5 +1,6 @@
 /** What the properties of mask.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ALLEN, AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
@@ -7,7 +8,6 @@ import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { type HalfOpen, windowSpans } from "#test/support/oracle/allen.ts"
 import { Booking, Schedule } from "#test/unit/query/fixtures.ts"
 

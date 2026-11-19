@@ -2,6 +2,7 @@
 
 import { buildNfa, closure, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
@@ -22,7 +23,7 @@ import { toFloat } from "#compiler/scalar/compute/cast.ts"
 import { decimalTextMaxBytes, formSource, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import {
 	type Candidate,

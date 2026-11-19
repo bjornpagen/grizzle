@@ -18,6 +18,7 @@
  * Features: each scale's sign; each door.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -32,7 +33,7 @@ import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { converterOf } from "#compiler/scalar/values/convert.ts"
 import { Decimal, normalizeNumeric, parseNumeric } from "#compiler/scalar/values/decimal.ts"
-import { assert, faulted } from "#test/support/assert.ts"
+import { faulted } from "#test/support/assert.ts"
 import { outputText } from "#test/support/wire.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 import { baseParams, lowerWith, param, spelledExpr, testPg } from "#test/unit/compute/support.ts"

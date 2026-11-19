@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
@@ -16,7 +17,6 @@ import {
 	uuidOf
 } from "#test/pg/write/deferral/owner-cycle.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"

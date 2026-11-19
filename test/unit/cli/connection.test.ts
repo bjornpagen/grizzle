@@ -1,3 +1,4 @@
+import { assert, lacksText } from "@bjornpagen/testing/assert"
 /**
  * Where `grizzle migrate` and `grizzle drift` connect, generated: the configuration's connection, and nothing else.
  *
@@ -33,7 +34,7 @@ import { Array as Arr, Effect, Option, Record as Rec, Redacted } from "effect"
 import { startupVariableNames } from "#adapter/connection/environment.ts"
 import { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import { calledConnection, ownerEnvironment, resolveConnection } from "#cli/connection.ts"
-import { assert, lacksText, refusedAt, succeeded } from "#test/support/assert.ts"
+import { refusedAt, succeeded } from "#test/support/assert.ts"
 import {
 	processEnvironment,
 	processValue,

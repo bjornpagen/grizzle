@@ -1,5 +1,6 @@
 /** What the properties of carriers.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -19,7 +20,7 @@ import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { makeSpan } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import type { InputVerdict } from "#test/pg/vector/support.ts"
-import { nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { upTo } from "#test/support/up-to.ts"
 

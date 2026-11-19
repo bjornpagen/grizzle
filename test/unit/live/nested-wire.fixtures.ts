@@ -1,5 +1,6 @@
 /** What the properties of nested-wire.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Gen } from "@bjornpagen/testing/gen"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { servedEntryOf, snapshotCompiled } from "#adapter/served/compile.ts"
@@ -12,7 +13,7 @@ import { workload } from "#compiler/program/workload/value.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
 import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compiledSnapshot } from "#test/support/compiled-served.ts"
 import {
 	admittedFillSpecGen,

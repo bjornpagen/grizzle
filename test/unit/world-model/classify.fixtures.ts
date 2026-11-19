@@ -1,12 +1,12 @@
 /** What the properties of classify.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { WritabilityReason } from "#compiler/core/causes.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { type FixedValue } from "#compiler/schema/entry.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { defined } from "#test/support/assert.ts"
 import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
 import { buildBase, sourcesOf } from "#test/support/worlds/execute/build.ts"
 import type {

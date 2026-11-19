@@ -47,7 +47,7 @@ import {
 	unionsTemplate
 } from "#test/pg/oracle/union-take.fixtures.ts"
 
-import { assert } from "#test/support/assert.ts"
+import { assert } from "@bjornpagen/testing/assert"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

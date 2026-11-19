@@ -1,5 +1,6 @@
 /** What the properties of cap.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { fullSwarm, keep, type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option } from "effect"
@@ -16,7 +17,6 @@ import {
 	writersGen
 } from "#test/schedules/platform/support.ts"
 import * as W from "#test/schedules/platform/world.ts"
-import { defined } from "#test/support/assert.ts"
 import { JAN } from "#test/support/platform/generate.ts"
 import { platformSpan } from "#test/support/platform/model.ts"
 

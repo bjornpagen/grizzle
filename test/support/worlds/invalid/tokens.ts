@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	boolean,
 	constant,
@@ -10,7 +11,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, pipe, Record as Rec, String as Str } from "effect"
-import { defined } from "#test/support/assert.ts"
 import { valueText } from "#test/support/laws/model.ts"
 import {
 	inDomain,

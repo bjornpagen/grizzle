@@ -13,6 +13,7 @@
  * Features: a relation parameter at lateralParentMax facts, and one past it, each under every name.
  */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -25,7 +26,7 @@ import { lateralParentMax } from "#compiler/lower/shapes/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import { accounts, type Count, namedAccounts } from "#test/unit/page/choice-input.fixtures.ts"

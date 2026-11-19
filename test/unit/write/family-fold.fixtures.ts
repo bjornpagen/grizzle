@@ -1,5 +1,6 @@
 /** What the properties of family-fold.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
@@ -22,7 +23,7 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { cellAt, cellsOf } from "#test/support/cells.ts"
 import { type FoldMonoid, identityOf, type Planes } from "#test/support/families/fold.ts"
 import {

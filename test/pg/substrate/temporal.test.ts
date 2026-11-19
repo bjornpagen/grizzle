@@ -14,6 +14,7 @@
  * the empty one, or NULL; at most three target rows; one source row, since PostgreSQL checks each source row alone.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -35,7 +36,6 @@ import {
 	type Verdict
 } from "#test/pg/substrate/temporal.fixtures.ts"
 import { covered, isEmpty, keyRefusal, overlaps, type Row } from "#test/pg/substrate/temporal.ts"
-import { assert } from "#test/support/assert.ts"
 import { attempt, qualified } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

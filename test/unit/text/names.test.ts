@@ -17,12 +17,12 @@ import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { isNcName } from "@bjornpagen/grizzle-text/regex/xml"
 import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
 import { trimmed } from "@bjornpagen/grizzle-text/text"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
 
 type NamesFeature =

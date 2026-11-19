@@ -1,4 +1,4 @@
-import { assertInstanceOf } from "@bjornpagen/testing/assert"
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 /**
  * Explain on PostgreSQL 19: a served member's explain (adapter/served/explain.ts, through its handle's operations,
  * adapter/db/handles.ts memberExplains) plans exactly the named prepared statements the call it explains would send,
@@ -96,7 +96,7 @@ import {
 } from "#test/pg/reads/explain.fixtures.ts"
 import { Item, Seat, Shop, Stock, uuidOf } from "#test/pg/reads/shop.ts"
 import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
-import { assert, assertVariant, defined, throwsRefused } from "#test/support/assert.ts"
+import { throwsRefused } from "#test/support/assert.ts"
 import { answered, readOnce } from "#test/support/calls.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
@@ -503,7 +503,7 @@ export const refusesADrawnChangeSetAtCompileOrEncodeBeforeAnySessionAsItsModelSa
 											case "encode": {
 												assertVariant(explained, "_tag", "Failure", "a ChangeSet the host refuses")
 												const refusal = explained.failure
-												assertInstanceOf(refusal, ReadFailure)
+												assert.ok(refusal instanceof ReadFailure)
 												assert.equal(refusal.stage, expected)
 												assertVariant(
 													refusal.reason,

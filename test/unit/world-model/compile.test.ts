@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * The worlds model's oracle on a write's compile phase alone, with no PostgreSQL: over an installation of the documents
  * base built through the public builders, a lawful reality and a Db of one of its roles (a writing one where the
@@ -22,7 +23,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { atDeclaredName } from "#test/support/kernel/naming.ts"
 import { messageOf } from "#test/support/message.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"

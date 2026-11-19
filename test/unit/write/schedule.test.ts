@@ -25,12 +25,12 @@
  * under either name order; each stratum shape of the generated strata.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { canonicalActionOrder, scheduleStratum } from "#compiler/write/frontend/schedule.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	actionOf,
 	instancesOf,

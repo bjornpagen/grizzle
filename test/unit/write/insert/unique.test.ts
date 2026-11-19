@@ -9,12 +9,12 @@
  * admitted.
  */
 
+import { assert, assertVariant, deepEquals } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { assert, assertVariant, deepEquals } from "#test/support/assert.ts"
 import { lawIdOf } from "#test/support/kernel/naming.ts"
 import {
 	bind,

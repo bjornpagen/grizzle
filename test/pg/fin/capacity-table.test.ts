@@ -15,11 +15,11 @@
  * is not admitted"); its replacement here is the counted family with `check(T, n ≥ 1)`, the count row with lo = 1.
  */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { seatIn } from "#test/pg/fin/installed.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

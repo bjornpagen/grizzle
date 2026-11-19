@@ -28,6 +28,7 @@
  * refused at a differing key. A witness whose turn aims at a pending one runs a case constructed to reach it.
  */
 
+import { assert, deepEquals } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -55,7 +56,6 @@ import {
 	sameKey,
 	shapes
 } from "#test/pg/write/met/met.fixtures.ts"
-import { assert, deepEquals } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { rigIn } from "#test/support/schedules/rig.ts"

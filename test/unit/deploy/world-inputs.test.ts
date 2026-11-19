@@ -14,11 +14,11 @@
  * The box, exhausted: each change, under each reader.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { secondDraft, type Turn, turnGen } from "#test/unit/deploy/world-inputs.fixtures.ts"
 
 type Feature = `${Turn["change"]}, read by ${Turn["reads"]}`

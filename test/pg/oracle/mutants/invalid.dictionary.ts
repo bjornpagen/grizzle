@@ -1,7 +1,7 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import { Array as Arr, Record as Rec, Result } from "effect"
 import { invalidId, type KillSearch } from "#test/pg/oracle/mutants/invalid.fixtures.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
 
 /**

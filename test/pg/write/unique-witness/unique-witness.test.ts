@@ -1,3 +1,4 @@
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -29,7 +30,6 @@ import {
 	verdictOf
 } from "#test/pg/write/unique-witness/unique-witness.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"

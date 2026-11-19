@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
@@ -21,7 +22,6 @@ import {
 	statementParams,
 	tableRowsRead
 } from "#test/pg/recursion/graph/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { lowerAligned, partStatement } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import { everyRow } from "#test/support/oracle/install/capture.ts"

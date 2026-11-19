@@ -1,10 +1,10 @@
 /** What the properties of box.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { type CallError } from "#compiler/live/index.ts"
 import { type PlatformDb, platformTemplate } from "#test/pg/e2e-platform/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import {

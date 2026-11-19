@@ -1,5 +1,6 @@
 /** What the properties of deferral.test.ts read: its box, its versions and its walk. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -9,7 +10,6 @@ import { generated, pg } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	type DraftedVersion,
 	draftVersion,

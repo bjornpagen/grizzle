@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A role holds TEMPORARY on the database exactly when its served workload creates a carrier, a temporary table: the
  * installation grants it to those roles and to no other role or login (physical/ddl/roles.ts addWorlds), the drift
@@ -28,7 +29,6 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
-import { assert } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { emptyState } from "#test/support/migrate/interpret.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"

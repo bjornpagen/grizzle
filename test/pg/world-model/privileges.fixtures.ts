@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 /** What the properties of privileges.test.ts read: its installations, its expected privileges and its rules. */
@@ -5,7 +6,6 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record, Result } from "effect"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import { educationInstall } from "#test/support/fixtures/education/index.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

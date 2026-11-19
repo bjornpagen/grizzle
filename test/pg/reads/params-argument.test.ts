@@ -1,3 +1,4 @@
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -18,7 +19,6 @@ import {
 	strayKey
 } from "#test/pg/reads/params-argument.fixtures.ts"
 import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
-import { assert, assertVariant, defined } from "#test/support/assert.ts"
 import { answered, readOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"

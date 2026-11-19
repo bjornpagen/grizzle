@@ -17,13 +17,14 @@
  * shape admitted; a member, no member, and a walked member.
  */
 
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { regexMaxHeldStates, colorsOf, rawNfa, rawSize } from "#compiler/scalar/regex/space.ts"
-import { assert, assertVariant, defined, refused } from "#test/support/assert.ts"
+import { refused } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	builtArcs,

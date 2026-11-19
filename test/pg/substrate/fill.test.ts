@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Predicate, Result } from "effect"
@@ -42,7 +43,6 @@ import {
 	refusedLaws,
 	rowsUpTo
 } from "#test/pg/substrate/fill.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { volumeFill } from "#test/support/substrate/fill.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 

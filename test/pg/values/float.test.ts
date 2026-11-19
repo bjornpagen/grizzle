@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Real and double precision against PostgreSQL 19: the host's floats (scalar/values/float.ts) are PostgreSQL's.
  *
@@ -32,7 +33,7 @@ import {
 	fromPg,
 	ordersAs
 } from "#test/pg/values/float.fixtures.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Float agreement with PostgreSQL rounds every binary64 value to the real PostgreSQL's float8-to-float4 cast stores. */

@@ -1,5 +1,6 @@
 /** What the properties of head-literals.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { aimed, type Aimed, array, element, type Gen, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { baseOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -10,7 +11,6 @@ import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/quer
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import { assert } from "#test/support/assert.ts"
 import { checking } from "#test/support/policy.ts"
 
 /**

@@ -26,6 +26,7 @@ import { roleNameOf } from "#adapter/served/served.ts"
 import { maxIdentifierBytes, conversionOf } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	type AnyLogin,
 	type AnyRole,
@@ -45,7 +46,7 @@ import {
 	servedFromFile,
 	workspace
 } from "#test/pg/cli/support.ts"
-import { assert, throwsRefused } from "#test/support/assert.ts"
+import { throwsRefused } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"

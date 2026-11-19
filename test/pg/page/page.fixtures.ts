@@ -1,5 +1,6 @@
 /** What the properties of page.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -17,7 +18,6 @@ import type { Uuid } from "#compiler/public/fields.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { rowOf } from "#test/pg/page/support.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { defined } from "#test/support/assert.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import {
 	ascendingTasks,

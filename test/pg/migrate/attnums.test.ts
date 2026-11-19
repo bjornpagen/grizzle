@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -30,7 +31,7 @@ import {
 	slack,
 	wide
 } from "#test/pg/migrate/attnums.fixtures.ts"
-import { assert, refusalLoc, refused } from "#test/support/assert.ts"
+import { refusalLoc, refused } from "#test/support/assert.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {

@@ -12,10 +12,10 @@
  * expression. Kept: the two-stage pipeline shape that once grew exponentially.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	atom,
 	bytes,

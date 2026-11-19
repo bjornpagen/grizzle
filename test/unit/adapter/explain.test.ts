@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
@@ -5,7 +6,6 @@ import { decodePlan } from "#adapter/explain/plan.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	all,
 	carriersWhole,

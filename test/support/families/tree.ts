@@ -1,3 +1,4 @@
+import { deepEquals } from "@bjornpagen/testing/assert"
 /**
  * The keyed tree as grizzle lowers it, and the direct pre-order numbering every test judges its rows by.
  *
@@ -24,7 +25,6 @@
  */
 import { Array as Arr, Option, Order } from "effect"
 import type { TreeRow } from "#test/pg/substrate/tree.ts"
-import { deepEquals } from "#test/support/assert.ts"
 
 /** A tree as its caller nests it: a node's kind and its children in slot order. */
 export interface Node {

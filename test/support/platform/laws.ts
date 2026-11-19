@@ -5,6 +5,7 @@ import {
 	TupleMap,
 	TupleSet
 } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { defined } from "@bjornpagen/testing/assert"
 /**
  * The platform's laws on the host: every law the platform fixture (test/support/fixtures/api/platform.ts) declares,
  * stated in words over a platform's facts and sharing nothing with grizzle, and what a write does to a state under
@@ -46,7 +47,6 @@ import {
 import { Array as Arr, Formatter, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { contained, on, type Statement, select } from "#compiler/public/schema.ts"
-import { defined } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { type Atom, sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import type { LawNames } from "#test/support/kernel/naming.ts"

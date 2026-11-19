@@ -44,6 +44,7 @@ import {
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 
+import { assert, defined, matchesObject, nonEmpty } from "@bjornpagen/testing/assert"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
@@ -80,17 +81,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyTerm } from "#compiler/types/schema/statements.ts"
-import {
-	assert,
-	defined,
-	faulted,
-	matchesObject,
-	nonEmpty,
-	placeOf,
-	refusalLoc,
-	succeeded,
-	throwsRefused
-} from "#test/support/assert.ts"
+import { faulted, placeOf, refusalLoc, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"

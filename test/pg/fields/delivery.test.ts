@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A statement's delivery against PostgreSQL 19rc2 at chunk boundaries (lower/delivery.ts deliveredRows): rows of two
  * bytes columns and a text column, each value at a length about a boundary of a small chunk length, stored by db.apply
@@ -36,7 +37,6 @@ import {
 	type Stored
 } from "#test/pg/fields/delivery.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { strictDelivered } from "#test/support/kernel/strict.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

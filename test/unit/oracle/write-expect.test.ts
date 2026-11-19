@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The write oracle's judgement against planted realization mutants, on the one side the three-way harness cannot check
  * against PostgreSQL: its strictness. An expectation that accepts too much (an extra law among the acceptable
@@ -40,7 +41,6 @@ import { Array as Arr, Effect, Option, Result } from "effect"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
 import { ParamRejected } from "#adapter/errors/failures.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { assert } from "#test/support/assert.ts"
 import { castsTypmod, resolveChangeSet } from "#test/support/oracle/write/changeset.ts"
 import { expectChangeSet } from "#test/support/oracle/write/expect.ts"
 import { resolveFacts } from "#test/support/oracle/write/facts.ts"

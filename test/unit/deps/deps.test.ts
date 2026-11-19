@@ -1,3 +1,4 @@
+import { assert, defined, like, matchers } from "@bjornpagen/testing/assert"
 /**
  * The production dependency audit: no RegExp construction, .test or .exec, no arkregex runtime import, and no eval or
  * Function constructor under src/.
@@ -24,7 +25,6 @@ import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, FileSystem, String as Str } from "effect"
-import { assert, defined, like, matchers } from "#test/support/assert.ts"
 import { auditSource } from "#test/unit/deps/audit.ts"
 import { entryPoints, srcModules } from "#test/unit/deps/deps.dictionary.ts"
 import {

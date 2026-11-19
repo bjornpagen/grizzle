@@ -10,6 +10,7 @@
  * Features: each way a decimal is refused, past the range and misspelt.
  */
 
+import { assert, lacksText } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
@@ -19,7 +20,6 @@ import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
-import { assert, lacksText } from "#test/support/assert.ts"
 import type { Refused } from "#test/unit/values/fault.fixtures.ts"
 
 /** Value faults never carry the refused value. Its budget is its suite's before it was a property (test/unit/values/fault.test.ts at 4ca3036a): 100 runs and 100 steered cases. */

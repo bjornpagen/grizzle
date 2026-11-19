@@ -18,6 +18,7 @@
  *   eight codes after Line's (order, at) at their exact offsets. Features: an entry at the bound, an entry past it.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -26,7 +27,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { btreeMaxItemSize, typlens } from "#compiler/schema/representability.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	bytesOf,

@@ -1,5 +1,6 @@
 /** What the properties of bits.test.ts read: its spaces, models and helpers. */
 
+import { assert, assertNot, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, String as Str } from "effect"
@@ -16,7 +17,7 @@ import { type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
-import { assert, assertNot, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { paramText } from "#test/support/wire.ts"

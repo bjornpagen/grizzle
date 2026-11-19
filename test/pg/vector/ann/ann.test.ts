@@ -1,3 +1,4 @@
+import { assert, contains, defined } from "@bjornpagen/testing/assert"
 /**
  * approximateNearest on PostgreSQL 19 over the approximate-retrieval fixture (support.ts): a population drawn anew in
  * every run, installed with the HNSW index its workload requests and the fixed search policy stored as its login's
@@ -76,7 +77,6 @@ import {
 	vectorParam,
 	vectorText
 } from "#test/pg/vector/ann/support.ts"
-import { assert, contains, defined } from "#test/support/assert.ts"
 import { programAsts } from "#test/support/compile.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

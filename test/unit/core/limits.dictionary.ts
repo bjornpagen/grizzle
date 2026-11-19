@@ -1,8 +1,8 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import { Record as Rec } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { IntegerCarrier } from "#compiler/ir/scalar.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 
 /**
  * The integer carriers, smallint, integer and bigint, by the roster the carriers declare their ranges by (ir/carriers.ts

@@ -1,6 +1,7 @@
 /** What the properties of work.test.ts read: its spaces, models and helpers. */
 
 import net from "node:net"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { ScratchDir } from "@bjornpagen/testing/resources"
 import { Array as Arr, Effect, FileSystem, Layer, Record as Rec } from "effect"
@@ -36,7 +37,6 @@ import {
 	offlineConnection,
 	offlineOwner
 } from "#test/pg/cli/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { callCounts, type CallSite } from "#test/support/kernel/calls.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"

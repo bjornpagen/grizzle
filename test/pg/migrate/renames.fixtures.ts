@@ -1,5 +1,6 @@
 /** What the properties of renames.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { array, boolean, element, type Gen, int, option } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
@@ -21,7 +22,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { assert, bareRecord, defined, nonEmpty } from "#test/support/assert.ts"
+import { bareRecord } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"

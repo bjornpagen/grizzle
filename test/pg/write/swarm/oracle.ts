@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 /**
  * The family swarm's oracle (test/pg/write/swarm/families.test.ts), independent of grizzle's writer:
  *
@@ -39,7 +40,6 @@ import {
 	swarmFacts,
 	type SwarmSpec
 } from "#test/pg/write/swarm/spec.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	type FillSpec,
 	type FollowUp,

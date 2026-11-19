@@ -29,8 +29,9 @@ import { check } from "#cli/check.ts"
 
 import { servedDirectory, servedPath } from "#compiler/served/forms.ts"
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 
 import {
 	at,

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /** What the property of orphan.test.ts reads: its forms and their space, the throwaway postmaster, and one case's run. */
 import { boolean, type Space } from "@bjornpagen/testing/gen"
 import { liveMillis, liveSleep } from "@bjornpagen/testing/live"
@@ -15,7 +16,6 @@ import {
 import { ChildProcess, type ChildProcessSpawner } from "effect/process"
 import { Client } from "pg"
 import { trusted } from "#compiler/core/trusted.ts"
-import { assert } from "#test/support/assert.ts"
 import { pgPin } from "#test/support/env.ts"
 import { backendWaitStep, orphanExitBound, testExitWait } from "#test/support/limits.ts"
 import { type SqlError, sqlErrorOf } from "#test/support/pg.ts"

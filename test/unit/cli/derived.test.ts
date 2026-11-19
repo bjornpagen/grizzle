@@ -24,9 +24,10 @@ import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import { check } from "#cli/check.ts"
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import {
 	at,

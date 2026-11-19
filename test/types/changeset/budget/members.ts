@@ -1,7 +1,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
 import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
 

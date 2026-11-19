@@ -16,6 +16,7 @@
  * name the rule refuses, every wild kind as name and as base, an extra argument.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, constant, element, int, map, weighted } from "@bjornpagen/testing/gen"
 import { passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
@@ -32,7 +33,7 @@ import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { mintedRefusal } from "#compiler/scalar/minted.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
-import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { succeeded, throwsRefused } from "#test/support/assert.ts"
 import {
 	admitContract,
 	contractDescriptor,

@@ -1,6 +1,7 @@
 /** What the properties of nested-identity.test.ts read: its spaces, models and helpers. */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -15,7 +16,7 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { closedTableOf } from "#compiler/write/program/decide.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"

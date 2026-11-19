@@ -7,13 +7,13 @@
  * Features: the document opened under its own login, and refused under another.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Result } from "effect"
 import { ClientDocumentRefused, clientCalls, clientOf } from "#client/client.ts"
-import { assert } from "#test/support/assert.ts"
 import { openedNames } from "#test/unit/client/document.dictionary.ts"
 import { Desk, deskDocument } from "#test/unit/client/document.fixtures.ts"
 

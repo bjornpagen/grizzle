@@ -1,5 +1,6 @@
 /** What the properties of round-trips.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option } from "effect"
 import type { ServedLogin } from "#adapter/types/layer.ts"
@@ -20,7 +21,6 @@ import { deferrable, paged } from "#compiler/public/workload.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, t4, t5 } from "#test/support/fixtures/golden/work.ts"
 import { Id } from "#test/support/ids.ts"

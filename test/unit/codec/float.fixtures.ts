@@ -1,11 +1,11 @@
 /** What the properties of float.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, element, int, map, string, weighted } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import { double, float } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, pipe, String as Str } from "effect"
-import { nonEmpty } from "#test/support/assert.ts"
 import type { strictDouble } from "#test/support/kernel/strict.ts"
 
 export const floatMax = 3.4028234663852886e38

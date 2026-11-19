@@ -74,11 +74,11 @@
  * equalities dropped.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { memberFacts } from "#compiler/program/isolation/extract.ts"
-import { assert } from "#test/support/assert.ts"
 import { expanded } from "#test/support/expanded.ts"
 import {
 	buildStatement,

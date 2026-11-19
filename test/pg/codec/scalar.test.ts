@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { uniqueArray } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -51,7 +52,7 @@ import {
 	setupIn
 } from "#test/pg/codec/scalar.fixtures.ts"
 import { fieldOf, storedTextOut, textRows, wireSql } from "#test/pg/codec/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 

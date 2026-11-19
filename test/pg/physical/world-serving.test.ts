@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Every world function is index-served: an existence test bound to its arguments, judged by PostgreSQL's serving judge
  * (world-serving.ts, serving.ts), over generated role schemas, each case's population of a drawn small size.
@@ -43,7 +44,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { caseGen, requiredSituations } from "#test/pg/physical/world-serving.fixtures.ts"
 import { judgeCase, type WorldServingFeature } from "#test/pg/physical/world-serving.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

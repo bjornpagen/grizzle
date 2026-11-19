@@ -27,6 +27,7 @@
  * and nothing to write; a refresh of an unpopulated and of a populated view; each first call and several Dbs opened.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -66,7 +67,6 @@ import {
 	writeFrame
 } from "#test/pg/adapter/round-trips.fixtures.ts"
 import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, oneOf, rowsOf, writeOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"

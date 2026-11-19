@@ -1,11 +1,11 @@
 /** What the properties of table.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { allenAtomCount, allenAtoms, atomIndexable } from "#compiler/allen/atoms.ts"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
 import { generateAllenTable } from "#scripts/gen/allen/generate.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	type PairFacts,
 	type RangeType,

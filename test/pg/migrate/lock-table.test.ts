@@ -19,6 +19,7 @@
  * Features: each place, the ledger's lock, a file's statement, a ledger row and the drift check's replay.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
@@ -45,7 +46,7 @@ import {
 	refusingTransaction
 } from "#test/pg/migrate/lock-table.fixtures.ts"
 import { kept, parsedTarget, reviewedSource } from "#test/pg/migrate/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"

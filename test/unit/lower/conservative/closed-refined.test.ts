@@ -18,13 +18,14 @@
  * Features: each delivery (uncast with or without a domain, cast, refused, an empty source uncast).
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { textOf } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
 import {

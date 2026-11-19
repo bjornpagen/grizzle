@@ -1,3 +1,4 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, String as Str } from "effect"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
@@ -17,7 +18,6 @@ import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 

@@ -21,6 +21,7 @@
  * for the resolution.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, boolean, finite, weighted } from "@bjornpagen/testing/gen"
 import { corrupted, corruptedFeature } from "@bjornpagen/testing/lsw"
@@ -34,7 +35,7 @@ import {
 } from "#compiler/analysis/theory/families.ts"
 import type { LawDetail, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { type TermDesc, termText } from "#compiler/ir/desc.ts"
-import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { contained } from "#test/support/fixtures/ir/desc.ts"
 import {
 	axisOf,

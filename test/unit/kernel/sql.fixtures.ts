@@ -1,12 +1,12 @@
 /** What the properties of sql.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { regex } from "arkregex"
 import { Array as Arr, Record } from "effect"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import { lit, mapTargets, types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { assert } from "#test/support/assert.ts"
 import { featureCount, type ShapeFeature, shapeOf } from "#test/support/kernel/shape.ts"
 import { noHoles, oneHole, type SqlCatalog } from "#test/support/kernel/sqlgen.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"

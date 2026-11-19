@@ -1,5 +1,6 @@
 /** What the properties of native-errors.test.ts read: the desk's template, its inserts and writes, and the model. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, boolean, constant, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record } from "effect"
@@ -15,7 +16,6 @@ import {
 	Entry,
 	Pair
 } from "#test/pg/direct-writers/schema.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { lawIdOf, lawNamesOf, namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { type Fixture, openFixtureTemplate } from "#test/support/open-fixture.ts"
 import { type PgErrorFields, reportedOwnerOf } from "#test/support/substrate/errors.ts"

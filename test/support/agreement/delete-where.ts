@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { noClock } from "#compiler/ir/clock.ts"
@@ -25,7 +26,7 @@ import {
 	Ticket,
 	Work
 } from "#test/support/agreement/changeset-schema.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
 

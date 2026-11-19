@@ -16,6 +16,7 @@
  */
 
 import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -30,7 +31,6 @@ import {
 	policyAnn,
 	policySettings
 } from "#test/pg/vector/policy/policy.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"

@@ -1,5 +1,6 @@
 /** What the properties of cli.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	array,
@@ -40,7 +41,6 @@ import { login, role } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
 import { shop, type ShopWorkload } from "#test/pg/cli/fixture.ts"
 import { offlineOwner, writeConfigText } from "#test/pg/cli/support.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations, parsedMigrationName } from "#test/support/migrate/kit.ts"

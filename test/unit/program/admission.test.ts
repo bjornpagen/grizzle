@@ -13,6 +13,7 @@
  * Features: the fault each case is refused by.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Result } from "effect"
@@ -20,7 +21,6 @@ import { rowEvaluator } from "#adapter/public/host.ts"
 import { hostText } from "#compiler/codec/scalar.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { describeDeclared } from "#compiler/schema/relation.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	Admissions,
 	admittedRow,

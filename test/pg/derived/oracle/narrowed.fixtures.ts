@@ -1,5 +1,6 @@
 /** What the properties of narrowed.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
@@ -11,7 +12,6 @@ import { derived, login, relation, role, schema } from "#compiler/public/schema.
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { installDerived, type Opened, withCaseDb } from "#test/pg/derived/oracle/harness.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Money's range in minor units, a signed 64-bit integer. */

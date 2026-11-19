@@ -1,5 +1,6 @@
 /** What the properties of backfill-shared.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Case, Steered } from "@bjornpagen/testing/explore"
 import { type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
@@ -7,7 +8,6 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, on, relation, schema } from "#compiler/public/schema.ts"
-import { assert } from "#test/support/assert.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"

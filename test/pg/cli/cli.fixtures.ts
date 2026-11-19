@@ -5,10 +5,11 @@ import { Array as Arr, Effect, FileSystem, Option, pipe, String as Str } from "e
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { Db } from "#adapter/public/db.ts"
 
+import { assert } from "@bjornpagen/testing/assert"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import { bin, cli, cliClock, servedFromFile } from "#test/pg/cli/support.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { answered, oneOf as oneRowOf } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"

@@ -17,6 +17,7 @@
  * Features: every form, read three times on a worker's seat.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -35,7 +36,6 @@ import {
 } from "#test/pg/substrate/installs.fixtures.ts"
 import { docsWorld } from "#test/pg/world-model/sessions.fixtures.ts"
 import { skew, skewRig } from "#test/schedules/write/met-skew.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { rigIn } from "#test/support/schedules/rig.ts"

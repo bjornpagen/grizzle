@@ -19,6 +19,7 @@
  * Features: each text term and each dictionary situation the searches name.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -39,7 +40,6 @@ import {
 	text,
 	variable
 } from "#test/pg/compute/text.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"

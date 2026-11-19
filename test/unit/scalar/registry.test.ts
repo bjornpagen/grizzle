@@ -19,6 +19,7 @@
  * Features: as each search names them; for the predicate table, a bound below, at and above zero.
  */
 
+import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
@@ -50,16 +51,7 @@ import {
 } from "#compiler/scalar/registry.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { admittedClosedId } from "#compiler/schema/relation.ts"
-import {
-	assert,
-	defined,
-	faulted,
-	nonEmpty,
-	refused,
-	succeeded,
-	throwsRefused,
-	unorderedEqual
-} from "#test/support/assert.ts"
+import { faulted, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { fixtureTypes } from "#test/unit/scalar/registry.dictionary.ts"
 import {

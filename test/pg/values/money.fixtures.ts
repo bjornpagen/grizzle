@@ -1,11 +1,12 @@
 /** What the properties of money.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { Effect, Result } from "effect"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { moneyFractionDigits, Decimal } from "#compiler/scalar/values/decimal.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 

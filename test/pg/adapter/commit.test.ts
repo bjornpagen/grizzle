@@ -21,6 +21,7 @@
  * Features: every subset by every end, and 40001 at COMMIT.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -38,7 +39,6 @@ import {
 	stored
 } from "#test/pg/adapter/commit.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"

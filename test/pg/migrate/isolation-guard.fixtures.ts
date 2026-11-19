@@ -1,5 +1,6 @@
 /** What the properties of isolation-guard.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, subarray, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
@@ -25,7 +26,6 @@ import {
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"

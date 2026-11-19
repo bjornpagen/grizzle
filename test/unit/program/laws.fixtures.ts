@@ -1,5 +1,6 @@
 /** What the properties of laws.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -53,7 +54,6 @@ import type { IdentifiedLaw, Law, OwnLaw } from "#compiler/types/changeset/chang
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, Relation } from "#compiler/types/schema/relation.ts"
 import { buildSwarm, featuresGen, type SwarmSpec, swarmSpecGen } from "#test/pg/write/swarm/spec.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { identityText, ownedStatementText } from "#test/support/kernel/naming.ts"
 import { jsMatcher } from "#test/support/regex.ts"

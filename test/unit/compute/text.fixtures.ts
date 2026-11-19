@@ -2,6 +2,7 @@
 
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { assert, assertNot, defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -21,7 +22,7 @@ import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
-import { assert, assertNot, defined, refusalLoc, succeeded } from "#test/support/assert.ts"
+import { refusalLoc, succeeded } from "#test/support/assert.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"

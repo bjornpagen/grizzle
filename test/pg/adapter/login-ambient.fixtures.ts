@@ -1,5 +1,6 @@
 /** What the properties of login-ambient.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -27,7 +28,6 @@ import {
 	type AmbientSetting,
 	ambientSettingValues
 } from "#test/support/ambient.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

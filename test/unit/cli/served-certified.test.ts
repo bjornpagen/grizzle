@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Each role's isolation level is decided once, in the draft's workload plan, from the statements its served writes
  * send (program/isolation/certification.ts), and reaches everything that runs by it alike: the role's served file
@@ -42,7 +43,6 @@ import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { Work } from "#test/support/agreement/changeset-schema.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { caseGen, type Feature, file, showCase } from "#test/unit/cli/served-certified.fixtures.ts"
 

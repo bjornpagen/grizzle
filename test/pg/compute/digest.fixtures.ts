@@ -1,5 +1,6 @@
 /** What the properties of digest.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
@@ -22,7 +23,7 @@ import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { CompilePatterns, ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import {
 	baseParams,

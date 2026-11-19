@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { characterOf, element, type Gen, int, map, oneOf, string } from "@bjornpagen/testing/gen"
@@ -26,7 +27,7 @@ import {
 	seatsLaw
 } from "#test/pg/laws/outcomes/schemas.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"

@@ -1,5 +1,6 @@
 /** What the properties of lexer.test.ts read: its spaces, models and helpers. */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -25,7 +26,6 @@ import {
 	lexemesOf,
 	type Token
 } from "#compiler/sql/lexer.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import { scan } from "#test/unit/sql/scan.ts"
 
 /** A text's lexemes, a refused run's message aside, and what it never closes: what the lexer and the scanner must

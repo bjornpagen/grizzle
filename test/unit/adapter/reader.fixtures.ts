@@ -1,5 +1,6 @@
 /** What the properties of reader.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	constant,
@@ -18,7 +19,7 @@ import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { baseCheck, columnDefinition, types } from "#compiler/sql/build.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"

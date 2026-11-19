@@ -1,10 +1,10 @@
 /** What the properties of vector.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { float } from "@bjornpagen/testing/values"
 import { Array as Arr } from "effect"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
-import { assert } from "#test/support/assert.ts"
 
 /** The largest finite 32-bit float. */
 const float32Max = 3.4028234663852886e38

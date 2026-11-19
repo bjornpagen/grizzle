@@ -1,3 +1,4 @@
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * Refinement validation sites on PostgreSQL 19.
  *
@@ -78,7 +79,7 @@ import {
 	titlesAsSlugs,
 	withConstant
 } from "#test/pg/regex-complete/regex-complete.fixtures.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { paramTexts } from "#test/support/compile.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"

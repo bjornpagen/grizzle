@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, constant, type Gen } from "@bjornpagen/testing/gen"
 import {
@@ -9,7 +10,6 @@ import {
 } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { type AmbientSession, grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { type Family, type Mode, modeOf, populationsOf } from "#test/support/laws/boxes.ts"
 import { fromSelected, type HostLaw, type HostSchema } from "#test/support/laws/model.ts"

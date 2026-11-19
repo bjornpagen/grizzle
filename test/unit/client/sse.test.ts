@@ -17,11 +17,11 @@
  * with no data line, an unended tail, and a leading byte order mark.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str, Stream } from "effect"
 import { sseEvents } from "#client/sse.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	chunksOf,
 	type Feature,

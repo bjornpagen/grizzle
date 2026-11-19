@@ -8,12 +8,12 @@
  * Features: one handle per arm, an arm of several handles, an unarmed handle, a restated containment.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { expandAlternatives, type StatementDesc } from "#compiler/ir/desc.ts"
-import { assert } from "#test/support/assert.ts"
 import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
 import {
 	alternativesSchema,

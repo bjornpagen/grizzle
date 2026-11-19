@@ -28,6 +28,7 @@
  * integer the checker refuses to type by a contract or a pattern beside it (check/params.ts ParamCell.use).
  */
 
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
@@ -48,7 +49,6 @@ import {
 	admitTemplate
 } from "#test/pg/parameters/admission.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, assertVariant } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

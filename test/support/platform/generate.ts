@@ -27,7 +27,7 @@ import { keep, type Swarm, swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, pipe, String as Str } from "effect"
 import type { Addition } from "#compiler/public/changeset.ts"
 
-import { nonEmpty } from "#test/support/assert.ts"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { pickFrom, pickGen, pickIndex, pickOf } from "#test/support/pick.ts"

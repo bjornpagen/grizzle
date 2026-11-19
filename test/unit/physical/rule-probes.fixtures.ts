@@ -1,5 +1,6 @@
 /** What the properties of rule-probes.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { probes as probesOf } from "#compiler/analysis/theory/query.ts"
@@ -9,7 +10,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { judgeBodiesOf, judgedStatementsIn, plannedQueryOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"

@@ -1,5 +1,6 @@
 /** What the properties of concat-fill.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
@@ -8,7 +9,7 @@ import { columnIndex } from "#compiler/runtime/write/cells.ts"
 import { closedLeaf, filler, hostEvaluator } from "#compiler/runtime/write/fill.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	decodedSchema,
 	f,

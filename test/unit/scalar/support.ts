@@ -1,3 +1,4 @@
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	constant,
 	element,
@@ -24,7 +25,6 @@ import {
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
 import { admittedClosedId, closedBuilder } from "#compiler/schema/relation.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 
 /**

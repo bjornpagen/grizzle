@@ -1,3 +1,4 @@
+import { assert, lacks } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -11,7 +12,6 @@ import {
 	queryNames,
 	sketchGen
 } from "#test/pg/recursion/graph/existence.fixtures.ts"
-import { assert, lacks } from "#test/support/assert.ts"
 import {
 	conservative,
 	defaultRunOptions,

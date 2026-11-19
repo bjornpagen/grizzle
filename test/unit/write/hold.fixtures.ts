@@ -1,5 +1,6 @@
 /** What the properties of hold.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { UnheldWhy } from "#compiler/core/errors.ts"
@@ -17,7 +18,7 @@ import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"

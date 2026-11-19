@@ -10,11 +10,11 @@
  */
 
 import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { assert } from "#test/support/assert.ts"
 
 type Edit =
 	| "the bytes' own text"

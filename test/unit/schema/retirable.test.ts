@@ -16,11 +16,11 @@
  * containment into a body from outside the unit or crossing the group.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	brokenOf,
 	containedBeyond,

@@ -17,6 +17,7 @@
  * form over columns and parameters, its guard holding and failing.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -24,7 +25,6 @@ import { Effect, Result } from "effect"
 import { ParamId } from "#compiler/core/ids.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { assert } from "#test/support/assert.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { baseParams, lowerWith, param, spelledExpr, v } from "#test/unit/compute/support.ts"
 import {

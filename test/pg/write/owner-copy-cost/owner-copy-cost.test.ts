@@ -29,6 +29,7 @@
  * (test/pg/write/swarm/families.test.ts, test/pg/write/fill-order) judge the rows the same statements write.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -41,7 +42,6 @@ import {
 	situations,
 	sketchGen
 } from "#test/pg/write/owner-copy-cost/owner-copy-cost.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

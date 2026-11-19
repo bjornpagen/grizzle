@@ -1,6 +1,7 @@
 /** What the properties of parse-decimal.test.ts read: its spaces, models and helpers. */
 
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
@@ -23,7 +24,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits } from "#compiler/scalar/values/fault.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { decimalTextGen } from "#test/support/lexical.ts"

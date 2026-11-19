@@ -18,11 +18,11 @@
  * Features: each step, seed and law admitted or refused, and a mutable relation's refusal.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { compiledOf } from "#test/unit/analysis/theory/rule-query.fixtures.ts"
 import {
 	endedOf,

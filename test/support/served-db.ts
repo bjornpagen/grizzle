@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Layer, Option, Record as Rec, Result, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { changeApplication, onceCalls, type OnceCalls, variantOf } from "#adapter/db/handles.ts"
@@ -25,7 +26,7 @@ import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/ser
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
 import type { Generated, Installed } from "#test/support/install-migrate.ts"
 import { type SourcedLayer, sourcedDbLayer } from "#test/support/live-layer.ts"

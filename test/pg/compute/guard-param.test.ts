@@ -13,6 +13,7 @@
  * Features: each plan with each bound, "custom plan, zero" to "generic plan, a divisor".
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -24,7 +25,6 @@ import {
 	type Plan
 } from "#test/pg/compute/guard-param.fixtures.ts"
 import { textCell } from "#test/pg/compute/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

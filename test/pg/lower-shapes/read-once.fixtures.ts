@@ -1,5 +1,6 @@
 /** What read-once.test.ts reads: the schema, its template, the space, and each case's run. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
@@ -11,7 +12,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile, workloadOver } from "#test/support/compile.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"

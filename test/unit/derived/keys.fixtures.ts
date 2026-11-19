@@ -1,6 +1,7 @@
 /** What the properties of keys.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -28,7 +29,6 @@ import {
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { upTo } from "#test/support/up-to.ts"

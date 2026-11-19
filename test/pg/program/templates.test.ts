@@ -13,6 +13,7 @@
  * The oracle is a model of the transaction's notes: exactly those whose task the transaction holds.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
@@ -30,7 +31,6 @@ import {
 	uuids,
 	workTemplate
 } from "#test/pg/program/templates.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Task, TaskNote } from "#test/support/fixtures/api/work.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 

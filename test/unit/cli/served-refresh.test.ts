@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A refresh member of a login's workload is compiled by `grizzle generate` into the login's served file, and held to
  * it by `grizzle check`, as every member is: its targets are the views of the set of materialized relations its
@@ -24,7 +25,7 @@ import { check } from "#cli/check.ts"
 import { loginFiles } from "#cli/files.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { loginFileFindings } from "#test/support/migrate/kit.ts"
 import {
 	at,

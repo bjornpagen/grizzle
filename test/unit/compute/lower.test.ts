@@ -15,6 +15,7 @@
  * contract; each planted combination in each order.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -22,7 +23,7 @@ import { Array as Arr, Effect } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { exactDigitsOf, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { mixesExact } from "#compiler/scalar/compute/types.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	castCaseGen,
 	type CastFeature,

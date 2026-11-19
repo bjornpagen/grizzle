@@ -1,5 +1,6 @@
 /** What the properties of flights.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Exit, Stream } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { type ServedCalls } from "#adapter/db/handles.ts"
@@ -20,7 +21,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { refresh } from "#compiler/public/workload.ts"
 import { servedFile } from "#compiler/served/json.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { fatalStates, fenceRefusal } from "#test/support/flight/model.ts"
 import {

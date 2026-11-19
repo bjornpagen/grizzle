@@ -123,6 +123,7 @@
  * relations only withdraw its violations (the required situations of the search).
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
@@ -134,7 +135,6 @@ import {
 	type IsolationReason,
 	readSeal
 } from "#compiler/analysis/isolation/certify.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { expanded } from "#test/support/expanded.ts"
 import {
 	absenceOfItsOwnLowering,

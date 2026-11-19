@@ -1,5 +1,6 @@
 /** What the properties of manifest.test.ts read: its space and the manifest.json files a case commits. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { decode, everyProperty, type Json, noRevivers } from "#compiler/core/canonical.ts"
@@ -7,7 +8,7 @@ import { digest } from "#compiler/core/fingerprint.ts"
 import { formatKey } from "#compiler/core/format.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { joinedSnapshot, snapshotSeal } from "#compiler/deploy/snapshot/build.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 
 /**
  * What a case commits beside the first draft's other file: a snapshot.json that records no format, as every grizzle

@@ -22,6 +22,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import { noExtension } from "#test/support/compute.ts"
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	type AggregateSpec,
 	type CompletedOrder,
@@ -47,7 +48,6 @@ import { widening } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
-import { defined } from "#test/support/assert.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { bool, compareParamType } from "#test/support/oracle/gen/domain.ts"
 import type { GenFacts } from "#test/support/oracle/gen/facts.ts"

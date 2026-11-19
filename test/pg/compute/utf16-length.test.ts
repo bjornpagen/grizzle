@@ -24,6 +24,7 @@
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
@@ -50,7 +51,6 @@ import {
 	term
 } from "#test/pg/compute/utf16-length.fixtures.ts"
 import { probe } from "#test/pg/physical/checks.ts"
-import { assert } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { ownedInput } from "#test/support/policy.ts"

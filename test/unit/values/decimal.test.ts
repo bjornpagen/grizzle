@@ -34,6 +34,7 @@
  * and every wild kind.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
@@ -48,7 +49,7 @@ import {
 	numericMaxScale,
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
-import { assert, defined, faulted, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 import {
 	canonicalParts,
 	corrupted,

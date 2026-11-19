@@ -23,6 +23,7 @@
  *   after its start, and nothing pending.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -41,7 +42,7 @@ import {
 	versions
 } from "#test/pg/migrate/flights.fixtures.ts"
 import { kept, parsedTarget, reviewedSource } from "#test/pg/migrate/support.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty } from "#test/support/migrate/kit.ts"

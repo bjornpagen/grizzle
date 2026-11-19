@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The forms a grizzle case's database takes (test/support/substrate/substrate.ts): a clone of an installed template a
  * case (Substrate.freshOf), the worker's own clone of it held across cases and reset after each (Substrate.seat), and
@@ -21,7 +22,6 @@ import {
 	workTemplate,
 	writtenAccounts
 } from "#test/pg/substrate/forms.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { Served } from "#test/support/served-db.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

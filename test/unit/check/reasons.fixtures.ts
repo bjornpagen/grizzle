@@ -1,6 +1,7 @@
 /** What the properties of reasons.test.ts read: its spaces, models and helpers. */
 
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { codePoint, element, type Gen, int, oneOf, string } from "@bjornpagen/testing/gen"
 import type { CorruptedFeature } from "@bjornpagen/testing/lsw"
 import { bigint as bigintGen, double } from "@bjornpagen/testing/values"
@@ -9,7 +10,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { QueryDesc as LocatedQuery } from "#compiler/ir/desc.ts"
-import { assert, defined, placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import {
 	type AuthoredExprDesc,

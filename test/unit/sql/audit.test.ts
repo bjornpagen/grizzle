@@ -29,12 +29,12 @@
  * required faithful rewrite; each text break and its rule beside the print's leading words.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
 import {

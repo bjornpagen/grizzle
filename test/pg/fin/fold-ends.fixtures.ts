@@ -1,5 +1,6 @@
 /** What the properties of fold-ends.test.ts read: its spaces, models and helpers. */
 
+import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import { boolean, constant, type Gen, int, subarray, weighted } from "@bjornpagen/testing/gen"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
@@ -29,7 +30,6 @@ import {
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import {
 	type Breaking,

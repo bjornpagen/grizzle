@@ -27,6 +27,7 @@
  * test/pg/write/oracle) judge the refusals the same probe raises.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -39,7 +40,6 @@ import {
 	sketchGen,
 	smallest
 } from "#test/pg/write/pair-cost/pair-cost.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

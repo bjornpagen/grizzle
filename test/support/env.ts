@@ -1,4 +1,4 @@
-import type { LocalCluster, PgMember } from "@bjornpagen/testing/pg"
+import type { LeasedSizing, LocalCluster, PgMember } from "@bjornpagen/testing/pg"
 import grizzleCluster from "#pg.config.ts"
 import { pin } from "#pg/pin.ts"
 
@@ -18,9 +18,9 @@ export const pgPin = {
 /**
  * grizzle's local cluster as pg.config.ts states it, which any module reads with no cluster present: its owner role,
  * grizzle_dev, the migration identity every installation is made by, and its template, grizzle_template, every test
- * database's origin.
+ * database's origin; a cluster a run's workers lease (LeasedSizing), which the runner's layer takes.
  */
-export const pgCluster: LocalCluster = grizzleCluster
+export const pgCluster: LocalCluster<LeasedSizing> = grizzleCluster
 
 /**
  * The bootstrap superuser's URL to `database` over the local socket of `cluster`, the member this process reaches, where

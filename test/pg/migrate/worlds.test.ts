@@ -41,6 +41,7 @@
  */
 
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -59,7 +60,6 @@ import {
 	versionOf,
 	type WorldsFeature
 } from "#test/pg/migrate/worlds.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { migrated, type Version } from "#test/support/installed.ts"

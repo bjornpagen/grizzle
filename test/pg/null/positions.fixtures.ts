@@ -1,6 +1,7 @@
 /** What the properties of positions.test.ts read: its spaces, models and helpers. */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import type { Case, Steered } from "@bjornpagen/testing/explore"
 import type { Pending, Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
@@ -44,7 +45,7 @@ import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { answered, readOnce, type WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import {

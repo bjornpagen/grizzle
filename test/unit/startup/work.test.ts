@@ -33,12 +33,12 @@
  * is exhausted: every dimension at 2, 4 and 6, every other at its least. Features: every dimension.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
 import { Array as Arr, Effect } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import {
 	type Dimension,

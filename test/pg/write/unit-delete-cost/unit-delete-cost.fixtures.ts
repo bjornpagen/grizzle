@@ -1,6 +1,7 @@
 /** What the property of unit-delete-cost.test.ts reads: its schema, its space, and each case's run. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
@@ -17,7 +18,6 @@ import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { fin, on, relation, schema, tree } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

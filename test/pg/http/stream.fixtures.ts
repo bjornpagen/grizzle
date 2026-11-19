@@ -1,6 +1,7 @@
 /** What the properties of stream.test.ts read: its spaces, models and helpers. */
 
 import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Result, Stream } from "effect"
 import type { ServedCalls } from "#adapter/db/handles.ts"
@@ -16,7 +17,6 @@ import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { listFrame, setFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
 import type { SseEvent } from "#http/sse.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import type { StreamEvent } from "#test/support/event-stream.ts"
 
 const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])

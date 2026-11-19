@@ -19,6 +19,7 @@
  * Features: each parameter outside Code refused under each filter, and each read answered with a code inside Code.
  */
 
+import { assert, assertVariant, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
@@ -35,7 +36,7 @@ import {
 	readsTemplate
 } from "#test/pg/parameters/read-admission.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, assertVariant, bareRecord, unorderedEqual } from "#test/support/assert.ts"
+import { bareRecord } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"

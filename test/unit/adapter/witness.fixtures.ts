@@ -1,5 +1,6 @@
 /** What the properties of witness.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	array,
@@ -38,7 +39,7 @@ import type { Refuser, StatementAt } from "#compiler/runtime/write/witness.ts"
 import { own } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { KeyHost, Law, Witness } from "#compiler/types/changeset/changeset.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type CaseSketch, caseSketchGen } from "#test/support/oracle/public/generate.ts"
 import { type LawFeature, type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { type DrawnSchema } from "#test/support/served-login.ts"

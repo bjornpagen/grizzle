@@ -1,6 +1,7 @@
 /** What the properties of literal.test.ts read: its spaces, models and helpers. */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, subarray, weighted } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
@@ -12,7 +13,6 @@ import { closed, fin, schema } from "#compiler/public/schema.ts"
 import { admitClosedRelation, closedBuilder, relationDescOf } from "#compiler/schema/relation.ts"
 import type { Token } from "#compiler/sql/lexer.ts"
 import { lex } from "#compiler/sql/lexer.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { textOfHex, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	check,

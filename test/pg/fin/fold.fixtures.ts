@@ -1,5 +1,6 @@
 /** What the properties of fold.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { type Oracle } from "@bjornpagen/testing/explore"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { type Kill } from "@bjornpagen/testing/property"
@@ -9,7 +10,6 @@ import { fin, fold, Monoid, on, relation, schema, tree } from "#compiler/public/
 import { FOLD_SPECS, type FoldSpec, type FoldVerdict } from "#test/pg/fin/folds.ts"
 import { type EndFeature, seatTemplate } from "#test/pg/fin/installed.ts"
 import { forestsOf, type TreeRow } from "#test/pg/substrate/tree.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import {
 	type FoldFamily,
 	type FoldStored,

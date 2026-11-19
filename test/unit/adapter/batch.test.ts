@@ -1,10 +1,10 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { excludesNothing, joinFlights, runFramed, writeFrame } from "#adapter/wire/batch.ts"
-import { assert } from "#test/support/assert.ts"
 import { smallCases } from "#test/support/flight/cases.ts"
 import { type FlightFeature, flightPrologue } from "#test/support/flight/model.ts"
 import {

@@ -1,3 +1,4 @@
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -20,7 +21,7 @@ import {
 	unbuilt,
 	viewsOf
 } from "#test/pg/derived/refresh/refresh.fixtures.ts"
-import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

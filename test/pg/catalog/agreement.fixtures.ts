@@ -2,6 +2,7 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Pending, Reached } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -29,7 +30,6 @@ import { type CatalogResult } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import { type Facts, factsGen, labFacts, labOptions } from "#test/pg/catalog/support.ts"
 import { aimedSteered } from "#test/support/aims.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { catalogDispatch } from "#test/support/compile.ts"
 import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import * as D from "#test/unit/check/dsl.ts"

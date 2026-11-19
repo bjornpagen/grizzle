@@ -24,6 +24,7 @@
  * Features: each edit kind with its outcome, admitted or refused.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -40,7 +41,6 @@ import {
 	reviewerOf
 } from "#test/pg/migrate/admission.fixtures.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
-import { defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
 

@@ -17,9 +17,9 @@ import {
 import type { Session, SessionState } from "#adapter/wire/session.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 
+import { assert } from "@bjornpagen/testing/assert"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Param } from "#compiler/core/wire.ts"
-import { assert } from "#test/support/assert.ts"
 import { fenceSql, prologueIn } from "#test/support/flight/model.ts"
 import { testSql } from "#test/support/sql.ts"
 import { fixtureGroup } from "#test/support/substrate/replace.ts"

@@ -1,3 +1,4 @@
+import { assert, deepEquals, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -23,7 +24,6 @@ import {
 	type State,
 	verdictOf
 } from "#test/pg/fin/counted-set.fixtures.ts"
-import { assert, deepEquals, unorderedEqual } from "#test/support/assert.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { applicationOf, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"

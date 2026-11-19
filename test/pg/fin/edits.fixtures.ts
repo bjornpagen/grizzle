@@ -1,5 +1,6 @@
 /** What the properties of edits.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -16,7 +17,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { FOLD_SPECS } from "#test/pg/fin/folds.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/generate.ts"
 import { upTo } from "#test/support/up-to.ts"
 

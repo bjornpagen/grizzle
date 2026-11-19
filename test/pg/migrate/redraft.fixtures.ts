@@ -1,6 +1,7 @@
 /** What the properties of redraft.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -27,7 +28,7 @@ import {
 	reviewedSource,
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { firstCodes, installedCodes } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"

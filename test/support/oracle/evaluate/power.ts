@@ -1,8 +1,8 @@
 import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Option, Result, String as Str } from "effect"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { isqrt } from "#test/support/oracle/evaluate/numeric.ts"
 
 /** numeric.c's constants for NBASE 10000. */

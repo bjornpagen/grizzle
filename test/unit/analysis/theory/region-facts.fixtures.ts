@@ -1,10 +1,10 @@
 /** What region-facts.test.ts reads: its box of schemas, the instances it draws over them, and its oracle. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { FieldContainment } from "#compiler/analysis/theory/unit.ts"
 import type { ExprDesc, TermDesc } from "#compiler/ir/desc.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	contained,
 	counted,

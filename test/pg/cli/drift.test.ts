@@ -36,6 +36,7 @@
  * whose columns the editor holds SELECT on.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -63,7 +64,6 @@ import {
 	ownerOn,
 	workspace
 } from "#test/pg/cli/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

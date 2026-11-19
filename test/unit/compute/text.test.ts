@@ -28,6 +28,7 @@
 
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -40,14 +41,7 @@ import { regexMaxDepth, colorsOf, rawSize } from "#compiler/scalar/regex/space.t
 import type { Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import {
-	assert,
-	assertVariant,
-	defined,
-	refused,
-	succeeded,
-	throwsRefused
-} from "#test/support/assert.ts"
+import { refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { baseParams, lowerWith, plainRender, sqlOf, testPg, v } from "#test/unit/compute/support.ts"
 import {

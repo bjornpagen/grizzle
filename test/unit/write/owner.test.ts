@@ -21,11 +21,12 @@
  * refused, and each kind of compiled write (compiledFeatures).
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	compile,

@@ -1,7 +1,7 @@
 /** What the properties of forged.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr } from "effect"
-import { nonEmpty } from "#test/support/assert.ts"
 import { type CarrierName, carriers } from "#test/support/forged.ts"
 
 /** The forged carriers whose arrays PostgreSQL reads without an extension: numeric at two typmods, and money. */

@@ -1,6 +1,7 @@
 /** What the properties of deps.test.ts read: its spaces, models and helpers. */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import type { Need } from "@bjornpagen/testing/property"
 import {
@@ -14,7 +15,6 @@ import {
 	String as Str
 } from "effect"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { assert } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { hardenedNode, run, runOptions } from "#test/support/process.ts"
 import {

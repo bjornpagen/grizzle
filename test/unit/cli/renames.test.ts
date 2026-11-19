@@ -1,3 +1,4 @@
+import { assert, deepEquals } from "@bjornpagen/testing/assert"
 /**
  * The rename declaration reader (packages/grizzle/src/cli/renames.ts) against D9's grammar, stated as a checker that
  * shares no code with it but the naming door's rule of a declared name (core/identity.ts parseDeclaredName) and its
@@ -35,7 +36,7 @@ import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { parseDeclarations, parseDrop, parseRename, rosterRenames } from "#cli/renames.ts"
 import { type DeclaredName, declaredAlike } from "#compiler/core/identity.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
-import { assert, deepEquals, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	type Dropped,
 	type Listed,

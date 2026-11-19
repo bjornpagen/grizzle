@@ -1,5 +1,6 @@
 /** What the properties of rule-tokens.test.ts read: their schema and template, their spaces, and each case's run. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
@@ -13,7 +14,6 @@ import { check, contained, derived, key, on, relation, schema } from "#compiler/
 import { str } from "#compiler/public/text.ts"
 import { readsOf, rerunsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"

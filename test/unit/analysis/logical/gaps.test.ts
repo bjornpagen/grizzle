@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -10,7 +11,6 @@ import { keyFactors, keyIn } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type Heading } from "#compiler/ir/rel.ts"
 import { bitsOf } from "#compiler/logical/attributes.ts"
 import { closure, namesNothing, reaches } from "#compiler/logical/closure.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import {
 	admitted,

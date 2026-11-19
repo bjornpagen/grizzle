@@ -1,5 +1,6 @@
 /** What the properties of harness.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { aimed, array, boolean, element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { Array as Arr, Cause, Effect, Option, Path, String as Str } from "effect"
@@ -22,7 +23,6 @@ import { ownerDirectories } from "#bench/harness/rules.ts"
 import { discoverGates } from "#bench/harness/runner.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { UniqueAbort } from "#compiler/runtime/write/steps.ts"
-import { assert } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { catalogIds } from "#test/unit/bench/harness.dictionary.ts"
 

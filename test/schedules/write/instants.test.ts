@@ -38,6 +38,7 @@
  * two rows at one child, and two children in one call.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -63,7 +64,6 @@ import {
 	untilAnswered,
 	clocksRig
 } from "#test/schedules/write/instants.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"

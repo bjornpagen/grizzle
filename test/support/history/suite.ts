@@ -31,7 +31,7 @@ import {
 import type { WriterKind } from "#test/support/history/model.ts"
 import { type BelowFeature, belowFeaturesOf } from "#test/support/history/refused.ts"
 
-import { defined } from "#test/support/assert.ts"
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	type HistoryCase,
 	type HistoryEnv,

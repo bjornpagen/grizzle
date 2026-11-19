@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * The checker's parameter, member and bound rules (check/), each against its rule restated over drawn inputs:
  *
@@ -36,7 +37,6 @@ import { Array as Arr, Option } from "effect"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { decodedMember, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationOf, localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { int4, numeric } from "#test/support/oracle/gen/domain.ts"

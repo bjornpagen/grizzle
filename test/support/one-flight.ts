@@ -1,7 +1,7 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { Effect, Formatter, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

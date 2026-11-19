@@ -1,5 +1,6 @@
 /** What the properties of derived-evidence.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
@@ -7,7 +8,6 @@ import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
-import { defined } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Reporting } from "#test/support/fixtures/api/payroll.ts"
 import { AccountBudget, Reports } from "#test/support/fixtures/api/work.ts"

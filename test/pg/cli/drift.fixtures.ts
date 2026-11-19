@@ -1,11 +1,11 @@
 /** What the properties of drift.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import { array, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, DateTime, Effect, Option, Record as Rec, String as Str } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
 import { Substrate, underDatabaseLock } from "#test/support/substrate/substrate.ts"
 

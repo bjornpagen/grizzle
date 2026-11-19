@@ -1,5 +1,6 @@
 /** What the properties of bits.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import {
 	boolean,
@@ -27,7 +28,7 @@ import {
 	or,
 	toText
 } from "#compiler/codec/bits.ts"
-import { assert, throwsDefect } from "#test/support/assert.ts"
+import { throwsDefect } from "#test/support/assert.ts"
 
 /** The naive model of a bit string. */
 interface Model {

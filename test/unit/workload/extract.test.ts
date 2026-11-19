@@ -14,6 +14,7 @@
  * Features: a program under two names, a path several programs request, statistics several programs request.
  */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -24,7 +25,6 @@ import {
 	statisticsKinds,
 	type StatisticsRequest
 } from "#compiler/physical/statistics/statistics.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import {
 	compareColumns,
 	named,

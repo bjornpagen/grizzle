@@ -1,5 +1,6 @@
 /** What the properties of catalog-names.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
@@ -13,7 +14,7 @@ import {
 	grizzleFirstSession,
 	ordinarySession
 } from "#test/support/ambient.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	closed,
 	contained,

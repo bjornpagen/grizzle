@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 /**
  * The schemas the family swarm search draws (test/pg/write/swarm/families.test.ts): a family core of relations R0 …
  * Rn−1 as the reference writer specifies them (test/support/families/fill.ts FillSpec: trees, ordered and counted
@@ -47,7 +48,6 @@ import {
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, AnyRoster, Relation } from "#compiler/types/schema/relation.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	admittedSources,
 	type Axis,

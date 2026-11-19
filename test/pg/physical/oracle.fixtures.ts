@@ -1,10 +1,10 @@
 /** What the properties of oracle.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Order, pipe, String as Str } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { type FixtureWorlds, worldsExpectation } from "#test/pg/physical/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { expectedCatalog, projectCatalog } from "#test/support/catalog/expected.ts"
 import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
 import { verifyErasure } from "#test/support/catalog/verify.ts"

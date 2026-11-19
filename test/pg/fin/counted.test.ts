@@ -1,3 +1,4 @@
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
@@ -36,7 +37,6 @@ import {
 	judgedFold
 } from "#test/pg/fin/folds.ts"
 import { endedBy, endGen, refusedAtCommitBy, seatIn } from "#test/pg/fin/installed.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { swapWithLast } from "#test/support/families/counted.ts"
 import { foldApplied, foldStoredOf, grizzleFold } from "#test/support/families/fold.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

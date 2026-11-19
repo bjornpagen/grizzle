@@ -1,8 +1,8 @@
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import {
 	expected,
 	features,

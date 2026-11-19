@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -16,7 +17,6 @@ import {
 	walkGen,
 	walksBelow
 } from "#test/pg/recursion/lowering/walks.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { programAsts } from "#test/support/compile.ts"
 import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
 import {

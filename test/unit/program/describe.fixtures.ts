@@ -1,12 +1,13 @@
 /** What the properties of describe.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { characterOf, codePoint, type Gen, string } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { descText } from "#compiler/ir/desc.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 
 /**

@@ -1,6 +1,7 @@
 /** What the properties of role-prefix.test.ts read: its spaces, models and helpers. */
 
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import {
@@ -27,7 +28,6 @@ import {
 	servedAt,
 	workspace
 } from "#test/pg/cli/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered, oneOf } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"

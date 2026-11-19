@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
@@ -25,7 +26,6 @@ import type {
 import { builtSides, conservativeMeta, headingOrder, semiJoinRight } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
-import { defined } from "#test/support/assert.ts"
 import { statedKey } from "#test/support/fixtures/ir/build.ts"
 import { closed, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"

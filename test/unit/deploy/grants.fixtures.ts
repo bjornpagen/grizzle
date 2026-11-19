@@ -1,6 +1,7 @@
 /** What the properties of grants.test.ts read: its space of two versions of a schema's role worlds, and its judge, a
  * model of the privileges PostgreSQL holds. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, String as Str } from "effect"
 import { alterationStatement, type Declarations } from "#compiler/deploy/diff/plan.ts"
@@ -17,7 +18,7 @@ import { installationsOf, type OwnedLogin, ownLogin, rostersOf } from "#compiler
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { Grant, GrantObjects, Grantee, SqlStatement } from "#compiler/sql/ast.ts"
 import { printType } from "#compiler/sql/print.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { DeploySubject } from "#test/support/migrate/kit.ts"

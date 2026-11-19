@@ -1,6 +1,7 @@
 /** What the properties of fin.test.ts read: its spaces, models and helpers. */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
@@ -15,7 +16,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, fin, on, relation, schema } from "#compiler/public/schema.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	codebookOfStates,
 	codecFor,

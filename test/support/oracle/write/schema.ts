@@ -1,3 +1,4 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { keep, type Swarm, swarm as swarmOf, weightOf } from "@bjornpagen/testing/swarm"
@@ -25,7 +26,6 @@ import {
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { foreignKeyColumns, installationNamesOf } from "#test/support/kernel/naming.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import type { OracleRelation, OracleSchema } from "#test/support/oracle/addwins.ts"

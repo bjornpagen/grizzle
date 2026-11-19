@@ -21,6 +21,7 @@
  * - Features: a read of two rows or more, by construction.
  */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Fiber, Option, Stream } from "effect"
@@ -37,7 +38,6 @@ import {
 	type Seen
 } from "#test/pg/reads/stream.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"

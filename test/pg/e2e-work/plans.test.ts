@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -19,7 +20,6 @@ import {
 	type WorkFeature,
 	workPlansTemplate
 } from "#test/pg/e2e-work/plans.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { pickIndex } from "#test/support/pick.ts"

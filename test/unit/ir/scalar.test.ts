@@ -16,6 +16,7 @@
  * one and several components, special values.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import {
 	aimed,
@@ -43,7 +44,7 @@ import { isRefined } from "#compiler/ir/scalar.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { assert, defined, placeOf, refusalLoc, succeeded } from "#test/support/assert.ts"
+import { placeOf, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { normalizeExprTable } from "#test/support/fixtures/ir/scalar.ts"
 import { fail, scalarTypes } from "#test/unit/ir/fixture.ts"
 import {

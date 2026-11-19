@@ -15,6 +15,7 @@
  * and kept beside a lateral read.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -23,7 +24,7 @@ import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type Heading } from "#compiler/ir/rel.ts"
 import { closedPass } from "#compiler/lower/optimize/closed/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
-import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"

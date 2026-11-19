@@ -1,3 +1,4 @@
+import { assert, contains, defined, lacks } from "@bjornpagen/testing/assert"
 /**
  * Exact cosine distance on PostgreSQL 19 and the pinned pgvector.
  *
@@ -62,7 +63,6 @@ import {
 	widthsWorld
 } from "#test/pg/vector/exact/distance.fixtures.ts"
 import { normTolerance } from "#test/pg/vector/support.ts"
-import { assert, contains, defined, lacks } from "#test/support/assert.ts"
 import { namesOf, roleNamesOf } from "#test/support/kernel/naming.ts"
 import { expectConstraint } from "#test/support/substrate/expect.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"

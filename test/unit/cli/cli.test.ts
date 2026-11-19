@@ -28,6 +28,7 @@
  * configuration fault, and each way the bin's loading ends.
  */
 import { inspect } from "node:util"
+import { assert, lacksText } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -41,7 +42,7 @@ import {
 	resolvedConfig,
 	workspace
 } from "#test/pg/cli/support.ts"
-import { assert, lacksText, refusedAt, succeeded } from "#test/support/assert.ts"
+import { refusedAt, succeeded } from "#test/support/assert.ts"
 import {
 	argvOf,
 	type ConfigFeature,

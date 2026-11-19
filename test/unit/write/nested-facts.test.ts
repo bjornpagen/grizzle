@@ -16,6 +16,7 @@
  * relation lacks; only a later member states beyond its caller's fields; every fact states its caller's fields alone.
  */
 
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -26,7 +27,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { checking } from "#test/support/policy.ts"
 import { withinMessage } from "#test/support/worlds/execute/offline.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"

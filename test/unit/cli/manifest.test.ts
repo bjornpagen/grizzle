@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A committed snapshot's two files as `grizzle check` and `grizzle generate` read them: a pair of another format than
  * this grizzle's (core/format.ts artifactFormat), whether snapshot.json records none, as every grizzle before formats
@@ -24,7 +25,7 @@ import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { check } from "#cli/check.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { at, baseNeed, config, schemaDir } from "#test/unit/cli/derived.fixtures.ts"
 import {
 	type Commit,

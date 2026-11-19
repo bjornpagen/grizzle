@@ -10,11 +10,12 @@
  * column, a widened column, an attached arm, a keyed order, a narrowed match, a set beside a discriminant of Kind.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { schemaDescOf } from "#test/unit/check/drawn.ts"
 import {

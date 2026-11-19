@@ -21,6 +21,7 @@
  * time beside the wide range; for closed ids, one handle and several, two names and one.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { corruptedFeature, drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
@@ -36,7 +37,7 @@ import { carrierSql, describeField } from "#compiler/scalar/registry.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
 import { admittedClosedId, closedBuilder } from "#compiler/schema/relation.ts"
-import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { succeeded, throwsRefused } from "#test/support/assert.ts"
 import { spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {

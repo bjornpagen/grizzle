@@ -1,5 +1,6 @@
 /** What the property of substrate.test.ts reads: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	characterOf,
@@ -11,7 +12,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import { maxIdentifierBytes, identifierOf, identity } from "#compiler/core/identity.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 
 const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")

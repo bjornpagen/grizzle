@@ -4,6 +4,7 @@
  * region the rule's judge reads over a transition, each rule of the region read over the transition's delta.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
@@ -15,7 +16,6 @@ import type {
 	InferredStage,
 	LiteralDesc
 } from "#compiler/ir/desc.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { type Node, numbered } from "#test/support/families/tree.ts"
 import {
 	type AuthoredExprDesc,

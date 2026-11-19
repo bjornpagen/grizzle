@@ -23,12 +23,12 @@
  * member beside a writable entry, every fill and every standing of a head field.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { writableEntry } from "#compiler/schema/entry.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { definitionOf } from "#test/support/worlds/execute/describe.ts"
 import { classifyEntry } from "#test/support/worlds/model/host.ts"
 import {

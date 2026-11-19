@@ -50,11 +50,11 @@
  * admitted and refused, for the fourth.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	amountSchemaOf,
 	clashesOf,

@@ -1,10 +1,10 @@
 /** What the properties of keys.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { plainType } from "#compiler/scalar/native.ts"
-import { defined } from "#test/support/assert.ts"
 
 /**
  * The minimal keys a dependency table proves (logical/closure.ts minimalKeys): from the whole heading alone, closed

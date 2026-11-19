@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -13,7 +14,6 @@ import {
 	type StatisticsRow,
 	workloadAims
 } from "#test/pg/derived/statistics.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"

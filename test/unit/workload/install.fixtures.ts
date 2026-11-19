@@ -1,6 +1,7 @@
 /** What the properties of install.test.ts read: its spaces, models and helpers. */
 
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -22,7 +23,7 @@ import {
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"

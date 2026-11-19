@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Compute.parseDecimal on PostgreSQL 19rc2: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
  * each part's count of digits at an edge the parse turns on (256 integer and 255 fraction digits, the widest
@@ -39,7 +40,6 @@ import {
 	valueOf,
 	ariaRanges
 } from "#test/pg/compute/parse-decimal.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { canonicalDecimal, decimalOrder } from "#test/support/oracle/evaluate/decimal-text.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 

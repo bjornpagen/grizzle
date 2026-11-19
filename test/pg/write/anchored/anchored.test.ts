@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -20,7 +21,7 @@ import {
 	reads,
 	type Shape
 } from "#test/pg/write/anchored/anchored.fixtures.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installedCodes, paramValues, realityWrite, testArtifacts } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

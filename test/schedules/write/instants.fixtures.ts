@@ -1,5 +1,6 @@
 /** What the properties of instants.test.ts read: its spaces, models and helpers. */
 
+import { deepEquals } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
@@ -8,7 +9,6 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { instant, pg } from "#compiler/public/fields.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { deepEquals } from "#test/support/assert.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import { rigTemplate } from "#test/support/schedules/rig.ts"
 

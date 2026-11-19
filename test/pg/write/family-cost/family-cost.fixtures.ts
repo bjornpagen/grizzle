@@ -1,6 +1,7 @@
 /** What the properties of family-cost.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import { rowsScannedAndPaired } from "#bench/harness/explain.ts"
@@ -23,7 +24,6 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { assert } from "#test/support/assert.ts"
 
 const Group = relation("Group", { id: pg.integer, size: drawn(natural) }, ["id"])
 

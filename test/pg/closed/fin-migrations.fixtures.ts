@@ -1,5 +1,6 @@
 /** What the properties of fin-migrations.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -17,7 +18,6 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { closedId, natural, pg, slot } from "#compiler/public/fields.ts"
 import { closed, contained, fin, on, relation, schema } from "#compiler/public/schema.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { migrated } from "#test/support/installed.ts"
 import { sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"

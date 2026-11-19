@@ -2,6 +2,7 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	array,
 	constant,
@@ -15,7 +16,6 @@ import { Array as Arr, Formatter } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { assert } from "#test/support/assert.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import type { Run } from "#test/support/oracle/compare.ts"
 import type { RawRow } from "#test/support/oracle/install/capture.ts"

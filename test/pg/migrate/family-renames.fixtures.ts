@@ -1,5 +1,6 @@
 /** What the properties of family-renames.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import {
 	boolean,
@@ -40,7 +41,7 @@ import {
 	refusedLaw,
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { numbered, treeOfParents } from "#test/support/families/tree.ts"
 import {
 	type AuthoredStatementDesc,

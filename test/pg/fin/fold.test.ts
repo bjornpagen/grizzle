@@ -32,6 +32,7 @@
  */
 /** The stored state a sketch writes: the reference fold of its family, then its junk. */
 
+import { deepEquals, defined } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result, Record as Rec } from "effect"
@@ -49,7 +50,6 @@ import {
 } from "#test/pg/fin/folds.ts"
 import { cleared, endedBy, endGen, refusedAtCommitBy, seatIn } from "#test/pg/fin/installed.ts"
 import { type TreeRow } from "#test/pg/substrate/tree.ts"
-import { deepEquals, defined } from "#test/support/assert.ts"
 import { grizzleFold } from "#test/support/families/fold.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

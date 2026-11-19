@@ -26,6 +26,7 @@
  * per head, "rewritten" and "probed" per neighbor kind), every one required of the space.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, boolean, element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -40,7 +41,7 @@ import { tryBoundNeighbor } from "#compiler/lower/shapes/catalog/neighbor.ts"
 import { catalogPass, rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import { checkedQuery, labOptions } from "#test/pg/catalog/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import * as D from "#test/unit/check/dsl.ts"
 import {
 	appliedTo,

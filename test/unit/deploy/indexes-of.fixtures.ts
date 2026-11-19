@@ -1,5 +1,6 @@
 /** What the properties of indexes-of.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { DeploySnapshot, SnapshotContent } from "#compiler/deploy/snapshot/types.ts"
@@ -10,7 +11,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { type SqlStatement, type TableConstraint, tableConstraints } from "#compiler/sql/ast.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 const B = relation("B", { id: Id }, ["id"])

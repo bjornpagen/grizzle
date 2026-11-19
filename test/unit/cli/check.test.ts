@@ -1,3 +1,4 @@
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * `grizzle check` reports every finding at once, one per entry, never stopping at the first, generated: a committed
  * directory of one schema (its first draft, `init`, and a custom folder after it, `seed`) with a drawn set of faults
@@ -23,7 +24,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { check } from "#cli/check.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	at,
 	type CheckFeature,

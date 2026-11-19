@@ -1,10 +1,11 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { constant } from "@bjornpagen/testing/gen"
 import { drawnFeature, lsw, passed, WILD_KINDS, type WildKind } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { absurd, Array as Arr, Effect, Option } from "effect"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
-import { assert, failed, succeeded } from "#test/support/assert.ts"
+import { failed, succeeded } from "#test/support/assert.ts"
 import {
 	accessorFaults,
 	callOf,

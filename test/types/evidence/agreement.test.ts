@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { oneOf } from "@bjornpagen/testing/gen"
 import { property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -14,7 +15,6 @@ import {
 	faultsRequired,
 	reorderedVerdicts
 } from "#test/support/agreement/queries.ts"
-import { assert } from "#test/support/assert.ts"
 import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * The type/engine agreements over drawn queries (test/support/agreement/queries.ts), each a program a batch checks

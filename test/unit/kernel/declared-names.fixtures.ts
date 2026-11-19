@@ -1,9 +1,9 @@
 /** What the properties of declared-names.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { characterOf, element, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 
 const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")
 

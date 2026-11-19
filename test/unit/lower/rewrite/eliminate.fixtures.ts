@@ -1,12 +1,13 @@
 /** What the properties of eliminate.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr } from "effect"
 import type { EvidenceCatalog, ExistenceConstraint } from "#compiler/ir/evidence.ts"
 import { type TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag } from "#compiler/ir/rel.ts"
 import { eliminatePass } from "#compiler/lower/optimize/eliminate/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { keyConstraintName, ownedFixture } from "#test/support/evidence.ts"
 import { contained, on, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {

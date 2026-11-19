@@ -1,6 +1,7 @@
 /** What the properties of roster-set.test.ts read: its spaces, models and helpers. */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Formatter, Result } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { CompileError } from "#compiler/core/errors.ts"
@@ -13,7 +14,6 @@ import { bits } from "#compiler/public/fields.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
-import { assert, defined } from "#test/support/assert.ts"
 
 /** The names both rosters draw their handles from. */
 export const names = ["low", "high", "dark"] as const

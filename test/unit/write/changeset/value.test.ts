@@ -31,6 +31,7 @@
  * the map and as a fact.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, codePoint, constant, int, map, string } from "@bjornpagen/testing/gen"
 import { lsw, passed } from "@bjornpagen/testing/lsw"
@@ -42,7 +43,6 @@ import { queryInput, querySchema } from "#compiler/program/compile.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { assert } from "#test/support/assert.ts"
 import { schemaInputOf } from "#test/support/compile.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {

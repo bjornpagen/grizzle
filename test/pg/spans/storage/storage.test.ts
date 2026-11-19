@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Span storage on PostgreSQL 19: what a span column admits and stores, and how a span parameter binds.
  *
@@ -40,7 +41,6 @@ import {
 	type Written,
 	written
 } from "#test/pg/spans/storage/storage.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { type HalfOpen, spanText } from "#test/support/oracle/allen.ts"

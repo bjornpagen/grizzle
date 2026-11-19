@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { passed, type WildKind, wildOf } from "@bjornpagen/testing/lsw"
 import {
 	Array as Arr,
@@ -36,7 +37,7 @@ import { type OwnedRole, ownRole } from "#compiler/schema/own.ts"
 import { roleDescOf, roleBuilder } from "#compiler/schema/world.ts"
 import type { LoginRole } from "#compiler/types/schema/world.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installedCodes, type TestCompileOptions, testCompile } from "#test/support/compile.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import {

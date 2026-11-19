@@ -26,11 +26,11 @@
  * The boxes are exhausted: h of 1 and 2, so k of 2, 4, 6 and of 4, 8, 12; and r from 20 to 40 by tens.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
 import { Array as Arr, Effect } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import {
 	heapBound,

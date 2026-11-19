@@ -1,7 +1,7 @@
 import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import { defined } from "@bjornpagen/testing/assert"
 import { regex } from "arkregex"
 import { Array as Arr, String as Str } from "effect"
-import { defined } from "#test/support/assert.ts"
 
 /** RegExp's flags in the order RegExp.prototype.flags spells them. */
 const FLAG_ORDER = "dgimsuvy"

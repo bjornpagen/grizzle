@@ -18,11 +18,11 @@ import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern, regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 import { printSource, toAre } from "@bjornpagen/grizzle-text/regex/print"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
-import { assert } from "#test/support/assert.ts"
 
 type CountsFeature =
 	| "a least count past 255"

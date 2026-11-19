@@ -1,5 +1,6 @@
 /** What the properties of audit.test.ts read: its spaces, models and helpers. */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { keyOf, type Reached, type Situations } from "@bjornpagen/testing/features"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
@@ -17,7 +18,7 @@ import {
 	transformExpr,
 	transformStatement
 } from "#compiler/sql/transform.ts"
-import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type ShapeFeature, shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
 import {

@@ -1,5 +1,6 @@
 /** What the properties of policy.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, Record as Rec } from "effect"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
@@ -11,7 +12,6 @@ import {
 	candidates,
 	sizes
 } from "#test/pg/vector/ann/support.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 
 export const policySettings = Object.freeze(
 	Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.value}`)

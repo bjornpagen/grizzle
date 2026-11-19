@@ -15,12 +15,12 @@
  * under several keys a key reaches.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, subset } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { addRoutes, removeRoutes, route, type RouteIndex } from "#adapter/live/router.ts"
-import { assert } from "#test/support/assert.ts"
 import { type Drawn, type Feature, keyGen, matches } from "#test/unit/live/router.fixtures.ts"
 
 /**

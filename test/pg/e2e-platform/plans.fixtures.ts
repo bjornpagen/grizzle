@@ -1,5 +1,6 @@
 /** What the properties of plans.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record as Rec, Result } from "effect"
 import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
@@ -13,7 +14,6 @@ import { context, login, role } from "#compiler/public/schema.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
 import { type OpenedPlatform, platformTemplate } from "#test/pg/e2e-platform/support.ts"
 import { directSql, literal } from "#test/schedules/platform/support.ts"
-import { assert } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

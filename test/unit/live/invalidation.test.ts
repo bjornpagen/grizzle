@@ -16,11 +16,11 @@
  * check finding no slot.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkedSlot, heardInvalidation } from "#adapter/live/listen.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	type Feature,
 	type Invalidation,

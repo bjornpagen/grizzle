@@ -1,5 +1,6 @@
 /** What the properties of soundness.test.ts read: its spaces, models and helpers. */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import { type Aimed, aimed, boolean, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec, Result } from "effect"
@@ -8,7 +9,7 @@ import { nodesByLabel, relNode, rooted } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import { deliveredInput, metaSpecOf, type RelDag } from "#compiler/ir/rel.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"

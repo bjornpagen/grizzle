@@ -1,5 +1,6 @@
 /** What the properties of resolve-reference.test.ts read: its spaces, its schema and its SQL. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
@@ -13,7 +14,7 @@ import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
 import { textColumn } from "#test/unit/compute/text.fixtures.ts"

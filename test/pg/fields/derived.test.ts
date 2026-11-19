@@ -53,6 +53,7 @@
  * Features: the vocabulary Feature below, each command and each expression kind a program reaches.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { runProgram } from "@bjornpagen/testing/commands"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
@@ -81,7 +82,7 @@ import {
 } from "#test/pg/fields/derived.fixtures.ts"
 import { kept, reviewedSource } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type Declaration, holesOf } from "#test/support/closed/generate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftCodes, fromEmpty, fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"

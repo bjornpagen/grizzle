@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import type { OnceCalls } from "#adapter/db/handles.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
@@ -14,7 +15,6 @@ import {
 	keyOf,
 	type RowKey
 } from "#compiler/live/index.ts"
-import { assert } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { isList } from "#test/support/list.ts"
 import { mergeComparator } from "#test/support/merge.ts"

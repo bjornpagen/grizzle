@@ -1,6 +1,7 @@
 /** What the properties of decimal.test.ts read: its spaces, models and helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	type Aimed,
@@ -28,7 +29,7 @@ import {
 	numericMaxScale,
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
-import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
 

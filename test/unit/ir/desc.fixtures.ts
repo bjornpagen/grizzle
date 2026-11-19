@@ -1,6 +1,7 @@
 /** What the properties of desc.test.ts read: its spaces, models and helpers. */
 
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -46,7 +47,7 @@ import { binary32LeastExponent } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { descFromJson } from "#test/support/describe.ts"
 import {
 	type ChangeSetDesc,

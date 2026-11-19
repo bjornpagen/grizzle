@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * How the runner runs a case that never finishes (the runner's inline evaluator, which a search nested in a case runs
  * on, and which evaluates a case as a worker of the pool does): when the search itself is interrupted, every case it
@@ -19,7 +20,6 @@ import { inlineRun, searchInline } from "@bjornpagen/testing/inline"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { fnv1a32 } from "@bjornpagen/testing/random"
 import { Deferred, Effect, Fiber } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { workerCluster } from "#test/support/runner.ts"
 import { type Held, interruptedGen } from "#test/unit/oracle-runner/case-run.fixtures.ts"
 

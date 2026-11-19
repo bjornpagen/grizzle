@@ -1,5 +1,6 @@
 /** What the properties of owner-cycle.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
 import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
@@ -17,7 +18,6 @@ import {
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
-import { defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 

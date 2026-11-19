@@ -13,6 +13,7 @@
  */
 
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -22,7 +23,6 @@ import { rosterOf } from "#compiler/ir/scalar.ts"
 import { Bits, bits } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	type Door,
 	doorVerdict,

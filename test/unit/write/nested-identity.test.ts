@@ -23,6 +23,7 @@
  * of one length that differ, an owner with no members.
  */
 
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
@@ -33,7 +34,7 @@ import type { MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn } from "#test/support/compile.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {

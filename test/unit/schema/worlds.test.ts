@@ -22,6 +22,7 @@
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
@@ -42,14 +43,7 @@ import {
 } from "#compiler/schema/world.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { buildSchema, caseSketchGen } from "#test/pg/derived/oracle/gen.ts"
-import {
-	assert,
-	defined,
-	nonEmpty,
-	refused,
-	succeeded,
-	throwsRefused
-} from "#test/support/assert.ts"
+import { refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { queryFromDesc } from "#test/support/describe.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { upTo } from "#test/support/up-to.ts"

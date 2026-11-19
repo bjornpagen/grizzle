@@ -16,6 +16,7 @@
  * Features: zero to three keys.
  */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -28,7 +29,6 @@ import {
 	seekPredicate
 } from "#compiler/lower/shapes/page/seek.ts"
 import { asc, col, desc } from "#compiler/sql/build.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import {
 	declared,
 	directionSets,

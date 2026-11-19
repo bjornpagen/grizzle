@@ -1,6 +1,7 @@
 /** What the properties of key-text-bytes.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -25,7 +26,6 @@ import {
 import { closed as closedRelations, fin, relation } from "#compiler/public/schema.ts"
 import { admittedClosedId, closedBuilder as closed } from "#compiler/schema/relation.ts"
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
-import { defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** The type of a key's other field. */

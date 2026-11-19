@@ -1,5 +1,6 @@
 /** What the properties of concurrent.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Cause, Effect, Exit, Fiber, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
@@ -9,7 +10,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import type { Aim } from "#test/pg/migrate/support.ts"
 import { type AmbientOwner, ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import { filledSql } from "#test/support/compile.ts"
 import {

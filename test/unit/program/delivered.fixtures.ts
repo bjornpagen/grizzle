@@ -1,6 +1,7 @@
 /** What the properties of delivered.test.ts read: its spaces, models and helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { constant, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Result as Answered, Array as Arr, Formatter, Option, String as Str } from "effect"
@@ -22,16 +23,7 @@ import { bindGroups } from "#compiler/schema/record.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
 import type { Decoders } from "#compiler/types/query/query.ts"
-import {
-	assert,
-	deepEquals,
-	defined,
-	type Place,
-	placeOf,
-	refusalLoc,
-	succeeded,
-	unorderedEqual
-} from "#test/support/assert.ts"
+import { type Place, placeOf, refusalLoc, succeeded } from "#test/support/assert.ts"
 import {
 	codebookFor,
 	compileTemplate,

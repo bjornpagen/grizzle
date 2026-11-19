@@ -9,6 +9,7 @@
  * Features: each integer type within and past its bounds.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, oneOf } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
@@ -16,7 +17,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Effect, Formatter, String as Str } from "effect"
 import { col, distinctCore, lit, select, table, target } from "#compiler/sql/build.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	byteEdgeGen,
 	decimalSpelled,

@@ -12,10 +12,11 @@
  * Features: a disjoint pair by language, by the byte bound, and an overlapping pair, each under each map.
  */
 
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Option } from "effect"
-import { assert, assertVariant, refused } from "#test/support/assert.ts"
+import { refused } from "#test/support/assert.ts"
 import {
 	type DisjointCase,
 	disjointCaseGen,

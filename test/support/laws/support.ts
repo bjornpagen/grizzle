@@ -1,4 +1,5 @@
 import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { agree } from "@bjornpagen/testing/oracle"
 import type { Case } from "@bjornpagen/testing/property"
@@ -25,7 +26,6 @@ import {
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { type ClosedField, closedField, namedText } from "#test/support/closed/stored.ts"
 import {
 	type Installed,

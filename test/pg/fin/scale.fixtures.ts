@@ -1,5 +1,6 @@
 /** What the properties of scale.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter } from "effect"
 import { outcomeText } from "#bench/harness/outcome.ts"
@@ -7,7 +8,6 @@ import type { TransactionMeasure } from "#bench/harness/transaction.ts"
 import { familyTemplates } from "#test/pg/fin/family.ts"
 import { seatTemplate } from "#test/pg/fin/installed.ts"
 import { Trees } from "#test/pg/fin/tree.ts"
-import { assert } from "#test/support/assert.ts"
 import { type Shape, SHAPES } from "#test/support/families/theorem.ts"
 
 /** The sizes of one run's case. */

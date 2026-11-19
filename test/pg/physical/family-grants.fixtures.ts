@@ -3,6 +3,7 @@
 import { array, element, type Gen, int, oneOf, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record, Result, String as Str } from "effect"
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { accumulated, drawn, natural, pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -21,7 +22,6 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { migratedOnceTemplate } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"

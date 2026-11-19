@@ -1,9 +1,9 @@
 /** What the properties of oracle.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Result } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
-import { defined } from "#test/support/assert.ts"
 import { type QueryCase } from "#test/support/oracle/gen/case.ts"
 import { expectedStatements } from "#test/support/oracle/reference/deliver.ts"
 import {

@@ -1,5 +1,6 @@
 /** What the properties of fill-order.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import { boolean, constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, type Result } from "effect"
@@ -13,7 +14,7 @@ import type { Unevaluated } from "#compiler/types/schema/evaluation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	admittedFillSpecGen,

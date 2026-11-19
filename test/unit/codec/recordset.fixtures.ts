@@ -1,5 +1,6 @@
 /** What the properties of recordset.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	codePoint,
@@ -27,7 +28,6 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { kindCodes, types } from "#test/unit/codec/support.ts"

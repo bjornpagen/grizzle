@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The aggregate order arm: every sum and mean is a function of its arguments' multiset (scalar/aggregate.ts), whatever
  * the order the rows are stored and scanned in, the plan, a parallel worker's partial aggregate, a window frame or a
@@ -38,7 +39,6 @@ import {
 	type OrderSituation,
 	situationsOf
 } from "#test/pg/compute/accumulation.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { CurrentPerturbation } from "#test/support/oracle/perturb.ts"
 import { conservative } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"

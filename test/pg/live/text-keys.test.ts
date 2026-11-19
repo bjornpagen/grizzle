@@ -27,6 +27,7 @@
  * no U+FEFF, several texts in one commit.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
@@ -41,7 +42,6 @@ import {
 	notebook
 } from "#test/pg/live/text-keys.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { liveRegistrations, liveSurfaces } from "#test/support/live/calls.ts"

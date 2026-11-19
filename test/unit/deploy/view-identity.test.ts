@@ -20,11 +20,11 @@
  * Oracle: a specification read off the schema, each view reading its own relation. The box, exhausted: every change.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	type Change,
 	changeGen,

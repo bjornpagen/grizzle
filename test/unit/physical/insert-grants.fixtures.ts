@@ -1,6 +1,7 @@
 /** What the properties of insert-grants.test.ts read: its spaces, models and helpers. */
 
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -41,7 +42,6 @@ import type { SqlStatement } from "#compiler/sql/ast.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"

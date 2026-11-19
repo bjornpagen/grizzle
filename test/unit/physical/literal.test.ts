@@ -31,6 +31,7 @@
  * changed cell and a padding bit set; a lowercase digit, an edited row count and a literal out of its printed form.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
@@ -48,7 +49,7 @@ import {
 import type { ObjectName, PackConstant } from "#compiler/sql/ast.ts"
 import { pack } from "#compiler/sql/constants.ts"
 import { printObjectName, printStatement, readLiteralPack } from "#compiler/sql/print.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { hexOfText, installedText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { onceCalls, type OnceCalls } from "#adapter/db/handles.ts"
@@ -8,7 +9,6 @@ import type { Param } from "#compiler/core/wire.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { assert } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import type { RoleDefault } from "#test/support/substrate/substrate.ts"
 

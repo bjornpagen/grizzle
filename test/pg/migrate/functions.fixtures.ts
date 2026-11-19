@@ -1,6 +1,7 @@
 /** What the property of functions.test.ts reads: its space, the schemas a case installs, and the facts it reads back. */
 
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
@@ -22,7 +23,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"

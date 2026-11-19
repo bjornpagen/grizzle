@@ -27,13 +27,13 @@
  * Features: each table's closures, identities and contexts; each placement of each constant.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, subarray } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { rowAttribute } from "#compiler/analysis/physical/fds.ts"
 import { lessDemanding } from "#compiler/ir/evidence.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	cappedKeys,
 	type DependencyFeature,

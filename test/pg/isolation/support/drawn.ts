@@ -1,5 +1,6 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import {
@@ -24,7 +25,6 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
 import type { Shape } from "#test/pg/isolation/support/race.ts"
-import { defined } from "#test/support/assert.ts"
 
 /**
  * Drawn installations of pivots and multi-statement members, the certificates of their facts as the certifier reads them

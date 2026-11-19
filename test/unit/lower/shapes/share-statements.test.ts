@@ -16,6 +16,7 @@
  * Features: carried and inline; shared and inline; fed and sent.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
@@ -27,7 +28,7 @@ import {
 	ShareIndex,
 	statementCtes
 } from "#compiler/lower/shapes/share/statements.ts"
-import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import {
 	attachedJobs,

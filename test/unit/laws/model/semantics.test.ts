@@ -15,13 +15,14 @@
  * Features: no relation, a roster alone, a closed relation.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, constant, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect } from "effect"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { closed, closedRelation, f } from "#test/support/fixtures/ir/desc.ts"
 import { owning } from "#test/support/policy.ts"
 import type { Payload } from "#test/unit/laws/model/semantics.fixtures.ts"

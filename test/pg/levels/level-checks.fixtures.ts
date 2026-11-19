@@ -1,5 +1,6 @@
 /** What the properties of level-checks.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import { array, element, type Gen, int, map, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -28,7 +29,6 @@ import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
-import { defined } from "#test/support/assert.ts"
 import { levelNameAt } from "#test/support/compile.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
 import { jsMatcher } from "#test/support/regex.ts"

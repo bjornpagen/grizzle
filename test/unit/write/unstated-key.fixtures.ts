@@ -1,10 +1,10 @@
 /** What the properties of unstated-key.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import { drawn, generated, natural, pg } from "#compiler/public/fields.ts"
 import { key, on, relation } from "#compiler/public/schema.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** Owner(id, n drawn): the owner of the sequence of Member. */

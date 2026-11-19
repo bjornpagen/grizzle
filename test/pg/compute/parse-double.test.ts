@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Compute.parseDouble on PostgreSQL 19rc2: over drawn decimal texts of doubles (test/support/lexical.ts doubleTextGen),
  * weighted at every point binary64's rounding turns on (the greatest finite double and the overflow threshold past it,
@@ -31,7 +32,6 @@ import {
 	storedBits,
 	mapKeyDoubles
 } from "#test/pg/compute/parse-double.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { doubleTextGen } from "#test/support/lexical.ts"
 import { referenceConversion, sameDouble } from "#test/support/oracle/evaluate/double-text.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

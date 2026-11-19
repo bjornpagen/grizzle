@@ -19,13 +19,13 @@
  * text, and another prefix.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, boolean } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { transactionReader } from "#adapter/live/changes.ts"
 import type { Message } from "#adapter/live/pgoutput.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	announcementGen,
 	changeGen,

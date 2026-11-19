@@ -19,6 +19,7 @@
  * shape; a refined cell, an unrefined one and no row.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -26,7 +27,7 @@ import { Array as Arr, Effect } from "effect"
 import { guarantees, refinedConstants, refinement } from "#compiler/check/refinement/index.ts"
 import { numericBoundOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { sameRegex } from "#compiler/scalar/compute/types.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { queryDesc } from "#test/unit/check/dsl.ts"
 import {

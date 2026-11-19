@@ -1,6 +1,7 @@
 /** What the properties of parse-double.test.ts read: its spaces, models and helpers. */
 
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -18,7 +19,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { regexField } from "#compiler/text/field.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {

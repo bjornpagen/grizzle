@@ -17,6 +17,7 @@
 
 import { buildNfa, type NfaEdge } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
@@ -25,7 +26,7 @@ import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { regexCheck, RegexKey, type RegexRef } from "#compiler/ir/scalar.ts"
 import { matchFlags, type ServedMatchers, ServedPatterns } from "#compiler/scalar/regex/matcher.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
-import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import { type Feature, servedGen, tabled } from "#test/unit/text/served-matcher.fixtures.ts"
 

@@ -13,13 +13,13 @@
  * `retry` is `"safe"`; ended by a failure whose `retry` is `"never"`.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Result } from "effect"
 import { type Settled, settled } from "#adapter/public/settled.ts"
 import { type CallError, callError } from "#compiler/live/index.ts"
-import { assert } from "#test/support/assert.ts"
 
 /** A failure of another kind than `transient` that ends a run: one whose `retry` is `"safe"`, or one whose is never. */
 const endingFailures = [

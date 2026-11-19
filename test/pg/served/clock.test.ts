@@ -1,3 +1,4 @@
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
@@ -15,7 +16,6 @@ import {
 	onlyReading,
 	perHour
 } from "#test/pg/served/clock.fixtures.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { readOnce, writeOnce } from "#test/support/calls.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

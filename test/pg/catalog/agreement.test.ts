@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * The compile-target catalog against its compositions on PostgreSQL 19 (R26-R31, R41, R42).
  *
@@ -50,7 +51,6 @@ import {
 	labOptions,
 	oracleCase
 } from "#test/pg/catalog/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	conservative,
 	defaultRunOptions,

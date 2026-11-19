@@ -30,12 +30,12 @@
  */
 
 import { Buffer } from "node:buffer"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { InputTooLarge } from "#adapter/errors/failures.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	boundCallOf,
 	boundFlightOf,

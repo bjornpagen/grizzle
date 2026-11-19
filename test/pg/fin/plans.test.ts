@@ -1,3 +1,4 @@
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 /**
  * The reads of families and trees through grizzle's installed indexes, on PostgreSQL 19rc2 (fin.md §11, "Plan audits",
  * trees.md §3, §5): the export, every subtree's descendants and every family's members are an index or range scan of
@@ -46,7 +47,6 @@ import {
 	subjectOf
 } from "#test/pg/fin/plans.fixtures.ts"
 import { nativesOf, RELATIONS } from "#test/pg/fin/tree.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { descendantsOf } from "#test/support/families/tree.ts"
 import { pickFrom } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

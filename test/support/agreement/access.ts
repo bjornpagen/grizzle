@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined } from "@bjornpagen/testing/assert"
 import type { Situations } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
@@ -45,7 +46,6 @@ import {
 	Tier,
 	Work
 } from "#test/support/agreement/access-schema.ts"
-import { defined } from "#test/support/assert.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"

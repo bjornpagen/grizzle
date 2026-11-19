@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import {
 	type FiniteSpace,
@@ -13,7 +14,6 @@ import type * as NodeServices from "@effect/platform-node/NodeServices"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, FileSystem, Option, Path, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import type { PreludeAt } from "#test/support/prelude.ts"
 import { entryFrom } from "#test/types/batch/batch.ts"

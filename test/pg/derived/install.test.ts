@@ -10,6 +10,7 @@ import { codeOf } from "#compiler/ir/codes.ts"
 import { fieldColumnType } from "#compiler/ir/physical.ts"
 import { baseOf, textInfoOf } from "#compiler/ir/scalar.ts"
 
+import { assert, defined as present, unorderedEqual } from "@bjornpagen/testing/assert"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -39,7 +40,7 @@ import {
 	writtenTemplate
 } from "#test/pg/derived/install.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined as present, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { Id } from "#test/support/ids.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"

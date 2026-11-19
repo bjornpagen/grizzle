@@ -36,6 +36,7 @@
  * sites.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed, finite } from "@bjornpagen/testing/gen"
 import { drawnFeature } from "@bjornpagen/testing/lsw"
@@ -43,7 +44,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { readSite } from "#compiler/core/loc.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { assert, defined, refused } from "#test/support/assert.ts"
+import { refused } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import {
 	admitted,

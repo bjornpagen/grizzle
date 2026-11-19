@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
@@ -22,7 +23,7 @@ import { closedId, contract, generated, pg, Uuid, Vector } from "#compiler/publi
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

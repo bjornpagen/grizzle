@@ -1,4 +1,5 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, deepEquals, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import { boolean, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
@@ -49,7 +50,6 @@ import {
 	installedRoleOf,
 	worldsExpectation
 } from "#test/pg/physical/support.ts"
-import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import { expectedCatalog, projectCatalog } from "#test/support/catalog/expected.ts"
 
 import { ordinarySession } from "#test/support/ambient.ts"

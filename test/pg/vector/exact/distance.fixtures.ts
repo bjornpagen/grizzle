@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	array,
@@ -31,7 +32,6 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import { normTolerance } from "#test/pg/vector/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	type FixtureSchema,
 	compileTemplate,

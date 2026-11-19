@@ -12,11 +12,11 @@
  * Features: a computation recorded twice, and two computations of one kind over one argument list.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { sameNode } from "#compiler/scalar/compute/typing.ts"
-import { assert } from "#test/support/assert.ts"
 import { baseParams, lowerWith, typeWith } from "#test/unit/compute/support.ts"
 import {
 	computationKey,

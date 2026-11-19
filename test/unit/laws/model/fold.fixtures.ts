@@ -1,5 +1,6 @@
 /** What the properties of fold.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import type { ColumnIdent } from "#compiler/core/ids.ts"
@@ -14,7 +15,7 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { assert, defined, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { combined, type FoldMonoid, type Planes } from "#test/support/families/fold.ts"
 import {
 	closed,

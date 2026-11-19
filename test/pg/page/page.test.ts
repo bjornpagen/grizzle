@@ -36,6 +36,7 @@
  */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -80,7 +81,6 @@ import {
 	windowOf
 } from "#test/pg/page/support.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
 import { pickIndex } from "#test/support/pick.ts"

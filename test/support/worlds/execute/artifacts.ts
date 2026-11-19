@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Deferred, Effect, Exit, Option, Ref, Result } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { onceCalls, readCallOf } from "#adapter/db/handles.ts"
@@ -11,7 +12,6 @@ import type { KeyFields } from "#compiler/live/index.ts"
 import { queryDescOf } from "#compiler/schema/protocol.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
 import { servedSource } from "#compiler/served/read.ts"
-import { defined } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import {
 	compileTemplate,

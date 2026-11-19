@@ -24,11 +24,12 @@ import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { nameChar, nameStart } from "@bjornpagen/grizzle-text/regex/xml"
 import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, String as Str } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compiledPattern } from "#test/support/regex.ts"
 import {
 	type CategoryFeature,

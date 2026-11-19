@@ -24,6 +24,7 @@
 import { expandedSize, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
+import { assert, matchesObject } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, array, element, finite, map, option } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
@@ -31,7 +32,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { admitRegex } from "#compiler/text/field.ts"
-import { assert, matchesObject, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	failure,
 	type FlagsFeature,

@@ -1,3 +1,4 @@
+import { deepEquals, defined } from "@bjornpagen/testing/assert"
 /**
  * A containment into a derived relation, lowered to foreign keys, against the same containment discharged by triggers,
  * on PostgreSQL 19rc2.
@@ -82,7 +83,6 @@ import {
 	shapes
 } from "#test/pg/laws/lowering-support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { deepEquals, defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import {
 	type Installed,

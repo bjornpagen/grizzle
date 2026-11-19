@@ -10,10 +10,10 @@
  * one member state), and the whole decode for the assembled Description (a second implementation).
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, finite, int, map } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	asTheOldPath,
 	built,

@@ -20,11 +20,11 @@
  * rows and read-backs compared as keyed sets; a worlds change, none, and a new law.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { draftedPhases } from "#test/support/worlds/execute/catalog.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import { actionGen } from "#test/support/worlds/generate/action.ts"

@@ -1,11 +1,12 @@
 /** What the properties of context.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, type FixtureSchema, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"

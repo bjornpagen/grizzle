@@ -42,6 +42,7 @@
  * nothing drafted, and closed rows changed and refused by their law.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { runProgram } from "@bjornpagen/testing/commands"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
@@ -58,7 +59,6 @@ import {
 	sameAsModel,
 	type System
 } from "#test/pg/closed/migrations.fixtures.ts"
-import { defined } from "#test/support/assert.ts"
 import { liveOf } from "#test/support/closed/generate.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"

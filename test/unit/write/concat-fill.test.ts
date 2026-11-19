@@ -11,6 +11,7 @@
  * Features: an empty family, a member stepped over, a supplementary character joined.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -18,7 +19,7 @@ import { Array as Arr, Effect } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { HostNode } from "#compiler/runtime/write/fill.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { cellAt, cellsOf } from "#test/support/cells.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import { caseGen, type FillFeature, fills } from "#test/unit/write/concat-fill.fixtures.ts"

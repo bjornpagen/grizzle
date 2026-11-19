@@ -1,6 +1,7 @@
 /** What the properties of dag.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
@@ -43,7 +44,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contractType } from "#compiler/scalar/registry.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { rebuildDag } from "#test/support/dag.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { normalizeExprTable, scalarOf } from "#test/support/fixtures/ir/scalar.ts"

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Every foreign key an installation drafts is served on its referencing side, read off the drafted DDL alone: some
  * index of its relation leads with exactly the referencing columns that pair with a key of its target, in any order,
@@ -23,7 +24,6 @@ import { Array as Arr } from "effect"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { ColumnDef, ObjectName, SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
 import { tableConstraints } from "#compiler/sql/ast.ts"
-import { assert } from "#test/support/assert.ts"
 
 /** An index of a table as the DDL drafts it: its method, its columns in key order, and whether it is unique. */
 interface DraftedIndex {

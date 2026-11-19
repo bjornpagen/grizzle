@@ -1,5 +1,6 @@
 /** What the properties of levels.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { drawn, natural } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
@@ -18,7 +19,6 @@ import {
 } from "#compiler/schema/statements.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 const A = relation("A", { id: Id, x: Id, y: Id, n: natural }, ["id"])

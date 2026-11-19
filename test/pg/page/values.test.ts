@@ -23,6 +23,7 @@
  * Features: each ordered field's edge classes and spellings, each direction and window size.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
@@ -47,7 +48,7 @@ import {
 	type ValuesFeature
 } from "#test/pg/page/values.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"

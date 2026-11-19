@@ -1,3 +1,4 @@
+import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 /**
  * Closed ids as codes on PostgreSQL 19rc2: a roster's smallint domain, its names constant, the decoded column of a role
@@ -109,7 +110,7 @@ import {
 	wireText,
 	ownerSessionOf
 } from "#test/pg/closed/codes.fixtures.ts"
-import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	type RosterFeature,

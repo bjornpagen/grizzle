@@ -11,12 +11,13 @@
  * column's type, a computed column, two tags, the widest grid; each roster size.
  */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type HeadTermDesc } from "#test/support/fixtures/ir/desc.ts"
 import { idDesc } from "#test/support/ids.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"

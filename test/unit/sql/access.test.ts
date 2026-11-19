@@ -11,6 +11,7 @@
  * Features: each access case; a live carrier name, a near miss, a JSON value.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -19,7 +20,6 @@ import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { type CarrierName, carrierName } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { isCarrierName, unitCarrierName } from "#test/support/sql.ts"
 import {
 	type AccessCase,

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -5,7 +6,6 @@ import { ReadFailure, TransientFailure } from "#adapter/errors/execution.ts"
 import { asReadFailure } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
 import { type TransientTag } from "#compiler/core/errors.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	allFeatures,
 	asNamed,

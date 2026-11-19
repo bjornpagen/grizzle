@@ -15,13 +15,13 @@
  * plan compiled, a compile refused, and each fault.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { Work } from "#test/support/agreement/changeset-schema.ts"
 import { Wherer } from "#test/support/agreement/delete-where.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	baseOf,
 	caseGen,

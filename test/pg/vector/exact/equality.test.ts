@@ -19,6 +19,7 @@
  * them, by value.
  */
 
+import { assert, defined, lacksText } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
@@ -68,7 +69,6 @@ import {
 	type EqualityWrittenRelation,
 	writtenRelations
 } from "#test/pg/vector/exact/equality.fixtures.ts"
-import { assert, defined, lacksText } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { servedGenerated } from "#test/support/served-db.ts"

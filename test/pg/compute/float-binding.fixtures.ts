@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 /** What the properties of float-binding.test.ts read: its terms, its ledger and the judgments of each lowering. */
 import {
 	array,
@@ -24,7 +25,6 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { optimizedLowering } from "#test/pg/recursion/lowering/support.ts"
-import { defined } from "#test/support/assert.ts"
 import { filledSql } from "#test/support/compile.ts"
 import type {
 	AuthoredExprDesc as ExprDesc,

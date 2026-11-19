@@ -46,6 +46,7 @@
  * and a regroup redrawn as declared, each aimed at by a re-key constructed to reach it.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -97,7 +98,6 @@ import {
 	vectorKeyFeatures,
 	type WrittenMember
 } from "#test/pg/migrate/backfill.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import { numbered } from "#test/support/families/tree.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

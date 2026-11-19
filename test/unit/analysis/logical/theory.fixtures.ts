@@ -1,5 +1,6 @@
 /** What the properties of theory.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -19,7 +20,6 @@ import { type LawId } from "#compiler/core/ids.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type Roster, rosterOf } from "#compiler/ir/scalar.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
-import { defined } from "#test/support/assert.ts"
 import * as G from "#test/support/fixtures/golden/work.ts"
 import {
 	check,

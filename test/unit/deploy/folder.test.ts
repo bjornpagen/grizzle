@@ -20,6 +20,7 @@
  * derived-name searches name them.
  */
 
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
@@ -37,7 +38,7 @@ import {
 } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	asDrafted,
 	compile,

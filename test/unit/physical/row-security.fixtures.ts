@@ -1,5 +1,6 @@
 /** What the properties of row-security.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -13,7 +14,7 @@ import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 

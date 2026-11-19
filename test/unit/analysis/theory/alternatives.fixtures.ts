@@ -1,10 +1,10 @@
 /** What the properties of alternatives.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { type ExprDesc } from "#compiler/ir/desc.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	alternatives,
 	closed,

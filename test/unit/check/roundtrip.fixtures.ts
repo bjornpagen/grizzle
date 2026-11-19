@@ -16,6 +16,7 @@
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { TextBounds } from "@bjornpagen/grizzle-text/regex/dfa"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { aimed, type Aimed, constant, type Gen } from "@bjornpagen/testing/gen"
 import {
 	type Broken,
@@ -56,7 +57,7 @@ import { queryInput } from "#compiler/program/compile.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, refusalLoc } from "#test/support/assert.ts"
+import { refusalLoc } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { normalizeDag } from "#test/support/dag.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"

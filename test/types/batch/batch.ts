@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -13,7 +14,6 @@ import {
 	String as Str
 } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { defined } from "#test/support/assert.ts"
 import { compiled, type Ran } from "#test/types/batch/compiler.ts"
 import { type Directive, disarm, type FileLine, lineKey } from "#test/types/batch/directives.ts"
 

@@ -10,13 +10,14 @@
  * Features: a success, the named reason and another; each thunk outcome holding and failing.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Result } from "effect"
 import { CompileError, type CompileReasonTag, prose } from "#compiler/core/errors.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { assert, refusalLoc, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { refusalLoc, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import {
 	assertionFails,
 	namedTags,

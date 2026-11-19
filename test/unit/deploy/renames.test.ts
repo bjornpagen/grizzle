@@ -16,13 +16,13 @@
  * and a new login's created; and a renamed handle keeps its code, the codes read back from the snapshot.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
 import { type Named } from "#compiler/deploy/diff/plan.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
-import { assert } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {
 	boxGen,

@@ -33,6 +33,7 @@
 
 import { regexDfaMaxStates, regexDfaMaxWork } from "@bjornpagen/grizzle-text/regex/limits"
 import { codePoints, codePointsText, collapsed } from "@bjornpagen/grizzle-text/text"
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -47,15 +48,7 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { charMapOf, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import {
-	assert,
-	assertVariant,
-	defined,
-	refusalLoc,
-	refused,
-	succeeded,
-	throwsRefused
-} from "#test/support/assert.ts"
+import { refusalLoc, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import {

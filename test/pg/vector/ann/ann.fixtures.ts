@@ -1,5 +1,6 @@
 /** What the properties of ann.test.ts read: the fixture's templates, the spaces, and the reads and exact baselines. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
@@ -23,7 +24,6 @@ import {
 	untagged,
 	vectorText
 } from "#test/pg/vector/ann/support.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"

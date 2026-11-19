@@ -20,11 +20,11 @@
  * installation; a patch rewritten; no patch alike; and both empty.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { type Verdict, verdict } from "#pg/installation.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	expected,
 	type Feature,

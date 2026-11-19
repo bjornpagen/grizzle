@@ -1,3 +1,4 @@
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 /**
  * A member writer's hold on its family's owner, on PostgreSQL 19 (physical/ddl/roles.ts, rows-first): a role that
  * writes a family's member and not its owner O holds column SELECT on O's key, count, ends and copies, column UPDATE on
@@ -53,7 +54,6 @@ import {
 	uuidAt,
 	versionOf
 } from "#test/pg/physical/family-grants.fixtures.ts"
-import { assert, assertVariant, defined } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"

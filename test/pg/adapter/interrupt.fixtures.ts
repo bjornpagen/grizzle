@@ -1,5 +1,6 @@
 /** What the properties of interrupt.test.ts read: its spaces, models and helpers. */
 
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import { type Reached } from "@bjornpagen/testing/features"
 import {
@@ -16,7 +17,6 @@ import type { ServedDbContext } from "#adapter/db/context.ts"
 import { onceCalls, variantOf } from "#adapter/db/handles.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { Uuid } from "#compiler/public/fields.ts"
-import { assert, assertVariant } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"

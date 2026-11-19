@@ -14,11 +14,12 @@
  *   target or the file count.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { ledgerState } from "#compiler/deploy/ledger/ledger.ts"
-import { artifactRefusal, assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { artifactRefusal, refused, succeeded } from "#test/support/assert.ts"
 import {
 	empty,
 	type LedgerFeature,

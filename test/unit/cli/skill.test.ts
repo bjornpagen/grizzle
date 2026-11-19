@@ -1,3 +1,4 @@
+import { containsText } from "@bjornpagen/testing/assert"
 /**
  * The agent skill: one file, packages/grizzle/skills/grizzle/SKILL.md, shipped in the package (package.json `files`).
  *
@@ -13,7 +14,6 @@ import { word } from "@bjornpagen/testing/dictionary"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect, FileSystem } from "effect"
-import { containsText } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { documented } from "#test/unit/cli/skill.dictionary.ts"
 

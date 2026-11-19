@@ -1,5 +1,6 @@
 /** What the properties of binding.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
@@ -12,7 +13,6 @@ import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { evaluationOf, hostFillOf } from "#compiler/write/program/decide.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
 	buildFill,

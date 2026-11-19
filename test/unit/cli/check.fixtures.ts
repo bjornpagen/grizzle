@@ -1,5 +1,6 @@
 /** What the properties of check.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
@@ -23,7 +24,7 @@ import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { besideFolders } from "#test/support/migrate/kit.ts"
 

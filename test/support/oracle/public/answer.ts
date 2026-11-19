@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { type Equivalence, exact, ordered, type Side, set } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Formatter, Hash, Option, Predicate, Record, Result } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
@@ -8,7 +9,6 @@ import { BytesDigest } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
-import { defined } from "#test/support/assert.ts"
 import { sameIdentity } from "#test/support/kernel/identity.ts"
 import type {
 	Column,

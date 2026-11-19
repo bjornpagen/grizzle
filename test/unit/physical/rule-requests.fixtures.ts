@@ -1,5 +1,6 @@
 /** What the properties of rule-requests.test.ts read: its space and its judge. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
@@ -7,7 +8,7 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** The columns D joins T and U by beside their unit, `package`: g, h, or both. */

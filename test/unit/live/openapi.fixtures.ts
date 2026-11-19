@@ -1,5 +1,6 @@
 /** What the properties of openapi.test.ts read: its spaces, models and helpers. */
 
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
@@ -29,7 +30,6 @@ import {
 } from "#compiler/live/events.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { documentErrors } from "#test/support/openapi/validator.ts"
 import {
 	type CaseSketch,

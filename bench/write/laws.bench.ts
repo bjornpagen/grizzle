@@ -1,3 +1,4 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { summarize } from "#bench/cold/stats.ts"
 import {
@@ -15,7 +16,6 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { ObjectName, TypeRef } from "#compiler/sql/ast.ts"
 import { namedType, types } from "#compiler/sql/build.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { setText } from "#test/support/closed/bit-text.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {

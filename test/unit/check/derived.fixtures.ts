@@ -1,13 +1,14 @@
 /** What the properties of derived.test.ts read: its spaces, models and helpers. */
 
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { GeneratedRule } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { typeLabel } from "#compiler/ir/scalar.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredExprDesc,
 	closed,

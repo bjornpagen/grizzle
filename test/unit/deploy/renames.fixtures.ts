@@ -1,5 +1,6 @@
 /** What the properties of renames.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
@@ -35,7 +36,7 @@ import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import {
 	closed,

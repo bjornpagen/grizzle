@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Index serving judged by PostgreSQL, over generated schemas and workloads and over drawn index requests, at volume.
  *
@@ -115,7 +116,6 @@ import {
 	type VolumeLoad
 } from "#test/pg/physical/serving.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { workloadOver } from "#test/support/compile.ts"
 import {
 	closed,

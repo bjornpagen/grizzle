@@ -1,9 +1,9 @@
 /** What the properties of routes.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { Result as Answered, Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { httpRoutes } from "#http/index.ts"
-import { assert } from "#test/support/assert.ts"
 import { type LawLevel } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import {

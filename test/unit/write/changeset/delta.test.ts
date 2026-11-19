@@ -11,6 +11,7 @@
  * cancels; a written relation no stratum changed; a repeated written relation; names out of code unit order.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { codePoint, oneOf, string } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -28,7 +29,6 @@ import {
 	type Tag
 } from "#compiler/runtime/write/net.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	type AttributedChange,
 	attributeStratum,

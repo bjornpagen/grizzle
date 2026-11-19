@@ -1,4 +1,5 @@
 import type { ReadonlyTupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Situations } from "@bjornpagen/testing/features"
 import { constant } from "@bjornpagen/testing/gen"
 import {
@@ -10,7 +11,6 @@ import {
 } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record, type Scope, String as Str } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	educationInstall,
 	importAccount,

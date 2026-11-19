@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Order } from "effect"
 import {
 	analyzePhysical,
@@ -8,7 +9,6 @@ import {
 import type { PhysicalProps, Realization } from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Heading, KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
-import { defined } from "#test/support/assert.ts"
 import type { Ir } from "#test/support/fixtures/ir/build.ts"
 import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import {

@@ -1,6 +1,7 @@
 /** What the properties of lowering.test.ts read: its spaces, models and helpers. */
 
 import * as RegexIr from "@bjornpagen/grizzle-text/regex/ir"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
@@ -16,7 +17,7 @@ import {
 	textDomainDefinition,
 	type TextRefinement
 } from "#compiler/text/refinement.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { refinementBounds } from "#test/support/text.ts"
 import {
 	families,

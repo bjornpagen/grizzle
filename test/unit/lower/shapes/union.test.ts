@@ -20,6 +20,7 @@
  * decimals equal at different scales, and ordered.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -31,7 +32,7 @@ import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
 import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 import { lit, types } from "#compiler/sql/build.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 import { fixtureCodes } from "#test/unit/ir/fixture.ts"
 import { T } from "#test/unit/lower/conservative/fixtures.ts"

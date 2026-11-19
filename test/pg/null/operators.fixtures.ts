@@ -1,6 +1,7 @@
 /** What the properties of operators.test.ts read: its spaces, models and helpers. */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { agree, exact } from "@bjornpagen/testing/oracle"
@@ -30,7 +31,7 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 import { everySlice } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
 	buildPred,

@@ -1,3 +1,4 @@
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
@@ -14,7 +15,6 @@ import {
 	uuidAt,
 	versionOf
 } from "#test/pg/write/entry-owner/entry-owner.fixtures.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { entryName, roleName } from "#test/support/families/entry-owner.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

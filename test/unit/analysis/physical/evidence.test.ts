@@ -6,6 +6,7 @@
  * Oracle: the rules above, a specification. Features: no key proves the scan, a key proves the scan, a key not read.
  */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, subset } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -14,7 +15,6 @@ import { theoryCatalog } from "#compiler/analysis/physical/evidence.ts"
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import {
 	type CatalogFeature,

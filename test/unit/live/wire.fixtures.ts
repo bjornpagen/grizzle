@@ -1,5 +1,6 @@
 /** What the properties of wire.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -43,7 +44,7 @@ import { binary32Max } from "#compiler/scalar/values/float.ts"
 import { type CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 export type Feature =

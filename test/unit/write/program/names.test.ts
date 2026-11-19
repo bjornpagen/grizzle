@@ -8,10 +8,10 @@
  * Features: none required; the name is the whole draw.
  */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { element } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import { bound, itemsNeed } from "#test/unit/write/program/names.fixtures.ts"
 

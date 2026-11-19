@@ -7,6 +7,7 @@
  * Oracle: the module's stated form, checked on the lowered statement's AST (a specification). Feature: a bounded walk.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -16,7 +17,7 @@ import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
-import { assert, refused } from "#test/support/assert.ts"
+import { refused } from "#test/support/assert.ts"
 import {
 	admit,
 	mainAst,

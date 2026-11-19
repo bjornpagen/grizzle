@@ -26,6 +26,7 @@
  * tier boundary crossed within one event, an event split across grants.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -56,7 +57,6 @@ import {
 	hostFacts,
 	openedPlatform
 } from "#test/pg/e2e-platform/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { oneOf, rowsOf } from "#test/support/calls.ts"
 import {
 	buildPlatform,

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The host's one comparison of values (scalar/values/identity.ts compareValues) against PostgreSQL 19 and the pinned
  * pgvector: a batch of values of every carrier, ordered by ORDER BY at the carrier's type, is in the order the host's
@@ -36,7 +37,6 @@ import {
 	orderSetup,
 	postgresOrder
 } from "#test/pg/values/order.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 

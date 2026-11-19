@@ -15,11 +15,11 @@
  * Features: which pair relation a case draws, and which tokens its components hold.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { FieldId } from "#compiler/core/ids.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	type Feature,
 	noteTokens,

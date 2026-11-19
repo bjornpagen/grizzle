@@ -1,3 +1,4 @@
+import { deepEquals } from "@bjornpagen/testing/assert"
 /**
  * A family of the fin suites as grizzle lowers it: an owner `Owner(id, n)` counting a member relation `Member(member,
  * g, at)` grouped by `g`, ordered (`at` its drawn index) or counted (its index the hidden law column ‹i›), installed
@@ -29,7 +30,6 @@ import {
 	seededSeatTemplate
 } from "#test/pg/fin/installed.ts"
 import { canonical, emptyStored, sqlstateOf } from "#test/pg/substrate/fin.ts"
-import { deepEquals } from "#test/support/assert.ts"
 import type { Moment, Settled, MutationStatement } from "#test/support/families/mutate.ts"
 import type { Constraint, FamilyRow, Shape, Stored } from "#test/support/families/theorem.ts"
 import type { SqlError } from "#test/support/pg.ts"

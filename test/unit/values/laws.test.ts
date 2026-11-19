@@ -14,10 +14,10 @@
  * and each tag written, refused as a near miss, and refused with a leading zero.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	apartInTheLastAlone,
 	constructedSpace,

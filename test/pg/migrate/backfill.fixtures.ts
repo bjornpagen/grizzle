@@ -1,5 +1,6 @@
 /** What the properties of backfill.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	boolean,
 	composition,
@@ -62,7 +63,6 @@ import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { FOLD_SPECS, type FoldSpec, Tag } from "#test/pg/fin/folds.ts"
 import { type Aim, refusedIn, refusedLaw } from "#test/pg/migrate/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import {
 	type Forest as KeyedForest,

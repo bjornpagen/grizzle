@@ -19,6 +19,7 @@
  * carrier and read through each spelling; and lcm past its operands' digits.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -36,7 +37,6 @@ import {
 	catalogueEvaluator
 } from "#test/pg/compute/catalogue.fixtures.ts"
 import { caseChunk, compareAnswers, type PgAnswer, runCases } from "#test/pg/compute/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

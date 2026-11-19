@@ -1,5 +1,6 @@
 /** What the properties of storage.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { float } from "@bjornpagen/testing/values"
 import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
@@ -11,7 +12,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { Id } from "#test/support/ids.ts"
 import { installedTemplate } from "#test/support/install-migrate.ts"

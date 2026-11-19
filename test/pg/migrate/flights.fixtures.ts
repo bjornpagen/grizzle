@@ -1,5 +1,6 @@
 /** What the properties of flights.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option } from "effect"
 import { applyOnSession, checkDrift, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
@@ -7,7 +8,7 @@ import { type MigrationTarget, parseTarget } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { proofStatements } from "#compiler/deploy/ledger/ledger.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { backendCount, frameOf, type Tapped } from "#test/support/wire-tap.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"

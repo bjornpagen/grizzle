@@ -11,12 +11,12 @@
  * that is no region, and a scope shared with an input.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
 import { freeVars, nodeScopes, nodesByLabel } from "#compiler/ir/dag.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { liveOf } from "#test/support/oracle/dag-validate.ts"
 import {
 	type Feature,

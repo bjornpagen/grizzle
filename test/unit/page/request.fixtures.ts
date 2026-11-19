@@ -1,5 +1,6 @@
 /** What the properties of request.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -18,7 +19,6 @@ import { type CallInputFault } from "#adapter/errors/failures.ts"
 import type { PageCall } from "#adapter/page/execute.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { ParamText } from "#compiler/plan/common.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { bool, int4, int8, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
 import { paramText } from "#test/support/wire.ts"
 

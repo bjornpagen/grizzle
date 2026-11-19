@@ -10,6 +10,7 @@
  * each type; every endpoint predicate held and failed.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -17,7 +18,6 @@ import { Array as Arr, Effect } from "effect"
 import { endpointMask, pointInMask } from "#compiler/allen/endpoints.ts"
 import { allenPlaces } from "#compiler/allen/mask.ts"
 import { allenRelations } from "#compiler/core/allen.ts"
-import { assert } from "#test/support/assert.ts"
 import { rangeTypes, spanText } from "#test/support/oracle/allen.ts"
 import {
 	bound,

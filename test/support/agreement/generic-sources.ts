@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -46,7 +47,6 @@ import {
 	TM,
 	W
 } from "#test/support/agreement/generic-schema.ts"
-import { defined } from "#test/support/assert.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"

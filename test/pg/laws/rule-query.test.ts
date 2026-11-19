@@ -67,6 +67,7 @@
  * (aimed).
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -105,7 +106,6 @@ import {
 	type State,
 	unchanged
 } from "#test/pg/laws/rule-query.fixtures.ts"
-import { defined } from "#test/support/assert.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { attempt, momentText, refusalOf, refusalText, sameMoment } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"

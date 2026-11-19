@@ -1,5 +1,6 @@
 /** What the properties of counted.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 /**
@@ -28,7 +29,6 @@ import { Array as Arr, Option, Record as Rec } from "effect"
  */
 import { FOLD_SPECS, type FoldVerdict } from "#test/pg/fin/folds.ts"
 import { type EndFeature, seatTemplate } from "#test/pg/fin/installed.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { type FoldStatement } from "#test/support/families/fold.ts"
 import { upTo } from "#test/support/up-to.ts"
 

@@ -23,6 +23,7 @@
  * with an empty read.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -41,7 +42,6 @@ import {
 	take
 } from "#test/pg/nearest/nearest.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 

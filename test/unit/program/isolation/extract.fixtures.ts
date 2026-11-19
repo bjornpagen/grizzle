@@ -1,5 +1,6 @@
 /** What the properties of extract.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -67,7 +68,6 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { type FlatRowSource } from "#test/support/expanded.ts"
 import { unitCarrierName } from "#test/support/sql.ts"
 

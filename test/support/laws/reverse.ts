@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 /**
  * The containments the reverse-index suites draw, and the rule their reverse index is planned by, restated: the law
  * model's plan (test/unit/laws/model/reverse-index.test.ts) and PostgreSQL's plan of the reverse probe
@@ -32,7 +33,6 @@ import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** nbtree.h's BTMaxItemSize at the default block, restated. */

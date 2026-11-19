@@ -18,11 +18,11 @@
 import { end, type RegexNode, seq, set, start } from "@bjornpagen/grizzle-text/regex/ir"
 import { printSource } from "@bjornpagen/grizzle-text/regex/print"
 import { digitRange, literal, naturals, runsOf } from "@bjornpagen/grizzle-text/regex/words"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 
 type WordsFeature =

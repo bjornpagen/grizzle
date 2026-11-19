@@ -1,5 +1,6 @@
 /** What the properties of recursion.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -21,7 +22,7 @@ import type {
 	Select,
 	SelectCore
 } from "#compiler/sql/ast.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { lowerAligned, programAsts } from "#test/support/compile.ts"
 import { ownedSchemaFixture } from "#test/support/evidence.ts"
 import { Id } from "#test/support/ids.ts"

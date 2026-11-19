@@ -1,5 +1,6 @@
 /** What the properties of paths.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Case, Steered } from "@bjornpagen/testing/explore"
 import { weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record } from "effect"
@@ -39,7 +40,6 @@ import {
 	ambientSessionGen,
 	grizzleFirstSession
 } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import { filledSql } from "#test/support/compile.ts"
 import { installedSchemas } from "#test/support/install-migrate.ts"
 import { messageOf } from "#test/support/message.ts"

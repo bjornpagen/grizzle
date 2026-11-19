@@ -1,6 +1,6 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec, Result } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	type Comparison,
 	rawRowKey,

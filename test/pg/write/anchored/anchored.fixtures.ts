@@ -1,5 +1,6 @@
 /** What the properties of anchored.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, increasing, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option } from "effect"
 import { type EstimatedNode, planNodes } from "#bench/harness/explain.ts"
@@ -8,7 +9,6 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import { QueueKind, Resource } from "#test/support/fixtures/api/queue.ts"
 import { seededTemplate } from "#test/support/install-migrate.ts"

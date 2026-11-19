@@ -13,6 +13,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, contains, defined } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
@@ -29,7 +30,6 @@ import {
 	type LoweredFeature,
 	opExpr
 } from "#test/pg/lower-conservative/vocabulary.fixtures.ts"
-import { assert, contains, defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { temporaryLibrary } from "#test/unit/compute/support.ts"
 

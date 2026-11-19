@@ -42,6 +42,7 @@
 
 import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, boolean, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -53,7 +54,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import { buildSchema, caseSketchGen, condNegationSketchGen } from "#test/pg/derived/oracle/gen.ts"
-import { assert, deepEquals, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import {
 	aboveOf,

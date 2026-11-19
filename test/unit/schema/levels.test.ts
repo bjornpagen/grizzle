@@ -14,12 +14,12 @@
  * An admitted statement's levels each install in the PostgreSQL schema their own declared name converts to.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { conversionOf, identifierOf } from "#compiler/core/identity.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	ownedUp,
 	levelRefusedAt,

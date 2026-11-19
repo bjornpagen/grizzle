@@ -1,5 +1,6 @@
 /** What the properties of tree.test.ts read: the RFC's seat, the boxes and the judging of a case. */
 
+import { deepEquals, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Case, Kill, Oracle } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Exit, Formatter, Option } from "effect"
 import {
@@ -26,7 +27,6 @@ import {
 	type TreeRow,
 	upToTwoRoots
 } from "#test/pg/substrate/tree.ts"
-import { deepEquals, nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {

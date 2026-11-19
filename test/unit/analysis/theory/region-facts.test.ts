@@ -21,11 +21,11 @@
  * rule reads; and a containment into a derived relation composed into a relation it reads.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	type Box,
 	boxGen,

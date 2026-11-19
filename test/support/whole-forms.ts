@@ -1,5 +1,5 @@
+import { defined } from "@bjornpagen/testing/assert"
 import type { FlightForm, FlightStatement } from "#compiler/runtime/write/flight.ts"
-import { defined } from "#test/support/assert.ts"
 
 /**
  * Each form a loaded statement sends where its inputs give every part rows (runtime/write/flight.ts): a whole

@@ -2,6 +2,7 @@
 
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	array,
 	element,
@@ -24,7 +25,7 @@ import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {

@@ -24,11 +24,11 @@
  * pending.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { differenceShown } from "#compiler/sql/escape.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	aims,
 	holdsInvisible,

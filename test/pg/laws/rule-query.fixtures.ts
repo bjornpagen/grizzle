@@ -1,5 +1,6 @@
 /** What the properties of rule-query.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	constant,
@@ -32,7 +33,6 @@ import type { ColumnDefinition, PlStatement } from "#compiler/sql/ast.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"

@@ -44,6 +44,7 @@
  * Features: the installer's situations, each a feature of the generated schema.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record as Rec } from "effect"
@@ -58,7 +59,6 @@ import {
 	situations
 } from "#test/pg/physical/oracle.fixtures.ts"
 import { fixtureWorlds, worldsGrants } from "#test/pg/physical/support.ts"
-import { assert } from "#test/support/assert.ts"
 import type { ProjectedCatalog } from "#test/support/catalog/expected.ts"
 import { filledSql, installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"

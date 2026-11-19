@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -19,7 +20,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	everyFact,
 	fieldsEqual,

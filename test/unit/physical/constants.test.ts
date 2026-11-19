@@ -31,9 +31,9 @@
  * payload and one with a closed payload.
  */
 
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { codebookOfStates, codecFor } from "#test/support/closed/generate.ts"
 import { owning } from "#test/support/policy.ts"

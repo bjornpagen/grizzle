@@ -22,12 +22,12 @@
  * does depends on the tag drawn with it, and the filter's discards are counted.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { splitStatements, statementTokens, writtenAs } from "#compiler/deploy/render/markers.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	anyRunEnds,
 	balancedRunEnds,

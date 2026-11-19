@@ -1,10 +1,10 @@
 /** What the property of counted.test.ts reads: its box, the counted family's schema, its states and statements. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { appended, swapWithLast } from "#test/support/families/counted.ts"
 import {
 	type FoldFamily,

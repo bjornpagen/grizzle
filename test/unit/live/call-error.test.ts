@@ -1,3 +1,4 @@
+import { assert, assertVariant, unorderedEqual } from "@bjornpagen/testing/assert"
 /**
  * readCallError and applyCallError (packages/grizzle/src/adapter/live/call-error.ts): a statement's refusal, on a read
  * or a write, read as the call error a live answer ends with, through the shell's own classification of the server's
@@ -65,7 +66,6 @@ import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { applyCallError, readCallError, readings } from "#adapter/live/call-error.ts"
 import type { ParamPlace } from "#compiler/core/identity.ts"
 import { type FailureSource, failures } from "#compiler/live/events.ts"
-import { assert, assertVariant, unorderedEqual } from "#test/support/assert.ts"
 import { sources } from "#test/unit/live/call-error.dictionary.ts"
 import {
 	calledWith,

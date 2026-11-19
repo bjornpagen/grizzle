@@ -17,9 +17,9 @@ import {
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { query, v } from "#compiler/public/query.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"

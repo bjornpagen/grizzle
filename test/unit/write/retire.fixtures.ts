@@ -1,5 +1,6 @@
 /** What the properties of retire.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Stream } from "effect"
 import { noClock } from "#compiler/ir/clock.ts"
@@ -11,7 +12,7 @@ import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"

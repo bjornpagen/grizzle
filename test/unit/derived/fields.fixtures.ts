@@ -1,9 +1,9 @@
 /** What the properties of fields.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, constant, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { OpenExpr } from "#compiler/ir/open.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	fieldSketchGen,

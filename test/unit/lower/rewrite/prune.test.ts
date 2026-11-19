@@ -11,12 +11,12 @@
  * Features: an aggregate dropped and every aggregate delivered; each reader over each stage.
  */
 
+import { assert, contains, defined, lacks } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, subarray } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
-import { assert, contains, defined, lacks } from "#test/support/assert.ts"
 import { Edge, Posting, Q } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	aggregateNames,

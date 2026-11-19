@@ -12,6 +12,7 @@
  * - **Features:** the first version, and each second version.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -27,7 +28,6 @@ import {
 	reviewedSource,
 	statementRows
 } from "#test/pg/migrate/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"

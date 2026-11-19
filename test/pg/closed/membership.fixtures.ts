@@ -1,6 +1,7 @@
 /** What the properties of membership.test.ts read: its spaces, models and helpers. */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	boolean,
 	constant,
@@ -26,7 +27,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	historiesGen,
 	holesOf,

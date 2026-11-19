@@ -1,6 +1,7 @@
 /** What the properties of checks.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Case as SearchCase } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -28,7 +29,6 @@ import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"

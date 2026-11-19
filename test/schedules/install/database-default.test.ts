@@ -20,11 +20,11 @@
  * Feature: an interleaving in which a block waited, which the space must hold.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { databaseDefaults } from "#compiler/physical/ddl/isolation.ts"
 import { printCommands } from "#compiler/sql/print.ts"
-import { assert } from "#test/support/assert.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import {
 	allowed,

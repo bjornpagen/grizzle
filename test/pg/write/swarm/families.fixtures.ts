@@ -1,5 +1,6 @@
 /** What the properties of families.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { fullSwarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Option } from "effect"
@@ -21,7 +22,6 @@ import {
 	swarmInstanceGen,
 	type SwarmSpec
 } from "#test/pg/write/swarm/spec.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import {
 	familyNamed,
 	generationOfV,

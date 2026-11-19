@@ -12,6 +12,7 @@
  * Features: each refusal and each admitted bound, a collision and distinct vectors.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -40,7 +41,7 @@ import {
 	world
 } from "#test/pg/vector/exact/storage.fixtures.ts"
 import { exactVectorText, normOf, normTolerance, vectorInVerdict } from "#test/pg/vector/support.ts"
-import { assert, defined, faulted, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { strictRead } from "#test/support/kernel/strict.ts"
 import { expectConstraint, expectSqlstate } from "#test/support/substrate/expect.ts"

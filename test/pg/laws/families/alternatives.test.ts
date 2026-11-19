@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Generated alternatives schemas, over a single key and over a composite key (test/support/laws/boxes.ts), every law
  * native: per arm relation, a forward containment into the parent selected by its handles, and per armed handle, a
@@ -13,7 +14,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
 import { type ArmedFeature, armedHandles } from "#test/pg/laws/families/alternatives.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { alternativesBox, compositeAlternatives, stageName } from "#test/support/laws/boxes.ts"
 import {
 	familySuite,

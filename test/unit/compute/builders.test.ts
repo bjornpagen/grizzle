@@ -12,6 +12,7 @@
  * refused; live and every wild kind at each site.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, oneOf } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
@@ -22,7 +23,6 @@ import { sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { exactType } from "#compiler/scalar/compute/types.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	binary,
 	type BinaryOp,

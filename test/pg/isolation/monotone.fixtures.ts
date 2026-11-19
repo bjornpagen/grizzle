@@ -1,5 +1,6 @@
 /** What the properties of monotone.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
@@ -30,7 +31,6 @@ import {
 	type RaceCall,
 	type Shape
 } from "#test/pg/isolation/support/race.ts"
-import { defined } from "#test/support/assert.ts"
 import type { Generated } from "#test/support/install-migrate.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { Strategy } from "#test/support/schedules/interleave.ts"

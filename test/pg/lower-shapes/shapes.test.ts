@@ -18,6 +18,7 @@
  * Features: groups none, some and all of whose bindings qualify.
  */
 
+import { defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -37,7 +38,6 @@ import {
 	runProgram,
 	tableOf
 } from "#test/pg/lower-shapes/shapes.fixtures.ts"
-import { defined, unorderedEqual } from "#test/support/assert.ts"
 import { replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { Task, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"

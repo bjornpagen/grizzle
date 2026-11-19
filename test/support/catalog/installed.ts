@@ -1,6 +1,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
 import { identifierOf, roleIdentity } from "#compiler/core/identity.ts"
 import type { RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
@@ -12,7 +13,6 @@ import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { CreateDomain, Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	type Catalog,
 	type CatalogColumn,

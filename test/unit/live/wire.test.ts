@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The wire's one table (live/wire.ts carrierWire): each carrier's JSON Schema, encode, exact parse and trusting decode
  * agree, over drawn specs of every carrier and drawn values of each spec's type.
@@ -30,7 +31,7 @@ import { carriers } from "#compiler/ir/scalar.ts"
 import { sameValue } from "#compiler/live/key.ts"
 import { decodeScalar, encodeScalar, parseScalar, scalarSchema } from "#compiler/live/wire.ts"
 import { parseValue } from "#compiler/scalar/values/identity.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { schemaAdmits } from "#test/support/openapi/validator.ts"
 import {
 	carrierSpecOf,

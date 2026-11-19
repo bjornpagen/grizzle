@@ -1,5 +1,6 @@
 /** What the property of law-reads.test.ts reads: its space, its two versions and the checks their draft runs. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
@@ -16,7 +17,6 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { defined } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 

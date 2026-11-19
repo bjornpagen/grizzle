@@ -1,5 +1,6 @@
 /** What the property of judge-sources.test.ts reads: its space, its schemas and the judge's scans. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -17,7 +18,7 @@ import {
 } from "#compiler/public/schema.ts"
 import type { FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { judgedStatementsOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 

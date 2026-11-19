@@ -1,4 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, steered, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
@@ -29,7 +30,7 @@ import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	ALIAS_CODE,

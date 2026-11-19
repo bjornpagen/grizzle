@@ -25,6 +25,7 @@
  * (test/pg/derived/workload-index.test.ts).
  */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, boolean } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -33,7 +34,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { withWorkload } from "#compiler/physical/access/extension.ts"
 import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"

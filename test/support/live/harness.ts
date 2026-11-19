@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, type Layer, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { served } from "#adapter/public/layer.ts"
@@ -5,7 +6,6 @@ import type { DbLayerOf, PoolBounds, ServedLogin } from "#adapter/types/layer.ts
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { commitDirectly, commitStatements } from "#test/support/live/direct.ts"

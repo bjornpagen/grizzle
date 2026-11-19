@@ -1,4 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	boolean,
 	element,
@@ -12,7 +13,6 @@ import {
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { CompareOp } from "#compiler/ir/desc.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import type { FamilyRow, Stored } from "#test/support/families/theorem.ts"
 import {
 	type Law,

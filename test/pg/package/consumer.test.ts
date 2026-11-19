@@ -18,6 +18,7 @@
  * the checkout. Box: the layouts.
  */
 
+import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -52,7 +53,7 @@ import {
 	shellPin,
 	shellSpelling
 } from "#test/pg/package/consumer.fixtures.ts"
-import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
 import { testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"

@@ -19,12 +19,13 @@
  * Features: a shared domain, two domains, a shared checked domain, and a base shared with predicates apart.
  */
 
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	type DedupFeature,
 	distinctDefinitions,

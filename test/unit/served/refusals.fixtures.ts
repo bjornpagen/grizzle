@@ -1,5 +1,6 @@
 /** What the properties of refusals.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, map, subarray } from "@bjornpagen/testing/gen"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option } from "effect"
 import { installationWitness } from "#adapter/served/refusals.ts"
@@ -13,7 +14,6 @@ import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import type { Refuser } from "#compiler/runtime/write/witness.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { type CaseSketch, caseSketchGen } from "#test/support/oracle/public/generate.ts"
 import {
 	type LawFeature,

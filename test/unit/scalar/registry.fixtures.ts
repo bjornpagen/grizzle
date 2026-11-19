@@ -2,6 +2,7 @@
 
 import type { TextBounds } from "@bjornpagen/grizzle-text/regex/dfa"
 import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	array,
@@ -76,7 +77,7 @@ import {
 	retirementField
 } from "#compiler/schema/relation.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { scalarOf as registryTypeOf } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"

@@ -12,10 +12,10 @@
  * publish, which loses no row, a proved occurrence reads none.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, type Kill, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	admitted,
 	brokenDocs,

@@ -9,11 +9,11 @@
  * (bytesChunkLength) in some cases.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { assembledIn, deliveryOf } from "#compiler/codec/delivery.ts"
-import { assert } from "#test/support/assert.ts"
 import { outputRows } from "#test/support/wire.ts"
 import {
 	arrivedAt,

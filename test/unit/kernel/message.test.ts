@@ -12,13 +12,14 @@
  * of no message.
  */
 
+import { containsText } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { compileReasonText, within } from "#compiler/core/errors.ts"
 import { formatLoc, formatPath } from "#compiler/core/loc.ts"
-import { containsText, refusalLoc } from "#test/support/assert.ts"
+import { refusalLoc } from "#test/support/assert.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
 	type At,

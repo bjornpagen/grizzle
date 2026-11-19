@@ -26,6 +26,7 @@
  * Features: each object kind under the installation-first path, and every catalog type's name taken.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -40,7 +41,6 @@ import {
 } from "#test/pg/migrate/catalog-names.fixtures.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientFeatures } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

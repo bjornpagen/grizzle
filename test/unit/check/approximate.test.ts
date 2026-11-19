@@ -1,9 +1,10 @@
+import { assert, defined, matchesObject } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import { approximateMisuse, approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
-import { assert, defined, matchesObject, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	type EligibilityFeature,

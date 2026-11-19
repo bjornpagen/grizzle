@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * evaluateRules, the worlds model's meaning of a rule set, over rules drawn over the documents base: the reference
  * evaluator, run on the checked DAG of the same rules built as an application builds them (execute/describe.ts
@@ -30,7 +31,6 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Predicate, Record as Rec, Result } from "effect"
 import { queryOver as queryBuilt, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { definitionOf } from "#test/support/worlds/execute/describe.ts"

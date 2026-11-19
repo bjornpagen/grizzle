@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { set, structuralHash } from "@bjornpagen/testing/oracle"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
@@ -27,7 +28,6 @@ import {
 	cellsInstall,
 	cellsTemplate
 } from "#test/pg/reads/union-cells.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"

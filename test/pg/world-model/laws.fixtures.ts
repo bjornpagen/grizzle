@@ -1,8 +1,8 @@
 /** What the properties of laws.test.ts read: its focus, its requirements and its leads. */
 import type { Situations } from "@bjornpagen/testing/features"
 
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { isImmediate } from "#test/support/laws/model.ts"
 import { witnessesShowTheirOwn } from "#test/support/worlds/drive/acting.ts"
 import {

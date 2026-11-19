@@ -37,6 +37,7 @@ import { writeMeta } from "#compiler/deploy/render/folder.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import type { CallError } from "#compiler/live/index.ts"
 
+import { assert, defined, lacksText } from "@bjornpagen/testing/assert"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
@@ -54,7 +55,7 @@ import {
 	wrongPassword
 } from "#test/pg/cli/support.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
-import { assert, defined, lacksText, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { oneOf } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { type DecoderCredential, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"

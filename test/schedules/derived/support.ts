@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import type { Situations } from "@bjornpagen/testing/features"
 import { type Aimed, boolean, element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { pctSchedule } from "@bjornpagen/testing/interleave"
@@ -31,7 +32,6 @@ import {
 	type OracleFixtureFailed,
 	snapshotOf
 } from "#test/pg/derived/oracle/harness.ts"
-import { defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { Id } from "#test/support/ids.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"

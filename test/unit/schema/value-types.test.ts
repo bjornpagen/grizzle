@@ -1,3 +1,4 @@
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * A value type is a descriptor, and every admission of one takes the same first step (schema/relation.ts refuseWritten):
  * a field a field builder made, drawn, accumulated or retirement, is no value type, refused by the admission's own
@@ -18,7 +19,7 @@ import { accumulated, drawn, natural, pg, retirement } from "#compiler/public/fi
 import { rows } from "#compiler/public/schema.ts"
 import { admitClosedRelation, generatedField } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { assert, nonEmpty, throwsRefused } from "#test/support/assert.ts"
+import { throwsRefused } from "#test/support/assert.ts"
 
 /** The fields a field builder makes that are no value type, each by its builder. */
 const writtenFields = {

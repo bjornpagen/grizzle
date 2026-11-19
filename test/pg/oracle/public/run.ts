@@ -19,6 +19,7 @@ import { type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { valueIdentity } from "#test/support/oracle/reference/values.ts"
 
+import { defined } from "@bjornpagen/testing/assert"
 import { OpenError } from "#adapter/errors/execution.ts"
 import type { HostParams } from "#adapter/reader/execution.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
@@ -41,7 +42,7 @@ import {
 	strictReaderOf
 } from "#test/pg/oracle/public/cells.ts"
 import type { PublicFeature } from "#test/pg/oracle/public/suite.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, installedCodes, paramsOver, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"

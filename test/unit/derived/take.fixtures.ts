@@ -1,5 +1,6 @@
 /** What the properties of take.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import type { Direction } from "#compiler/core/order.ts"
@@ -17,7 +18,7 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { owning } from "#test/support/policy.ts"

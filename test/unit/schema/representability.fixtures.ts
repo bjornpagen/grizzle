@@ -2,6 +2,7 @@
 
 import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -46,7 +47,6 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { ownInput } from "#test/support/policy.ts"

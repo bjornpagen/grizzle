@@ -22,6 +22,7 @@
  * (test/support/kernel/calls.ts callCounts).
  */
 
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -33,7 +34,7 @@ import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn } from "#test/support/compile.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"

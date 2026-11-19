@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 /** What the properties of tree-keyed.test.ts read: its spaces, models and helpers. */
 import {
 	constant,
@@ -26,7 +27,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { seatTemplate } from "#test/pg/fin/installed.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { defined } from "#test/support/assert.ts"
 import {
 	type Forest,
 	type KeyedRow,

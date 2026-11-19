@@ -1,5 +1,6 @@
 /** What the properties of renames.test.ts read: its spaces, models and helpers. */
 
+import { deepEquals, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	array,
@@ -25,7 +26,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import { handleMaxBytes } from "#compiler/schema/own.ts"
-import { deepEquals, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	admittedNames,
 	aliasGroups,

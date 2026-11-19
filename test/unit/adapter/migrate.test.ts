@@ -23,6 +23,7 @@
 
 import { inspect } from "node:util"
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -37,7 +38,7 @@ import { planApply, runFiles } from "#adapter/migrate/plan.ts"
 import type { LedgerState, RecordedFolder } from "#compiler/deploy/ledger/ledger.ts"
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { assert, defined, failed, succeeded } from "#test/support/assert.ts"
+import { failed, succeeded } from "#test/support/assert.ts"
 import { draftFiles } from "#test/support/migrate/review.ts"
 import {
 	chainOf,

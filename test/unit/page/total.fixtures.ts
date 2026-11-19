@@ -1,6 +1,7 @@
 /** What the properties of total.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
@@ -14,7 +15,6 @@ import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	defaultGenConfig,

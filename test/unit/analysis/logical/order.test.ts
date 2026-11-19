@@ -1,9 +1,10 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { completeOrder } from "#compiler/logical/order.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { Ir } from "#test/support/fixtures/ir/build.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
 import {

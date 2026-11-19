@@ -1,4 +1,5 @@
 import { timerMinMs } from "@bjornpagen/grizzle/runtime"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -17,7 +18,6 @@ import {
 	unhadError
 } from "#test/pg/serverless/acquire.fixtures.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
-import { assert } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"

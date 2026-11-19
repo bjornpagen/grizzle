@@ -15,11 +15,11 @@
  * Features: each step kind.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	asTheOldPath,
 	built,

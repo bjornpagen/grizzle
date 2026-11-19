@@ -21,6 +21,7 @@
  * end on its tape (installed.ts endGen): the box holds every case under both ends.
  */
 
+import { deepEquals } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -35,7 +36,6 @@ import {
 	shrinks,
 	statementsOf
 } from "#test/pg/fin/rewrites.fixtures.ts"
-import { deepEquals } from "#test/support/assert.ts"
 import { run, settledOf } from "#test/support/families/mutate.ts"
 import { storedOf } from "#test/support/families/theorem.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

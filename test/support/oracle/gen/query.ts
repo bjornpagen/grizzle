@@ -53,6 +53,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { normalizeDag } from "#test/support/dag.ts"
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	baseOf,
 	exactDigitsOf,
@@ -63,7 +64,6 @@ import {
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
-import { defined } from "#test/support/assert.ts"
 import { foldInputOf, keyedFoldInput } from "#test/support/fixtures/ir/fold.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import { liveOf, validateDag } from "#test/support/oracle/dag-validate.ts"

@@ -1,7 +1,7 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { defined } from "#test/support/assert.ts"
 import { affine } from "#test/support/growth.ts"
 import { extent, sizesOf } from "#test/unit/program/size.fixtures.ts"
 

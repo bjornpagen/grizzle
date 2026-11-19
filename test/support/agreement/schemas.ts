@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { floorSeed } from "@bjornpagen/testing/random"
 import { sample, type Source } from "@bjornpagen/testing/source"
@@ -103,7 +104,6 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { changeSetDesc, changeSetOver } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	inputArtifacts,

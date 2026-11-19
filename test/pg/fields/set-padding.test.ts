@@ -17,6 +17,7 @@
  * Features: the vocabulary Feature below, each padding width a roster meets.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
@@ -33,7 +34,6 @@ import {
 	sorted
 } from "#test/pg/fields/set-padding.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
 import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

@@ -1,7 +1,7 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import { Array as Arr, Record as Rec } from "effect"
 import { carriers, type ScalarType } from "#compiler/ir/scalar.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { isPlainCarrier, plainType, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
 import { types as codecTypes } from "#test/unit/codec/support.ts"
 import { scalarTypes as irFixtureTypes } from "#test/unit/ir/fixture.ts"

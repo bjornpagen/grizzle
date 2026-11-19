@@ -1,5 +1,6 @@
 /** What the property of literals.test.ts reads: its space, its schema, the text tool it models and its run. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, String as Str } from "effect"
@@ -18,7 +19,7 @@ import {
 	openMigrator,
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import {
 	asDrafted,

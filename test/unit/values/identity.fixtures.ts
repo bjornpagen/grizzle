@@ -1,5 +1,6 @@
 /** What the properties of identity.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	type Aimed,
@@ -29,7 +30,6 @@ import {
 } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { plantedStringGen } from "#test/unit/values/support.ts"
 

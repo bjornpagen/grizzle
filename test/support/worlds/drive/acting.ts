@@ -1,5 +1,5 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { valueText } from "#test/support/laws/model.ts"
 import { submittedTexts } from "#test/support/worlds/drive/index.ts"
 import type { Checked, SeenAction, StepCheck } from "#test/support/worlds/drive/suite.ts"

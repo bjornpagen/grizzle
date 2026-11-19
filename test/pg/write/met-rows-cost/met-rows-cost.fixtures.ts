@@ -1,6 +1,7 @@
 /** What the properties of met-rows-cost.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import { rowsScannedAndPaired } from "#bench/harness/explain.ts"
@@ -8,7 +9,6 @@ import { explainedChange, installWrites, openFull } from "#bench/write/support/w
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, on, relation, schema } from "#compiler/public/schema.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { writeAuditViolations } from "#test/support/write-audit.ts"
 

@@ -1,5 +1,6 @@
 /** What the properties of validate.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, increasing, int, shuffled } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import type { Source } from "@bjornpagen/testing/source"
@@ -33,7 +34,7 @@ import { loginDescOf } from "#compiler/schema/world.ts"
 import { openMigrator, type TextTarget, writtenTexts } from "#test/pg/migrate/support.ts"
 import { keyGen } from "#test/schedules/write/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
 	type ColumnTextDomain,

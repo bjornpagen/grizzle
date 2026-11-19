@@ -2,6 +2,7 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -36,7 +37,7 @@ import {
 	tableConstraints
 } from "#compiler/sql/ast.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredRelationDesc,
 	contained,

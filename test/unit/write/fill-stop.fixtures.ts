@@ -1,5 +1,6 @@
 /** What the properties of fill-stop.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
@@ -30,7 +31,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { closedTableOf } from "#compiler/write/program/decide.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"

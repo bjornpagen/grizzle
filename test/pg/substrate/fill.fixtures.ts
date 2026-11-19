@@ -1,7 +1,7 @@
+import { assert } from "@bjornpagen/testing/assert"
 /** What the property of fill.test.ts reads: its space, its rows' generator, and the DDL and SQL of its cases. */
 import { element, type Gen, int, type Space } from "@bjornpagen/testing/gen"
 import { type Array as Arr, Formatter, Predicate } from "effect"
-import { assert } from "#test/support/assert.ts"
 import type { VolumeFill, VolumeTable } from "#test/support/substrate/fill.ts"
 
 /**

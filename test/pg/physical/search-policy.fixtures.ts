@@ -1,5 +1,6 @@
 /** What the properties of search-policy.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, pipe, String as Str } from "effect"
@@ -11,7 +12,6 @@ import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { fixedDefaults, searchDefaults } from "#test/support/catalog/installed.ts"
 import { Id } from "#test/support/ids.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"

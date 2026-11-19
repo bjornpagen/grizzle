@@ -1,5 +1,6 @@
 /** What check-cost.test.ts reads: the schema, its template, the space, and each case's run. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
@@ -15,7 +16,7 @@ import { type FromSource, isSetQuery, type Select, type SelectCore } from "#comp
 import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"

@@ -24,6 +24,7 @@
  * or two moved; an origin filter applied over any vertex type and over double precision; each other consumer.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -34,7 +35,7 @@ import { makePassContext } from "#compiler/ir/pass.ts"
 import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
 import { carriedColumns, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import {

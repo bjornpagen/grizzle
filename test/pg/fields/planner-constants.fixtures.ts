@@ -1,5 +1,6 @@
 /** What the property of planner-constants.test.ts reads: its term grammar, its schema, and each case's run. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
@@ -10,7 +11,7 @@ import { str } from "#compiler/public/text.ts"
 import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

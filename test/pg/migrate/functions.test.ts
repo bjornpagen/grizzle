@@ -22,6 +22,7 @@
  */
 
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -48,7 +49,6 @@ import {
 } from "#test/pg/migrate/functions.fixtures.ts"
 import { driftedOf } from "#test/pg/migrate/recorded-drift.fixtures.ts"
 import { refusal, sameCatalog } from "#test/pg/migrate/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { attempt } from "#test/support/substrate.ts"

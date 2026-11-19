@@ -1,7 +1,7 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import { Array as Arr } from "effect"
 import { nativeOps } from "#compiler/scalar/compute/registry.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 
 /**
  * The registry's operations over two sets (scalar/compute/registry.ts nativeOps): every native node whose two operands

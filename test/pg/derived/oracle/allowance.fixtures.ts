@@ -1,6 +1,7 @@
 /** What the properties of allowance.test.ts read: its spaces, models and helpers. */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
@@ -16,7 +17,6 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { pick } from "#test/pg/derived/oracle/gen.ts"
 import { installDerived, type Opened, reload, withCaseDb } from "#test/pg/derived/oracle/harness.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

@@ -1,4 +1,5 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Gen } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
@@ -62,7 +63,7 @@ import {
 	type Version,
 	versionLogins
 } from "#test/pg/migrate-gen/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { type Catalog, readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
 import { isLedgerObject, parsedSchemaName } from "#test/support/kernel/naming.ts"

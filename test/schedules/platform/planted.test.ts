@@ -24,6 +24,7 @@
  * Features: every point of the space.
  */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { exhaust, Run } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
@@ -33,7 +34,6 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { columnOf, fieldsOf, racesAt, tableOf } from "#test/schedules/platform/support.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"

@@ -8,11 +8,11 @@
  * never main.ts's refusal and never nothing.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { entryCaseGen, mainRefusal, runEntry } from "#test/unit/cli/entry.fixtures.ts"
 
 /**

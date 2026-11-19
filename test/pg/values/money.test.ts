@@ -16,6 +16,7 @@
  * Features: "out of range" and "admitted at the edge", an edge amount on each side of the refusal.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -34,7 +35,7 @@ import {
 	source,
 	units
 } from "#test/pg/values/money.fixtures.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 

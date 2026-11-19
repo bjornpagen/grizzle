@@ -1,5 +1,5 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { ProbedRule, QueryRule } from "#compiler/analysis/theory/query.ts"
-import { assert } from "#test/support/assert.ts"
 
 /**
  * The probed rule a test's rule over a query is, which a test of the probes reads: a rule the schema's compile judges

@@ -21,6 +21,7 @@
  * Features: that constant, a role that writes nothing, and an insert that holds.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
@@ -33,7 +34,6 @@ import {
 	sorted
 } from "#test/pg/physical/executes.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	buildExecutesWorld,
 	constantsOf,

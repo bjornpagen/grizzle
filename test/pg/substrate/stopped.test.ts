@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A case's substrate allocations stopped wherever they stand leave nothing behind: once the stopped allocations are
  * awaited, the case's database (Substrate.fresh) holds nothing a clean one does not (shared.ts leftovers), and no role
@@ -31,7 +32,6 @@ import {
 	stoppedFeatures,
 	stoppingSpace
 } from "#test/pg/substrate/stopped.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { leftovers } from "#test/support/substrate/shared.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

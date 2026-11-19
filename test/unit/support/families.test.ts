@@ -23,12 +23,12 @@
  * long family, and the shapes paired with the forms and refusals that differ between them.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { runProgram } from "@bjornpagen/testing/commands"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { machineOf, realOf } from "#test/support/families/mutate.ts"
 import {
 	breachesOf,

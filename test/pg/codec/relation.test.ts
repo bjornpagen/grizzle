@@ -21,6 +21,7 @@
 
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { exact, ordered } from "@bjornpagen/testing/oracle"
@@ -40,7 +41,7 @@ import {
 	rawSpelling
 } from "#test/pg/codec/relation.fixtures.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Relation inputs against PostgreSQL partitions generated cases exactly as PostgreSQL's DISTINCT equality does. */

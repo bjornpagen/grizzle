@@ -1,5 +1,6 @@
 /** What the properties of boundary.test.ts read: its spaces, models and helpers. */
 
+import { assert, assertVariant, contains } from "@bjornpagen/testing/assert"
 import { accepting, type Machine, type Real, took } from "@bjornpagen/testing/commands"
 import type { Case } from "@bjornpagen/testing/explore"
 import { constant } from "@bjornpagen/testing/gen"
@@ -8,7 +9,6 @@ import { Array as Arr, Cause, Effect, Exit, Formatter, Option } from "effect"
 import type { OnceCalls } from "#adapter/db/handles.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import type { CallError, CallErrorKind, RowKey } from "#compiler/live/index.ts"
-import { assert, assertVariant, contains } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { a1, t1 } from "#test/support/fixtures/golden/work.ts"
 import type { Tap } from "#test/support/wire-tap.ts"

@@ -19,7 +19,7 @@ import {
 	type HostValue
 } from "#test/support/laws/model.ts"
 
-import { defined } from "#test/support/assert.ts"
+import { defined } from "@bjornpagen/testing/assert"
 import { type ClosedField, closedField, namedText } from "#test/support/closed/stored.ts"
 import type { GrizzleSettled, Outcome, Settled, WitnessKey } from "#test/support/history/check.ts"
 import type { GrizzleWriter, HistoryRig } from "#test/support/history/families.ts"

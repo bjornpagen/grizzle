@@ -1,5 +1,6 @@
 /** What the properties of classifications.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Situations } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { exact, ordered } from "@bjornpagen/testing/oracle"
@@ -18,7 +19,6 @@ import {
 	rowsAs,
 	runArtifact
 } from "#test/pg/spans/allen/support.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { templateNamed } from "#test/support/install-migrate.ts"
 import {
 	classify,

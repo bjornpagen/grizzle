@@ -15,13 +15,13 @@
  */
 
 import { utf8 } from "@bjornpagen/grizzle-text/utf8"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, Formatter } from "effect"
 import { seal } from "#compiler/core/seal.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import { batchesOf, type Notification, openPayload, sealBatch } from "#compiler/live/notify.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	BYTE_ORDER_MARK,
 	caseGen,

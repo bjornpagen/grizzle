@@ -6,6 +6,7 @@ import { regexDfaMaxStates, regexDfaMaxWork } from "@bjornpagen/grizzle-text/reg
 import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePointsText } from "@bjornpagen/grizzle-text/text"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	constant,
@@ -20,7 +21,7 @@ import {
 import { Array as Arr, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import {
 	families,
 	finiteLanguageOver,

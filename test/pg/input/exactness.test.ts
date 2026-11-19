@@ -19,6 +19,7 @@
  * no binary32 value refused", the two coercions PostgreSQL would make silently.
  */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
@@ -34,7 +35,6 @@ import {
 	readBackSql,
 	sameHost
 } from "#test/pg/input/exactness.fixtures.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

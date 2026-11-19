@@ -1,5 +1,6 @@
 /** What the properties of selection-key.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
@@ -9,7 +10,6 @@ import { closed, key, on, relation, schema, select } from "#compiler/public/sche
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { Note, Plans, Task } from "#test/pg/plans/fixture.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { installationOf } from "#test/support/kernel/naming.ts"
 

@@ -20,12 +20,13 @@
  * accumulators, a counted family.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { cellAt } from "#test/support/cells.ts"
 import { folded, identityOf } from "#test/support/families/fold.ts"
 import {

@@ -18,11 +18,11 @@
  *   whatever its backend's exit has reached.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Deferred, Effect, Exit, Fiber } from "effect"
 import { type InterruptFeature, runGen } from "#test/pg/write/oracle/interrupted.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { heldBackends, roleBackendsQuery } from "#test/support/kernel/sanitize.ts"
 import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
 import { CurrentPerturbation } from "#test/support/oracle/perturb.ts"

@@ -1,5 +1,6 @@
 /** What the properties of refusal.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { codePoint, element, type Gen, oneOf, string, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option } from "effect"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -11,7 +12,6 @@ import {
 	refusalFunctionDdl,
 	refusalFunctionName
 } from "#compiler/write/refusal.ts"
-import { assert } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { noTables } from "#test/support/substrate/replace.ts"

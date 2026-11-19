@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * A login's served file is one text whichever compile reaches it. `grizzle generate` and `grizzle check` compile every
  * login's ChangeSets once, in the draft's workload plan (cli/generate.ts plannedLogins): a login over the configured
@@ -27,7 +28,7 @@ import { login } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { Reports, Work } from "#test/support/agreement/changeset-schema.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import {
 	caseGen,

@@ -1,5 +1,6 @@
 /** What the properties of aggregate.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import { type CompareOp, type ComputeFn, computeFns } from "#compiler/ir/desc.ts"
@@ -14,7 +15,6 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { computeSpecs, type NativeFn, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** Whether a lowered program counts by FILTER: a count(*) with a FILTER clause in any statement. */

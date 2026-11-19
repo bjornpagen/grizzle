@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record as Rec, Redacted, Ref, Result, Stream } from "effect"
 import { HttpClient } from "effect/http"
 import { liveRead, memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
@@ -22,7 +23,6 @@ import {
 import { openApiText } from "#compiler/live/openapi.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { type HttpConfigRefused, type HttpHandler, httpHandler } from "#http/index.ts"
-import { defined } from "#test/support/assert.ts"
 import { readStream } from "#test/support/event-stream.ts"
 import { hangLimit } from "#test/support/limits.ts"
 import { commitDirectly, commitStatements } from "#test/support/live/direct.ts"

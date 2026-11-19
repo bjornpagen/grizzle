@@ -1,11 +1,11 @@
 /** What the properties of reach.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { loadServed } from "#adapter/served/load.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { ServedRoleForm } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
-import { assert } from "#test/support/assert.ts"
 import { type LawLevel } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import {

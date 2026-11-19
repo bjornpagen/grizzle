@@ -16,6 +16,7 @@
  * holding one value twice, a buffer written after admission, and every carrier's every forgery.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
@@ -30,7 +31,7 @@ import { isCompileError } from "#compiler/core/errors.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { canonicalText, parseValue } from "#compiler/scalar/values/identity.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { carriers, type Feature, forgedCases, pairOf, pairs } from "#test/support/forged.ts"
 import { textOfParam } from "#test/support/wire.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -25,7 +26,6 @@ import {
 	visibleWrite
 } from "#test/pg/http/stream.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { holdsCount, openStream, readStream, type StreamEvent } from "#test/support/event-stream.ts"
 import { standing } from "#test/support/live/standing.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

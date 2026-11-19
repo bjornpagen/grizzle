@@ -1,6 +1,7 @@
 /** What the properties of copy-diff.test.ts read: its space of one change to a family's or a tree's copies and
  * generated fields, and its judge. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { aimed, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec, Result, String as Str } from "effect"
 import {
@@ -14,7 +15,7 @@ import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { AlterTableAction, Expr, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	and,
 	type AuthoredStatementDesc,

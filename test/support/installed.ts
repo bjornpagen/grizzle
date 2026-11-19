@@ -1,3 +1,4 @@
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
@@ -27,7 +28,7 @@ import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { deployedWorkloadOver, inputArtifacts, testCompile } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {

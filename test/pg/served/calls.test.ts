@@ -14,6 +14,7 @@
  *   holding NULL refused, and rows answered.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
@@ -31,7 +32,6 @@ import {
 	withMood,
 	worldOf
 } from "#test/pg/served/calls.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { loadMigrated } from "#test/support/install-migrate.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"

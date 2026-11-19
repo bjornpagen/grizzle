@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The page compiler and the page runtime template are total on generated ordered queries, without a database.
  *
@@ -28,7 +29,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { compilePage } from "#compiler/lower/shapes/page/compile.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { admitGenerated } from "#test/support/compile.ts"
 import { conservativePage } from "#test/support/conservative.ts"
 import { genCatalog } from "#test/support/evidence.ts"

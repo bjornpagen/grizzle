@@ -1,6 +1,7 @@
 /** What the properties of batch.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, map } from "@bjornpagen/testing/gen"
@@ -10,7 +11,6 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type BatchStatement, type Flight, preparedStatement } from "#adapter/wire/batch.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import { assert } from "#test/support/assert.ts"
 import { type CaseSpace, caseGen } from "#test/support/flight/cases.ts"
 import type { Timing } from "#test/support/flight/drive.ts"
 import {

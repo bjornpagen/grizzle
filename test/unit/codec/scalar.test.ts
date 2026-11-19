@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Text-mode scalar codecs: each carrier's written text, admission at the encoder, and the null ban; the strict reading of
  * PostgreSQL's output text (the kernel's, test/support/kernel/strict.ts), and the library's trusting conversion agreeing
@@ -22,7 +23,7 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 import { paramText } from "#test/support/wire.ts"
 import {
 	absences,

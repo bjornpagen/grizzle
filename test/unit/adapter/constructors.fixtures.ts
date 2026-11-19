@@ -1,5 +1,6 @@
 /** What the properties of constructors.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	array,
@@ -31,7 +32,6 @@ import {
 } from "#compiler/plan/common.ts"
 import { CompileError, EncodingFailure, Sqlstate } from "#compiler/public/errors.ts"
 import * as Public from "#index.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 
 /**

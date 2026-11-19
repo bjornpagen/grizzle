@@ -2,6 +2,7 @@
 
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { codePoints, codePointsText, collapsed } from "@bjornpagen/grizzle-text/text"
+import { assert, assertNot, defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -20,7 +21,7 @@ import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
-import { assert, assertNot, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"

@@ -1,9 +1,9 @@
 /** What the properties of generators.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { defined } from "#test/support/assert.ts"
 import {
 	defaultRecursiveLimits,
 	edgePairs,

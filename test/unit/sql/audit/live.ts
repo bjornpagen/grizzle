@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, clone, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -37,7 +38,7 @@ import {
 	staffing,
 	tree
 } from "#test/pg/laws/projections/schemas.ts"
-import { nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	admitGenerated,
 	type FixtureSchema,

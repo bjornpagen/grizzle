@@ -1,12 +1,12 @@
 /** What the properties of independent.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
-import { assert } from "#test/support/assert.ts"
 import { f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
 	accumulatedOf,

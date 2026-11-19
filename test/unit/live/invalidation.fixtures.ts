@@ -1,10 +1,10 @@
 /** What the properties of invalidation.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Aimed, aimed, array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { type SlotSeen } from "#adapter/live/listen.ts"
 import { parseWalPosition, type WalPosition } from "#compiler/live/notify.ts"
-import { assert } from "#test/support/assert.ts"
 
 /** One event of the protocol, its listener by its index among the case's listeners where it has one. */
 type Step =

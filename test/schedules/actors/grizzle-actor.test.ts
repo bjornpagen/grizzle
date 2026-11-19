@@ -19,6 +19,7 @@
  * - Oracle: pg_stat_activity, read by the observer: each backend's last statement and its user.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Ref } from "effect"
@@ -29,7 +30,6 @@ import {
 	interruptedCall,
 	timekeepingTemplate
 } from "#test/schedules/actors/grizzle-actor.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { timekeeping } from "#test/support/laws/boxes.ts"
 import { openWriter } from "#test/support/laws/support.ts"
 import { grizzleActor } from "#test/support/schedules/actors.ts"

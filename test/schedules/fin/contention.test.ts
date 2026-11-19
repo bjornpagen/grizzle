@@ -1,3 +1,4 @@
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
@@ -33,7 +34,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { familyStoredOf } from "#test/pg/fin/family.ts"
-import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { theorem } from "#test/support/families/theorem.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

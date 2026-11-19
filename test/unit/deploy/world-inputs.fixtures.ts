@@ -1,5 +1,6 @@
 /** What the property of world-inputs.test.ts reads: its space, the schema's versions and the world steps they draft. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { Slot } from "#compiler/deploy/diff/plan.ts"
@@ -14,7 +15,7 @@ import { generated, pg } from "#compiler/public/fields.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"

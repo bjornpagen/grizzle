@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Effect } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { compileServed } from "#adapter/public/compile.ts"
@@ -26,7 +27,7 @@ import {
 import { installationsOf, type Owned, ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 
 /**
  * The installation `grizzle generate` drafts for `owned`, `login`'s base, serving `login`, under the codes `codes`, with

@@ -1,6 +1,7 @@
 /** What the properties of translate.test.ts read: its spaces, models and helpers. */
 
 import { codePoints, codePointsText, collapsed } from "@bjornpagen/grizzle-text/text"
+import { defined } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import { array, boolean, element, type Gen, int, proportional } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
@@ -16,7 +17,6 @@ import { generated, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { probe } from "#test/pg/physical/checks.ts"
-import { defined } from "#test/support/assert.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"

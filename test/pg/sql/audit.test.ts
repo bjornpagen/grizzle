@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * PostgreSQL as the second oracle of the SQL generator and of the structural audit (test/support/oracle/verify/sql.ts).
  *
@@ -34,7 +35,6 @@ import {
 	nulls,
 	situations
 } from "#test/pg/sql/audit.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
 import { pickFrom } from "#test/support/pick.ts"

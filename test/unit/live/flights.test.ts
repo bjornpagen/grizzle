@@ -34,6 +34,7 @@
  * Features: each member, each fault, a read of rows and of none, and a watch of a closed-only read.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { int, weighted } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
@@ -44,7 +45,6 @@ import { LayerReleased } from "#adapter/errors/failures.ts"
 import { makeSubscriptions, type Subscriptions } from "#adapter/live/subscriptions.ts"
 import { prologueOf } from "#adapter/wire/batch.ts"
 import { callErrors } from "#compiler/live/index.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { scriptedPool } from "#test/support/flight/scripted.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {

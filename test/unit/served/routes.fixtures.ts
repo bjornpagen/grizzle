@@ -1,5 +1,6 @@
 /** What the properties of routes.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	Result as Answered,
 	Array as Arr,
@@ -16,7 +17,7 @@ import type { OuterRefs } from "#compiler/ir/dag.ts"
 import { keySetOf } from "#compiler/lower/conservative/keys.ts"
 import { workloadQueryRead } from "#compiler/program/workload/compile.ts"
 import type { ServedKey, ServedMember, ServedRead } from "#compiler/served/forms.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type LawLevel } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import {

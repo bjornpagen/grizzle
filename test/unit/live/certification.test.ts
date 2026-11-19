@@ -33,11 +33,11 @@
  * COMMITTED role writes, no read kept, a read kept.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { subset } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	caseGen,
 	draftOf,

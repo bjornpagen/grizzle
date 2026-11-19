@@ -1,5 +1,6 @@
 /** What the properties of facts.test.ts read: its spaces, models and helpers. */
 
+import { deepEquals } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
@@ -7,7 +8,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { deepEquals } from "#test/support/assert.ts"
 
 /**
  * A served ChangeSet's array members take each call's facts (its input's `facts`), keyed by each member's op and then

@@ -1,8 +1,8 @@
 /** What the properties of analysis-once.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { defined } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A pattern a field may declare, with a value of its language that a closed row may hold. */

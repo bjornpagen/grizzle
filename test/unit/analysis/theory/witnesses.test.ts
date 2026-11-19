@@ -22,11 +22,11 @@
  * both inserted and deleted into breaking (`both`); and a relation the rule never reads.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { touches, witnesses } from "#compiler/analysis/theory/query.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	byName,
 	expectedWitnesses,

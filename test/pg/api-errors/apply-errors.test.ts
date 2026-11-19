@@ -27,6 +27,7 @@
  * surrogates refused.
  */
 
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
@@ -52,7 +53,6 @@ import {
 } from "#test/pg/api-errors/apply-errors.fixtures.ts"
 import { tappedPool } from "#test/pg/api-errors/support.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, assertVariant } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"

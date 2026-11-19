@@ -1,11 +1,11 @@
 /** What the properties of merge.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { AxisKind } from "#compiler/ir/family.ts"
 import type { NativeOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,
 	contained,

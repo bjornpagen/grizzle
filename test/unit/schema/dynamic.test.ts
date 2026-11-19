@@ -7,6 +7,7 @@
  * Features: each constructor of the door.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
@@ -17,7 +18,6 @@ import { closed as dynamicClosed, relation as dynamicRelation } from "#compiler/
 import { closedId, generated, pg } from "#compiler/public/fields.ts"
 import { closed, relation } from "#compiler/public/schema.ts"
 import { relationDescOf } from "#compiler/schema/relation.ts"
-import { assert } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { doorConstructors } from "#test/unit/schema/dynamic.dictionary.ts"
 

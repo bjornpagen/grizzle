@@ -8,6 +8,7 @@
  * Features: an entry of each kind, operator, function, cast, input and construct.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -15,7 +16,6 @@ import { Array as Arr, Effect } from "effect"
 import { describeOp } from "#compiler/ir/expr.ts"
 import { nativeOps, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import { type EntryKind, entryProblems, sameOperands } from "#test/pg/compute/registry.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

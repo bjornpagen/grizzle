@@ -1,3 +1,4 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * The cost of a tree's backfill grows linearly with the stored forest, on PostgreSQL 19: the keyed tree edullm's
  * identity migration drafts from the old-form tree (test/support/migrate/keyed-tree.ts), its backfill run over old
@@ -45,7 +46,6 @@ import {
 	situationOf,
 	smallest
 } from "#test/pg/migrate/backfill-cost.fixtures.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The cost of a tree's backfill over a chain and a star of n, 2n and 4n nodes, every row moved before it, the keyed tree's backfill draws the reference's rows, and the rows it touches grow by no more from 2n to 4n than twice what they grow by from n to 2n. */

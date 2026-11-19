@@ -1,5 +1,6 @@
 /** What the properties of constructors.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -41,7 +42,6 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
-import { assert } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import {

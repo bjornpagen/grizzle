@@ -16,13 +16,13 @@
  * Features: recognized or not, inclusive or strict, several pairs ordered, a prefix test among the parts.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, int } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { directions } from "#compiler/core/order.ts"
 import { lexicographicOrder } from "#compiler/lower/shapes/catalog/lexicographic.ts"
-import { assert } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	caseExpr,

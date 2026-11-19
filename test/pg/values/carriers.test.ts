@@ -20,6 +20,7 @@
  * component", "past the storage limit" and "an underflow read as zero".
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
@@ -44,7 +45,6 @@ import {
 	vectorTypeOf
 } from "#test/pg/values/carriers.fixtures.ts"
 import { exactVectorText, vectorInVerdict } from "#test/pg/vector/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"

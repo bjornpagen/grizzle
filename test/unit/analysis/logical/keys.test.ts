@@ -16,6 +16,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
@@ -32,7 +33,7 @@ import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
 import { attributesOver, bitsOf, namesOf } from "#compiler/logical/attributes.ts"
 import { minimalKeys } from "#compiler/logical/closure.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Ir } from "#test/support/fixtures/ir/build.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
 import { KeyKernel } from "#test/support/keys/kernel.ts"

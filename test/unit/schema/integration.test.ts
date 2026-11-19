@@ -12,6 +12,7 @@
  * Features: arithmetic, a cast, charLength and a handle; each refusal.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -24,7 +25,7 @@ import { key, on, relation } from "#compiler/public/schema.ts"
 import { own } from "#compiler/schema/own.ts"
 import { schemaBuilder as schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import { checkBuilder } from "#compiler/schema/statements.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	Account,
 	Cents,

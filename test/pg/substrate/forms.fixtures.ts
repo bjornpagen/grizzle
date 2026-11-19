@@ -1,10 +1,10 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Effect } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import { Account, Work, type WorkNamed, workWorlds } from "#test/support/fixtures/api/work.ts"
 import {
 	generatedTemplate,

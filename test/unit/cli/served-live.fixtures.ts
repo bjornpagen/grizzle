@@ -1,5 +1,6 @@
 /** What the properties of served-live.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Result as Answered, Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
@@ -11,7 +12,7 @@ import type { LivePlan } from "#compiler/live/notify.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { type LawLevel } from "#test/support/oracle/public/laws.ts"

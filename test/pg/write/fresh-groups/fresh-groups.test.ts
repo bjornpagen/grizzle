@@ -1,3 +1,4 @@
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * A fresh group of a counted family, its owner inserted by the call and none of its members stored, is drawn whole by
  * the host (runtime/write/bind.ts freshOwners) and its members inserted as drawn, where the family's scan (write/family/
@@ -47,7 +48,6 @@ import {
 	writesByDepth
 } from "#test/pg/write/fresh-groups/fresh-groups.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	buildFill,

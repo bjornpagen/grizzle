@@ -1,6 +1,7 @@
 /** What the properties of installed-types.test.ts read: its spaces, models and helpers. */
 
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { type ServedRefusal, snapshotCompiled } from "#adapter/served/compile.ts"
@@ -15,7 +16,7 @@ import { paramDomainIdentity, paramDomainUses } from "#compiler/physical/ddl/dom
 import { levelChain } from "#compiler/plan/common.ts"
 import { ownBuilt } from "#compiler/schema/own.ts"
 import type { CreateDomain } from "#compiler/sql/ast.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compiledInstallation, compiledSnapshot } from "#test/support/compiled-served.ts"
 import { type CaseSketch, caseSketchGen } from "#test/support/oracle/public/generate.ts"
 import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"

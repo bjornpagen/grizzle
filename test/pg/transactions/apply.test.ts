@@ -32,6 +32,7 @@ import { isCompileError } from "#compiler/core/errors.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 
+import { assert, failureOf, unorderedEqual } from "@bjornpagen/testing/assert"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
@@ -48,13 +49,7 @@ import {
 	type Note,
 	stored
 } from "#test/pg/transactions/apply.fixtures.ts"
-import {
-	assert,
-	bareRecord,
-	failureOf,
-	throwsRefused,
-	unorderedEqual
-} from "#test/support/assert.ts"
+import { bareRecord, throwsRefused } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t3, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { Id } from "#test/support/ids.ts"

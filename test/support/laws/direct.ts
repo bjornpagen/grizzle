@@ -37,7 +37,7 @@ import {
 	violations
 } from "#test/support/laws/model.ts"
 
-import { defined } from "#test/support/assert.ts"
+import { defined } from "@bjornpagen/testing/assert"
 import type { ClosedField } from "#test/support/closed/stored.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {

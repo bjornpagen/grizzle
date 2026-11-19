@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The worlds generators' small box (test/support/worlds/generate), against the harness's own rules, which judge what a
  * generator drew without the generator's help: from every reality of the box, after drawn steps, the box's actions in
@@ -13,7 +14,6 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { serial } from "#test/support/worlds/drive/index.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"

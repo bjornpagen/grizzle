@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * Legal predicate movement, over generated queries (rewrite/guarded.ts): a filter moves through a projection, a union and
  * a group's key, below a semi-join's left side and onto a region's source, since no predicate raises on the rows it
@@ -14,7 +15,6 @@
  */
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
-import { assert } from "#test/support/assert.ts"
 import { guardSearch, rowsAgreeAt } from "#test/unit/lower/rewrite/guarded.ts"
 import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
 

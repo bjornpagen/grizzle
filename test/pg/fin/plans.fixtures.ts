@@ -1,5 +1,6 @@
 /** What the property of plans.test.ts reads: the planted load, its seeded templates, its space and a plan's facts. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { boolean, constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
@@ -15,7 +16,6 @@ import { seededFamilyTemplate } from "#test/pg/fin/family.ts"
 import { seededSeatTemplate } from "#test/pg/fin/installed.ts"
 import { nodeBatchParams, nodeBatchSql, RELATIONS, Trees } from "#test/pg/fin/tree.ts"
 import { loadTree, rowsByDepth, type TreeRow } from "#test/pg/substrate/tree.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

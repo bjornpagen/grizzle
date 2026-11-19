@@ -1,12 +1,3 @@
-import { property, ReplayToken } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
-import {
-	attachAimed,
-	attachCases,
-	attachProgram,
-	attachRequired,
-	transactionFaults
-} from "#test/support/agreement/attachments.ts"
 /**
  * The attachment agreement (test/support/agreement/attachments.ts): every drawn attachment's stated delivery admitted
  * exactly where the engine proves it from the keys the types read, a closed relation's declared keys and never its facts
@@ -19,7 +10,16 @@ import {
  * delivery, refusal, proof and shape, a derived parent's and a nested attachment's among them, and a child over no level
  * of its parent's schema, which both refuse.
  */
-import { assert } from "#test/support/assert.ts"
+import { assert } from "@bjornpagen/testing/assert"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	attachAimed,
+	attachCases,
+	attachProgram,
+	attachRequired,
+	transactionFaults
+} from "#test/support/agreement/attachments.ts"
 import { agreement } from "#test/types/batch/agreement.ts"
 
 /**

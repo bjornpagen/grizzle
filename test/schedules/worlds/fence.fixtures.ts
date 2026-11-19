@@ -1,5 +1,6 @@
 /** What the properties of fence.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Fiber, Formatter, Option } from "effect"
@@ -7,7 +8,6 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import type { LockWait } from "#test/support/substrate/barrier.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, judged, runStep } from "#test/support/worlds/drive/index.ts"

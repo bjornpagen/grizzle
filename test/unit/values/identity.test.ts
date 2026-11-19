@@ -16,6 +16,7 @@
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { boolean, element, int, shuffled } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
@@ -27,7 +28,7 @@ import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"
 import { factIdentity, type HeadingField, parseValue } from "#compiler/scalar/values/identity.ts"
 import { Uuid } from "#compiler/scalar/values/uuid.ts"
-import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
 	type AdmissionFeature,

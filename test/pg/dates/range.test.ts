@@ -10,6 +10,7 @@
  * a member of the full world's served workload.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Result } from "effect"
@@ -28,7 +29,7 @@ import {
 	eventsTemplate
 } from "#test/pg/dates/range.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, bareRecord, defined, succeeded } from "#test/support/assert.ts"
+import { bareRecord, succeeded } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"

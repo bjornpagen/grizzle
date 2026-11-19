@@ -1,5 +1,6 @@
 /** What the properties of rename.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { onceCalls } from "#adapter/db/handles.ts"
@@ -23,7 +24,6 @@ import {
 	type SwarmSpec
 } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	type FollowUp,

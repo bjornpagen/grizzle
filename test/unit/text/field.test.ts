@@ -10,6 +10,7 @@
  * Features: an admitted pattern and a refused one.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -21,7 +22,7 @@ import { describeField } from "#compiler/scalar/registry.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
-import { assert, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { succeeded, throwsRefused } from "#test/support/assert.ts"
 import type { Admission } from "#test/unit/text/field.fixtures.ts"
 import { families, flagsGen, patternOver } from "#test/unit/text/generators.ts"
 

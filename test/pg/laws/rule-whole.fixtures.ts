@@ -1,5 +1,6 @@
 /** What the properties of rule-whole.test.ts read: the schemas and their templates, the spaces, and each case's run. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "effect"
@@ -25,7 +26,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
 	type JudgedStatement,

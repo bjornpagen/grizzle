@@ -22,6 +22,7 @@
  * Features: a constant only a written table's casts reach, a role that writes nothing, and two roles.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -31,7 +32,6 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	buildExecutesWorld,
 	executesWorldGen,

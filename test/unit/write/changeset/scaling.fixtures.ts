@@ -1,5 +1,6 @@
 /** What the properties of scaling.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Record as Rec, Stream } from "effect"
 import { type ChangeSetDesc, decodeDesc, descText } from "#compiler/ir/desc.ts"
 import { queryOver as query, queryValueDesc, varsOver as v } from "#compiler/query/build/query.ts"
@@ -9,7 +10,6 @@ import {
 	changeSetState,
 	type ChangeSetValue
 } from "#compiler/write/changeset/value.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { containersOf, freshContainers, keyOrders } from "#test/support/containers.ts"
 import { Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { sitesRead } from "#test/support/sites.ts"

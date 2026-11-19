@@ -1,12 +1,13 @@
 /** What the properties of swaps.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import { type Gen, map, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atDeclaredName } from "#test/support/kernel/naming.ts"

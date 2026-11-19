@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Compute.lowerAscii on PostgreSQL 19rc2: ASCII's case fold, which PostgreSQL computes as lower under the C collation,
  * collated back to pg_c_utf8 (scalar/compute/registry.ts textLowerAscii), one SQL node in a query, a CHECK and a
@@ -44,7 +45,6 @@ import {
 	reproFeatures,
 	textBatch
 } from "#test/pg/text/lower-ascii.fixtures.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Compute.lowerAscii's one SQL, in a query and in a check, is translate's by the ASCII capitals and the host's ASCII case fold over every byte class, long texts included, and is collated pg_c_utf8. */

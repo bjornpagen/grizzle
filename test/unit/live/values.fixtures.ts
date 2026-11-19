@@ -1,5 +1,6 @@
 /** What the properties of values.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, type Order } from "effect"
 import {
@@ -21,7 +22,6 @@ import {
 	type ShapeFailure
 } from "#compiler/live/index.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { assert } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A row as the model holds it: its key value's index and its payload's. */

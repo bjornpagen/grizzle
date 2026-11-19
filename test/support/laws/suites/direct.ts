@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { constant } from "@bjornpagen/testing/gen"
 import {
@@ -7,7 +8,6 @@ import {
 	property
 } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
-import { defined } from "#test/support/assert.ts"
 import { type Family, type Mode, populationsOf } from "#test/support/laws/boxes.ts"
 import {
 	type DirectCase,

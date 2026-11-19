@@ -1,5 +1,6 @@
 /** What the properties of extract.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, subset, uniqueKeys } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import type { Source } from "@bjornpagen/testing/source"
@@ -11,7 +12,6 @@ import {
 	type StatisticsRequest,
 	type StatisticsUse
 } from "#compiler/physical/statistics/statistics.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { workPrograms } from "#test/unit/workload/fixtures.ts"
 
 export const sortedUnique = <A extends string>(values: ReadonlyArray<A>): ReadonlyArray<A> =>

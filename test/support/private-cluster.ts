@@ -32,8 +32,9 @@ export const privateCluster: Effect.Effect<PgMember, never, Scope.Scope | Platfo
 			ownerParameters: pgCluster.ownerParameters,
 			peerLogins: [],
 			durability: "throwaway",
-			family: { kind: "one" },
 			sizing: {
+				kind: "leased",
+				family: { kind: "one" },
 				connections: pgCluster.sizing.connections,
 				replication: { kind: "default" },
 				sharedBuffers: { kind: "default" }

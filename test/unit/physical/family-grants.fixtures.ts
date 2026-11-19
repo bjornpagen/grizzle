@@ -1,6 +1,7 @@
 /** What the properties of family-grants.test.ts read: its spaces, models and helpers. */
 
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
@@ -31,7 +32,6 @@ import { lit, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
 

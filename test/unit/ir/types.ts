@@ -1,4 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	boolean,
 	codePoint,
@@ -26,7 +27,6 @@ import {
 	numericMaxScale,
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { dictionaryNameGen, dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"

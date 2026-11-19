@@ -11,6 +11,7 @@
  * and the child then exits by itself with status 0.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
@@ -20,7 +21,6 @@ import { Array as Arr, Effect, Fiber, Formatter, Option, Path, Stream } from "ef
 import { ChildProcess } from "effect/process"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { caseGen, childModule, type Feature, leaked } from "#test/pg/substrate/exit.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { testPoolMax } from "#test/support/substrate/lease.ts"
 import { lend } from "#test/support/substrate/shared.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

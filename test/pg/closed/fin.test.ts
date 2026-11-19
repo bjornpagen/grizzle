@@ -37,6 +37,7 @@
  * shape, and R07's read, each required of the space.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -69,7 +70,7 @@ import {
 	type Refusal,
 	schemaOf
 } from "#test/pg/closed/fin.fixtures.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { setText } from "#test/support/closed/bit-text.ts"
 import { codecFor } from "#test/support/closed/generate.ts"
 import {

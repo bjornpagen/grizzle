@@ -18,6 +18,7 @@
  * refused.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -26,7 +27,6 @@ import { computeCore as Compute, scalarTerm } from "#compiler/scalar/compute/bui
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
-import { assert } from "#test/support/assert.ts"
 import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import {
 	caseGen,

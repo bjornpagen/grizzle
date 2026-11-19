@@ -37,6 +37,7 @@ import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -54,7 +55,7 @@ import {
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	candidateGen,
 	dateDays,

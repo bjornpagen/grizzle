@@ -1,8 +1,8 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { assert } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

@@ -1,5 +1,6 @@
 /** What the properties of split.test.ts read: its spaces, models and helpers. */
 
+import { deepEquals, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -14,7 +15,6 @@ import {
 import { Array as Arr, Option, String as Str } from "effect"
 import type { StatementToken } from "#compiler/deploy/render/markers.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
-import { deepEquals, nonEmpty } from "#test/support/assert.ts"
 
 export const splitFeatures = [
 	"a dollar-quote tag outside ASCII",

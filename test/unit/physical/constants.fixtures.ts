@@ -1,6 +1,7 @@
 /** What the properties of constants.test.ts read: its spaces, models and helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
@@ -23,7 +24,7 @@ import type {
 	ObjectName,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 import {
 	codebookOfStates,

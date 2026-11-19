@@ -1,5 +1,6 @@
 /** What the property of rewrite-checks.test.ts reads: its space, the schema's versions and what their drafts check. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
@@ -19,7 +20,6 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { defined } from "#test/support/assert.ts"
 import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 
 /**

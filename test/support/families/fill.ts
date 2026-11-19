@@ -1,3 +1,4 @@
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 /**
  * Schemas of families and the copies that ride their axes, drawn for the fill order's suites
  * (test/unit/write/fill-order.test.ts and test/pg/write/fill-order/fill-order.test.ts): a schema's specification, the
@@ -62,7 +63,6 @@ import {
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 

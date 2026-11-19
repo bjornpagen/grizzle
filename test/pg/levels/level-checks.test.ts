@@ -40,6 +40,7 @@
  * lawful ones, a probe refused and one stored.
  */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { exact } from "@bjornpagen/testing/oracle"
@@ -81,7 +82,7 @@ import {
 	writtenTexts
 } from "#test/pg/migrate/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { installedCodes, levelNameAt } from "#test/support/compile.ts"
 import {

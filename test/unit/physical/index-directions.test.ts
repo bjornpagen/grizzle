@@ -16,6 +16,7 @@
  * Features: an exact reverse pair, a mixed vector, an all-descending vector, two classes, and a prefix.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record } from "effect"
@@ -23,7 +24,7 @@ import { withWorkload } from "#compiler/physical/access/extension.ts"
 import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { owning } from "#test/support/policy.ts"
 import {

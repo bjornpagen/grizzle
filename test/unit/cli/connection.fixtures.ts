@@ -3,6 +3,7 @@
 import net from "node:net"
 import { inspect } from "node:util"
 import { timerMaxMs } from "@bjornpagen/grizzle/runtime"
+import { assert, lacksText, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	constant,
@@ -20,7 +21,7 @@ import { type StartupVariable } from "#adapter/connection/environment.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import type { CliError, Said } from "#cli/errors.ts"
-import { assert, lacksText, nonEmpty, refusedAt } from "#test/support/assert.ts"
+import { refusedAt } from "#test/support/assert.ts"
 import { type VariableValue } from "#test/support/process-env.ts"
 
 const caText = "-----BEGIN CERTIFICATE-----\nMIIBconnection\n-----END CERTIFICATE-----\n"

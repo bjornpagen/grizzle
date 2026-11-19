@@ -1,5 +1,6 @@
 /** What the properties of admission.test.ts read: its spaces, models and helpers. */
 
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import type { Pending } from "@bjornpagen/testing/features"
 import { boolean, element } from "@bjornpagen/testing/gen"
@@ -25,7 +26,7 @@ import {
 	type Reviewer
 } from "#test/pg/migrate/support.ts"
 import { fixtureLogin } from "#test/pg/physical/support.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {

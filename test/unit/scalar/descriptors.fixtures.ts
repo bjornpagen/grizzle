@@ -1,5 +1,6 @@
 /** What the properties of descriptors.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	array,
@@ -41,7 +42,7 @@ import {
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { fieldIdentity } from "#test/support/fixtures/descriptors.ts"
 import { plainSketches } from "#test/unit/scalar/descriptors.dictionary.ts"
 import { type DescriptorSketch, descriptorGen, endpointGen } from "#test/unit/scalar/support.ts"

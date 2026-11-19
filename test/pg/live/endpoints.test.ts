@@ -30,6 +30,7 @@
  * leader's replication session, a write naming a family member, a read of closed relations alone.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -43,7 +44,7 @@ import {
 	strayOf,
 	stringsOf
 } from "#test/pg/live/endpoints.fixtures.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { inputOf, worldSurfaces } from "#test/support/live/calls.ts"
 import { installLive, liveLogin } from "#test/support/live/harness.ts"
 import {

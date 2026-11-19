@@ -1,3 +1,4 @@
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -18,7 +19,7 @@ import {
 	workTemplate
 } from "#test/pg/e2e/arm-switch.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { assert, bareRecord, unorderedEqual } from "#test/support/assert.ts"
+import { bareRecord } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { Cents } from "#test/support/fixtures/api/contracts.ts"
 import * as W from "#test/support/fixtures/api/work.ts"

@@ -1,6 +1,7 @@
 /** What the properties of text.test.ts read: its spaces, models and helpers. */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
@@ -16,7 +17,6 @@ import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { judged, probe } from "#test/pg/physical/checks.ts"
-import { defined } from "#test/support/assert.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"

@@ -1,6 +1,7 @@
 /** What the properties of fin.test.ts read: its spaces, models and helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
@@ -30,7 +31,7 @@ import {
 	orderedBuilder
 } from "#compiler/schema/statements.ts"
 import type { PackConstant, SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { ownedInput } from "#test/support/policy.ts"

@@ -18,12 +18,12 @@
  * conjuncts and a column fixed to two values for the conjunct order.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
-import { assert } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import {
 	defaultGenConfig,

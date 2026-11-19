@@ -1,5 +1,6 @@
 /** What the properties of gist.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, pipe, Record as Rec, String as Str } from "effect"
 import { allenFormula } from "#compiler/allen/lower.ts"
@@ -14,7 +15,7 @@ import { pg, span, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { compileSpans } from "#test/pg/spans/allen/support.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { decodedQuery, type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"

@@ -12,13 +12,14 @@
  * each refusal the check mode alone makes; each site admitted and refused.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Effect } from "effect"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { baseParams, lowerWith, spelledExpr, v } from "#test/unit/compute/support.ts"
 import {
 	Cents,

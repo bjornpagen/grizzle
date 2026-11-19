@@ -1,6 +1,7 @@
 /** What the properties of histories.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	accepting,
 	type Command,
@@ -42,7 +43,7 @@ import {
 	sameCatalog,
 	storedRowsOf
 } from "#test/pg/migrate/support.ts"
-import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { filledSql } from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {

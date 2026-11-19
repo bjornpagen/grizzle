@@ -17,6 +17,7 @@
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -34,7 +35,6 @@ import {
 } from "#test/pg/compute/resolve-reference.fixtures.ts"
 import { textCell } from "#test/pg/compute/support.ts"
 import { inInstallation } from "#test/pg/compute/utf16-length.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"

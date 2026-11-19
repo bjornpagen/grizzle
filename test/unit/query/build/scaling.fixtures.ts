@@ -1,5 +1,6 @@
 /** What the properties of scaling.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr } from "effect"
 import { decodeDesc, type QueryDesc } from "#compiler/ir/desc.ts"
 import {
@@ -10,7 +11,6 @@ import {
 } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { queryState } from "#compiler/query/build/state.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { containersOf, freshContainers, keyOrders } from "#test/support/containers.ts"
 import { Task, Work } from "#test/support/fixtures/api/work.ts"
 import { sitesRead } from "#test/support/sites.ts"

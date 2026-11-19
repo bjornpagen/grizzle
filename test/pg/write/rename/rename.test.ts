@@ -1,3 +1,4 @@
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -12,7 +13,6 @@ import {
 	written
 } from "#test/pg/write/rename/rename.fixtures.ts"
 import { plainName } from "#test/pg/write/swarm/spec.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { relationName } from "#test/support/families/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

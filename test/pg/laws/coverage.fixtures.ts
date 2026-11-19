@@ -1,5 +1,6 @@
 /** What the properties of coverage.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Option } from "effect"
 import { pg, span } from "#compiler/public/fields.ts"
@@ -15,7 +16,6 @@ import {
 import type { Catalogued, Seat } from "#test/pg/fin/installed.ts"
 import { seatTemplate } from "#test/pg/fin/installed.ts"
 import { covered, isEmpty, keyRefusal, type Row, SPANS } from "#test/pg/substrate/temporal.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
 import { upTo } from "#test/support/up-to.ts"

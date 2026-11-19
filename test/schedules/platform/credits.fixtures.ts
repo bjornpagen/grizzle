@@ -1,6 +1,7 @@
 /** What the properties of credits.test.ts read: its spaces, models and helpers. */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order } from "effect"
@@ -22,7 +23,7 @@ import {
 	writersGen
 } from "#test/schedules/platform/support.ts"
 import * as W from "#test/schedules/platform/world.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { Id } from "#test/support/ids.ts"
 import { FAR, JAN } from "#test/support/platform/generate.ts"

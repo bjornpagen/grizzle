@@ -16,13 +16,13 @@
  *   trailing spaces, tabs and a carriage return aside; the marker anywhere else, or after text, is no marker.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { refusalText } from "#cli/refusals.ts"
 import { markerLine } from "#cli/run.ts"
 import { findMarkers, isNoTransaction } from "#compiler/deploy/render/markers.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	fileGen,
 	type MarkerFeature,

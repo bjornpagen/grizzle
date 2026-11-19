@@ -1,5 +1,6 @@
 /** What the properties of scalar.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -40,7 +41,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { cosineNormMax, cosineNormMin, numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { plainType, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"

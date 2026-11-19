@@ -1,5 +1,6 @@
 /** What the properties of clock.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Record as Rec } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
@@ -10,7 +11,6 @@ import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import type { Generated } from "#test/support/install-migrate.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 

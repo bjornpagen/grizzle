@@ -13,6 +13,7 @@
  * contract's violation.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
@@ -26,7 +27,6 @@ import {
 	same,
 	schemaOf
 } from "#test/pg/physical/domains.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

@@ -24,6 +24,7 @@
  * each kind of branch removed; every conjunct an equality, and a conjunct left.
  */
 
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite, int, subset } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -31,7 +32,7 @@ import { Array as Arr, Effect } from "effect"
 import { VectorText } from "#compiler/ir/carriers.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
-import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { Account, asc, keyed, Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"

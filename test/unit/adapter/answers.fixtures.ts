@@ -1,5 +1,6 @@
 /** What the properties of answers.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
@@ -27,7 +28,7 @@ import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { record } from "#compiler/schema/record.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	codebookFor,
 	compileTemplate,

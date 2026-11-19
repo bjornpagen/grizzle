@@ -1,5 +1,6 @@
 /** What the properties of bytes.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Case as SearchCase } from "@bjornpagen/testing/explore"
 import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
@@ -15,7 +16,7 @@ import { relationBuilder } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"

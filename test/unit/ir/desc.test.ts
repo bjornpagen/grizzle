@@ -22,6 +22,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, containsText, lacksText, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	aimed,
@@ -41,14 +42,7 @@ import { decodeDesc, descText, descToJson } from "#compiler/ir/desc.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { predicateExpr } from "#compiler/scalar/compute/term.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import {
-	assert,
-	containsText,
-	lacksText,
-	nonEmpty,
-	refusalLoc,
-	succeeded
-} from "#test/support/assert.ts"
+import { refusalLoc, succeeded } from "#test/support/assert.ts"
 import { descFromJson } from "#test/support/describe.ts"
 import type { AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"

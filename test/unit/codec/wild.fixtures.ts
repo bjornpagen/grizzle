@@ -1,5 +1,6 @@
 /** What the properties of wild.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -35,7 +36,7 @@ import { type Carrier, capabilitySet, Roster, type ScalarType } from "#compiler/
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
 
 /** The codec's own refusal words beside the value carriers' ValueFault words (core/errors.ts CodecFault). */

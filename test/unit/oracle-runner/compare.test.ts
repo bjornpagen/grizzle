@@ -16,10 +16,10 @@
  */
 
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { compareMultisets, compareRuns } from "#test/support/oracle/compare.ts"
 import {

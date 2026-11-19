@@ -1,6 +1,7 @@
 /** What the properties of scope.test.ts read: its spaces, models and helpers. */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	constant,
@@ -25,7 +26,7 @@ import {
 	type ValidDag
 } from "#compiler/ir/rel.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import { heading, scalarTypes } from "#test/unit/ir/fixture.ts"

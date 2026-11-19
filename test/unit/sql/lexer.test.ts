@@ -24,13 +24,13 @@
  * parentheses; every token and separator kind; each statement kind ended.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { lex } from "#compiler/sql/lexer.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert } from "#test/support/assert.ts"
 import { statementGen } from "#test/support/kernel/sqlgen.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 import {

@@ -14,11 +14,11 @@
  * Features: a whole rule and a probed rule left unchecked; a column dropped and a column renamed.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { drafted, type Reached, shapeGen } from "#test/unit/deploy/law-reads.fixtures.ts"
 
 /** A migration that drops or renames a column no law reads checks none of the laws again. */

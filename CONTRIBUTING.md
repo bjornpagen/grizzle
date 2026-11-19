@@ -338,8 +338,10 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   `adapter/migrate/input.ts`), and the printer names every type, function and relation by its schema, so no
   search_path changes what a statement means. The shell's catalog reads are catalog-read ASTs (`sql/catalog.ts`). A
   test's SQL that neither AST expresses is minted in `test/support/sql.ts`.
-- **Tests go through the doors.** Assertions come from `#test/support/assert.ts`, whose equalities type the expected
-  value by the actual one; oxlint's `import-doors` refuses `node:assert` and `isDeepStrictEqual` elsewhere. Emitted SQL
+- **Tests go through the doors.** Assertions come from the testing library's door, `@bjornpagen/testing/assert`
+  (`assert`, the matchers, the collection checks, the narrowers, failureOf), whose equalities type the expected value by
+  the actual one, and grizzle's own, which read grizzle's types, from `#test/support/assert.ts` (succeeded, refused and
+  the rest); oxlint's `import-doors` refuses `node:assert` and `isDeepStrictEqual` everywhere. Emitted SQL
   is asserted by its structure, never its text, except the migration DDL a person reviews. A member of one of `src`'s
   closed vocabularies is written where the compiler checks it. Review holds both: no lint reads them. A test asserts
   an error's tag, reason and fields, never its prose, never compares two values by their JSON text, and declares its

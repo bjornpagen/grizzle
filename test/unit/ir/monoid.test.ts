@@ -20,13 +20,13 @@
  * Features: every monoid's laws, and concat's two steps that do not commute; every monoid admitting and refusing.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { monoidNames } from "#compiler/ir/desc.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	admitsCaseGen,
 	type AdmitsFeature,

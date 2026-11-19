@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The generators' scalar types, value domains and spelling rule (test/support/oracle/gen/domain.ts): every generated
  * type's value classes hold only values the type stores exactly, one native-equality value per class, its edges
@@ -21,7 +22,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { literalProblem } from "#compiler/ir/expr.ts"
 import { isRefined, numericBoundOf, textOf } from "#compiler/ir/scalar.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	compareParamType,

@@ -16,12 +16,12 @@
  * itself; an importer's parameter named as an import's; a parameterless importer of a parameterized import.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	expectedInputs,
 	featuresOf,

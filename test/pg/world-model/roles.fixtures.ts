@@ -1,11 +1,11 @@
 /** What the properties of roles.test.ts read: its spaces, models and helpers. */
 
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Branch, enumerated, firstBranch } from "@bjornpagen/testing/enumerate"
 import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { recorder } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined, nonEmpty } from "#test/support/assert.ts"
 import { worldTemplate } from "#test/support/worlds/execute/template.ts"
 import { classifyEntry } from "#test/support/worlds/model/host.ts"
 import type {

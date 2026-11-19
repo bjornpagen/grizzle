@@ -11,6 +11,7 @@
  * Features: "a batch holding one value twice", "two values" and "every input refused".
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
@@ -20,7 +21,7 @@ import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { parseValue } from "#compiler/scalar/values/identity.ts"
 import { type BatchFeature, judged, sqlOf } from "#test/pg/codec/forged.fixtures.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { forgedCases } from "#test/support/forged.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

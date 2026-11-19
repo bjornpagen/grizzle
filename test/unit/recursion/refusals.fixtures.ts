@@ -1,5 +1,6 @@
 /** What the properties of refusals.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { bigint as bigintIn } from "@bjornpagen/testing/values"
 import { Array as Arr, Formatter, Record as Rec, String as Str } from "effect"
@@ -14,7 +15,7 @@ import { pg, span } from "#compiler/public/fields.ts"
 import { type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { schema, relation as table } from "#compiler/public/schema.ts"
 import { queryOver as untypedQuery } from "#compiler/query/build/query.ts"
-import { assert, defined, type Place, placeOf, succeeded } from "#test/support/assert.ts"
+import { type Place, placeOf, succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredExprDesc as ExprDesc,
 	f,

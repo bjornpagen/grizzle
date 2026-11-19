@@ -1,4 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	characterOf,
@@ -39,7 +40,7 @@ import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import { paramTextForm } from "#test/support/arrays.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	type TemplateDeclarations,

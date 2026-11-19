@@ -24,6 +24,7 @@
  * stored item states, or a put of stored items as stored, so the label-fixed streams reach both.
  */
 
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -52,7 +53,6 @@ import {
 	visibleWrite
 } from "#test/pg/client/client.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { installGenerated, loadMigrated } from "#test/support/install-migrate.ts"
 import { hangLimit } from "#test/support/limits.ts"
 import { standing } from "#test/support/live/standing.ts"

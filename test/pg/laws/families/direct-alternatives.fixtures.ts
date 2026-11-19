@@ -1,5 +1,5 @@
 /** What the properties of direct-alternatives.test.ts read: the cases it plants for its direct suite. */
-import { defined } from "#test/support/assert.ts"
+import { defined } from "@bjornpagen/testing/assert"
 import { compositeAlternatives, variantsOf } from "#test/support/laws/boxes.ts"
 import { plantedUpdate } from "#test/support/laws/direct.ts"
 import type { Planted } from "#test/support/laws/suites/direct.ts"

@@ -13,6 +13,7 @@
  * Features: the language's own terms the program reaches, each mixed form, and each node kind the checked IR holds.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { aimed, type Aimed, type Gen, map } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, Result } from "effect"
@@ -20,7 +21,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelKind } from "#compiler/ir/rel.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import {
 	type Answer,

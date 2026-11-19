@@ -26,12 +26,12 @@ import {
 	replaced,
 	xmlWhitespace
 } from "@bjornpagen/grizzle-text/text"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"
 

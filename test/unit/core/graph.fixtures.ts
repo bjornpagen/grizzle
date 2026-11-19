@@ -1,8 +1,8 @@
 /** What the properties of graph.test.ts read: their spaces, their oracle and their situations. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { defined } from "#test/support/assert.ts"
 
 /** A graph of a few vertices, `0` to `size - 1`, each with its successors in order, and the roots a walk starts from. */
 export interface DrawnGraph {

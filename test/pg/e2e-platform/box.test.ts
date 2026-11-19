@@ -19,11 +19,11 @@
  *   charge as the valid grants hold, and an earlier-expiring grant is spent before a later one is touched.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { applyFacts, openedPlatform } from "#test/pg/e2e-platform/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import {

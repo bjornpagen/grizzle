@@ -1,5 +1,6 @@
 import { inspect } from "node:util"
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Need } from "@bjornpagen/testing/property"
 import type { Content } from "@bjornpagen/testing/resources"
 import {
@@ -52,7 +53,6 @@ import {
 	ambientOwner,
 	templateAmbientOwner
 } from "#test/support/ambient.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import { draftedSql, type FixtureSchema, filledSql, migratedSql } from "#test/support/compile.ts"
 import { paths, repoRoot } from "#test/support/files.ts"

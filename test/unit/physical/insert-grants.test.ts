@@ -33,6 +33,7 @@
  */
 
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
@@ -40,7 +41,6 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	beyondInsert,
 	comparable,

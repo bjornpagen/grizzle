@@ -1,3 +1,4 @@
+import { assert, deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -42,7 +43,6 @@ import {
 	type Write
 } from "#test/pg/write/compound-key/compound-key.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, deepEquals, defined, unorderedEqual } from "#test/support/assert.ts"
 import { answered, readOnce, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
 import { paramsOver } from "#test/support/compile.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"

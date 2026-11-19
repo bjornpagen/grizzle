@@ -1,6 +1,7 @@
 /** What the properties of fixtures.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Steered } from "@bjornpagen/testing/explore"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
@@ -34,7 +35,7 @@ import {
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { allocatedDesc } from "#test/support/compile.ts"
 import { installationSql } from "#test/support/compile.ts"
 import * as graphApi from "#test/support/fixtures/api/graph.ts"

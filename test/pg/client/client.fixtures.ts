@@ -1,5 +1,6 @@
 /** What the properties of client.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Queue } from "effect"
 import type { LoadedMember } from "#adapter/served/load.ts"
@@ -9,7 +10,6 @@ import { Decimal, Money, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
-import { assert, defined } from "#test/support/assert.ts"
 
 const Item = relation(
 	"Item",

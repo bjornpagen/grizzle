@@ -37,6 +37,7 @@
  * `aims`), the sketch it runs, prints and keeps, so a run that draws mostly refused programs still compares served ones.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { agree } from "@bjornpagen/testing/oracle"
@@ -64,7 +65,6 @@ import {
 	refusesProseKey
 } from "#test/pg/live/differential.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { liveSurfaces } from "#test/support/live/calls.ts"

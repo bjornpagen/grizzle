@@ -13,11 +13,11 @@
  * two such inserters write, one a SERIALIZABLE role writes, and one a READ COMMITTED role updates or deletes.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	type Feature,
 	noteRelation,

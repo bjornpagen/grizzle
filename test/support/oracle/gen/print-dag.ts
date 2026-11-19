@@ -1,4 +1,5 @@
 import { postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Formatter } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import type { VarId } from "#compiler/core/ids.ts"
@@ -15,7 +16,6 @@ import {
 	type TakeBound
 } from "#compiler/ir/rel.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { defined } from "#test/support/assert.ts"
 
 const bigintText = (n: bigint): string => n.toString()
 

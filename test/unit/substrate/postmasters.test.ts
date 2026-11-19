@@ -18,12 +18,12 @@
  * Features: each verdict, by the reason for it.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
 import { Effect, Formatter, Result } from "effect"
-import { assert } from "#test/support/assert.ts"
 import {
 	caseOf,
 	type PostmasterFeature,

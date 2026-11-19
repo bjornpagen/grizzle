@@ -1,6 +1,7 @@
 /** What the properties of races.test.ts read: its spaces, models and helpers. */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { deepEquals, defined } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -87,7 +88,6 @@ import {
 	servedChanges,
 	Zed
 } from "#test/schedules/write/support.ts"
-import { deepEquals, defined } from "#test/support/assert.ts"
 import { answered, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"

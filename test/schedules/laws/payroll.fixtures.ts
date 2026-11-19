@@ -1,5 +1,6 @@
 /** What the properties of payroll.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Case } from "@bjornpagen/testing/explore"
 import { type Reached } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
@@ -9,7 +10,6 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
-import { defined } from "#test/support/assert.ts"
 import { answered, type WriteAnswer } from "#test/support/calls.ts"
 import { closedField } from "#test/support/closed/stored.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"

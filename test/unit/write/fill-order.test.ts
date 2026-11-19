@@ -43,11 +43,11 @@
  *   out one relation a refill writes or reads is refused (OutsideRole) naming exactly it.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property as propertyOf, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
-import { defined } from "#test/support/assert.ts"
 import { fullInstance, sourceClassOf, verdictOf } from "#test/support/families/fill.ts"
 import {
 	type BoxSituation,

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * No server-side deadlines (README "No server-side timeouts"): grizzle sets no statement_timeout or lock_timeout, nor
  * PostgreSQL 19's other server-side deadlines, idle_in_transaction_session_timeout and transaction_timeout, per
@@ -37,7 +38,6 @@ import {
 	wallMillis
 } from "#test/pg/serverless/deadlines.fixtures.ts"
 import { backendPid, onVercel, vercelRuntime } from "#test/pg/serverless/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
 import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"

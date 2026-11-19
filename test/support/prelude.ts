@@ -1,7 +1,7 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { defined } from "#test/support/assert.ts"
 import { fileText, joinPath, repoRoot } from "#test/support/files.ts"
 import { batchOwned, type Part, type ProgramModule } from "#test/types/batch/batch.ts"
 

@@ -20,6 +20,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option } from "effect"
@@ -32,7 +33,6 @@ import {
 	leftQuery,
 	situations
 } from "#test/pg/world-model/sessions.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, runStep } from "#test/support/worlds/drive/index.ts"

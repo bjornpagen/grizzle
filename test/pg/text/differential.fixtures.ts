@@ -2,6 +2,7 @@ import * as RegexIr from "@bjornpagen/grizzle-text/regex/ir"
 import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	aimed,
@@ -34,7 +35,7 @@ import {
 	type TextRefinement,
 	textDomainDefinition
 } from "#compiler/text/refinement.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { jsMatcher } from "#test/support/regex.ts"

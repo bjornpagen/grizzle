@@ -25,6 +25,7 @@
  * attached; a reference resolved and one refused; a bound parameter.
  */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -34,7 +35,7 @@ import { sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"

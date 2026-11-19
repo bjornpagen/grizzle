@@ -1,5 +1,6 @@
 /** What the properties of arbiter.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Case, Steered } from "@bjornpagen/testing/explore"
 import { array, constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { pctSchedule } from "@bjornpagen/testing/interleave"
@@ -37,7 +38,6 @@ import {
 	raceMoves,
 	stateSql
 } from "#test/pg/isolation/support/race.ts"
-import { defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"

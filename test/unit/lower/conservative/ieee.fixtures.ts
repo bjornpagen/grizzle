@@ -1,5 +1,6 @@
 /** What the properties of ieee.test.ts read: its spaces, models and helpers. */
 
+import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, recursive } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
@@ -9,7 +10,6 @@ import { plainType } from "#compiler/scalar/native.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { col } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { assert, assertVariant } from "#test/support/assert.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 
 type Carrier = "float4" | "float8"

@@ -1,6 +1,7 @@
 /** What the properties of normalize.test.ts read: its spaces, models and helpers. */
 
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { array, element, int, shuffled } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import type { Source } from "@bjornpagen/testing/source"
@@ -26,7 +27,7 @@ import type {
 	WriteFrontend
 } from "#compiler/write/frontend/compile.ts"
 import { closedTableOf, decideBinding } from "#compiler/write/program/decide.ts"
-import { assert, assertVariant, bareRecord, defined, succeeded } from "#test/support/assert.ts"
+import { bareRecord, succeeded } from "#test/support/assert.ts"
 import { lawIdOf, lawNamesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import {

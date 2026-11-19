@@ -14,7 +14,7 @@
  * scoped shapes and a scoped occurrence that stayed.
  */
 
-import { assertNone } from "@bjornpagen/testing/assert"
+import { assert, contains } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -25,7 +25,7 @@ import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { relationalRewrites } from "#compiler/lower/optimize/demand/phases.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
-import { assert, contains, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	Account as AccountRelation,
 	Posting,
@@ -158,7 +158,7 @@ export const setComparisonsNeedAPhysicallyUniqueLeftInputAKeyedLeftInputAdmitsTh
 						c.note(`${op} ${unique ? "rewritten" : "kept"}`)
 						const cert = Arr.findFirst(ran.certificates, (x) => x.rule === rule)
 						if (!unique) {
-							assertNone(cert)
+							assert.deepEqual(cert, Option.none())
 							return
 						}
 						const certified = Option.getOrThrowWith(

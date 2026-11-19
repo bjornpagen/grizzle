@@ -2,6 +2,7 @@ import { Array as Arr, Effect, Option } from "effect"
 import type { CallError } from "#compiler/live/index.ts"
 import type { Addition } from "#compiler/public/changeset.ts"
 
+import { defined } from "@bjornpagen/testing/assert"
 import type { Fact } from "#compiler/public/schema.ts"
 import {
 	type Answer,
@@ -14,7 +15,6 @@ import {
 	textOf,
 	type Write
 } from "#test/schedules/platform/support.ts"
-import { defined } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import {
 	calendarOf,

@@ -1,11 +1,11 @@
 /** What bounded.test.ts reads: its case space, the guarded match it lowers, and what each row reaches. */
 
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
 import { textColumn } from "#test/unit/compute/text.fixtures.ts"
 import { admittedPatternOver, families, stringsOver } from "#test/unit/text/generators.ts"

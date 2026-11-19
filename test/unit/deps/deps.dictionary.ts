@@ -1,7 +1,7 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Effect } from "effect"
-import { nonEmpty } from "#test/support/assert.ts"
 import { entryListing, srcListing } from "#test/unit/deps/deps.fixtures.ts"
 
 /**

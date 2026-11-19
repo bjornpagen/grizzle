@@ -1,5 +1,6 @@
 /** What the properties of facts.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { GuardTest } from "#compiler/core/errors.ts"
@@ -8,7 +9,6 @@ import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Fact, factNames } from "#compiler/ir/proof.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { type TestField, testPg } from "#test/unit/compute/support.ts"
 

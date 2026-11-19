@@ -1,4 +1,5 @@
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The live model's values (packages/engine/src/live): keys, the values a read's events build, and the evaluators over
  * them. Rows are drawn as specs, a key's index in a dictionary of key values and a payload's index in one of payloads,
@@ -38,7 +39,6 @@ import {
 	type WriteEvent,
 	writeOpening
 } from "#compiler/live/index.ts"
-import { assert } from "#test/support/assert.ts"
 import { forms } from "#test/unit/live/values.dictionary.ts"
 import {
 	type Applied,

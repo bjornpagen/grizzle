@@ -1,5 +1,6 @@
 /** What the property of generated-fill-memory.test.ts reads: its schema, its sizes and its measurement. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -12,7 +13,6 @@ import {
 	pg
 } from "#compiler/public/fields.ts"
 import { counted, fin, fold, Monoid, on, relation, schema } from "#compiler/public/schema.ts"
-import { defined } from "#test/support/assert.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"

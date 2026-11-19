@@ -1,3 +1,4 @@
+import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Result } from "effect"
@@ -20,7 +21,6 @@ import {
 	plantGen,
 	sameItems
 } from "#test/pg/served/facts.fixtures.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { answered, readOnce, writeOnce } from "#test/support/calls.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

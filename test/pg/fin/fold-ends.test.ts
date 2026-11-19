@@ -1,3 +1,4 @@
+import { assert, deepEquals, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -34,7 +35,6 @@ import {
 	endsTemplates,
 	judgedTemplate
 } from "#test/pg/fin/fold-ends.fixtures.ts"
-import { assert, deepEquals, unorderedEqual } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import {
 	brokenOf,

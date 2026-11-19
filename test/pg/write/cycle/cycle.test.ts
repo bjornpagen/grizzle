@@ -1,3 +1,4 @@
+import { assert, deepEquals, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -17,7 +18,6 @@ import {
 	cycleInstall,
 	cycleTemplate
 } from "#test/pg/write/cycle/cycle.fixtures.ts"
-import { assert, deepEquals, unorderedEqual } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"

@@ -9,6 +9,7 @@
  * Features: every node kind; each kind that keeps rows, and one keeping every row.
  */
 
+import { assert, contains } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -28,7 +29,6 @@ import {
 	relKinds,
 	type RelNode
 } from "#compiler/ir/rel.ts"
-import { assert, contains } from "#test/support/assert.ts"
 import { dags, type Keeping } from "#test/unit/ir/rel.fixtures.ts"
 
 /**

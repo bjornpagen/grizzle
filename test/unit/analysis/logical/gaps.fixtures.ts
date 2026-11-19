@@ -1,6 +1,7 @@
 /** What the properties of gaps.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import { DagBuilder } from "#compiler/ir/builder.ts"
@@ -20,7 +21,7 @@ import {
 } from "#compiler/logical/annotate.ts"
 import type { Props } from "#compiler/logical/props.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { canonicalFacts, type GenFacts, type LiteralRow } from "#test/support/oracle/gen/facts.ts"
 import type { GenRelation, GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"

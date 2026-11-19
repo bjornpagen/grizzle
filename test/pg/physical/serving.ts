@@ -19,6 +19,7 @@ import {
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 
 import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Direction } from "#compiler/core/order.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { defaultOpclass, type LawField } from "#compiler/ir/law.ts"
@@ -44,7 +45,6 @@ import {
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import { backendWaitStep, caseHang } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"

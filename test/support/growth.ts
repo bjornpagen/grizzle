@@ -15,7 +15,7 @@
  * Neither form holds a size that changes shape above some size of its dimension, an object that appears only past a
  * threshold, whose step lands in one increment alone: a suite that measures such a size states it in its header.
  */
-import { assert } from "#test/support/assert.ts"
+import { assert } from "@bjornpagen/testing/assert"
 
 /** A size of one dimension's input: what a suite measures (AST nodes, calls) at each size of the dimension. */
 type Measure = (size: number) => number

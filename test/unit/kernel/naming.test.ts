@@ -1,3 +1,4 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -8,7 +9,6 @@ import { expandAlternatives } from "#compiler/ir/desc.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import { constraintLawMap } from "#compiler/laws/model/model.ts"
 import { schema } from "#compiler/public/schema.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import {
 	constraintOwner,
 	installationNamesOf,

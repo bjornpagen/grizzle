@@ -1,5 +1,6 @@
 /** What the properties of rosters.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	type Gen,
 	int,
@@ -18,7 +19,7 @@ import { rosterCodebook } from "#compiler/ir/codes.ts"
 import { handleMaxBytes } from "#compiler/schema/own.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { rosterCodesOf, rosterWire, servedFile, servedText } from "#compiler/served/json.ts"
-import { artifactRefusal, assert, defined, failed, succeeded } from "#test/support/assert.ts"
+import { artifactRefusal, failed, succeeded } from "#test/support/assert.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { runtimeDifference } from "#test/support/served.ts"

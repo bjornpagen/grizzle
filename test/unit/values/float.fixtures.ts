@@ -1,5 +1,6 @@
 /** What the properties of float.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { double, float } from "@bjornpagen/testing/values"
 import {
@@ -9,7 +10,7 @@ import {
 	binary32Precision,
 	toReal
 } from "#compiler/scalar/values/float.ts"
-import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { faulted, succeeded } from "#test/support/assert.ts"
 
 /** The specials a double can be beside a finite value: -0, NaN and the infinities. */
 const specials: Gen<number> = element([

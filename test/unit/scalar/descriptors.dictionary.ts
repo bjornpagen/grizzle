@@ -1,6 +1,6 @@
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import { Array as Arr } from "effect"
-import { nonEmpty } from "#test/support/assert.ts"
 import { type DescriptorSketch, spellings } from "#test/unit/scalar/support.ts"
 
 /**

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
 import { array, type Gen, int, recorded } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
@@ -26,7 +27,6 @@ import {
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
 import { Id } from "#test/support/ids.ts"

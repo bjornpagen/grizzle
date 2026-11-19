@@ -25,6 +25,7 @@
  *   styles stored wrong, a read refused at the fence, and a vector probe answered and refused.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Option, Result, type Scope } from "effect"
@@ -48,7 +49,6 @@ import {
 	vectorProbe
 } from "#test/pg/reads/open.fixtures.ts"
 import { bareDatabase, installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
 import { oneOf as oneRow, rowsOf } from "#test/support/calls.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"

@@ -30,6 +30,7 @@
  * Features: each verdict and each cause of each family, several rules refusing one definition, and the admitted controls.
  */
 
+import { assert, containsEqual, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -39,7 +40,7 @@ import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { type FieldDesc } from "#compiler/ir/desc.ts"
-import { assert, containsEqual, defined, placeOf, succeeded } from "#test/support/assert.ts"
+import { placeOf, succeeded } from "#test/support/assert.ts"
 import { type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { idDesc } from "#test/support/ids.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"

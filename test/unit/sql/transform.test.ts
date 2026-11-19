@@ -8,12 +8,12 @@
  * traversal). Features: every statement kind.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { assert } from "#test/support/assert.ts"
 import { statementGen } from "#test/support/kernel/sqlgen.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 import { leaves, marker } from "#test/unit/sql/transform.fixtures.ts"

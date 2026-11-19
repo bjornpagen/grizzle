@@ -16,7 +16,7 @@
  * a narrowed writer's filter changed, and each hand change drifted or none.
  */
 
-import { assertInstanceOf } from "@bjornpagen/testing/assert"
+import { assert, assertVariant, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
@@ -37,7 +37,6 @@ import {
 	type Uses,
 	versionOf
 } from "#test/pg/physical/row-security.fixtures.ts"
-import { assert, assertVariant, defined, unorderedEqual } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
 import { migrated, type Version } from "#test/support/installed.ts"
@@ -168,7 +167,7 @@ export const rowSecurityAcrossMigrationsATableHasRowSecurityAndEveryWritersPolic
 							}
 							assertVariant(drift, "_tag", "Failure", "drift refuses the changed tables")
 							const reason = drift.failure.reason
-							assertInstanceOf(reason, Drifted)
+							assert.ok(reason instanceof Drifted)
 							const facts = Arr.map(reason.mismatches, (d) => d.fact)
 							for (const r of changed) {
 								assert.ok(

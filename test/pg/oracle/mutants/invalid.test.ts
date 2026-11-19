@@ -1,3 +1,4 @@
+import { assert, containsText } from "@bjornpagen/testing/assert"
 /**
  * The oracle runner wins every kill search of the mutant roster (invalid.dictionary.ts), each nested in a case of its
  * own and run on its witnesses alone, the floor and steered cases its identity fixes, so a kill holds on every run seed:
@@ -39,7 +40,6 @@ import {
 	populations
 } from "#test/pg/oracle/mutants/invalid.fixtures.ts"
 import { runAgainstReference, runMutant } from "#test/pg/oracle/mutants/support.ts"
-import { assert, containsText } from "#test/support/assert.ts"
 import { repeatsOn } from "#test/support/oracle/compare.ts"
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
 import { printOracleCase } from "#test/support/oracle/runner.ts"

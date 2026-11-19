@@ -9,11 +9,12 @@
  * feedback read, exactly the parameters the arms read, and a conservative lowering. Features: each arm, and both.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, subarray } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { type Arm, pairs } from "#test/unit/recursion/admission.fixtures.ts"
 import { Graph, lower, reads, theRecursive } from "#test/unit/recursion/fixtures.ts"

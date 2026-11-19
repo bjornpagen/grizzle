@@ -23,6 +23,7 @@
  * a safe snapshot among them), and what the interruption left (committed, rolled back).
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -45,7 +46,7 @@ import {
 import { defaultPool, poolFor, rowsOn, until } from "#test/pg/adapter/support.ts"
 import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
 import { aimedSteered } from "#test/support/aims.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { oneOf, readOnce } from "#test/support/calls.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"

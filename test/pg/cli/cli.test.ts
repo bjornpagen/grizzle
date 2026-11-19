@@ -26,6 +26,7 @@
  * whose turn aims at a refusal run by its executor as that role (aimed).
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -56,7 +57,7 @@ import {
 	workspace,
 	writeConfig
 } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 

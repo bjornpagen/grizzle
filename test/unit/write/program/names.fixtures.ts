@@ -1,5 +1,6 @@
 /** What the properties of names.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { Array as Arr, Cause, Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
@@ -8,7 +9,7 @@ import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	Item,

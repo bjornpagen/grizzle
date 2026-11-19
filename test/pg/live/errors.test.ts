@@ -34,6 +34,7 @@
  * Features: each class above, each surface, a watch refused by its parameter's pattern.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Fiber, Formatter } from "effect"
@@ -55,7 +56,6 @@ import {
 	watched
 } from "#test/pg/live/errors.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { liveSurfaces, wireOf } from "#test/support/live/calls.ts"

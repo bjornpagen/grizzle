@@ -1,5 +1,6 @@
 /** What the properties of identity.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import { array, boolean, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
@@ -19,7 +20,7 @@ import { type Owned, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { CommentTarget } from "#compiler/sql/ast.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
-import { assert, defined, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
 import type { relation } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"

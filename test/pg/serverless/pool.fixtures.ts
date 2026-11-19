@@ -1,5 +1,6 @@
 /** What the properties of pool.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int, oneOf, constant } from "@bjornpagen/testing/gen"
 import {
@@ -14,7 +15,6 @@ import {
 } from "effect"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { until } from "#test/pg/adapter/support.ts"
-import { assert } from "#test/support/assert.ts"
 
 /**
  * The pool's permits once every lease has returned and pg has answered every attempt (`attempting` 0, read one step at

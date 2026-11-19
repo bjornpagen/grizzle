@@ -10,12 +10,12 @@
  * Features: a first value of its digest, the same bytes again, the same array again, and different bytes of one digest.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { DigestBook, sameBytes } from "#compiler/scalar/values/bytes.ts"
-import { assert } from "#test/support/assert.ts"
 import { admission, type Feature, Forged } from "#test/unit/values/digest-book.fixtures.ts"
 
 /** A write's digest book holds a value exactly when its digest names no other bytes before it. Its budget is its suite's before it was a property (test/unit/values/digest-book.test.ts at 4ca3036a): 200 runs and 24 steered cases. */

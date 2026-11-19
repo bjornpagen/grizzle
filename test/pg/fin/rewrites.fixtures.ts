@@ -1,10 +1,10 @@
 /** What the properties of rewrites.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { familyTemplate } from "#test/pg/fin/family.ts"
 import type { EndFeature } from "#test/pg/fin/installed.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import type { MutationStatement } from "#test/support/families/mutate.ts"
 import { type Families, familyRowsFrom } from "#test/support/families/theorem.ts"
 import { upTo } from "#test/support/up-to.ts"

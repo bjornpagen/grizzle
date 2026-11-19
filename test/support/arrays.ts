@@ -1,11 +1,11 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, pipe, String as Str } from "effect"
 import { arrayTexts, parameterNormalizer, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { RelationParamEncoder } from "#compiler/ir/products.ts"
-import { defined } from "#test/support/assert.ts"
 
 /**
  * The arrays encoder of one relation parameter's input (ir/products.ts RelationParamEncoder): its normal facts as a

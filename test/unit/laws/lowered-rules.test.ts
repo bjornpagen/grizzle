@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -6,7 +7,7 @@ import {
 	compileInstallation,
 	conservativeInstallation
 } from "#compiler/physical/install/compile.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	KEYS,
 	caseSpace,

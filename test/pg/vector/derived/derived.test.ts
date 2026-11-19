@@ -16,6 +16,7 @@
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -35,7 +36,7 @@ import {
 	type ViewCase,
 	type ViewFeature
 } from "#test/pg/vector/derived/derived.fixtures.ts"
-import { assert, defined, refused } from "#test/support/assert.ts"
+import { refused } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"

@@ -24,6 +24,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import * as RegexIr from "@bjornpagen/grizzle-text/regex/ir"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { toAre } from "@bjornpagen/grizzle-text/regex/print"
+import { assert } from "@bjornpagen/testing/assert"
 import { family, property, ReplayToken } from "@bjornpagen/testing/property"
 import type { Case } from "@bjornpagen/testing/property"
 import { Effect, Exit, String as Str } from "effect"
@@ -42,7 +43,6 @@ import {
 	showGrowth,
 	truth
 } from "#test/pg/text/differential.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { nestedPattern } from "#test/unit/text/generators.ts"
 

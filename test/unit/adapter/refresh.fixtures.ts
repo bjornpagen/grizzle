@@ -1,5 +1,6 @@
 /** What the properties of refresh.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
 	boolean,
@@ -43,7 +44,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { materializedDerived as derivedOver, relationBuilder } from "#compiler/schema/relation.ts"
 import { admitRole, roleDescOf } from "#compiler/schema/world.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { prologueIn } from "#test/support/flight/model.ts"
 import {

@@ -1,6 +1,7 @@
 /** What the properties of naming.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	boolean,
 	codePoint,
@@ -37,7 +38,6 @@ import { str } from "#compiler/public/text.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	alternativesBox,
 	compositeAlternatives,

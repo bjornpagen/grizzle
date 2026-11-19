@@ -1,5 +1,6 @@
 /** What the properties of nested-sources.test.ts read: its spaces, models and helpers. */
 
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int, parents, weighted } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
@@ -25,7 +26,7 @@ import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"

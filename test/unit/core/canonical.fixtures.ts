@@ -2,6 +2,7 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -40,7 +41,6 @@ import {
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { isList } from "#test/support/list.ts"
 
 /** The spellings where a key order, a tagging scheme or the prototype accessor goes wrong. */

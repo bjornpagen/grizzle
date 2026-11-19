@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * A single statement's shapes write, judge and capture as its whole statement does, and an empty part fires nothing
  * (runtime/write/parted.ts), on PostgreSQL 19rc2: a call sends the parts its inputs may give rows, and the rows it
@@ -42,7 +43,6 @@ import {
 	S3,
 	wholeChange
 } from "#test/pg/write/parted/parted.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

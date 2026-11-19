@@ -1,9 +1,9 @@
 /** What the properties of bytea.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { readArrayBinary } from "#test/support/arrays.ts"
-import { assert, defined } from "#test/support/assert.ts"
 
 /** What a case does to one value's array after admission. */
 type Touch = "none" | "a byte changed" | "a byte written as it was" | "its buffer detached"

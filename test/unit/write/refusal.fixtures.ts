@@ -1,5 +1,6 @@
 /** What the properties of refusal.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	boolean,
 	codePoint,
@@ -12,7 +13,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { type ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
-import { defined } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The concurrent changes a write's refusal channel reads back. */

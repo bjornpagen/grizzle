@@ -1,6 +1,7 @@
 /** What the properties of key-sets.test.ts read: its spaces, models and helpers. */
 
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Aimed, aimed } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
@@ -29,7 +30,7 @@ import { discardCertificates, shapeFactsFromPlan } from "#compiler/lower/shapes/
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { keyColumns, type RowsRole, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { admitGenerated, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"

@@ -26,7 +26,8 @@ import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { pointIn } from "#compiler/query/build/terms.ts"
 
-import { assert, placeOf, refusalLoc, refused } from "#test/support/assert.ts"
+import { assert } from "@bjornpagen/testing/assert"
+import { placeOf, refusalLoc, refused } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 

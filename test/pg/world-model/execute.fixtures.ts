@@ -1,10 +1,10 @@
 /** What the property of execute.test.ts reads: the leak cases, their plants and actions, and the docs world. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
 import { sameValue, valueText } from "#test/support/laws/model.ts"
 import type { LeakField } from "#test/support/worlds/execute/leak.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"

@@ -25,11 +25,11 @@
  * Features: each dimension.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { defined } from "#test/support/assert.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import {
 	type Dimension,

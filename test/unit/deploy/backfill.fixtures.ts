@@ -1,5 +1,6 @@
 /** What the properties of backfill.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	int as between,
 	constant,
@@ -40,7 +41,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { refused, succeeded } from "#test/support/assert.ts"
 import { type FoldMonoid, foldStoredOf } from "#test/support/families/fold.ts"
 import * as Desc from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"

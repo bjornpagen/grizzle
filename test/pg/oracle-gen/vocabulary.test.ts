@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The generators' claims about PostgreSQL 19, checked on PostgreSQL 19.
  *
@@ -38,7 +39,6 @@ import {
 	storedSql,
 	typeBox
 } from "#test/pg/oracle-gen/vocabulary.fixtures.ts"
-import { assert } from "#test/support/assert.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { literalEqualityKey, valueClasses } from "#test/support/oracle/gen/domain.ts"
 import { aggregateApplies, aggregateResult } from "#test/support/oracle/gen/ops.ts"

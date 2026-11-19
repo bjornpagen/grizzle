@@ -1,5 +1,6 @@
 /** What the properties of variables.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Case } from "@bjornpagen/testing/explore"
 import {
 	type Aimed,
@@ -27,7 +28,6 @@ import { resolveVariables } from "#compiler/deploy/render/variables.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
-import { assert } from "#test/support/assert.ts"
 
 type Spelling = "lowercase" | "capitalized" | "capitals"
 

@@ -16,6 +16,7 @@
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { deepEquals } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
@@ -42,7 +43,6 @@ import {
 	widthFeature,
 	WIDTHS
 } from "#test/pg/substrate/bits.fixtures.ts"
-import { deepEquals } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**

@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The reference evaluator's faster paths against its nested loops (test/support/oracle/reference/evaluate.ts).
  *
@@ -23,7 +24,6 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { assert } from "#test/support/assert.ts"
 import { sameIdentity } from "#test/support/kernel/identity.ts"
 import {
 	defaultGenConfig,

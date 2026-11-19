@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, proportional } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -5,7 +6,6 @@ import { bytes, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { defined } from "#test/support/assert.ts"
 
 /** `length` bytes of a xorshift stream from `seed`. */
 const streamBytes = (length: number, seed: number): Uint8Array<ArrayBuffer> => {

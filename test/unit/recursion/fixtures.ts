@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -9,7 +10,6 @@ import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { assert } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 

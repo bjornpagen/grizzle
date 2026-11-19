@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The hand-written scanners that replaced RegExp in the adapter when their packages met the dependency gate (no RegExp
  * construction, .test or .exec under src/): each is held to the regex it replaces over generated texts. Tests may use
@@ -15,7 +16,6 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { Sqlstate } from "#compiler/core/sqlstate.ts"
-import { assert } from "#test/support/assert.ts"
 import { type Feature, reference, textGen } from "#test/unit/deps/scanners.fixtures.ts"
 
 /**

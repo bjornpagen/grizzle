@@ -16,12 +16,13 @@
  * Features: each slot, each verdict, each contract clash, and each fault, live, stale or wild.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { corrupted, corruptedFeature } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { queryInput } from "#compiler/program/compile.ts"
-import { assert, placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { placeOf, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { WorkDesc } from "#test/support/fixtures/ir/work.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"

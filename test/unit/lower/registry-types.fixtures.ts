@@ -1,10 +1,10 @@
 /** What the properties of registry-types.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { assert } from "#test/support/assert.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 
 /** What a case's root reached; a query a lowering refuses has no delivered types to judge, and is noted as such: the

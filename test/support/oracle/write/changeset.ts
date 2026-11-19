@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm as swarmOf, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec, Stream } from "effect"
@@ -16,7 +17,6 @@ import {
 	type MemberInput
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { argumentsOf, isList } from "#test/support/list.ts"
 import {
 	type Fact,

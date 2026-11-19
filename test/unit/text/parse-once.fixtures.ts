@@ -1,6 +1,7 @@
 /** What the properties of parse-once.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { pg } from "#compiler/public/fields.ts"
@@ -16,7 +17,6 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { selectBuilder } from "#compiler/schema/statements.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** A pattern a text field may declare, the pattern its relation's generated field matches, and a member a row holds. */

@@ -1,5 +1,6 @@
 /** What the properties of row-security.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"
@@ -9,7 +10,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** How a role holds a relation: whole, or through a query entry fixing the shelf at 1 or at 2. */

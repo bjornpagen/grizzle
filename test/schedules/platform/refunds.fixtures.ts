@@ -1,5 +1,6 @@
 /** What the properties of refunds.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr } from "effect"
@@ -17,7 +18,6 @@ import {
 	writersGen
 } from "#test/schedules/platform/support.ts"
 import * as W from "#test/schedules/platform/world.ts"
-import { defined } from "#test/support/assert.ts"
 import { rowsIn } from "#test/support/platform/laws.ts"
 
 const opFeatures = ["open", "void", "prior refund", "dispute"] as const

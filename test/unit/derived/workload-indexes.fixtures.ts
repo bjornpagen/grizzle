@@ -1,5 +1,6 @@
 /** What the properties of workload-indexes.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -17,7 +18,7 @@ import { derived, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { IndexKey, SqlStatement } from "#compiler/sql/ast.ts"
-import { nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { Id } from "#test/support/ids.ts"

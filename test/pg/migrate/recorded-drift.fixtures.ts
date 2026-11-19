@@ -1,5 +1,6 @@
 /** What the properties of recorded-drift.test.ts read: their space, their schema and the planted changes. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { DefinedBy, DriftMismatch } from "#adapter/admission/drift.ts"
@@ -28,7 +29,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import type { ObjectName, PlFunction } from "#compiler/sql/ast.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
 /**

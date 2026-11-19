@@ -9,6 +9,7 @@
  * that very instance; and the file read back writes as the same text again.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -17,7 +18,7 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import { rangeOp } from "#compiler/ir/expr.ts"
 import { spanCarriers } from "#compiler/ir/scalar.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	type Feature,
 	fileHolding,

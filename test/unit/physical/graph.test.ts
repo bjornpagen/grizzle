@@ -16,13 +16,13 @@
  * given twice, reasons added later.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Number as Num, Option, Order } from "effect"
 import { compareIdentities, type Identity, identity } from "#compiler/core/identity.ts"
 import { identText, ObligationGraph, phaseOrder } from "#compiler/physical/obligations/graph.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { pickIndex } from "#test/support/pick.ts"
 import {

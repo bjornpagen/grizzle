@@ -1,5 +1,6 @@
 /** What the properties of drift-proofs.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import type { DriftMismatch, ProofRow } from "#adapter/admission/drift.ts"
@@ -11,7 +12,6 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { ProofStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
-import { defined } from "#test/support/assert.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { testSql } from "#test/support/sql.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"

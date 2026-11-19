@@ -1,5 +1,6 @@
 /** What the properties of served-executes.test.ts read: its spaces, models and helpers. */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
@@ -24,7 +25,7 @@ import type { FunctionName, SqlStatement } from "#compiler/sql/ast.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 

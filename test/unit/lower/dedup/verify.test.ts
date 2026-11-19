@@ -12,11 +12,12 @@
  * (test/pg/oracle/optimized/variants.test.ts).
  */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { artifactProblems, channelProblems } from "#test/support/oracle/verify/channels.ts"
 import { verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
 import { pickFrom } from "#test/support/pick.ts"

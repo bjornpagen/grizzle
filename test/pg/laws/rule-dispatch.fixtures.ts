@@ -1,5 +1,6 @@
 /** What the property of rule-dispatch.test.ts reads: its schema and template, its space, and each case's run. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, type Gen, subset } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
@@ -22,7 +23,6 @@ import { objectName } from "#compiler/sql/build.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { judgedStatementsOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"

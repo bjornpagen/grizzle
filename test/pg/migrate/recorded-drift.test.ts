@@ -21,6 +21,7 @@
  *   unexpected and differing.
  */
 
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
@@ -43,7 +44,6 @@ import {
 	versionOf
 } from "#test/pg/migrate/recorded-drift.fixtures.ts"
 import { refusal } from "#test/pg/migrate/support.ts"
-import { assert, defined } from "#test/support/assert.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"

@@ -1,5 +1,6 @@
 /** What the properties of reference-plans.test.ts read: its spaces, models and helpers. */
 
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { type Budget, type Kill, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
@@ -7,7 +8,6 @@ import type { RelDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import {

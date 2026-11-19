@@ -1,4 +1,5 @@
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -13,7 +14,7 @@ import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { servedMembers } from "#compiler/write/program/served-members.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
 

@@ -17,6 +17,7 @@
  * state of each shape over one or two nodes, records, items and keys, which reaches each rule broken alone.
  */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -35,7 +36,6 @@ import {
 	shapesTemplate,
 	sketchGen
 } from "#test/pg/laws/rule-query-shapes.fixtures.ts"
-import { nonEmpty } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"

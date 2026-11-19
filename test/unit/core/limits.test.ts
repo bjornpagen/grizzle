@@ -17,6 +17,7 @@
  * alignment; a tuple below, at and past heapTupleMaxBytes.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { word } from "@bjornpagen/testing/dictionary"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int, weighted } from "@bjornpagen/testing/gen"
@@ -28,7 +29,6 @@ import type { IntegerCarrier } from "#compiler/ir/scalar.ts"
 import { heapTupleMaxBytes } from "#compiler/laws/model/model.ts"
 import { constantMaxBits } from "#compiler/physical/ddl/constants.ts"
 import { alignUp, maxAlign, rosterMaxCodes, typlens } from "#compiler/schema/representability.ts"
-import { assert } from "#test/support/assert.ts"
 import { integerCarriers } from "#test/unit/core/limits.dictionary.ts"
 import {
 	type Aligned,

@@ -1,5 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ExprId, NodeId, OccurrenceId } from "#compiler/core/ids.ts"
@@ -26,7 +27,6 @@ import {
 import type { KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-import { defined } from "#test/support/assert.ts"
 
 /**
  * The key kernel: re-checks a key proof the compiler emits, independently of the search that found it.

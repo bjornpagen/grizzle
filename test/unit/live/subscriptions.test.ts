@@ -1,3 +1,4 @@
+import { assert } from "@bjornpagen/testing/assert"
 /**
  * The live registry (packages/grizzle/src/adapter/live/subscriptions.ts) over a change source and a read of the
  * test's own: a model table of rows keyed by id, each in a group, which reads registered on the registry watch whole
@@ -33,7 +34,6 @@ import { TestClock } from "effect/testing"
 import type { ChangeSink, ChangeSource } from "#adapter/live/source.ts"
 import { makeSubscriptions } from "#adapter/live/subscriptions.ts"
 import { callError, fold, formOf, type SetEvent } from "#compiler/live/index.ts"
-import { assert } from "#test/support/assert.ts"
 import {
 	answer,
 	applied,
