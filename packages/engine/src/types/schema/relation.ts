@@ -7,6 +7,7 @@ import type {
 	Carrier,
 	ColumnFacts,
 	ConstantOrigin,
+	DeclaredName,
 	DomainOf,
 	Facts,
 	IsOneLiteral,
@@ -34,7 +35,8 @@ import type {
 
 /**
  * A relation's name as every constructor of one takes it, stored, closed or derived: one string literal, the key a
- * schema's types hold the relation under (types/schema/schema.ts Declared). A name typed `string`, a template with a
+ * schema's types hold the relation under (types/schema/schema.ts Declared), kept to the declared-name rule's characters
+ * (DeclaredName), which the builder checks again only for a JavaScript caller. A name typed `string`, a template with a
  * hole or a union of names is refused at the call that passes it, never read where a level lists the relation: there
  * every relation of the level would stand under any name, its statements over the levels below would name relations no
  * level declares, and its inputs would hold no row. The alias carries N, so a helper that passes its own name on takes
@@ -42,7 +44,7 @@ import type {
  */
 export type RelationName<N extends string> = N &
 	(IsOneLiteral<N> extends true
-		? unknown
+		? DeclaredName<N>
 		: Refusal<"a relation's name is one string literal, the key its schema's types hold it under">)
 
 /** A primary key lists each of its fields once (ir/desc.ts nonEmptyUniqueStrings). */

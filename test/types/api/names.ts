@@ -10,7 +10,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * is handed, exhausted and printed as one program the type batch checks.
  *
  * The oracle: a call is refused exactly when the type of the name it is handed is no one string literal (string, a
- * template with a hole, a union of names), at the name itself, the call's first argument: a helper that takes its
+ * template with a hole, a union of names), or is one the declared-name rule refuses (ASCII letters, digits and
+ * underscores, a letter first), at the name itself, the call's first argument: a helper that takes its
  * name as `string` and hands it on is refused inside the helper, at the constructor its name reaches, and one that
  * takes it as `RelationName<N>` is admitted, its caller's literal its N. A union of names is refused by the
  * parameter's type, `RelationName<"A" | "B">`, under which its members are compared one at a time, so its diagnostic
@@ -33,11 +34,20 @@ const constructorNames = [
 type ConstructorName = (typeof constructorNames)[number]
 
 /**
- * How a call spells the relation's name: a literal; a constant typed `string`, a union of two literals or a template
- * with a hole; a helper's parameter typed `RelationName<N>`, called with a literal (forwarded); and a helper's parameter
- * typed `string`, called with a literal (widened), the helper of the defect, whose own call reads as a literal's.
+ * How a call spells the relation's name: a literal; a literal the declared-name rule refuses (undeclarable); a
+ * constant typed `string`, a union of two literals or a template with a hole; a helper's parameter typed
+ * `RelationName<N>`, called with a literal (forwarded); and a helper's parameter typed `string`, called with a literal
+ * (widened), the helper of the defect, whose own call reads as a literal's.
  */
-const spellings = ["literal", "string", "union", "template", "forwarded", "widened"] as const
+const spellings = [
+	"literal",
+	"undeclarable",
+	"string",
+	"union",
+	"template",
+	"forwarded",
+	"widened"
+] as const
 
 type Spelling = (typeof spellings)[number]
 
@@ -80,15 +90,20 @@ export const namesBoxItems: Arr.NonEmptyReadonlyArray<NameCase> = [
 const nameRefusal: Refused =
 	"a relation's name is one string literal, the key its schema's types hold it under"
 
+const characterRefusal: Refused =
+	"a declared name: ASCII letters, digits and underscores, a letter first"
+
 /**
- * The directive over a case's name, none where its name is one literal: the refusal grizzle's type names, or, for a
- * union of names, the refusal no diagnostic prints.
+ * The directive over a case's name, none where its name is one declarable literal: the refusal grizzle's type names,
+ * or, for a union of names, the refusal no diagnostic prints.
  */
 const directiveOf = (spelling: Spelling): ReadonlyArray<string> => {
 	switch (spelling) {
 		case "literal":
 		case "forwarded":
 			return []
+		case "undeclarable":
+			return [`// @ts-expect-error -- refusal: ${characterRefusal}`]
 		case "string":
 		case "template":
 		case "widened":
@@ -110,6 +125,7 @@ const nameDeclaration = (spelling: Spelling, index: number): ReadonlyArray<strin
 		case "template":
 			return [`export declare const n${index}: \`\${string}N${index}\``]
 		case "literal":
+		case "undeclarable":
 		case "forwarded":
 		case "widened":
 			return []
@@ -121,6 +137,8 @@ const nameExpression = (spelling: Spelling, index: number): string => {
 	switch (spelling) {
 		case "literal":
 			return `"N${index}"`
+		case "undeclarable":
+			return `"n-${index}"`
 		case "string":
 		case "union":
 		case "template":
@@ -144,6 +162,7 @@ const valueLines = (c: NameCase, index: number): ReadonlyArray<string> => {
 	const value = `c${index}`
 	switch (c.spelling) {
 		case "literal":
+		case "undeclarable":
 		case "string":
 		case "union":
 		case "template":
@@ -176,6 +195,7 @@ const keptLines = (c: NameCase, index: number): ReadonlyArray<string> => {
 				`export const L${index} = schema.extend(Root, "L${index}", [Tag, c${index}], [tagged])`,
 				`export const kept${index}: InsertAllRowsOf<typeof L${index}>["Tag"] = [{ id: tagId, item: tagId }]`
 			]
+		case "undeclarable":
 		case "string":
 		case "union":
 		case "template":

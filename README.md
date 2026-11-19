@@ -146,10 +146,11 @@ Three relations, a roster of statuses, two rules and one query.
 ### Relations hold facts
 
 `relation(name, fields, primaryKey)` declares a relation, and `schema(name, relations, rules)` gathers a list of
-relations and the rules between them into one PostgreSQL schema. A relation's name is one string literal, the key the
-schema's types hold it under: `relation`, `closed` and `derived` refuse a name typed `string` at the call that passes
-it, and a helper that builds a relation takes its name as `RelationName<N>`. Each `Post` row is a fact: this post
-exists, in this organization, by this author, with this title, body and status. Three things follow:
+relations and the rules between them into one PostgreSQL schema. A relation's name is one string literal of ASCII
+letters, digits and underscores, a letter first, the key the schema's types hold it under: `relation`, `closed` and
+`derived` refuse a name typed `string`, or a literal of other characters, at the call that passes it, and a helper that
+builds a relation takes its name as `RelationName<N>`. Each `Post` row is a fact: this post exists, in this
+organization, by this author, with this title, body and status. Three things follow:
 
 - **Every field is required.** There are no nullable columns. A post that has never been viewed has no `PostViews` row,
   and one that has been viewed has exactly one: a value that may be missing is a fact that may be missing.
