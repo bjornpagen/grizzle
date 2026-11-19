@@ -185,7 +185,15 @@ export const theNamingDoorRefusesTwoDeclaredNamesOfOneNamespaceThatConvertAlikeA
 			name: "the declared-name rule's own classification"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original: "\t\tconst parsed = parsedName(name)",
+				replacement:
+					'\t\tconst parsed = parsedName(name.replace(/[^A-Za-z0-9_]/gu, "_").replace(/^[^A-Za-z]/u, "N"))',
+				why: "Ownership declares a name the declared-name rule refuses under a spelling the rule admits (core/identity.ts DeclaredNamespace.declare), so a refused relation name and a refused field name are owned; the property fails at each, the one boundary that parses them, the type reading no character of a name."
+			}
+		]
 	})
 
 /** The naming door admits distinct hashed identities, and refuses two distinct identities of one identifier as DigestCollision. Its budget is its suite's before it was a property (test/unit/core/identity.test.ts at 4ca3036a): 200 runs and 50 steered cases. */
