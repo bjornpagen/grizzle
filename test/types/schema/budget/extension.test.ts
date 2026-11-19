@@ -5,10 +5,14 @@ import { costGate } from "#test/types/batch/measured.ts"
  * relations and over one of `large`, as edullm's pantry extends its stored level of hundreds of relations with the
  * derived relations its laws read (its Qti over QtiBase).
  *
- * Properties: instantiations per derived relation listed, and per law over a derived relation, are invariant in the
- * size of the base. The extension listing twice as many derived relations, and the one stating twice as many laws, add
+ * Properties: instantiations per derived relation listed, per law over a derived relation, and per law over a base
+ * relation from none, are invariant in the size of the base. The extension listing twice as many derived relations, the
+ * one stating twice as many laws, and the one stating k laws over base relations where the other states none, add
  * exactly as many instantiations over the large base as over the small one: I(large, 2k) − I(large, k) =
- * I(small, 2k) − I(small, k). A derived relation holds its definition, a query over the base, so a test of it, or of a
+ * I(small, 2k) − I(small, k), and I(large, k) − I(large, 0) = I(small, k) − I(small, 0). The first statement naming a
+ * base relation looks the relation up in the extension's record by name, which reads the record once, so a record whose
+ * first lookup walks the base costs more over the larger one, as edullm's pantry's LOM level's first law over a
+ * relation of the levels below it did. A derived relation holds its definition, a query over the base, so a test of it, or of a
  * statement naming it, that the checker resolves instantiates the base whole, and costs more over the larger one, by
  * every relation it walks, for each relation or law the second program adds. The measured laws are each relation's
  * second: the first statement naming a relation compares it whole with the record's relation of its name (Identical),
@@ -23,7 +27,7 @@ import { extensionCost, extensionDimensionName } from "#test/types/schema/budget
 
 /** Each derived relation an extension lists, and each law over one, costs as many instantiations over the large base as over the small one. */
 export const cost = costGate(extensionDimensions, {
-	box: "every dimension of an extension: its derived relations listed, its laws over them",
+	box: "every dimension of an extension: its derived relations listed, its laws over them and over the base's relations",
 	name: extensionDimensionName,
 	measure: extensionCost,
 	oracle: { kind: "universal", name: "the compiler's own counts, compared across the two bases" },
@@ -41,6 +45,13 @@ export const cost = costGate(extensionDimensions, {
 			original: '\t? SideNames<Stated<St, "side">>',
 			replacement: "\t? St extends Key<infer S>\n\t\t? SideNames<S>\n\t\t: never",
 			why: "NamedBy reads a key's side by matching the statement (`St extends Key<infer S>`): the key holds the derived relation its side reads, and the test instantiates it whole, the base with it, for each key; the laws' cost grows with the base."
+		},
+		{
+			file: "packages/engine/src/types/schema/schema.ts",
+			original:
+				"\t\t\t: { readonly [N in keyof B | keyof L]: N extends keyof B ? B[N] : L[N & keyof L] }",
+			replacement: "\t\t\t: B & L",
+			why: "The extension's record is the intersection of the base's and the level's (RecordOver): the first lookup by name in it asks whether the intersection reduces, which instantiates it whole, every base relation with it; the first law over a base relation costs more over the larger base."
 		}
 	]
 })

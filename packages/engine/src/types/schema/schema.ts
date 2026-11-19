@@ -679,25 +679,32 @@ type ClashRefused<Relations extends ReadonlyArray<unknown>, C> = [C] extends [ne
 		}
 
 /**
- * An extension's record: the base's relations, then each relation of the level's list the base does not hold under
- * its name, so a name the level declares again, as the base declares it, is the base's relation alone.
+ * An extension's record: the base's relations, then each relation of the level's list under a name the base does not
+ * hold, so a name the level declares again, as the base declares it, is the base's relation alone (RecordOver).
  */
-export type DeclaredOver<BaseRelations, Relations extends ReadonlyArray<unknown>> = BaseRelations &
-	(KnownNames<BaseRelations> extends false
-		? Declared<Relations>
-		: DeclaredIn<NamedApart<Listed<Relations[number]>, keyof BaseRelations>>)
+export type DeclaredOver<BaseRelations, Relations extends ReadonlyArray<unknown>> = RecordOver<
+	BaseRelations,
+	Declared<Relations>
+>
 
 /**
- * Each relation of R whose name is not among Names, its name read by key: a relation whose `name` lies within Names is
- * dropped, as Exclude<R, { readonly name: Names }> drops it, and one with no name kept.
+ * The base's record B over the level's record L: one mapped type over both key sets, each name the base holds read from
+ * the base and every other from the level, so a lookup by name is one property read at each level. It is no
+ * intersection of the two: a lookup by name in a type, `Rs[N]`, on an intersection asks whether the intersection
+ * reduces, which instantiates it whole, every relation of every level below with it, a derived relation's definition and
+ * its schema among them, once for each extension's record. A record whose keys the type does not know, one with an
+ * index signature, is the intersection, since a mapped type over its keys would be one index signature, the base's names
+ * lost under it: a level makes one by listing a relation whose name is no one literal (DeclaredIn), as a schema built
+ * from data does, `relation(name, …)` with `name: string`, and an extension of a base typed AnySchema has one, as a chain
+ * of levels built in a loop does. Each record is tested apart: a tuple of both tests would be a reference the checker
+ * defers, holding both records in its mapper, and deciding it would instantiate them whole.
  */
-type NamedApart<R, Names> = R extends unknown
-	? "name" extends keyof R
-		? R["name"] extends Names
-			? never
-			: R
-		: R
-	: never
+type RecordOver<B, L> =
+	KnownNames<B> extends false
+		? B & L
+		: KnownNames<L> extends false
+			? B & L
+			: { readonly [N in keyof B | keyof L]: N extends keyof B ? B[N] : L[N & keyof L] }
 
 /**
  * S, every schema below it, and every fragment one of them lists (FragmentsOf). A query over any of them is a query

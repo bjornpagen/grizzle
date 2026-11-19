@@ -9,10 +9,12 @@ import { assertClean, type Measuring, measuredEach } from "#test/types/batch/mea
  * The extension programs (extension.test.ts), each a schema.extend over a base of `relations` relations, as edullm's
  * pantry extends its stored level with the derived relations its laws read (its Qti over QtiBase). The base holds
  * relations R0 … of three fields, a natural id and two texts of one type, Name, keyed by its package and id, under no
- * law. Beside it stand `derived` derived relations, D0 …, each the facts of its own base relation, and the extension
- * lists the first `listed` of them. Its laws are a candidate key over the `label` of the first `named` of them, the
- * first statement naming each, and then a key over the `id` of the first `laws` of them, each written as a constant of
- * its own.
+ * law but one, a candidate key over R0's `label`, as every level below pantry's LOM level states laws over its own
+ * relations. Beside it stand `derived` derived relations, D0 …, each the facts of its own base relation, and the
+ * extension lists the first `listed` of them. Its laws are a candidate key over the `label` of the first `named` of
+ * them, the first statement naming each, then a key over the `id` of the first `laws` of them, each written as a
+ * constant of its own, and then a candidate key over the `label` of each of the `based` base relations after R0, the
+ * first statement naming each, as pantry's LOM level states laws over the relations of the levels below it.
  *
  * Every derived relation and every one of those keys is passed to a generic call before the extension reads it, as a
  * program that uses one passes it to a builder: the checker resolves a derived relation's members once, and they hold
@@ -25,6 +27,7 @@ export type ExtensionShape = {
 	readonly listed: number
 	readonly named: number
 	readonly laws: number
+	readonly based: number
 }
 
 /** The derived relations the extension lists, D0 …, by name. */
@@ -34,12 +37,16 @@ const listedOf = (shape: ExtensionShape): string =>
 		", "
 	)
 
-/** The extension's laws: the keys over the first `named` labels, then the keys over the first `laws` ids. */
+/**
+ * The extension's laws: the keys over the first `named` labels, then the keys over the first `laws` ids, then the keys
+ * over the labels of the `based` base relations after R0.
+ */
 const lawsOf = (shape: ExtensionShape): string =>
 	Arr.join(
 		[
 			...Arr.map(indices(shape.named), (i) => `key(on(D${i}, "label"))`),
-			...Arr.map(indices(shape.laws), (i) => `K${i}`)
+			...Arr.map(indices(shape.laws), (i) => `K${i}`),
+			...Arr.map(indices(shape.based), (i) => `key(on(R${i + 1}, "label"))`)
 		],
 		", "
 	)
@@ -61,7 +68,7 @@ ${Arr.join(
 )}export const B = schema("B", [${Arr.join(
 			Arr.map(indices(shape.relations), (i) => `R${i}`),
 			", "
-		)}], [])
+		)}], [key(on(R0, "label"))])
 ${Arr.join(
 	Arr.map(
 		indices(shape.derived),
@@ -80,19 +87,24 @@ used(K${i})
 	)
 
 /**
- * The derived relations or laws of the first program, and the bases' sizes. The second program lists or states twice as
- * many; the small base holds twice as many relations as that, each of the derived relations over one of its own, and
- * the large one four times as many as the small, so a derived relation or a law that walks the base walks every relation
- * the large base adds, three for each of the small one's, for each relation or law the second program adds.
+ * The derived relations or laws the second program adds over the first, and the bases' sizes. The derived relations
+ * number twice as many; the small base holds twice as many relations as that, each of the derived relations over one of
+ * its own, and the large one four times as many as the small, so a derived relation or a law that walks the base walks
+ * every relation the large base adds, three for each of the small one's, for each relation or law the second program
+ * adds, and a first law over a base relation that walks the extension's record walks them once.
  */
 const added = 5
 const derivedCount = 2 * added
 const small = 2 * derivedCount
 const large = 4 * small
 
-/** What one law measures: the shape of its first program over the base of `relations`, and of its second. */
+/**
+ * What one law measures: the shape of a program over the base of `relations` writing `count` of what it measures, its
+ * first program writing `from` and its second `added` more.
+ */
 export type ExtensionDimension = Readonly<{
 	what: string
+	from: number
 	shape: (relations: number, count: number) => ExtensionShape
 }>
 
@@ -103,33 +115,50 @@ export const extensionDimensionsItems: readonly [
 ] = [
 	{
 		what: "derived relation the extension lists",
+		from: added,
 		shape: (relations, count) => ({
 			relations,
 			derived: derivedCount,
 			listed: count,
 			named: 0,
-			laws: 0
+			laws: 0,
+			based: 0
 		})
 	},
 	{
 		what: "law over a derived relation a statement already names",
+		from: added,
 		shape: (relations, count) => ({
 			relations,
 			derived: derivedCount,
 			listed: derivedCount,
 			named: derivedCount,
-			laws: count
+			laws: count,
+			based: 0
+		})
+	},
+	{
+		what: "law over a base relation, from none",
+		from: 0,
+		shape: (relations, count) => ({
+			relations,
+			derived: derivedCount,
+			listed: derivedCount,
+			named: 0,
+			laws: 0,
+			based: count
 		})
 	}
 ]
 
-/** The four programs of one dimension, in order: `added` and twice as many, over each base. */
-const extensionShapes = [
-	{ relations: small, count: added },
-	{ relations: small, count: 2 * added },
-	{ relations: large, count: added },
-	{ relations: large, count: 2 * added }
-] as const
+/** The four programs of one dimension, in order: `from` and `added` more, over each base. */
+const extensionShapes = (dimension: ExtensionDimension) =>
+	[
+		{ relations: small, count: dimension.from },
+		{ relations: small, count: dimension.from + added },
+		{ relations: large, count: dimension.from },
+		{ relations: large, count: dimension.from + added }
+	] as const
 
 /** How a dimension prints. */
 export const extensionDimensionName = (dimension: ExtensionDimension): string =>
@@ -143,7 +172,7 @@ export const extensionCost = (at: Measuring, dimension: ExtensionDimension) =>
 	Effect.gen(function* () {
 		const measured = yield* measuredEach(
 			at,
-			Arr.map(extensionShapes, (shape) => ({
+			Arr.map(extensionShapes(dimension), (shape) => ({
 				size: shape.relations,
 				source: (entries: PreludeAt) =>
 					extensionSource(dimension.shape(shape.relations, shape.count), entries)
