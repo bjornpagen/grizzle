@@ -738,7 +738,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				patternLanguage: textLookup
 			})
 		)
-		const mismatch = generatedTypeRule(declared, term.nominal)
+		const mismatch = generatedTypeRule(declared, term.nominal, patterns)
 		if (mismatch !== undefined) {
 			return generatedRefused(r, field, mismatch)
 		}

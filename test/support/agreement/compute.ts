@@ -2794,7 +2794,7 @@ interface Admitted {
 /**
  * What the engine decides that no type states, so the types admit a case the engine refuses for it: a precondition
  * compilation alone proves (a value fitting its target's range, a contract holding of a value, a text inside a
- * pattern's language or a lexical form, a value inside width_bucket's domain, a power's result inside its type's
+ * pattern's language or a lexical form, a generated field's term sharing a value with its declared text type, a value inside width_bucket's domain, a power's result inside its type's
  * range), a text function's place in a query
  * (a concatenation beside an equation, a translation of a long text, a length outside a predicate), the digits of an
  * exact decimal's text, the values of a pattern term the build must see, a match guard some text of its subject
@@ -2865,6 +2865,9 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 	}
 	if (reason._tag === "ContractLiteral") {
 		return engineDecides.literal
+	}
+	if (reason._tag === "GeneratedRefused" && reason.rule.kind === "disjoint") {
+		return engineDecides.language
 	}
 	const text =
 		reason._tag === "MalformedDescription"

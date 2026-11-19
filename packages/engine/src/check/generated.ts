@@ -1,8 +1,22 @@
 import type { GeneratedRule } from "#compiler/core/causes.ts"
 import { NodeId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type ExprDesc, exprChildren } from "#compiler/ir/desc.ts"
-import { type ScalarType, sameEnteredType, typeLabel } from "#compiler/ir/scalar.ts"
+import {
+	type Patterns,
+	type ScalarType,
+	sameEnteredType,
+	type TextInfo,
+	textInfoBounds,
+	textOf,
+	textPatterns,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
+import { bytesWithin } from "#compiler/scalar/regex/inclusion.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { analyzeText } from "#compiler/text/refinement.ts"
 
 /**
  * A generated field's rule: a STORED generated column's expression reads its own row's written fields, literals and
@@ -121,16 +135,53 @@ export const generatedRule = (
  * the two are one type but for a text's pattern and byte bound, which the column's domain enforces (scalar.ts
  * sameEnteredType). PostgreSQL coerces a generation expression into its column's type, so a text of any pattern or byte
  * bound fills a refined text's column, the domain's CHECK refusing a row whose value lies outside it, as it refuses a
- * caller's value: an outcome on the pattern's rule. Any other difference is a cast grizzle never makes implicitly: a
- * typmod rounds, and a contract, natural among them, is a type of its own.
+ * caller's value: an outcome on the pattern's rule. That holds where some value of the expression's type is one of the
+ * declared type's; where the text analysis proves none is (disjointTexts), every row's value breaks the domain and no row
+ * is ever written, so the field is refused. Any other difference is a cast grizzle never makes implicitly: a typmod
+ * rounds, and a contract, natural among them, is a type of its own.
  */
 export const generatedTypeRule = (
 	declared: ScalarType,
-	expression: ScalarType
-): GeneratedRule | undefined =>
-	sameEnteredType(declared, expression)
-		? undefined
-		: { kind: "type", declared: typeLabel(declared), expression: typeLabel(expression) }
+	expression: ScalarType,
+	patterns: PatternAutomata
+): GeneratedRule | undefined => {
+	if (!sameEnteredType(declared, expression)) {
+		return { kind: "type", declared: typeLabel(declared), expression: typeLabel(expression) }
+	}
+	const declaredText = textOf(declared)
+	const expressionText = textOf(expression)
+	return declaredText !== undefined &&
+		expressionText !== undefined &&
+		disjointTexts(declaredText, expressionText, patterns)
+		? { kind: "disjoint", declared: typeLabel(declared), expression: typeLabel(expression) }
+		: undefined
+}
+
+/**
+ * Whether the text analysis proves that no value is of both texts' types: their patterns' conjunction is the empty
+ * language (text/refinement.ts analyzeText, which refuses exactly such a conjunction within the DFA bounds), or no member
+ * of it, the empty text among them, takes at most the tighter of their byte bounds (scalar/regex/inclusion.ts
+ * bytesWithin). Past the analysis's bounds it proves nothing, and the domain's CHECK stays the judge.
+ */
+const disjointTexts = (a: TextInfo, b: TextInfo, patterns: PatternAutomata): boolean => {
+	const both: Patterns = [...textPatterns(a), ...textPatterns(b)]
+	if (!analyzeText(both, SourceLoc("a generated field's two types", [])).ok) {
+		return true
+	}
+	const bounds = [textInfoBounds(a), textInfoBounds(b)].flatMap((t) =>
+		t === undefined ? [] : [t.bytes]
+	)
+	if (!isNonEmpty(bounds)) {
+		return false
+	}
+	const [first, ...rest] = bounds
+	const octets = rest.reduce((tightest, n) => Math.min(tightest, n), first)
+	if (both.every((p) => patterns.parse(p).matcher.matches(""))) {
+		return false
+	}
+	const within = bytesWithin(both, octets, patterns)
+	return within.kind === "within" && within.bytes === 0
+}
 
 /**
  * The node a generated field's expression reads its row as: each field it reads is a column of this node, named by the

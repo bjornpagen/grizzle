@@ -484,6 +484,7 @@ export type GeneratedRule =
 			readonly input: "var" | "param" | "parent" | "value" | "absent" | "exists" | "call"
 	  }
 	| { readonly kind: "type"; readonly declared: string; readonly expression: string }
+	| { readonly kind: "disjoint"; readonly declared: string; readonly expression: string }
 
 /** What each input beyond a row is, in a generated field's refusal. */
 const rowInputWords: {
@@ -507,6 +508,8 @@ export const generatedRuleText = (rule: GeneratedRule): string => {
 			return `reads ${rowInputWords[rule.input]}; a generation expression reads its own row and closed relations only`
 		case "type":
 			return `its expression is ${rule.expression}, not its declared ${rule.declared}: a generation expression is of its column's type, but for the pattern and byte bound its column's domain checks, with no implicit cast`
+		case "disjoint":
+			return `its expression is ${rule.expression}, of which no value is its declared ${rule.declared}: its column's domain would refuse every row, so none could ever be written`
 	}
 }
 

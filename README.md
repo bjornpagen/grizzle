@@ -1852,7 +1852,7 @@ type error.
 Compiling the schema refuses a term that breaks these rules with `GeneratedRefused` (`readsGenerated`, or `notRowLocal`
 for a read beyond its row). The term has the field's type, except for a text's pattern and byte bound,
 which the field's domain checks: `generated(Ids, Compute.concat(row.head, row.tail))` fills a refined text, and a
-generated value outside the domain refuses its row, `refused` on the pattern's rule. Nothing is cast
+generated value outside the domain refuses its row, `refused` on the pattern's rule; a term whose type shares no value with the field's, `Compute.lowerAscii` of a text of capitals into a field of capitals, would refuse every row, and is `GeneratedRefused` (`disjoint`) wherever the text analysis proves it, by the two patterns together or by the tighter byte bound. Nothing is cast
 implicitly: a term of another integer width, numeric typmod or contract, `natural` included, is `GeneratedRefused`
 (`type`); write the `Compute.cast`. A term with no value at a row, such as `C.at` at a key no row holds, refuses the
 row, `refused` on `{ kind: "generated", relation, field }`, witnessed by the first row you stated whose term
