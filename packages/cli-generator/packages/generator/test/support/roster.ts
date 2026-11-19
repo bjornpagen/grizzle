@@ -17,6 +17,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/generated/content-parameters.test.ts",
 	"test/generated/methods-bodies.test.ts",
 	"test/generated/multipart-parts.test.ts",
+	"test/generated/proxy-routing.test.ts",
 	"test/generated/redirect-chains.test.ts",
 	"test/grizzle/once.test.ts",
 	"test/load/document-set.test.ts",
