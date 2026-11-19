@@ -10,8 +10,11 @@ import type { DeclarationRefused } from "#cli/renames.ts"
 import {
 	type CompileError,
 	compileReasonText,
+	formatRefusal,
 	isCompileError,
-	nominal
+	nominal,
+	type RecordedFormat,
+	recordedFormatText
 } from "#compiler/plan/common.ts"
 import {
 	maxMigrationNameLength,
@@ -64,7 +67,7 @@ export type CliStage =
 	| "environment"
 	| "filesystem"
 	| "snapshot"
-	| "manifest"
+	| "format"
 	| "codes"
 	| "generate"
 
@@ -589,6 +592,22 @@ export class SnapshotUnreadable extends Data.TaggedError("SnapshotUnreadable")<{
 }
 
 /**
+ * The snapshot.json of `schema` in `directory` records another format than this grizzle's, `expected`, or none:
+ * `recorded`, what it records (build.ts joinedSnapshot, ArtifactFormat). Nothing else of the pair is read; the
+ * installation's release converts it (core/format.ts formatRefusal).
+ */
+export class SnapshotFormat extends Data.TaggedError("SnapshotFormat")<{
+	readonly schema: string
+	readonly directory: string
+	readonly recorded: RecordedFormat
+	readonly expected: number
+}> {
+	override get message(): string {
+		return `${this.directory}: ${formatRefusal.snapshot.problem}: ${recordedFormatText(this.recorded, this.expected)}`
+	}
+}
+
+/**
  * The snapshot.json in `directory` is the snapshot of another schema: of the declared schema `found.schemaName` in the
  * PostgreSQL schema `found.schema`, not of `schema` in `ident`.
  */
@@ -781,6 +800,7 @@ type CliReason =
 	| ServedUnwritten
 	| MigrationsUnread
 	| SnapshotUnreadable
+	| SnapshotFormat
 	| SnapshotForeign
 	| ChainRefused
 	| RosterReordered
@@ -810,6 +830,7 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	ServedUnwritten: "filesystem",
 	MigrationsUnread: "filesystem",
 	SnapshotUnreadable: "snapshot",
+	SnapshotFormat: "format",
 	SnapshotForeign: "snapshot",
 	ChainRefused: "snapshot",
 	RosterReordered: "codes",

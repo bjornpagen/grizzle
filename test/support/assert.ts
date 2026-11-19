@@ -132,12 +132,12 @@ export function artifactRefusal(
 }
 
 /**
- * Where a CompileError refused in the user's description or program: its reason's location. A MalformedArtifact
- * refuses at a path inside an artifact, never at a source location, so it fails the assertion.
+ * Where a CompileError refused in the user's description or program: its reason's location. A MalformedArtifact or an
+ * ArtifactFormat refuses at a path inside an artifact, never at a source location, so it fails the assertion.
  */
 export function refusalLoc(error: CompileError, ...why: Why): SourceLoc {
 	const reason = error.reason
-	if (reason._tag === "MalformedArtifact") {
+	if (reason._tag === "MalformedArtifact" || reason._tag === "ArtifactFormat") {
 		return assertionFailed(
 			why,
 			reason,

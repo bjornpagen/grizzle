@@ -44,6 +44,12 @@ export {
 	rowText
 } from "#compiler/core/decoder.ts"
 export {
+	formatRefusal,
+	type RecordedFormat,
+	recordedFormatText,
+	servedFileFix
+} from "#compiler/core/format.ts"
+export {
 	type CodecFault,
 	CompileError,
 	compileReasonText,

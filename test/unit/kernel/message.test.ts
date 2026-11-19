@@ -83,8 +83,8 @@ export const aFailuresMessageStatesACompileErrorByItsReasonLocationAndSentenceAC
 		kills: [
 			{
 				file: "packages/engine/src/core/errors.ts",
-				original: `\t\treturn \`MalformedArtifact in the \${reason.artifact}\${reason.at.length === 0 ? "" : \` at \${formatPath(reason.at)}\`}: \${reason.what}\``,
-				replacement: `\t\treturn \`MalformedArtifact in the \${reason.artifact}\${reason.at.length === 0 ? \` at \${formatPath(reason.at)}\` : ""}: \${reason.what}\``,
+				original: `\t\treturn \`\${reason._tag} in the \${reason.artifact}\${reason.at.length === 0 ? "" : \` at \${formatPath(reason.at)}\`}: \${compileReasonText(reason)}\``,
+				replacement: `\t\treturn \`\${reason._tag} in the \${reason.artifact}\${reason.at.length === 0 ? \` at \${formatPath(reason.at)}\` : ""}: \${compileReasonText(reason)}\``,
 				why: `Operator mutant (arm-swap) at packages/engine/src/core/errors.ts:926 in compileErrorMessage: \`reason.at.length === 0 ? "" : \` at \${formatPath(reason.at)}\`\` becomes \`reason.at.length === 0 ? \` at \${formatPath(reason.at)}\` : ""\`; the property fails (lane CATCH, grizzle 0baff5d6).`
 			}
 		]

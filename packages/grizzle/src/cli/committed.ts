@@ -9,6 +9,7 @@ import {
 	type CliError,
 	cliError,
 	SnapshotForeign,
+	SnapshotFormat,
 	SnapshotUnreadable
 } from "#cli/errors.ts"
 import type { SchemaTree } from "#cli/files.ts"
@@ -27,8 +28,9 @@ export type Committed =
 /**
  * A schema's committed migration state as the command line reads it: its snapshot's two files and its folders.
  *
- * The snapshot is read by the generator's own reader, which refuses a pair of another format than this grizzle's and
- * trusts the record once its seal holds (boundary/snapshot.ts readSnapshot). A schema without them is at
+ * The snapshot is read by the generator's own reader, which refuses a pair of another format than this grizzle's
+ * (SnapshotFormat, the one refusal check, generate, migrate, drift and names read of it) and trusts the record once its
+ * seal holds (boundary/snapshot.ts readSnapshot). A schema without them is at
  * its empty snapshot, whose fingerprint depends on the installed schema identifier alone (snapshot/build.ts
  * emptySnapshot): the empty snapshot is never a file. The snapshot must be the configured schema's: its PostgreSQL
  * schema and declared name are the configuration's. It names no owner: the migration identity is whoever connects.
@@ -49,12 +51,20 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 	}
 	const read = readSnapshot(tree.snapshotFiles.value)
 	if (Result.isFailure(read)) {
+		const reason = read.failure.reason
 		return yield* cliError(
-			new SnapshotUnreadable({
-				schema: schema.declared,
-				directory: tree.directory,
-				error: read.failure
-			})
+			reason._tag === "ArtifactFormat"
+				? new SnapshotFormat({
+						schema: schema.declared,
+						directory: tree.directory,
+						recorded: reason.recorded,
+						expected: reason.expected
+					})
+				: new SnapshotUnreadable({
+						schema: schema.declared,
+						directory: tree.directory,
+						error: read.failure
+					})
 		)
 	}
 	const snapshot = read.success.snapshot

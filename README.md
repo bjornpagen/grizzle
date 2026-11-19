@@ -3716,11 +3716,12 @@ deploy.
   digest of both files, so a file edited, corrupted or merged, or one of another snapshot, is refused; `check` holds
   the record to the one the schemas compile to.
 - **Every file grizzle reads back records its format**: `snapshot.json` and each served file as their `format`
-  member, and `manifest.json`'s seal digests both snapshot files under it. A pair of another format, or of none, as a
-  grizzle before formats wrote, reads as no snapshot: `check` reports it, and `generate`, `migrate`, `drift` and
-  `names` refuse it at stage `snapshot`, writing nothing. An installation's committed snapshot moves to a new format
-  once, by the converter its release ships beside grizzle; a served file is written again by `grizzle generate`, and
-  one of another format is refused where it loads.
+  member, and `manifest.json`'s seal digests both snapshot files under it. A pair whose `snapshot.json` records another
+  format, or none, as a grizzle before formats wrote, is read no further: `check` reports it with the format it
+  records and the one this grizzle reads and writes, and `generate`, `migrate`, `drift` and `names` refuse it at stage
+  `format`, writing nothing. An installation's committed snapshot moves to a new format once, by the converter its
+  release ships beside grizzle; a served file is written again by `grizzle generate`, and an application refuses one,
+  or a `snapshot.json`, of another format where it loads it, `ArtifactFormat`.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says, and the drift check after the apply
   judges every edit by the catalog it reaches. Any text tool may read and write a drafted file back: every constant
   whose value holds a control character or a line or paragraph separator is written as an escape string (`E'\r'`, a
@@ -4251,6 +4252,7 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `Refused`                                       | the `refusal`, a rule the type errors name too, in their words                                           |
 | `MalformedDescription`                          | the rule `what` your schema or program breaks                                                            |
 | `MalformedArtifact`                             | what grizzle reads back (the snapshot, a migration folder or its meta.json, the ledger's rows) malformed at the path `at` |
+| `ArtifactFormat`                                | a committed snapshot or a served file, `artifact`, of another format than this grizzle's, `expected`: `recorded`, what its `format` member holds, `{ kind: "none" }` or `{ kind: "recorded", text }` |
 | `UnsupportedOperation`, `UnsupportedLawFamily`  | a `capability` grizzle lacks, such as a parameter's value of a pattern no stored field declares, naming the parameter and the pattern ([Limits](#limits)) |
 | `ResourceBound`                                 | its `bound`                                                                                              |
 | `OutsideRole`                                   | the `role` and the `access` it doesn't hold                                                              |

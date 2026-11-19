@@ -409,10 +409,12 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   reads each changed statement as one changed line. `manifest.json` records a PL/pgSQL function and a constant by its
   header alone, a function with the SHA-256 of its source: its whole text is in the migration file that installed it.
   `snapshot.json` and each served file record grizzle's format as their `format` member, and `manifest.json`'s seal
-  digests both snapshot files under it: a pair of another format, or of none, as a grizzle before formats wrote,
-  reads as no snapshot, which `check` reports and `generate`, `migrate`, `drift` and `names` refuse at stage
-  `snapshot`, writing nothing. Move a committed snapshot to a new format with the converter its release ships beside
-  grizzle, never by hand; `grizzle generate` writes a served file again.
+  digests both snapshot files under it. A pair whose `snapshot.json` records another format, or none, as a grizzle
+  before formats wrote, is read no further: `check` says: snapshot.json records another format than this grizzle's,
+  with the format it records and the one this grizzle reads and writes; convert the installation's committed snapshot
+  with the converter its release ships beside grizzle. `generate`, `migrate`, `drift` and `names` refuse it at stage
+  `format`, writing nothing. Never convert one by hand; `grizzle generate` writes a served file again, and an
+  application refuses a served file or a `snapshot.json` of another format where it loads it (`ArtifactFormat`).
 - `served/<login>.json`: a login's workload compiled under the snapshot beside it, which the application serves.
   `check` compiles every login again and holds each file to it byte for byte: the login's served file differs from
   what its workload compiles to under snapshot.json (an ungenerated change), naming the login and the first program
@@ -478,6 +480,7 @@ schema or workload that does not compile) are `check`'s alone.
 | unconfirmed group | keep every statement below the marker as drafted, then delete the two marker lines |
 | unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented | to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder |
 | snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema | restore them from git |
+| snapshot.json records another format than this grizzle's | convert the installation's committed snapshot with the converter its release ships beside grizzle |
 | meta.json does not decode as a migration's meta.json, or names another schema | restore it from git |
 | broken chain: this migration does not start where the previous one ends | regenerate; never hand-edit meta.json |
 | broken chain: the newest migration does not reach snapshot.json | regenerate; never hand-edit meta.json |
@@ -541,7 +544,7 @@ The command line's own refusals, by stage:
 | environment | unset the variable it names in the environment grizzle runs in, then run the command again |
 | filesystem | fix the migrations directory, then run grizzle check |
 | snapshot | restore snapshot.json, manifest.json and the migration folders from git |
-| manifest | run grizzle generate, which writes manifest.json again and drafts no migration where nothing else changed |
+| format | convert the installation's committed snapshot with the converter its release ships beside grizzle |
 | codes | append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing |
 | generate | fix the schema or workload it names, then run grizzle generate again |
 

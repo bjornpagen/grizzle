@@ -5,24 +5,33 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { decode, everyProperty, type Json, noRevivers } from "#compiler/core/canonical.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
-import { formatKey } from "#compiler/core/format.ts"
+import { formatKey, type RecordedFormat } from "#compiler/core/format.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { joinedSnapshot, snapshotSeal } from "#compiler/deploy/snapshot/build.ts"
 import { succeeded } from "#test/support/assert.ts"
 
 /**
  * What a case commits beside the first draft's other file: a snapshot.json that records no format, as every grizzle
- * before formats wrote; a manifest.json sealed under the domain those grizzles sealed in (`manifest`); a record sealed
- * again over an edit no draft reads, so it reads but is not the record the schemas compile to; or that edit under the
- * draft's seal, a hand edit.
+ * before formats wrote, or that records format 0 or format 2 against this grizzle's 1; a manifest.json sealed under the
+ * domain those grizzles sealed in (`manifest`); a record sealed again over an edit no draft reads, so it reads but is
+ * not the record the schemas compile to; or that edit under the draft's seal, a hand edit.
  */
 const commits = [
-	"an earlier format",
+	"format none",
+	"format 0",
+	"format 2",
 	"an earlier format's seal",
 	"a record not the compile's",
 	"a hand edit"
 ] as const
 export type Commit = (typeof commits)[number]
+
+/** The commits of a snapshot.json of another format than this grizzle's, each with the format it records. */
+export const formatCommits = {
+	"format none": { kind: "none" },
+	"format 0": { kind: "recorded", text: "0" },
+	"format 2": { kind: "recorded", text: "2" }
+} as const satisfies { readonly [C in Commit]?: RecordedFormat }
 
 /** Every case: each commit once. */
 export const commitSpace = finite((source): Commit => source.draw(element(commits)))
@@ -35,10 +44,12 @@ const recordOf = (text: string): { readonly [key: string]: Json } =>
 const manifestOf = (members: { readonly [key: string]: Json }): { readonly [key: string]: Json } =>
 	recordOf(jsonText(defined(members["manifest"], "manifest.json's manifest")))
 
-/** snapshot.json as a grizzle before formats wrote it: the draft's members, its format left out. */
-export const unformatted = (snapshot: string): string => {
+/** snapshot.json recording `recorded` as its format: the draft's members, its format left out or that value. */
+export const formatted = (snapshot: string, recorded: RecordedFormat): string => {
 	const { [formatKey]: _format, ...members } = recordOf(snapshot)
-	return jsonText(members)
+	return recorded.kind === "none"
+		? jsonText(members)
+		: jsonText({ ...members, [formatKey]: trustedJson<Json>(recorded.text) })
 }
 
 /** The pair joined: the content both files hold, which a seal digests. */

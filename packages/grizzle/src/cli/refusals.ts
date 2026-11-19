@@ -1,5 +1,6 @@
 import type { MigrateStage } from "#adapter/migrate/errors.ts"
 import type { CliStage } from "#cli/errors.ts"
+import { formatRefusal, servedFileFix } from "#compiler/plan/common.ts"
 
 interface Refusal {
 	readonly problem: string
@@ -46,7 +47,7 @@ export const refusalText = {
 	servedStale: {
 		problem:
 			"the login's served file differs from what its workload compiles to under snapshot.json (an ungenerated change)",
-		fix: "run grizzle generate, which writes the served file again"
+		fix: servedFileFix
 	},
 	servedMissing: {
 		problem: "the login has no served file beside snapshot.json (an ungenerated change)",
@@ -106,6 +107,7 @@ export const refusalText = {
 			"snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema",
 		fix: "restore them from git"
 	},
+	snapshotFormat: formatRefusal.snapshot,
 	unreadableMeta: {
 		problem: "meta.json does not decode as a migration's meta.json, or names another schema",
 		fix: "restore it from git"
@@ -174,8 +176,7 @@ export const cliStageFix: Readonly<Record<CliStage, string>> = {
 		"unset the variable it names in the environment grizzle runs in, then run the command again",
 	filesystem: "fix the migrations directory, then run grizzle check",
 	snapshot: "restore snapshot.json, manifest.json and the migration folders from git",
-	manifest:
-		"run grizzle generate, which writes manifest.json again and drafts no migration where nothing else changed",
+	format: formatRefusal.snapshot.fix,
 	codes: appendHandles,
 	generate: "fix the schema or workload it names, then run grizzle generate again"
 }

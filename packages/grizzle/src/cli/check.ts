@@ -30,7 +30,12 @@ import {
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { refusalText } from "#cli/refusals.ts"
 import { namedText, noDeclarations } from "#cli/renames.ts"
-import { compileReasonText, looksLikeLiteralPack } from "#compiler/plan/common.ts"
+import {
+	compileReasonText,
+	looksLikeLiteralPack,
+	type RecordedFormat,
+	recordedFormatText
+} from "#compiler/plan/common.ts"
 import {
 	accessDrift,
 	accessDriftText,
@@ -52,16 +57,25 @@ import {
 	snapshotFileName
 } from "#compiler/plan/serve.ts"
 
-/** A refusal a finding is of: any of the refusal table's but an edited literal pack's, which carries its own facts. */
-type PlainKind = Exclude<keyof typeof refusalText, "literalPack">
+/**
+ * A refusal a finding is of: any of the refusal table's but an edited literal pack's and a snapshot of another format's,
+ * which carry their own facts.
+ */
+type PlainKind = Exclude<keyof typeof refusalText, "literalPack" | "snapshotFormat">
 
 /**
- * What a finding is: a refusal of the table, or an edited literal pack, with the statement of its file that states it,
- * counted from 1, and its fault (physical/ddl/literal.ts PackFault).
+ * What a finding is: a refusal of the table; an edited literal pack, with the statement of its file that states it,
+ * counted from 1, and its fault (physical/ddl/literal.ts PackFault); or a snapshot.json of another format than this
+ * grizzle's, with what it records and the format this grizzle reads (errors.ts SnapshotFormat).
  */
 type FindingOf =
 	| { readonly kind: PlainKind }
 	| { readonly kind: "literalPack"; readonly statement: number; readonly fault: PackFault }
+	| {
+			readonly kind: "snapshotFormat"
+			readonly recorded: RecordedFormat
+			readonly expected: number
+	  }
 
 /**
  * One finding: what it is, where, and its fix; `problem` is its text, rendered from what it is, which check prints and
@@ -200,7 +214,20 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	const sources = Arr.map(tree.folders, folderSource)
 	const committed = yield* Effect.result(committedSnapshot(schema, tree))
 	if (Result.isFailure(committed)) {
-		at("unreadableSnapshot", path(snapshotFileName), refusalText.unreadableSnapshot.problem)
+		const reason = committed.failure.reason
+		if (reason._tag === "SnapshotFormat") {
+			findings.push({
+				schema: schema.declared,
+				kind: "snapshotFormat",
+				recorded: reason.recorded,
+				expected: reason.expected,
+				where: path(snapshotFileName),
+				problem: `${refusalText.snapshotFormat.problem}: ${recordedFormatText(reason.recorded, reason.expected)}`,
+				fix: refusalText.snapshotFormat.fix
+			})
+		} else {
+			at("unreadableSnapshot", path(snapshotFileName), refusalText.unreadableSnapshot.problem)
+		}
 	}
 	const recorded = Result.getSuccess(committed)
 

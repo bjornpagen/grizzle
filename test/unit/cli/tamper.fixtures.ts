@@ -253,6 +253,7 @@ const namedOf = (reason: CliError["reason"]): Named => {
 		case "ServedUnwritten":
 		case "MigrationsUnread":
 		case "SnapshotUnreadable":
+		case "SnapshotFormat":
 		case "RosterReordered":
 		case "DraftRefused":
 		case "ServedRefused":

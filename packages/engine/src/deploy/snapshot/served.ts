@@ -1,7 +1,12 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { fromJson, noRevivers, type Path } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedArtifact, within } from "#compiler/core/errors.ts"
-import { artifactFormat, formatKey, isArtifactFormat } from "#compiler/core/format.ts"
+import {
+	type CompileError,
+	formatRefused,
+	malformedArtifact,
+	within
+} from "#compiler/core/errors.ts"
+import { formatKey, isArtifactFormat } from "#compiler/core/format.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -119,14 +124,11 @@ export const servedSnapshot = (
 	json: unknown,
 	level: number
 ): Result.Result<ServedSnapshot, CompileError> => {
-	if (!isRecord(json) || !isArtifactFormat(json[formatKey])) {
-		return Result.err(
-			malformedArtifact(
-				"snapshot",
-				[formatKey],
-				`a snapshot.json of grizzle's format ${artifactFormat}, which this grizzle writes: run grizzle generate`
-			)
-		)
+	if (!isRecord(json)) {
+		return Result.err(malformedArtifact("snapshot", [], "a snapshot.json's JSON form, a record"))
+	}
+	if (!isArtifactFormat(json[formatKey])) {
+		return Result.err(formatRefused("snapshot", json[formatKey]))
 	}
 	const served = trusted<ServedJson>(json)
 	const derived = servedDerived(served.derived)

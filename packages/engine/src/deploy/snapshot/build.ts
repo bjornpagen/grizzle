@@ -16,7 +16,12 @@ import {
 	toJson,
 	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
+import {
+	type CompileError,
+	formatRefused,
+	malformedArtifact,
+	unsupported
+} from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
 import { artifactFormat, formatKey, isArtifactFormat } from "#compiler/core/format.ts"
 import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/identity.ts"
@@ -1565,13 +1570,7 @@ export const joinedSnapshot = (
 	}
 	const { [formatKey]: format, rosters, derived, ...served } = runtime
 	if (!isArtifactFormat(format)) {
-		return Result.err(
-			unjoined(
-				snapshotFileName,
-				[formatKey],
-				`of grizzle's format ${artifactFormat}, which this grizzle writes; this one is of ${format === undefined ? "an earlier grizzle's, which records none" : `format ${JSON.stringify(format)}`}: convert the installation's snapshot with its release's converter`
-			)
-		)
+		return Result.err(formatRefused("snapshot", format))
 	}
 	const theory = migration["theory"]
 	const relations = isRecord(theory) ? theory["relations"] : undefined

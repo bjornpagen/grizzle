@@ -21,6 +21,7 @@ import {
 import { served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
+import { artifactFormat, type RecordedFormat } from "#compiler/core/format.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -204,6 +205,24 @@ const unreadAt = (
 	return refusal.at
 }
 
+/**
+ * The format a served file's refusal names, as servedFile refuses a file of another format than this grizzle's: the
+ * format it records against this grizzle's (ArtifactFormat), at its format member; the case fails for any other refusal.
+ */
+const formatRefusalOf = (
+	json: unknown,
+	what: string,
+	printed: () => string
+): Readonly<{ at: ReadonlyArray<string | number>; recorded: RecordedFormat; expected: number }> => {
+	const reason = failed(servedFile(json), `${what} does not read back\n${printed()}`).reason
+	if (reason._tag !== "ArtifactFormat" || reason.artifact !== "served") {
+		return assert.fail(
+			`${what} is refused as a served file of another format, not ${reason._tag}\n${printed()}`
+		)
+	}
+	return { at: reason.at, recorded: reason.recorded, expected: reason.expected }
+}
+
 /** Whether a served value holds a Map at some depth: a value a load rebuilds, not one it reads as it is. */
 const holdsMap = (value: unknown): boolean => {
 	const pending: Array<unknown> = [value]
@@ -309,18 +328,18 @@ const readsBackWhole = (dir: ScratchDir, file: ServedFile, pick: number, printed
 		)
 		const table = isRecord(json) ? json["shared"] : undefined
 		assert.deepEqual(
-			unreadAt(without(json, ["format"]), "the file without its format", printed),
-			["format"],
-			`the file without its format, as a grizzle before formats wrote it, is refused at its format\n${printed()}`
+			formatRefusalOf(without(json, ["format"]), "the file without its format", printed),
+			{ at: ["format"], recorded: { kind: "none" }, expected: artifactFormat },
+			`the file without its format, as a grizzle before formats wrote it, is refused at its format, recording none\n${printed()}`
 		)
 		assert.deepEqual(
-			unreadAt(
+			formatRefusalOf(
 				isRecord(json) ? { ...json, format: 0 } : json,
 				"the file of another format",
 				printed
 			),
-			["format"],
-			`the file of another format is refused at its format\n${printed()}`
+			{ at: ["format"], recorded: { kind: "recorded", text: "0" }, expected: artifactFormat },
+			`the file of another format is refused at its format, recording it\n${printed()}`
 		)
 		assert.deepEqual(
 			unreadAt(without(json, ["shared"]), "the file without its table", printed),

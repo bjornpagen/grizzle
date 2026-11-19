@@ -866,6 +866,7 @@ const reasonKey = (reason: CompileReason): string => {
 			return `${reason._tag}:${reason.refusal}`
 		case "MalformedDescription":
 		case "MalformedArtifact":
+		case "ArtifactFormat":
 		case "UnsupportedOperation":
 		case "UndeclaredDrop":
 		case "UnsupportedLawFamily":

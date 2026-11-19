@@ -30,6 +30,15 @@ import {
 	type UnwritableCause,
 	unwritableRelationText
 } from "#compiler/core/causes.ts"
+import {
+	artifactFormat,
+	type FormattedFile,
+	formatKey,
+	formatRefusal,
+	type RecordedFormat,
+	recordedFormat,
+	recordedFormatText
+} from "#compiler/core/format.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath, prefixedLoc, sitedLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -391,13 +400,16 @@ const duplicateText = (duplicate: Duplicate): string => {
 
 /**
  * Why a compilation refused, as plain data: each variant carries where it refused (`at`, a location in the user's
- * description or program; a path inside the artifact for MalformedArtifact) and exactly the facts it states, and
- * renders its own sentence (compileReasonText).
+ * description or program; a path inside the artifact for MalformedArtifact and ArtifactFormat) and exactly the facts it
+ * states, and renders its own sentence (compileReasonText).
  *
  * - `Refused`: the user's schema or program value breaks a rule the types name too, `refusal`, the message of the one
  *   vocabulary (core/refusals.ts) the type's Refusal names, verbatim; `at` locates what it names.
  * - `MalformedDescription`: the user's schema or program value is malformed: `what` is the rule it breaks.
  * - `MalformedArtifact`: what grizzle reads back (Artifact) is malformed at `at`: `what` is the rule it breaks.
+ * - `ArtifactFormat`: a file grizzle reads back, a committed snapshot or a served file (core/format.ts FormattedFile),
+ *   records another format than this grizzle's, `expected`, or none: `recorded`, what it records, refused at its
+ *   format member before anything else of it is read, its fix the file's own (core/format.ts formatRefusal).
  * - `UnsupportedOperation`: a capability the compiler does not have, `capability`. A new diagnostic for a missing
  *   capability is one; no variant is added for it.
  * - `UnsupportedLawFamily`: a law of a family the compiler does not lower, `capability`.
@@ -499,6 +511,13 @@ export type CompileReason =
 			readonly artifact: Artifact
 			readonly at: Path
 			readonly what: string
+	  }
+	| {
+			readonly _tag: "ArtifactFormat"
+			readonly artifact: FormattedFile
+			readonly at: Path
+			readonly recorded: RecordedFormat
+			readonly expected: number
 	  }
 	| { readonly _tag: "UnsupportedOperation"; readonly at: SourceLoc; readonly capability: string }
 	| { readonly _tag: "UndeclaredDrop"; readonly at: SourceLoc; readonly dropped: Dropped }
@@ -952,6 +971,10 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "MalformedDescription":
 		case "MalformedArtifact":
 			return reason.what
+		case "ArtifactFormat": {
+			const { problem, fix } = formatRefusal[reason.artifact]
+			return `${problem}: ${recordedFormatText(reason.recorded, reason.expected)}: ${fix}`
+		}
 		case "UnsupportedOperation":
 		case "UnsupportedLawFamily":
 		case "MissingDiscriminant":
@@ -1033,10 +1056,20 @@ export const compileReasonText = (reason: CompileReason): string => {
 	}
 }
 
+/** A refusal of a file grizzle reads back, located by a path inside the file, never by a source location. */
+type ArtifactReason = Extract<
+	CompileReason,
+	{ readonly _tag: "MalformedArtifact" | "ArtifactFormat" }
+>
+
+/** The one site of the fact "this reason is located inside an artifact": its tag is an artifact's refusal. */
+const isArtifactReason = (reason: CompileReason): reason is ArtifactReason =>
+	reason._tag === "MalformedArtifact" || reason._tag === "ArtifactFormat"
+
 /** The text a CompileError prints: its reason's tag, where it refused and its sentence, and a collision's other location. */
 const compileErrorMessage = (reason: CompileReason): string => {
-	if (reason._tag === "MalformedArtifact") {
-		return `MalformedArtifact in the ${reason.artifact}${reason.at.length === 0 ? "" : ` at ${formatPath(reason.at)}`}: ${reason.what}`
+	if (isArtifactReason(reason)) {
+		return `${reason._tag} in the ${reason.artifact}${reason.at.length === 0 ? "" : ` at ${formatPath(reason.at)}`}: ${compileReasonText(reason)}`
 	}
 	const text = `${reason._tag} at ${formatLoc(reason.at)}: ${compileReasonText(reason)}`
 	return reason._tag === "IdentifierCollision"
@@ -1078,7 +1111,7 @@ export class CompileError extends Error {
 
 /** The same reason found inside the value at `path`: its location's path prefixed by `path`. */
 const relocated = (reason: CompileReason, path: Path): CompileReason =>
-	reason._tag === "MalformedArtifact"
+	isArtifactReason(reason)
 		? { ...reason, at: [...path, ...reason.at] }
 		: { ...reason, at: prefixedLoc(path, reason.at) }
 
@@ -1103,6 +1136,19 @@ export const malformedDescription = (at: SourceLoc, what: string): CompileError 
 /** What grizzle reads back, `artifact`, malformed at the path `at`: `what` is the rule it breaks. */
 export const malformedArtifact = (artifact: Artifact, at: Path, what: string): CompileError =>
 	new CompileError({ _tag: "MalformedArtifact", artifact, at, what })
+
+/**
+ * A file grizzle reads back, `file`, refused for the format its format member records, `value` as read (undefined
+ * where it records none): ArtifactFormat at that member.
+ */
+export const formatRefused = (file: FormattedFile, value: unknown): CompileError =>
+	new CompileError({
+		_tag: "ArtifactFormat",
+		artifact: file,
+		at: [formatKey],
+		recorded: recordedFormat(value),
+		expected: artifactFormat
+	})
 
 /** A capability the compiler does not have, refused at `at`. */
 export const unsupported = (at: SourceLoc, capability: string): CompileError =>
@@ -1130,7 +1176,7 @@ export const derivedRefused = (at: SourceLoc, cause: DerivedRefusal): CompileErr
  */
 export const reportedAt = (e: CompileError, at: SourceLoc): CompileError => {
 	const reason = e.reason
-	return reason._tag === "MalformedArtifact" ? e : new CompileError({ ...reason, at })
+	return isArtifactReason(reason) ? e : new CompileError({ ...reason, at })
 }
 
 /** Whether `value` is a CompileError, told by its tag. */

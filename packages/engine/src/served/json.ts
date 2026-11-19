@@ -14,7 +14,12 @@ import {
 	type TaggedValue,
 	writeCanonicalJson
 } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
+import {
+	type CompileError,
+	formatRefused,
+	malformedArtifact,
+	unsupported
+} from "#compiler/core/errors.ts"
 import type { RosterDigest } from "#compiler/core/fingerprint.ts"
 import { artifactFormat, formatKey, isArtifactFormat } from "#compiler/core/format.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
@@ -768,13 +773,7 @@ export const servedFile = (json: unknown): Result.Result<ServedFile, CompileErro
 	}
 	const { [formatKey]: format, [sharedKey]: shared, [rostersKey]: rosters, ...members } = json
 	if (!isArtifactFormat(format)) {
-		return Result.err(
-			malformedArtifact(
-				"served",
-				[formatKey],
-				`a served file of grizzle's format ${artifactFormat}, which this grizzle writes: run grizzle generate`
-			)
-		)
+		return Result.err(formatRefused("served", format))
 	}
 	if (!isList(shared)) {
 		return Result.err(

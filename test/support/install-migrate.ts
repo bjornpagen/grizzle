@@ -1183,6 +1183,7 @@ const compilerRefusal = (refusal: CliError): Option.Option<CompileError> => {
 		case "ServedUnwritten":
 		case "MigrationsUnread":
 		case "SnapshotUnreadable":
+		case "SnapshotFormat":
 		case "SnapshotForeign":
 		case "ChainRefused":
 		case "RosterReordered":
