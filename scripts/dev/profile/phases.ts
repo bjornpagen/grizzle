@@ -6,6 +6,7 @@ import type * as Result from "#compiler/core/result.ts"
 import { initMigrationName } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { workloadRequests, withWorkload } from "#compiler/physical/access/extension.ts"
@@ -287,7 +288,8 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 								world: { kind: "reality" },
 								laws: artifacts.laws,
 								derived: artifacts.derived,
-								level: "serializable"
+								level: "serializable",
+								clock: noClock
 							}
 						)
 					)

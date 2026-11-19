@@ -2,6 +2,7 @@
 
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Stream } from "effect"
+import { noClock } from "#compiler/ir/clock.ts"
 import { descText } from "#compiler/ir/desc.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -216,7 +217,8 @@ const roleWorld = Object.freeze(
 				world: writeWorldOf(world, artifacts.laws),
 				laws: artifacts.laws,
 				derived: artifacts.derived,
-				level: "serializable" as const
+				level: "serializable" as const,
+				clock: noClock
 			}
 		}
 	})()

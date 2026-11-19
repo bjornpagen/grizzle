@@ -3,6 +3,7 @@
 import { array, type Gen, int, parents } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { identity } from "#compiler/core/identity.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import {
@@ -83,7 +84,8 @@ export const nestedCompiled = (value: unknown): CompiledWrite =>
 			world: { kind: "reality" },
 			laws: artifacts.laws,
 			derived: artifacts.derived,
-			level: "serializable"
+			level: "serializable",
+			clock: noClock
 		})
 	)
 

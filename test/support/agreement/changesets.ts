@@ -8,6 +8,7 @@ import { readParams } from "#adapter/reader/params.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { CompileError, type CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { isSequence } from "#compiler/ir/family.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contractOf } from "#compiler/ir/scalar.ts"
@@ -2517,7 +2518,8 @@ const roleWorldOf = (name: RoleName) => {
 			world: writeWorldOf(world, artifacts.value.laws),
 			laws: artifacts.value.laws,
 			derived: artifacts.value.derived,
-			level: "serializable" as const
+			level: "serializable" as const,
+			clock: noClock
 		}
 	}
 }

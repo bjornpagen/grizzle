@@ -6,6 +6,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
@@ -535,7 +536,8 @@ export const guards = (spec: FillSpec, note: (situation: FillSituation) => void)
 						world: writeWorldOf(world, roleArtifacts.laws),
 						laws: roleArtifacts.laws,
 						derived: roleArtifacts.derived,
-						level: "serializable"
+						level: "serializable",
+						clock: noClock
 					})
 				)
 				const label = `a ${op} of ${written} under a role leaving out ${left}`

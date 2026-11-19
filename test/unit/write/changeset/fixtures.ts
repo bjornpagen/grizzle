@@ -1,4 +1,5 @@
 import { pipe, String as Str } from "effect"
+import { noClock } from "#compiler/ir/clock.ts"
 import { type Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
@@ -55,7 +56,8 @@ const frontendOptions = (schemaValue: FixtureSchema): FrontendOptions => {
 		laws: artifacts.laws,
 		derived: artifacts.derived,
 		world: { kind: "reality" },
-		codes: artifacts.names.codes
+		codes: artifacts.names.codes,
+		clock: noClock
 	}
 }
 

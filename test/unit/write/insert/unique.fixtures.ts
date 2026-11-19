@@ -4,6 +4,7 @@ import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
@@ -41,7 +42,8 @@ const program = (changes: unknown): CompiledWrite =>
 			world: { kind: "reality" },
 			laws: artifacts.laws,
 			derived: artifacts.derived,
-			level: "serializable"
+			level: "serializable",
+			clock: noClock
 		})
 	)
 

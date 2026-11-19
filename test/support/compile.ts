@@ -388,7 +388,8 @@ export const realityWrite = (artifacts: SchemaArtifacts): CompileWriteOptions =>
 	world: { kind: "reality" },
 	laws: artifacts.laws,
 	derived: artifacts.derived,
-	level: "serializable"
+	level: "serializable",
+	clock: noClock
 })
 
 /**

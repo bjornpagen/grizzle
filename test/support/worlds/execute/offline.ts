@@ -3,6 +3,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { type BindResult, bindWrite } from "#compiler/runtime/write/bind.ts"
 import { memberFactsOf } from "#compiler/runtime/write/members.ts"
@@ -42,7 +43,8 @@ export const offlineCompile = (
 		world: writeWorldOf(world, artifacts.laws),
 		laws: artifacts.laws,
 		derived: artifacts.derived,
-		level: "serializable"
+		level: "serializable",
+		clock: noClock
 	})
 }
 

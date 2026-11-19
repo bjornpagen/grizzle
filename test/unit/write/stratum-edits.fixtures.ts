@@ -56,7 +56,8 @@ const frontendOptions: FrontendOptions = {
 	laws: reality.laws,
 	derived: reality.derived,
 	world: reality.world,
-	codes: artifacts.names.codes
+	codes: artifacts.names.codes,
+	clock: reality.clock
 }
 
 const memberOps = ["insert", "delete", "put"] as const

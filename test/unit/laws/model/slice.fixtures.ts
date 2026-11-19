@@ -1047,7 +1047,8 @@ export const compiledChange = (
 					world: writeWorldOf(world, artifacts.laws),
 					laws: artifacts.laws,
 					derived: artifacts.derived,
-					level: "serializable"
+					level: "serializable",
+					clock: noClock
 				}
 			)
 		}

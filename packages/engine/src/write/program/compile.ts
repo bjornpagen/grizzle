@@ -8,7 +8,7 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
-import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
+import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
@@ -110,7 +110,7 @@ import {
 import { memberFamilies, type RowLayout, rowLayout } from "#compiler/write/family/statements.ts"
 import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
-	compileClockedChangeSet,
+	compileChangeSet,
 	type EditSlot,
 	type EnumeratedInput,
 	type MemberSlot,
@@ -208,6 +208,9 @@ export interface CompileWriteOptions {
 	/** The isolation the write runs at, which decides how its inserts meet stored rows (insert/protocol.ts
 	 * Arbitration): a role's level, SERIALIZABLE wherever none is proved. */
 	readonly level: Isolation
+	/** Each parameter bound to the database's clock (write/frontend/compile.ts FrontendOptions `clock`), whose statements
+	 * print it as the reading itself. */
+	readonly clock: ClockBinding
 }
 
 export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
@@ -1608,22 +1611,17 @@ const checkReads = (step: Extract<PlanStep, { readonly kind: "check" }>): Readon
 const compile = (
 	schema: CheckedSchema,
 	desc: ChangeSetDesc,
-	options: CompileWriteOptions,
-	clock: ClockBinding
+	options: CompileWriteOptions
 ): CompiledWrite => {
 	const frontend = unwrap(
-		compileClockedChangeSet(
-			schema,
-			desc,
-			{
-				claims: options.claims,
-				laws: options.laws,
-				derived: options.derived,
-				world: options.world,
-				codes: options.names.codes
-			},
-			clock
-		)
+		compileChangeSet(schema, desc, {
+			claims: options.claims,
+			laws: options.laws,
+			derived: options.derived,
+			world: options.world,
+			codes: options.names.codes,
+			clock: options.clock
+		})
 	)
 	const chosen = choosePutTargets(frontend)
 	/** The optimized artifact lowers the restated write DAG (`WriteFrontend.restated`), its actions and read-backs each
@@ -1719,17 +1717,4 @@ export const compileWrite = (
 	schema: CheckedSchema,
 	desc: ChangeSetDesc,
 	options: CompileWriteOptions
-): Result.Result<CompiledWrite, CompileError> => compileClockedWrite(schema, desc, options, noClock)
-
-/**
- * The WriteProgram of `desc` as compileWrite compiles it, each parameter `clock` names bound to the database's clock
- * (check/clock.ts clockParams): the ChangeSet a clocked member serves, whose statements print each such parameter as the
- * reading itself.
- */
-export const compileClockedWrite = (
-	schema: CheckedSchema,
-	desc: ChangeSetDesc,
-	options: CompileWriteOptions,
-	clock: ClockBinding
-): Result.Result<CompiledWrite, CompileError> =>
-	catchRefusal(() => compile(schema, desc, options, clock))
+): Result.Result<CompiledWrite, CompileError> => catchRefusal(() => compile(schema, desc, options))

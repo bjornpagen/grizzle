@@ -2,6 +2,7 @@ import { Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
@@ -148,14 +149,19 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 				derived: artifacts.derived
 			}
 			return Result.flatMap(
-				compileChangeSet(checking(s), desc, { ...over, codes: artifacts.names.codes }),
+				compileChangeSet(checking(s), desc, {
+					...over,
+					codes: artifacts.names.codes,
+					clock: noClock
+				}),
 				(frontend) =>
 					Result.flatMap(names(frontend.params), (installed) =>
 						compileWrite(checking(s), desc, {
 							...over,
 							names: installed,
 							reads: installed,
-							level: "serializable"
+							level: "serializable",
+							clock: noClock
 						})
 					)
 			)

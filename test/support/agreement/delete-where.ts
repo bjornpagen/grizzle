@@ -1,5 +1,6 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Money, pg } from "#compiler/public/fields.ts"
@@ -436,7 +437,8 @@ const worlds = (() => {
 				world: writeWorldOf(world, wherer.laws),
 				laws: wherer.laws,
 				derived: wherer.derived,
-				level: "serializable" as const
+				level: "serializable" as const,
+				clock: noClock
 			}
 		}
 	}

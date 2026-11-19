@@ -4,6 +4,7 @@ import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { NamedSide, ReadBackCrossing } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -313,7 +314,8 @@ export const compiledSketch = (s: Sketch, subjects: Subjects) => {
 		world: { kind: "reality" },
 		laws: at.artifacts.laws,
 		derived: at.artifacts.derived,
-		level: "serializable"
+		level: "serializable",
+		clock: noClock
 	})
 }
 

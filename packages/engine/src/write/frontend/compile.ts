@@ -19,7 +19,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
-import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
+import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import {
@@ -145,6 +145,9 @@ export interface FrontendOptions {
 	readonly world: WriteWorld
 	/** The installation's codes, which every member's normalizer admits a closed id's and a set's values by. */
 	readonly codes: Codebook
+	/** Each parameter bound to the database's clock (check/clock.ts clockParams), the binding of the clocked member the
+	 * ChangeSet serves; none for every other ChangeSet (ir/clock.ts noClock). */
+	readonly clock: ClockBinding
 }
 
 /** The classes an insertion into a target's facts fall in, each with what it carries, decided once per target where
@@ -922,20 +925,7 @@ export const compileChangeSet = (
 	checked: CheckedSchema,
 	desc: ChangeSetDesc,
 	options: FrontendOptions
-): Result.Result<WriteFrontend, CompileError> =>
-	compileClockedChangeSet(checked, desc, options, noClock)
-
-/**
- * The write front end of `desc` as compileChangeSet compiles it, each parameter `clock` names bound to the database's
- * clock (check/clock.ts clockParams): the ChangeSet a clocked member serves.
- */
-export const compileClockedChangeSet = (
-	checked: CheckedSchema,
-	desc: ChangeSetDesc,
-	options: FrontendOptions,
-	clock: ClockBinding
-): Result.Result<WriteFrontend, CompileError> =>
-	catchRefusal(() => compile(checked, desc, options, clock))
+): Result.Result<WriteFrontend, CompileError> => catchRefusal(() => compile(checked, desc, options))
 
 /** A write into a query entry is judged against the entry's filter at its own statement, in the middle of its stratum
  * (, and the role's row security), so a stratum that also writes a relation the filter reads
@@ -946,11 +936,10 @@ export const compileClockedChangeSet = (
 const compile = (
 	checked: CheckedSchema,
 	desc: ChangeSetDesc,
-	options: FrontendOptions,
-	clock: ClockBinding
+	options: FrontendOptions
 ): WriteFrontend => {
 	const at = SourceLoc("ChangeSet", [])
-	const { laws, derived, codes } = options
+	const { laws, derived, codes, clock } = options
 	const views = derivedKeyConstraints(derived)
 	/** The base every written relation is an ordinary relation of: reality's own, or the role's base. */
 	const base = checked.definitions()

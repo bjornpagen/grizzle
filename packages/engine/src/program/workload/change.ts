@@ -26,7 +26,7 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import { fillContexts } from "#compiler/write/frontend/entry.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
-import { type CompiledWrite, compileClockedWrite } from "#compiler/write/program/compile.ts"
+import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 
 /**
  * A ChangeSet compiled for a role: its write program as it compiled, the value parsed whole, the parameters its member
@@ -85,7 +85,7 @@ export const parsedChange = (
 /**
  * A parsed ChangeSet compiled against `artifacts`, a role's or reality's, for the contexts `claims` holds a fact of, to
  * run at `level`, each parameter `clock` names bound to the database's clock (write/program/compile.ts
- * compileClockedWrite).
+ * CompileWriteOptions `clock`).
  */
 export const compileParsed = <S extends ParamSource>(
 	artifacts: SchemaArtifacts<S>,
@@ -96,20 +96,16 @@ export const compileParsed = <S extends ParamSource>(
 ): Result.Result<ChangeEntry<S>, CompileError> => {
 	const world = artifacts.world
 	return Result.map(
-		compileClockedWrite(
-			world.kind === "role" ? world.checked : artifacts.derived.schema,
-			change.desc,
-			{
-				names: artifacts.names,
-				reads: artifacts.reads,
-				claims: { kind: "facts", present: claims },
-				world: writeWorldOf(world, artifacts.laws),
-				laws: artifacts.laws,
-				derived: artifacts.derived,
-				level
-			},
+		compileWrite(world.kind === "role" ? world.checked : artifacts.derived.schema, change.desc, {
+			names: artifacts.names,
+			reads: artifacts.reads,
+			claims: { kind: "facts", present: claims },
+			world: writeWorldOf(world, artifacts.laws),
+			laws: artifacts.laws,
+			derived: artifacts.derived,
+			level,
 			clock
-		),
+		}),
 		(compiled): ChangeEntry<S> => ({
 			params: artifacts.params,
 			compiled,

@@ -53,6 +53,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Param } from "#compiler/core/wire.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -793,7 +794,8 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 								laws: reality.laws,
 								derived: reality.derived,
 								world: reality.world,
-								codes: installation.names.codes
+								codes: installation.names.codes,
+								clock: noClock
 							}
 						),
 						"changeset"

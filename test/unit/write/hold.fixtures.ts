@@ -4,6 +4,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { UnheldWhy } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg, retirement } from "#compiler/public/fields.ts"
 import { contained, on, relation, retirable, schema } from "#compiler/public/schema.ts"
@@ -336,7 +337,8 @@ export const compiledOf = (d: Drawn) =>
 		world: { kind: "reality" },
 		laws: artifacts.laws,
 		derived: artifacts.derived,
-		level: "readCommitted"
+		level: "readCommitted",
+		clock: noClock
 	})
 
 /** Every object a statement names, schema and name, as its text prints them. */

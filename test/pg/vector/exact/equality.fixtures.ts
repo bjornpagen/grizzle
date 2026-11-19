@@ -26,6 +26,7 @@ import { positionalColumns } from "#compiler/codec/recordset.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import { ChangeSet as PublicChangeSet } from "#compiler/public/changeset.ts"
@@ -162,7 +163,8 @@ const writeSteps = (
 		laws: reality.laws,
 		derived: reality.derived,
 		world: reality.world,
-		codes: installed.names.codes
+		codes: installed.names.codes,
+		clock: noClock
 	})
 	if (!frontend.ok) {
 		throw new Error(frontend.error.message)

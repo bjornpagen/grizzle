@@ -8,6 +8,7 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import {
 	type ChangeSetDesc,
 	type WorkloadDesc,
@@ -305,7 +306,8 @@ const changeSetIr = (
 			laws: reads.artifacts.laws,
 			derived,
 			world: writeWorld,
-			codes: reads.artifacts.names.codes
+			codes: reads.artifacts.names.codes,
+			clock: noClock
 		}),
 		(frontend) => {
 			/**

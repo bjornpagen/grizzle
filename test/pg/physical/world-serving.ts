@@ -71,6 +71,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
+import { noClock } from "#compiler/ir/clock.ts"
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
@@ -1241,7 +1242,8 @@ const precheck = (
 				world: writeWorldOf(world, artifacts.laws),
 				laws: artifacts.laws,
 				derived: artifacts.derived,
-				level: "serializable"
+				level: "serializable",
+				clock: noClock
 			})
 		)
 		const members = yield* Effect.orDie(collectInputs(program.binding.groups, change.inputs))
