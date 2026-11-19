@@ -595,7 +595,7 @@ const familyProgram = (
 					({ relation, slot }): ReadonlyArray<PutOwner> => {
 						const recounted = all.filter(
 							(f) =>
-								f.owner.name === relation && f.members.kind !== "tree" && f.member.name === member
+								f.owner.name === relation && f.shape.kind !== "tree" && f.member.name === member
 						)
 						const owner = info(relation)
 						return isNonEmpty(recounted) && owner.mutable

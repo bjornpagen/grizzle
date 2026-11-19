@@ -102,17 +102,21 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 		const member = f.member.name
 		const owner = f.owner.name
 		put(owner, f.count.name, { kind: "stated", role: { kind: "count" }, laws: [family] })
-		if (f.index.kind === "field") {
-			put(member, f.index.field.name, { kind: "stated", role: { kind: "index" }, laws: [family] })
+		if (f.shape.index.kind === "field") {
+			put(member, f.shape.index.field.name, {
+				kind: "stated",
+				role: { kind: "index" },
+				laws: [family]
+			})
 		}
-		if (f.members.kind === "tree") {
-			put(member, f.members.parent.name, {
+		if (f.shape.kind === "tree") {
+			put(member, f.shape.parent.name, {
 				kind: "stated",
 				role: { kind: "parent" },
 				laws: [family]
 			})
-			put(member, f.members.start.name, { kind: "stated", role: { kind: "start" }, laws: [family] })
-			put(member, f.members.end.name, { kind: "stated", role: { kind: "end" }, laws: [family] })
+			put(member, f.shape.start.name, { kind: "stated", role: { kind: "start" }, laws: [family] })
+			put(member, f.shape.end.name, { kind: "stated", role: { kind: "end" }, laws: [family] })
 		}
 		for (const fold of f.folds) {
 			const laws: NonEmptyReadonlyArray<TheoryLaw> = [family, law(fold.law)]

@@ -37,6 +37,7 @@ import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/causes.ts"
+import type { MemberShape } from "#compiler/ir/family.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -65,7 +66,7 @@ import { defined, nonEmpty } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A family's kind: a tree on one relation, or an ordered or a counted family of an owner and a member. */
-export type FamilyKind = "tree" | "ordered" | "counted"
+export type FamilyKind = MemberShape["kind"]
 
 /** A family's three axes, which a copy rides: owner (from its member), predecessor and last. */
 export type Axis = "owner" | "predecessor" | "last"
@@ -189,7 +190,7 @@ const copyAt = (spec: FillSpec, j: number): CopySpec => defined(spec.copies[j], 
 export const relationAt = (spec: FillSpec, r: number): RelationSpec =>
 	defined(spec.relations[r], `relation ${r}`)
 
-export const isSequence = (family: FamilySpec): boolean => family.kind !== "counted"
+export const isSequenceSpec = (family: FamilySpec): boolean => family.kind !== "counted"
 
 /** The relation a copy's field is on: the member's for the owner and predecessor axes, the owner's for the last. */
 const holderOf = (spec: FillSpec, copy: CopySpec): number => {
@@ -463,7 +464,7 @@ const draftedSpec =
 		for (let j = 0; j < nc; j += 1) {
 			const f = source.draw(int(0, families.length - 1))
 			const family = defined(families[f], "a drawn family")
-			const axis: Axis = isSequence(family)
+			const axis: Axis = isSequenceSpec(family)
 				? axisOf[
 						source.draw(
 							swarmChoice(features, ["owner copy", "predecessor copy", "last copy"] as const)
@@ -759,13 +760,13 @@ const stageOf = (
 			return { kind: "entering" }
 		case "count": {
 			const family = familyAt(spec, source.family)
-			return isSequence(family)
+			return isSequenceSpec(family)
 				? { kind: "entering" }
 				: { kind: "counted", family: source.family, part: "count" }
 		}
 		case "fold": {
 			const family = familyAt(spec, source.family)
-			return isSequence(family)
+			return isSequenceSpec(family)
 				? { kind: "after", families: new Set([source.family]) }
 				: { kind: "counted", family: source.family, part: "end" }
 		}
@@ -775,7 +776,7 @@ const stageOf = (
 			}
 			const copy = copyAt(spec, source.copy)
 			const family = familyAt(spec, copy.family)
-			if (!isSequence(family)) {
+			if (!isSequenceSpec(family)) {
 				return { kind: "counted", family: copy.family, part: "count" }
 			}
 			if (copy.axis === "last") {
@@ -806,7 +807,7 @@ const orderingOf = (
 	j: number
 ): ReadonlyArray<{ readonly root: boolean; readonly before: number; readonly family: number }> => {
 	const copy = copyAt(spec, j)
-	if (copy.axis !== "owner" || !isSequence(familyAt(spec, copy.family))) {
+	if (copy.axis !== "owner" || !isSequenceSpec(familyAt(spec, copy.family))) {
 		return []
 	}
 	return Arr.flatMap(positionsOf(spec, j), (root) => {
@@ -897,7 +898,7 @@ const refusalsOf = (
 		}
 		if (stage.kind === "counted") {
 			const own = stage.family === copy.family
-			if (!isSequence(family) && copy.axis === "owner" && own) {
+			if (!isSequenceSpec(family) && copy.axis === "owner" && own) {
 				if (stage.part === "end") {
 					later.add("afterMembers")
 				}
@@ -911,7 +912,7 @@ const refusalsOf = (
 		}
 		if (
 			copy.axis === "owner" &&
-			isSequence(family) &&
+			isSequenceSpec(family) &&
 			stage.kind === "after" &&
 			stage.families.has(copy.family)
 		) {
@@ -1307,7 +1308,7 @@ const instanceOf = (
 				if (
 					Arr.some(
 						row.memberOf,
-						(m) => isSequence(familyAt(spec, m.family)) && removed.has(m.owner)
+						(m) => isSequenceSpec(familyAt(spec, m.family)) && removed.has(m.owner)
 					)
 				) {
 					removed.add(row.id)
@@ -2359,7 +2360,7 @@ const relationIndices = (spec: FillSpec): ReadonlyArray<number> =>
 
 /** Whether relation `r` owns a sequence, an ordered family or a tree. */
 const ownsSequence = (spec: FillSpec, r: number): boolean =>
-	Arr.some(spec.families, (f) => f.owner === r && isSequence(f))
+	Arr.some(spec.families, (f) => f.owner === r && isSequenceSpec(f))
 
 /**
  * A second ChangeSet over a stored instance, written after its first insert, around one row of `owner`: a mutable

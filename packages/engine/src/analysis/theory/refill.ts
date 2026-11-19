@@ -181,7 +181,7 @@ const madeBy = (
 				)
 			: []
 	const edits = change.edited.flatMap((h) =>
-		h.member.name !== relation.name || h.members.kind === "tree"
+		h.member.name !== relation.name || h.shape.kind === "tree"
 			? []
 			: [
 					...[{ kind: "field" as const, field: h.count }, ...h.axes.last.map((p) => p.from)].map(
@@ -191,7 +191,7 @@ const madeBy = (
 						})
 					),
 					...[
-						h.index,
+						h.shape.index,
 						...h.axes.owner.map((p) => p.from),
 						...h.axes.predecessor.map((p) => p.from)
 					].map((column) => ({
@@ -258,7 +258,7 @@ const reachedBy = (
 				}
 			}
 			for (const j of families) {
-				if (j.owner.name !== at.name || j.members.kind === "tree") {
+				if (j.owner.name !== at.name || j.shape.kind === "tree") {
 					continue
 				}
 				if (
@@ -400,9 +400,9 @@ export const closureOf = (
  */
 const replaces = (h: Family, relation: RelationInfo, op: "insert" | "put" | "delete"): boolean =>
 	h.member.name === relation.name &&
-	h.members.kind === "every" &&
+	h.shape.kind !== "tree" &&
 	h.owner.mutable &&
-	(op === "put" || (op === "delete" && h.index.kind === "field"))
+	(op === "put" || (op === "delete" && h.shape.kind === "ordered"))
 
 /** The relations whose stored rows `changes` may re-place (`replaces`). */
 export const replacedBy = (
@@ -454,7 +454,7 @@ export const refillDeferral = (families: ReadonlyArray<Family>): RefillDeferral 
 	}
 	const roots = [...relations.values()].flatMap((relation): ReadonlyArray<WriteChange> => {
 		const edited = families.filter(
-			(f) => f.member.name === relation.name && f.members.kind !== "tree" && f.owner.mutable
+			(f) => f.member.name === relation.name && f.shape.kind !== "tree" && f.owner.mutable
 		)
 		return relation.mutable || edited.length > 0
 			? [{ kind: "write", relation, op: relation.mutable ? "put" : "insert", edited }]
@@ -477,10 +477,6 @@ export const refillDeferral = (families: ReadonlyArray<Family>): RefillDeferral 
 				refilled.has(f.member.name) || replaced.has(f.owner.name) ? [familyKey(f.id)] : []
 			)
 		),
-		predecessor: new Set(
-			refills.flatMap((l) =>
-				l.index.kind === "field" || l.members.kind === "tree" ? [familyKey(l.id)] : []
-			)
-		)
+		predecessor: new Set(refills.flatMap((l) => (isSequence(l) ? [familyKey(l.id)] : [])))
 	}
 }

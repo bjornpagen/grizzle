@@ -2491,7 +2491,7 @@ const realities: { readonly [L in Level]: ReturnType<typeof realityOf> } = {
  */
 const deletedRowText = (relation: string): string => {
 	const [root] = Arr.flatMap(realities.Work.options.laws.families, (f) =>
-		f.members.kind === "tree" && f.member.name === relation ? [f.members.root] : []
+		f.shape.kind === "tree" && f.member.name === relation ? [f.shape.root] : []
 	)
 	return root === undefined
 		? `Written<typeof ${relation}>`

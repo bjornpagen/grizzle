@@ -520,7 +520,7 @@ export const checkDisjoint = (d: Disjoint): void => {
 	assert.equal(families.length, d.length, "one family per counted statement")
 	const drawn = Arr.flatMap(families, (family) => [
 		family.copy,
-		...(family.index.kind === "law" ? [family.index.column] : []),
+		...(family.shape.kind === "counted" ? [family.shape.index.column] : []),
 		...Arr.flatMap(family.folds, (fl) =>
 			Arr.flatMap(fl.planes, (p) =>
 				Arr.flatMap([p.before, p.after], (x) => (x.kind === "law" ? [x.column] : []))
@@ -568,7 +568,7 @@ export const checkDisjoint = (d: Disjoint): void => {
 			(fk) =>
 				fk.relation.name === family.member.name &&
 				fk.target.name === family.member.name &&
-				Arr.some(fk.targetColumns, (x) => sameColumn(x, family.index)) &&
+				Arr.some(fk.targetColumns, (x) => sameColumn(x, family.shape.index)) &&
 				!Arr.some(
 					fk.columns,
 					(x) => x.kind === "field" && Arr.some(family.group, (g) => g.owner === x.field)

@@ -796,7 +796,7 @@ const merged = (
 	return out
 }
 
-const isTree = (family: Family): boolean => family.members.kind === "tree"
+const isTree = (family: Family): boolean => family.shape.kind === "tree"
 
 /** Whether a row's group fields of every family name the stored row's groups. */
 const sameGroups = (
@@ -1072,13 +1072,13 @@ const redraw = (
 	const member = read.member
 	const name = member.relation.name
 	const bigint = types.bigint
-	const index = installed(w, name, family.index)
+	const index = installed(w, name, family.shape.index)
 	const owner = family.owner
 	const keys = layoutKeys(member.layout)
 	const groupOf = (alias: string, shape: Shaped): ReadonlyArray<Expr> =>
 		family.group.map((g) => col(alias, columnAt(shape, columnKeyOf(g.member.name))))
 
-	const indexKey = columnKey(family.index)
+	const indexKey = columnKey(family.shape.index)
 	const slotOf = (alias: string, shape: Shaped): Expr => col(alias, columnAt(shape, indexKey))
 	/** Each removed or changed member's group and stored slot. */
 	const touched = {
@@ -2064,7 +2064,7 @@ const recountOf = (
 					)
 				)
 			)
-		const indexColumn = installed(w, memberName, family.index)
+		const indexColumn = installed(w, memberName, family.shape.index)
 		/** Each arm reads the groups under an alias of its own. */
 		const g1 = supply.relation(internal("recount group row"))
 		const s = supply.relation(internal("recount scanned"))

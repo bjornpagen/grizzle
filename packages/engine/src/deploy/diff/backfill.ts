@@ -263,13 +263,13 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 		const member = family.member.name
 		const owner = family.owner.name
 		const nothing = zeroOf(installation, family)
-		put(member, columnOf(family.index), nothing)
+		put(member, columnOf(family.shape.index), nothing)
 		put(member, family.copy, nothing)
 		put(owner, family.count.column, nothing)
-		if (family.members.kind === "tree") {
-			put(member, family.members.parent.column, nothing)
-			put(member, family.members.start.column, nothing)
-			put(member, family.members.end.column, nothing)
+		if (family.shape.kind === "tree") {
+			put(member, family.shape.parent.column, nothing)
+			put(member, family.shape.start.column, nothing)
+			put(member, family.shape.end.column, nothing)
 		}
 		for (const fold of family.folds) {
 			for (const plane of fold.planes) {
@@ -475,7 +475,7 @@ const drawnNamesOf = (
 	folds: ReadonlyArray<FamilyFold>
 ): ReadonlySet<string> =>
 	new Set([
-		...(holds(added, family.index) ? [columnOf(family.index)] : []),
+		...(holds(added, family.shape.index) ? [columnOf(family.shape.index)] : []),
 		...(added.has(family.copy) ? [family.copy] : []),
 		...folds.flatMap((fold) => fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)]))
 	])
@@ -657,7 +657,7 @@ const memberDerivation = (
 ): Derivation | undefined => {
 	const { installation } = input
 	const member = relationOf(installation, family.member.name)
-	const index = columnOf(family.index)
+	const index = columnOf(family.shape.index)
 	const drawIndex = added.has(index)
 	const folds = family.folds.filter((fold) => planesAdded(fold, added))
 	if (drawIndex && folds.length < family.folds.length) {
@@ -893,7 +893,7 @@ const groupAt = (
 /** Whether a family's member at `alias` is its last: its index one less than its copy of the count. */
 const lastOf = (family: Family, alias: string): Expr =>
 	eq(
-		col(alias, columnOf(family.index)),
+		col(alias, columnOf(family.shape.index)),
 		binary("-", col(alias, family.copy), lit.int(1n, types.bigint))
 	)
 
@@ -943,7 +943,7 @@ const ownerDerivation = (
 			...cellsOf(table, [...family.group.map((g) => g.owner.column), ...set.map((d) => d.column)]),
 			...cellsOf(memberTable, [
 				...family.group.map((g) => g.member.column),
-				columnOf(family.index),
+				columnOf(family.shape.index),
 				family.copy,
 				...afters
 			])
@@ -988,8 +988,8 @@ const treeDerivation = (
 	const parent = mapNonEmpty(family.group, (g) => g.member.column)
 	const key = memberKey(input, family, member, added)
 	const folds = family.folds.filter((fold) => planesAdded(fold, added))
-	const drawIndex = holds(added, family.index)
-	const index = columnOf(family.index)
+	const drawIndex = holds(added, family.shape.index)
+	const index = columnOf(family.shape.index)
 	const keys = drawnNamesOf(family, added, folds)
 	const members = drawnAt(installation, family, { kind: "member", family }, keys)
 	const roots = drawnAt(installation, family, { kind: "root", family }, keys)
@@ -1411,7 +1411,7 @@ const treeEndDerivation = (
 		reads: cellsOf(table, [
 			...family.group.flatMap((g) => [g.member.column, g.owner.column]),
 			...set.map((d) => d.column),
-			columnOf(family.index),
+			columnOf(family.shape.index),
 			family.copy,
 			...planes.map((plane) => columnOf(plane.after))
 		])
@@ -1430,13 +1430,13 @@ const familyCells = (installation: Installation): ReadonlySet<string> =>
 		installation.laws.families.flatMap((family) =>
 			[
 				...cellsOf(tableOf(installation, family.member.name), [
-					columnOf(family.index),
+					columnOf(family.shape.index),
 					family.copy,
 					...family.folds.flatMap((fold) =>
 						fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])
 					),
-					...(family.members.kind === "tree"
-						? [family.members.parent.column, family.members.start.column, family.members.end.column]
+					...(family.shape.kind === "tree"
+						? [family.shape.parent.column, family.shape.start.column, family.shape.end.column]
 						: [])
 				]),
 				...cellsOf(tableOf(installation, family.owner.name), [
@@ -1508,7 +1508,7 @@ const baseOf = (installation: Installation, c: NativeColumn): DrawnColumn | unde
 /** Whether every member of a tree but its root is the row a column reference names: a tree's family leaves the root
  * out, so the predecessor and last axes never name it. */
 const nonRoot = (names: OperatorNames, family: Family, alias: string): ReadonlyArray<Expr> =>
-	family.members.kind === "tree"
+	family.shape.kind === "tree"
 		? [
 				not(
 					and(
@@ -1538,12 +1538,12 @@ const drawnOn = (input: BackfillInput, table: ObjectName): ReadonlySet<string> =
 const copyDerivation = (input: BackfillInput, copy: Copy): Derivation => {
 	const names = input.installation.names
 	const { family, from, to } = copy
-	const index = columnOf(family.index)
+	const index = columnOf(family.shape.index)
 	const value = columnOf(to)
 	const copied = columnOf(from)
 	const members = mapNonEmpty(family.group, (g) => g.member.column)
 	const owners = family.group.map((g) => g.owner.column)
-	const rooted = family.members.kind === "tree" ? [...members, ...owners] : []
+	const rooted = family.shape.kind === "tree" ? [...members, ...owners] : []
 	const carried = carriedOf([{ column: copied, value: col("s", value) }])
 	const along = ((): {
 		readonly targetKey: NonEmptyReadonlyArray<Expr>
@@ -2022,7 +2022,7 @@ const primaryKeyOf = (installation: Installation, name: string): Key => {
 const familyKeys = (input: BackfillInput, family: Family): ReadonlyArray<Key> => {
 	const { installation } = input
 	const member = primaryKeyOf(installation, family.member.name)
-	const index = columnOf(family.index)
+	const index = columnOf(family.shape.index)
 	return [
 		member,
 		primaryKeyOf(installation, family.owner.name),
@@ -2102,7 +2102,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		const onMember = drawnOn(input, memberTable)
 		const onOwner = drawnOn(input, ownerTable)
 		const memberColumns = new Set<string>([
-			columnOf(family.index),
+			columnOf(family.shape.index),
 			family.copy,
 			...family.folds.flatMap((fold) =>
 				fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])
@@ -2114,10 +2114,10 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		])
 		const mine = new Set([...onMember].filter((c) => memberColumns.has(c)))
 		const theirs = new Set([...onOwner].filter((c) => ownerColumns.has(c)))
-		if (family.members.kind === "tree") {
-			const shape = family.members
+		if (family.shape.kind === "tree") {
+			const shape = family.shape
 			const columns = [
-				columnOf(family.index),
+				columnOf(family.shape.index),
 				family.count.column,
 				family.copy,
 				...family.folds.flatMap((fold) =>

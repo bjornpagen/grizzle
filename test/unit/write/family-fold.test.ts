@@ -96,7 +96,7 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 						`slot ${slot}'s after`
 					)
 					assert.equal(
-						row.values.get(columnKey(fills.family.index)),
+						row.values.get(columnKey(fills.family.shape.index)),
 						BigInt(slot),
 						"the index is the slot"
 					)

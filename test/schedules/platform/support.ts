@@ -687,7 +687,7 @@ const directFamilies = (names: Names): ReadonlyArray<DirectFamily> =>
 			member,
 			owner,
 			group: Arr.map(f.group, (g) => ({ member: g.member.name, owner: g.owner.name })),
-			index: lawColumn(f.index, "index"),
+			index: lawColumn(f.shape.index, "index"),
 			copy: quoteIdent(f.copy),
 			count: field(owner, f.count.name),
 			planes: Arr.flatMap(f.folds, (fold) => {

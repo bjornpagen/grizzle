@@ -645,13 +645,13 @@ const sequencePlaceOf = (
 		if (f.member.name !== relation) {
 			continue
 		}
-		if (f.index.kind === "field" && f.index.field.name === field) {
+		if (f.shape.index.kind === "field" && f.shape.index.field.name === field) {
 			return { family: f, role: "index" }
 		}
-		if (f.members.kind === "tree" && f.members.start.name === field) {
+		if (f.shape.kind === "tree" && f.shape.start.name === field) {
 			return { family: f, role: "start" }
 		}
-		if (f.members.kind === "tree" && f.members.end.name === field) {
+		if (f.shape.kind === "tree" && f.shape.end.name === field) {
 			return { family: f, role: "end" }
 		}
 	}
@@ -689,7 +689,7 @@ const sameSequence = (
 		owner?.kind === "relation"
 			? owner.fields.find((f) => f.column === family.count.column)
 			: undefined
-	const shape = family.members.kind === "tree" ? "tree" : "family"
+	const shape = family.shape.kind === "tree" ? "tree" : "family"
 	return (
 		counted !== undefined &&
 		Object.entries(previous.theory.laws).some(

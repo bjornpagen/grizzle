@@ -294,14 +294,14 @@ const entriesAt = (
 		set(fieldColumn(g.member), g.member.type, { kind: "owner", to: fieldColumn(g.owner) }, walk)
 	}
 	set(
-		f.index,
-		f.index.kind === "field" ? f.index.field.type : f.count.type,
+		f.shape.index,
+		f.shape.index.kind === "field" ? f.shape.index.field.type : f.count.type,
 		{ kind: "index" },
 		writer
 	)
 	set({ kind: "law", column: f.copy }, f.count.type, { kind: "copy" }, writer)
-	if (f.members.kind === "tree") {
-		const t = f.members
+	if (f.shape.kind === "tree") {
+		const t = f.shape
 		set(fieldColumn(t.start), t.start.type, { kind: "start" }, walk)
 		set(fieldColumn(t.end), t.end.type, { kind: "end" }, walk)
 		if (root) {

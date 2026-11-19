@@ -213,12 +213,12 @@ export const owedKeyChecks = (
 		const drawn = [
 			...Arr.map(
 				[
-					nativeColumn(family.index),
+					nativeColumn(family.shape.index),
 					family.copy,
 					...Arr.flatMap(family.folds, (fold) =>
 						Arr.flatMap(fold.planes, (p) => [nativeColumn(p.before), nativeColumn(p.after)])
 					),
-					...(family.members.kind === "tree" ? [family.members.parent.column] : [])
+					...(family.shape.kind === "tree" ? [family.shape.parent.column] : [])
 				],
 				(c) => `${member}.${c}`
 			),
@@ -239,7 +239,10 @@ export const owedKeyChecks = (
 			{
 				law: family.law,
 				table: member,
-				columns: [...Arr.map(family.group, (g) => g.member.column), nativeColumn(family.index)]
+				columns: [
+					...Arr.map(family.group, (g) => g.member.column),
+					nativeColumn(family.shape.index)
+				]
 			}
 		]
 		return Arr.filter(

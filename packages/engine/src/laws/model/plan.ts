@@ -43,7 +43,7 @@ import {
 	termText
 } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
-import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
+import type { AxisKind, AxisPair, Family, FamilyFold, TreeMembers } from "#compiler/ir/family.ts"
 import {
 	type ClosedTheoryRelation,
 	columnKey,
@@ -2588,7 +2588,7 @@ const readsField = (writing: LawField["writing"], field: LawField): boolean => {
 /** The columns a family's owner axis writes on its members by ON UPDATE CASCADE: its group, ‹n›, and every carried
  * source; none for a tree's, which takes no action, since a tree is written whole and rewritten by deletion. */
 const ownerSources = (f: Family): ReadonlyArray<NativeColumn> =>
-	f.members.kind === "tree"
+	f.shape.kind === "tree"
 		? []
 		: [
 				...f.group.map((g): NativeColumn => ({ kind: "field", field: g.member })),
@@ -2646,16 +2646,16 @@ class FamilyPlanner {
 		const f = this.#family
 		const member = this.#member
 		const owner = this.#owner
-		const tree = f.members.kind === "tree" ? f.members : undefined
+		const tree = f.shape.kind === "tree" ? f.shape : undefined
 		const copy = lawColumn(
 			this.#draw(f.copy, member, f.count, { kind: "copy", family: f.id }, this.#familyNamed("copy"))
 		)
 		const index: PlannedColumn =
-			f.index.kind === "field"
-				? fieldColumn(f.index.field)
+			f.shape.index.kind === "field"
+				? fieldColumn(f.shape.index.field)
 				: lawColumn(
 						this.#draw(
-							f.index.column,
+							f.shape.index.column,
 							member,
 							f.count,
 							{ kind: "index", family: f.id },
@@ -3075,7 +3075,7 @@ class FamilyPlanner {
 	 */
 	#treeConditions(
 		own: RowConditions,
-		tree: Extract<Family["members"], { readonly kind: "tree" }>,
+		tree: TreeMembers,
 		index: PlannedColumn,
 		copy: PlannedColumn
 	): void {

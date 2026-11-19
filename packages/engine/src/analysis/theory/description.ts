@@ -64,8 +64,8 @@ export const lawDescription = (law: LawIdentity): OwnLaw => {
 			})
 		case "tree": {
 			const terms: SideDesc["terms"] = [
-				Object.freeze({ kind: "field", field: d.family.members.parent.name }),
-				Object.freeze({ kind: "field", field: d.family.index.field.name })
+				Object.freeze({ kind: "field", field: d.family.shape.parent.name }),
+				Object.freeze({ kind: "field", field: d.family.shape.index.field.name })
 			]
 			return Object.freeze({
 				kind: "tree",
@@ -75,7 +75,7 @@ export const lawDescription = (law: LawIdentity): OwnLaw => {
 					selection: everyFact
 				}),
 				slots: Object.freeze({ owner: d.family.id.owner, count: d.family.id.count }),
-				root: Object.freeze(mapNonEmpty(d.family.members.root, (r) => r.name))
+				root: Object.freeze(mapNonEmpty(d.family.shape.root, (r) => r.name))
 			})
 		}
 		case "rule":
@@ -184,13 +184,13 @@ const sideDesc = (
 	})
 
 /** A family's member side as its statement declares it: every fact of its member, over its group then its index. */
-const memberSide = (f: Pick<Family, "member" | "group" | "index">): SideDesc => {
+const memberSide = (f: Pick<Family, "member" | "group" | "shape">): SideDesc => {
 	const group = mapNonEmpty(f.group, (p): TermDesc =>
 		Object.freeze({ kind: "field", field: p.member.name })
 	)
 	const terms: SideDesc["terms"] =
-		f.index.kind === "field"
-			? [...group, Object.freeze({ kind: "field", field: f.index.field.name })]
+		f.shape.index.kind === "field"
+			? [...group, Object.freeze({ kind: "field", field: f.shape.index.field.name })]
 			: group
 	return Object.freeze({
 		relation: f.member.name,

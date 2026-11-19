@@ -70,7 +70,7 @@
 import { defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { rowEq, typedEq } from "#compiler/ir/compare.ts"
-import { type Family, isSequence, type TreeShape } from "#compiler/ir/family.ts"
+import { type Family, isSequence, type TreeMembers } from "#compiler/ir/family.ts"
 import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -149,7 +149,7 @@ export type UnitSource =
  * its relation's primary key leads with), an owner's by its facts, every field they state, its primary key among them.
  */
 export type UnitMatch =
-	| { readonly kind: "tree"; readonly tree: Family; readonly shape: TreeShape }
+	| { readonly kind: "tree"; readonly tree: Family; readonly shape: TreeMembers }
 	| { readonly kind: "facts"; readonly fields: NonEmptyReadonlyArray<LawField> }
 
 /**
@@ -205,12 +205,12 @@ interface AddedRead {
 /** A tree's prefix the kept rows of its relation need unchanged: its family and the shape its nodes are drawn by. */
 interface TreeOf {
 	readonly tree: Family
-	readonly shape: TreeShape
+	readonly shape: TreeMembers
 }
 
 /** The shape of a tree's family, which its member's tree is: its root fields, its drawn parent, start and end. */
 const treeOf = (tree: Family | undefined): TreeOf | undefined =>
-	tree?.members.kind === "tree" ? { tree, shape: tree.members } : undefined
+	tree?.shape.kind === "tree" ? { tree, shape: tree.shape } : undefined
 
 /** The statement of a stratum's unit deletes (see the header): `added` gives each relation's rows the stratum adds. */
 export const unitSql = (
@@ -481,11 +481,11 @@ export const unitSql = (
 	 */
 	const treeKept = (
 		relation: RelationInfo,
-		{ tree, shape }: TreeOf,
+		{ shape }: TreeOf,
 		doomedKeys: RowKeyset,
 		base: RowKeyset
 	): RowKeyset => {
-		const index = tree.index.kind === "field" ? tree.index.field : undefined
+		const index = shape.index.field
 		const flagged = flaggedKeys(supply, ctes, doomedKeys, base)
 		const f = supply.relation(internal(`flagged node of ${relation.name}`))
 		const x = supply.relation(internal(`judged node of ${relation.name}`))
@@ -514,14 +514,12 @@ export const unitSql = (
 					targetAs(stored(x, relation, shape.end), end),
 					targetAs(rowOf(x), tid),
 					targetAs(
-						index === undefined
-							? not(inBase)
-							: over(
-									"bool_or",
-									not(inBase),
-									[...rootOf(x), stored(x, relation, shape.parent)],
-									[stored(x, relation, index), stored(x, relation, shape.start)]
-								),
+						over(
+							"bool_or",
+							not(inBase),
+							[...rootOf(x), stored(x, relation, shape.parent)],
+							[stored(x, relation, index), stored(x, relation, shape.start)]
+						),
 						local
 					)
 				],
@@ -602,7 +600,7 @@ export const unitSql = (
 			"MATERIALIZED"
 		)
 		const sequence = families.find(isSequence)
-		const index = sequence?.index
+		const index = sequence?.shape.index
 		const kept =
 			tree !== undefined
 				? treeKept(relation, tree, doomedKeys, base)

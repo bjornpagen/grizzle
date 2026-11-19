@@ -71,8 +71,8 @@ export const independentFamiliesRowsFirst5TwoCountedFamiliesOnOneMemberResolveTo
 					"each counted family groups G by its own field"
 				)
 				assert.deepEqual(
-					[first.index.kind, second.index.kind],
-					["law", "law"],
+					[first.shape.kind, second.shape.kind],
+					["counted", "counted"],
 					"each counted family's index is its own hidden column"
 				)
 				const columns = Arr.flatMap(t.families, lawColumnsOf)
@@ -100,8 +100,8 @@ export const independentFamiliesRowsFirst5TwoCountedFamiliesOnOneMemberResolveTo
 				if (s.sequence) {
 					const sequence = familyAt(t, "S", "k")
 					assert.equal(
-						sequence.index.kind,
-						"field",
+						sequence.shape.kind,
+						"ordered",
 						"the sequence beside them is ordered by its own index"
 					)
 					assert.equal(sequence.folds.length, 0, "and folds nothing of theirs")

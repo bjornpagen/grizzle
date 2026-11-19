@@ -958,16 +958,16 @@ export const resolvesAsStated = (c: FamilyCase, t: Theory, k: Case<FamilyFeature
 			],
 			"its root field pairs with itself and its parent with its start, its key in key order"
 		)
-		assert.equal(columnText(fam.index), "at", "its index is at")
-		if (fam.members.kind !== "tree") {
+		assert.equal(columnText(fam.shape.index), "at", "its index is at")
+		if (fam.shape.kind !== "tree") {
 			return assert.fail("a tree's members are every row but its roots")
 		}
 		assert.deepEqual(
 			[
-				...Arr.map(fam.members.root, (r) => r.name),
-				fam.members.parent.name,
-				fam.members.start.name,
-				fam.members.end.name
+				...Arr.map(fam.shape.root, (r) => r.name),
+				fam.shape.parent.name,
+				fam.shape.start.name,
+				fam.shape.end.name
 			],
 			["doc", "parent", "start", "end"],
 			"its root field, parent and interval"
@@ -998,14 +998,14 @@ export const resolvesAsStated = (c: FamilyCase, t: Theory, k: Case<FamilyFeature
 		"its group pairs with its owner's key, in key order"
 	)
 	assert.equal(
-		fam.index.kind,
+		fam.shape.index.kind,
 		c.order === "ordered" ? "field" : "law",
 		"its index arm is its order's"
 	)
-	if (fam.index.kind === "field") {
-		assert.equal(fam.index.field.name, "at", "an ordered index is the side's last term")
+	if (fam.shape.index.kind === "field") {
+		assert.equal(fam.shape.index.field.name, "at", "an ordered index is the side's last term")
 	}
-	assert.equal(fam.members.kind, "every", "its members are every fact")
+	assert.notEqual(fam.shape.kind, "tree", "its members are every fact")
 	assert.equal(lawOfShape(t, "family").detail.kind, "family", "its law's detail is the family")
 	if (c.fold === "no fold") {
 		assert.deepEqual(

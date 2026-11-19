@@ -681,7 +681,7 @@ const appendedOf = (
 						mapNonEmpty(c.family.group, (g) =>
 							bound(w, of, g.member, col(a, columnAt(facts, columnKeyOf(g.owner.name))))
 						),
-						[installed(w, of, c.family.index)],
+						[installed(w, of, c.family.shape.index)],
 						{ read: [column], filter: () => [] }
 					)
 					return written(
@@ -874,7 +874,7 @@ const appendScan = (
 	const groupKeys = family.group.map((g) => columnKeyOf(g.member.name))
 	const memberGroup = (alias: string, shape: Shaped): ReadonlyArray<Expr> =>
 		groupKeys.map((k) => col(alias, columnAt(shape, k)))
-	const index = installed(w, name, family.index)
+	const index = installed(w, name, family.shape.index)
 	/** The member's group columns bound to `keys`, a group's values in order. */
 	const groupAt = (keys: ReadonlyArray<Expr>) =>
 		mapNonEmpty(family.group, (g, i) => bound(w, name, g.member, defined(keys[i], "a group key")))
@@ -1602,7 +1602,7 @@ const withHostDrawn = (
 		"keyed",
 		[
 			...mapNonEmpty(union.group, (c, i) => targetAs(defined(hostGroup[i], "a group key"), c)),
-			targetAs(cast(drawnAt(columnKey(family.index)), bigint), union.slot),
+			targetAs(cast(drawnAt(columnKey(family.shape.index)), bigint), union.slot),
 			targetAs(lit.int(0, bigint), union.first),
 			targetAs(cast(drawnAt(columnKey({ kind: "law", column: family.copy })), bigint), union.count),
 			...[...union.columns].map(([k, c]) => targetAs(drawnType.has(k) ? drawnAt(k) : hostAt(k), c))
@@ -2113,7 +2113,7 @@ const recountOf = (
 				ends.map((p) => [columnKey(p.from), supply.column(internal("last column"))] as const)
 			)
 		}
-		const index = installed(w, memberName, family.index)
+		const index = installed(w, memberName, family.shape.index)
 		const arms: Array<SetArm> = scans.map((scan) => {
 			const sc = supply.relation(internal("last scanned"))
 			return provedCore(

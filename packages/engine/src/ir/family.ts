@@ -33,16 +33,33 @@ export interface Family {
 	readonly member: RelationInfo
 	/** g…: each member field with the owner primary-key field it pairs with, in key order. */
 	readonly group: NonEmptyReadonlyArray<{ readonly member: LawField; readonly owner: LawField }>
-	/** A field when ordered, a drawn law column (‹i›) when counted: deferral, delete plan and folds read this arm. */
-	readonly index: NativeColumn
+	/** Which facts are its members and what indexes them (MemberShape). */
+	readonly shape: MemberShape
 	/** ‹n›, the owner's count on each member: a drawn law column. */
 	readonly copy: ColumnIdent
-	/** Which facts are members: every fact, or a tree's every row but its roots, whose start is 0. */
-	readonly members: { readonly kind: "every" } | ({ readonly kind: "tree" } & TreeShape)
 	/** What each axis carries beyond its key: the formers' pairs and every containment merged into it. */
 	readonly axes: { readonly [A in AxisKind]: ReadonlyArray<AxisPair> }
 	readonly folds: ReadonlyArray<FamilyFold>
 }
+
+/**
+ * Which facts are a family's members and what indexes them: an ordered family's every fact, by its drawn index field;
+ * a counted family's every fact, by its drawn law column ‹i›, which hides the order; a tree's every row but its roots,
+ * whose start is 0, by its drawn `at` field, with the tree's own fields. Deferral, delete plans and folds read the index.
+ */
+export type MemberShape =
+	| { readonly kind: "ordered"; readonly index: FieldIndex }
+	| { readonly kind: "counted"; readonly index: LawIndex }
+	| TreeMembers
+
+/** A tree's members (MemberShape `tree`): its index, its `at`, and its own fields. */
+export type TreeMembers = { readonly kind: "tree"; readonly index: FieldIndex } & TreeShape
+
+/** An index that is a field: an ordered family's, or a tree's `at`. */
+export type FieldIndex = Extract<NativeColumn, { readonly kind: "field" }>
+
+/** A counted family's index, its drawn law column ‹i›. */
+export type LawIndex = Extract<NativeColumn, { readonly kind: "law" }>
 
 /**
  * A tree's own fields: its root fields r…, which its relation's primary key (r…, start) leads with and each tree's rows
@@ -91,17 +108,16 @@ export interface FoldPlane {
 	readonly identity: TypedLiteral
 }
 
-/** Whether a family is ordered, its index a field, or counted, its index a drawn law column that hides the order. */
-export const orderOf = (f: Pick<Family, "index">): "ordered" | "counted" =>
-	f.index.kind === "field" ? "ordered" : "counted"
+/** Whether a family's order is a field, an ordered family's or a tree's, or hidden, a counted family's. */
+export const orderOf = (f: Pick<Family, "shape">): "ordered" | "counted" =>
+	f.shape.kind === "counted" ? "counted" : "ordered"
 
 /** Whether a family is a sequence, ordered or a tree, whose members a write nests in order under their owner. */
-export const isSequence = (f: Family): boolean =>
-	f.members.kind === "tree" || f.index.kind === "field"
+export const isSequence = (f: Pick<Family, "shape">): boolean => orderOf(f) === "ordered"
 
 /** Whether a family is the tree of the relation `relation`: its family over itself whose members are a tree's. */
 export const isTreeOf = (f: Family, relation: string): boolean =>
-	f.members.kind === "tree" && f.member.name === relation && f.owner.name === relation
+	f.shape.kind === "tree" && f.member.name === relation && f.owner.name === relation
 
 /** Whether `column` is a before or an after of a plane of one of `family`'s folds, a law column when hidden. */
 const accumulatorOf = (family: Family, column: NativeColumn): FoldPlane | undefined => {
@@ -126,7 +142,7 @@ export const familyColumnType = (family: Family, column: NativeColumn): ScalarTy
 	if (column.column === family.copy) {
 		return family.count.type
 	}
-	if (family.index.kind === "law" && family.index.column === column.column) {
+	if (family.shape.kind === "counted" && family.shape.index.column === column.column) {
 		return family.count.type
 	}
 	return accumulatorOf(family, column)?.end.type

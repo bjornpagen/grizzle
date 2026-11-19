@@ -120,7 +120,7 @@ const columnKey = (c: NativeColumn): string =>
 /** Every law column a family draws: ‹n›, a counted ‹i›, and each fold plane's hidden before and after. */
 export const lawColumnsOf = (family: Family): ReadonlyArray<string> => [
 	`law ${family.copy}`,
-	...(family.index.kind === "law" ? [columnKey(family.index)] : []),
+	...(family.shape.kind === "counted" ? [columnKey(family.shape.index)] : []),
 	...Arr.flatMap(family.folds, (fold) =>
 		Arr.flatMap(fold.planes, (p) =>
 			Arr.map(

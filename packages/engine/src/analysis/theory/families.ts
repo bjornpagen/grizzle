@@ -26,8 +26,9 @@ import {
 	type AxisPair,
 	type Family,
 	type FamilyFold,
+	type MemberShape,
 	orderOf,
-	type TreeShape
+	type TreeMembers
 } from "#compiler/ir/family.ts"
 import {
 	columnKey,
@@ -65,20 +66,11 @@ export interface FamilyShape extends Omit<Family, "axes" | "folds" | "owner" | "
 	readonly member: RelationInfo
 }
 
-/** A tree's members: every row but its roots, its own fields beside them. */
-export type TreeMembers = { readonly kind: "tree" } & TreeShape
-
-/** A tree's index, its `at`: a field, as every sequence's is. */
-type FieldIndex = Extract<NativeColumn, { readonly kind: "field" }>
-
-/** A tree's family shape, its members the tree's and its index its `at`. */
-export type TreeFamilyShape = FamilyShape & {
-	readonly members: TreeMembers
-	readonly index: FieldIndex
-}
+/** A tree's family shape: its members the tree's. */
+export type TreeFamilyShape = FamilyShape & { readonly shape: TreeMembers }
 
 /** A tree's family, resolved (LawDetail's tree arm). */
-export type TreeFamily = Family & { readonly members: TreeMembers; readonly index: FieldIndex }
+export type TreeFamily = Family & { readonly shape: TreeMembers }
 
 /** A family statement as ownership admitted it. */
 export type FamilyStatement = Extract<StatementDesc, { readonly kind: "family" }>
@@ -123,12 +115,15 @@ const accumulatorColumn = (
 /** What a family's or tree's law states of it (spelling.ts FamilyStated): its member's terms are its group's member
  * fields, then its index where the index is a field. */
 export const familyStated = (
-	f: Pick<Family, "id" | "member" | "group" | "index" | "members">
+	f: Pick<Family, "id" | "member" | "group" | "shape">
 ): FamilyStated => ({
 	id: f.id,
 	member: f.member.name,
-	terms: [...f.group.map((p) => p.member), ...(f.index.kind === "field" ? [f.index.field] : [])],
-	kind: f.members.kind === "tree" ? { kind: "tree" } : { kind: "family", order: orderOf(f) }
+	terms: [
+		...f.group.map((p) => p.member),
+		...(f.shape.index.kind === "field" ? [f.shape.index.field] : [])
+	],
+	kind: f.shape.kind
 })
 
 /** A family's or tree's law's identifier, as the theory names the law (theory.ts lawIdentityOf). */
@@ -217,7 +212,7 @@ const everyMember = (side: SideDesc, loc: SourceLoc, rule: Refused): void => {
  * What each family statement refuses its member side for, a rule the types name too: a tree's shape, an ordered
  * family's side of its owner's key then its drawn index, or a counted family's of its owner's key.
  */
-export const familySides: { readonly [O in "ordered" | "counted" | "tree"]: Refused } = {
+export const familySides: { readonly [K in MemberShape["kind"]]: Refused } = {
 	ordered: "an ordered family's side is its owner's key, then its drawn index",
 	counted: "a counted family's side is its owner's key",
 	tree: "a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end"
@@ -249,17 +244,17 @@ export const familyShape = (
 		s.order === "ordered" && last !== undefined
 			? drawnField(member, fieldTerm(member, last, "an ordered family's index", loc), "index", loc)
 			: undefined
-	const members = Object.freeze({ kind: "every" as const })
 	const law = familyLaw({
 		id,
 		member: member.name,
 		terms: [...group.map((p) => p.member), ...(indexField === undefined ? [] : [indexField])],
-		kind: { kind: "family", order: indexField === undefined ? "counted" : "ordered" }
+		kind: indexField === undefined ? "counted" : "ordered"
 	})
-	const index: NativeColumn =
+	const shape = Object.freeze<MemberShape>(
 		indexField === undefined
-			? { kind: "law", column: drawnColumn("index", id, law) }
-			: { kind: "field", field: indexField }
+			? { kind: "counted", index: { kind: "law", column: drawnColumn("index", id, law) } }
+			: { kind: "ordered", index: { kind: "field", field: indexField } }
+	)
 	return Object.freeze({
 		id,
 		law,
@@ -267,9 +262,8 @@ export const familyShape = (
 		count,
 		member,
 		group,
-		index,
-		copy: drawnColumn("copy", id, law),
-		members
+		shape,
+		copy: drawnColumn("copy", id, law)
 	})
 }
 
@@ -320,12 +314,11 @@ export const treeShape = (
 		mapNonEmpty(root, (r) => ({ member: r, owner: r })),
 		{ member: parent, owner: start }
 	)
-	const index: FieldIndex = { kind: "field", field: at }
 	const law = familyLaw({
 		id,
 		member: t.name,
 		terms: [...group.map((p) => p.member), at],
-		kind: { kind: "tree" }
+		kind: "tree"
 	})
 	return Object.freeze({
 		id,
@@ -334,33 +327,32 @@ export const treeShape = (
 		count,
 		member: t,
 		group,
-		index,
-		copy: drawnColumn("copy", id, law),
-		members: Object.freeze({
+		shape: Object.freeze<TreeMembers>({
 			kind: "tree",
+			index: { kind: "field", field: at },
 			root,
 			parent,
 			start,
 			end: interval("end")
-		})
+		}),
+		copy: drawnColumn("copy", id, law)
 	})
 }
 
 /** Whether a family's shape is a tree's. */
-export const isTree = (f: FamilyShape): f is TreeFamilyShape =>
-	f.members.kind === "tree" && f.index.kind === "field"
+export const isTree = (f: FamilyShape): f is TreeFamilyShape => f.shape.kind === "tree"
 
 /**
  * The predicate that selects a family's members: none for every fact, `start > 0` for a tree's every row but its root
  * (φ₀). A lemma and an axis read their member sides through it.
  */
 export const membersSelection = (f: FamilyShape): ReadonlyArray<ExprDesc> =>
-	f.members.kind === "tree"
+	f.shape.kind === "tree"
 		? [
 				{
 					kind: "compare",
 					op: "gt",
-					left: { kind: "field", field: f.members.start.name },
+					left: { kind: "field", field: f.shape.start.name },
 					right: { kind: "literal", value: 0n }
 				}
 			]
@@ -379,7 +371,7 @@ const everyRow: EndRows = { kind: "every" }
 
 /** The rows a family's members are (EndRows): every fact of its member, or a tree's every row but its roots. */
 const memberRows = (f: FamilyShape): EndRows =>
-	f.members.kind === "tree" ? { kind: "nonRoots", start: f.members.start.name } : everyRow
+	f.shape.kind === "tree" ? { kind: "nonRoots", start: f.shape.start.name } : everyRow
 
 /**
  * Whether a selection's conjuncts select exactly an end's rows: none for every fact; for a tree's non-roots, one
@@ -442,10 +434,10 @@ const axisShapes = (f: FamilyShape): ReadonlyArray<AxisShape> => {
 		source: { relation: f.member.name, rows: members, key: group },
 		target: { relation: f.owner.name, rows: everyRow, key: keys }
 	}
-	if (f.index.kind === "law") {
+	if (f.shape.kind === "counted") {
 		return [owner]
 	}
-	const i = f.index.field.name
+	const i = f.shape.index.field.name
 	return [
 		owner,
 		{
@@ -621,11 +613,13 @@ export interface AxisBase {
 export const axisBase = (f: FamilyShape, axis: AxisKind): AxisBase | undefined => {
 	switch (axis) {
 		case "predecessor":
-			return f.index.kind === "field" ? { relation: f.member, at: f.index.field } : undefined
+			return f.shape.index.kind === "field"
+				? { relation: f.member, at: f.shape.index.field }
+				: undefined
 		case "last":
 			return { relation: f.owner, at: f.count }
 		case "owner":
-			return f.members.kind === "tree" ? { relation: f.member, at: f.members.start } : undefined
+			return f.shape.kind === "tree" ? { relation: f.member, at: f.shape.start } : undefined
 	}
 }
 
@@ -971,18 +965,18 @@ export const drawnNamed = (
 	f: FamilyShape
 ): ReadonlyArray<{ readonly relation: RelationInfo; readonly field: LawField }> => [
 	{ relation: f.owner, field: f.count },
-	...(f.index.kind === "field" ? [{ relation: f.member, field: f.index.field }] : []),
-	...(f.members.kind === "tree"
+	...(f.shape.index.kind === "field" ? [{ relation: f.member, field: f.shape.index.field }] : []),
+	...(f.shape.kind === "tree"
 		? [
-				{ relation: f.member, field: f.members.parent },
-				{ relation: f.member, field: f.members.start },
-				{ relation: f.member, field: f.members.end }
+				{ relation: f.member, field: f.shape.parent },
+				{ relation: f.member, field: f.shape.start },
+				{ relation: f.member, field: f.shape.end }
 			]
 		: [])
 ]
 
 /** A family statement's or a tree's description in a refusal. */
 export const familyText = (f: FamilyShape): string =>
-	f.members.kind === "tree"
+	f.shape.kind === "tree"
 		? `the tree of ${f.member.name}`
 		: `the ${orderOf(f)} family ${slotsText(f.id)}`

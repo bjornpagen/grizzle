@@ -311,7 +311,7 @@ const fillFamily = (family: Family): FillFamily => ({
 	id: familyIdOf(family.id),
 	count: family.count.name,
 	member: family.member.name,
-	tree: family.members.kind === "tree" && family.member.name === family.owner.name
+	tree: family.shape.kind === "tree" && family.member.name === family.owner.name
 })
 
 /** A fill rule as data (fold.ts FillRuleData): a tree root's parent (`self`) is its own column, as `own` is. */

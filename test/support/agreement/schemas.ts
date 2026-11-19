@@ -2697,8 +2697,8 @@ const keysOf = (artifacts: SchemaArtifacts, name: string): ReadonlyArray<Readonl
 			if (f.member.name !== name) {
 				return []
 			}
-			return f.index.kind === "field" && f.members.kind === "every"
-				? [[...Arr.map(f.group, (g) => g.member.name), f.index.field.name]]
+			return f.shape.index.kind === "field" && f.shape.kind !== "tree"
+				? [[...Arr.map(f.group, (g) => g.member.name), f.shape.index.field.name]]
 				: []
 		})
 	]

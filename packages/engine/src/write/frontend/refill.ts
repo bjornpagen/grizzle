@@ -231,7 +231,7 @@ export const stratumRefill = (
 			})
 		)
 	}
-	const treePath = closure.paths.find((p) => p.reader.family.members.kind === "tree")
+	const treePath = closure.paths.find((p) => p.reader.family.shape.kind === "tree")
 	if (treePath !== undefined) {
 		const tree = treePath.reader.family.id
 		return Result.err(

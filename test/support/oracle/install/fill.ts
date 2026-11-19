@@ -145,7 +145,7 @@ export const familyRows = (
 	for (const f of families) {
 		const at = formatLoc(SourceLoc(`family ${f.id.owner}.${f.id.count}`, [plan.declared]))
 		const stated = Rec.has(facts, f.member.name) && (facts[f.member.name] ?? []).length > 0
-		if (f.members.kind === "tree") {
+		if (f.shape.kind === "tree") {
 			if (stated) {
 				return refuse(
 					at,

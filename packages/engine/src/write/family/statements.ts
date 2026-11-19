@@ -100,7 +100,7 @@ export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family
 			: [of({ kind: "field", field: f }, f.type)]
 	)
 	const law = mine.flatMap((f): ReadonlyArray<RowColumn> => [
-		...(f.index.kind === "law" ? [of(f.index, f.count.type)] : []),
+		...(f.shape.kind === "counted" ? [of(f.shape.index, f.count.type)] : []),
 		of({ kind: "law", column: f.copy }, f.count.type),
 		...f.folds.flatMap((fold) =>
 			fold.planes.flatMap((plane) =>

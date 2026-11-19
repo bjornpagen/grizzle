@@ -39,7 +39,7 @@ import {
 	indexName,
 	type InstanceRow,
 	instanceGen,
-	isSequence,
+	isSequenceSpec,
 	keyOfRelation,
 	membershipIn,
 	relationAt,
@@ -113,7 +113,7 @@ const closedUp = (spec: FillSpec, rows: ReadonlyArray<InstanceRow>): ReadonlyArr
 	Arr.map(rows, (r) => ({
 		...r,
 		memberOf: Arr.map(r.memberOf, (m) =>
-			isSequence(familyAt(spec, m.family))
+			isSequenceSpec(familyAt(spec, m.family))
 				? {
 						...m,
 						slot: Option.getOrElse(
@@ -133,7 +133,7 @@ const opened = (
 ): InstanceRow => ({
 	...r,
 	memberOf: Arr.map(r.memberOf, (m) =>
-		isSequence(familyAt(spec, m.family)) &&
+		isSequenceSpec(familyAt(spec, m.family)) &&
 		Arr.some(places, (p) => p.family === m.family && p.owner === m.owner && m.slot >= p.slot)
 			? { ...m, slot: m.slot + 1 }
 			: m
@@ -308,7 +308,7 @@ export type AgainVerdict =
  */
 const placeFields = (spec: FillSpec, f: number): ReadonlyArray<string> => [
 	...groupFieldsOf(spec, f),
-	...(isSequence(familyAt(spec, f)) ? [indexName(f)] : [])
+	...(isSequenceSpec(familyAt(spec, f)) ? [indexName(f)] : [])
 ]
 
 /**
@@ -359,7 +359,7 @@ export const againVerdict = (
 				z.v !== x.v ||
 				!samePlaces(x, z) ||
 				Arr.some(spec.families, (f, k) => {
-					if (!isSequence(f) || f.owner !== x.relation) {
+					if (!isSequenceSpec(f) || f.owner !== x.relation) {
 						return false
 					}
 					const now = membersUnder(again, k, x.id)
@@ -376,7 +376,7 @@ export const againVerdict = (
 	}
 	const placed = Arr.flatMap(again, (y) =>
 		Arr.flatMap(y.memberOf, (m) => {
-			if (!isSequence(familyAt(spec, m.family))) {
+			if (!isSequenceSpec(familyAt(spec, m.family))) {
 				return []
 			}
 			const place = [...groupFieldsOf(spec, m.family), indexName(m.family)]
@@ -476,7 +476,7 @@ const newMember = (
 		const at = (k: number, under: InstanceRow): Membership => ({
 			family: k,
 			owner: under.id,
-			slot: isSequence(familyAt(spec, k))
+			slot: isSequenceSpec(familyAt(spec, k))
 				? source.draw(int(0, membersUnder(rows, k, under.id).length))
 				: 0
 		})

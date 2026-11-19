@@ -189,9 +189,9 @@ export const aFamilysNativesAre21sThreeAxesAMemberInSeveralCountedFamiliesEveryF
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/families.ts",
-				original: '\t\tcopy: drawnColumn("copy", id, law),\n\t\tmembers\n\t})',
+				original: '\t\tshape,\n\t\tcopy: drawnColumn("copy", id, law)\n\t})',
 				replacement:
-					'\t\tcopy: drawnColumn(indexField === undefined ? "index" : "copy", id, law),\n\t\tmembers\n\t})',
+					'\t\tshape,\n\t\tcopy: drawnColumn(indexField === undefined ? "index" : "copy", id, law)\n\t})',
 				why: "A counted family's copy drawn as its index column (analysis/theory/families.ts familyShape); the disjoint families fail."
 			}
 		]

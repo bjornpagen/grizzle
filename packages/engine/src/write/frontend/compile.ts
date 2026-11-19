@@ -1033,16 +1033,14 @@ const compile = (
 	/** The tree `name` is the relation of, by its shape, none where it is no tree's. */
 	const treeShapeOf = (name: string): TreeShape | undefined =>
 		families.flatMap((f) =>
-			f.members.kind === "tree" && f.member.name === name && f.owner.name === name
-				? [f.members]
-				: []
+			f.shape.kind === "tree" && f.member.name === name && f.owner.name === name ? [f.shape] : []
 		)[0]
 	/** The tree `name` is the relation of, as a unit delete of it names its rows (write/delete/unit.ts UnitMatch), none
 	 * where it is no tree's. */
 	const unitTreeOf = (name: string): UnitMatch | undefined =>
 		families.flatMap((f): ReadonlyArray<UnitMatch> =>
-			f.members.kind === "tree" && f.member.name === name && f.owner.name === name
-				? [{ kind: "tree", tree: f, shape: f.members }]
+			f.shape.kind === "tree" && f.member.name === name && f.owner.name === name
+				? [{ kind: "tree", tree: f, shape: f.shape }]
 				: []
 		)[0]
 	/** A family `name` is a member of besides its own tree, none where it is no other family's member. */
@@ -2413,7 +2411,7 @@ const compile = (
 					(f) =>
 						f.owner.name === o.relation &&
 						f.owner.mutable &&
-						f.members.kind !== "tree" &&
+						f.shape.kind !== "tree" &&
 						redrawing.includes(f.member.name)
 				) &&
 				slots.some(
@@ -2430,7 +2428,7 @@ const compile = (
 					(f) =>
 						f.member.name === member &&
 						f.owner.mutable &&
-						f.members.kind !== "tree" &&
+						f.shape.kind !== "tree" &&
 						put.some((o) => o.relation === f.owner.name)
 				)
 			)

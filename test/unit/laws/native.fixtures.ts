@@ -669,7 +669,10 @@ const familyInstalled = (shape: Shape): FamilyInstalled => {
 	}
 	return {
 		installation: installation.success,
-		index: family.index.kind === "field" ? family.index.field.name : family.index.column,
+		index:
+			family.shape.index.kind === "field"
+				? family.shape.index.field.name
+				: family.shape.index.column,
 		copy: family.copy
 	}
 }

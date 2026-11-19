@@ -89,7 +89,7 @@ import {
 	termText
 } from "#compiler/ir/desc.ts"
 import { type ExprSpec, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import { type AxisKind, type Family, type FamilyFold, orderOf } from "#compiler/ir/family.ts"
+import type { AxisKind, Family, FamilyFold } from "#compiler/ir/family.ts"
 import { identicalLiteral } from "#compiler/ir/identical.ts"
 import {
 	type DeclaredSide,
@@ -872,7 +872,7 @@ export class LawSides {
 			this.side(scopeOver(f.member.name, members), terms, loc)
 		const ownerSide = (terms: NonEmptyReadonlyArray<TermDesc>): ResolvedSide =>
 			this.side(scopeOver(f.owner.name, []), terms, loc)
-		const index = f.index.kind === "field" ? f.index.field.name : undefined
+		const index = f.shape.index.kind === "field" ? f.shape.index.field.name : undefined
 		return {
 			witness: familyWitness(f),
 			group: memberSide(group),
@@ -898,8 +898,8 @@ export class LawSides {
 		loc: SourceLoc
 	): { readonly sides: FamilySides; readonly tree: TreeSides } {
 		const sides = this.familySides(f, loc)
-		const t = f.members
-		const at = f.index.field
+		const t = f.shape
+		const at = f.shape.index.field
 		const root = mapNonEmpty(t.root, termOf)
 		const every = (terms: NonEmptyReadonlyArray<TermDesc>): ResolvedSide =>
 			this.side(scopeOver(f.member.name, []), terms, loc)
@@ -991,7 +991,9 @@ export class LawSides {
 		const x = fold.step.kind === "value" ? fold.step.field : undefined
 		if (fold.visible) {
 			const index =
-				f.index.kind === "field" ? f.index.field : defectField("a visible fold's family is ordered")
+				f.shape.index.kind === "field"
+					? f.shape.index.field
+					: defectField("a visible fold's family is ordered")
 			const planes = mapNonEmpty(fold.planes, (p) => {
 				const before =
 					p.before.kind === "field" ? p.before.field : defectField("a visible before is a field")
@@ -1225,7 +1227,7 @@ export class Normalizer {
 					`one count counts one family; ${slotsText(shape.id)} counts ${familyText(known.shape)} and ${familyText(shape)}`
 				)
 			}
-			if (shape.index.kind === "field") {
+			if (shape.shape.index.kind === "field") {
 				const sequence = sequences.get(shape.member.name)
 				if (sequence !== undefined) {
 					refuse(
@@ -1750,7 +1752,7 @@ export class Normalizer {
 		if (!isTree(f)) {
 			throw defect("a tree statement's family is a tree")
 		}
-		const t = f.members
+		const t = f.shape
 		this.#keep(
 			{
 				identity: {
@@ -1762,13 +1764,10 @@ export class Normalizer {
 					kind: "built",
 					detail: () => {
 						const resolved = this.#resolvedFamily(f.id)
-						if (resolved.members.kind !== "tree" || resolved.index.kind !== "field") {
-							throw defect("a tree's resolved family keeps its tree members and its at")
+						if (resolved.shape.kind !== "tree") {
+							throw defect("a tree's resolved family keeps its tree members")
 						}
-						return {
-							kind: "tree",
-							family: { ...resolved, members: resolved.members, index: resolved.index }
-						}
+						return { kind: "tree", family: { ...resolved, shape: resolved.shape } }
 					}
 				}
 			},
@@ -2024,7 +2023,7 @@ export class Normalizer {
 		return [...this.#families.values()].flatMap((entry) => {
 			const shape = entry.shape
 			const loc = entry.loc
-			const side = familySides[shape.members.kind === "tree" ? "tree" : orderOf(shape)]
+			const side = familySides[shape.shape.kind]
 			const group = shape.group.map((p) => ({
 				a: shape.member.name,
 				f: p.member,
@@ -2034,13 +2033,13 @@ export class Normalizer {
 				refusal: side
 			}))
 			const tree =
-				shape.members.kind === "tree"
+				shape.shape.kind === "tree"
 					? [
 							{
 								a: shape.member.name,
-								f: shape.members.start,
+								f: shape.shape.start,
 								b: shape.member.name,
-								g: shape.members.end,
+								g: shape.shape.end,
 								loc,
 								refusal: familySides.tree
 							}
@@ -2187,7 +2186,7 @@ const defectField = (what: string): never => {
  */
 const ridingPins = (f: FamilyShape, ride: Ride): ReadonlyArray<Pin> => {
 	const base = axisBase(f, ride.axis)
-	const own = ride.axis === "owner" && f.members.kind === "tree"
+	const own = ride.axis === "owner" && f.shape.kind === "tree"
 	return base === undefined
 		? []
 		: ride.carried.flatMap((p): ReadonlyArray<Pin> => {

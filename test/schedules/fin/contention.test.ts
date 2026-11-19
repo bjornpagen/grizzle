@@ -113,9 +113,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					const m = names.column(Member, "member")
 					const g = names.column(Member, "g")
 					const at = quoteIdent(
-						family.index.kind === "law"
-							? family.index.column
-							: names.columnIdent({ name: "Member" }, family.index.field.name)
+						family.shape.kind === "counted"
+							? family.shape.index.column
+							: names.columnIdent({ name: "Member" }, family.shape.index.field.name)
 					)
 					const copy = quoteIdent(family.copy)
 					const app = yield* rig.servedWriter(

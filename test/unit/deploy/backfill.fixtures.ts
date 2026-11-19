@@ -390,7 +390,7 @@ const foldObserved = (c: FoldCase, state: State) => {
 		members: rowsOf(c.migration, state, c.member, (cell) =>
 			memberText(
 				cell(fieldColumn(second, c.member, c.key)),
-				cell(columnOf(family.index)),
+				cell(columnOf(family.shape.index)),
 				cell(family.copy),
 				cell(columnOf(plane.before)),
 				cell(columnOf(plane.after))
@@ -635,7 +635,7 @@ const foldColumns = (c: FoldCase): ReadonlyArray<string> => {
 	const plane = defined(defined(family.folds[0]).planes[0])
 	return Arr.sort(
 		[
-			columnOf(family.index),
+			columnOf(family.shape.index),
 			family.copy,
 			columnOf(plane.before),
 			columnOf(plane.after),
@@ -1006,7 +1006,7 @@ const concatObserved = (state: State) => {
 			Arr.map(
 				rows("Token"),
 				(row) =>
-					`${cellText(row, fieldColumn(second, "Token", "token"))}@${cellText(row, columnOf(fam.index))} ${cellText(row, columnOf(plane.before))}→${cellText(row, columnOf(plane.after))}`
+					`${cellText(row, fieldColumn(second, "Token", "token"))}@${cellText(row, columnOf(fam.shape.index))} ${cellText(row, columnOf(plane.before))}→${cellText(row, columnOf(plane.after))}`
 			),
 			Order.String
 		),
@@ -1358,7 +1358,7 @@ const slotsObserved = (c: FoldCase, state: State) => {
 		members: rowsOf(c.migration, state, c.member, (cell) =>
 			slotText(
 				cell(fieldColumn(target, c.member, c.key)),
-				cell(columnOf(family.index)),
+				cell(columnOf(family.shape.index)),
 				cell(family.copy)
 			)
 		),
