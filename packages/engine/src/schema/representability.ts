@@ -662,6 +662,7 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 		case "uuid":
 		case "bytes":
 		case "text":
+		case "pattern":
 		case "span":
 		case "closedId":
 		case "bits":
@@ -741,6 +742,7 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 		case "vector":
 			return fixed(vectorHeaderBytes + typlens.float4 * desc.dimensions, 4, "vector")
 		case "bytes":
+		case "pattern":
 			return undefined
 		case "text":
 			break

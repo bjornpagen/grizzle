@@ -503,6 +503,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			case "uuid":
 				return builtin(builtinType("uuid"), { kind: "uuid" })
 			case "text":
+			case "pattern":
 				return builtin(builtinType("text"), { kind: "text" })
 			case "bytes":
 				return builtin(builtinType("bytea"), { kind: "bytes" })

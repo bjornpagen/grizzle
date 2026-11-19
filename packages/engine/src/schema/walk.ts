@@ -1,7 +1,6 @@
 import {
 	type BindMapDesc,
 	type ContextDesc,
-	type ExprDesc,
 	exprChildren,
 	headTerms,
 	type Inferred,
@@ -17,7 +16,6 @@ import {
 	type RuleDesc,
 	type SourceDesc
 } from "#compiler/ir/desc.ts"
-import { type PayloadReads, patternParts } from "#compiler/scalar/compute/typing.ts"
 
 interface QueryUses {
 	/** The stored, closed, derived and world relations the query reads, by name. */
@@ -35,26 +33,6 @@ class Collector {
 	readonly deltas = new Set<string>()
 	readonly inputs = new Set<string>()
 	readonly contexts = new Map<string, ContextDesc>()
-	readonly patterns = new Map<string, Set<string>>()
-
-	/** Each payload field the pattern of a Compute.matches reads, its other parts no field. */
-	#pattern(pattern: InferredExpr): void {
-		for (const part of patternParts(pattern)) {
-			if (part.kind === "closedAt") {
-				this.#read(part.desc.relation, part.desc.field)
-			}
-		}
-	}
-
-	/** The payload field `field` of `relation`, read as a pattern. */
-	#read(relation: string, field: string): void {
-		const fields = this.patterns.get(relation)
-		if (fields === undefined) {
-			this.patterns.set(relation, new Set([field]))
-		} else {
-			fields.add(field)
-		}
-	}
 
 	query(q: InferredQuery): void {
 		this.stage(q.stage)
@@ -135,11 +113,6 @@ class Collector {
 		}
 		for (const r of inner.deltas) {
 			this.deltas.add(r)
-		}
-		for (const [relation, fields] of inner.patterns) {
-			for (const field of fields) {
-				this.#read(relation, field)
-			}
 		}
 		for (const [name, c] of inner.contexts) {
 			if (!this.contexts.has(name)) {
@@ -227,12 +200,6 @@ class Collector {
 			}
 			return
 		}
-		if (e.kind === "compute") {
-			const [, pattern] = e.args
-			if (e.fn === "matches" && pattern !== undefined) {
-				this.#pattern(pattern)
-			}
-		}
 		if (e.kind === "closedAt" || e.kind === "closedRow" || e.kind === "closedHas") {
 			this.relations.add(e.relation)
 		}
@@ -312,27 +279,3 @@ export const approximates = (q: QueryDesc): boolean => stageApproximates(q.stage
 
 /** Whether a query's delivered heading carries an attachment: a role's query entry, a flat view, does not. */
 export const attachesHeading = (q: QueryDesc): boolean => stageAttaches(q.stage)
-
-/**
- * The payload fields the Compute.matches patterns of `exprs` read (scalar/compute/typing.ts PayloadReads): a lowering batch's, over the
- * expressions it lowers.
- */
-export const exprPatternReads = (exprs: Iterable<ExprDesc>): PayloadReads => {
-	const c = new Collector()
-	for (const e of exprs) {
-		c.expr(e)
-	}
-	return c.patterns
-}
-
-/**
- * The payload fields the Compute.matches patterns of `queries` read, through every rule, import, negation and
- * attachment of each (scalar/compute/typing.ts PayloadReads): a checked program's batch.
- */
-export const queryPatternReads = (queries: Iterable<InferredQuery>): PayloadReads => {
-	const c = new Collector()
-	for (const q of queries) {
-		c.query(q)
-	}
-	return c.patterns
-}

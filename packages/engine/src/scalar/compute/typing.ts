@@ -58,6 +58,7 @@ import {
 	numericBoundOf,
 	numericTypmodOf,
 	type PlainType,
+	regexRefOf,
 	rosterOf,
 	type ScalarType,
 	spanOf,
@@ -291,13 +292,12 @@ export interface ClosedField {
 }
 
 /**
- * What a Compute.matches pattern reading a closed relation's payload field can be (lower.ts readAdmissions): where
- * every row's value there is a text, each distinct one in row order (`sources`), none where it holds no row, which the
- * lowering batch whose expressions read the field as a pattern admits once (ClosedRelations.admitted); or a field of
- * another value, which no pattern reads.
+ * What a Compute.matches pattern reading a closed relation's payload field can be (lower.ts readAdmissions): a
+ * str.pattern field's distinct values in row order, none where it holds no row, each admitted once where the relation
+ * is read (check/closed.ts closedReads); or a field of any other type, which no pattern reads.
  */
 export type PayloadPatterns =
-	| { readonly kind: "texts"; readonly sources: ReadonlyArray<string> }
+	| { readonly kind: "patterns"; readonly admitted: ReadonlyArray<MatchAdmission> }
 	| { readonly kind: "other" }
 
 /** A payload field of a closed relation, as C.at reads it, with what a Compute.matches pattern reading it can be. */
@@ -315,28 +315,22 @@ export interface ClosedHeading {
 }
 
 /**
- * The closed relations an expression may apply: a schema's, by name, undefined for a name that is no closed relation's,
- * with each text payload field a Compute.matches pattern of the lowering batch reads (patternParts) admitted once for
- * the batch (`admitted`, admittedReads), undefined for a field no expression of the batch reads as a pattern; or none, where no expression applies one, with the reason, which a refusal of C.at or C.row there states.
+ * The closed relations an expression may apply: a schema's, by name, undefined for a name that is no closed relation's;
+ * or none, where no expression applies one, with the reason, which a refusal of C.at or C.row there states.
  */
 export type ClosedRelations =
 	| {
 			readonly kind: "schema"
 			readonly heading: (relation: string) => ClosedHeading | undefined
-			readonly admitted: (
-				relation: string,
-				field: string
-			) => ReadonlyArray<MatchAdmission> | undefined
 	  }
 	| { readonly kind: "none"; readonly why: string }
 
 /**
  * A part of a Compute.matches pattern, in the order the pattern states it: a literal, a closed relation's payload
  * field C.at reads, or any other expression, each with the branches of the Compute.cond it stands in. The one reading of
- * what a pattern reads: patternAdmissions admits it, and a lowering batch admits the payload fields it names
- * (admittedReads).
+ * what a pattern reads, which patternAdmissions admits.
  */
-export type PatternPart<R extends Refs> =
+type PatternPart<R extends Refs> =
 	| {
 			readonly kind: "literal"
 			readonly desc: Extract<ExprDesc<Located, R>, { readonly kind: "literal" }>
@@ -354,9 +348,8 @@ export type PatternPart<R extends Refs> =
 	  }
 
 /** The parts of the Compute.matches pattern `desc` (PatternPart), a conditional's two branches in turn. */
-export const patternParts = <R extends Refs>(
-	desc: ExprDesc<Located, R>
-): ReadonlyArray<PatternPart<R>> => partsUnder(desc, [])
+const patternParts = <R extends Refs>(desc: ExprDesc<Located, R>): ReadonlyArray<PatternPart<R>> =>
+	partsUnder(desc, [])
 
 /** patternParts of `desc`, which stands in the conditional branches `branches`. */
 const partsUnder = <R extends Refs>(
@@ -404,44 +397,6 @@ const partsUnder = <R extends Refs>(
 /** No closed relation, for the reason `why`: "a contract predicate reads no closed relation of the schema". */
 export const noClosedRelations = (why: string): ClosedRelations =>
 	Object.freeze({ kind: "none", why })
-
-/**
- * The closed relations' payload fields a set of expressions reads as Compute.matches patterns (patternParts), by
- * relation: what a lowering batch admits (admittedReads).
- */
-export type PayloadReads = ReadonlyMap<string, ReadonlySet<string>>
-
-/**
- * `reads` for a lowering batch whose expressions read `patterns` as Compute.matches patterns (schema/walk.ts
- * exprPatternReads, queryPatternReads): each such text payload field's distinct values admitted once for the batch, in
- * row order (scalar/regex/admit.ts admitMatch), and no other field's. A field `reads` holds no text payload of is the
- * lowering's to refuse, as it refuses any closed read it cannot make.
- */
-export const admittedReads = (reads: ClosedRelations, patterns: PayloadReads): ClosedRelations => {
-	if (reads.kind === "none") {
-		return reads
-	}
-	const admitted = new Map<string, ReadonlyMap<string, ReadonlyArray<MatchAdmission>>>()
-	for (const [relation, fields] of patterns) {
-		const heading = reads.heading(relation)
-		if (heading === undefined) {
-			continue
-		}
-		const byField = new Map<string, ReadonlyArray<MatchAdmission>>()
-		for (const field of fields) {
-			const read = heading.payload.find((f) => f.name === field)?.patterns
-			if (read?.kind === "texts") {
-				byField.set(field, Object.freeze(read.sources.map((source) => admitMatch(source))))
-			}
-		}
-		admitted.set(relation, byField)
-	}
-	return Object.freeze({
-		kind: "schema",
-		heading: reads.heading,
-		admitted: (relation: string, field: string) => admitted.get(relation)?.get(field)
-	})
-}
 
 /** The site a term is compiled at, which judges what the term holds there and refuses what it cannot hold. */
 export type LowerSite = "query" | "check"
@@ -3273,9 +3228,9 @@ class Typing<R extends Refs> {
 		if (analysis.kind === "unanalyzed") {
 			return []
 		}
-		const own = textOf(subject.nominal)
+		const own = regexRefOf(subject.nominal)
 		const type = this.textWithin(
-			appendNonEmpty(own === undefined || own === "wildcard" ? [] : own.patterns, {
+			appendNonEmpty(own === undefined ? [] : own.patterns, {
 				source: guard.pattern,
 				flags: matchFlags
 			}),

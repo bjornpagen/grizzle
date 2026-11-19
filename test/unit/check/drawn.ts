@@ -274,7 +274,7 @@ export const kindOfType = (t: ScalarType): ColumnKind | "hull" | undefined => {
 		case "text": {
 			const regex = textOf(t)
 			const source =
-				regex === undefined || regex === "wildcard" ? undefined : regex.patterns[0].source
+				regex === undefined || typeof regex === "string" ? undefined : regex.patterns[0].source
 			return regex === "wildcard"
 				? "prose"
 				: source === "^[a-z]+$"

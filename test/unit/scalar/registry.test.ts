@@ -183,9 +183,9 @@ export const scalarTypeOfAFieldDescToItsScalarTypeBuiltEveryTypeATestFixtureExpo
 			{
 				file: "packages/engine/src/ir/scalar.ts",
 				original:
-					'\ta === "wildcard" || b === "wildcard"\n\t\t? a === b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
+					'\ttypeof a === "string" || typeof b === "string"\n\t\t? a === b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
 				replacement:
-					'\ta === "wildcard" || b === "wildcard"\n\t\t? a !== b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
+					'\ttypeof a === "string" || typeof b === "string"\n\t\t? a !== b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
 				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:851 in sameRegexRef: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			},
 			{

@@ -57,13 +57,12 @@ import {
 } from "#compiler/runtime/write/witness.ts"
 import type { EvalStop } from "#compiler/scalar/compute/evaluate.ts"
 import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
-import { admittedReads, noParams } from "#compiler/scalar/compute/typing.ts"
+import { noParams } from "#compiler/scalar/compute/typing.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { hostOf } from "#compiler/scalar/values/identity.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
 import { namedRelation } from "#compiler/schema/relation.ts"
 import type { SelectedDesc } from "#compiler/schema/statements.ts"
-import { exprPatternReads } from "#compiler/schema/walk.ts"
 import type {
 	AdmittedRow,
 	CheckVerdict,
@@ -143,7 +142,7 @@ const rowPredicate = (
 	const lowered = Result.map(
 		lowerPredicate(predicate, {
 			...typingEnv(model.owned),
-			closed: admittedReads(model.checked.closedReads, exprPatternReads([predicate])),
+			closed: model.checked.closedReads,
 			mode: "check",
 			loc,
 			emit: exprEmitter(`rowEvaluator ${relation}`),

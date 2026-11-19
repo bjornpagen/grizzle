@@ -202,7 +202,10 @@ export const textLanguageShape: S.Shape<TextLanguage> = S.tagged("kind", {
 })
 
 /** A text type's refinement (ir/scalar.ts TextInfo): the wildcard, or its regex reference. */
-const textInfoShape: S.Shape<TextInfo> = S.unionShape(S.literalsShape(["wildcard"]), regexRefShape)
+const textInfoShape: S.Shape<TextInfo> = S.unionShape(
+	S.literalsShape(["wildcard", "pattern"]),
+	regexRefShape
+)
 
 /**
  * A declared name, parsed where it is decoded: what a roster names its closed relation by and what names a contract. A

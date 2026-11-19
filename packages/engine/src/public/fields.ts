@@ -102,6 +102,7 @@ export type {
 	LiteralOf,
 	NaturalField,
 	NumericTypmodField,
+	PatternField,
 	RetirementField,
 	SpanField,
 	SpanWidthOf,

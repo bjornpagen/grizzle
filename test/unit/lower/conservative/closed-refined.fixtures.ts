@@ -44,7 +44,7 @@ const withDomain: PhysicalNames = { ...plain, textDomain: patterned }
 
 /** The installed name of the pattern's domain, which a cast to it spells. */
 export const domainName = defined(
-	((text) => (text === undefined || text === "wildcard" ? undefined : patterned(text)))(
+	((text) => (text === undefined || typeof text === "string" ? undefined : patterned(text)))(
 		textOf(T.code)
 	),
 	"the installation names a domain for the payload's pattern"

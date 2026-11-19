@@ -2527,6 +2527,8 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return "Fi.Uuid"
 		case "bytes":
 			return "Uint8Array<ArrayBuffer>"
+		case "pattern":
+			return "string"
 		case "text":
 			return Arr.join(
 				Arr.map(desc.patterns, (p) => `Tx.RegexInfer<${jsonText(p.source)}, ${jsonText(p.flags)}>`),
@@ -2674,7 +2676,7 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 		case "date":
 			return "Fi.CalendarDate"
 		case "text":
-			return t.text === "wildcard"
+			return typeof t.text === "string"
 				? "string"
 				: Arr.join(
 						Arr.map(
@@ -5445,6 +5447,8 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return "Fi.BytesField"
 		case "text":
 			return `Tx.RegexText<${hostOfDesc(desc, base, ids)}>`
+		case "pattern":
+			return "Fi.PatternField"
 		case "contract": {
 			if (builtinDesc(desc)) {
 				return desc.base.kind === "pg" && desc.base.type === "date"
@@ -5487,6 +5491,7 @@ const literalType = (
 		case "bytes":
 		case "uuid":
 		case "text":
+		case "pattern":
 		case "span":
 		case "closedId":
 			return hostOfDesc(desc, base, ids)

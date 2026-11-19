@@ -208,6 +208,7 @@ const descRoster = (t: FieldDesc): string | undefined => {
 		case "uuid":
 		case "bytes":
 		case "text":
+		case "pattern":
 		case "span":
 		case "vector":
 			return undefined
@@ -335,6 +336,7 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
 		case "uuid":
 		case "bytes":
 		case "text":
+		case "pattern":
 		case "vector":
 			return t
 	}

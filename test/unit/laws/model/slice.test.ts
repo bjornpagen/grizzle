@@ -349,7 +349,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 						Arr.flatMap(cast, (t) => {
 							const text = textOf(t)
 							const pattern =
-								text === undefined || text === "wildcard" ? undefined : names.textDomain(text)
+								text === undefined || typeof text === "string" ? undefined : names.textDomain(text)
 							return [...chainOf(t), ...(pattern === undefined ? [] : [pattern.name])]
 						})
 					)

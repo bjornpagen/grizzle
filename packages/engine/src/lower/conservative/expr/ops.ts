@@ -1,6 +1,5 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { OpId, PatternTable, ScalarExpr } from "#compiler/ir/expr.ts"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
@@ -11,7 +10,6 @@ import {
 	nativeOp,
 	type OperandReading
 } from "#compiler/scalar/compute/registry.ts"
-import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import {
 	type BinaryOperator,
 	type BuiltinFunctionName,
@@ -226,34 +224,6 @@ const utf16Units = (args: ReadonlyArray<Expr>): Expr | undefined => {
 		: undefined
 }
 
-/**
- * The pattern operand `~` reads in a Compute.matches node's place (ir/expr.ts PatternTable): the ARE of each value
- * the node's pattern can take (scalar/regex/admit.ts matchAre), translated here, where it is printed, never its source,
- * which only grizzle's own automaton reads. A pattern printed as a text
- * literal, a literal pattern or one a persistent expression folds to its value (physical/ddl/expr.ts), is its ARE's
- * literal, so no CASE compares two constants, which a generation expression refuses (42P22); any other is
- * `CASE p WHEN '<source>' THEN '<ARE>' ... ELSE p END`, which reads the pattern once, whatever SQL computes it, and
- * whose ELSE keeps an absent C.at's NULL, which the match's reader refuses: every value the pattern takes has its arm.
- */
-const patternOperand = (sql: Expr, table: PatternTable): Expr => {
-	if (sql.kind === "literal" && sql.value.kind === "text") {
-		const source = sql.value.value
-		if (!table.includes(source)) {
-			throw defect(`a literal pattern's entry in its node's pattern table: /${source}/`)
-		}
-		return lit.text(matchAre(source), types.text)
-	}
-	return {
-		kind: "case",
-		operand: sql,
-		whens: mapNonEmpty(table, (source) => ({
-			when: lit.text(source, types.text),
-			result: lit.text(matchAre(source), types.text)
-		})),
-		else: sql
-	}
-}
-
 /** A construct's SQL form: a connective by its bare identity, or a registry construct by its keyword. */
 const keyword = (name: Construct, args: ReadonlyArray<Expr>): Expr | undefined => {
 	const [first, second, third] = args
@@ -444,21 +414,15 @@ const totalForm = (
  *
  * Every form takes its operands as its overload reads them (operandsAsRead): queries, the DDL of CHECKs and
  * expression indexes, and span fallbacks all lower their scalar expressions here, so no display-scale reading reaches
- * PostgreSQL with an operand it could see a display scale of, and a Compute.matches node's pattern reaches `~` as its
- * ARE (patternOperand).
+ * PostgreSQL with an operand it could see a display scale of. A Compute.matches node's pattern reaches `~` as its ARE,
+ * which its operands already are (expr/index.ts patternAre).
  */
 export const defaultOps = (
 	expr: ScalarExpr & { readonly kind: "op" },
 	operands: ReadonlyArray<Expr>,
 	library: PhysicalNames["library"]
 ): Expr | undefined => {
-	const [subject, pattern] = operands
-	const args = readOperands(
-		expr.op,
-		"patterns" in expr && subject !== undefined && pattern !== undefined
-			? [subject, patternOperand(pattern, expr.patterns)]
-			: operands
-	)
+	const args = readOperands(expr.op, operands)
 	const native = nativeOp(expr.op)
 	if (native !== undefined) {
 		const total = totalForm(expr, native, args)

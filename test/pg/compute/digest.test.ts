@@ -101,7 +101,7 @@ export const computeSha256OnPostgreSQLTheHostsDigestOfAnyBytesIsPostgreSQLsEncod
 							for (const term of [check, read]) {
 								assert.equal(hostDigest(term, body), oracle, "the host's digest is PostgreSQL's")
 								const language = defined(textOf(term.nominal), "a digest is text")
-								if (language === "wildcard") {
+								if (typeof language === "string") {
 									return assert.fail("a digest's term states its language")
 								}
 								for (const text of [oracle, ...neighbours(oracle)]) {

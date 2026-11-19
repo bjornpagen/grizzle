@@ -30,6 +30,7 @@ import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { binaryCoercion, isDateParse } from "#compiler/scalar/compute/registry.ts"
+import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { cast, lit, positionalValue, qualifiedCall, slotParam, types } from "#compiler/sql/build.ts"
@@ -214,7 +215,15 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 			}
 		}
 		case "op": {
-			const args = expr.args.map(lower)
+			const args =
+				"patterns" in expr
+					? matchOperands(expr, {
+							lower,
+							whole: site.whole,
+							are: (read) =>
+								closedRead(site, read, read.args.map(lower), { kind: "are", field: read.field })
+						})
+					: expr.args.map(lower)
 			const operandTypes = [expr.type, ...expr.args.map((a) => a.type)]
 			if (operandTypes.some((t) => spanCarrierOf(t) !== undefined)) {
 				return lowerSpanOp(expr, args, site.at(expr), site.names.library)
@@ -235,7 +244,16 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
-			return closedRead(site, expr, expr.args.map(lower))
+			return closedRead(
+				site,
+				expr,
+				expr.args.map(lower),
+				expr.kind === "closedAt"
+					? { kind: "at", field: expr.field }
+					: expr.kind === "closedRow"
+						? { kind: "row" }
+						: { kind: "has" }
+			)
 		case "call":
 			return declaredCall(site, expr, expr.args.map(lower))
 	}
@@ -271,6 +289,77 @@ const simpleCase = (
 				else: lower(chain.otherwise)
 			}
 		: undefined
+}
+
+/**
+ * How a site lowers what a Compute.matches pattern reads (patternAre): any subterm, a subterm it folds to its value,
+ * and a str.pattern payload's ARE read by key.
+ */
+export interface PatternLowering {
+	readonly lower: (e: ScalarExpr) => Expr
+	readonly whole: (e: ScalarExpr) => Expr | undefined
+	readonly are: (read: ScalarExpr & { readonly kind: "closedAt" }) => Expr
+}
+
+/**
+ * A Compute.matches node's operands as `~` reads them: its subject's SQL, and its pattern in the ARE PostgreSQL reads
+ * (patternAre).
+ */
+export const matchOperands = (expr: ScalarExpr, lowering: PatternLowering): ReadonlyArray<Expr> => {
+	const [subject, pattern] = expr.args
+	if (subject === undefined || pattern === undefined || expr.args.length !== 2) {
+		throw defect("a Compute.matches node reads its subject and its pattern")
+	}
+	return [lowering.lower(subject), patternAre(pattern, lowering)]
+}
+
+/**
+ * A Compute.matches pattern lowered as its ARE, the one PostgreSQL's `~` reads, never as its source, which only
+ * grizzle's own automaton reads: a literal's ARE (scalar/regex/admit.ts matchAre), as is a pattern the site folds to a
+ * literal (physical/ddl/expr.ts), so no expression compares two constants, which a generation expression refuses
+ * (42P22); a str.pattern payload's ARE read by its key from the relation's ARE dictionary (sql/constants.ts
+ * closedRead), translated where the constants were planned; and a Compute.cond of them, each arm its ARE. Typing admits
+ * no other pattern (scalar/compute/typing.ts patternParts), so the match translates nothing as it runs and states no
+ * table of translations.
+ */
+const patternAre = (pattern: ScalarExpr, lowering: PatternLowering): Expr => {
+	const whole = lowering.whole(pattern)
+	if (whole !== undefined) {
+		if (whole.kind !== "literal" || whole.value.kind !== "text") {
+			throw defect("a folded Compute.matches pattern is a text literal")
+		}
+		return lit.text(matchAre(whole.value.value), types.text)
+	}
+	switch (pattern.kind) {
+		case "literal":
+			if (pattern.value.kind !== "text") {
+				throw defect("a Compute.matches pattern literal is a text")
+			}
+			return lit.text(matchAre(pattern.value.value), types.text)
+		case "closedAt":
+			return lowering.are(pattern)
+		case "cond": {
+			const [when, result, otherwise] = pattern.args
+			return {
+				kind: "case",
+				whens: [{ when: lowering.lower(when), result: patternAre(result, lowering) }],
+				else: patternAre(otherwise, lowering),
+				operand: undefined
+			}
+		}
+		case "column":
+		case "value":
+		case "param":
+		case "op":
+		case "cast":
+		case "domainCast":
+		case "closedRow":
+		case "closedHas":
+		case "call":
+			throw defect(
+				"a Compute.matches pattern is a literal, a str.pattern payload or a Compute.cond of them"
+			)
+	}
 }
 
 /**
@@ -383,22 +472,17 @@ export const printedSize = (lowered: () => Expr): number | undefined => {
 
 /**
  * A closed read as its relation's installed constants answer it (sql/constants.ts closedRead), its arguments the codes
- * of the key fields it fixes, in key order, as SQL: C.at's payload field, C.row's completions, or C.has's membership
- * test, which the closed rewrite (lower/optimize/closed) also states. Every argument is a code its column's roster domain proves below
+ * of the key fields it fixes, in key order, as SQL: C.at's payload field, a str.pattern payload's ARE, C.row's
+ * completions, or C.has's membership test, which the closed rewrite (lower/optimize/closed) also states. Every argument is a code its column's roster domain proves below
  * its roster's size, and a slot code past its owner's count reads the first cell past the string, so no index aliases
  * a neighbour's and an index past the string reads absent.
  */
 const closedRead = (
 	site: ScalarSite,
 	expr: ScalarExpr & { readonly kind: "closedAt" | "closedRow" | "closedHas" },
-	args: ReadonlyArray<Expr>
+	args: ReadonlyArray<Expr>,
+	read: ClosedRead
 ): Expr => {
-	const read: ClosedRead =
-		expr.kind === "closedAt"
-			? { kind: "at", field: expr.field }
-			: expr.kind === "closedRow"
-				? { kind: "row" }
-				: { kind: "has" }
 	const lowered = closedReadOf(
 		site.names.closed(expr.relation),
 		expr.relation,

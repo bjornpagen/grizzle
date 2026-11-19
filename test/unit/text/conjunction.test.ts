@@ -138,7 +138,7 @@ export const aConjunctionsLanguageIsEveryMembersAtOnceByTheHostAndByTheIntersect
 								k.note("a text the first member holds and the conjunction does not")
 							}
 							assert.equal(
-								regex === "wildcard" || host.member(regex, t),
+								typeof regex === "string" || host.member(regex, t),
 								expected,
 								`${where}: the host`
 							)
@@ -346,8 +346,7 @@ export const aMatchGuardOverARefinedSubjectTypesItsBranchByTheSubjectsPatternsAn
 			kills: [
 				{
 					file: "packages/engine/src/scalar/compute/typing.ts",
-					original:
-						'\t\t\tappendNonEmpty(own === undefined || own === "wildcard" ? [] : own.patterns, {',
+					original: "\t\t\tappendNonEmpty(own === undefined ? [] : own.patterns, {",
 					replacement: "\t\t\tappendNonEmpty([], {",
 					why: "A match guard's branch is typed by the guard's pattern alone, the subject's own patterns dropped; the match guard property fails."
 				}

@@ -104,7 +104,7 @@ const proofHolds = (
 				if (
 					node.type.contract !== undefined ||
 					refinement === undefined ||
-					refinement === "wildcard"
+					typeof refinement === "string"
 				) {
 					return false
 				}

@@ -14,8 +14,8 @@ import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.
 import { hexDigitsFor } from "#compiler/core/hex.ts"
 import {
 	type DeclaredName,
-	type Identity,
 	identifierOf,
+	type Identity,
 	identity
 } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
@@ -37,8 +37,8 @@ import {
 	type KeySpace,
 	literalOf,
 	rowMajorIndex,
-	type Split,
 	spaceSize,
+	type Split,
 	type Tuple
 } from "#compiler/ir/cells.ts"
 import { type Codebook, codeOf, liveHex, type RosterCodec } from "#compiler/ir/codes.ts"
@@ -58,12 +58,13 @@ import type {
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
-import { baseOf, rosterOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { baseOf, rosterOf, type ScalarType, textOf, typeLabel } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { persistentText } from "#compiler/physical/ddl/expr.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
+import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import { bitsPerByte } from "#compiler/schema/representability.ts"
 import type {
@@ -76,11 +77,11 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { and, arrayOf, binary, eq, lit, ne, types } from "#compiler/sql/build.ts"
 import {
+	cellOfKey,
 	type ClosedConstant,
 	type ClosedKey,
 	constantValue,
 	inSet,
-	cellOfKey,
 	type OwnerFunction,
 	pack,
 	pairIn,
@@ -311,6 +312,31 @@ const plannedDictionary = (
 	field: space.field,
 	values: space.values
 })
+
+/**
+ * The ARE dictionary of a str.pattern payload field's dictionary space: each value's ARE, the one PostgreSQL's `~`
+ * reads (scalar/regex/admit.ts matchAre), in the dictionary's code order, so (ARE())[c + 1] is code c's pattern as
+ * ARE, read by the key its value is read by; named by the digest of the ARE texts themselves, so a changed translation
+ * is a new function.
+ */
+const plannedAre = (
+	space: Extract<CodeSpace, { readonly kind: "dictionary" }>
+): PlannedDictionary => {
+	const values = space.values.map((value): TypedLiteral => {
+		if (value.kind !== "text") {
+			throw defect("a str.pattern field's value is a text")
+		}
+		return { kind: "text", value: matchAre(value.value) }
+	})
+	return {
+		kind: "dictionary",
+		named: identity.closedConstant(
+			constantDigest("closed-constant", { are: values.map((v) => literalKey(v)) }, everyProperty)
+		),
+		field: space.field,
+		values
+	}
+}
 
 /** A key field and its roster's codes, which its coordinate indexes by. */
 interface KeyField {
@@ -549,10 +575,12 @@ interface PlannedSide {
 	readonly dictionaries: ReadonlyArray<PlannedDictionary>
 }
 
-/** A closed relation's constants as planned: its side's over its whole heading, and its key set, which a read of it
- * tests membership in (sql/constants.ts closedRead). */
+/** A closed relation's constants as planned: its side's over its whole heading; its key set, which a read of it
+ * tests membership in (sql/constants.ts closedRead); and each str.pattern payload field's ARE dictionary
+ * (plannedAre). */
 interface PlannedRelation extends PlannedSide {
 	readonly keys: PlannedCells
+	readonly ares: ReadonlyArray<PlannedDictionary>
 }
 
 /**
@@ -689,7 +717,15 @@ export const planClosed = (
 			payload: payload.map((f) => closedCell(row, f.position))
 		}))
 		const side = plannedSide(codes, r, key, payload, rows, `closed relation ${r.name}`)
-		out.set(r.name, { ...side, keys: keySetOf(side.cells) })
+		out.set(r.name, {
+			...side,
+			keys: keySetOf(side.cells),
+			ares: side.payload.flatMap((space) =>
+				space.kind === "dictionary" && textOf(space.field.type) === "pattern"
+					? [plannedAre(space)]
+					: []
+			)
+		})
 	}
 	return { relations: out }
 }
@@ -745,8 +781,9 @@ const layoutOf = (key: PlannedKey): ReadonlyArray<PlannedCells> =>
 /** How readers address a planned relation's constants (NamedClosed). */
 const namedClosedOf = (plan: PlannedRelation): NamedClosed => {
 	const dictionaries = new Map(plan.dictionaries.map((d) => [d.field.name, d] as const))
+	const ares = new Map(plan.ares.map((d) => [d.field.name, d] as const))
 	const cells = identifierOf(plan.cells.named)
-	const others = [plan.keys, ...layoutOf(plan.key), ...plan.dictionaries]
+	const others = [plan.keys, ...layoutOf(plan.key), ...plan.dictionaries, ...plan.ares]
 		.map((planned) => identifierOf(planned.named))
 		.filter((fn, i, all) => fn !== cells && all.indexOf(fn) === i)
 	return {
@@ -755,10 +792,12 @@ const namedClosedOf = (plan: PlannedRelation): NamedClosed => {
 		width: plan.cells.constant.width,
 		payload: plan.payload.map((space) => {
 			const dictionary = dictionaries.get(space.field.name)
+			const are = ares.get(space.field.name)
 			return {
 				field: space.field.name,
 				radix: radixOf(space),
-				dictionary: dictionary === undefined ? undefined : identifierOf(dictionary.named)
+				dictionary: dictionary === undefined ? undefined : identifierOf(dictionary.named),
+				are: are === undefined ? undefined : identifierOf(are.named)
 			}
 		}),
 		keys: identifierOf(plan.keys.named),
@@ -798,7 +837,8 @@ export const qualifiedClosed = (
 				payload: c.payload.map((p) => ({
 					field: p.field,
 					radix: p.radix,
-					dictionary: p.dictionary === undefined ? undefined : qualified(p.dictionary)
+					dictionary: p.dictionary === undefined ? undefined : qualified(p.dictionary),
+					are: p.are === undefined ? undefined : qualified(p.are)
 				})),
 				keys: qualified(c.keys),
 				functions: mapNonEmpty(c.functions, qualified)
@@ -885,12 +925,13 @@ const addPlanned = (
 }
 
 /** A planned relation's constants: its cells, its key set (the cells themselves when they are one bit wide), its
- * dependent key's owner functions and each dictionary. */
+ * dependent key's owner functions, each dictionary and each ARE dictionary. */
 const constantsOf = (r: PlannedRelation): ReadonlyArray<PlannedConstant> => [
 	r.cells,
 	r.keys,
 	...layoutOf(r.key),
-	...r.dictionaries
+	...r.dictionaries,
+	...r.ares
 ]
 
 /** Every closed relation's constants as objects of the installation, in relation name order (constantsOf). */

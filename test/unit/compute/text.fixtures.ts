@@ -328,7 +328,10 @@ export const escaped = (c: number): string => `\\u{${c.toString(16)}}`
 export const pathOf = (error: CompileError): ReadonlyArray<string | number> =>
 	refusalLoc(error).path
 
-export type Spelling = "a literal's ARE" | "a CASE of one value" | "a dictionary's CASE"
+export type Spelling =
+	| "a literal's ARE"
+	| "a conditional of one value"
+	| "a conditional of two values"
 
 /** A matches pattern, a literal or a conditional over the condition column, and the sources its literals state. */
 interface PatternSpelling {

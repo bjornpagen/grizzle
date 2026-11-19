@@ -62,12 +62,7 @@ import { admittedLiteral } from "#compiler/scalar/compute/literal.ts"
 import { exprEmitter, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
-import {
-	admittedReads,
-	type ClosedRelations,
-	type LeafDesc,
-	noParams
-} from "#compiler/scalar/compute/typing.ts"
+import { type ClosedRelations, type LeafDesc, noParams } from "#compiler/scalar/compute/typing.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { type ScalarEnv, scalarTypeOf, storedOnly } from "#compiler/scalar/registry.ts"
@@ -82,7 +77,6 @@ import type {
 	OwnedWrite
 } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
-import { exprPatternReads } from "#compiler/schema/walk.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
 /** The refusal of a declared key whose index entry is unrepresentable, for `fault`, as ownership words it. */
@@ -577,14 +571,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					? undefined
 					: this.#typeOf(field.desc, childLoc(loc, "fields", f), patterns)
 			},
-			closed: admittedReads(
-				closedReadsAmong(this.closedReads, below),
-				exprPatternReads(
-					Object.values(r.fields).flatMap((f) =>
-						f.writing.kind === "generated" ? [f.writing.expr] : []
-					)
-				)
-			),
+			closed: closedReadsAmong(this.closedReads, below),
 			above: (c) => readable.some((x) => x.name === c) && !below.some((x) => x.name === c)
 		}
 		const declared = this.#lawFields(

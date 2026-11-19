@@ -294,7 +294,7 @@ const sameMeaning = (a: ScalarType, b: ScalarType): boolean => {
  * language's key.
  */
 export const sameRegex = (a: TextInfo | undefined, b: TextInfo | undefined): boolean =>
-	a === undefined || b === undefined || a === "wildcard" || b === "wildcard"
+	a === undefined || b === undefined || typeof a === "string" || typeof b === "string"
 		? a === b
 		: a.key === b.key
 

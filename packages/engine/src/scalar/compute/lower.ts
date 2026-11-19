@@ -39,12 +39,13 @@ import type {
 	PreconditionProof
 } from "#compiler/ir/proof.ts"
 import {
-	type ContractInfo,
-	type RegexRef,
-	type ScalarType,
 	baseOf,
+	type ContractInfo,
 	octetsOf,
 	patternsText,
+	type RegexRef,
+	regexRefOf,
+	type ScalarType,
 	textInfoBounds,
 	textOf,
 	textPatterns,
@@ -310,8 +311,8 @@ const languagePremise = (
 	patterns: PatternAutomata,
 	at: SourceLoc
 ): LanguagePremise | undefined => {
-	const regex = textOf(a.nominal)
-	if (regex === undefined || regex === "wildcard") {
+	const regex = regexRefOf(a.nominal)
+	if (regex === undefined) {
 		return undefined
 	}
 	const verdict = includes(regex)
@@ -373,12 +374,8 @@ const lexicalPremise = (
  * The refinement of a regex-refined text type with no contract, whose cast a language included in it proves: undefined
  * for any other type, whose contract's predicate the operand's bounds decide.
  */
-const refinementOf = (target: ScalarType): RegexRef | undefined => {
-	const regex = textOf(target)
-	return target.contract !== undefined || regex === undefined || regex === "wildcard"
-		? undefined
-		: regex
-}
+const refinementOf = (target: ScalarType): RegexRef | undefined =>
+	target.contract === undefined ? regexRefOf(target) : undefined
 
 /**
  * The pattern a parse's guard matches its text against: the target's lexical form, every double's decimal text, or
@@ -404,13 +401,8 @@ const lexicalRemedy = (
 	const matches: GuardTest = { kind: "matches", pattern: parseRemedy[form] }
 	const lexical = parseTargetOf(form, target)
 	const octets = lexical === undefined ? undefined : formOctets(lexical)
-	const regex = textOf(operand.nominal)
-	if (
-		lexical === undefined ||
-		octets === undefined ||
-		regex === undefined ||
-		regex === "wildcard"
-	) {
+	const regex = regexRefOf(operand.nominal)
+	if (lexical === undefined || octets === undefined || regex === undefined) {
 		return matches
 	}
 	return formIncludes(regex.patterns, lexical, patterns).kind === "included"
@@ -994,14 +986,14 @@ class Lowering<R extends Refs> {
 				return stop(
 					"UnsupportedOperation",
 					read.at,
-					`a pattern whose every value is seen when the schema compiles: matches's pattern is a text literal, a closed relation's text payload (C.at) or a Compute.cond of them, each value admitted inside PostgreSQL's regex compile space; a ${read.what} can be any text, so no measure bounds it`
+					`a pattern whose every value is seen when the schema compiles: matches's pattern is a text literal, a closed relation's str.pattern payload (C.at) or a Compute.cond of them, each value admitted inside PostgreSQL's regex compile space; a ${read.what} can be any text, so no measure bounds it`
 				)
 		}
 	}
 
 	/**
-	 * The admitted values of the text payload field `field` of the closed relation `relation`, which C.at reads as a
-	 * matches pattern: the lowering batch admitted each once, since its expressions read the field so (patternParts).
+	 * The admitted values of the str.pattern payload field `field` of the closed relation `relation`, which C.at reads as
+	 * a matches pattern: each admitted once, where the schema's closed relations are read (check/closed.ts closedReads).
 	 */
 	payloadAdmissions(relation: string, field: string, at: SourceLoc): ReadonlyArray<MatchAdmission> {
 		const { closed } = this.env
@@ -1018,16 +1010,10 @@ class Lowering<R extends Refs> {
 			return stop(
 				"MalformedDescription",
 				at,
-				`a text payload as matches's pattern: ${relation}.${field} is ${typeLabel(payload.type)}`
+				`a str.pattern payload as matches's pattern, whose values the schema admits as patterns: ${relation}.${field} is ${typeLabel(payload.type)}`
 			)
 		}
-		const admitted = closed.kind === "schema" ? closed.admitted(relation, field) : undefined
-		if (admitted === undefined) {
-			throw defect(
-				`the lowering batch admitted ${relation}.${field}, which a matches pattern of its expressions reads`
-			)
-		}
-		return admitted
+		return payload.patterns.admitted
 	}
 }
 

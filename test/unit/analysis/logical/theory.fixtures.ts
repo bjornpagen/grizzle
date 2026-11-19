@@ -110,6 +110,7 @@ export const identityOf = (desc: FieldDesc): string => {
 		case "bytes":
 		case "uuid":
 		case "text":
+		case "pattern":
 			return desc.kind
 		case "contract":
 			return `contract ${desc.name} over ${identityOf(desc.base)}`
@@ -144,6 +145,7 @@ export const sided = (sketch: DeclaredSketch, side: string): DeclaredSketch => {
 			case "bytes":
 			case "uuid":
 			case "text":
+			case "pattern":
 			case "vector":
 				return desc
 		}
@@ -180,6 +182,7 @@ export const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSke
 					case "pg":
 					case "bytes":
 					case "uuid":
+					case "pattern":
 					case "contract":
 					case "span":
 					case "vector":

@@ -130,7 +130,7 @@ export const aConjunctionOfPatternsECMAScriptHostProductDFAAndPostgreSQLsCHECKAg
 							k.note("a text the first member holds and the conjunction does not")
 						}
 						assert.equal(
-							regex === "wildcard" || host.member(regex, t),
+							typeof regex === "string" || host.member(regex, t),
 							expected,
 							`${where}: the host`
 						)

@@ -371,6 +371,9 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 		case "text":
 			assert.deepEqual(textOf(t), carriedText(desc.patterns, desc.language), at)
 			return
+		case "pattern":
+			assert.equal(textOf(t), "pattern", at)
+			return
 		case "closedId":
 			assert.equal(t.carrier, "code", at)
 			assert.deepEqual(rosterOf(t), envRoster(env, desc.roster), at)
@@ -435,6 +438,8 @@ export const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 			return { kind: "plain", carrier: "uuid" }
 		case "text":
 			return { kind: "text", text: carriedText(desc.patterns, desc.language) }
+		case "pattern":
+			return { kind: "text", text: "pattern" }
 		case "closedId":
 			return { kind: "closedId", roster: envRoster(env, desc.roster) }
 		case "bits":

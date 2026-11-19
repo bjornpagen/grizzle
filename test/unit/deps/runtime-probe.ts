@@ -236,7 +236,7 @@ const admittedChecks: ReadonlyArray<ReadonlyArray<boolean>> = Arr.flatMap(
 			if (check.kind !== "tautology") {
 				refinement.membership(check, refinement.domainValue)
 			}
-			if (regex === "wildcard") {
+			if (typeof regex === "string") {
 				return [[]]
 			}
 			const automata = programPatterns(regex.patterns)

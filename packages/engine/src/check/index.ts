@@ -12,8 +12,6 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredQuery, ReadBackDesc, WriteOp } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { admittedReads } from "#compiler/scalar/compute/typing.ts"
-import { queryPatternReads } from "#compiler/schema/walk.ts"
 
 export type { CheckOptions } from "#compiler/check/checker.ts"
 
@@ -64,8 +62,11 @@ const run = (
 	role: RootRole
 ): AdmittedQuery => {
 	const resolved = resolveQuery(desc)
-	const closed = admittedReads(schema.closedReads, queryPatternReads([desc]))
-	const dag = new Checker(schema, options, resolved.params, closed).root(resolved.query, loc, role)
+	const dag = new Checker(schema, options, resolved.params, schema.closedReads).root(
+		resolved.query,
+		loc,
+		role
+	)
 	return admit({ dag, params: resolved.params.decls(loc) }, loc)
 }
 

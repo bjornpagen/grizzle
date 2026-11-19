@@ -689,7 +689,7 @@ const longTextClasses: Classes = [
 /** Which text a text type holds: the generated bounded text, the Code refinement, or unbounded text. */
 export const textFlavor = (type: ScalarType): "generated" | "code" | "long" => {
 	const regex = textOf(baseOf(type))
-	if (regex === undefined || regex === "wildcard") {
+	if (regex === undefined || typeof regex === "string") {
 		return "generated"
 	}
 	const [only] = regex.patterns

@@ -1431,8 +1431,8 @@ class Owner {
 	}
 
 	/**
-	 * Fields: closed references and sets resolve to declared rosters of the field's level or below, and contract names
-	 * are not reused with a conflicting descriptor. A derived relation's fields are its definition's, which derived
+	 * Fields: closed references and sets resolve to declared rosters of the field's level or below, contract names
+	 * are not reused with a conflicting descriptor, and str.pattern types a closed relation's own field alone. A derived relation's fields are its definition's, which derived
 	 * analysis reads. How many columns a table holds is PostgreSQL's limit, checked where the installation emits the
 	 * table (physical/ddl/context.ts). natural is every schema's first, whatever its fields: it is the type of every
 	 * count (scalar/aggregate.ts countOverload), and every query over the schema may count.
@@ -1452,6 +1452,13 @@ class Owner {
 				nestedFields(desc, (d) => {
 					if (d.kind === "closedId" || d.kind === "bits") {
 						this.#rosterAt(d.roster, entry, loc, d.kind === "closedId" ? "closedId" : "bits")
+					}
+					if (d.kind === "pattern" && (entry.desc.kind !== "closedRelation" || d !== desc)) {
+						fail(
+							"MalformedDescription",
+							loc,
+							"str.pattern as a closed relation's own field: its values are patterns admitted where the schema compiles, which only a closed relation's rows state"
+						)
 					}
 					if (d.kind === "contract") {
 						const prior = this.#contracts.get(d.name)

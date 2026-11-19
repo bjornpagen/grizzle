@@ -178,7 +178,7 @@ export const dictionarySchema = (d: Dictionary) => {
 	const Domain = closed.ordered("Domain", Arr.isReadonlyArrayNonEmpty(handles) ? handles : ["D0"])
 	const Pattern = closed.relation(
 		"Pattern",
-		{ domain: closedId(Domain), pattern: str.regex("^.*$", "su") },
+		{ domain: closedId(Domain), pattern: str.pattern },
 		["domain"],
 		Arr.map(d.patterns, (pattern, i) => ({ domain: `D${i}`, pattern }))
 	)

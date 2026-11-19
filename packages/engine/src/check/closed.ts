@@ -1,35 +1,47 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ClosedRelation } from "#compiler/check/schema.ts"
+import { unwrap } from "#compiler/core/canonical.ts"
+import { childLoc } from "#compiler/core/loc.ts"
+import { type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import type {
 	ClosedHeading,
 	ClosedRelations,
 	PayloadPatterns
 } from "#compiler/scalar/compute/typing.ts"
+import { admitMatch, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
 
 /**
- * What a Compute.matches pattern reading the payload field at `position` of `closed`'s rows can be: where every row's
- * value there is a text, each distinct one, in row order, which a lowering batch reading the field as a pattern admits
- * (scalar/compute/typing.ts admittedReads); else a field no pattern reads.
+ * What a Compute.matches pattern reading the payload field at `position` of `closed`'s rows can be: a str.pattern
+ * field's distinct values, in row order, each admitted here, once for the schema (scalar/regex/admit.ts admitMatch),
+ * a value no admission admits refused at the relation's rows; any other field's none, which no pattern reads.
  */
-const payloadPatterns = (closed: ClosedRelation, position: number): PayloadPatterns => {
+const payloadPatterns = (
+	closed: ClosedRelation,
+	position: number,
+	type: ScalarType
+): PayloadPatterns => {
+	if (textOf(type) !== "pattern") {
+		return { kind: "other" }
+	}
 	const sources = new Set<string>()
 	for (const row of closed.rows) {
 		const value = row[position]
-		if (value !== undefined) {
-			if (value.kind !== "text") {
-				return { kind: "other" }
-			}
+		if (value?.kind === "text") {
 			sources.add(value.value)
 		}
 	}
-	return { kind: "texts", sources: Object.freeze([...sources]) }
+	const at = childLoc(closed.loc, "rows")
+	return {
+		kind: "patterns",
+		admitted: Object.freeze(
+			[...sources].map((source) => {
+				const admission = admitMatch(source)
+				unwrap(matchSourceAt(admission, at))
+				return admission
+			})
+		)
+	}
 }
-
-/**
- * No payload field admitted: the reads before a lowering batch admits the fields its expressions read
- * (scalar/compute/typing.ts admittedReads).
- */
-const noneAdmitted = (): undefined => undefined
 
 /**
  * A closed relation as C.at, C.row and C.has read it: its key fields, its primary fields in key order, which an
@@ -41,7 +53,7 @@ const closedHeading = (closed: ClosedRelation): ClosedHeading => {
 	const payload = closed.heading.flatMap((c, position) =>
 		key.some((k) => k.name === c.name)
 			? []
-			: [{ name: c.name, type: c.type, patterns: payloadPatterns(closed, position) }]
+			: [{ name: c.name, type: c.type, patterns: payloadPatterns(closed, position, c.type) }]
 	)
 	return { key: mapNonEmpty(key, (f) => ({ name: f.name, type: f.type })), payload }
 }
@@ -57,8 +69,7 @@ export const closedReads = (readable: ReadonlyArray<ClosedRelation>): ClosedRela
 	)
 	return Object.freeze({
 		kind: "schema",
-		heading: (relation: string) => headings.get(relation),
-		admitted: noneAdmitted
+		heading: (relation: string) => headings.get(relation)
 	})
 }
 
@@ -77,7 +88,6 @@ export const closedReadsAmong = (
 	const names = new Set(readable.map((c) => c.name))
 	return Object.freeze({
 		kind: "schema",
-		heading: (relation: string) => (names.has(relation) ? reads.heading(relation) : undefined),
-		admitted: reads.admitted
+		heading: (relation: string) => (names.has(relation) ? reads.heading(relation) : undefined)
 	})
 }

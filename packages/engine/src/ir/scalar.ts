@@ -302,18 +302,27 @@ export const textInfoOf = (patterns: Patterns, language: TextLanguage): TextInfo
 				check: language.check
 			})
 
+/**
+ * A text refinement's regex reference: a specific pattern's, none for the wildcard or a text of patterns, whose values
+ * are every text as far as their language goes.
+ */
+export const regexOf = (text: TextInfo): RegexRef | undefined =>
+	text === "wildcard" || text === "pattern" ? undefined : text
+
 /** The language a text type's refinement states: what a descriptor of that type carries. */
-export const languageOfText = (text: TextInfo): TextLanguage =>
-	text === "wildcard"
+export const languageOfText = (text: TextInfo): TextLanguage => {
+	const regex = regexOf(text)
+	return regex === undefined
 		? Object.freeze({ kind: "every" })
-		: Object.freeze({ kind: "refined", key: text.key, check: text.check })
+		: Object.freeze({ kind: "refined", key: regex.key, check: regex.check })
+}
 
 /**
  * The bounds a text refinement proves on every value, in code points and UTF-8 bytes: its enforcement's
  * (RegexCheck), none for the wildcard or a pattern that proves none.
  */
 export const textInfoBounds = (text: TextInfo): TextBounds | undefined =>
-	text === "wildcard" ? undefined : text.check.bounds
+	regexOf(text)?.check.bounds
 
 /** The byte bound a text descriptor's language enforces beside its pattern's (octetsOf): none for an unrefined text. */
 export const languageOctets = (language: TextLanguage): number | undefined =>
@@ -322,9 +331,9 @@ export const languageOctets = (language: TextLanguage): number | undefined =>
 /** The pattern of every text as grizzle spells it: what a byte bound over every text cuts, `str.regex("^.*$", "su")`. */
 export const wildcardPattern: PatternSource = Object.freeze({ source: "^.*$", flags: "su" })
 
-/** The patterns a text type's language is stated by: its refinement's, or the wildcard's alone. */
-export const textPatterns = (regex: RegexRef | "wildcard"): Patterns =>
-	regex === "wildcard" ? [wildcardPattern] : regex.patterns
+/** The patterns a text type's language is stated by: its regex reference's, or the wildcard's alone. */
+export const textPatterns = (text: TextInfo): Patterns =>
+	regexOf(text)?.patterns ?? [wildcardPattern]
 
 /**
  * The own language of a text's patterns, before a byte bound cuts it: every text, or the language their check
@@ -384,9 +393,12 @@ export const languageWithin = (pattern: PatternLanguage, octets: number): TextLa
 
 /**
  * A text descriptor's refinement: a specific pattern's regex reference, whose enforcement holds the bounds it proves
- * (textInfoBounds), or the canonical wildcard, which admits every value and proves none.
+ * (textInfoBounds); the canonical wildcard, which admits every value and proves none; or `pattern`, a closed relation's
+ * text whose every value is a Compute.matches pattern of grizzle's grammar (str.pattern), admitted once where the
+ * relation is read (check/closed.ts) and translated into the ARE PostgreSQL reads where the relation's constants are
+ * planned (physical/ddl/constants.ts), every text as far as its language goes.
  */
-export type TextInfo = RegexRef | "wildcard"
+export type TextInfo = RegexRef | "wildcard" | "pattern"
 
 /**
  * Whether a roster's order means something, which its declaration states: `ordered` (closed.ordered), its handles'
@@ -704,6 +716,12 @@ export const textOf = (t: ScalarType): TextInfo | undefined => {
 	return b.carrier === "text" ? b.text : undefined
 }
 
+/** The regex reference of a type's text refinement (regexOf), through any depth of contracts: none for every other type. */
+export const regexRefOf = (t: ScalarType): RegexRef | undefined => {
+	const text = textOf(t)
+	return text === undefined ? undefined : regexOf(text)
+}
+
 /** The bounds a text descriptor's refinement proves on every value (textInfoBounds); none for any other type. */
 export const textBoundsOf = (t: ScalarType): TextBounds | undefined => {
 	const text = textOf(t)
@@ -768,9 +786,9 @@ export const samePatterns = (a: Patterns, b: Patterns): boolean =>
 			return q !== undefined && p.source === q.source && p.flags === q.flags
 		}))
 
-/** One text refinement: the wildcard, or one list of patterns of one language's key. */
+/** One text refinement: the wildcard, the patterns' text, or one list of patterns of one language's key. */
 const sameText = (a: TextInfo, b: TextInfo): boolean =>
-	a === "wildcard" || b === "wildcard"
+	typeof a === "string" || typeof b === "string"
 		? a === b
 		: samePatterns(a.patterns, b.patterns) && a.key === b.key
 
@@ -873,7 +891,7 @@ export const sameEnteredType = (a: ScalarType, b: ScalarType): boolean =>
  */
 export const isRefined = (t: ScalarType): boolean => {
 	const text = textOf(t)
-	return t.contract !== undefined || (text !== undefined && text !== "wildcard")
+	return t.contract !== undefined || (text !== undefined && regexOf(text) !== undefined)
 }
 
 /** Each carrier's PostgreSQL type name, which typeLabel prints for a carrier of no parameters. */
@@ -935,7 +953,11 @@ export const typeLabel = (t: ScalarType): string => {
 		case "bits":
 			return `bits ${t.roster.closed}`
 		case "text": {
-			return t.text === "wildcard" ? "text" : refinementText(t.text)
+			return t.text === "wildcard"
+				? "text"
+				: t.text === "pattern"
+					? "pattern"
+					: refinementText(t.text)
 		}
 		case "float4":
 		case "float8":

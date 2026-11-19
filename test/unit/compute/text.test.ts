@@ -46,8 +46,7 @@ import {
 	defined,
 	refused,
 	succeeded,
-	throwsRefused,
-	unorderedEqual
+	throwsRefused
 } from "#test/support/assert.ts"
 import { baseParams, lowerWith, plainRender, sqlOf, testPg, v } from "#test/unit/compute/support.ts"
 import {
@@ -454,7 +453,7 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 		]
 	})
 
-/** Compute's text terms hands `~` the ARE of every value its pattern takes, never a source. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
+/** Compute's text terms hands `~` the ARE of every value its pattern takes, never a source: a literal's ARE, and a conditional of them each arm's ARE in its place, no CASE of sources. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const computesTextTermsHandsTheAREOfEveryValueItsPatternTakesNeverASource = property.explore(
 	spellingGen,
 	{
@@ -462,8 +461,8 @@ export const computesTextTermsHandsTheAREOfEveryValueItsPatternTakesNeverASource
 		budget: { runs: 100, steered: 100 },
 		situations: [
 			"a literal's ARE",
-			"a CASE of one value",
-			"a dictionary's CASE"
+			"a conditional of one value",
+			"a conditional of two values"
 		] satisfies ReadonlyArray<Reached<Spelling>>,
 		check: (_, k: Case<Spelling>) => (spelling) =>
 			Effect.sync(() => {
@@ -483,46 +482,50 @@ export const computesTextTermsHandsTheAREOfEveryValueItsPatternTakesNeverASource
 					Arr.sort(Arr.dedupe(spelling.sources), byCodePoints),
 					"each distinct source once, in code point order"
 				)
-				const patternSql = sqlOf(defined(node.args[1], "the pattern operand"), plainRender)
 				const sql = sqlOf(node, plainRender)
 				if (sql.kind !== "binary" || sql.op !== "~") {
 					return assert.fail(`a ~, not ${sql.kind}`)
 				}
-				if (patternSql.kind === "literal" && patternSql.value.kind === "text") {
-					k.note("a literal's ARE")
-					assert.deepEqual(
-						sql.right,
-						lit.text(areOf(patternSql.value.value), types.text),
-						"a text literal pattern is its ARE's literal"
-					)
-					return
-				}
-				k.note(node.patterns.length === 1 ? "a CASE of one value" : "a dictionary's CASE")
-				if (sql.right.kind !== "case") {
-					return assert.fail(`a CASE, not ${sql.right.kind}`)
-				}
-				assert.deepEqual(sql.right.operand, patternSql, "the CASE reads the pattern once")
-				assert.deepEqual(sql.right.else, patternSql, "its ELSE keeps an absent read's NULL")
-				unorderedEqual(
-					Arr.map(sql.right.whens, (w): ReadonlyArray<Expr> => [w.when, w.result]),
-					Arr.map(node.patterns, (source): ReadonlyArray<Expr> => [
-						lit.text(source, types.text),
-						lit.text(areOf(source), types.text)
-					]),
-					"an arm per distinct source, its ARE beside it, in any order"
+				k.note(
+					spelling.desc.kind !== "cond"
+						? "a literal's ARE"
+						: node.patterns.length === 1
+							? "a conditional of one value"
+							: "a conditional of two values"
 				)
+				/** The pattern as `~` must read it: each literal its ARE's literal, a conditional each arm's in its place. */
+				const expected = (desc: ExprDesc, at: Expr): void => {
+					if (desc.kind !== "cond") {
+						const source = desc.kind === "literal" ? desc.value : undefined
+						assert.ok(typeof source === "string", "a literal pattern")
+						assert.deepEqual(
+							at,
+							lit.text(areOf(source), types.text),
+							"a literal pattern is its ARE's literal"
+						)
+						return
+					}
+					if (at.kind !== "case" || at.operand !== undefined) {
+						return assert.fail(`a conditional's searched CASE, not ${at.kind}`)
+					}
+					const [arm, ...more] = at.whens
+					assert.equal(more.length, 0, "one condition")
+					expected(desc.onTrue, defined(arm, "the condition's arm").result)
+					expected(desc.onFalse, at.else)
+				}
+				expected(spelling.desc, sql.right)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the pattern operand's spelling (ops.ts patternOperand)"
+			name: "the pattern's own structure, each literal its ARE (lower/conservative/expr/index.ts patternAre)"
 		},
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/lower/conservative/expr/ops.ts",
-				original: "\t\t\tresult: lit.text(matchAre(source), types.text)",
-				replacement: "\t\t\tresult: lit.text(source, types.text)",
-				why: "A CASE arm hands `~` its pattern's source rather than its ARE; the `~` property fails."
+				file: "packages/engine/src/lower/conservative/expr/index.ts",
+				original: "\t\t\treturn lit.text(matchAre(pattern.value.value), types.text)",
+				replacement: "\t\t\treturn lit.text(pattern.value.value, types.text)",
+				why: "A literal pattern hands `~` its source rather than its ARE; the `~` property fails."
 			}
 		]
 	}

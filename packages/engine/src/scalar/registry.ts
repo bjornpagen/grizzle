@@ -508,6 +508,15 @@ const scalarAt = (
 			return Result.ok(
 				Object.freeze({ carrier: "bytes", caps: capabilitiesOf("bytes"), contract: undefined })
 			)
+		case "pattern":
+			return Result.ok(
+				Object.freeze({
+					carrier: "text",
+					caps: capabilitiesOf("text"),
+					contract: undefined,
+					text: "pattern"
+				})
+			)
 		case "text":
 			return Result.ok(
 				Object.freeze({
@@ -604,6 +613,7 @@ export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 		case "bytes":
 			return capabilitiesOf("bytes")
 		case "text":
+		case "pattern":
 			return capabilitiesOf("text")
 		case "closedId":
 			return capabilitiesOf("code")

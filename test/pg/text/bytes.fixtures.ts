@@ -201,7 +201,7 @@ export const checkBatch = (
 				const at = `${where}, a value of ${bytes} bytes`
 				const regex = text
 				assert.equal(
-					regex === "wildcard" || ProgramPatterns.of(regex.patterns).member(regex, value),
+					typeof regex === "string" || ProgramPatterns.of(regex.patterns).member(regex, value),
 					lawful,
 					`${at}: the host's membership`
 				)

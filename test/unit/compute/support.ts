@@ -13,30 +13,31 @@ import {
 	describeOp,
 	type ExprSpec,
 	type ScalarExpr,
-	type TypedLiteral,
-	storedColumn
+	storedColumn,
+	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import { baseOf, type Carrier, Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { matchOperands } from "#compiler/lower/conservative/expr/index.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { spellExpr } from "#compiler/query/build/walk.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import {
+	exprEmitter,
 	type Lowered,
 	type LowerEnv,
 	lowerPredicate,
 	lowerTerm
 } from "#compiler/scalar/compute/lower.ts"
-import { exprEmitter } from "#compiler/scalar/compute/lower.ts"
 import { plainColumns } from "#compiler/scalar/compute/tables.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
-import { type ScalarEnv, type SqlTag, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import { type ScalarEnv, scalarTypeOf, type SqlTag } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
 import { vectorColumn } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -48,10 +49,10 @@ import {
 	type LowerParams,
 	noClosedRelations,
 	type ParamRef,
-	typeOf,
 	type TermTyping,
-	type TypingEnv,
-	typePredicate
+	typeOf,
+	typePredicate,
+	type TypingEnv
 } from "#compiler/scalar/compute/typing.ts"
 import {
 	builtinType,
@@ -128,6 +129,7 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 		case "uuid":
 			return plainColumns.uuid
 		case "text":
+		case "pattern":
 			return plainColumns.text
 		case "closedId": {
 			const handles = rosters.get(desc.roster)
@@ -668,7 +670,21 @@ export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 					operand: undefined
 				}
 			case "op": {
-				const rendered = defaultOps(e, args, options.library)
+				const rendered = defaultOps(
+					e,
+					"patterns" in e
+						? matchOperands(e, {
+								lower: go,
+								whole: () => undefined,
+								are: (read) => {
+									throw new Error(
+										`the compute suites render no closed read: matches over ${read.relation} reads an installed constant`
+									)
+								}
+							})
+						: args,
+					options.library
+				)
 				if (rendered === undefined) {
 					throw new Error(`no form of ${describeOp(e.op)} over ${args.length} operand(s)`)
 				}

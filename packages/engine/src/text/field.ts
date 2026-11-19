@@ -1,16 +1,21 @@
 import { flatMapNonEmpty, isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
-import { isRegexFlags, type RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import { isRegexFlags, type Patterns, type RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 import { int4Max } from "#compiler/core/canonical.ts"
 import { textColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { captureLoc } from "#compiler/core/loc.ts"
+import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { builtMark, fieldMark } from "#compiler/core/phantom.ts"
 import type { PatternLanguage } from "#compiler/ir/scalar.ts"
-import { registeredText, registerTextDescriptor } from "#compiler/scalar/registry.ts"
+import {
+	bareEnv,
+	carrierSql,
+	defineField,
+	registeredText,
+	registerTextDescriptor
+} from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
-import type { TextField } from "#compiler/types/fields/field.ts"
+import type { PatternField, TextField } from "#compiler/types/fields/field.ts"
 import type {
 	Refused,
 	RegexFlagsValidate,
@@ -233,15 +238,33 @@ const regexConstructor = <
 ): RegexText<RegexInfer<S, RegexFlagsOf<A>>> =>
 	regexField<RegexInfer<S, RegexFlagsOf<A>>>(source, flags)
 
+/**
+ * str.pattern: a closed relation's text of Compute.matches patterns, each value a pattern of grizzle's grammar under the
+ * flags "u", which `Compute.matches(x, R.at(field, k...))` reads by key. Each value is admitted once, where the relation
+ * is read (check/closed.ts), and the relation's constants carry each one's ARE beside it (physical/ddl/constants.ts),
+ * so a match reads the ARE by the key its value is read by and translates nothing as it runs. A field of any other
+ * relation refuses it, since only a closed relation's values are known where the schema compiles.
+ */
+const patternDescriptor: PatternField = defineField(
+	{},
+	carrierSql.text,
+	{ kind: "pattern" },
+	{ column: textColumn<string>() },
+	SourceLoc("str.pattern", []),
+	bareEnv
+)
+
 interface Str {
 	readonly regex: typeof regexConstructor
 	readonly and: typeof andConstructor
 	readonly bytes: typeof bytesConstructor
+	readonly pattern: PatternField
 }
 
-/** Bare `str` is not a field descriptor: it has no host or SQL type, only the constructors. */
+/** Bare `str` is not a field descriptor: it has no host or SQL type, only the constructors and str.pattern. */
 export const str: Str = Object.freeze({
 	regex: regexConstructor,
 	and: andConstructor,
-	bytes: bytesConstructor
+	bytes: bytesConstructor,
+	pattern: patternDescriptor
 })

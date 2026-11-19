@@ -69,7 +69,7 @@ export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsOnTheOraclePopula
 			{
 				file: "packages/engine/src/ir/scalar.ts",
 				original:
-					'\ta === "wildcard" || b === "wildcard"\n\t\t? a === b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
+					'\ttypeof a === "string" || typeof b === "string"\n\t\t? a === b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
 				replacement: "\tfalse",
 				why: 'Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:850 in sameRegexRef: `a === "wildcard" || b === "wildcard"\n\t\t? a === b\n\t\t: samePatterns(a.patterns, b.` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6).'
 			}

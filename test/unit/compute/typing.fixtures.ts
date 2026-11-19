@@ -442,7 +442,8 @@ const guardOf = (
 			return guarded(
 				{
 					kind: "matches",
-					pattern: own === undefined || own === "wildcard" ? "^[a-c]*$" : own.patterns[0].source
+					pattern:
+						own === undefined || typeof own === "string" ? "^[a-c]*$" : own.patterns[0].source
 				},
 				text,
 				"text"
@@ -523,7 +524,7 @@ const resolveAt = (s: Sketch, family: Family, leaves: Leaves): ExprDesc => {
 						subject,
 						{
 							kind: "literal",
-							value: own === undefined || own === "wildcard" ? "^a" : own.patterns[0].source
+							value: own === undefined || typeof own === "string" ? "^a" : own.patterns[0].source
 						}
 					]
 				}

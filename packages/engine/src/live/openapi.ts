@@ -25,7 +25,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { isList } from "#compiler/core/record.ts"
 import { sha256Base32 } from "#compiler/core/sha256.ts"
 import { type Parts, type SharingFormat, shareRepeated } from "#compiler/core/share.ts"
-import { octetsOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { octetsOf, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { referenceKey, wireExtension, wireReference } from "#compiler/live/document.ts"
 import {
 	type EventDescriptor,
@@ -80,8 +80,8 @@ const typeSchema = (type: ScalarType): WireSchema => {
 	const carrier = scalarSchema(wireScalarOf(type))
 	const gaps: Array<SchemaGap> = type.contract === undefined ? [] : ["contract"]
 	const refinements: Array<WireSchema> = []
-	const text = textOf(type)
-	if (text !== undefined && text !== "wildcard") {
+	const text = regexRefOf(type)
+	if (text !== undefined) {
 		for (const pattern of text.patterns) {
 			const node = parsePattern(pattern.source, pattern.flags)
 			if (node.ok && node.value.kind !== "never") {

@@ -189,7 +189,7 @@ export const derivedRelationsOnPostgreSQL19ARefinedTextLiteralColumnHasItsPatter
 								const { source, flags } = patternOf(sketchOf(c, l.pattern))
 								const patterns: Patterns = [{ source, flags }]
 								const info = textInfoOf(patterns, succeeded(textLookup(patterns)))
-								if (info === "wildcard") {
+								if (typeof info === "string") {
 									return "text"
 								}
 								const domain = installed.names.textDomain(info)

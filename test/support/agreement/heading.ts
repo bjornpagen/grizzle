@@ -78,7 +78,7 @@ const carrierHost = (descriptor: ScalarType): string => {
 		case "uuid":
 			return "Uuid"
 		case "text":
-			return type.text === "wildcard" ? "string" : textHost(type.text)
+			return typeof type.text === "string" ? "string" : textHost(type.text)
 		case "code":
 			return handles(type.roster.handles)
 		case "range4":

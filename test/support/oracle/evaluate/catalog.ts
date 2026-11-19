@@ -1057,7 +1057,7 @@ const membership = (
 		const { contract } = level
 		const pattern = contract === undefined ? textOf(level) : undefined
 		const member =
-			pattern !== undefined && pattern !== "wildcard"
+			pattern !== undefined && typeof pattern !== "string"
 				? regexHolds(env, pattern, v)
 				: Result.succeed(true)
 		if (Result.isFailure(member) || !member.success) {

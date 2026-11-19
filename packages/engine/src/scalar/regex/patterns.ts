@@ -3,11 +3,14 @@ import type { CharSet } from "@bjornpagen/grizzle-text/regex/charset"
 import type { LiveNode, RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa, type NfaEdge } from "@bjornpagen/grizzle-text/regex/nfa"
-import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
-import { parsePattern, type RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import {
+	parsePattern,
+	type PatternSource,
+	type RegexFlags
+} from "@bjornpagen/grizzle-text/regex/parse"
 import { entry } from "@bjornpagen/grizzle-text/regex/table"
 import type { ExprTable } from "#compiler/ir/expr.ts"
-import { type RegexRef, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { type RegexRef, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	edgeCode,
 	matchFlags,
@@ -212,8 +215,7 @@ class SetTable {
  * patterns its predicate reads, every level down to the base.
  */
 export const typePatterns = (t: ScalarType): ReadonlyArray<PatternSource> => {
-	const regex = textOf(t)
-	const own = regex === undefined || regex === "wildcard" ? [] : regex.patterns
+	const own = regexRefOf(t)?.patterns ?? []
 	const { contract } = t
 	return contract === undefined
 		? own

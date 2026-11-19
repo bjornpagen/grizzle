@@ -16,7 +16,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { type RegexRef, rosterOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { type RegexRef, regexRefOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
 import { compileLaws, type ConstraintLaw, type LawModel } from "#compiler/laws/model/model.ts"
 import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
@@ -574,8 +574,8 @@ const raisableConstraint = (
 
 /** The domains a value cast to `t` meets under `names`: each contract's of its chain, outermost first, and its pattern's. */
 const castDomains = (names: InstallNames, t: ScalarType): ReadonlyArray<string> => {
-	const text = textOf(t)
-	const pattern = text === undefined || text === "wildcard" ? undefined : names.textDomain(text)
+	const text = regexRefOf(t)
+	const pattern = text === undefined ? undefined : names.textDomain(text)
 	return [
 		...contractChain(t).map((contract) => names.contractDomain(contract).name),
 		...(pattern === undefined ? [] : [pattern.name])

@@ -2,14 +2,14 @@
  * Compute's text terms on PostgreSQL 19, against the host.
  *
  * 1. The SQL a query or a check holds (lower/conservative/expr/ops.ts, the one spelling of every operation): a match
- *    of a literal pattern, `~` over its ARE, and of a dictionary, `~` over a CASE from each source to its ARE; a
+ *    of a literal pattern, `~` over its ARE, and of a dictionary, `~` over its pattern's ARE read by key; a
  *    prefix test, a suffix test, a concatenation, lowered as a check lowers it since no query builds one, and an
  *    equation with one, which no lowering builds. Each runs over a batch of rows in one round trip, and PostgreSQL's
  *    answer must be the reference evaluator's (test/support/oracle/evaluate/catalog.ts, grizzle's own automaton over
  *    the pattern's parse) and, for a match, ECMAScript's own test, the development oracle the text differential holds
  *    the ARE translation to.
- * 2. Installed CHECKs: the real installer's DDL, one CHECK whose pattern is a closed relation's dictionary,
- *    `Pattern.at("pattern", domain)`, and one of a drawn literal, each probe row inserted under a savepoint; the server
+ * 2. Installed CHECKs: the real installer's DDL, one CHECK whose pattern is a closed relation's str.pattern field,
+ *    `Pattern.at("pattern", domain)`, read from its ARE dictionary by the domain's key, and one of a drawn literal, each probe row inserted under a savepoint; the server
  *    admits a row exactly when ECMAScript's test of its pattern holds, and refuses every other with 23514 naming that
  *    CHECK.
  *
@@ -232,5 +232,12 @@ export const computesTextTermsOnPostgreSQLAnInstalledCHECKOverAClosedDictionaryO
 		oracle: { kind: "second-implementation", name: "ECMAScript's own RegExp test" },
 		budget: { runs: 30, steered: 30 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/expr/index.ts",
+				original: '{ kind: "are", field: read.field }',
+				replacement: '{ kind: "at", field: read.field }',
+				why: "The CHECK matches its text against its domain's pattern as grizzle spells it, where PostgreSQL reads an ARE: a pattern whose spellings differ admits or refuses another row than ECMAScript's test."
+			}
+		]
 	})

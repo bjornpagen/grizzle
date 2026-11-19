@@ -36,8 +36,8 @@ import {
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, prose } from "#compiler/core/errors.ts"
 import {
-	type Identity,
 	identifierOf,
+	type Identity,
 	identity,
 	type KeyColumnName,
 	type KeySide
@@ -65,37 +65,37 @@ import {
 	identityValueOf,
 	predicateTable,
 	type ScalarExpr,
-	type TypedLiteral,
-	storedColumn
+	storedColumn,
+	type TypedLiteral
 } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import {
+	columnKey,
 	declaredKeyOf,
 	type DomainCheck,
 	type DomainCheckTerm,
 	type DomainNative,
 	familyKey,
+	fieldColumn,
+	isSpanField,
 	keyTuple,
 	type LawColumnValue,
 	type LawField,
-	isSpanField,
 	type LawRelation,
 	type NativeColumn,
-	columnKey,
 	type NativeObject,
 	type NativeOf,
 	type RelationInfo,
-	type SpanField,
 	type RowGuard,
 	scalarKeySet,
+	type SpanField,
 	type SpanKeyScalars,
 	spanKeySet,
-	type TheoryRelation,
-	fieldColumn
+	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
-import { type ContractInfo, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
+import { type ContractInfo, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { existenceConstraints } from "#compiler/laws/model/catalog.ts"
 import { keyOf } from "#compiler/laws/model/names.ts"
 import {
@@ -111,26 +111,20 @@ import {
 	Recognizer,
 	type ReferenceChoice,
 	referenceChoice,
-	type ReverseIndexPlan,
 	reverseIndexOf,
+	type ReverseIndexPlan,
 	type RuleDischarge,
 	type TargetKey
 } from "#compiler/laws/model/plan.ts"
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
 import { lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
-import {
-	admittedReads,
-	type ClosedRelations,
-	type LeafDesc,
-	noParams
-} from "#compiler/scalar/compute/typing.ts"
+import { type ClosedRelations, type LeafDesc, noParams } from "#compiler/scalar/compute/typing.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
 import { alignUp, maxAlign } from "#compiler/schema/representability.ts"
-import { exprPatternReads } from "#compiler/schema/walk.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
@@ -590,9 +584,9 @@ const columnNames = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string
 /** A contract's domain CHECK (`DomainCheck`): its base's refined text pattern, when the base is no contract, and
  * its predicate. */
 export const domainCheck = (info: ContractInfo): DomainCheck => {
-	const regex = info.base.contract === undefined ? textOf(info.base) : undefined
+	const regex = info.base.contract === undefined ? regexRefOf(info.base) : undefined
 	const pattern: ReadonlyArray<DomainCheckTerm> =
-		regex === undefined || regex === "wildcard" ? [] : [{ kind: "pattern", regex }]
+		regex === undefined ? [] : [{ kind: "pattern", regex }]
 	const predicate: ReadonlyArray<DomainCheckTerm> =
 		info.predicate === undefined ? [] : [{ kind: "predicate", predicate: info.predicate }]
 	const terms = [...pattern, ...predicate]
@@ -809,44 +803,6 @@ interface ColumnRow {
  * counted family's ‹p› is pred of its drawn index, read as that column by its identifier; a drawn column is the host's,
  * and lowers nothing.
  */
-/** The expressions a law column's value lowers: its selection's conjuncts, an index predecessor's index's. */
-const lawColumnExprs = (column: LawColumnPlan): ReadonlyArray<ExprDesc> => {
-	switch (column.kind) {
-		case "term":
-			return column.selection.conjuncts.map((c) => c.predicate)
-		case "indexPred":
-			return lawColumnExprs(column.index)
-		case "constant":
-		case "drawn":
-			return []
-	}
-}
-
-/**
- * The expressions the law model lowers for a native: a declared or generated CHECK's predicate, a ClosedCheck's
- * guards, a law column's value; no other native lowers one.
- */
-const nativeExprs = (n: NativePlan): ReadonlyArray<ExprDesc> => {
-	switch (n.kind) {
-		case "TableCheck":
-			return [n.predicate]
-		case "GeneratedCheck":
-			return [n.check.predicate]
-		case "ClosedCheck":
-			return n.guard.map((c) => c.predicate)
-		case "LawColumn":
-			return lawColumnExprs(n.column)
-		case "PrimaryKey":
-		case "Unique":
-		case "Domain":
-		case "RosterDomain":
-		case "ForeignKey":
-		case "WithoutOverlaps":
-		case "PeriodForeignKey":
-			return []
-	}
-}
-
 class ColumnLowering {
 	readonly #ext: ViolationBuilder
 	readonly #typing: ReturnType<typeof typingEnv>
@@ -1134,12 +1090,7 @@ class Specializer {
 		/** The extension DAG: each declared and generated CHECK's predicate and each law column's value. */
 		const ext = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
 		const roots: Array<RelNode> = []
-		/** The closed relations the held natives' predicates and values apply, each pattern they read admitted once. */
-		const closed = admittedReads(
-			this.checked.closedReads,
-			exprPatternReads(plans.flatMap((plan) => plan.natives.filter(held).flatMap(nativeExprs)))
-		)
-		const columns = new ColumnLowering(ext, this.#typing, closed, roots, (plan) =>
+		const columns = new ColumnLowering(ext, this.#typing, this.checked.closedReads, roots, (plan) =>
 			this.#lawColumn(plan)
 		)
 		/** Each plan with its native objects, a generated CHECK's predicate and a law column's value lowered into the
@@ -1149,7 +1100,7 @@ class Specializer {
 				case "GeneratedCheck": {
 					const { filter, predicate } = this.#lowerCheck(
 						ext,
-						closed,
+						this.checked.closedReads,
 						n.relation,
 						n.check,
 						plan.law.loc

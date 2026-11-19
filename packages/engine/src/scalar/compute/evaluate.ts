@@ -22,8 +22,8 @@ import {
 	isRefined,
 	numericTypmodOf,
 	type RegexRef,
+	regexRefOf,
 	type ScalarType,
-	textOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import type { CastValue, HostCast } from "#compiler/scalar/compute/cast.ts"
@@ -1344,8 +1344,8 @@ const membership = (
 	}
 	for (const level of levels.toReversed()) {
 		const { contract } = level
-		const pattern = contract === undefined ? textOf(level) : undefined
-		if (pattern !== undefined && pattern !== "wildcard" && !regexHolds(patterns, pattern, v)) {
+		const pattern = contract === undefined ? regexRefOf(level) : undefined
+		if (pattern !== undefined && !regexHolds(patterns, pattern, v)) {
 			return Result.ok(false)
 		}
 		const holds = predicateHolds(contract?.predicate, v, patterns)

@@ -6,6 +6,7 @@ import {
 	baseOf,
 	numericBoundOf,
 	numericTypmodOf,
+	regexOf,
 	sameScalarType,
 	type ScalarType,
 	textOf
@@ -129,7 +130,7 @@ export const hasConstraint = (t: ScalarType): boolean => {
 	if (contract !== undefined) {
 		return contract.predicate !== undefined || hasConstraint(contract.base)
 	}
-	return t.carrier === "text" && t.text !== "wildcard"
+	return t.carrier === "text" && regexOf(t.text) !== undefined
 }
 
 /**

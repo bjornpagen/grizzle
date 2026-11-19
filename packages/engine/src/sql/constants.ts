@@ -67,7 +67,8 @@ export type ClosedKey<F = ObjectName> =
  * A closed relation as its installed constants hold it, what a closed law's CHECK and a closed read read: its string of
  * cells' function, read `width` bits a cell at the index its key gives its key fields' codes (ClosedKey); its payload
  * fields in declared order, each with its radix and, for an open-typed field, the function of its dictionary, the
- * field's values in code order, none for a closed id; the function of its key set, one bit per cell of the key space,
+ * field's values in code order, none for a closed id, and for a str.pattern field the function of its ARE dictionary,
+ * each value's ARE in that order; the function of its key set, one bit per cell of the key space,
  * set where the relation holds a tuple; and every function a read of it calls, which each role that reads it is
  * granted EXECUTE on.
  *
@@ -83,6 +84,8 @@ export interface ClosedConstant<F = ObjectName> {
 		readonly field: string
 		readonly radix: number
 		readonly dictionary: F | undefined
+		/** A str.pattern field's ARE dictionary, each value's ARE in code order; none for any other field. */
+		readonly are: F | undefined
 	}>
 	readonly keys: F
 	readonly functions: NonEmptyReadonlyArray<F>
@@ -244,9 +247,13 @@ const completions = (keys: ObjectName, key: ClosedKey, prefix: ReadonlyArray<Exp
 	return run(keys, guarded(reading.checks, start, key.cells), length)
 }
 
-/** A closed read: C.at's payload field `field`, C.row's completions of a prefix, or a membership test at a full key. */
+/**
+ * A closed read: C.at's payload field `field`, a str.pattern field's ARE at a full key, which Compute.matches reads
+ * as its pattern, C.row's completions of a prefix, or a membership test at a full key.
+ */
 export type ClosedRead =
 	| { readonly kind: "at"; readonly field: string }
+	| { readonly kind: "are"; readonly field: string }
 	| { readonly kind: "row" }
 	| { readonly kind: "has" }
 
@@ -257,6 +264,8 @@ export type ClosedRead =
  * - C.at(field, k…): the cell at k…'s index in the relation's string of cells; its payload code is NULLIF(cell, 0) - 1,
  *   so a key the relation holds no tuple at reads NULL, never a code; `field`'s coordinate of that code is a closed
  *   id's code, cast to `type`, or an open-typed value read through its dictionary at code + 1.
+ * - are(field, k…): a str.pattern field's code read as C.at reads it, through its ARE dictionary at code + 1: the
+ *   pattern as the ARE `~` reads, translated where the constants were planned, so a match translates nothing as it runs.
  * - C.row(k…): the completions of the prefix k… (completions), cast to `type`, the set over the last key field's
  *   roster, which pads the run, its roster's codes or a slot's owner's count, with 0s to the set's width, so its holes
  *   and padding are 0: a prefix the relation completes nowhere reads the empty set, and a NULL code in it NULL, which
@@ -298,10 +307,16 @@ export const closedRead = (
 		constant.payload.map((p) => p.radix),
 		position
 	)
+	const dictionary = read.kind === "are" ? payload.are : payload.dictionary
+	if (read.kind === "are" && dictionary === undefined) {
+		return Result.err(
+			`${relation}.at of a str.pattern field as a pattern; ${read.field} holds no patterns`
+		)
+	}
 	return Result.ok(
-		payload.dictionary === undefined
+		dictionary === undefined
 			? cast(digit, type)
-			: { kind: "subscript", array: constantValue(payload.dictionary), index: plus(digit, int(1)) }
+			: { kind: "subscript", array: constantValue(dictionary), index: plus(digit, int(1)) }
 	)
 }
 

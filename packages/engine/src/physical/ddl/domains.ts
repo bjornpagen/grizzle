@@ -32,6 +32,7 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	type ContractInfo,
 	patternsText,
+	regexOf,
 	type RegexRef,
 	type ScalarType,
 	spanOf
@@ -62,7 +63,7 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /** The regex of a column that a structural text domain types: refined text outside any contract. */
 export const structuralRegex = (t: ScalarType): RegexRef | undefined =>
-	t.carrier === "text" && t.contract === undefined && t.text !== "wildcard" ? t.text : undefined
+	t.carrier === "text" && t.contract === undefined ? regexOf(t.text) : undefined
 
 /** A domain columns are typed by: its name, the identity it was minted from, and its object, when the installation
  * creates one. */

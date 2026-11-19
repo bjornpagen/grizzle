@@ -283,7 +283,8 @@ const contractsOf = (type: ScalarType): ReadonlyArray<DeclaredName> => {
 /** The domains a value cast to `type` meets (see the header): its contract chain's, and its pattern's. */
 const castDomains = (names: SchemaArtifacts["names"], type: ScalarType): ReadonlyArray<string> => {
 	const text = textOf(type)
-	const pattern = text === undefined || text === "wildcard" ? undefined : names.textDomain(text)
+	const pattern =
+		text === undefined || typeof text === "string" ? undefined : names.textDomain(text)
 	return [
 		...Arr.map(contractsOf(type), (contract) => names.contractDomain(contract).name),
 		...(pattern === undefined ? [] : [pattern.name])

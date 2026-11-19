@@ -50,7 +50,7 @@ export const aClosedSourcesRefinedPayloadIsDeliveredUncastWhereThePatternAdmitsE
 		check: (_, seen: CaseOf<Feature>) => (c) =>
 			Effect.sync(() => {
 				const regex = textOf(T.code)
-				assert.ok(regex !== undefined && regex !== "wildcard", "the payload carries a pattern")
+				assert.ok(regex !== undefined && typeof regex !== "string", "the payload carries a pattern")
 				const outside = Arr.some(c.payload, (v) => !patternMember(regex, v))
 				assert.equal(outside, Arr.contains(c.payload, "Abc"), "the oracle's membership")
 				const r = lowered(c)
@@ -89,8 +89,9 @@ export const aClosedSourcesRefinedPayloadIsDeliveredUncastWhereThePatternAdmitsE
 		kills: [
 			{
 				file: "packages/engine/src/lower/conservative/refined.ts",
-				original: '\t\tt.text !== "wildcard" &&\n\t\tpatterns.member(t.text, e.value.value)',
-				replacement: '\t\tt.text !== "wildcard"',
+				original:
+					'e.value.kind === "text" && regex !== undefined && patterns.member(regex, e.value.value)',
+				replacement: 'e.value.kind === "text" && regex !== undefined',
 				why: "The tracer admits every text literal of a patterned claim, in the pattern or not; the delivery search fails."
 			}
 		]

@@ -121,7 +121,7 @@ import { baseOf, type ContractInfo, type ScalarType, spanOf } from "#compiler/ir
 import { countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { type LowerEnv, lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
-import { admittedReads, noParams } from "#compiler/scalar/compute/typing.ts"
+import { noParams } from "#compiler/scalar/compute/typing.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
@@ -140,7 +140,6 @@ import {
 	type EntryColumn,
 	setDatumBound
 } from "#compiler/schema/representability.ts"
-import { exprPatternReads } from "#compiler/schema/walk.ts"
 
 /** A row check as its statement states it: its relation, its name and predicate, and its constraint identifier, which
  * ownership named. */
@@ -1962,13 +1961,7 @@ export class Normalizer {
 		/** The theory's environment, each pattern the folds' selections read admitted once for their lowering. */
 		const env: NormalizeEnv = {
 			...this.env,
-			lowerEnv: {
-				...this.env.lowerEnv,
-				closed: admittedReads(
-					this.env.lowerEnv.closed,
-					exprPatternReads(entries.flatMap((entry) => entry.folds.flatMap((f) => f.where)))
-				)
-			}
+			lowerEnv: this.env.lowerEnv
 		}
 		const families = entries.map((entry): Family => {
 			const shape = entry.shape

@@ -100,6 +100,12 @@ export interface TextField<out Host extends string> extends Field<Host, "text", 
 }
 
 /**
+ * str.pattern: a closed relation's text of Compute.matches patterns, its host type and domain text, which a pattern
+ * term meets as it meets any text.
+ */
+export type PatternField = Field<string, "text">
+
+/**
  * numeric(p, s), its precision and scale both declared, as every numeric field is: runtime values only, so the type is
  * one for every typmod.
  */

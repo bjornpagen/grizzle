@@ -35,7 +35,7 @@ const withNullPlaceholders = (text: string): string => {
 const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
 	t.contract === undefined &&
 	t.carrier === "text" &&
-	t.text !== "wildcard" &&
+	typeof t.text !== "string" &&
 	names.textDomain(t.text) === undefined
 		? types.text
 		: fieldColumnType(names, t).type

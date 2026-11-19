@@ -44,6 +44,7 @@ const signatureType = (t: FieldDesc): boolean => {
 		case "contract":
 			return signatureType(t.base)
 		case "bytes":
+		case "pattern":
 		case "span":
 		case "bits":
 		case "vector":

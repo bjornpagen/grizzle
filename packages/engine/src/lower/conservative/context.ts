@@ -27,7 +27,7 @@ import {
 	type TakeBound,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
-import { type RegexRef, refinementText, type ScalarType } from "#compiler/ir/scalar.ts"
+import { refinementText, regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import {
 	judgesLaw,
@@ -928,7 +928,7 @@ export class LowerContext {
 
 /** The pattern a declared parameter's own pattern domain checks of a value of `t`: refined text outside any contract. */
 const paramPattern = (t: ScalarType): RegexRef | undefined =>
-	t.contract === undefined && t.carrier === "text" && t.text !== "wildcard" ? t.text : undefined
+	t.contract === undefined && t.carrier === "text" ? regexOf(t.text) : undefined
 
 /**
  * The PostgreSQL type of a value of `t`: a contract's domain, a regex refinement's __text_ domain, an extension's
@@ -950,10 +950,11 @@ const physicalTypeOf = (names: PhysicalNames, t: ScalarType): PhysicalType => {
 			ref: { kind: "named", schema: domain.schema, name: domain.name, typmod: [], array: false }
 		}
 	}
-	if (t.carrier === "text" && t.text !== "wildcard") {
-		const domain = names.textDomain(t.text)
+	const regex = t.carrier === "text" ? regexOf(t.text) : undefined
+	if (regex !== undefined) {
+		const domain = names.textDomain(regex)
 		return domain === undefined
-			? { kind: "unnamedText", regex: t.text }
+			? { kind: "unnamedText", regex }
 			: {
 					kind: "type",
 					ref: { kind: "named", schema: domain.schema, name: domain.name, typmod: [], array: false }

@@ -131,6 +131,7 @@ const declaredText = (field: FieldDesc): DeclaredText => {
 		case "numeric":
 		case "bytes":
 		case "uuid":
+		case "pattern":
 		case "span":
 		case "closedId":
 		case "bits":

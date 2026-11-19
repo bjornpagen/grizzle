@@ -8,11 +8,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { LabelSupply } from "#compiler/ir/dag.ts"
-import { type ExprDesc, expandRetirable } from "#compiler/ir/desc.ts"
 import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
-import { admittedReads } from "#compiler/scalar/compute/typing.ts"
-import type { Owned, OwnedStatement } from "#compiler/schema/own.ts"
-import { exprPatternReads } from "#compiler/schema/walk.ts"
 
 /**
  * Every law's violation query, a query that must be empty, under a Forbid node of its identity, in one DAG: what the
@@ -36,44 +32,6 @@ type Written =
 			readonly root: RelNode
 	  }
 
-/** The expressions a statement's laws' violation queries lower: its predicate and its sides' selections. */
-const statementExprs = (s: OwnedStatement): ReadonlyArray<ExprDesc> => {
-	switch (s.kind) {
-		case "mutable":
-		case "race":
-			return []
-		case "key":
-			return s.side.selection.conjuncts
-		case "check":
-			return [s.predicate]
-		case "contained":
-			return [...s.left.selection.conjuncts, ...s.right.selection.conjuncts]
-		case "family":
-		case "tree":
-			return s.member.selection.conjuncts
-		case "fold":
-			return [...s.step.selection.conjuncts, ...s.end.selection.conjuncts]
-		case "alternatives":
-			return [...s.parent.selection.conjuncts, ...s.arms.flatMap((a) => a.arm.selection.conjuncts)]
-		case "retirable":
-			return expandRetirable(s).flatMap((c) => [
-				...c.left.selection.conjuncts,
-				...c.right.selection.conjuncts
-			])
-	}
-}
-
-/**
- * The expressions every law's violation query lowers, the violation queries' lowering batch: each statement's
- * (statementExprs) and each contract's predicate.
- */
-const lawExprs = (owned: Owned): ReadonlyArray<ExprDesc> => [
-	...owned.statements.flatMap(statementExprs),
-	...Object.values(owned.contracts).flatMap((c) =>
-		c.desc.predicate === undefined ? [] : [c.desc.predicate]
-	)
-]
-
 /**
  * The violation queries of `theory`'s laws, the theory of `checked`, or the first refusal: each law's written in law
  * order, each primary key's law first, then every other law, from what its theory law carries (laws.ts lawViolation),
@@ -87,10 +45,7 @@ export const theoryViolations = (
 	theory: Theory
 ): Result.Result<TheoryViolations, CompileError> =>
 	catchRefusal(() => {
-		const sides = lawSides(
-			checked,
-			admittedReads(checked.closedReads, exprPatternReads(lawExprs(checked.owned)))
-		)
+		const sides = lawSides(checked, checked.closedReads)
 		const vb = new ViolationBuilder(SourceLoc(`schema ${checked.owned.name}`, []))
 		const statements = checked.owned.statements
 		const written = theory.laws.map((law): Written => {

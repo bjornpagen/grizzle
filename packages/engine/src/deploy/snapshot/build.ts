@@ -1213,7 +1213,7 @@ const ownerFunctionForm = (f: OwnerFunction<Identifier<"closedConstant">>): Snap
 })
 
 /** The JSON form of a closed relation's constants as readers address them (NamedClosed), a payload field of no
- * dictionary stating none. */
+ * dictionary or ARE dictionary stating none. */
 const closedForm = (c: NamedClosed): SnapshotForm => ({
 	function: c.function,
 	key:
@@ -1238,11 +1238,12 @@ const closedForm = (c: NamedClosed): SnapshotForm => ({
 					cells: c.key.cells
 				},
 	width: c.width,
-	payload: c.payload.map((p): SnapshotForm =>
-		p.dictionary === undefined
-			? { field: p.field, radix: p.radix }
-			: { field: p.field, radix: p.radix, dictionary: p.dictionary }
-	),
+	payload: c.payload.map((p): SnapshotForm => ({
+		field: p.field,
+		radix: p.radix,
+		...(p.dictionary === undefined ? {} : { dictionary: p.dictionary }),
+		...(p.are === undefined ? {} : { are: p.are })
+	})),
 	keys: c.keys,
 	functions: c.functions
 })

@@ -102,7 +102,9 @@ export type PgScalarName = (typeof pgScalarNames)[number]
  * An authored field's descriptor, as a declaration states it and the Description boundary carries it
  * (fieldDescShape): numeric is numeric(p, s), its precision and scale both declared. No declaration states a computed
  * numeric, so none has an arm here; a derived relation's inferred field is an InferredFieldDesc. A set over a roster
- * (bits) is bit(n), one bit per code the roster has minted, holes included.
+ * (bits) is bit(n), one bit per code the roster has minted, holes included. A pattern is a closed relation's text of
+ * Compute.matches patterns (str.pattern), each value a pattern of grizzle's grammar admitted once where the relation is
+ * read, its ARE planned beside its dictionary.
  */
 export type FieldDesc =
 	| { readonly kind: "pg"; readonly type: PgScalarName }
@@ -121,6 +123,7 @@ export type FieldDesc =
 			/** The patterns' language as the text analysis proved it where the descriptor was admitted, cut to `bytes`. */
 			readonly language: TextLanguage
 	  }
+	| { readonly kind: "pattern" }
 	| {
 			readonly kind: "contract"
 			readonly name: string
@@ -929,6 +932,7 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 		case "contract":
 			return desc.name !== "instant" && contextFieldAdmits(desc.base)
 		case "numeric":
+		case "pattern":
 		case "bytes":
 		case "span":
 		case "bits":
@@ -2226,6 +2230,7 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
 		(t) => t.bytes === languageOctets(t.language),
 		"a text's byte bound, the one its language enforces"
 	),
+	pattern: S.struct({}),
 	contract: S.structStated(
 		{
 			name,
@@ -2607,6 +2612,7 @@ const closedFieldAdmits = (desc: FieldDesc): boolean => {
 		case "numeric":
 		case "uuid":
 		case "text":
+		case "pattern":
 		case "closedId":
 			return true
 		case "contract":

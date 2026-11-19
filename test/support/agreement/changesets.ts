@@ -2376,7 +2376,7 @@ const hostText = (t: ScalarType): string => {
 		case "date":
 			return "CalendarDate"
 		case "text":
-			return t.text === "wildcard"
+			return typeof t.text === "string"
 				? "string"
 				: Arr.join(
 						Arr.map(

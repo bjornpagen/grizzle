@@ -15,7 +15,13 @@ import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
-import { baseOf, patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	patternsText,
+	regexOf,
+	type RegexRef,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import type {
 	Collation,
 	ColumnDefinition,
@@ -266,10 +272,11 @@ export const fieldColumnType = (names: PhysicalNames, t: ScalarType): ColumnType
 	if (contract !== undefined) {
 		return { type: qualifiedType(names.contractDomain(contract.name)), collation: undefined }
 	}
-	if (t.carrier === "text" && t.text !== "wildcard") {
-		const domain = names.textDomain(t.text)
+	const regex = t.carrier === "text" ? regexOf(t.text) : undefined
+	if (regex !== undefined) {
+		const domain = names.textDomain(regex)
 		if (domain === undefined) {
-			missing(`physical: no structural text domain for ${patternsText(t.text.patterns)}`)
+			missing(`physical: no structural text domain for ${patternsText(regex.patterns)}`)
 		}
 		return { type: qualifiedType(domain), collation: undefined }
 	}
@@ -282,13 +289,12 @@ export const fieldColumnType = (names: PhysicalNames, t: ScalarType): ColumnType
  * field declares, whose installation holds no domain, is its base, since every value of the refinement is one of it and
  * the proof holds it to the refinement.
  */
-export const provedCastType = (names: PhysicalNames, t: ScalarType): TypeRef =>
-	t.contract === undefined &&
-	t.carrier === "text" &&
-	t.text !== "wildcard" &&
-	names.textDomain(t.text) === undefined
+export const provedCastType = (names: PhysicalNames, t: ScalarType): TypeRef => {
+	const regex = t.contract === undefined && t.carrier === "text" ? regexOf(t.text) : undefined
+	return regex !== undefined && names.textDomain(regex) === undefined
 		? baseTypeRef(names, t)
 		: fieldColumnType(names, t).type
+}
 
 /**
  * The type a value of `t` is stored and cast as once its contract and text refinement are set aside: a closed id's
