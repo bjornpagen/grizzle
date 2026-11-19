@@ -213,7 +213,7 @@ const unsound = (why: string): Soundness => ({ kind: "unsound", why })
  * name as its own variable's.
  */
 export const fixedNamesUnscoped = (dag: RelDag, of: LogicalAnalysis["of"]): Soundness => {
-	const scopes = nodeScopes(dag)
+	const scopes = nodeScopes()
 	for (const node of topoOrder(dag)) {
 		const props = of(node).props
 		const attach = props.attachment

@@ -15,7 +15,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
-import { nodeScopes } from "#compiler/ir/dag.ts"
+import { freeVars, nodeScopes, nodesByLabel } from "#compiler/ir/dag.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { liveOf } from "#test/support/oracle/dag-validate.ts"
 import {
@@ -56,7 +56,8 @@ export const aNodesScopeIsTheDefinitionsTheReferencesBelowItNoNodeOnTheWayBindsA
 			Effect.sync(() => {
 				/** Every table node is a root of the live DAG, so a region a reference names is one of its labels. */
 				const live = liveOf(d)
-				const scopes = nodeScopes({
+				const scopes = nodeScopes()
+				const labels = nodesByLabel({
 					roots: Arr.map(Rec.keys(d.nodes), (id) => live.node(NodeId(id)))
 				})
 				const expected = reference(d, c.note)
@@ -66,7 +67,7 @@ export const aNodesScopeIsTheDefinitionsTheReferencesBelowItNoNodeOnTheWayBindsA
 					assert.ok(refs !== undefined, `${n.id} has a scope`)
 					assert.deepEqual(listed(scope.outer), listed(refs), `the outer references of ${n.id}`)
 					const vars = namedVars(d, refs)
-					unorderedEqual(scope.freeVars, vars, `the free variables of ${n.id}`)
+					unorderedEqual(freeVars(labels, scope), vars, `the free variables of ${n.id}`)
 					const noted = [
 						...(vars.length > 0 ? ["a free variable" as const] : []),
 						...(Arr.some([...refs.keys()], (id) => d.nodes[id]?.kind !== "MatchRegion")

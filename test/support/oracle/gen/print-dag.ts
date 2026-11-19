@@ -1,6 +1,7 @@
 import { Array as Arr, Formatter } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
-import { type NodeScope, nodeScopes, postorder, topoOrder } from "#compiler/ir/dag.ts"
+import type { VarId } from "#compiler/core/ids.ts"
+import { freeVars, nodeScopes, nodesByLabel, postorder, topoOrder } from "#compiler/ir/dag.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import { describeOp, exprClosure, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import {
@@ -276,7 +277,7 @@ const printBody = (n: RelNode, printer: ExprPrinter): string => {
 	}
 }
 
-const printMeta = (n: RelNode, scope: NodeScope): string => {
+const printMeta = (n: RelNode, free: ReadonlyArray<VarId>): string => {
 	const m = n.meta
 	const parts: Array<string> = [m.card]
 	if (m.logicalKeys.length > 0) {
@@ -293,14 +294,14 @@ const printMeta = (n: RelNode, scope: NodeScope): string => {
 	if (m.reads.length > 0) {
 		parts.push(`reads${list(m.reads)}`)
 	}
-	if (scope.freeVars.length > 0) {
-		parts.push(`free${list(scope.freeVars)}`)
+	if (free.length > 0) {
+		parts.push(`free${list(free)}`)
 	}
 	return Arr.join(parts, " ")
 }
 
-const nodeLine = (n: RelNode, printer: ExprPrinter, scope: NodeScope): string =>
-	`${n.id} = ${printBody(n, printer)} :: ${printHeading(n.heading)} {${printMeta(n, scope)}}`
+const nodeLine = (n: RelNode, printer: ExprPrinter, free: ReadonlyArray<VarId>): string =>
+	`${n.id} = ${printBody(n, printer)} :: ${printHeading(n.heading)} {${printMeta(n, free)}}`
 
 /**
  * A deterministic text rendering of the IR, for the printable form of a generated case (print.ts).
@@ -310,15 +311,17 @@ const nodeLine = (n: RelNode, printer: ExprPrinter, scope: NodeScope): string =>
  * function of the DAG's content only, so equal DAGs print identically; it is not SQL and is never emitted.
  *
  * The whole DAG: one line per node in topological order, inputs first, each shared expression defined on its own line
- * before the first node that uses it, then the roots. A node's free variables are its scope's (ir/dag.ts nodeScopes).
+ * before the first node that uses it, then the roots. A node's free variables are its scope's (ir/dag.ts nodeScopes,
+ * freeVars).
  */
 export const printDag = (dag: RelDag): string => {
 	const nodes = topoOrder(dag)
-	const scopes = nodeScopes(dag)
+	const scopes = nodeScopes()
+	const labels = nodesByLabel(dag)
 	const printer = new ExprPrinter(Arr.flatMap(nodes, (n) => exprsOf(n)))
 	const lines = Arr.flatMap(nodes, (n) => [
 		...printer.definitions(exprsOf(n)),
-		nodeLine(n, printer, scopes.of(n))
+		nodeLine(n, printer, freeVars(labels, scopes.of(n)))
 	])
 	return Arr.join([...lines, `roots ${list(Arr.map(dag.roots, (root) => root.id))}`], "\n")
 }

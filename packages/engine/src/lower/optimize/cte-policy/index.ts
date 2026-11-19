@@ -6,7 +6,7 @@ import {
 	localCertificate,
 	makeCertificate
 } from "#compiler/ir/certificate.ts"
-import { nodeScopes } from "#compiler/ir/dag.ts"
+import { freeVars, nodeScopes, nodesByLabel } from "#compiler/ir/dag.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
@@ -207,7 +207,8 @@ const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
  */
 const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 	const d = analyzeDemand(dag, noPins)
-	const scopes = nodeScopes(dag)
+	const scopes = nodeScopes()
+	const labels = nodesByLabel(dag)
 	const feedback = feedbackReadsOf(nodeGraph, d.order)
 	const perRow = reads === "query" ? readPerRow(d.order) : new Set<RelNode>()
 	const decided: Array<Decided> = []
@@ -233,7 +234,7 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 			decision = decide("inline", "feedback")
 		} else if (
 			readsOutside(nodeGraph, subtreeOf(nodeGraph, node)) ||
-			scopes.of(node).freeVars.length > 0 ||
+			freeVars(labels, scopes.of(node)).length > 0 ||
 			d.lateral(node)
 		) {
 			decision = decide("inline", "correlated")

@@ -149,7 +149,7 @@ export class KeyKernel {
 
 	constructor(dag: RelDag, env: KernelEnv) {
 		this.#nodes = nodesByLabel(dag)
-		this.#scopes = nodeScopes(dag)
+		this.#scopes = nodeScopes()
 		this.#env = env
 	}
 

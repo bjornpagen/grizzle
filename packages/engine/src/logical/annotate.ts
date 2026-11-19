@@ -221,7 +221,7 @@ class Annotator<R extends Roots> {
 	run(): LogicalAnalysis<R> {
 		const { env } = this
 		const count = readers(this.dag)
-		const scopes = nodeScopes(this.dag)
+		const scopes = nodeScopes()
 		const propsEnv: PropsEnv = {
 			scope: (node) => scopes.of(node),
 			keyedViews: env.keyedViews

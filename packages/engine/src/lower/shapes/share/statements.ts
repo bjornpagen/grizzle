@@ -5,7 +5,7 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { extendNonEmpty, isNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
-import { type NodeScope, nodeScopes, topoOrder } from "#compiler/ir/dag.ts"
+import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { edgesOf, inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import {
@@ -63,6 +63,7 @@ export class ShareIndex {
 	readonly #demand: DemandAnalysis
 	readonly #feedback: ReadonlySet<RelNode>
 	readonly #scopes: Fold<RelNode, NodeScope>
+	readonly #labels: ReadonlyMap<NodeId, RelNode>
 	/** Each node's share key or its absence, by label, computed on its first read. */
 	readonly #keys = new Map<NodeId, { readonly key: string | undefined }>()
 	/** The longest path from each node to a leaf, folded from its inputs'. */
@@ -79,7 +80,8 @@ export class ShareIndex {
 		this.dag = dag
 		this.#demand = analyzeDemand(dag, noPins)
 		this.#feedback = feedbackReadsOf(nodeGraph, topoOrder(dag))
-		this.#scopes = nodeScopes(dag)
+		this.#scopes = nodeScopes()
+		this.#labels = nodesByLabel(dag)
 	}
 
 	/** The node's inputs, once per reference: a region that matches one input twice lowers it twice. */
@@ -104,7 +106,7 @@ export class ShareIndex {
 		const eligible =
 			node.kind !== "Recursive" &&
 			node.kind !== "SelfRef" &&
-			this.#scopes.of(node).freeVars.length === 0 &&
+			freeVars(this.#labels, this.#scopes.of(node)).length === 0 &&
 			!this.#demand.lateral(node) &&
 			!this.#feedback.has(node) &&
 			!readsOutside(nodeGraph, subtreeOf(nodeGraph, node)) &&

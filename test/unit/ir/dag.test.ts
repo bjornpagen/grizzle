@@ -43,8 +43,10 @@ import {
 	dagDigest,
 	emptyDag,
 	finishCells,
+	freeVars,
 	mergeDags,
 	nodeScopes,
+	nodesByLabel,
 	relNode,
 	topoOrder
 } from "#compiler/ir/dag.ts"
@@ -225,7 +227,7 @@ export const traversalsOfGeneratedDAGsHandleAChainOfAnyDepthPastWhatTheCallStack
 					return deepest
 				})
 				assert.equal(below.of(last), depth)
-				assert.equal(nodeScopes(built).of(last).outer.size, 0)
+				assert.equal(nodeScopes().of(last).outer.size, 0)
 				const cells: Array<Cell> = []
 				const cellOf = cellTable(built.roots, (cell) => cells.push(cell))
 				const finished = succeeded(
@@ -540,8 +542,8 @@ export const normalizeDagIgnoresTheAllocationOrderOfARegionsVariablesAndFindsThe
 					succeeded(encode(succeeded(normalizeDag(d)), everyProperty)),
 					succeeded(encode(succeeded(normalizeDag(reference)), everyProperty))
 				)
-				unorderedEqual(nodeScopes(d).of(child).freeVars, vars)
-				assert.equal(nodeScopes(d).of(defined(d.roots[0])).outer.size, 0)
+				unorderedEqual(freeVars(nodesByLabel(d), nodeScopes().of(child)), vars)
+				assert.equal(nodeScopes().of(defined(d.roots[0])).outer.size, 0)
 			}),
 		oracle: {
 			kind: "universal",

@@ -760,7 +760,7 @@ export class LowerContext {
 	 * environment must bind wherever it is lowered.
 	 */
 	scopeOf(node: RelNode): NodeScope {
-		this.#shared.scopes ??= nodeScopes(this.dag)
+		this.#shared.scopes ??= nodeScopes()
 		return this.#shared.scopes.of(node)
 	}
 

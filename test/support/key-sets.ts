@@ -219,7 +219,7 @@ export const keySetRepeats = (
  * parent at once, whose keys within one parent need not hold across parents.
  */
 export const correlatedChildUnderNestedAttachment = (dag: RelDag): boolean => {
-	const scopes = nodeScopes(dag)
+	const scopes = nodeScopes()
 	return Arr.some(topoOrder(dag), (node) => {
 		if (node.kind !== "Attach" || deliverySpine(node.child).attachments.length === 0) {
 			return false

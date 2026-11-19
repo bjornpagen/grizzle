@@ -293,8 +293,6 @@ export type OuterRefs = ReadonlyMap<NodeId, ReadonlySet<string>>
 export interface NodeScope {
 	/** The columns of nodes outside the node's own scope that its evaluation reads. */
 	readonly outer: OuterRefs
-	/** The variables those columns name, sorted. */
-	readonly freeVars: ReadonlyArray<VarId>
 }
 
 const noRefs: OuterRefs = new Map()
@@ -304,7 +302,7 @@ const noNodes: ReadonlyArray<NodeId> = Object.freeze([])
 /**
  * The scope of a node that reads no column from outside it: a source, or a node that binds every reference below it.
  */
-const closed: NodeScope = Object.freeze({ outer: noRefs, freeVars: noIds })
+const closed: NodeScope = Object.freeze({ outer: noRefs })
 
 /**
  * What a node evaluates in its own scope: the expressions outer values enter through; the labels of the nodes besides
@@ -379,10 +377,16 @@ const refsOf = (exprs: ReadonlyArray<ScalarExpr>, bound: (id: NodeId) => boolean
 	return out.size === 0 ? noRefs : out
 }
 
-/** The variables outer references name: a region's columns, by their names; a label no region holds names none. */
-const named = (index: ReadonlyMap<NodeId, RelNode>, refs: OuterRefs): ReadonlyArray<VarId> => {
+/**
+ * A scope's free variables, sorted: the variables its outer references name, a region's columns by their names, read
+ * through the DAG's labels (nodesByLabel), where a label no region holds names none.
+ */
+export const freeVars = (
+	index: ReadonlyMap<NodeId, RelNode>,
+	scope: NodeScope
+): ReadonlyArray<VarId> => {
 	const vars: Array<VarId> = []
-	for (const [id, columns] of refs) {
+	for (const [id, columns] of scope.outer) {
 		const node = index.get(id)
 		if (node?.kind === "MatchRegion") {
 			appendAll(
@@ -406,7 +410,6 @@ interface Carried {
  * whose inputs carries a reference and that makes none is closed, its entry never read.
  */
 const scopeOf = (
-	index: ReadonlyMap<NodeId, RelNode>,
 	node: RelNode,
 	inputs: ReadonlyArray<{ readonly input: RelNode; readonly scope: NodeScope }>
 ): NodeScope => {
@@ -429,7 +432,7 @@ const scopeOf = (
 	}
 	const [only, ...more] = carried
 	if (only === undefined) {
-		return own.size === 0 ? closed : { outer: own, freeVars: named(index, own) }
+		return own.size === 0 ? closed : { outer: own }
 	}
 	const refs = only.scope.outer
 	if (
@@ -453,16 +456,17 @@ const scopeOf = (
 	for (const c of carried) {
 		add(c.scope.outer, c.rows)
 	}
-	return outer.size === 0 ? closed : { outer, freeVars: named(index, outer) }
+	return outer.size === 0 ? closed : { outer }
 }
 
 /**
- * The scope of every node of `dag`, each computed from its inputs' (a fold): `nodeScopes(dag).of(node)`. A root's is
- * closed in a valid DAG: its statement is lowered with nothing in scope. Logical analysis reads a lateral source's outer
- * references from it; a node whose scope has free variables reads an enclosing region per row.
+ * The scope of every node, each computed from its inputs' (a fold): `nodeScopes().of(node)`. A node's scope is a
+ * function of the node and the nodes it reaches alone, so one fold serves every root of any DAG, and reads no label of
+ * the DAG: a lowering of one root of a DAG of many walks only the nodes that root reaches. A root's is closed in a valid
+ * DAG: its statement is lowered with nothing in scope. Logical analysis reads a lateral source's outer references from
+ * it; a node whose scope has free variables (freeVars) reads an enclosing region per row.
  *
- * The scope of a node: the columns of other nodes its evaluation reads, and the variables they name, its free
- * variables.
+ * The scope of a node: the columns of other nodes its evaluation reads.
  *
  * Outer values enter a node only through the expressions it evaluates in its own scope (rel.ts scopeExprs): a take's
  * correlation, and a region's constants and correlated variables. Every other expression a node evaluates reads its
@@ -482,7 +486,7 @@ const scopeOf = (
  * variable at the attachment, and a semi-join's right side's reference to its left at the semi-join. A node's free
  * variables are the variables its outer references name: a column of a region is its variable of that name, and a
  * column of any other node names none. The region a reference names is read through the DAG's labels (nodesByLabel),
- * built once for the fold.
+ * which only a reader of free variables builds (freeVars).
  *
  * The per-row bindings change no evaluation, only the record of the binding node and the nodes above it. The child of
  * an attachment is still evaluated per delivered parent row: the delivery maps every node of the statement's delivered
@@ -497,17 +501,15 @@ const scopeOf = (
  * node, such as the input of a parent that computes its own rows, or a node below a semi-join's left, which the
  * lowering does not map, or one reaching the binding node from its other input, is not bound there.
  */
-export const nodeScopes = (dag: RelDag): Fold<RelNode, NodeScope> => {
-	const index = nodesByLabel(dag)
-	return new Fold<RelNode, NodeScope>(function* (node) {
+export const nodeScopes = (): Fold<RelNode, NodeScope> =>
+	new Fold<RelNode, NodeScope>(function* (node) {
 		const inputs: Array<{ readonly input: RelNode; readonly scope: NodeScope }> = []
 		for (const input of inputsOf(node)) {
 			const scope: NodeScope = yield input
 			inputs.push({ input, scope })
 		}
-		return scopeOf(index, node, inputs)
+		return scopeOf(node, inputs)
 	})
-}
 
 /**
  * The cell of each node `roots` reach, and of no other: its label, and its edit form, whose inputs are its inputs'
