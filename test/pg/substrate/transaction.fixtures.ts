@@ -11,7 +11,8 @@ const probe = "transaction_probe"
 
 /**
  * What a case may do in its transaction that would outlive it on a committing session, and whether a connection holds
- * it after: a table, a temporary table, a database default and a session setting (each undone by the ROLLBACK), an
+ * it after: a table, a temporary table, a database default, a session setting and a session's date style, which
+ * respells every timestamp the session prints (each undone by the ROLLBACK), an
  * advisory lock and a prepared statement (each held by the session past a ROLLBACK, undone by DISCARD ALL).
  */
 const outlived = {
@@ -30,6 +31,10 @@ const outlived = {
 	"a session setting": {
 		plant: () => "SET work_mem TO '7MB'",
 		read: "SELECT 1 WHERE pg_catalog.current_setting('work_mem') = '7MB'"
+	},
+	"a session's date style": {
+		plant: () => "SET DateStyle TO 'German'",
+		read: "SELECT 1 WHERE pg_catalog.current_setting('DateStyle') = 'German, DMY'"
 	},
 	"an advisory lock": {
 		plant: () => "SELECT pg_catalog.pg_advisory_lock(4242)",

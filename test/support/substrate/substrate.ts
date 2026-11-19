@@ -1326,12 +1326,15 @@ const undoneAlone =
 
 /**
  * When the connection's transaction began, as text: transaction_timestamp, the start of the transaction the statement
- * runs in, which a case that ends its transaction moves, whatever begins after it. It names the case's transaction
+ * runs in, which a case that ends its transaction moves, whatever begins after it, read as its epoch, a numeric, whose
+ * text no setting a case may change spells otherwise, as DateStyle and TimeZone respell a timestamptz's. It names the case's transaction
  * without giving it a transaction id: a case that never writes holds none, and a logical slot's making waits for every
  * transaction holding one when it starts (PostgreSQL's snapbuild.c SnapBuildWaitSnapshot), so a held id would hold up
  * every live source made on the cluster for the case's whole length.
  */
-const transactionBegan = bare("SELECT pg_catalog.transaction_timestamp()::text")
+const transactionBegan = bare(
+	"SELECT pg_catalog.extract('epoch', pg_catalog.transaction_timestamp())::text"
+)
 
 /** The statements that end a case's transaction and put the session back as it was opened. */
 const caseEnd = Object.freeze({
