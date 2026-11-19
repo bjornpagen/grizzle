@@ -43,12 +43,11 @@ import {
 	changes,
 	counts,
 	credentialNeed,
-	declared,
 	levels,
+	levelsTemplate,
 	type Note,
 	stored
 } from "#test/pg/transactions/apply.fixtures.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	assert,
 	bareRecord,
@@ -58,7 +57,7 @@ import {
 } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t3, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
-import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
+import { loadMigrated as load } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
@@ -73,7 +72,7 @@ import { makeTap } from "#test/support/wire-tap.ts"
  */
 export const aChangeMembersApplyAnswersTheEmptyAStreamParameterAndABaseLevelChangeSetRefusesOneThatDoesNotCompileWhereItIsCompiledAndAFailedAcquisition =
 	property.explore(applyCase, {
-		needs: { substrate: Substrate.installing, credentialNeed },
+		needs: { levels: Substrate.seat(levelsTemplate), credentialNeed },
 		situations: [
 			...changes,
 			"both tasks noted",
@@ -81,227 +80,226 @@ export const aChangeMembersApplyAnswersTheEmptyAStreamParameterAndABaseLevelChan
 			"an empty note"
 		] satisfies ReadonlyArray<Reached<ApplyFeature>>,
 		check:
-			({ substrate, credentialNeed }, c: Case<ApplyFeature>) =>
+			({ levels: seated, credentialNeed }, c: Case<ApplyFeature>) =>
 			({ change, notes, wanted, note }) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const credential = yield* credentialNeed
-						return yield* Effect.gen(function* () {
-							const s = yield* Substrate
-							const done = yield* install(declared.Extended, {
-								ambient: ordinarySession,
-								extensions: [],
-								label: "apply_levels",
-								logins: [declared.server]
-							})
-							yield* load(done, workFacts)
-							const rebuilt = levels(done.schema)
-							const credentials = done.as(rebuilt.server)
-							const names = namesOf(done)
-							const password = Effect.suspend(() =>
-								credential.ok
-									? Effect.succeed(credentials.password)
-									: Effect.fail(
-											new CredentialError({ cause: "the test turned the credential off" })
-										)
-							)
-							const state = Effect.all({
-								notes: tableState(done, W.TaskNote),
-								accounts: tableState(done, W.Account)
-							})
-							const s0 = rebuilt.Extended
-							/**
-							 * A sibling under the installed name with Work's relations alone, and an extension of the Db's schema:
-							 * neither's content is a level of the Db's. The types refuse both, and a write outside the role's
-							 * write list, at workload(...); the workload builder refuses the first two where it is called, and the
-							 * compile of the served file the third.
-							 */
-							const sibling = schema(done.schema, Rec.values(W.Work.relations), [])
-							const extension = schema.extend(
-								s0,
-								"Extended",
-								[relation("Extra", { id: uuid }, ["id"])],
-								[]
-							)
-							/** The ChangeSets the compile refuses, by the value that draws them. */
-							const refusedOf = (
-								change: "outside the write list" | "a sibling" | "an extension"
-							): unknown => {
-								switch (change) {
-									case "outside the write list":
-										return ChangeSet.empty(s0).insert(W.Account, [])
-									case "a sibling":
-										return ChangeSet.empty(sibling).insert(W.TaskNote, [])
-									case "an extension":
-										return ChangeSet.empty(extension).insert(W.TaskNote, [])
-								}
-							}
-							const {
-								ctx: opened,
-								load: loaded,
-								serve
-							} = yield* openServedDb(done, rebuilt.server.roles.app, {})
-							/**
-							 * The members' runtime on a tapped pool, its first session warmed, so a window holds one call's
-							 * traffic.
-							 */
-							const tap = makeTap(s.cluster)
-							const pool = yield* poolFor(credentials, {
-								...defaultPool,
-								password: { kind: "given", password },
-								transport: { kind: "given", transport: tap.transport },
-								pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 2 }
-							})
-							yield* Effect.scoped(
-								Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
-							)
-							const tapped = { ...opened, pool }
-							const members = yield* loaded({
-								empty: ChangeSet.empty(s0),
-								/** A described insert over a relation parameter, a call's Stream: one note per wanted task that exists. */
-								streamed: ChangeSet.empty(s0).insert(
-									W.TaskNote,
-									query(s0).rule((r) => {
-										const wanted = r.relation("wanted", { task: uuid })
-										const { id } = v(W.Task, "task")
-										return r
-											.match(wanted, { task: id })
-											.match(W.Task, { id })
-											.find({ task: id, note: r.param("note", W.TaskNote.fields.note) })
-									})
-								),
-								base: ChangeSet.empty(rebuilt.Base).insert(W.TaskNote, []),
-								remove: ChangeSet.empty(s0).delete(W.TaskNote, [])
-							})
-							const run = (name: string) => member(members, name)
-
-							yield* s.admin.query(
-								`DELETE FROM ${names.table(W.TaskNote)} WHERE ${names.column(W.TaskNote, "task")} = ANY ($1::uuid[])`,
-								[`{${t3},${t4}}`]
-							)
-							credential.ok = true
-							const before = yield* state
-							switch (change) {
-								case "empty": {
-									const outcome = yield* appliedWith(tapped, run("empty"), {})
-									assert.ok(outcome.kind === "unchanged", outcome.kind)
-									assert.deepEqual(outcome.reads, bareRecord({}))
-									const after = yield* state
-									unorderedEqual(after.notes, before.notes)
-									break
-								}
-								case "a Stream parameter, twice": {
-									const stream = Stream.fromIterable(Arr.map(wanted, (task) => ({ task })))
-									const written = Arr.map(
-										Arr.filter(wanted, (task) => task !== tMissing),
-										(task): Note => ({ task, note })
-									)
-									const added = [counts("TaskNote", BigInt(written.length), 0n, 0n)]
-									const first = yield* appliedWith(tapped, run("streamed"), {
-										wanted: stream,
-										note
-									})
-									assert.ok(first.kind === "accepted", first.kind)
-									assert.deepEqual(first.counts, added)
-									const after = yield* state
-									unorderedEqual(after.notes, [...before.notes, ...Arr.map(written, stored)])
-									/**
-									 * With the notes deleted again, the second application adds them again only if it
-									 * collects the Stream anew: a Stream read once would add nothing.
-									 */
-									const removed = yield* applied(tapped, run("remove"), {
-										delete: { TaskNote: written }
-									})
-									assert.ok(removed.kind === "accepted", removed.kind)
-									assert.deepEqual(removed.counts, [
-										counts("TaskNote", 0n, BigInt(written.length), 0n)
-									])
-									const second = yield* appliedWith(tapped, run("streamed"), {
-										wanted: stream,
-										note
-									})
-									assert.ok(second.kind === "accepted", second.kind)
-									assert.deepEqual(second.counts, added)
-									break
-								}
-								case "a base level": {
-									const outcome = yield* applied(tapped, run("base"), {
-										insert: { TaskNote: notes }
-									})
-									assert.ok(outcome.kind === "accepted", outcome.kind)
-									assert.deepEqual(outcome.counts, [
-										counts("TaskNote", BigInt(notes.length), 0n, 0n)
-									])
-									const after = yield* state
-									unorderedEqual(after.notes, [...before.notes, ...Arr.map(notes, stored)])
-									break
-								}
-								case "outside the write list": {
-									const refused = yield* Effect.result(serve({ refused: refusedOf(change) }))
-									assert.ok(Result.isFailure(refused), "the compile refuses the member")
-									assert.ok(
-										!(refused.failure instanceof OpenError),
-										Formatter.format(refused.failure)
-									)
-									const error = refused.failure.error
-									assert.ok(isCompileError(error), Formatter.format(error))
-									assert.deepEqual(
-										[refused.failure.place, error.reason._tag],
-										[{ kind: "program", role: "app", program: "refused" }, "OutsideRole"]
-									)
-									const after = yield* state
-									unorderedEqual(after.notes, before.notes)
-									unorderedEqual(after.accounts, before.accounts)
-									break
-								}
-								case "a sibling":
-								case "an extension": {
-									throwsRefused(
-										() => workload(rebuilt.app, { refused: refusedOf(change) }),
-										"MalformedDescription",
-										change
-									)
-									const after = yield* state
-									unorderedEqual(after.notes, before.notes)
-									break
-								}
-								case "acquisition fails": {
-									yield* Effect.scoped(
-										Effect.gen(function* () {
-											yield* pool.lease
-											credential.ok = false
-											const failed = yield* failureOf(
-												applied(tapped, run("base"), { insert: { TaskNote: notes } })
+				Effect.flatMap(seated, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const credential = yield* credentialNeed
+							return yield* Effect.gen(function* () {
+								const s = yield* Substrate
+								const done = taken.value
+								yield* load(done, workFacts)
+								const rebuilt = levels(done.schema)
+								const credentials = done.as(rebuilt.server)
+								const names = namesOf(done)
+								const password = Effect.suspend(() =>
+									credential.ok
+										? Effect.succeed(credentials.password)
+										: Effect.fail(
+												new CredentialError({ cause: "the test turned the credential off" })
 											)
-											assert.deepEqual(
-												failed.kind === "credentialRefused"
-													? [failed.kind, failed.reason]
-													: [failed.kind],
-												["credentialRefused", "passwordFailed"],
-												failed.message
-											)
+								)
+								const state = Effect.all({
+									notes: tableState(done, W.TaskNote),
+									accounts: tableState(done, W.Account)
+								})
+								const s0 = rebuilt.Extended
+								/**
+								 * A sibling under the installed name with Work's relations alone, and an extension of the Db's schema:
+								 * neither's content is a level of the Db's. The types refuse both, and a write outside the role's
+								 * write list, at workload(...); the workload builder refuses the first two where it is called, and the
+								 * compile of the served file the third.
+								 */
+								const sibling = schema(done.schema, Rec.values(W.Work.relations), [])
+								const extension = schema.extend(
+									s0,
+									"Extended",
+									[relation("Extra", { id: uuid }, ["id"])],
+									[]
+								)
+								/** The ChangeSets the compile refuses, by the value that draws them. */
+								const refusedOf = (
+									change: "outside the write list" | "a sibling" | "an extension"
+								): unknown => {
+									switch (change) {
+										case "outside the write list":
+											return ChangeSet.empty(s0).insert(W.Account, [])
+										case "a sibling":
+											return ChangeSet.empty(sibling).insert(W.TaskNote, [])
+										case "an extension":
+											return ChangeSet.empty(extension).insert(W.TaskNote, [])
+									}
+								}
+								const {
+									ctx: opened,
+									load: loaded,
+									serve
+								} = yield* openServedDb(done, rebuilt.server.roles.app, {})
+								/**
+								 * The members' runtime on a tapped pool, its first session warmed, so a window holds one call's
+								 * traffic.
+								 */
+								const tap = makeTap(s.cluster)
+								const pool = yield* poolFor(credentials, {
+									...defaultPool,
+									password: { kind: "given", password },
+									transport: { kind: "given", transport: tap.transport },
+									pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 2 }
+								})
+								yield* Effect.scoped(
+									Effect.flatMap(pool.lease, (session) =>
+										rowsOn(session, "SELECT 'warm'::text", [])
+									)
+								)
+								const tapped = { ...opened, pool }
+								const members = yield* loaded({
+									empty: ChangeSet.empty(s0),
+									/** A described insert over a relation parameter, a call's Stream: one note per wanted task that exists. */
+									streamed: ChangeSet.empty(s0).insert(
+										W.TaskNote,
+										query(s0).rule((r) => {
+											const wanted = r.relation("wanted", { task: uuid })
+											const { id } = v(W.Task, "task")
+											return r
+												.match(wanted, { task: id })
+												.match(W.Task, { id })
+												.find({ task: id, note: r.param("note", W.TaskNote.fields.note) })
 										})
-									)
-									credential.ok = true
-									const after = yield* state
-									unorderedEqual(after.notes, before.notes)
-									break
+									),
+									base: ChangeSet.empty(rebuilt.Base).insert(W.TaskNote, []),
+									remove: ChangeSet.empty(s0).delete(W.TaskNote, [])
+								})
+								const run = (name: string) => member(members, name)
+
+								yield* s.admin.query(
+									`DELETE FROM ${names.table(W.TaskNote)} WHERE ${names.column(W.TaskNote, "task")} = ANY ($1::uuid[])`,
+									[`{${t3},${t4}}`]
+								)
+								credential.ok = true
+								const before = yield* state
+								switch (change) {
+									case "empty": {
+										const outcome = yield* appliedWith(tapped, run("empty"), {})
+										assert.ok(outcome.kind === "unchanged", outcome.kind)
+										assert.deepEqual(outcome.reads, bareRecord({}))
+										const after = yield* state
+										unorderedEqual(after.notes, before.notes)
+										break
+									}
+									case "a Stream parameter, twice": {
+										const stream = Stream.fromIterable(Arr.map(wanted, (task) => ({ task })))
+										const written = Arr.map(
+											Arr.filter(wanted, (task) => task !== tMissing),
+											(task): Note => ({ task, note })
+										)
+										const added = [counts("TaskNote", BigInt(written.length), 0n, 0n)]
+										const first = yield* appliedWith(tapped, run("streamed"), {
+											wanted: stream,
+											note
+										})
+										assert.ok(first.kind === "accepted", first.kind)
+										assert.deepEqual(first.counts, added)
+										const after = yield* state
+										unorderedEqual(after.notes, [...before.notes, ...Arr.map(written, stored)])
+										/**
+										 * With the notes deleted again, the second application adds them again only if it
+										 * collects the Stream anew: a Stream read once would add nothing.
+										 */
+										const removed = yield* applied(tapped, run("remove"), {
+											delete: { TaskNote: written }
+										})
+										assert.ok(removed.kind === "accepted", removed.kind)
+										assert.deepEqual(removed.counts, [
+											counts("TaskNote", 0n, BigInt(written.length), 0n)
+										])
+										const second = yield* appliedWith(tapped, run("streamed"), {
+											wanted: stream,
+											note
+										})
+										assert.ok(second.kind === "accepted", second.kind)
+										assert.deepEqual(second.counts, added)
+										break
+									}
+									case "a base level": {
+										const outcome = yield* applied(tapped, run("base"), {
+											insert: { TaskNote: notes }
+										})
+										assert.ok(outcome.kind === "accepted", outcome.kind)
+										assert.deepEqual(outcome.counts, [
+											counts("TaskNote", BigInt(notes.length), 0n, 0n)
+										])
+										const after = yield* state
+										unorderedEqual(after.notes, [...before.notes, ...Arr.map(notes, stored)])
+										break
+									}
+									case "outside the write list": {
+										const refused = yield* Effect.result(serve({ refused: refusedOf(change) }))
+										assert.ok(Result.isFailure(refused), "the compile refuses the member")
+										assert.ok(
+											!(refused.failure instanceof OpenError),
+											Formatter.format(refused.failure)
+										)
+										const error = refused.failure.error
+										assert.ok(isCompileError(error), Formatter.format(error))
+										assert.deepEqual(
+											[refused.failure.place, error.reason._tag],
+											[{ kind: "program", role: "app", program: "refused" }, "OutsideRole"]
+										)
+										const after = yield* state
+										unorderedEqual(after.notes, before.notes)
+										unorderedEqual(after.accounts, before.accounts)
+										break
+									}
+									case "a sibling":
+									case "an extension": {
+										throwsRefused(
+											() => workload(rebuilt.app, { refused: refusedOf(change) }),
+											"MalformedDescription",
+											change
+										)
+										const after = yield* state
+										unorderedEqual(after.notes, before.notes)
+										break
+									}
+									case "acquisition fails": {
+										yield* Effect.scoped(
+											Effect.gen(function* () {
+												yield* pool.lease
+												credential.ok = false
+												const failed = yield* failureOf(
+													applied(tapped, run("base"), { insert: { TaskNote: notes } })
+												)
+												assert.deepEqual(
+													failed.kind === "credentialRefused"
+														? [failed.kind, failed.reason]
+														: [failed.kind],
+													["credentialRefused", "passwordFailed"],
+													failed.message
+												)
+											})
+										)
+										credential.ok = true
+										const after = yield* state
+										unorderedEqual(after.notes, before.notes)
+										break
+									}
 								}
-							}
-							c.note(change)
-							if (notes.length > 1) {
-								c.note("both tasks noted")
-							}
-							if (Arr.contains(wanted, tMissing)) {
-								c.note("a wanted task no Task holds")
-							}
-							if (note === "" || Arr.some(notes, (n) => n.note === "")) {
-								c.note("an empty note")
-							}
-						}).pipe(Effect.scoped)
-					}),
-					Substrate,
-					substrate
+								c.note(change)
+								if (notes.length > 1) {
+									c.note("both tasks noted")
+								}
+								if (Arr.contains(wanted, tMissing)) {
+									c.note("a wanted task no Task holds")
+								}
+								if (note === "" || Arr.some(notes, (n) => n.note === "")) {
+									c.note("an empty note")
+								}
+							}).pipe(Effect.scoped)
+						}),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",

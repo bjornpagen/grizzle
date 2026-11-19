@@ -45,29 +45,31 @@ import {
 	type FirstCallFeature,
 	firstCallKinds,
 	firstCallsGen,
+	freshDbInstall,
+	freshDbTemplate,
 	keysOf,
 	observe,
 	type ReadCallFeature,
 	readCallsGen,
 	readFrame,
+	readsInstall,
+	readsTemplate,
 	refreshesGen,
 	type RefreshFeature,
-	roundTripReads,
 	serializable,
 	tappedLayer,
 	tappedPool,
 	tasks,
+	tripsTemplate,
 	type WriteCallFeature,
 	writeCallsGen,
 	writeFrame
 } from "#test/pg/adapter/round-trips.fixtures.ts"
-import { installed } from "#test/pg/reads/support.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
+import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { answered, oneOf, rowsOf, writeOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
-import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { pickIndex } from "#test/support/pick.ts"
@@ -85,7 +87,7 @@ import { fullWorld, testVerify } from "#test/support/worlds.ts"
  */
 export const oneRoundTripPerPublicCallEveryDrawnReadPageAndEXPLAINOfAQueryIsOneRoundTripFramedAsItsStatementsSay =
 	property.explore(readCallsGen, {
-		needs: { substrate2: Substrate.installing },
+		needs: { seated: Substrate.seat(readsTemplate) },
 		situations: [
 			"read one part",
 			"read several parts",
@@ -100,203 +102,209 @@ export const oneRoundTripPerPublicCallEveryDrawnReadPageAndEXPLAINOfAQueryIsOneR
 			"deferrable page"
 		] satisfies ReadonlyArray<Reached<ReadCallFeature>>,
 		check:
-			({ substrate2 }, notes: Case<ReadCallFeature>) =>
+			({ seated }, notes: Case<ReadCallFeature>) =>
 			(calls) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const o = yield* installed(W.Work, workFacts, {
-							label: "real",
-							programs: roundTripReads(W.Work)
-						})
-						const fixture = o.served
-						const substrate = yield* Substrate
-						const tap = makeTap(substrate.cluster)
-						return yield* Effect.gen(function* () {
-							/**
-							 * The Db every case calls, whose session's startup is its first call, before the cases, outside every
-							 * window.
-							 */
-							const db = yield* Db.open(fixture.login.roles.app, {})
-							yield* oneOf(db.workload.task.once({ params: { id: t1 }, facts: {} }))
-							/**
-							 * Each read query: whether its statement is one part or several, a heading group or a pipelined
-							 * attachment each a part of its own; its once; and its estimate-only explain of the same input.
-							 */
-							const queries = {
-								"one relation": {
-									parts: "one part",
-									once: Effect.asVoid(
-										db.workload.oneRelation.once({ params: { account: a1 }, facts: {} })
-									),
-									explain: Effect.asVoid(
-										db.workload.oneRelation.explain({ params: { account: a1 }, facts: {} })
-									)
-								},
-								"heading groups": {
-									parts: "several parts",
-									once: Effect.asVoid(db.workload.headingGroups.once({ params: {}, facts: {} })),
-									explain: Effect.asVoid(
-										db.workload.headingGroups.explain({ params: {}, facts: {} })
-									)
-								},
-								"fused attachments": {
-									parts: "one part",
-									once: Effect.asVoid(
-										db.workload.fusedAttachments.once({ params: { account: a1 }, facts: {} })
-									),
-									explain: Effect.asVoid(
-										db.workload.fusedAttachments.explain({ params: { account: a1 }, facts: {} })
-									)
-								},
-								"a pipelined attachment": {
-									parts: "several parts",
-									once: Effect.asVoid(
-										db.workload.pipelinedAttachment.once({ params: {}, facts: {} })
-									),
-									explain: Effect.asVoid(
-										db.workload.pipelinedAttachment.explain({ params: {}, facts: {} })
-									)
+				Effect.flatMap(seated, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const o = yield* openedIn(W.Work, workFacts, readsInstall, taken)
+							const fixture = o.served
+							const substrate = yield* Substrate
+							const tap = makeTap(substrate.cluster)
+							return yield* Effect.gen(function* () {
+								/**
+								 * The Db every case calls, whose session's startup is its first call, before the cases, outside every
+								 * window.
+								 */
+								const db = yield* Db.open(fixture.login.roles.app, {})
+								yield* oneOf(db.workload.task.once({ params: { id: t1 }, facts: {} }))
+								/**
+								 * Each read query: whether its statement is one part or several, a heading group or a pipelined
+								 * attachment each a part of its own; its once; and its estimate-only explain of the same input.
+								 */
+								const queries = {
+									"one relation": {
+										parts: "one part",
+										once: Effect.asVoid(
+											db.workload.oneRelation.once({ params: { account: a1 }, facts: {} })
+										),
+										explain: Effect.asVoid(
+											db.workload.oneRelation.explain({ params: { account: a1 }, facts: {} })
+										)
+									},
+									"heading groups": {
+										parts: "several parts",
+										once: Effect.asVoid(db.workload.headingGroups.once({ params: {}, facts: {} })),
+										explain: Effect.asVoid(
+											db.workload.headingGroups.explain({ params: {}, facts: {} })
+										)
+									},
+									"fused attachments": {
+										parts: "one part",
+										once: Effect.asVoid(
+											db.workload.fusedAttachments.once({ params: { account: a1 }, facts: {} })
+										),
+										explain: Effect.asVoid(
+											db.workload.fusedAttachments.explain({ params: { account: a1 }, facts: {} })
+										)
+									},
+									"a pipelined attachment": {
+										parts: "several parts",
+										once: Effect.asVoid(
+											db.workload.pipelinedAttachment.once({ params: {}, facts: {} })
+										),
+										explain: Effect.asVoid(
+											db.workload.pipelinedAttachment.explain({ params: {}, facts: {} })
+										)
+									}
+								} as const
+								/** Each read query's deferrable member, as `queries` holds its plain one. */
+								const deferredQueries = {
+									"one relation": {
+										once: Effect.asVoid(
+											db.workload.deferredOneRelation.once({ params: { account: a1 }, facts: {} })
+										),
+										explain: Effect.asVoid(
+											db.workload.deferredOneRelation.explain({
+												params: { account: a1 },
+												facts: {}
+											})
+										)
+									},
+									"heading groups": {
+										once: Effect.asVoid(
+											db.workload.deferredHeadingGroups.once({ params: {}, facts: {} })
+										),
+										explain: Effect.asVoid(
+											db.workload.deferredHeadingGroups.explain({ params: {}, facts: {} })
+										)
+									},
+									"fused attachments": {
+										once: Effect.asVoid(
+											db.workload.deferredFusedAttachments.once({
+												params: { account: a1 },
+												facts: {}
+											})
+										),
+										explain: Effect.asVoid(
+											db.workload.deferredFusedAttachments.explain({
+												params: { account: a1 },
+												facts: {}
+											})
+										)
+									},
+									"a pipelined attachment": {
+										once: Effect.asVoid(
+											db.workload.deferredPipelinedAttachment.once({ params: {}, facts: {} })
+										),
+										explain: Effect.asVoid(
+											db.workload.deferredPipelinedAttachment.explain({ params: {}, facts: {} })
+										)
+									}
+								} as const
+								/** Each ordered query's window over the account's tasks, as the keys of its rows. */
+								const pages = {
+									budgets: (window: Window) =>
+										Effect.map(
+											db.workload.budgets.once({ params: { account: a1 }, facts: {}, window }),
+											keysOf
+										),
+									noted: (window: Window) =>
+										Effect.map(
+											db.workload.noted.once({ params: { account: a1 }, facts: {}, window }),
+											keysOf
+										)
 								}
-							} as const
-							/** Each read query's deferrable member, as `queries` holds its plain one. */
-							const deferredQueries = {
-								"one relation": {
-									once: Effect.asVoid(
-										db.workload.deferredOneRelation.once({ params: { account: a1 }, facts: {} })
-									),
-									explain: Effect.asVoid(
-										db.workload.deferredOneRelation.explain({ params: { account: a1 }, facts: {} })
-									)
-								},
-								"heading groups": {
-									once: Effect.asVoid(
-										db.workload.deferredHeadingGroups.once({ params: {}, facts: {} })
-									),
-									explain: Effect.asVoid(
-										db.workload.deferredHeadingGroups.explain({ params: {}, facts: {} })
-									)
-								},
-								"fused attachments": {
-									once: Effect.asVoid(
-										db.workload.deferredFusedAttachments.once({
-											params: { account: a1 },
-											facts: {}
-										})
-									),
-									explain: Effect.asVoid(
-										db.workload.deferredFusedAttachments.explain({
-											params: { account: a1 },
-											facts: {}
-										})
-									)
-								},
-								"a pipelined attachment": {
-									once: Effect.asVoid(
-										db.workload.deferredPipelinedAttachment.once({ params: {}, facts: {} })
-									),
-									explain: Effect.asVoid(
-										db.workload.deferredPipelinedAttachment.explain({ params: {}, facts: {} })
-									)
+								/** Each ordered query's deferrable window, as `pages` holds its plain one. */
+								const deferredPages = {
+									budgets: (window: Window) =>
+										Effect.map(
+											db.workload.deferredBudgets.once({
+												params: { account: a1 },
+												facts: {},
+												window
+											}),
+											keysOf
+										),
+									noted: (window: Window) =>
+										Effect.map(
+											db.workload.deferredNoted.once({
+												params: { account: a1 },
+												facts: {},
+												window
+											}),
+											keysOf
+										)
 								}
-							} as const
-							/** Each ordered query's window over the account's tasks, as the keys of its rows. */
-							const pages = {
-								budgets: (window: Window) =>
-									Effect.map(
-										db.workload.budgets.once({ params: { account: a1 }, facts: {}, window }),
-										keysOf
-									),
-								noted: (window: Window) =>
-									Effect.map(
-										db.workload.noted.once({ params: { account: a1 }, facts: {}, window }),
-										keysOf
-									)
-							}
-							/** Each ordered query's deferrable window, as `pages` holds its plain one. */
-							const deferredPages = {
-								budgets: (window: Window) =>
-									Effect.map(
-										db.workload.deferredBudgets.once({
-											params: { account: a1 },
-											facts: {},
-											window
-										}),
-										keysOf
-									),
-								noted: (window: Window) =>
-									Effect.map(
-										db.workload.deferredNoted.once({ params: { account: a1 }, facts: {}, window }),
-										keysOf
-									)
-							}
-							/** A task's key read, of its plain member or its deferrable one. */
-							const keyRead = (deferred: boolean, present: boolean) => {
-								const input = { params: { id: present ? t1 : tMissing }, facts: {} }
-								return deferred
-									? db.workload.deferredTask.once(input)
-									: db.workload.task.once(input)
-							}
+								/** A task's key read, of its plain member or its deferrable one. */
+								const keyRead = (deferred: boolean, present: boolean) => {
+									const input = { params: { id: present ? t1 : tMissing }, facts: {} }
+									return deferred
+										? db.workload.deferredTask.once(input)
+										: db.workload.task.once(input)
+								}
 
-							/** The keys each ordered query's windows delivered: a key anchors only its own query's windows. */
-							const delivered: Readonly<Record<"budgets" | "noted", Array<RowKey>>> = {
-								budgets: [],
-								noted: []
-							}
-							for (const call of calls) {
-								const target = queries[call.query]
-								const member = call.deferrable ? deferredQueries[call.query] : target
-								const windows = call.deferrable ? deferredPages : pages
-								const edges = delivered[call.page]
-								const anchor =
-									edges.length === 0
-										? Option.none<RowKey>()
-										: Option.some(defined(edges[pickIndex(call.anchor, edges.length)]))
-								const effect: Effect.Effect<
-									ReadonlyArray<RowKey>,
-									CallError | ReadError
-								> = call.kind === "read"
-									? Effect.as(member.once, [])
-									: call.kind === "key"
-										? Effect.as(keyRead(call.deferrable, call.present), [])
-										: call.kind === "explain"
-											? Effect.as(member.explain, [])
-											: windows[call.page]({
-													anchor: anchorOf(anchor, call.forward),
-													size: call.size
-												})
-								const seen = yield* observe(tap, effect)
-								assertFlight(
-									call.kind,
-									seen.window,
-									serializable(
-										"read only",
-										call.deferrable,
-										call.kind === "explain" ? "rollback" : "commit"
-									)
-								)
-								notes.note(
-									call.kind === "page"
-										? Option.isSome(anchor)
-											? "page from a key"
-											: "page from an end"
+								/** The keys each ordered query's windows delivered: a key anchors only its own query's windows. */
+								const delivered: Readonly<Record<"budgets" | "noted", Array<RowKey>>> = {
+									budgets: [],
+									noted: []
+								}
+								for (const call of calls) {
+									const target = queries[call.query]
+									const member = call.deferrable ? deferredQueries[call.query] : target
+									const windows = call.deferrable ? deferredPages : pages
+									const edges = delivered[call.page]
+									const anchor =
+										edges.length === 0
+											? Option.none<RowKey>()
+											: Option.some(defined(edges[pickIndex(call.anchor, edges.length)]))
+									const effect: Effect.Effect<
+										ReadonlyArray<RowKey>,
+										CallError | ReadError
+									> = call.kind === "read"
+										? Effect.as(member.once, [])
 										: call.kind === "key"
-											? "key one part"
-											: `${call.kind} ${target.parts}`
-								)
-								if (call.deferrable) {
-									notes.note(`deferrable ${call.kind}`)
+											? Effect.as(keyRead(call.deferrable, call.present), [])
+											: call.kind === "explain"
+												? Effect.as(member.explain, [])
+												: windows[call.page]({
+														anchor: anchorOf(anchor, call.forward),
+														size: call.size
+													})
+									const seen = yield* observe(tap, effect)
+									assertFlight(
+										call.kind,
+										seen.window,
+										serializable(
+											"read only",
+											call.deferrable,
+											call.kind === "explain" ? "rollback" : "commit"
+										)
+									)
+									notes.note(
+										call.kind === "page"
+											? Option.isSome(anchor)
+												? "page from a key"
+												: "page from an end"
+											: call.kind === "key"
+												? "key one part"
+												: `${call.kind} ${target.parts}`
+									)
+									if (call.deferrable) {
+										notes.note(`deferrable ${call.kind}`)
+									}
+									for (const key of seen.value) {
+										edges.push(key)
+									}
 								}
-								for (const key of seen.value) {
-									edges.push(key)
-								}
-							}
-							assert.equal(tap.cancels(), 0)
-						}).pipe(
-							withLayer(tappedLayer(o.installed, o.installed.as(o.server), fixture.login, tap))
-						)
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate2
+								assert.equal(tap.cancels(), 0)
+							}).pipe(
+								withLayer(tappedLayer(o.installed, o.installed.as(o.server), fixture.login, tap))
+							)
+						}).pipe(Effect.scoped),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",
@@ -314,7 +322,7 @@ export const oneRoundTripPerPublicCallEveryDrawnReadPageAndEXPLAINOfAQueryIsOneR
  */
 export const oneRoundTripPerPublicCallEveryDrawnWriteAndEXPLAINOfAChangeMemberIsOneRoundTripInItsTransaction =
 	property.explore(writeCallsGen, {
-		needs: { substrate2: Substrate.installing },
+		needs: { seated: Substrate.seat(workSeatTemplate) },
 		situations: [
 			"once",
 			"explain",
@@ -322,118 +330,117 @@ export const oneRoundTripPerPublicCallEveryDrawnWriteAndEXPLAINOfAChangeMemberIs
 			"nothing to write"
 		] satisfies ReadonlyArray<Reached<WriteCallFeature>>,
 		check:
-			({ substrate2 }, notes: Case<WriteCallFeature>) =>
+			({ seated }, notes: Case<WriteCallFeature>) =>
 			(calls) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const o = yield* installed(W.Work, workFacts, {
-							label: "real",
-							programs: {}
-						})
-						const s = o.schema
-						/** The notes a call inserts, puts and deletes, each its own facts, and its read-back. */
-						const plain = ChangeSet.empty(s)
-							.insert(W.TaskNote, [])
-							.put(W.TaskNote, [])
-							.delete(W.TaskNote, [])
-						const fixture = yield* servedFixture(
-							o.installed,
-							fullWorld(s, {
-								plain,
-								/**
-								 * A read-back that attaches an alternatives arm, computing its parents' rows after the writes.
-								 */
-								readBack: plain.read("cards", () =>
-									query(s)
-										.rule((r) => {
-											const { id, kind } = v(W.Task, "task")
-											return r.match(W.Task, { id, kind }).find({ id, kind })
-										})
-										.attach(
-											"automatic",
-											(t) =>
-												query(s).rule((r) => {
-													const { budget } = v(W.AutomaticTask, "automaticTask")
-													return r.match(W.AutomaticTask, { task: t.id, budget }).find({ budget })
-												}),
-											arm("kind", "Automatic")
-										)
-								)
-							}).server
-						)
-						const substrate = yield* Substrate
-						const tap = makeTap(substrate.cluster)
-						return yield* Effect.gen(function* () {
-							/**
-							 * The Db every case calls, whose session's startup is its first call, with nothing to write, before the
-							 * cases, outside every window.
-							 */
-							const db = yield* Db.open(fixture.login.roles.app, {})
-							yield* answered(
-								db.workload.plain.once({
-									params: {},
-									facts: {
-										insert: { TaskNote: [] },
-										put: { TaskNote: [] },
-										delete: { TaskNote: [] }
-									}
-								})
+				Effect.flatMap(seated, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const o = yield* openedIn(W.Work, workFacts, workSeatInstall, taken)
+							const s = o.schema
+							/** The notes a call inserts, puts and deletes, each its own facts, and its read-back. */
+							const plain = ChangeSet.empty(s)
+								.insert(W.TaskNote, [])
+								.put(W.TaskNote, [])
+								.delete(W.TaskNote, [])
+							const fixture = yield* servedFixture(
+								o.installed,
+								fullWorld(s, {
+									plain,
+									/**
+									 * A read-back that attaches an alternatives arm, computing its parents' rows after the writes.
+									 */
+									readBack: plain.read("cards", () =>
+										query(s)
+											.rule((r) => {
+												const { id, kind } = v(W.Task, "task")
+												return r.match(W.Task, { id, kind }).find({ id, kind })
+											})
+											.attach(
+												"automatic",
+												(t) =>
+													query(s).rule((r) => {
+														const { budget } = v(W.AutomaticTask, "automaticTask")
+														return r.match(W.AutomaticTask, { task: t.id, budget }).find({ budget })
+													}),
+												arm("kind", "Automatic")
+											)
+									)
+								}).server
 							)
+							const substrate = yield* Substrate
+							const tap = makeTap(substrate.cluster)
+							return yield* Effect.gen(function* () {
+								/**
+								 * The Db every case calls, whose session's startup is its first call, with nothing to write, before the
+								 * cases, outside every window.
+								 */
+								const db = yield* Db.open(fixture.login.roles.app, {})
+								yield* answered(
+									db.workload.plain.once({
+										params: {},
+										facts: {
+											insert: { TaskNote: [] },
+											put: { TaskNote: [] },
+											delete: { TaskNote: [] }
+										}
+									})
+								)
 
-							for (const call of calls) {
-								const facts = Arr.map(call.notes, (n) => ({
-									task: defined(tasks[n.task]),
-									note: `note ${n.text}`
-								}))
-								/** The call's input: the drawn notes under the op it writes, every other op's none. */
-								const input = {
-									params: {},
-									facts: {
-										insert: { TaskNote: call.op === "insert" ? facts : [] },
-										put: { TaskNote: call.op === "put" ? facts : [] },
-										delete: { TaskNote: call.op === "delete" ? facts : [] }
+								for (const call of calls) {
+									const facts = Arr.map(call.notes, (n) => ({
+										task: defined(tasks[n.task]),
+										note: `note ${n.text}`
+									}))
+									/** The call's input: the drawn notes under the op it writes, every other op's none. */
+									const input = {
+										params: {},
+										facts: {
+											insert: { TaskNote: call.op === "insert" ? facts : [] },
+											put: { TaskNote: call.op === "put" ? facts : [] },
+											delete: { TaskNote: call.op === "delete" ? facts : [] }
+										}
 									}
-								}
-								if (call.readBack) {
-									notes.note("a read-back that attaches")
-								}
-								if (call.notes.length === 0) {
-									notes.note("nothing to write")
-								}
-								if (call.kind === "explain") {
-									const seen = yield* observe(
-										tap,
-										call.readBack
-											? db.workload.readBack.explain(input)
-											: db.workload.plain.explain(input)
-									)
-									assertFlight(
-										"explain of a change member",
-										seen.window,
-										serializable("read write", false, "rollback")
-									)
-								} else {
-									const seen = yield* observe(
-										tap,
-										Effect.result(
-											answered(
-												call.readBack
-													? db.workload.readBack.once(input)
-													: db.workload.plain.once(input)
+									if (call.readBack) {
+										notes.note("a read-back that attaches")
+									}
+									if (call.notes.length === 0) {
+										notes.note("nothing to write")
+									}
+									if (call.kind === "explain") {
+										const seen = yield* observe(
+											tap,
+											call.readBack
+												? db.workload.readBack.explain(input)
+												: db.workload.plain.explain(input)
+										)
+										assertFlight(
+											"explain of a change member",
+											seen.window,
+											serializable("read write", false, "rollback")
+										)
+									} else {
+										const seen = yield* observe(
+											tap,
+											Effect.result(
+												answered(
+													call.readBack
+														? db.workload.readBack.once(input)
+														: db.workload.plain.once(input)
+												)
 											)
 										)
-									)
-									assertFlight(call.kind, seen.window, writeFrame)
+										assertFlight(call.kind, seen.window, writeFrame)
+									}
+									notes.note(call.kind)
 								}
-								notes.note(call.kind)
-							}
-							assert.equal(tap.cancels(), 0)
-						}).pipe(
-							withLayer(tappedLayer(o.installed, o.installed.as(o.server), fixture.login, tap))
-						)
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate2
+								assert.equal(tap.cancels(), 0)
+							}).pipe(
+								withLayer(tappedLayer(o.installed, o.installed.as(o.server), fixture.login, tap))
+							)
+						}).pipe(Effect.scoped),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",
@@ -451,80 +458,75 @@ export const oneRoundTripPerPublicCallEveryDrawnWriteAndEXPLAINOfAChangeMemberIs
  */
 export const oneRoundTripPerPublicCallDbOpenSendsNothingSoAFreshDbsFirstCallIsTheRequestsOneRoundTrip =
 	property.explore(firstCallsGen, {
-		needs: { substrate2: Substrate.installing },
+		needs: { seated: Substrate.seat(freshDbTemplate) },
 		situations: [...firstCallKinds, "several Dbs opened"] satisfies ReadonlyArray<
 			Reached<FirstCallFeature>
 		>,
 		check:
-			({ substrate2 }, notes: Case<FirstCallFeature>) =>
+			({ seated }, notes: Case<FirstCallFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const o = yield* installed(W.Work, workFacts, {
-							label: "real",
-							programs: {
-								task: W.Task,
-								tasksFor: W.workReads(W.Work).automaticTasksFor,
-								nothing: ChangeSet.empty(W.Work)
-							}
-						})
-						const substrate = yield* Substrate
-						const tap = makeTap(substrate.cluster)
-						/** The login's own served layer, every byte of its pool's one session through the tap. */
-						const tappedLayer = sourcedDbLayer(o.installed, {
-							...clusterConnection(
-								o.installed.cluster,
-								o.installed.database,
-								o.installed.as(o.server).password
-							),
-							transport: tap.transport,
-							pool: { ...clusterPool, min: 1, max: 1 },
-							login: o.served.login,
-							verify: testVerify
-						})
-						return yield* Effect.gen(function* () {
-							/** The session's startup, outside every window: a call of a Db opened before the cases. */
-							const warm = yield* Db.open(o.served.login.roles.app, {})
-							yield* oneOf(warm.workload.task.once({ params: { id: t1 }, facts: {} }))
+				Effect.flatMap(seated, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const o = yield* openedIn(W.Work, workFacts, freshDbInstall, taken)
+							const substrate = yield* Substrate
+							const tap = makeTap(substrate.cluster)
+							/** The login's own served layer, every byte of its pool's one session through the tap. */
+							const tappedLayer = sourcedDbLayer(o.installed, {
+								...clusterConnection(
+									o.installed.cluster,
+									o.installed.database,
+									o.installed.as(o.server).password
+								),
+								transport: tap.transport,
+								pool: { ...clusterPool, min: 1, max: 1 },
+								login: o.served.login,
+								verify: testVerify
+							})
+							return yield* Effect.gen(function* () {
+								/** The session's startup, outside every window: a call of a Db opened before the cases. */
+								const warm = yield* Db.open(o.served.login.roles.app, {})
+								yield* oneOf(warm.workload.task.once({ params: { id: t1 }, facts: {} }))
 
-							const mark = tap.mark()
-							const dbs = yield* Effect.forEach(
-								upTo(c.opens, (i) => i + 1),
-								() => Db.open(o.served.login.roles.app, {})
-							)
-							const opened = tap.since(mark)
-							assert.equal(opened.events.length, 0, "Db.open writes and reads nothing")
-							if (c.opens > 1) {
-								notes.note("several Dbs opened")
-							}
-							const db = defined(dbs[pickIndex(c.caller, dbs.length)], "an opened Db")
-							switch (c.call) {
-								case "key":
-									yield* oneOf(
-										db.workload.task.once({
-											params: { id: c.present ? t1 : tMissing },
-											facts: {}
-										})
-									)
-									break
-								case "read":
-									yield* rowsOf(db.workload.tasksFor.once({ params: { account: a1 }, facts: {} }))
-									break
-								case "write":
-									yield* answered(db.workload.nothing.once({ params: {}, facts: {} }))
-									break
-							}
-							assertFlight(
-								`Db.open and a first ${c.call}`,
-								tap.since(mark),
-								c.call === "write" ? writeFrame : readFrame
-							)
-							notes.note(c.call)
-							assert.equal(tap.cancels(), 0)
-						}).pipe(withLayer(tappedLayer))
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate2
+								const mark = tap.mark()
+								const dbs = yield* Effect.forEach(
+									upTo(c.opens, (i) => i + 1),
+									() => Db.open(o.served.login.roles.app, {})
+								)
+								const opened = tap.since(mark)
+								assert.equal(opened.events.length, 0, "Db.open writes and reads nothing")
+								if (c.opens > 1) {
+									notes.note("several Dbs opened")
+								}
+								const db = defined(dbs[pickIndex(c.caller, dbs.length)], "an opened Db")
+								switch (c.call) {
+									case "key":
+										yield* oneOf(
+											db.workload.task.once({
+												params: { id: c.present ? t1 : tMissing },
+												facts: {}
+											})
+										)
+										break
+									case "read":
+										yield* rowsOf(db.workload.tasksFor.once({ params: { account: a1 }, facts: {} }))
+										break
+									case "write":
+										yield* answered(db.workload.nothing.once({ params: {}, facts: {} }))
+										break
+								}
+								assertFlight(
+									`Db.open and a first ${c.call}`,
+									tap.since(mark),
+									c.call === "write" ? writeFrame : readFrame
+								)
+								notes.note(c.call)
+								assert.equal(tap.cancels(), 0)
+							}).pipe(withLayer(tappedLayer))
+						}).pipe(Effect.scoped),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",
@@ -542,65 +544,61 @@ export const oneRoundTripPerPublicCallDbOpenSendsNothingSoAFreshDbsFirstCallIsTh
  */
 export const oneRoundTripPerPublicCallEveryDrawnRefreshThroughARefreshMemberIsOneRoundTripItsViewUnpopulatedOrPopulatedItsChoiceMadeInTheServer =
 	property.explore(refreshesGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { reports: Substrate.freshOf(tripsTemplate) },
 		situations: [
 			"a refresh of an unpopulated view",
 			"a refresh of a populated view"
 		] satisfies ReadonlyArray<Reached<RefreshFeature>>,
 		check:
-			({ substrate }, notes: Case<RefreshFeature>) =>
+			({ reports }, notes: Case<RefreshFeature>) =>
 			(refreshes) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const installation = yield* install(derivedFixture("Edu").Reports, {
-							ambient: ordinarySession,
-							extensions: [],
-							label: "trips",
-							logins: [derivedFixture("Edu").server]
-						})
-						const fixture = derivedFixture(installation.schema)
-						const view = printObjectName(installation.names.relation("StudentWeekly"))
-						/** pg_class.relispopulated of the view, read as the owner. */
-						const populated = Effect.map(
-							s.admin.queryValues(
-								"SELECT c.relispopulated FROM pg_catalog.pg_class AS c WHERE c.oid = $1::regclass",
-								[view]
-							),
-							(rows) => rows[0]?.[0] === true
-						)
-						const { ctx, load } = yield* openServedDb(
-							installation,
-							fixture.server.roles.refresher,
-							{}
-						)
-						const loaded = yield* load({ studentWeekly: refresh([fixture.StudentWeekly]) })
-						const { pool, tap } = yield* tappedPool(installation.as(fixture.server))
-						const refreshing = writeOnce(
-							onceCalls({ ...ctx, pool }, member(loaded, "studentWeekly"))
-						)({ params: {}, facts: {} })
+				Effect.flatMap(reports, ({ substrate: seat, value: installation }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
+							const fixture = derivedFixture(installation.schema)
+							const view = printObjectName(installation.names.relation("StudentWeekly"))
+							/** pg_class.relispopulated of the view, read as the owner. */
+							const populated = Effect.map(
+								s.admin.queryValues(
+									"SELECT c.relispopulated FROM pg_catalog.pg_class AS c WHERE c.oid = $1::regclass",
+									[view]
+								),
+								(rows) => rows[0]?.[0] === true
+							)
+							const { ctx, load } = yield* openServedDb(
+								installation,
+								fixture.server.roles.refresher,
+								{}
+							)
+							const loaded = yield* load({ studentWeekly: refresh([fixture.StudentWeekly]) })
+							const { pool, tap } = yield* tappedPool(installation.as(fixture.server))
+							const refreshing = writeOnce(
+								onceCalls({ ...ctx, pool }, member(loaded, "studentWeekly"))
+							)({ params: {}, facts: {} })
 
-						for (const emptied of refreshes) {
-							if (emptied) {
-								yield* s.admin.query(`REFRESH MATERIALIZED VIEW ${view} WITH NO DATA`, [])
+							for (const emptied of refreshes) {
+								if (emptied) {
+									yield* s.admin.query(`REFRESH MATERIALIZED VIEW ${view} WITH NO DATA`, [])
+								}
+								const before = yield* populated
+								const refreshed = yield* observe(tap, refreshing)
+								assertFlight(
+									before ? "refresh, populated" : "refresh, unpopulated",
+									refreshed.window,
+									writeFrame
+								)
+								const after = yield* populated
+								assert.ok(after, "a refresh leaves its view populated")
+								notes.note(
+									before ? "a refresh of a populated view" : "a refresh of an unpopulated view"
+								)
 							}
-							const before = yield* populated
-							const refreshed = yield* observe(tap, refreshing)
-							assertFlight(
-								before ? "refresh, populated" : "refresh, unpopulated",
-								refreshed.window,
-								writeFrame
-							)
-							const after = yield* populated
-							assert.ok(after, "a refresh leaves its view populated")
-							notes.note(
-								before ? "a refresh of a populated view" : "a refresh of an unpopulated view"
-							)
-						}
-						assert.equal(tap.cancels(), 0)
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
+							assert.equal(tap.cancels(), 0)
+						}).pipe(Effect.scoped),
+						Substrate,
+						seat
+					)
 				),
 		oracle: {
 			kind: "specification",

@@ -8,6 +8,8 @@ import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { installedTemplate } from "#test/support/install-migrate.ts"
 
 /** The fixture's shape under the declared name `name`.
  *
@@ -221,7 +223,18 @@ export type RefreshFeature =
 	| "named twice"
 	| "an unpopulated input"
 
-export const declared = build("Edu")
+const declared = build("Edu")
+
+/**
+ * Reports installed once per member with its server login (install-migrate.ts installedTemplate), each case on a
+ * fresh clone of it, since every case empties and refreshes the views.
+ */
+export const reportsTemplate = installedTemplate({
+	declaredIn: import.meta,
+	name: "refresh",
+	schema: declared.Reports,
+	options: { ambient: ordinarySession, extensions: [], label: "refresh", logins: [declared.server] }
+})
 
 /** What the search built once before its cases (leases, model), now once per worker: every case on it reads them. */
 export const leasesNeed = {

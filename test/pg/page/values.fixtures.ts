@@ -6,6 +6,7 @@ import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
+import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import {
 	float8,
 	int8,
@@ -17,6 +18,7 @@ import {
 } from "#test/support/oracle/gen/domain.ts"
 import { inputText } from "#test/support/oracle/runner.ts"
 import { byAmount, byBig, byLabel, byX, byXDesc } from "#test/unit/page/fixtures.ts"
+import { Measures } from "#test/unit/page/fixtures.ts"
 
 export const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -182,3 +184,9 @@ export const reached = (stored: ReadonlyArray<StoredFact>): ReadonlyArray<Values
 	}
 	return [...out]
 }
+
+/** What every case installs: Measures, its full world's workload holding no member of its own. */
+export const measuresInstall = { label: "real", programs: {} } as const
+
+/** Measures installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+export const measuresTemplate = fixtureTemplate(import.meta, Measures, measuresInstall)

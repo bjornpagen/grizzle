@@ -9,10 +9,12 @@ import type { ChangeCall, LoadedMember } from "#adapter/served/load.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { type Uuid, uuid } from "#compiler/public/fields.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t3, t4, tMissing } from "#test/support/fixtures/golden/work.ts"
+import { installedTemplate } from "#test/support/install-migrate.ts"
 import type { StateRow } from "#test/support/substrate/state.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
 
@@ -131,7 +133,20 @@ export const appliedWith = (ctx: ServedDbContext, change: LoadedMember, params: 
 	return answered(writeOnce(onceCalls(ctx, change))({ params, facts: {} }))
 }
 
-export const declared = levels("Levels")
+const declared = levels("Levels")
+
+/** Extended installed once per member with its server login (install-migrate.ts installedTemplate). */
+export const levelsTemplate = installedTemplate({
+	declaredIn: import.meta,
+	name: "apply levels",
+	schema: declared.Extended,
+	options: {
+		ambient: ordinarySession,
+		extensions: [],
+		label: "apply_levels",
+		logins: [declared.server]
+	}
+})
 
 /** What the search built once before its cases (credential), now once per worker: every case on it reads it. */
 export const credentialNeed = {

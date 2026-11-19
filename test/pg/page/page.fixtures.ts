@@ -16,6 +16,7 @@ import type { Anchor, RowKey } from "#compiler/live/index.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { rowOf } from "#test/pg/page/support.ts"
+import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { defined } from "#test/support/assert.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import {
@@ -28,6 +29,7 @@ import {
 	tasksWithNotes,
 	titles
 } from "#test/unit/page/fixtures.ts"
+import { Paging } from "#test/unit/page/fixtures.ts"
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -647,3 +649,9 @@ export const expectedOf = (
 			return refused("anchor")
 	}
 }
+
+/** What every case installs: Paging, its full world's workload holding no member of its own. */
+export const pagingInstall = { label: "real", programs: {} } as const
+
+/** Paging installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+export const pagingTemplate = fixtureTemplate(import.meta, Paging, pagingInstall)

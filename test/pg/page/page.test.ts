@@ -61,6 +61,8 @@ import {
 	type ModelTask,
 	pagedMembers,
 	pagedQueryNames,
+	pagingInstall,
+	pagingTemplate,
 	params,
 	t,
 	tasksOf,
@@ -77,7 +79,7 @@ import {
 	strictlyBefore,
 	windowOf
 } from "#test/pg/page/support.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
@@ -94,7 +96,7 @@ import { Paging } from "#test/unit/page/fixtures.ts"
  */
 export const thePageRuntimeThroughTheReadersAnswersEveryWindowByTheDOfTheMomentAndItsAnchorsValuesThroughEitherMemberWhateverChangedSinceItsAnchorsRowWasReadEachWindowOneFlight =
 	property.explore(walkSketchGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(pagingTemplate) },
 		situations: [
 			...Arr.map(pagedQueryNames, (q): WalkFeature => `query ${q}`),
 			...Arr.flatMap(["start", "end", "after", "before"] as const, (kind) =>
@@ -112,235 +114,245 @@ export const thePageRuntimeThroughTheReadersAnswersEveryWindowByTheDOfTheMomentA
 			"a write between windows"
 		] satisfies ReadonlyArray<Reached<WalkFeature>>,
 		check:
-			({ substrate }, c: Case<WalkFeature>) =>
+			({ seated }, c: Case<WalkFeature>) =>
 			(walk) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const opened = yield* installed(Paging, {}, { label: "real", programs: {} })
-						const { ctx: dbCtx, load } = yield* openServedDb(
-							opened.installed,
-							opened.server.roles.app,
-							{}
-						)
-						const loaded = yield* load(pagedMembers)
-						const recording = recordingContext(dbCtx)
-						return yield* Effect.gen(function* () {
-							/** A paged member's calls, their flights counted. */
-							const pagedCalls = (handle: Handle) =>
-								onceCalls(recording.ctx, member(loaded, memberName(walk.query, handle)))
-							const unpaged = onceCalls(dbCtx, member(loaded, memberName(walk.query, "unpaged")))
-							const compiled = pageTemplate(
-								member(loaded, memberName(walk.query, "member")),
-								opened.installed.names.codes
+				Effect.flatMap(seated, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const opened = yield* openedIn(Paging, {}, pagingInstall, taken)
+							const { ctx: dbCtx, load } = yield* openServedDb(
+								opened.installed,
+								opened.server.roles.app,
+								{}
 							)
-							/** The facts: the drawn tasks, a note pair once, a flag per task. */
-							const model: Array<ModelTask> = Arr.map(walk.tasks, (x, n) => ({
-								id: t(n),
-								account: x.other ? B : A,
-								priority: x.priority,
-								title: titleOf(x.title),
-								flag: "none"
-							}))
-							for (const f of walk.flags) {
-								if (model.length > 0) {
-									const at = pickIndex(f.task, model.length)
-									model[at] = { ...defined(model[at]), flag: f.high ? "High" : "Low" }
-								}
-							}
-							const notes = new Map<string, { readonly task: string; readonly note: string }>()
-							for (const n of walk.notes) {
-								if (model.length > 0) {
-									const owner = defined(model[pickIndex(n.task, model.length)]).id
-									notes.set(`${owner} ${n.note}`, { task: owner, note: `note ${n.note}` })
-								}
-							}
-							/**
-							 * D's facts as the model holds them when it runs: its tasks, the notes of the tasks it
-							 * still holds, its flags.
-							 */
-							const writeModel = Effect.suspend(() =>
-								replace(opened.installed, {
-									Task: Arr.map(model, (x) => ({
-										id: x.id,
-										account: x.account,
-										priority: x.priority,
-										title: x.title
-									})),
-									Note: Arr.filter([...notes.values()], (n) =>
-										Arr.some(model, (x) => x.id === n.task)
-									),
-									Flag: Arr.flatMap(model, (x) =>
-										x.flag === "none" ? [] : [{ task: x.id, level: x.flag }]
-									)
-								})
-							)
-							yield* writeModel
-							let fresh = walk.tasks.length
-							const pool: Array<Delivered> = []
-							let last: ReadonlyArray<Delivered> = []
-							for (const step of walk.steps) {
-								/** The writes, each resolved against the model. */
-								const targets = (pick: number): ReadonlyArray<string> => {
-									const marked = [
-										...new Set(Arr.flatMap(pool, (d) => tasksOf(walk.query, d.row, model)))
-									]
-									const candidates =
-										marked.length > 0
-											? marked
-											: Arr.map(
-													Arr.filter(model, (x) => x.account === A),
-													(x) => x.id
-												)
-									if (candidates.length === 0) {
-										return []
-									}
-									const chosen = defined(candidates[pickIndex(pick, candidates.length)])
-									return Option.match(
-										Arr.findFirst(pool, (d) => tasksOf(walk.query, d.row, model).includes(chosen)),
-										{
-											onNone: () => [chosen],
-											onSome: (row) => tasksOf(walk.query, row.row, model)
-										}
-									)
-								}
-								/** A removed task takes its notes and its flag with it. */
-								const remove = (ids: ReadonlyArray<string>) => {
-									for (const i of ids) {
-										const at = Arr.findFirstIndex(model, (x) => x.id === i)
-										if (Option.isSome(at)) {
-											model.splice(at.value, 1)
-										}
-									}
-								}
-								/** Each target task, changed in place in the model. */
-								const update = (
-									ids: ReadonlyArray<string>,
-									change: (task: ModelTask) => ModelTask
-								) => {
-									for (const i of ids) {
-										const at = Option.getOrThrow(Arr.findFirstIndex(model, (x) => x.id === i))
-										model[at] = change(defined(model[at]))
-									}
-								}
-								for (const write of step.writes) {
-									switch (write.kind) {
-										case "delete a row's tasks":
-											remove(targets(write.target))
-											break
-										case "delete the last window":
-											remove([
-												...new Set(Arr.flatMap(last, (d) => tasksOf(walk.query, d.row, model)))
-											])
-											break
-										case "empty the account":
-											remove(
-												Arr.map(
-													Arr.filter(model, (x) => x.account === A),
-													(x) => x.id
-												)
-											)
-											break
-										case "move a row's tasks":
-											update(targets(write.target), (task) => ({
-												...task,
-												priority: write.priority,
-												title: titleOf(write.title)
-											}))
-											break
-										case "insert":
-											model.push({
-												id: t(fresh++),
-												account: write.task.other ? B : A,
-												priority: write.task.priority,
-												title: titleOf(write.task.title),
-												flag: "none"
-											})
-											break
-										case "flag":
-											update(targets(write.target), (task) => ({
-												...task,
-												flag: write.level
-											}))
-											break
-									}
-								}
-								if (step.writes.length > 0) {
-									yield* writeModel
-								}
-								if (step.writes.length > 0 && pool.length > 0) {
-									c.note("a write between windows")
-								}
-								/** The window, anchored at a delivered row's key when it names one and one exists. */
-								const w = step.window
-								const anchorRow =
-									w.kind === "after" || w.kind === "before"
-										? anchorOf(w.anchor, last, pool)
-										: Option.none<Delivered>()
-								const anchor: Anchor = Option.match(anchorRow, {
-									onNone: () =>
-										w.kind === "start" || w.kind === "after" ? { kind: "start" } : { kind: "end" },
-									onSome: (row) =>
-										w.kind === "after"
-											? { kind: "after", key: row.key }
-											: { kind: "before", key: row.key }
-								})
-								const flights = recording.counts.flights
-								const statements = recording.counts.statements
-								const answered = yield* windowOf(pagedCalls(w.handle), params, anchor, w.size)
-								assert.deepEqual(
-									[recording.counts.flights - flights, recording.counts.statements - statements],
-									[1, 1],
-									`a ${anchor.kind} window is one flight of one statement`
+							const loaded = yield* load(pagedMembers)
+							const recording = recordingContext(dbCtx)
+							return yield* Effect.gen(function* () {
+								/** A paged member's calls, their flights counted. */
+								const pagedCalls = (handle: Handle) =>
+									onceCalls(recording.ctx, member(loaded, memberName(walk.query, handle)))
+								const unpaged = onceCalls(dbCtx, member(loaded, memberName(walk.query, "unpaged")))
+								const compiled = pageTemplate(
+									member(loaded, memberName(walk.query, "member")),
+									opened.installed.names.codes
 								)
-								/** The oracle: D now, and the anchor's values. */
-								const rows = yield* readOnce(unpaged)({ params, facts: {} })
-								const full = sortedResult(compiled, rows)
-								const k = w.size
-								const expected = ((): ReadonlyArray<unknown> => {
-									switch (anchor.kind) {
-										case "start":
-											return full.slice(0, k)
-										case "end":
-											return full.slice(Math.max(0, full.length - k))
-										case "after":
-											return strictlyAfter(compiled, rows, anchor.key).slice(0, k)
-										case "before": {
-											const before = strictlyBefore(compiled, rows, anchor.key)
-											return before.slice(Math.max(0, before.length - k))
-										}
-									}
-								})()
-								const presented: ReadonlyArray<unknown> = Arr.map(answered, canon)
-								assert.deepEqual(presented, expected, `${anchor.kind} ${k} through the ${w.handle}`)
-								c.note(`query ${walk.query}`)
-								c.note(`${anchor.kind} through the ${w.handle}`)
-								if (Option.isSome(anchorRow)) {
-									const gone = !holdsKey(compiled, rows, anchorRow.value.key)
-									c.note(gone ? "an anchor gone from D" : "an anchor still in D")
-									if (gone && expected.length > 0) {
-										c.note("rows past a gone anchor")
-									}
-									if (expected.length === 0) {
-										c.note("an empty anchored window")
-									}
-									if (full.length === 0) {
-										c.note("an emptied D")
-									}
-									if (anchorRow.value.handle !== w.handle) {
-										c.note("an anchor of the other member's row")
+								/** The facts: the drawn tasks, a note pair once, a flag per task. */
+								const model: Array<ModelTask> = Arr.map(walk.tasks, (x, n) => ({
+									id: t(n),
+									account: x.other ? B : A,
+									priority: x.priority,
+									title: titleOf(x.title),
+									flag: "none"
+								}))
+								for (const f of walk.flags) {
+									if (model.length > 0) {
+										const at = pickIndex(f.task, model.length)
+										model[at] = { ...defined(model[at]), flag: f.high ? "High" : "Low" }
 									}
 								}
-								last = Arr.map(answered, (row) => ({
-									key: keyOf(compiled.fields, row),
-									row,
-									handle: w.handle
-								}))
-								appendAll(pool, last)
-							}
-						}).pipe(Effect.scoped)
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
+								const notes = new Map<string, { readonly task: string; readonly note: string }>()
+								for (const n of walk.notes) {
+									if (model.length > 0) {
+										const owner = defined(model[pickIndex(n.task, model.length)]).id
+										notes.set(`${owner} ${n.note}`, { task: owner, note: `note ${n.note}` })
+									}
+								}
+								/**
+								 * D's facts as the model holds them when it runs: its tasks, the notes of the tasks it
+								 * still holds, its flags.
+								 */
+								const writeModel = Effect.suspend(() =>
+									replace(opened.installed, {
+										Task: Arr.map(model, (x) => ({
+											id: x.id,
+											account: x.account,
+											priority: x.priority,
+											title: x.title
+										})),
+										Note: Arr.filter([...notes.values()], (n) =>
+											Arr.some(model, (x) => x.id === n.task)
+										),
+										Flag: Arr.flatMap(model, (x) =>
+											x.flag === "none" ? [] : [{ task: x.id, level: x.flag }]
+										)
+									})
+								)
+								yield* writeModel
+								let fresh = walk.tasks.length
+								const pool: Array<Delivered> = []
+								let last: ReadonlyArray<Delivered> = []
+								for (const step of walk.steps) {
+									/** The writes, each resolved against the model. */
+									const targets = (pick: number): ReadonlyArray<string> => {
+										const marked = [
+											...new Set(Arr.flatMap(pool, (d) => tasksOf(walk.query, d.row, model)))
+										]
+										const candidates =
+											marked.length > 0
+												? marked
+												: Arr.map(
+														Arr.filter(model, (x) => x.account === A),
+														(x) => x.id
+													)
+										if (candidates.length === 0) {
+											return []
+										}
+										const chosen = defined(candidates[pickIndex(pick, candidates.length)])
+										return Option.match(
+											Arr.findFirst(pool, (d) =>
+												tasksOf(walk.query, d.row, model).includes(chosen)
+											),
+											{
+												onNone: () => [chosen],
+												onSome: (row) => tasksOf(walk.query, row.row, model)
+											}
+										)
+									}
+									/** A removed task takes its notes and its flag with it. */
+									const remove = (ids: ReadonlyArray<string>) => {
+										for (const i of ids) {
+											const at = Arr.findFirstIndex(model, (x) => x.id === i)
+											if (Option.isSome(at)) {
+												model.splice(at.value, 1)
+											}
+										}
+									}
+									/** Each target task, changed in place in the model. */
+									const update = (
+										ids: ReadonlyArray<string>,
+										change: (task: ModelTask) => ModelTask
+									) => {
+										for (const i of ids) {
+											const at = Option.getOrThrow(Arr.findFirstIndex(model, (x) => x.id === i))
+											model[at] = change(defined(model[at]))
+										}
+									}
+									for (const write of step.writes) {
+										switch (write.kind) {
+											case "delete a row's tasks":
+												remove(targets(write.target))
+												break
+											case "delete the last window":
+												remove([
+													...new Set(Arr.flatMap(last, (d) => tasksOf(walk.query, d.row, model)))
+												])
+												break
+											case "empty the account":
+												remove(
+													Arr.map(
+														Arr.filter(model, (x) => x.account === A),
+														(x) => x.id
+													)
+												)
+												break
+											case "move a row's tasks":
+												update(targets(write.target), (task) => ({
+													...task,
+													priority: write.priority,
+													title: titleOf(write.title)
+												}))
+												break
+											case "insert":
+												model.push({
+													id: t(fresh++),
+													account: write.task.other ? B : A,
+													priority: write.task.priority,
+													title: titleOf(write.task.title),
+													flag: "none"
+												})
+												break
+											case "flag":
+												update(targets(write.target), (task) => ({
+													...task,
+													flag: write.level
+												}))
+												break
+										}
+									}
+									if (step.writes.length > 0) {
+										yield* writeModel
+									}
+									if (step.writes.length > 0 && pool.length > 0) {
+										c.note("a write between windows")
+									}
+									/** The window, anchored at a delivered row's key when it names one and one exists. */
+									const w = step.window
+									const anchorRow =
+										w.kind === "after" || w.kind === "before"
+											? anchorOf(w.anchor, last, pool)
+											: Option.none<Delivered>()
+									const anchor: Anchor = Option.match(anchorRow, {
+										onNone: () =>
+											w.kind === "start" || w.kind === "after"
+												? { kind: "start" }
+												: { kind: "end" },
+										onSome: (row) =>
+											w.kind === "after"
+												? { kind: "after", key: row.key }
+												: { kind: "before", key: row.key }
+									})
+									const flights = recording.counts.flights
+									const statements = recording.counts.statements
+									const answered = yield* windowOf(pagedCalls(w.handle), params, anchor, w.size)
+									assert.deepEqual(
+										[recording.counts.flights - flights, recording.counts.statements - statements],
+										[1, 1],
+										`a ${anchor.kind} window is one flight of one statement`
+									)
+									/** The oracle: D now, and the anchor's values. */
+									const rows = yield* readOnce(unpaged)({ params, facts: {} })
+									const full = sortedResult(compiled, rows)
+									const k = w.size
+									const expected = ((): ReadonlyArray<unknown> => {
+										switch (anchor.kind) {
+											case "start":
+												return full.slice(0, k)
+											case "end":
+												return full.slice(Math.max(0, full.length - k))
+											case "after":
+												return strictlyAfter(compiled, rows, anchor.key).slice(0, k)
+											case "before": {
+												const before = strictlyBefore(compiled, rows, anchor.key)
+												return before.slice(Math.max(0, before.length - k))
+											}
+										}
+									})()
+									const presented: ReadonlyArray<unknown> = Arr.map(answered, canon)
+									assert.deepEqual(
+										presented,
+										expected,
+										`${anchor.kind} ${k} through the ${w.handle}`
+									)
+									c.note(`query ${walk.query}`)
+									c.note(`${anchor.kind} through the ${w.handle}`)
+									if (Option.isSome(anchorRow)) {
+										const gone = !holdsKey(compiled, rows, anchorRow.value.key)
+										c.note(gone ? "an anchor gone from D" : "an anchor still in D")
+										if (gone && expected.length > 0) {
+											c.note("rows past a gone anchor")
+										}
+										if (expected.length === 0) {
+											c.note("an empty anchored window")
+										}
+										if (full.length === 0) {
+											c.note("an emptied D")
+										}
+										if (anchorRow.value.handle !== w.handle) {
+											c.note("an anchor of the other member's row")
+										}
+									}
+									last = Arr.map(answered, (row) => ({
+										key: keyOf(compiled.fields, row),
+										row,
+										handle: w.handle
+									}))
+									appendAll(pool, last)
+								}
+							}).pipe(Effect.scoped)
+						}).pipe(Effect.scoped),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",
@@ -358,7 +370,7 @@ export const thePageRuntimeThroughTheReadersAnswersEveryWindowByTheDOfTheMomentA
  */
 export const thePageRuntimeThroughTheReadersRefusesEveryWindowInputButExactlyItsParamsNoFactsAndAWindowOfAnAnchorAndASizeBeforeAnySQLAndReadsEveryOtherInOneFlight =
 	property.explore(aimed(inputSketchGen, keyAims), {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(pagingTemplate) },
 		situations: [
 			...Arr.map(pagedQueryNames, (q): InputFeature => `query ${q}`),
 			"envelope",
@@ -371,57 +383,56 @@ export const thePageRuntimeThroughTheReadersRefusesEveryWindowInputButExactlyIts
 			"a key value no codec admits"
 		] satisfies ReadonlyArray<Reached<InputFeature>>,
 		check:
-			({ substrate }, notes: Case<InputFeature>) =>
+			({ seated }, notes: Case<InputFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const opened = yield* installed(Paging, inputFacts, {
-							label: "real",
-							programs: {}
-						})
-						const { ctx: dbCtx, load } = yield* openServedDb(
-							opened.installed,
-							opened.server.roles.app,
-							{}
-						)
-						const loaded = yield* load(pagedMembers)
-						const recording = recordingContext(dbCtx)
-
-						const paging = member(loaded, memberName(c.query, "member"))
-						const calls = onceCalls(recording.ctx, paging)
-						const compiled = pageTemplate(paging, opened.installed.names.codes)
-						const [first] = yield* windowOf(calls, params, { kind: "start" }, 1)
-						const row = keyOf(compiled.fields, defined(first, "a row of D"))
-						const expected = expectedOf(c)
-						const flights = recording.counts.flights
-						const statements = recording.counts.statements
-						const answer = yield* Effect.result(readOnce(calls)(inputOf(c, row)))
-						const sent = [
-							recording.counts.flights - flights,
-							recording.counts.statements - statements
-						]
-						if (expected.verdict === "admitted") {
-							assert.ok(Result.isSuccess(answer), Formatter.format(answer))
-							assert.deepEqual(sent, [1, 1], "one flight of one statement")
-						} else {
-							assert.deepEqual(
-								answer,
-								Result.fail(
-									readCallError(
-										new ReadFailure({
-											reason: new CallInputRefused({ fault: expected.verdict })
-										})
-									)
-								),
-								expected.verdict
+				Effect.flatMap(seated, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const opened = yield* openedIn(Paging, inputFacts, pagingInstall, taken)
+							const { ctx: dbCtx, load } = yield* openServedDb(
+								opened.installed,
+								opened.server.roles.app,
+								{}
 							)
-							assert.deepEqual(sent, [0, 0], "no SQL")
-						}
-						notes.noteAll(expected.reached)
-						notes.note(`query ${c.query}`)
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
+							const loaded = yield* load(pagedMembers)
+							const recording = recordingContext(dbCtx)
+
+							const paging = member(loaded, memberName(c.query, "member"))
+							const calls = onceCalls(recording.ctx, paging)
+							const compiled = pageTemplate(paging, opened.installed.names.codes)
+							const [first] = yield* windowOf(calls, params, { kind: "start" }, 1)
+							const row = keyOf(compiled.fields, defined(first, "a row of D"))
+							const expected = expectedOf(c)
+							const flights = recording.counts.flights
+							const statements = recording.counts.statements
+							const answer = yield* Effect.result(readOnce(calls)(inputOf(c, row)))
+							const sent = [
+								recording.counts.flights - flights,
+								recording.counts.statements - statements
+							]
+							if (expected.verdict === "admitted") {
+								assert.ok(Result.isSuccess(answer), Formatter.format(answer))
+								assert.deepEqual(sent, [1, 1], "one flight of one statement")
+							} else {
+								assert.deepEqual(
+									answer,
+									Result.fail(
+										readCallError(
+											new ReadFailure({
+												reason: new CallInputRefused({ fault: expected.verdict })
+											})
+										)
+									),
+									expected.verdict
+								)
+								assert.deepEqual(sent, [0, 0], "no SQL")
+							}
+							notes.noteAll(expected.reached)
+							notes.note(`query ${c.query}`)
+						}).pipe(Effect.scoped),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",

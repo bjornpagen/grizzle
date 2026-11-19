@@ -39,9 +39,13 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTestWorkload, lowerAligned, testCompile } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
-import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
+import {
+	type Installed,
+	installedTemplate,
+	installMigrated
+} from "#test/support/install-migrate.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 export const dimensions = 8
@@ -412,23 +416,30 @@ type AnnPrograms = Readonly<Record<string, unknown>>
  * withServedDb `serve`), each by its once alone, and a watch of one does not compile.
  */
 const openAnn = <const P extends AnnPrograms>(programs: P) =>
-	Effect.gen(function* () {
-		const done = yield* installMigrated(AnnSearch, {
-			ambient: ordinarySession,
-			label: "ann",
-			extensions: [workloadRequests(programs)],
-			logins: [fullWorld(AnnSearch, programs).server]
-		})
-		const rebuilt = schema(done.declared, Rec.values(AnnSearch.relations), AnnSearch.statements)
-		const world = fullWorld(rebuilt, {})
-		return {
-			installed: done,
-			schema: rebuilt,
-			app: world.app,
-			server: world.server,
-			programs
-		}
-	})
+	Effect.map(installMigrated(AnnSearch, annOptions(programs)), (done) => annOver(done, programs))
+
+/** What the ANN fixture installs with: its programs' HNSW requests, and its full world's login over them. */
+const annOptions = <const P extends AnnPrograms>(programs: P) => ({
+	ambient: ordinarySession,
+	label: "ann",
+	extensions: [workloadRequests(programs)],
+	logins: [fullWorld(AnnSearch, programs).server]
+})
+
+/** The installed schema rebuilt under its installed name, its full world, and `programs`. */
+const annOver = <const P extends AnnPrograms>(done: Installed, programs: P) => {
+	const rebuilt = schema(done.declared, Rec.values(AnnSearch.relations), AnnSearch.statements)
+	const world = fullWorld(rebuilt, {})
+	return { installed: done, schema: rebuilt, app: world.app, server: world.server, programs }
+}
+
+/**
+ * The ANN fixture's installation with `programs`' HNSW requests as a template (install-migrate.ts installedTemplate),
+ * made once per member where each case installed it: a case loads the run's population over its clone
+ * (fixtureIn), the vectors a run draws anew, which no template holds.
+ */
+export const annTemplate = (declaredIn: ImportMeta, name: string, programs: AnnPrograms) =>
+	installedTemplate({ declaredIn, name, schema: AnnSearch, options: annOptions(programs) })
 
 /** The installed schema, its full world, and the programs P its door serves (openAnn). */
 export type AnnOpened<P extends AnnPrograms> = Effect.Success<ReturnType<typeof openAnn<P>>>
@@ -455,9 +466,12 @@ interface ServedAnn<P extends AnnPrograms> extends Fixture {
  * installed schema with its full world, whose login serves `programs`.
  */
 const installDrawn = <const P extends AnnPrograms>(programs: P, draw: number) =>
+	Effect.flatMap(openAnn(programs), (opened) => populated(opened, draw))
+
+/** The run's population, drawn by `draw`, loaded into an opened fixture and vacuumed and analyzed. */
+const populated = <const P extends AnnPrograms>(opened: AnnOpened<P>, draw: number) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const opened = yield* openAnn(programs)
 		const fixture = opened.installed
 		const table = (relation: string): string => {
 			const name = fixture.names.relation(relation)
@@ -516,6 +530,20 @@ const installDrawn = <const P extends AnnPrograms>(programs: P, draw: number) =>
 /** The fixture over the run's population: new vectors in every run. */
 export const installFixture = <const P extends AnnPrograms>(programs: P) =>
 	Effect.flatMap(runDraw, (draw) => installDrawn(programs, draw))
+
+/**
+ * The fixture of a case over a clone of an ANN template (annTemplate) with `programs`, the ones the template was
+ * declared with: the run's population loaded over the clone, as installFixture loads it over its install.
+ */
+export const fixtureIn = <const P extends AnnPrograms>(
+	taken: SubstrateCase<Installed>,
+	programs: P
+) =>
+	Effect.provideService(
+		Effect.flatMap(runDraw, (draw) => populated(annOver(taken.value, programs), draw)),
+		Substrate,
+		taken.substrate
+	)
 
 export interface Compiled {
 	readonly logical: LogicalQuery

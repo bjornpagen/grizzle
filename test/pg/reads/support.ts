@@ -13,6 +13,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import * as W from "#test/support/fixtures/api/work.ts"
 import {
 	alteredGeneratedTemplate,
 	type Generated,
@@ -376,3 +377,12 @@ export const openedIn = <
 		Substrate,
 		taken.substrate
 	)
+
+/** What a fixture suite over Work installs when its cases load the programs they serve: Work's full world, no member. */
+export const workSeatInstall = { label: "real", programs: {} } as const
+
+/**
+ * Work installed once per member as a read fixture with no member of its own (fixtureTemplate), shared by every suite
+ * whose cases serve their own programs over it (openServedDb), each case's seat its own clone.
+ */
+export const workSeatTemplate = fixtureTemplate(import.meta, W.Work, workSeatInstall)

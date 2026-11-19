@@ -18,6 +18,7 @@ import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
+import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -155,7 +156,7 @@ export const payloadRows = (f: WorkFacts): ReadonlyArray<Readonly<Record<string,
  * attachment of its own stays pipelined, so the tasks statement reads the delivered account keys and the notes are
  * stitched onto the tasks.
  */
-export const accountTaskNotes = query(W.Work)
+const accountTaskNotes = query(W.Work)
 	.rule((r) => {
 		const { id, name } = v(W.Account, "account")
 		return r.match(W.Account, { id, name }).find({ id, name })
@@ -362,3 +363,18 @@ export const stored = workFacts.Task
 /** A read's answer, its rows in id order where the query leaves the order open. */
 export const answer = (rows: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
 	Arr.map(Arr.sort(rows, byId), plain)
+
+/** What the relation-parameter property installs: Work, its workload holding tasksById. */
+export const tasksByIdInstall = { label: "real", programs: { tasksById: W.tasksById } } as const
+
+/** Work with tasksById installed once per member (reads/support.ts fixtureTemplate). */
+export const tasksByIdTemplate = fixtureTemplate(import.meta, W.Work, tasksByIdInstall)
+
+/** What the snapshot property installs: Work, its workload holding the payloads and the account's task notes. */
+export const payloadsInstall = {
+	label: "real",
+	programs: { taskPayloads: W.taskPayloads, accountTaskNotes }
+} as const
+
+/** Work with the payload reads installed once per member (reads/support.ts fixtureTemplate). */
+export const payloadsTemplate = fixtureTemplate(import.meta, W.Work, payloadsInstall)

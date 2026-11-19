@@ -4,6 +4,7 @@ import { array, boolean, element, type Gen, int, shuffled } from "@bjornpagen/te
 import { Array as Arr, Effect, Option } from "effect"
 import type { ServedLogin } from "#adapter/types/layer.ts"
 import type { Anchor, KeyedList, RowKey } from "#compiler/live/index.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -17,10 +18,12 @@ import {
 } from "#compiler/public/schema.ts"
 import { deferrable, paged } from "#compiler/public/workload.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
+import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, t4, t5 } from "#test/support/fixtures/golden/work.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
+import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
@@ -209,7 +212,7 @@ export const refreshesGen = array(boolean, { min: 1, max: 4 })
  * relation's key, and two ordered pages, one with an attachment, each also as its deferrable(...) member: the full
  * world's served workload.
  */
-export const roundTripReads = (s: W.WorkNamed<string>) => {
+const roundTripReads = (s: W.WorkNamed<string>) => {
 	const reads = W.workReads(s)
 	const payloads = query(s)
 		.rule((r) => {
@@ -324,3 +327,39 @@ export const tappedPool = (credentials: Credentials) =>
 	})
 
 export const tasks = [t1, t4, t5] as const
+
+/** What the read property installs: Work, its workload holding the round trips' reads. */
+export const readsInstall = { label: "real", programs: roundTripReads(W.Work) } as const
+
+/** Work with the round trips' reads installed once per member (reads/support.ts fixtureTemplate). */
+export const readsTemplate = fixtureTemplate(import.meta, W.Work, readsInstall)
+
+/** What the fresh-Db property installs: Work, its workload holding a key read, a read and an empty ChangeSet. */
+export const freshDbInstall = {
+	label: "real",
+	programs: {
+		task: W.Task,
+		tasksFor: W.workReads(W.Work).automaticTasksFor,
+		nothing: ChangeSet.empty(W.Work)
+	}
+} as const
+
+/** Work with the fresh-Db property's members installed once per member (reads/support.ts fixtureTemplate). */
+export const freshDbTemplate = fixtureTemplate(import.meta, W.Work, freshDbInstall)
+
+/**
+ * The derived fixture's Reports installed once per member with its server login (install-migrate.ts
+ * installedTemplate), each refresh case on a fresh clone of it, since it refreshes the view and reads whether it is
+ * populated.
+ */
+export const tripsTemplate = installedTemplate({
+	declaredIn: import.meta,
+	name: "trips",
+	schema: derivedFixture("Edu").Reports,
+	options: {
+		ambient: ordinarySession,
+		extensions: [],
+		label: "trips",
+		logins: [derivedFixture("Edu").server]
+	}
+})

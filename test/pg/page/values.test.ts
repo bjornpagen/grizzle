@@ -36,6 +36,8 @@ import {
 	type Field,
 	id,
 	isCompared,
+	measuresInstall,
+	measuresTemplate,
 	orderedNames,
 	queries,
 	reached,
@@ -44,7 +46,7 @@ import {
 	valuesCaseGen,
 	type ValuesFeature
 } from "#test/pg/page/values.fixtures.ts"
-import { installed } from "#test/pg/reads/support.ts"
+import { openedIn } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -60,7 +62,7 @@ import { Measure, Measures } from "#test/unit/page/fixtures.ts"
  */
 export const boundaryValuesThroughThePageRuntimeCutsDOfDrawnEdgeValuesOfEveryOrderedTypeIntoWindowsExactlyEachRowsRowKeyAnchoringByItsValuesAsPostgreSQLReadsThemBack =
 	property.explore(valuesCaseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(measuresTemplate) },
 		situations: [
 			...Arr.map(orderedNames, (q): ValuesFeature => `query ${q}`),
 			"float -0",
@@ -76,112 +78,114 @@ export const boundaryValuesThroughThePageRuntimeCutsDOfDrawnEdgeValuesOfEveryOrd
 			"a tie on the leading key"
 		] satisfies ReadonlyArray<Reached<ValuesFeature>>,
 		check:
-			({ substrate }, notes: Case<ValuesFeature>) =>
+			({ seated }, notes: Case<ValuesFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const opened = yield* installed(Measures, {}, { label: "real", programs: {} })
-						const names = namesOf(opened.installed)
-						const table = names.table(Measure)
-						const column = (field: Field | "id"): string => names.column(Measure, field)
-						const { ctx: dbCtx, load } = yield* openServedDb(
-							opened.installed,
-							opened.server.roles.app,
-							{}
-						)
-						/**
-						 * Every ordered query, a paged member of the workload under its position's name, and unpaged
-						 * beside it, whose read is D.
-						 */
-						const loaded = yield* load(
-							Rec.fromEntries(
-								Arr.flatMap(orderedNames, (q, i) => [
-									[`paged${i}`, paged(queries[q])],
-									[`unpaged${i}`, queries[q]]
-								])
+				Effect.flatMap(seated, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
+							const opened = yield* openedIn(Measures, {}, measuresInstall, taken)
+							const names = namesOf(opened.installed)
+							const table = names.table(Measure)
+							const column = (field: Field | "id"): string => names.column(Measure, field)
+							const { ctx: dbCtx, load } = yield* openServedDb(
+								opened.installed,
+								opened.server.roles.app,
+								{}
 							)
-						)
+							/**
+							 * Every ordered query, a paged member of the workload under its position's name, and unpaged
+							 * beside it, whose read is D.
+							 */
+							const loaded = yield* load(
+								Rec.fromEntries(
+									Arr.flatMap(orderedNames, (q, i) => [
+										[`paged${i}`, paged(queries[q])],
+										[`unpaged${i}`, queries[q]]
+									])
+								)
+							)
 
-						/** The case's facts replace the last case's whole (substrate/replace.ts). */
-						const stored = Arr.map(c.facts, storedFact)
-						const texts = Arr.map(stored, factTexts)
-						yield* replaceRows(
-							s.admin,
-							installationGroup(names),
-							Arr.map(texts, (f, n) => ({
-								sql: `INSERT INTO ${table} (${column("id")}, ${column("x")}, ${column("amount")}, ${column("big")}, ${column("label")}) VALUES ($1::uuid, $2::double precision, $3::numeric, $4::bigint, $5::text)`,
-								params: [id(n + 1), f.x, f.amount, f.big, f.label]
-							}))
-						)
-						const at = Arr.findFirstIndex(orderedNames, (n) => n === c.query).pipe(
-							Option.getOrThrow
-						)
-						const pagedMember = member(loaded, `paged${at}`)
-						const q = onceCalls(dbCtx, pagedMember)
-						const compiled = pageTemplate(pagedMember, opened.installed.names.codes)
-						const runtime = compiled.runtime
-						const rows = yield* readOnce(onceCalls(dbCtx, member(loaded, `unpaged${at}`)))({
-							params: {},
-							facts: {}
-						})
-						assert.equal(rows.length, c.facts.length)
-						const full = sortedResult(compiled, rows)
-						for (const [from, size] of [
-							["start", c.forward],
-							["end", c.backward]
-						] as const) {
-							const walked = yield* walk(q, compiled.fields, {}, size, from, full.length)
-							assert.deepEqual(walked.nodes, full, `from the ${from} at ${size}`)
-							assert.deepEqual(
-								walked.windows,
-								expectedWalk(full, size, from),
-								`the windows from the ${from} at ${size}`
+							/** The case's facts replace the last case's whole (substrate/replace.ts). */
+							const stored = Arr.map(c.facts, storedFact)
+							const texts = Arr.map(stored, factTexts)
+							yield* replaceRows(
+								s.admin,
+								installationGroup(names),
+								Arr.map(texts, (f, n) => ({
+									sql: `INSERT INTO ${table} (${column("id")}, ${column("x")}, ${column("amount")}, ${column("big")}, ${column("label")}) VALUES ($1::uuid, $2::double precision, $3::numeric, $4::bigint, $5::text)`,
+									params: [id(n + 1), f.x, f.amount, f.big, f.label]
+								}))
 							)
-						}
-						for (const delivered of rows) {
-							const call = succeeded(
-								windowCall(
-									{
-										anchor: { kind: "after", key: keyOf(compiled.fields, delivered) },
-										size: 1
-									},
-									runtime.anchors
-								)
+							const at = Arr.findFirstIndex(orderedNames, (n) => n === c.query).pipe(
+								Option.getOrThrow
 							)
-							const texts = call.variant === "after" ? call.boundary : []
-							const node = rowOf(delivered)
-							for (const [i, comparator] of runtime.page.comparators.entries()) {
-								const field = comparator.field
-								assert.ok(isCompared(field), `a comparator of ${field}, no field of Measure`)
-								const [answer] = yield* s.admin.queryValues(
-									`SELECT ($1::${sqlTypes[field]} = m.${column(field)})::text FROM ${table} AS m WHERE m.${column("id")} = $2::uuid`,
-									[defined(texts[i]), String(node["id"])]
-								)
+							const pagedMember = member(loaded, `paged${at}`)
+							const q = onceCalls(dbCtx, pagedMember)
+							const compiled = pageTemplate(pagedMember, opened.installed.names.codes)
+							const runtime = compiled.runtime
+							const rows = yield* readOnce(onceCalls(dbCtx, member(loaded, `unpaged${at}`)))({
+								params: {},
+								facts: {}
+							})
+							assert.equal(rows.length, c.facts.length)
+							const full = sortedResult(compiled, rows)
+							for (const [from, size] of [
+								["start", c.forward],
+								["end", c.backward]
+							] as const) {
+								const walked = yield* walk(q, compiled.fields, {}, size, from, full.length)
+								assert.deepEqual(walked.nodes, full, `from the ${from} at ${size}`)
 								assert.deepEqual(
-									answer,
-									["true"],
-									`${c.query}: ${field} of ${String(node["id"])} as its anchor carries it`
+									walked.windows,
+									expectedWalk(full, size, from),
+									`the windows from the ${from} at ${size}`
 								)
 							}
-						}
-						notes.note(`query ${c.query}`)
-						notes.noteAll(reached(stored))
-						/** A tie on the leading key, by the column type's own equality. */
-						const leading = defined(runtime.page.comparators[0]).field
-						if (!isCompared(leading)) {
-							return assert.fail(`a comparator of ${leading}, no field of Measure`)
-						}
-						const [tied] = yield* s.admin.queryValues(
-							`SELECT (count(*) > count(DISTINCT m.${column(leading)}))::text FROM ${table} AS m`,
-							[]
-						)
-						if (tied?.[0] === "true") {
-							notes.note("a tie on the leading key")
-						}
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
+							for (const delivered of rows) {
+								const call = succeeded(
+									windowCall(
+										{
+											anchor: { kind: "after", key: keyOf(compiled.fields, delivered) },
+											size: 1
+										},
+										runtime.anchors
+									)
+								)
+								const texts = call.variant === "after" ? call.boundary : []
+								const node = rowOf(delivered)
+								for (const [i, comparator] of runtime.page.comparators.entries()) {
+									const field = comparator.field
+									assert.ok(isCompared(field), `a comparator of ${field}, no field of Measure`)
+									const [answer] = yield* s.admin.queryValues(
+										`SELECT ($1::${sqlTypes[field]} = m.${column(field)})::text FROM ${table} AS m WHERE m.${column("id")} = $2::uuid`,
+										[defined(texts[i]), String(node["id"])]
+									)
+									assert.deepEqual(
+										answer,
+										["true"],
+										`${c.query}: ${field} of ${String(node["id"])} as its anchor carries it`
+									)
+								}
+							}
+							notes.note(`query ${c.query}`)
+							notes.noteAll(reached(stored))
+							/** A tie on the leading key, by the column type's own equality. */
+							const leading = defined(runtime.page.comparators[0]).field
+							if (!isCompared(leading)) {
+								return assert.fail(`a comparator of ${leading}, no field of Measure`)
+							}
+							const [tied] = yield* s.admin.queryValues(
+								`SELECT (count(*) > count(DISTINCT m.${column(leading)}))::text FROM ${table} AS m`,
+								[]
+							)
+							if (tied?.[0] === "true") {
+								notes.note("a tie on the leading key")
+							}
+						}).pipe(Effect.scoped),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "second-implementation",
