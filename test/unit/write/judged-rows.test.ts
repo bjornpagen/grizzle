@@ -31,7 +31,7 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { check, counted, fin, on, relation, schema, tree } from "#compiler/public/schema.ts"
 import { bindWrite, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import { keyWitness } from "#compiler/runtime/write/outcome.ts"
@@ -42,7 +42,6 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
-import { Id } from "#test/support/ids.ts"
 import { type ModelValue, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { checking } from "#test/support/policy.ts"
@@ -53,7 +52,7 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
 const T = relation(
 	"T",
 	{
-		root: Id,
+		root: uuid,
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
@@ -64,7 +63,7 @@ const T = relation(
 	},
 	["root", "start"]
 )
-const M = relation("M", { root: Id, start: natural, name: pg.bigint }, ["root", "start", "name"])
+const M = relation("M", { root: uuid, start: natural, name: pg.bigint }, ["root", "start", "name"])
 const Judged = schema(
 	"Judged",
 	[T, M],
