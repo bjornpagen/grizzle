@@ -1,6 +1,8 @@
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
+import { type FiniteSpace, finite, int, map } from "@bjornpagen/testing/gen"
 import * as Interleave from "@bjornpagen/testing/interleave"
+import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Data,
@@ -13,7 +15,7 @@ import {
 	String as Str
 } from "effect"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import { type PgConnection, type SqlError } from "#test/support/pg.ts"
 import {
 	type Actors,
 	type DirectActor,
@@ -21,17 +23,16 @@ import {
 	textOfValue
 } from "#test/support/schedules/actors.ts"
 import { describeStepOutcome } from "#test/support/schedules/match.ts"
-import type {
-	DirectAction,
-	DirectBegin,
-	ScheduleOutcome,
-	StepOutcome
+import {
+	type DirectAction,
+	type DirectBegin,
+	type ScheduleOutcome,
+	type StepOutcome
 } from "#test/support/schedules/types.ts"
 import { type LockWait, lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { connect } from "#test/support/substrate/session.ts"
-import type { SubstrateShape, TextRows } from "#test/support/substrate/substrate.ts"
+import { type SubstrateShape, type TextRows } from "#test/support/substrate/substrate.ts"
 
-import { regex } from "arkregex"
 /**
  * What a step reads or writes: every relation, or the named ones (with the participants of every law it reaches).
  * Two footprints commute when neither is `every` and their relations are disjoint (and see `independent`).
@@ -347,6 +348,15 @@ export type Strategy =
 	| { readonly kind: "script"; readonly choices: ReadonlyArray<Choice> }
 
 export const every: Strategy = { kind: "every" }
+
+/**
+ * The box of a fixed race explored by every interleaving: one case, which exploreInterleavings runs under `every`, each
+ * interleaving a run of the case, so the property proves the race inside the box of all its orders, as the suite that
+ * ran it in one test did.
+ */
+export const everyInterleaving: FiniteSpace<"every interleaving"> = finite(
+	map(int(0, 0), () => "every interleaving" as const)
+)
 
 /** How many moves a set of transactions makes when every one runs to its end: PCT's k. */
 export const movesOf = (txns: ReadonlyArray<Txn>): number =>

@@ -176,7 +176,7 @@ export const constraintOf = (f: FamilySeat, c: Catalogued): Option.Option<Constr
 }
 
 /** The installed constraint that is a model constraint, or the defect naming what the seat installed. */
-export const installedOf = (f: FamilySeat, constraint: Constraint): Catalogued => {
+export const cataloguedOf = (f: FamilySeat, constraint: Constraint): Catalogued => {
 	const found = Arr.filter(f.seat.constraints, (c) =>
 		Option.contains(constraintOf(f, c), constraint)
 	)

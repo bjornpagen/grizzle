@@ -7,7 +7,7 @@ import { Array as Arr, Effect, Option, String as Str } from "effect"
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { quoteString } from "#compiler/core/text.ts"
-import { type FamilySeat, familyTemplates, installedOf } from "#test/pg/fin/family.ts"
+import { cataloguedOf, type FamilySeat, familyTemplates } from "#test/pg/fin/family.ts"
 import { type EndFeature } from "#test/pg/fin/installed.ts"
 import { predicted as substratePredicted } from "#test/pg/substrate/fin.ts"
 import {
@@ -46,7 +46,7 @@ export interface LemmaSeat {
 export const lemmaSeatOf = (f: FamilySeat) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const closure = installedOf(f, "closure")
+		const closure = cataloguedOf(f, "closure")
 		const p = Option.getOrThrow(Arr.findFirst(closure.columns, (c) => c !== "g"))
 		const [row] = yield* s.admin.queryValues(
 			`SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attrdef AS d JOIN pg_catalog.pg_attribute AS a ON a.attrelid = d.adrelid AND a.attnum = d.adnum WHERE d.adrelid = '${f.seat.table("Member")}'::regclass AND a.attname = ${quoteString(Str.slice(1, -1)(f.seat.column("Member", p)))}`,
