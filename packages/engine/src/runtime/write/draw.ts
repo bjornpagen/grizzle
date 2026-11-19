@@ -22,15 +22,3 @@ export type MemberKey = NonEmptyReadonlyArray<ParamText>
  * in its column's binary bytea[] (codec/bytea.ts), since no text carries a bytes value at its own size.
  */
 export type MemberCell = ParamText | AdmittedBytes
-
-/** The cells of a row's columns beside its key, in its relation's row layout. */
-export type Member = ReadonlyArray<MemberCell>
-
-/** A member relation's row as one statement writes it: its key's texts, then every other column's cell (`Member`). */
-export interface Row {
-	readonly key: MemberKey
-	readonly columns: Member
-}
-
-/** A row's cells: its key's texts, then its other columns'. */
-export const rowTexts = (row: Row): ReadonlyArray<MemberCell> => [...row.key, ...row.columns]

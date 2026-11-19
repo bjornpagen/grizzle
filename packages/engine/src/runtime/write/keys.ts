@@ -4,9 +4,7 @@
  */
 import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { LawField } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { Owner } from "#compiler/runtime/write/draw.ts"
 import { type ColumnKey, fieldKey, type HostEvaluator } from "#compiler/runtime/write/fill.ts"
@@ -23,16 +21,6 @@ export interface FillContext {
 	readonly evaluate: HostEvaluator
 }
 
-/** A type's carrier spec under the installation's codes. */
-const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecOf(type, ctx.codes)
-
-/**
- * A host value's parameter text in its type's carrier: a group key field's, which a family's rows are grouped by; a
- * row's other columns are cells (codec/scalar.ts admittedCell), a bytes value travelling as itself.
- */
-const textOf = (ctx: FillContext, type: LawField["type"], value: unknown): ParamText =>
-	admittedParam(specOf(ctx, type), value)
-
 /** A fact's values by column key. */
 export const valuesOfFact = (fact: Fact): Map<ColumnKey, unknown> =>
 	new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))
@@ -46,10 +34,22 @@ export interface Grouped {
 	}>
 }
 
-/** A row's group key texts in a family. */
-export const groupOf = (ctx: FillContext, family: Grouped, values: Values): Owner =>
-	mapNonEmpty(family.group, (g) => textOf(ctx, g.member.type, values.get(fieldKey(g.member.name))))
+/** Which side of a family's group a row stands on: a member's group fields, or its owner's key fields, each pair's. */
+export type GroupSide = "member" | "owner"
 
-/** An owner's group key texts, its key fields paired with the family's group in order. */
-export const groupOfOwner = (ctx: FillContext, family: Grouped, values: Values): Owner =>
-	mapNonEmpty(family.group, (g) => textOf(ctx, g.owner.type, values.get(fieldKey(g.owner.name))))
+/**
+ * The reader of a row's group key texts in a family, from the side `side` names: each group field's column key and its
+ * carrier's spec under the installation's codes, worked out once per family, so reading a row's group costs its fields'
+ * texts and no more.
+ */
+export const groupReader = (
+	ctx: FillContext,
+	family: Grouped,
+	side: GroupSide
+): ((values: Values) => Owner) => {
+	const fields = mapNonEmpty(family.group, (g) => {
+		const field = g[side]
+		return { key: fieldKey(field.name), spec: carrierSpecOf(field.type, ctx.codes) }
+	})
+	return (values) => mapNonEmpty(fields, (f) => admittedParam(f.spec, values.get(f.key)))
+}

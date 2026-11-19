@@ -1,6 +1,5 @@
 import { defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Text } from "#compiler/core/utf8.ts"
 
 /**
  * Hex, the one spelling of every bit string grizzle writes: a set's literal and its parameter text, a roster's live
@@ -67,12 +66,14 @@ export const bitAt = (digits: Uint8Array, position: number): number =>
 		? 1
 		: 0
 
-/** A digit's character, as its ASCII byte. */
-const digitByte = (digit: number): number => alphabet.charCodeAt(digit)
-
-/** The hex text of `digits`: one character of 0-9 or A-F per digit, in order. */
-export const hexText = (digits: Uint8Array): string =>
-	defined(utf8Text(digits.map(digitByte)), "a hex digit's character is ASCII, which is UTF-8")
+/** The hex text of `digits`: one character of 0-9 or A-F per digit, in order, each its value's in the alphabet. */
+export const hexText = (digits: Uint8Array): string => {
+	let text = ""
+	for (const digit of digits) {
+		text += alphabet.charAt(digit)
+	}
+	return text
+}
 
 /**
  * PostgreSQL's output text of a bit string, a 0 or a 1 per position, as its hex digits: each four characters one digit,

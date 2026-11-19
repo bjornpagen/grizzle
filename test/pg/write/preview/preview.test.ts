@@ -87,9 +87,9 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 			},
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
-				original: "\t\t\t\t\t\tmembers: byGroup.get(familyKey(f.id))?.get(group) ?? []",
+				original: "\t\t\t\t\treturn { family: g.key, group, members: g.groups?.get(group) ?? [] }",
 				replacement:
-					"\t\t\t\t\t\tmembers: [...(byGroup.get(familyKey(f.id))?.values() ?? [])][0] ?? []",
+					"\t\t\t\t\treturn { family: g.key, group, members: [...(g.groups?.values() ?? [])][0] ?? [] }",
 				why: "The host draws every owner's family from the first group's members, so a counted member's owner copies, its tone and lum, and its owner's count and folds come from the wrong owner; the preview gives them and the store refuses the write."
 			},
 			{

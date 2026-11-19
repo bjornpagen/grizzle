@@ -161,45 +161,89 @@ const stepIdentity = (
  * present and absent, tagged by the member kind that requested them, and the strata's changes are summed by fact
  * identity into the counts (`outcomeCounts`), whose outcome kind the shell's outcome value decides from them
  * (runtime/write/net.ts outcomeKind). It reads fields grizzle controls only, never PostgreSQL's message or DETAIL prose.
+ *
+ * A relation only insertions return rows of is counted from its rows alone, none of them read (`insertedCounts`): each
+ * is a fact its INSERT made present, so no row repeats another's fact and none is made absent, and its sum over the
+ * strata is its rows' count under their insertions' tags.
  */
 export const interpretRows = (
 	context: OutcomeContext,
 	statements: ReadonlyArray<{ readonly index: number; readonly step: WriteStep }>,
 	rowsOf: (position: number) => ReadonlyArray<ReadonlyArray<OutputText>>
 ): WriteChanges => {
-	const changes = byStratum(statements).map((inStratum) => {
-		const returned = inStratum
-			.flatMap((s) => writeRows(s.step, rowsOf(s.index)))
-			.filter((w) => w.rows.length > 0)
-		return new Map(
-			context.written.flatMap(({ relation, identity }) => {
-				const own = returned.filter((w) => w.step.relation === relation)
-				if (own.length === 0) {
-					return []
-				}
-				const rows: Array<ChangeRow> = []
-				for (const w of own) {
-					const convert = changesConverter(w.step.result, context.codes)
-					const identityOf = stepIdentity(w.counts, w.step.result, identity, context.codes)
-					for (const raw of w.rows) {
-						for (const change of convert(raw)) {
-							rows.push({ identity: identityOf(change.fact), tag: change.tag })
+	const returned = byStratum(statements).map((inStratum) =>
+		inStratum.flatMap((s) => writeRows(s.step, rowsOf(s.index))).filter((w) => w.rows.length > 0)
+	)
+	const steps = returned.flat()
+	/** Whether only insertions return rows of `relation`. */
+	const insertedOnly = (relation: StoredRelationName): boolean =>
+		steps.every((w) => w.step.relation !== relation || w.step.result.kind === "insert")
+	const inserted = [...new Set(context.written.map((w) => w.relation))].filter(insertedOnly)
+	const netted = context.written.filter((w) => !insertedOnly(w.relation))
+	const changes = returned.map(
+		(inStratum) =>
+			new Map(
+				netted.flatMap(({ relation, identity }) => {
+					const own = inStratum.filter((w) => w.step.relation === relation)
+					if (own.length === 0) {
+						return []
+					}
+					const rows: Array<ChangeRow> = []
+					for (const w of own) {
+						const convert = changesConverter(w.step.result, context.codes)
+						const identityOf = stepIdentity(w.counts, w.step.result, identity, context.codes)
+						for (const raw of w.rows) {
+							for (const change of convert(raw)) {
+								rows.push({ identity: identityOf(change.fact), tag: change.tag })
+							}
 						}
 					}
-				}
-				return [[relation, rows] as const]
-			})
-		)
-	})
+					return [[relation, rows] as const]
+				})
+			)
+	)
 	return {
 		counts: withRetirements(
-			outcomeCounts(
-				context.written.map((w) => w.relation),
-				changes
-			),
+			[
+				...outcomeCounts(
+					netted.map((w) => w.relation),
+					changes
+				),
+				...inserted.map((relation) => insertedCounts(relation, steps))
+			].toSorted((a, b) => compareCodePoints(a.relation, b.relation)),
 			retiredCounts(statements, rowsOf)
 		)
 	}
+}
+
+/**
+ * The counts of a relation only insertions return rows of (`interpretRows`): each step's rows under its insertion's
+ * tag, an insert's added and a put's insert half's put.
+ */
+const insertedCounts = (
+	relation: StoredRelationName,
+	steps: ReadonlyArray<{
+		readonly step: { readonly relation: StoredRelationName; readonly result: WriteStepResult }
+		readonly rows: ReadonlyArray<unknown>
+	}>
+): RelationCounts => {
+	let added = 0n
+	let put = 0n
+	for (const w of steps) {
+		if (w.step.relation !== relation || w.step.result.kind !== "insert") {
+			continue
+		}
+		const rows = BigInt(w.rows.length)
+		switch (w.step.result.of) {
+			case "insert":
+				added += rows
+				break
+			case "put":
+				put += rows
+				break
+		}
+	}
+	return { relation, added, deleted: 0n, put }
 }
 
 /**

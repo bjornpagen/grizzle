@@ -119,8 +119,7 @@ export const nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThrough
 		kills: [
 			{
 				file: "packages/engine/src/runtime/write/staged.ts",
-				original:
-					'\t\t\tbind += frame.parameter + paramBytes(defined(values.get(position), "an encoded value"))\n',
+				original: '\t\t\tbound.push(defined(values.get(position), "an encoded value"))\n',
 				replacement: "",
 				why: "The cut measures a statement's Bind message without its placeholders that carry no nested rows (runtime/write/staged.ts executionsOf), so a statement past the bound goes inline."
 			},

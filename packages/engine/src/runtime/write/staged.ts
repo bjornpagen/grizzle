@@ -91,7 +91,7 @@ export interface Execution {
 
 /**
  * A stratum's nested rows of one relation as their placeholders carry them: their sent layout's column types, and each
- * row's cells in the same order (runtime/write/draw.ts rowTexts).
+ * row's cells in the same order, its key's first (runtime/write/nesting.ts cellsReader).
  */
 export interface NestedCells {
 	readonly relation: StoredRelationName
@@ -176,47 +176,29 @@ const grownMeasure = (measure: Measure, element: Element): Measure =>
 		? { bytes: measure.bytes + element.bytes, units: 0 }
 		: { bytes: measure.bytes + element.bytes - 1, units: measure.units + element.units - 1 }
 
-/** A column's array of no element: an empty binary array's header for a text column, `{}` for any other. */
-const emptyMeasure = (type: ScalarType): Measure =>
-	type.carrier === "text"
-		? { bytes: byteaHeaderBytes(0), units: 0 }
-		: { bytes: "{}".length, units: "{}".length }
-
-/** The array of column `part` over every row of `cells`, measured from its cells' lengths, none of it written. */
-const columnMeasure = (cells: NestedCells, part: number): Measure => {
-	const type = typeAt(cells, part)
-	let measure: Measure | undefined
-	for (const row of cells.rows) {
-		const element = elementOf(type, cellAt(row, part))
-		measure = measure === undefined ? aloneMeasure(element) : grownMeasure(measure, element)
-	}
-	return measure ?? emptyMeasure(type)
-}
-
-/** One column of a source's every row: its array as a placeholder carries it (`nestedColumn`), or why it has none, and
- * that array measured from its cells' lengths (`columnMeasure`). */
+/**
+ * One column of a source's every row: its array as a placeholder carries it (`nestedColumn`), or why it has none. A
+ * written array is its own measure, its bytes and a literal's UTF-16 code units, which the cut reads; a column with no
+ * array travels in chunks.
+ */
 interface SourceColumn {
 	readonly whole: Result.Result<Param, LiteralBound | EncodingFailure>
-	readonly measure: Measure
 }
 
 /**
  * A stratum's nested rows of one relation as every statement that sends them reads them: their cells, and each column
- * of their sent layout, by its part, written whole and measured once (`SourceColumn`), so no statement writes or
- * measures a column of a source another statement sends. A write builds each of its sources once (runtime/write/bind.ts).
+ * of their sent layout, by its part, written whole once (`SourceColumn`), so no statement writes a column of a source
+ * another statement sends. A write builds each of its sources once (runtime/write/bind.ts).
  */
 export interface NestedSource {
 	readonly cells: NestedCells
 	readonly columns: ReadonlyArray<SourceColumn>
 }
 
-/** The source of `cells` (`NestedSource`): each column of their sent layout written over every row and measured. */
+/** The source of `cells` (`NestedSource`): each column of their sent layout written over every row. */
 export const nestedSource = (cells: NestedCells): NestedSource => ({
 	cells,
-	columns: cells.types.map((_, part) => ({
-		whole: nestedColumn(cells, part, cells.rows),
-		measure: columnMeasure(cells, part)
-	}))
+	columns: cells.types.map((_, part) => ({ whole: nestedColumn(cells, part, cells.rows) }))
 })
 
 /** Column `part` of a source. */
@@ -226,6 +208,28 @@ const columnAt = (source: NestedSource, part: number): SourceColumn =>
 /** The bytes a placeholder's value adds to its Bind message's parameters. */
 const paramBytes = (param: Param): number =>
 	typeof param === "string" ? utf8Length(param) : param.byteLength
+
+/**
+ * The most bytes a placeholder's value may add to its Bind message: a binary value's own, and a text's three for each of
+ * its UTF-16 code units, the most UTF-8 writes for one (a surrogate pair's four for its two), so no text is counted to
+ * be found within a message whose bound its units already keep.
+ */
+const paramBytesAtMost = (param: Param): number =>
+	typeof param === "string" ? 3 * param.length : param.byteLength
+
+/**
+ * Whether an inline execution's Bind message, its placeholders' values `params`, fits within `messageBytes`: at once
+ * where it fits counted at its texts' most (`paramBytesAtMost`), and otherwise counted exactly.
+ */
+const inlineFits = (
+	params: ReadonlyArray<Param>,
+	frame: Transport["frame"],
+	messageBytes: number
+): boolean => {
+	const sum = (bytes: (param: Param) => number): number =>
+		params.reduce((total, param) => total + frame.parameter + bytes(param), frame.statement)
+	return sum(paramBytesAtMost) <= messageBytes || sum(paramBytes) <= messageBytes
+}
 
 /** One chunk of a carrier's rows: the rows from `from` up to `to`, which one fill's Bind message carries. */
 interface Chunk {
@@ -313,12 +317,12 @@ export interface StagedStatement {
 
 /**
  * A statement's executions (see the header): its one, inline, where it reads no nested rows or its Bind message, its
- * nested rows' arrays measured from their cells, fits the transport; otherwise its staged form's, each carrier created
+ * nested rows' arrays as written, fits the transport; otherwise its staged form's, each carrier created
  * and filled chunk by chunk, their ANALYZE where the staged statement needs one (StagedAnalyze), then the staged
  * statement. `part` is what the statement itself does, which
  * its inline execution is. `encode` writes the value of the placeholder at a position that carries no nested rows.
  * An inline execution sends each column's array as its source holds it, written once for every statement that sends
- * it, and the cut reads each column's measure there; a fill writes its chunk's arrays.
+ * it, whose bytes and code units the cut reads; a fill writes its chunk's arrays.
  */
 export const executionsOf = (
 	statement: StagedStatement,
@@ -357,18 +361,23 @@ export const executionsOf = (
 		return inline()
 	}
 	const { frame, messageBytes, literalUnits } = transport
-	let bind = frame.statement
-	let literalsFit = true
+	/** The placeholders' values as the inline execution binds them, up to a column of nested rows with no whole array or
+	 * whose literal is past the transport's longest, which travels in chunks. */
+	const bound: Array<Param> = []
+	let wholes = true
 	for (const [position, slot] of statement.nested.entries()) {
 		if (slot === undefined) {
-			bind += frame.parameter + paramBytes(defined(values.get(position), "an encoded value"))
+			bound.push(defined(values.get(position), "an encoded value"))
 			continue
 		}
-		const { measure } = columnAt(slot.source, slot.part)
-		bind += frame.parameter + measure.bytes
-		literalsFit &&= measure.units <= literalUnits
+		const { whole } = columnAt(slot.source, slot.part)
+		if (!whole.ok || (typeof whole.value === "string" && whole.value.length > literalUnits)) {
+			wholes = false
+			break
+		}
+		bound.push(whole.value)
 	}
-	if (bind <= messageBytes && literalsFit) {
+	if (wholes && inlineFits(bound, frame, messageBytes)) {
 		return inline()
 	}
 	const out: Array<Execution> = []

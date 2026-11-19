@@ -29,7 +29,7 @@ import {
 	type NestedAddition,
 	type SplitFamily
 } from "#compiler/runtime/write/addition.ts"
-import type { MemberKey, Row } from "#compiler/runtime/write/draw.ts"
+import type { MemberCell, MemberKey } from "#compiler/runtime/write/draw.ts"
 import {
 	type ColumnKey,
 	fieldKey,
@@ -112,13 +112,16 @@ export type NestedFact = { readonly [field: string]: unknown }
  * pending); its fields' host values by name, which the host's same-key checks read; and its identity, the canonical
  * texts of every column the walk filled (scalar/values/identity.ts canonicalText), its key's first, so two rows are one
  * exactly when each such column is. The identity is those texts themselves, never one text joined from them: its size
- * is its row's arity, whatever its texts' lengths.
+ * is its row's arity, whatever its texts' lengths. Its cells are the same texts but a bytes column's, which travels as
+ * its value, each value admitted and written once.
  */
 export interface NestedRow {
 	readonly identity: ReadonlyArray<string>
 	/** Its key's texts, which its relation's rows are a set by. */
 	readonly key: MemberKey
 	readonly values: ReadonlyMap<ColumnKey, unknown>
+	/** Its cells, key first, as its family statements send it (draw.ts MemberCell), each column's in its layout's order. */
+	readonly cells: ReadonlyArray<MemberCell>
 	readonly fact: NestedFact
 }
 
@@ -536,13 +539,13 @@ interface ShapedColumn {
 
 /**
  * What a relation's nested rows are read by, worked out once per write rather than once per row: the columns of its
- * row layout the walk fills, key first (`sentLayout`), each with its spec, the fields among them by name, and its
- * key's columns.
+ * row layout the walk fills (`sentLayout`), its key's then the others', each with its spec, and the fields among them by
+ * name.
  */
 interface RowShape {
-	readonly filled: ReadonlyArray<ShapedColumn>
-	readonly fields: ReadonlyArray<ShapedColumn & { readonly name: string }>
 	readonly key: NonEmptyReadonlyArray<ShapedColumn>
+	readonly rest: ReadonlyArray<ShapedColumn>
+	readonly fields: ReadonlyArray<ShapedColumn & { readonly name: string }>
 }
 
 const rowShape = (codes: Codebook, at: NestedLayoutData): RowShape => {
@@ -551,55 +554,66 @@ const rowShape = (codes: Codebook, at: NestedLayoutData): RowShape => {
 		spec: carrierSpecOf(c.type, codes)
 	})
 	const sent = sentLayout(at)
-	const filled = [...sent.key, ...sent.columns]
 	return {
-		filled: filled.map(shaped),
-		fields: filled.flatMap((c) =>
+		key: mapNonEmpty(sent.key, shaped),
+		rest: sent.columns.map(shaped),
+		fields: [...sent.key, ...sent.columns].flatMap((c) =>
 			c.column.kind === "field" ? [{ ...shaped(c), name: c.column.field.name }] : []
-		),
-		key: mapNonEmpty(at.layout.key, shaped)
+		)
 	}
 }
 
 /** A filled row as its relation's set holds it (`NestedRow`): every column of its row layout the walk filled, its
- * fields' host values, and its identity. */
+ * fields' host values, its cells, and its identity, a cell's text where it is one and a bytes cell's canonical text. */
 const nestedRowOf = (shape: RowShape, row: FilledNode): NestedRow => {
 	const values = new Map<ColumnKey, unknown>()
-	for (const c of shape.filled) {
+	const filled = (c: ShapedColumn): unknown => {
 		if (!row.values.has(c.key)) {
 			throw defect(`a column ${c.key} of ${row.relation} the filler filled`)
 		}
-		values.set(c.key, row.values.get(c.key))
+		const value = row.values.get(c.key)
+		values.set(c.key, value)
+		return value
+	}
+	const key = mapNonEmpty(shape.key, (c) => admittedParam(c.spec, filled(c)))
+	const cells: Array<MemberCell> = [...key]
+	const identity: Array<string> = [...key]
+	for (const c of shape.rest) {
+		const value = filled(c)
+		const cell = admittedCell(c.spec, value)
+		cells.push(cell)
+		identity.push(typeof cell === "string" ? cell : admittedText(c.spec, value))
 	}
 	const fact = Object.freeze(
 		Object.fromEntries(shape.fields.map((c) => [c.name, values.get(c.key)] as const))
 	)
-	return {
-		identity: Object.freeze(shape.filled.map((c) => admittedText(c.spec, values.get(c.key)))),
-		key: mapNonEmpty(shape.key, (c) => admittedParam(c.spec, values.get(c.key))),
-		values,
-		fact
-	}
+	return { identity: Object.freeze(identity), key, values, cells: Object.freeze(cells), fact }
 }
 
 /**
- * A relation's row in its row layout's cells (draw.ts Row), from the host value of every column of it: a nested row's
- * once the walk and its counted families' fills hold every column.
+ * The reader of a relation's rows' cells in a row layout, its key's first (draw.ts MemberCell), from the host value of
+ * every column of it: each column's spec worked out once for the layout, so a row's cells cost one admission and one
+ * text of each value. A nested owner's row once its counted families' fills drew its counts and ends, and a fresh
+ * group's member as its fill drew it, are read so.
  */
-export const rowOfValues = (
+export const cellsReader = (
 	codes: Codebook,
-	layout: LaidLayout,
-	values: ReadonlyMap<ColumnKey, unknown>
-): Row => {
-	const valueOf = (c: LaidColumn): unknown => {
-		if (!values.has(c.key)) {
-			throw defect(`a column ${c.key} of ${layout.relation} its fills filled`)
+	layout: LaidLayout
+): ((values: ReadonlyMap<ColumnKey, unknown>) => ReadonlyArray<MemberCell>) => {
+	const shaped = (c: LaidColumn) => ({ key: c.key, spec: carrierSpecOf(c.type, codes) })
+	const key = layout.key.map(shaped)
+	const columns = layout.columns.map(shaped)
+	return (values) => {
+		const valueOf = (c: { readonly key: ColumnKey }): unknown => {
+			if (!values.has(c.key)) {
+				throw defect(`a column ${c.key} of ${layout.relation} its fills filled`)
+			}
+			return values.get(c.key)
 		}
-		return values.get(c.key)
-	}
-	return {
-		key: mapNonEmpty(layout.key, (c) => admittedParam(carrierSpecOf(c.type, codes), valueOf(c))),
-		columns: layout.columns.map((c) => admittedCell(carrierSpecOf(c.type, codes), valueOf(c)))
+		return [
+			...key.map((c) => admittedParam(c.spec, valueOf(c))),
+			...columns.map((c) => admittedCell(c.spec, valueOf(c)))
+		]
 	}
 }
 
