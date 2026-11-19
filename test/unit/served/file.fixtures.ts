@@ -308,6 +308,20 @@ const readsBackWhole = (dir: ScratchDir, file: ServedFile, pick: number, printed
 		)
 		const table = isRecord(json) ? json["shared"] : undefined
 		assert.deepEqual(
+			unreadAt(without(json, ["format"]), "the file without its format", printed),
+			["format"],
+			`the file without its format, as a grizzle before formats wrote it, is refused at its format\n${printed()}`
+		)
+		assert.deepEqual(
+			unreadAt(
+				isRecord(json) ? { ...json, format: 0 } : json,
+				"the file of another format",
+				printed
+			),
+			["format"],
+			`the file of another format is refused at its format\n${printed()}`
+		)
+		assert.deepEqual(
 			unreadAt(without(json, ["shared"]), "the file without its table", printed),
 			["shared"],
 			`the file without its table is refused at its table\n${printed()}`

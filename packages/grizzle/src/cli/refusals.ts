@@ -106,11 +106,6 @@ export const refusalText = {
 			"snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema",
 		fix: "restore them from git"
 	},
-	earlierManifest: {
-		problem:
-			"manifest.json is of the form an earlier grizzle wrote, every installed statement whole (an ungenerated change)",
-		fix: "run grizzle generate, which writes manifest.json again and drafts no migration where nothing else changed"
-	},
 	unreadableMeta: {
 		problem: "meta.json does not decode as a migration's meta.json, or names another schema",
 		fix: "restore it from git"

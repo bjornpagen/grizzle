@@ -8,7 +8,6 @@ import {
 	ChainRefused,
 	type CliError,
 	cliError,
-	SnapshotEarlier,
 	SnapshotForeign,
 	SnapshotUnreadable
 } from "#cli/errors.ts"
@@ -70,24 +69,6 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 		)
 	}
 	const committed: Committed = { kind: "files", ...read.success }
-	return committed
-})
-
-/**
- * A schema's committed snapshot as a command that reads it but drafts nothing reads it (committedSnapshot): `grizzle
- * migrate`, drift and names, which refuse a manifest.json of the form an earlier grizzle wrote, every installed
- * statement whole, since only `grizzle generate` converts it, writing its record in its place.
- */
-export const recordedCommitted = Effect.fn("recordedCommitted")(function* (
-	schema: ConfiguredSchema,
-	tree: SchemaTree
-): Effect.fn.Return<Committed, CliError> {
-	const committed = yield* committedSnapshot(schema, tree)
-	if (committed.kind === "files" && committed.form === "earlier") {
-		return yield* cliError(
-			new SnapshotEarlier({ schema: schema.declared, directory: tree.directory })
-		)
-	}
 	return committed
 })
 

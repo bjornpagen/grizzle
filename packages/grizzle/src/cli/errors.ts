@@ -589,19 +589,6 @@ export class SnapshotUnreadable extends Data.TaggedError("SnapshotUnreadable")<{
 }
 
 /**
- * The manifest.json of `schema` in `directory` is of the form a grizzle before records wrote, every installed statement
- * whole: only `grizzle generate` reads it, writing its record in its place.
- */
-export class SnapshotEarlier extends Data.TaggedError("SnapshotEarlier")<{
-	readonly schema: string
-	readonly directory: string
-}> {
-	override get message(): string {
-		return `${this.directory}/${manifestFileName} is of the form an earlier grizzle wrote, every installed statement whole, which only grizzle generate reads`
-	}
-}
-
-/**
  * The snapshot.json in `directory` is the snapshot of another schema: of the declared schema `found.schemaName` in the
  * PostgreSQL schema `found.schema`, not of `schema` in `ident`.
  */
@@ -794,7 +781,6 @@ type CliReason =
 	| ServedUnwritten
 	| MigrationsUnread
 	| SnapshotUnreadable
-	| SnapshotEarlier
 	| SnapshotForeign
 	| ChainRefused
 	| RosterReordered
@@ -824,7 +810,6 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	ServedUnwritten: "filesystem",
 	MigrationsUnread: "filesystem",
 	SnapshotUnreadable: "snapshot",
-	SnapshotEarlier: "manifest",
 	SnapshotForeign: "snapshot",
 	ChainRefused: "snapshot",
 	RosterReordered: "codes",

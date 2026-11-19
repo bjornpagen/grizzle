@@ -1,6 +1,7 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { fromJson, noRevivers, type Path } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, within } from "#compiler/core/errors.ts"
+import { artifactFormat, formatKey, isArtifactFormat } from "#compiler/core/format.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -104,8 +105,9 @@ const revived = (value: unknown, path: Path): Result.Result<unknown, CompileErro
 
 /**
  * The snapshot an application's DbLayer serves over its level `level` (its base's, the last of the base's own levels),
- * from the JSON value an import of snapshot.json yields, trusted as the snapshot `grizzle generate` wrote, whose content
- * is verified where it is drafted, checked and migrated from (readSnapshot): its recorded fingerprint; every level's
+ * from the JSON value an import of snapshot.json yields, refused unless it records this grizzle's format
+ * (core/format.ts artifactFormat), then trusted as the snapshot `grizzle generate` wrote, whose content is verified
+ * where it is drafted, checked and migrated from (readSnapshot): its recorded fingerprint; every level's
  * schema and recorded fingerprint, and the laws of each level above `level`, their canonical tags revived (`fromJson`);
  * its constraint-to-law map and its rosters' codes, revived; and the installation's derived runtime facts
  * (SnapshotDerived), each closed relation's constants as readers address them, the foreign key graph's cycles and the
@@ -117,6 +119,15 @@ export const servedSnapshot = (
 	json: unknown,
 	level: number
 ): Result.Result<ServedSnapshot, CompileError> => {
+	if (!isRecord(json) || !isArtifactFormat(json[formatKey])) {
+		return Result.err(
+			malformedArtifact(
+				"snapshot",
+				[formatKey],
+				`a snapshot.json of grizzle's format ${artifactFormat}, which this grizzle writes: run grizzle generate`
+			)
+		)
+	}
 	const served = trusted<ServedJson>(json)
 	const derived = servedDerived(served.derived)
 	if (!derived.ok) {

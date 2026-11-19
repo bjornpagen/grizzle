@@ -1,4 +1,5 @@
 {
+	"format": 1,
 	"constraintToLaw": {
 		"domains": {
 			"__text_ypbru4us3x": {
@@ -81,8 +82,26 @@
 		{
 			"fingerprint": "98bd76cff980e008dfd4bb480e71c44d73c8adeb457d9033ab9e58be653ae4e9",
 			"laws": [
-				{"described":{"fields":["id"],"kind":"primaryKey","relation":"Coded"},"law":"__coded_pk_id_xzguky7njm"},
-				{"described":{"fields":["id"],"kind":"primaryKey","relation":"Item"},"law":"__item_pk_id_v737wxv6lx"}
+				{
+					"described": {
+						"fields": [
+							"id"
+						],
+						"kind": "primaryKey",
+						"relation": "Coded"
+					},
+					"law": "__coded_pk_id_xzguky7njm"
+				},
+				{
+					"described": {
+						"fields": [
+							"id"
+						],
+						"kind": "primaryKey",
+						"relation": "Item"
+					},
+					"law": "__item_pk_id_v737wxv6lx"
+				}
 			],
 			"name": "ParamDomains",
 			"schema": "param_domains"

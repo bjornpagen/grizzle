@@ -639,8 +639,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 	const fences = generated.served.kind === "logins" ? generated.served.fences : []
 	if (generated.change === "none") {
 		return committed.kind === "files" &&
-			(committed.form === "earlier" ||
-				!derivedHolds(committed.derived, generated.derived) ||
+			(!derivedHolds(committed.derived, generated.derived) ||
 				!recordHolds(committed.snapshot, generated.snapshot))
 			? ({
 					schema,

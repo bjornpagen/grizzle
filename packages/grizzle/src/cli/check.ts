@@ -48,7 +48,6 @@ import {
 import {
 	type DeploySnapshot,
 	derivedHolds,
-	manifestFileName,
 	recordHolds,
 	snapshotFileName
 } from "#compiler/plan/serve.ts"
@@ -206,13 +205,6 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 		at("unreadableSnapshot", path(snapshotFileName), refusalText.unreadableSnapshot.problem)
 	}
 	const recorded = Result.getSuccess(committed)
-	if (
-		Option.isSome(recorded) &&
-		recorded.value.kind === "files" &&
-		recorded.value.form === "earlier"
-	) {
-		at("earlierManifest", path(manifestFileName), refusalText.earlierManifest.problem)
-	}
 
 	/** The chain, folder by folder, from the empty snapshot (committed.ts, the walk generate continues). */
 	const chain = committedChain(schema, sources)
@@ -288,11 +280,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	return {
 		findings,
 		committed: recorded,
-		target: Option.flatMap(recorded, (c) =>
-			c.kind === "files" && c.form === "earlier"
-				? Option.none()
-				: Option.some({ snapshot: c.snapshot, folders: sources })
-		),
+		target: Option.map(recorded, (c) => ({ snapshot: c.snapshot, folders: sources })),
 		folders: tree.folders.length,
 		packs,
 		logins: tree.logins
@@ -477,7 +465,6 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				draft.success.change === "none" &&
 				Option.isSome(recorded) &&
 				recorded.value.kind === "files" &&
-				recorded.value.form === "recorded" &&
 				!recordHolds(recorded.value.snapshot, draft.success.snapshot)
 			) {
 				at("manifestRecord", schema.declared, refusalText.manifestRecord.problem)

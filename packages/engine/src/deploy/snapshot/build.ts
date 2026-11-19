@@ -19,6 +19,7 @@ import {
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
+import { artifactFormat, formatKey, isArtifactFormat } from "#compiler/core/format.ts"
 import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier, LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
@@ -1380,7 +1381,7 @@ const recordForm = <S>(s: DeploySnapshot, units: Units<S>): RecordOf<S> => ({
  * is refused.
  */
 export const snapshotSeal = (value: unknown): Result.Result<string, CompileError> =>
-	digest("manifest", value, everyProperty)
+	digest(`manifest-${artifactFormat}`, value, everyProperty)
 
 /**
  * The JSON form of a live plan: its kind, and for one that reads, each footprint table's relation and the fields it
@@ -1404,6 +1405,7 @@ const runtimeForm = <S>(
 	derived: SnapshotDerived,
 	units: Units<S>
 ): RecordOf<S> => ({
+	[formatKey]: artifactFormat,
 	fingerprint: s.fingerprint,
 	levels: levelsForm(s.levels, units),
 	constraintToLaw: s.constraintToLaw,
@@ -1562,25 +1564,15 @@ export const recordHolds = (committed: DeploySnapshot, computed: DeploySnapshot)
 	canonicalEquals(recordForm(committed, asValues), recordForm(computed, asValues))
 
 /**
- * A snapshot's two files joined (joinedSnapshot), by the form manifest.json holds: the record, sealed by the seal it
- * carries (`recorded`), the JSON form of the committed snapshot whole, its fingerprint included; or the form a grizzle
- * before records wrote (`earlier`), every installed statement whole and no seal, the JSON form of the snapshot's whole
- * content, which its fingerprint digests and `grizzle generate` alone reads, once, to write its record (the shell's
- * boundary/snapshot.ts earlierSnapshot). Either holds snapshot.json's derived runtime facts as recorded, kept out of
- * the content, absent from a file that holds none.
+ * A snapshot's two files joined (joinedSnapshot): the record, the JSON form of the committed snapshot whole, its
+ * fingerprint included, with the seal manifest.json carries over it and snapshot.json's derived runtime facts as
+ * recorded, kept out of the content, absent from a file that holds none.
  */
-export type JoinedSnapshot =
-	| {
-			readonly form: "recorded"
-			readonly content: Readonly<Record<string, unknown>>
-			readonly seal: unknown
-			readonly derived: unknown
-	  }
-	| {
-			readonly form: "earlier"
-			readonly content: Readonly<Record<string, unknown>>
-			readonly derived: unknown
-	  }
+export interface JoinedSnapshot {
+	readonly content: Readonly<Record<string, unknown>>
+	readonly seal: unknown
+	readonly derived: unknown
+}
 
 /** A member a snapshot file must hold that it does not: no pair grizzle wrote. */
 const unjoined = (file: string, at: ReadonlyArray<string>, what: string): CompileError =>
@@ -1603,7 +1595,16 @@ export const joinedSnapshot = (
 	if (!isRecord(migration)) {
 		return Result.err(unjoined(manifestFileName, [], "holding an object"))
 	}
-	const { rosters, derived, ...served } = runtime
+	const { [formatKey]: format, rosters, derived, ...served } = runtime
+	if (!isArtifactFormat(format)) {
+		return Result.err(
+			unjoined(
+				snapshotFileName,
+				[formatKey],
+				`of grizzle's format ${artifactFormat}, which this grizzle writes; this one is of ${format === undefined ? "an earlier grizzle's, which records none" : `format ${JSON.stringify(format)}`}: convert the installation's snapshot with its release's converter`
+			)
+		)
+	}
 	const theory = migration["theory"]
 	const relations = isRecord(theory) ? theory["relations"] : undefined
 	if (!isRecord(rosters)) {
@@ -1632,13 +1633,15 @@ export const joinedSnapshot = (
 		}
 		joined[name] = { ...relation, codes }
 	}
+	if (!Object.hasOwn(migration, "seal")) {
+		return Result.err(unjoined(manifestFileName, ["seal"], "carrying the seal of both files"))
+	}
 	const { seal, ...members } = migration
-	const content = { ...members, ...served, theory: { ...theory, relations: joined } }
-	return Result.ok(
-		Object.hasOwn(migration, "seal")
-			? { form: "recorded", content, seal, derived }
-			: { form: "earlier", content, derived }
-	)
+	return Result.ok({
+		content: { ...members, ...served, theory: { ...theory, relations: joined } },
+		seal,
+		derived
+	})
 }
 
 /**

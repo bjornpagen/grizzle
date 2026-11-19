@@ -20,9 +20,10 @@
  * - Each shape once: no record, array, Map or Set the file's JSON value holds as a value stands at two places (its
  *   members but its rosters, the codebook's own form a load reads first, and its table's entries; within each, a
  *   record's members but its `~` marker, a revived array's items, a Map's keys and values, a Set's members) unless its
- *   canonical text is no longer than a reference to the table's next entry (`"~s:<n>"`). And the table is read whole
- *   or not at all: the file without its table, as grizzle's earlier format is, is refused as a malformed served file
- *   at `shared` (MalformedArtifact), and with its table cut short of its last entry, which only its members reference,
+ *   canonical text is no longer than a reference to the table's next entry (`"~s:<n>"`). A file is of grizzle's
+ *   format (core/format.ts artifactFormat) or no served file: without its format, as every grizzle before formats wrote
+ *   it, or of another, it is refused at `format` before anything of it is read. And the table is read whole or not at
+ *   all: the file without its table is refused as a malformed served file at `shared` (MalformedArtifact), and with its table cut short of its last entry, which only its members reference,
  *   is refused so too, never read with a reference standing for nothing.
  * - A member dropped: one member of the file's JSON value, drawn among all of them, left out; the file read back differs from the
  *   one written, or the reader refuses it: a member the encoder drops is never one the decoder makes up, and no form
@@ -110,6 +111,12 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 			budget: { runs: 60, steered: 0 },
 			kept: [],
 			kills: [
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: "\tif (!isArtifactFormat(format)) {",
+					replacement: "\tif (false) {",
+					why: "A served file of no format, as a grizzle before formats wrote it, or of another is read as this grizzle's; the format refusals fail."
+				},
 				{
 					file: "packages/engine/src/served/json.ts",
 					original:

@@ -11,7 +11,7 @@
  * of the fingerprint written, every level recording the laws written; and what DbLayer.make serves of the file's JSON
  * value over each of its levels (boundary/snapshot.ts parseSnapshot) is exactly those members of what the file reads
  * back as: its fingerprint, its levels' schemas, the laws of the levels above the served one, its constraint-to-law map
- * and its codes.
+ * and its codes; and nothing of a snapshot.json that records no format, or another, is served.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -19,6 +19,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { parseSnapshot, readSnapshot } from "#adapter/boundary/snapshot.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import {
 	codebookOf,
 	derivedHolds,
@@ -82,6 +83,14 @@ export const snapshotJsonReadsBackAsTheSnapshotWrittenOfTheSameFingerprintWhatev
 					Arr.map([...book.rosters.values()], (codec) => [codec.roster, codec.codes])
 				assert.equal(read.fingerprint, snapshot.fingerprint)
 				assert.deepEqual(lawsOf(read.levels), lawsOf(snapshot.levels))
+				const { format: _format, ...unformatted } = trustedJson<{
+					readonly [key: string]: unknown
+				}>(files.snapshot)
+				assert.ok(
+					parseSnapshot(unformatted, 0)._tag === "Failure" &&
+						parseSnapshot({ ...unformatted, format: 0 }, 0)._tag === "Failure",
+					"a snapshot.json of no format, or of another, serves nothing"
+				)
 				for (const level of read.levels.keys()) {
 					const served = succeeded(parseSnapshot(snapshotJson(files.snapshot), level))
 					assert.equal(served.fingerprint, read.fingerprint)
@@ -118,6 +127,12 @@ export const snapshotJsonReadsBackAsTheSnapshotWrittenOfTheSameFingerprintWhatev
 		box: "a key over a side selected by a literal of each field kind, stated at the root or at a level above it",
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/deploy/snapshot/served.ts",
+				original: "\tif (!isRecord(json) || !isArtifactFormat(json[formatKey])) {",
+				replacement: "\tif (!isRecord(json)) {",
+				why: "An application serves a snapshot.json of no format, as a grizzle before formats wrote it, or of another as this grizzle's."
+			},
 			{
 				file: "packages/engine/src/deploy/snapshot/served.ts",
 				original: "\tconst first = level + 1",

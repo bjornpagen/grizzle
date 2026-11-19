@@ -1,8 +1,8 @@
 /**
  * An id-keyed tree as grizzle installed one before trees were keyed by their root and start (da713e04): the first
  * migration and the snapshot of the schema below, drafted by grizzle 37c3de02's test kit (compile asDrafted, generate
- * from the empty snapshot, writeSnapshot over derivedOf), frozen as that generator wrote them
- * (old-form-tree.files.ts), since the current compiler draws no such tree: one keyed by a caller's id, its parent the
+ * from the empty snapshot, writeSnapshot over derivedOf), frozen (old-form-tree.files.ts), its snapshot recorded and laid
+ * out in grizzle's format 1 by follow-up 5's conversion, since the current compiler draws no such tree: one keyed by a caller's id, its parent the
  * parent's id, its root field doc. A migration suite installs it as its first version and drafts the keyed tree from
  * its snapshot, the move every installed tree makes.
  *
