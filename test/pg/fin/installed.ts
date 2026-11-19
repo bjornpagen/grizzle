@@ -24,7 +24,8 @@ import type { FixtureSchema } from "#test/support/compile.ts"
 import {
 	type Installed,
 	installedTemplate,
-	installMigrated
+	installMigrated,
+	seededTemplate
 } from "#test/support/install-migrate.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
@@ -211,6 +212,27 @@ export const seatTemplate = (
 		name: label,
 		schema,
 		options: { ambient: ordinarySession, extensions: [], label: schemaLabelOf(label), logins: [] }
+	})
+
+/**
+ * seatTemplate's installation with what every case reads written once per member right after the install
+ * (install-migrate.ts seededTemplate): `seed` over the build's seat of it (seatOfInstalled), such as a planted load
+ * analyzed, where a search wrote it once before its cases. Its seat empties no table, so a case commits nothing to it,
+ * and a case reads its seat as seatTemplate's (seatIn).
+ */
+export const seededSeatTemplate = <E>(
+	declaredIn: ImportMeta,
+	schema: FixtureSchema,
+	relations: Arr.NonEmptyReadonlyArray<string>,
+	label: string,
+	seed: (seat: Seat) => Effect.Effect<void, E, Substrate | Scope.Scope>
+): SeatTemplate =>
+	seededTemplate({
+		declaredIn,
+		name: label,
+		schema,
+		options: { ambient: ordinarySession, extensions: [], label: schemaLabelOf(label), logins: [] },
+		seed: (installed) => Effect.flatMap(seatOfInstalled(installed, relations, label), seed)
 	})
 
 /** The seat of a case over a clone of a fin template (seatTemplate): seatOfInstalled on the case's own substrate. */

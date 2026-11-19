@@ -27,7 +27,8 @@ import {
 	sameRoles,
 	seatOf,
 	seatOfInstalled,
-	seatTemplate
+	seatTemplate,
+	seededSeatTemplate
 } from "#test/pg/fin/installed.ts"
 import { canonical, emptyStored, sqlstateOf } from "#test/pg/substrate/fin.ts"
 import { deepEquals } from "#test/support/assert.ts"
@@ -112,6 +113,25 @@ export const familySeat = (
  */
 export const familyTemplate = (declaredIn: ImportMeta, shape: Shape, label: string): SeatTemplate =>
 	seatTemplate(declaredIn, familySchema(shape), `${label} ${shape}`)
+
+/**
+ * A shape's family installed once per member with what every case reads written right after the install (installed.ts
+ * seededSeatTemplate): `seed` over the build's family seat, where a search wrote it once before its cases. A case seats
+ * it as familyTemplate's (familySeatIn).
+ */
+export const seededFamilyTemplate = <E>(
+	declaredIn: ImportMeta,
+	shape: Shape,
+	label: string,
+	seed: (family: FamilySeat) => Effect.Effect<void, E, Substrate | Scope.Scope>
+): SeatTemplate =>
+	seededSeatTemplate(
+		declaredIn,
+		familySchema(shape),
+		FAMILY_RELATIONS,
+		`${label} ${shape}`,
+		(seat) => Effect.flatMap(familyOf(shape, seat, `${label} ${shape}`), seed)
+	)
 
 /**
  * Every shape's family template (familyTemplate): a property's needs take them through Substrate.oneOf, and a case
