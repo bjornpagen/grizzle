@@ -1,7 +1,7 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { ReadonlyTupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
-import type { Case } from "@bjornpagen/testing/explore"
 import type { Gen } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { changeCall } from "#adapter/apply/collect.ts"
 import type { CompiledChange } from "#adapter/apply/compile.ts"

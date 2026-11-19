@@ -2,8 +2,8 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { AppliedEdit, MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"

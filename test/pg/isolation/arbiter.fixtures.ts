@@ -1,10 +1,19 @@
 /** What the properties of arbiter.test.ts read: its spaces, models and helpers. */
 
 import { defined } from "@bjornpagen/testing/assert"
-import type { Case, Steered } from "@bjornpagen/testing/explore"
-import { array, constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	weighted,
+	type Steered
+} from "@bjornpagen/testing/gen"
 import { pctSchedule } from "@bjornpagen/testing/interleave"
 import { type Equivalence, exact, ordered } from "@bjornpagen/testing/oracle"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import type { RoleCertificate } from "#compiler/analysis/isolation/certify.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
@@ -227,7 +236,7 @@ const refusedFirst: Gen<DisjointRace> = (s) => {
  * first call the CHECK refuses (refusedFirst); otherwise a drawn one, as a rotating case always is. The generator draws
  * it, so it is the race the search runs, prints and keeps.
  */
-export const aimedDisjoint: Steered<DisjointRace, DisjointFeature> = (steering) =>
+export const aimedDisjoint: Steered<DisjointRace, DisjointFeature>["under"] = (steering) =>
 	Option.exists(steering, (pending) => pending.names("a CHECK refused"))
 		? oneOf([disjointRaces, refusedFirst])
 		: disjointRaces
@@ -282,7 +291,7 @@ const unsettledFirst: Gen<SharedRace> = (s) => {
  * post the CHECK refuses (unsettledFirst); otherwise a drawn one. The generator draws it, so it is the history the
  * search runs, prints and keeps.
  */
-export const aimedHistory: Steered<SharedRace, SerialFeature> = (steering) =>
+export const aimedHistory: Steered<SharedRace, SerialFeature>["under"] = (steering) =>
 	Option.exists(steering, (pending) => pending.names("an unsettled invoice refused"))
 		? unsettledFirst
 		: histories

@@ -1,8 +1,16 @@
 /** What the properties of reinsert.test.ts read: its spaces, models and helpers. */
 
 import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
-import { constant, element, type Gen, int, oneOf, subset, weighted } from "@bjornpagen/testing/gen"
+import {
+	constant,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	subset,
+	weighted,
+	type Steered
+} from "@bjornpagen/testing/gen"
 import { swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
@@ -573,7 +581,7 @@ const aimedGen =
  * The case a witness runs, drawn under its steering: while a situation is pending, a case aimed at one drawn among them;
  * otherwise a drawn one. The generator draws it, so it is the case the search runs, prints and keeps.
  */
-export const reinsertCases: Steered<ReinsertCase, Situation> = (steering) => {
+export const reinsertCases: Steered<ReinsertCase, Situation>["under"] = (steering) => {
 	const open = Arr.filter(aims, ([situation]) =>
 		Option.exists(steering, (pending) => pending.has(situation))
 	)

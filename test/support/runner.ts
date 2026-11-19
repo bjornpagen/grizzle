@@ -76,8 +76,7 @@ const clusterFailed = (doing: string) => sqlNeedFailed("grizzle cluster", doing)
 
 /**
  * The prefix of every database the toolchain names on grizzle's clusters: `gz_tpl_<digest>` for a template and
- * `gz_c_<owner>_<n>` for a clone, apart from the Vitest tier's gz_t_ and gz_shared_ databases, which
- * shared.ts sweeps.
+ * `gz_c_<owner>_<n>` for a clone, apart from a bench's or a child's own gz_t_ databases, which shared.ts sweeps.
  */
 const prefix = DatabasePrefix("gz_")
 

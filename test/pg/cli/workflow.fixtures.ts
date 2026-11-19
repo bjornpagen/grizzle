@@ -9,8 +9,8 @@ import {
 	runProgram,
 	took
 } from "@bjornpagen/testing/commands"
-import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, constant, element } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import {
 	Array as Arr,

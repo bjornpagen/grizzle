@@ -2,7 +2,6 @@
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { deepEquals, defined } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import {
 	array,
 	boolean,
@@ -17,6 +16,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { pctSchedule } from "@bjornpagen/testing/interleave"
+import type { Case } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Data,

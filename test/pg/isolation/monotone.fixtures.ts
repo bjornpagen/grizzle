@@ -1,8 +1,8 @@
 /** What the properties of monotone.test.ts read: its spaces, models and helpers. */
 
 import { defined } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"

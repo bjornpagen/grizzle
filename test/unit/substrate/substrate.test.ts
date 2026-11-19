@@ -3,7 +3,7 @@
  *
  * - Names. A schema label and a role name are lowercase ASCII letter words joined by single underscores; an allocated
  *   schema name is `gz_<label>_<pid>_<n>_<ten digits>`, its own conversion at the naming door, and every role and role
- *   schema minted under it starts with its prefix, so the global setup reads the allocating process off any of them
+ *   schema minted under it starts with its prefix, so the sweep reads the allocating process off any of them
  *   and sweeps a dead one's; no name past maxIdentifierBytes is ever made, so PostgreSQL never cuts one. The oracle is
  *   the generator's own words, each drawn whole or with a fault planted, and the byte count of the name they spell.
  *

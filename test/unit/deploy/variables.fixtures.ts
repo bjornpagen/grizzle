@@ -1,7 +1,6 @@
 /** What the properties of variables.test.ts read: its spaces, models and helpers. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import {
 	type Aimed,
 	aimed,
@@ -12,6 +11,7 @@ import {
 	option,
 	string
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, DateTime, Effect, FileSystem, Option, Order, String as Str } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"

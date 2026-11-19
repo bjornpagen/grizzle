@@ -1,7 +1,6 @@
 /** What the properties of bits.test.ts read: its spaces, models and helpers. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import {
 	boolean,
 	constant,
@@ -11,6 +10,7 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import {
 	type Accumulator,

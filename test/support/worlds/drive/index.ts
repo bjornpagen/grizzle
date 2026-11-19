@@ -1,5 +1,5 @@
 import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
-import type { Case } from "@bjornpagen/testing/explore"
+import type { Case } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Data,

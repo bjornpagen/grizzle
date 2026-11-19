@@ -1,8 +1,8 @@
 /** What the properties of family-columns.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"

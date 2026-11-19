@@ -1,8 +1,7 @@
 /** What the properties of fill-order.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
-import { boolean, constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
+import { boolean, constant, element, type Gen, oneOf, type Steered } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, type Result } from "effect"
 import { onceCalls } from "#adapter/db/handles.ts"
 import { rowEvaluator } from "#adapter/public/host.ts"
@@ -886,7 +885,7 @@ export const steeredBy =
 	(
 		aimed: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]>,
 		drawn: Gen<ClusterCase>
-	): Steered<ClusterCase, ClusterSituation> =>
+	): Steered<ClusterCase, ClusterSituation>["under"] =>
 	(steering) => {
 		const open = Arr.filter(aimed, ([situation]) =>
 			Option.exists(steering, (pending) => pending.has(situation))

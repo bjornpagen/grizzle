@@ -38,11 +38,11 @@
 		"dead-code": "fallow dead-code",
 		"architecture": "fallow architecture",
 		"dedupe": "pnpm dedupe --check",
-		"test": "node --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict node_modules/vitest/vitest.mjs run",
+		"test": "toolchain-test run test/unit test/types",
+		"test:network": "toolchain-test run test/pg test/schedules",
 		"test:properties": "toolchain-test run",
 		"load": "toolchain-test load",
-		"test:network": "node --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
-		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
+		"fuzz": "toolchain-test fuzz",
 		"mutate": "toolchain-test mutate",
 		"bench": "node bench/main.ts",
 		"bench:full": "node bench/main.ts full",
@@ -75,8 +75,6 @@
 		"oxlint": "catalog:",
 		"tsrs": "catalog:",
 		"turbo": "catalog:",
-		"typescript": "catalog:",
-		"vite": "catalog:",
-		"vitest": "catalog:"
+		"typescript": "catalog:"
 	}
 }

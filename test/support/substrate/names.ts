@@ -119,7 +119,7 @@ export const templateNames = (digest: string): TemplateNames => ({
  * The process that allocated a uniqueSchemaName schema, read off any name the door minted under it with the allocation
  * as its prefix, or a role roleName names under it; none for any other name, a decoder login's at its stem among them,
  * `__live_<digest>`, which names no allocation (core/identity.ts identity.liveSource): the sweep finds that one by the
- * name its allocation derives (shared.ts). The global setup drops what a dead process left behind.
+ * name its allocation derives (shared.ts), which drops what a dead process left behind.
  */
 export const allocatingPid = (name: string): Option.Option<number> =>
 	Option.map(Option.fromNullishOr(allocation.exec(name)?.[1]), (pid) => Number(pid))

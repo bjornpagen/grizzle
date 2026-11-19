@@ -15,7 +15,7 @@ import { classMembers, type KeyProof, keyWith } from "#compiler/ir/keys.ts"
 import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
+import type { Case } from "@bjornpagen/testing/property"
 import type { Heading, KeySet, NodeOf, RelDag, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import * as S from "#compiler/ir/shape.ts"
 import {

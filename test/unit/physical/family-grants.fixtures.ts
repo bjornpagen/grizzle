@@ -2,8 +2,8 @@
 
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, defined } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"

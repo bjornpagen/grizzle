@@ -1,8 +1,8 @@
 /** What the properties of swaps.test.ts read: its spaces, models and helpers. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import { type Gen, map, shuffled } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, Order, Record } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"

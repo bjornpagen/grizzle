@@ -2,8 +2,8 @@
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"

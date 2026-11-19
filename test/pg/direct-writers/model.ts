@@ -1,6 +1,6 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import type { Case } from "@bjornpagen/testing/explore"
 import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Effect,

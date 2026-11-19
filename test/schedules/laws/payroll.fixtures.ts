@@ -1,9 +1,9 @@
 /** What the properties of payroll.test.ts read: its spaces, models and helpers. */
 
 import { defined } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { type Reached } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, type Scope } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"

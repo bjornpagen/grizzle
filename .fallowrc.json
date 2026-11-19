@@ -4,8 +4,13 @@
 		"test/**/*.child.ts",
 		"test/support/programs/**/*.ts",
 		"test/unit/deps/runtime-probe.ts",
-		"test/support/pg-global-setup.ts",
 		"bench/**/main.ts",
+		// The performance gates, which the bench runner discovers by name (bench/harness/runner.ts).
+		"bench/**/*.bench.ts",
+		// The test fixtures: the shared fixture modules (test/support/fixtures), whose programs a test reaches by name, the
+		// README's and SKILL.md's mirrors a test reads by path, and the planted module the dependency scan reads, as Vitest's
+		// fixture convention entered them before every test ran on the toolchain's runner.
+		"test/**/fixtures/**/*.ts",
 		"scripts/dev/profile/compile.ts",
 		"scripts/dev/profile/read.ts",
 		"scripts/gen/allen/main.ts",
@@ -14,8 +19,9 @@
 		"packages/pg/src/pin-verdict.ts",
 		"scripts/dev/toolchain-imports.ts",
 		"oxlint.ast.config.ts",
-		// The runner config, which toolchain-test loads by its path at the package root.
-		"test.config.ts"
+		// The runner config, which toolchain-test loads by its path at the package root, and the test modules it includes.
+		"test.config.ts",
+		"test/**/*.test.ts"
 	],
 	"ignorePatterns": [
 		"!packages/engine/src/query/build/**",
@@ -1065,9 +1071,7 @@
 				"oxlint.ast.config.ts",
 				"pg.config.ts",
 				"toolchain.config.ts",
-				"test.config.ts",
-				"vitest.config.ts",
-				"vitest.network.config.ts"
+				"test.config.ts"
 			]
 		}
 	},

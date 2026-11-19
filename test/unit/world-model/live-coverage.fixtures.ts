@@ -1,8 +1,8 @@
 /** What the properties of live-coverage.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import { boolean, element } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { compileServed } from "#adapter/public/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"

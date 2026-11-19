@@ -1,8 +1,8 @@
 /** What the properties of backfill-shared.test.ts read: its spaces, models and helpers. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import type { Case, Steered } from "@bjornpagen/testing/explore"
-import { type Gen, int, shuffled } from "@bjornpagen/testing/gen"
+import { type Gen, int, shuffled, type Steered } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -131,7 +131,7 @@ const reached = (c: SharedCase): ReadonlyArray<Feature> => {
 
 /** The case drawn: a plain one, or, while its steering leaves members out of their key order pending, one whose keys
  * are written from the highest down. */
-export const aimedGen: Steered<SharedCase, Feature> = (steering) =>
+export const aimedGen: Steered<SharedCase, Feature>["under"] = (steering) =>
 	Option.exists(steering, (p) => p.names("members written out of their key order"))
 		? caseOf(descendingKeys)
 		: caseGen

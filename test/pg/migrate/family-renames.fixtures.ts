@@ -1,7 +1,6 @@
 /** What the properties of family-renames.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import {
 	boolean,
 	constant,
@@ -11,6 +10,7 @@ import {
 	parents,
 	shuffled
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import {
 	Array as Arr,

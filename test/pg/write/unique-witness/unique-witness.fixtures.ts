@@ -1,8 +1,16 @@
 /** What the properties of unique-witness.test.ts read: its spaces, models and helpers. */
 
 import { deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
-import { boolean, element, type Gen, int, oneOf, subarray, weighted } from "@bjornpagen/testing/gen"
+import {
+	boolean,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	subarray,
+	weighted,
+	type Steered
+} from "@bjornpagen/testing/gen"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { accumulated, closedId, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
@@ -1041,7 +1049,7 @@ const aimedGen =
  * The case a witness runs, drawn under its steering: while a situation is pending, one aimed at a pending situation
  * drawn among them; otherwise a drawn one. The generator draws it, so it is the case the search runs, prints and keeps.
  */
-export const uniqueCases: Steered<UniqueCase, Situation> = (steering) => {
+export const uniqueCases: Steered<UniqueCase, Situation>["under"] = (steering) => {
 	const open = Arr.filter(aims, ([situation]) =>
 		Option.exists(steering, (pending) => pending.has(situation))
 	)

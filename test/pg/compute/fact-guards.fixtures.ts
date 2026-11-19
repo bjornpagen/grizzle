@@ -1,7 +1,15 @@
 /** What the properties of fact-guards.test.ts read: its spaces, models and helpers. */
 
-import type { Steered } from "@bjornpagen/testing/explore"
-import { array, boolean, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	weighted,
+	type Steered
+} from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Data, Effect, Option } from "effect"
 import { int4Max } from "#compiler/core/canonical.ts"
@@ -166,7 +174,7 @@ const caseGen: Gen<Case> = (source) => {
  * A case as the generator draws it, aimed at a refusal while no witness has reached one (Steered): half its cases, by a
  * draw of their own, isFinite over a contract of an integer, which the types refuse; a rotating case is drawn unaimed.
  */
-export const aimedCaseGen: Steered<Case, Feature> = (steering) => (source) => {
+export const aimedCaseGen: Steered<Case, Feature>["under"] = (steering) => (source) => {
 	const c = source.draw(caseGen)
 	return Option.exists(steering, (pending) => pending.has("refused where the types refuse")) &&
 		source.draw(boolean)

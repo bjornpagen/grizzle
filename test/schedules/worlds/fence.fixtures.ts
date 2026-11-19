@@ -1,8 +1,8 @@
 /** What the properties of fence.test.ts read: its spaces, models and helpers. */
 
 import { defined } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Fiber, Formatter, Option } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"

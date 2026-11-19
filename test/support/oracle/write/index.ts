@@ -1,7 +1,7 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import type { Case } from "@bjornpagen/testing/explore"
 import { failureText } from "@bjornpagen/testing/failure"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Cause, Effect, Option, type Scope } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"

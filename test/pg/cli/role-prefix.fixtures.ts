@@ -2,8 +2,8 @@
 
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { assert } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	DateTime,

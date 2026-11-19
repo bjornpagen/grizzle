@@ -1,7 +1,7 @@
 /** What the properties of isolation-guard.test.ts read: its spaces, models and helpers. */
 
-import { type Case } from "@bjornpagen/testing/explore"
 import { array, element, type Gen, subarray } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr } from "effect"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"

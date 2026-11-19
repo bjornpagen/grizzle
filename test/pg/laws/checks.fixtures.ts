@@ -2,7 +2,6 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import type { Case as SearchCase } from "@bjornpagen/testing/explore"
 import {
 	array,
 	boolean,
@@ -14,6 +13,7 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
+import type { Case as SearchCase } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"

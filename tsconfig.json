@@ -191,8 +191,7 @@
 							"scripts/gen/allen/main.ts",
 							"packages/pg/src/foreign-postmasters.ts",
 							"packages/pg/src/pin-verdict.ts",
-							"test/pg/cli/config.child.ts",
-							"test/support/pg-global-setup.ts"
+							"test/pg/cli/config.child.ts"
 						],
 						"options": {
 							"diagnosticSeverity": {
@@ -212,7 +211,6 @@
 					{
 						"include": [
 							"test/support/memory-tls.ts",
-							"test/support/roster.ts",
 							"test/unit/dev/consumer.ts",
 							"test/support/wire-tap.ts",
 							"test/unit/adapter/bind.fixtures.ts",
@@ -331,8 +329,6 @@
 		"oxlint.ast.config.ts",
 		"pg.config.ts",
 		"toolchain.config.ts",
-		"test.config.ts",
-		"vitest.config.ts",
-		"vitest.network.config.ts"
+		"test.config.ts"
 	]
 }

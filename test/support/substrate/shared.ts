@@ -10,7 +10,6 @@ import { InitializedCluster, lentVariable } from "#test/support/cluster.ts"
 import { adminUrl } from "#test/support/env.ts"
 import {
 	devSession,
-	ensureDatabase,
 	type PgConnection,
 	type SqlError,
 	sqlErrorOf,
@@ -28,13 +27,7 @@ import {
 	unleasedConnections
 } from "#test/support/substrate/lease.ts"
 import { allocatingPid } from "#test/support/substrate/names.ts"
-import { connect, ownerCredentials } from "#test/support/substrate/session.ts"
 import { upTo } from "#test/support/up-to.ts"
-
-const claimKey = 1735289960
-const claimStatement = "SELECT pg_catalog.pg_try_advisory_lock($1::int4, $2::int4)"
-
-const sharedDatabase = (index: number): string => `gz_shared_${index}`
 
 /**
  * What a clean test database does not contain, one line per object. The template holds the system schemas, `public`
@@ -391,33 +384,13 @@ export const lend = (
 	})
 
 /**
- * The initialised cluster with a budget of the connections no lease covers (unleasedConnections), for work no test file
- * runs: the global setup's, and the sweep's.
+ * The initialised cluster with a budget of the connections no lease covers (unleasedConnections), for work no test
+ * runs: the sweep's.
  */
 const unleased: Effect.Effect<BudgetedCluster, never, InitializedCluster> = Effect.map(
 	InitializedCluster,
 	(cluster) => budgeted(cluster, leaseBudget(unleasedConnections))
 )
-
-/**
- * Clones shared database `index` from the template when it is missing and gives it the test database settings, under
- * its claim, which the global setup takes for each worker's database. The sweep drops a shared database only under its
- * claim too, so another run's sweep never drops one this setup is configuring; one another file or run holds exists
- * and is left as it is.
- */
-export const ensureSharedDatabase = (
-	index: number
-): Effect.Effect<void, SqlError, InitializedCluster> =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const cluster = yield* unleased
-			const lock = yield* devSession(cluster, Option.some("grizzle-substrate claim"))
-			const [[claimed] = []] = yield* lock.queryValues(claimStatement, [claimKey, index])
-			if (claimed === true) {
-				yield* ensureDatabase(cluster, sharedDatabase(index))
-			}
-		})
-	)
 
 /** Whether process `pid` is running on this machine; a process of another user counts as running. */
 const running = (pid: number): boolean => {
@@ -471,13 +444,11 @@ const decoderOfAllocation = (role: string): string =>
 const sweepKey = 1735289962
 
 /**
- * Drops what ended test processes left on the cluster: their gz_t_ databases, their `<schema>__<access>`
- * roles and each one's allocation's decoder login (decoderOfAllocation), and every unclaimed shared database that is not
- * clean. A run in progress is never touched: its processes are
- * running, and its shared databases are claimed. It is the one place a database is dropped, and its callers call it
- * only when no test file of their own runs: the network run's global setup, before any file starts, and its teardown,
- * once every file has ended (pg-global-setup.ts), both in Vitest's own process, whose test files each ran in a process
- * of their own; and a bench runner when its last gate has run, its own databases then ended too. Runs beside each other
+ * Drops what ended processes left on the cluster: their gz_t_ databases, their `<schema>__<access>` roles and each
+ * one's allocation's decoder login (decoderOfAllocation). A run in progress is never touched: its processes are
+ * running. Its callers call it only when no database of their own is in use: a bench runner when its last gate has
+ * run, its own databases then ended too. The gz_shared_ databases a test file shared before every test ran on the
+ * toolchain's runner are no gz_t_ name and are left as they are. Runs beside each other
  * sweep at once, and an ended process's leftovers are every sweep's to drop, so each sweep waits for the sweep lock
  * (sweepKey) before it reads: sweeps run one at a time, each leftover is dropped by exactly one of them, and the next
  * reads it gone. `dropRole` is the substrate's.
@@ -495,44 +466,15 @@ export const sweep = (
 			const admin = yield* devSession(cluster, Option.none())
 			yield* admin.queryValues("SELECT pg_catalog.pg_advisory_lock($1::int8)", [sweepKey])
 			const databases = yield* admin.queryValues(
-				"SELECT datname::text FROM pg_catalog.pg_database WHERE datname::text ~ '^gz_(t|shared)_' ORDER BY 1",
+				"SELECT datname::text FROM pg_catalog.pg_database WHERE datname::text ~ '^gz_t_' ORDER BY 1",
 				[]
 			)
 			for (const [value] of databases) {
 				const database = String(value)
 				const pid = regex("^gz_t_([0-9]+)").exec(database)?.[1]
-				if (pid !== undefined) {
-					if (ended(Number(pid))) {
-						yield* Effect.ignore(dropDatabase(admin, database))
-					}
-					continue
-				}
-				/** A shared database no file claims and that is not clean, or a name claimSharedDatabase never uses. */
-				const index = regex("^gz_shared_([1-9][0-9]*)$").exec(database)?.[1]
-				if (index === undefined) {
-					yield* Effect.ignore(dropDatabase(admin, database))
-					continue
-				}
-				const [[claimed] = []] = yield* admin.queryValues(claimStatement, [claimKey, Number(index)])
-				if (claimed !== true) {
-					continue
-				}
-				const dirty = yield* Effect.scoped(
-					Effect.flatMap(
-						connect(cluster, { database, credentials: ownerCredentials(cluster), label: "sweep" }),
-						leftovers
-					)
-				).pipe(
-					Effect.map((left) => left.length > 0),
-					Effect.orElseSucceed(() => true)
-				)
-				if (dirty) {
+				if (pid === undefined || ended(Number(pid))) {
 					yield* Effect.ignore(dropDatabase(admin, database))
 				}
-				yield* admin.queryValues("SELECT pg_catalog.pg_advisory_unlock($1::int4, $2::int4)", [
-					claimKey,
-					Number(index)
-				])
 			}
 			const rows = yield* admin.queryValues(
 				"SELECT rolname::text FROM pg_catalog.pg_roles WHERE strpos(rolname::text, '__') > 0 ORDER BY 1",

@@ -1,5 +1,4 @@
 import { assert } from "@bjornpagen/testing/assert"
-/** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
 import { array, type Gen, int, recorded } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
@@ -37,6 +36,7 @@ import { textBound } from "#test/support/staged.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+/** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
 const EntryPath = str.bytes(keyTextBytes([Id]), str.regex("^.*$", "su"))
 
 /** An entry's share of the most bytes an entry within the bound holds, in thousandths, of `whole` at most. */

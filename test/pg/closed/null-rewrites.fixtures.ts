@@ -2,8 +2,17 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert } from "@bjornpagen/testing/assert"
-import type { Case, Steered } from "@bjornpagen/testing/explore"
-import { array, boolean, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	weighted,
+	type Steered
+} from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
@@ -615,7 +624,7 @@ const verdict = (
  * row's text beside a match of the row's text against a literal while no witness has put either in a generation
  * expression (Steered): half its cases. A rotating case is drawn unaimed.
  */
-export const aimedCaseGen: Steered<RewriteCase, Feature> = (steering) => (source) => {
+export const aimedCaseGen: Steered<RewriteCase, Feature>["under"] = (steering) => (source) => {
 	const c = source.draw(caseGen)
 	if (
 		!Option.exists(steering, (pending) => pending.has(betweenPair) || pending.has(matchPair)) ||

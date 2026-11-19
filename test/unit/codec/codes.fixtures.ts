@@ -1,8 +1,8 @@
 /** What the properties of codes.test.ts read: its spaces, models and helpers. */
 
 import { assert, nonEmpty } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import { type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"

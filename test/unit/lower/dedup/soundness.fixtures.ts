@@ -1,8 +1,8 @@
 /** What the properties of soundness.test.ts read: its spaces, models and helpers. */
 
 import { assert, nonEmpty } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import { type Aimed, aimed, boolean, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Record as Rec, Result } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
 import { nodesByLabel, relNode, rooted } from "#compiler/ir/dag.ts"

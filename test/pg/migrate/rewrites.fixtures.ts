@@ -1,8 +1,8 @@
 /** What the properties of rewrites.test.ts read: its spaces, models and helpers. */
 
-import type { Case, Steered } from "@bjornpagen/testing/explore"
 import type { Pending } from "@bjornpagen/testing/features"
-import { array, boolean, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
+import { array, boolean, type Gen, int, shuffled, type Steered } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -145,7 +145,7 @@ const aimed = (d: Delta, steering: Option.Option<Pending<Feature>>): Delta =>
 
 /** A case under its steering: its delta aimed at what the steering leaves pending (aimed) and kept in the sketch, so a
  * kept case runs the delta it was drawn with. */
-export const caseSteered: Steered<RewriteCase, Feature> = (steering) => (source) => {
+export const caseSteered: Steered<RewriteCase, Feature>["under"] = (steering) => (source) => {
 	const c = source.draw(caseGen)
 	return { ...c, delta: aimed(c.delta, steering) }
 }

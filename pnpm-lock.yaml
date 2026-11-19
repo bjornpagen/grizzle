@@ -224,9 +224,6 @@ catalogs:
     typescript:
       specifier: 7.1.0-beta
       version: 7.1.0-beta
-    vite:
-      specifier: 8.3.8
-      version: 8.3.8
     vitest:
       specifier: 5.1.0
       version: 5.1.0
@@ -308,12 +305,6 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.1.0-beta
-      vite:
-        specifier: 'catalog:'
-        version: 8.3.8(@types/node@26.6.6)(jiti@2.7.0)
-      vitest:
-        specifier: 'catalog:'
-        version: 5.1.0(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0))
 
   packages/engine:
     dependencies:

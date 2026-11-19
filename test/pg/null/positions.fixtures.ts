@@ -2,10 +2,10 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, assertVariant } from "@bjornpagen/testing/assert"
-import type { Case, Steered } from "@bjornpagen/testing/explore"
 import type { Pending, Reached } from "@bjornpagen/testing/features"
-import { array, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
+import { array, element, type Gen, oneOf, type Steered } from "@bjornpagen/testing/gen"
 import { agree, exact } from "@bjornpagen/testing/oracle"
+import type { Case } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Effect,
@@ -301,7 +301,7 @@ const aimedGen =
  * The cases a witness runs: drawn ones (caseGen), or, under steering, half of them a drawn one aimed at what is pending
  * (aimedGen), the case it runs, prints and keeps.
  */
-export const steeredCases: Steered<NullCase, Feature> = (steering) =>
+export const steeredCases: Steered<NullCase, Feature>["under"] = (steering) =>
 	Option.match(steering, {
 		onNone: () => caseGen,
 		onSome: (pending) => oneOf([caseGen, (s) => s.draw(aimedGen(s.draw(caseGen), pending))])

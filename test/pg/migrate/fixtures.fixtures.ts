@@ -2,9 +2,8 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert, defined } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
 import type { Reached } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { element, type Gen, int, type Steered } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Layer, Option, Record as Rec } from "effect"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
@@ -212,7 +211,7 @@ const reachesBy =
 /** A history under its steering: drawn from every family, or, where the case steers, from the families that reach the
  * situation its turn aims at, else from those that reach any pending one, so the cases of one window aim at distinct
  * pending families. The history holds its family, so it runs the same unsteered. */
-export const historySteered: Steered<History, FixtureFeature> = (steering) => {
+export const historySteered: Steered<History, FixtureFeature>["under"] = (steering) => {
 	const aimed = Option.match(steering, {
 		onNone: (): ReadonlyArray<Family> => [],
 		onSome: (pending) => {

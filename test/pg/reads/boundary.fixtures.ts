@@ -2,9 +2,9 @@
 
 import { assert, assertVariant, contains } from "@bjornpagen/testing/assert"
 import { accepting, type Machine, type Real, took } from "@bjornpagen/testing/commands"
-import type { Case } from "@bjornpagen/testing/explore"
 import { constant } from "@bjornpagen/testing/gen"
 import { passed, type Wild, wild, WILD_KINDS } from "@bjornpagen/testing/lsw"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Cause, Effect, Exit, Formatter, Option } from "effect"
 import type { OnceCalls } from "#adapter/db/handles.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"

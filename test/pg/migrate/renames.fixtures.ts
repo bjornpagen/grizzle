@@ -1,8 +1,8 @@
 /** What the properties of renames.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { array, boolean, element, type Gen, int, option } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { isRecord } from "#compiler/core/record.ts"

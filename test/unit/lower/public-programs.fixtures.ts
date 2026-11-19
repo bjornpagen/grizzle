@@ -1,8 +1,8 @@
 /** What the properties of public-programs.test.ts read: its spaces, models and helpers. */
 
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError } from "#compiler/core/errors.ts"

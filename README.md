@@ -4949,7 +4949,7 @@ pnpm pg start                     # make and start the local cluster on port 544
 pnpm pg doctor                    # the go/no-go check of the cluster
 pnpm test                         # the unit and types tiers, which need no network
 pnpm test:network                 # the pg and schedules tiers, against the local cluster
-pnpm test <file>                  # some files
+pnpm test:properties <file | id>  # some modules or properties
 pnpm types                        # after every edit: the incremental typecheck, which the hooks run too
 pnpm check                        # before a release (turbo, cached): typecheck, workspace gate, oxlint, format, fallow, dedupe
 ```
@@ -4960,7 +4960,7 @@ Every script and test reaches one local cluster, `pg.config.ts`, which the testi
 TOOLCHAIN_PG_CLUSTER=<port> pnpm pg start                   # make and start a cluster of your own
 TOOLCHAIN_PG_CLUSTER=<port> pnpm pg doctor
 TOOLCHAIN_PG_CLUSTER=<port> pnpm pg env                     # its first member's port, socket, CA and owner's password file
-TOOLCHAIN_PG_CLUSTER=<port> pnpm test:network <file>        # every test, and every child a test starts, reaches it
+TOOLCHAIN_PG_CLUSTER=<port> pnpm test:properties <file>     # every test, and every child a test starts, reaches it
 TOOLCHAIN_PG_CLUSTER=<port> pnpm pg destroy                 # stop it and delete its state
 ```
 

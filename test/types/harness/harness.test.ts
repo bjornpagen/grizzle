@@ -1,10 +1,8 @@
 /**
  * The testing library's type contracts, each a generated program a batch checks disarmed:
  *
- * - The vocabulary (harness/vocabulary.ts): a required situation, a note, a pair and a kept case's reaches typecheck
- *   exactly when every name they hold is a member of the suite's closed vocabulary, the situations are one at least, a
- *   kept case reaches one at least, and the vocabulary is a union of literals, never string. Oracle: membership in the
- *   drawn vocabulary.
+ * - The vocabulary (harness/vocabulary.ts): a required situation, a note and a pair typecheck exactly when every name
+ *   they hold is a member of the property's closed vocabulary. Oracle: membership in the drawn vocabulary.
  * - The assertion door (harness/door.ts): assert.equal and assert.deepEqual, each case through both, typecheck exactly
  *   when the expected value conforms to the actual's type, at any depth. Oracle: conformance of a value drawn of the
  *   type, with at most one fault planted, the type drawn where the fault stands.
@@ -22,8 +20,8 @@ import {
 } from "#test/types/harness/vocabulary.ts"
 
 /**
- * Over drawn vocabularies, a required situation, a note, a pair and a kept case's reaches typecheck exactly when every
- * name is of the closed vocabulary. It runs the runner's default budget, not the pre-conversion suite's rotating count
+ * Over drawn vocabularies, a required situation, a note and a pair typecheck exactly when every name is of the closed
+ * vocabulary. It runs the runner's default budget, not the pre-conversion suite's rotating count
  * (60): at TEST_SEED=777, run beside it, the default's whole process tree took 11.3 CPU-s against the old count's 12.9,
  * since its floor of 15 left a situation to a steered window of 150 cases
  * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/vocabulary.*.txt, 2026-11-16, load 470 to 670).

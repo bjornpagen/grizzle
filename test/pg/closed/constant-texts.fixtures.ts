@@ -2,7 +2,6 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import {
 	array,
 	boolean,
@@ -14,6 +13,7 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"

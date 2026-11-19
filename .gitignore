@@ -1,7 +1,6 @@
 node_modules/
 *.tsbuildinfo
 bench/results/
-.vitest/
 test/pg/cli/.ws-*/
 .probe-*/
 packages/*/types/

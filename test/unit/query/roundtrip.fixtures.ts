@@ -1,7 +1,6 @@
 /** What the properties of roundtrip.test.ts read: its spaces, models and helpers. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import {
 	array,
 	boolean,
@@ -12,6 +11,7 @@ import {
 	map,
 	weighted
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { ALLEN } from "#compiler/allen/mask.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"

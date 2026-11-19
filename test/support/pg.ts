@@ -780,10 +780,6 @@ export const runAlone = (
 		)
 	)
 
-/** The fields of a failure's ErrorResponse, if PostgreSQL refused the statement. */
-const codeOf = (error: SqlError): string | undefined =>
-	error.reason._tag === "ServerError" ? error.reason.fields.code : undefined
-
 /**
  * The settings every test database runs with, as database-level defaults (a clone does not copy its template's):
  * - a low deadlock_timeout, so the concurrency driver's wait for each blocked step's deadlock check is short
@@ -813,30 +809,6 @@ export const configureDatabase = (
 		testDatabaseSettings,
 		([setting, value]) => admin.query(`ALTER DATABASE "${name}" SET ${setting} TO '${value}'`, []),
 		{ discard: true }
-	)
-
-/**
- * Creates `name` from the template unless it exists, and gives it the test database settings either way. Two workers
- * may race to create it: the loser's 42P04 (duplicate_database) means the database is there.
- */
-export const ensureDatabase = (cluster: BudgetedCluster, name: string) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const admin = yield* devSession(cluster, Option.none())
-			const exists = yield* admin.queryValues(
-				"SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1::text",
-				[name]
-			)
-			if (exists.length === 0) {
-				yield* admin.query(`CREATE DATABASE "${name}" TEMPLATE "${pgCluster.template}"`, []).pipe(
-					Effect.catchIf(
-						(error) => codeOf(error) === "42P04",
-						() => Effect.void
-					)
-				)
-			}
-			yield* configureDatabase(admin, name)
-		})
 	)
 
 /**

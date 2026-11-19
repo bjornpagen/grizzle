@@ -1,7 +1,6 @@
 /** What the properties of continuity.test.ts read: its spaces, models and helpers. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import {
 	array,
 	constant,
@@ -11,6 +10,7 @@ import {
 	type Weight,
 	weighted
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, Result } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"

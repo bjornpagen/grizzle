@@ -1,7 +1,6 @@
 /** What the properties of compound-key.test.ts read: its spaces, models and helpers. */
 
 import { assert, deepEquals, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
 import {
 	array,
 	boolean,
@@ -11,7 +10,8 @@ import {
 	oneOf,
 	shuffled,
 	subset,
-	weighted
+	weighted,
+	type Steered
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { WrittenOutcome } from "#adapter/db/handles.ts"
@@ -484,7 +484,7 @@ const aims: ReadonlyArray<readonly [Situation, Aim]> = [
  * The case a witness runs, drawn under its steering: while aimed situations are pending, a case aimed at one drawn among
  * them; otherwise a drawn one. The generator draws it, so it is the case the search runs, prints and keeps.
  */
-export const keyCases: Steered<KeyCase, Situation> = (steering) => {
+export const keyCases: Steered<KeyCase, Situation>["under"] = (steering) => {
 	const open = Arr.filter(aims, ([situation]) =>
 		Option.exists(steering, (pending) => pending.has(situation))
 	)

@@ -2,11 +2,10 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, map } from "@bjornpagen/testing/gen"
 import { exact } from "@bjornpagen/testing/oracle"
-import type { Space } from "@bjornpagen/testing/property"
+import type { Space, Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type BatchStatement, type Flight, preparedStatement } from "#adapter/wire/batch.ts"
 import { prepared } from "#compiler/core/prepared.ts"

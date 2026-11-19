@@ -1,7 +1,6 @@
 /** What the properties of fin-migrations.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import {
 	array,
 	constant,
@@ -12,6 +11,7 @@ import {
 	oneOf,
 	subarray
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Result } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"

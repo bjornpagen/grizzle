@@ -2,9 +2,9 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { agree, exact } from "@bjornpagen/testing/oracle"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import { compareOps } from "#compiler/ir/desc.ts"

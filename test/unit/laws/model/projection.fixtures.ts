@@ -1,7 +1,6 @@
 /** What the properties of projection.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import {
 	type Aimed,
 	aimed,
@@ -14,6 +13,7 @@ import {
 	oneOf,
 	subset
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr } from "effect"
 import {
 	compileInstallation,

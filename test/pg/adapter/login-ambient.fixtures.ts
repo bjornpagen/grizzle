@@ -1,7 +1,6 @@
 /** What the properties of login-ambient.test.ts read: its spaces, models and helpers. */
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
 import {
 	array,
 	boolean,
@@ -10,7 +9,8 @@ import {
 	type Gen,
 	int,
 	map,
-	weighted
+	weighted,
+	type Steered
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -211,7 +211,7 @@ const caseGen: Gen<LoginCase> = (source) => ({
  * run under takes its parameter's place in half the case's draws of it, and each pin no witness has reset is the case's
  * pin in half the case's draws of it; a rotating case is drawn unaimed.
  */
-export const aimedCaseGen: Steered<LoginCase, Feature> = (steering) => (source) => {
+export const aimedCaseGen: Steered<LoginCase, Feature>["under"] = (steering) => (source) => {
 	const c = source.draw(caseGen)
 	return Option.match(steering, {
 		onNone: () => c,

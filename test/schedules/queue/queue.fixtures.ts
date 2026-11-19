@@ -1,8 +1,8 @@
 /** What the properties of queue.test.ts read: its spaces, models and helpers. */
 
-import type { Case } from "@bjornpagen/testing/explore"
 import { type Reached } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Layer, type Scope, String as Str } from "effect"
 import { openServed } from "#adapter/db/served.ts"

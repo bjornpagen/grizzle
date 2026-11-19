@@ -1,8 +1,8 @@
 /** What the properties of bytes.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import type { Case as SearchCase } from "@bjornpagen/testing/explore"
 import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import type { Case as SearchCase } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent } from "#compiler/core/text.ts"

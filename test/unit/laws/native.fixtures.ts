@@ -2,9 +2,8 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, assertVariant, nonEmpty } from "@bjornpagen/testing/assert"
-import type { Case, Oracle } from "@bjornpagen/testing/explore"
 import { type Aimed, aimed, element, type Gen } from "@bjornpagen/testing/gen"
-import type { Need } from "@bjornpagen/testing/property"
+import type { Need, Case, Oracle } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import {

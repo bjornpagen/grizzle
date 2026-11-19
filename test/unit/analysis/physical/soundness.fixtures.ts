@@ -1,7 +1,7 @@
 /** What the properties of soundness.test.ts read: its spaces, models and helpers. */
 
-import { type Case } from "@bjornpagen/testing/explore"
 import { element, type Gen } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Formatter } from "effect"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"

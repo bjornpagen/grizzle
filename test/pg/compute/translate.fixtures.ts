@@ -2,8 +2,15 @@
 
 import { codePoints, codePointsText, collapsed } from "@bjornpagen/grizzle-text/text"
 import { defined } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
-import { array, boolean, element, type Gen, int, proportional } from "@bjornpagen/testing/gen"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	proportional,
+	type Steered
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
@@ -103,7 +110,7 @@ const withRepeated = (c: SqlCase, repeated: number, target: number): SqlCase => 
  * met in a text (withRepeated), which a drawn case reaches too rarely for the floor and the steered phase. A rotating
  * case is drawn unaimed.
  */
-export const aimedSqlCase: Steered<SqlCase, SqlFeature> = (steering) => (source) => {
+export const aimedSqlCase: Steered<SqlCase, SqlFeature>["under"] = (steering) => (source) => {
 	const drawnCase = source.draw(sqlCase)
 	if (
 		Option.exists(steering, (pending) => pending.names("a repeated character read by its first")) &&

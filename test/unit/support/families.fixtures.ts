@@ -2,8 +2,8 @@
 
 import { firstIndex, indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert, assertVariant, defined, unorderedEqual } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { failed, succeeded } from "#test/support/assert.ts"
 import {

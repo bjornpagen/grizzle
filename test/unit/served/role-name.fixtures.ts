@@ -1,7 +1,6 @@
 /** What the properties of role-name.test.ts read: its spaces, models and helpers. */
 
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { type Case } from "@bjornpagen/testing/explore"
 import {
 	array,
 	boolean,
@@ -11,6 +10,7 @@ import {
 	option,
 	string
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { served } from "#adapter/public/layer.ts"

@@ -73,42 +73,16 @@ export const lentPlace: Effect.Effect<Option.Option<Lent>> = Effect.map(
 )
 
 /**
- * The Vitest worker this process is, from VITEST_POOL_ID, read through Config: a positive decimal integer, else none,
- * a process outside a worker.
- */
-const currentWorker: Effect.Effect<Option.Option<number>> = Effect.map(
-	Effect.orDie(Config.option(Config.String("VITEST_POOL_ID"))),
-	(value) =>
-		Option.flatMap(value, (text) =>
-			regex("^[1-9][0-9]*$").test(text) ? Option.some(Number(text)) : Option.none()
-		)
-)
-
-/**
- * The member a Vitest process reaches among `members`: worker w's, member (w − 1) mod K, so a run's workers spread over
- * the members as the testing library sized them, none serving more than its share; a process outside a worker reaches
- * the first.
- */
-const workerMember = (
-	members: Arr.NonEmptyReadonlyArray<PgMember>,
-	worker: Option.Option<number>
-): PgMember =>
-	Option.match(worker, {
-		onNone: () => Arr.headNonEmpty(members),
-		onSome: (w) => Arr.getUnsafe(members, (w - 1) % members.length)
-	})
-
-/**
  * The member of grizzle's local cluster this process reaches, read once: a child its parent lent a place to reaches the
- * parent's member (lentPlace); any other process its Vitest worker's (workerMember). A lent port that is no member is
- * MemberUnknown.
+ * parent's member (lentPlace); any other process, a bench's or a CLI child's, the first. A lent port that is no member
+ * is MemberUnknown.
  */
 const selectedMember: Effect.Effect<PgMember, ClusterFailed | MemberUnknown, Platform> = Effect.gen(
 	function* () {
 		const members = yield* clusterMembers
 		const lent = yield* lentPlace
 		return yield* Option.match(lent, {
-			onNone: () => Effect.map(currentWorker, (worker) => workerMember(members, worker)),
+			onNone: () => Effect.succeed(Arr.headNonEmpty(members)),
 			onSome: (place) => memberAt(members, place.port, `the place ${lentVariable} lent`)
 		})
 	}
@@ -119,8 +93,7 @@ const selectedMember: Effect.Effect<PgMember, ClusterFailed | MemberUnknown, Pla
  * reads the cluster when a module loads: code that reaches a member's facts needs this service, or the substrate built
  * from it (substrate/substrate.ts), so a test that provides neither cannot reach them, and a cluster that cannot be
  * brought up is the typed failure of the layer's build. The database tier provides it: Substrate's layers build it, a
- * bench's sweep, and a CLI child's configuration (cli/config.child.ts); the network run's global setup and teardown
- * provide each member in turn (`member`).
+ * bench's sweep, and a CLI child's configuration (cli/config.child.ts).
  */
 export class InitializedCluster extends Context.Service<InitializedCluster, PgMember>()(
 	"grizzle-workspace/test/support/cluster/InitializedCluster"
@@ -128,6 +101,4 @@ export class InitializedCluster extends Context.Service<InitializedCluster, PgMe
 	static readonly layer = Layer.effect(InitializedCluster, selectedMember).pipe(
 		Layer.provide(NodeServices.layer)
 	)
-	/** The member `member`, which the global setup and teardown reach one after another. */
-	static readonly member = (member: PgMember) => Layer.succeed(InitializedCluster, member)
 }

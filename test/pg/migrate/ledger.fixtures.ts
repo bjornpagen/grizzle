@@ -10,8 +10,8 @@ import {
 	runProgram,
 	took
 } from "@bjornpagen/testing/commands"
-import type { Case } from "@bjornpagen/testing/explore"
 import { constant, element, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { applyLockKey, type SchemaApplyReport } from "#adapter/migrate/apply.ts"

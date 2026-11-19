@@ -1,8 +1,8 @@
 /** What the properties of paths.test.ts read: its spaces, models and helpers. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import type { Case, Steered } from "@bjornpagen/testing/explore"
-import { weighted } from "@bjornpagen/testing/gen"
+import { weighted, type Steered } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
 import {
 	carryChain,
@@ -220,16 +220,19 @@ interface RenamedCase {
  * name pending, one whose B takes one; and the ambient session, its path the installation-first one while the steering
  * leaves that path's pairing with a catalog type's name pending. Both are the sketch, so a kept case runs them as drawn.
  */
-export const renamedCaseSteered: Steered<RenamedCase, Feature> = (steering) => (source) => {
-	const names = (feature: Feature): boolean =>
-		Option.exists(steering, (pending) => pending.names(feature))
-	const draw = source.draw(names("catalog-type name") ? catalogRenamedDrawGen : pathDrawGen)
-	const ambient = source.draw(ambientSessionGen)
-	return {
-		draw,
-		ambient: names("grizzle-first path") ? { ...ambient, path: grizzleFirstSession.path } : ambient
+export const renamedCaseSteered: Steered<RenamedCase, Feature>["under"] =
+	(steering) => (source) => {
+		const names = (feature: Feature): boolean =>
+			Option.exists(steering, (pending) => pending.names(feature))
+		const draw = source.draw(names("catalog-type name") ? catalogRenamedDrawGen : pathDrawGen)
+		const ambient = source.draw(ambientSessionGen)
+		return {
+			draw,
+			ambient: names("grizzle-first path")
+				? { ...ambient, path: grizzleFirstSession.path }
+				: ambient
+		}
 	}
-}
 
 /**
  * The intents a case runs, under its steering: the drawn ones, or, while the steering leaves an intent pending, the
@@ -237,7 +240,7 @@ export const renamedCaseSteered: Steered<RenamedCase, Feature> = (steering) => (
  * has, none waits behind another, and the steered phase needs at most one case per intent. Any intent may be B's: only
  * C's are kept from naming a field B drops. The sketch holds the intent aimed at, so a kept case runs it.
  */
-const aimedIntents: Steered<IntentSketch & { readonly kind: "legal" }, Feature> =
+const aimedIntents: Steered<IntentSketch & { readonly kind: "legal" }, Feature>["under"] =
 	(steering) => (source) => {
 		const sketch = source.draw(legalIntentSketchGen)
 		const pending = Option.flatMap(steering, (p) =>
@@ -259,7 +262,8 @@ interface IntentsCase {
  * An intents case under its steering: the intents aimedIntents draws, and the ambient session, both the sketch, so a
  * kept case runs them as drawn.
  */
-export const intentsCaseSteered: Steered<IntentsCase, Feature> = (steering) => (source) => ({
-	intents: source.draw(aimedIntents(steering)),
-	ambient: source.draw(ambientSessionGen)
-})
+export const intentsCaseSteered: Steered<IntentsCase, Feature>["under"] =
+	(steering) => (source) => ({
+		intents: source.draw(aimedIntents(steering)),
+		ambient: source.draw(ambientSessionGen)
+	})

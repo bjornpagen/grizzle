@@ -1,7 +1,6 @@
 /** What the properties of lower.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import {
 	boolean,
 	constant,
@@ -12,6 +11,7 @@ import {
 	oneOf,
 	weighted
 } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Record as Rec } from "effect"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"

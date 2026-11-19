@@ -1,7 +1,7 @@
 /** What the properties of fence.test.ts read: its spaces, models and helpers. */
 
-import type { Case } from "@bjornpagen/testing/explore"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"

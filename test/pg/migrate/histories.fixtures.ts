@@ -12,9 +12,8 @@ import {
 	runProgram,
 	took
 } from "@bjornpagen/testing/commands"
-import type { Steered } from "@bjornpagen/testing/explore"
 import type { Pending } from "@bjornpagen/testing/features"
-import { element, type Gen, int, map } from "@bjornpagen/testing/gen"
+import { element, type Gen, int, map, type Steered } from "@bjornpagen/testing/gen"
 import { fullSwarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str, Struct } from "effect"
 import { identity } from "#compiler/core/identity.ts"
@@ -997,7 +996,7 @@ const pendingCommands = (steering: Option.Option<Pending<Feature>>): ReadonlySet
 /** A history's program under its steering: drawn from the machine, or, where its steering leaves a command's feature
  * pending, from the machine aimed at those commands. The program is its steps, which the machine runs the same
  * unsteered. */
-export const stepsSteered: Steered<Program<Params>, Feature> = (steering) => {
+export const stepsSteered: Steered<Program<Params>, Feature>["under"] = (steering) => {
 	const aims = pendingCommands(steering)
 	return program(aims.size === 0 ? machine : aimedAt(aims), historySize, everyCommand)
 }

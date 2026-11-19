@@ -1,9 +1,9 @@
 /** What the properties of codes.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import { type Reached } from "@bjornpagen/testing/features"
 import { subset } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"

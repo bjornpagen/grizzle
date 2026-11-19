@@ -12,8 +12,7 @@ import {
 	refused,
 	took
 } from "@bjornpagen/testing/commands"
-import type { Steered } from "@bjornpagen/testing/explore"
-import { constant, element, type Gen, map, subset } from "@bjornpagen/testing/gen"
+import { constant, element, type Gen, map, subset, type Steered } from "@bjornpagen/testing/gen"
 import { type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Option, Order, Record as Rec, type Scope, Struct } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
@@ -458,7 +457,7 @@ const programGen =
  * A case as the generator draws it: the roster, and the program run after it, which is the program that reaches the
  * situation of aimedFeatures the case's turn aims at (Steered, aimedProgram), and otherwise a drawn one (programGen).
  */
-export const runGen: Steered<Run, Feature> = (steering) => (source) => {
+export const runGen: Steered<Run, Feature>["under"] = (steering) => (source) => {
 	const installed = source.draw(installedGen(tierName, { min: 2, max: 4 }))
 	const initial = initialOf(installed)
 	return {

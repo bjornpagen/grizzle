@@ -165,7 +165,7 @@ export const leaseBudget = (width: number): LeaseBudget => {
 
 /**
  * The initialised cluster with the budget every connection opened on it draws from: a test file's, which its lease
- * grants (shared.ts leaseConnections), or one the lease itself, the global setup or the sweep holds outside any file's.
+ * grants (shared.ts leaseConnections), or one the lease itself or the sweep holds outside any file's.
  * Every opener of test support takes one, so no connection is opened outside a budget.
  */
 export interface BudgetedCluster extends PgMember {

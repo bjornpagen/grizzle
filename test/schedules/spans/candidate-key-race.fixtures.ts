@@ -1,8 +1,8 @@
 /** What the properties of candidate-key-race.test.ts read: its spaces, models and helpers. */
 
-import type { Case } from "@bjornpagen/testing/explore"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, type Gen, int, constant } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"

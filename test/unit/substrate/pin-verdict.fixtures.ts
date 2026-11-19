@@ -1,7 +1,7 @@
 /** What the properties of pin-verdict.test.ts read: its spaces, models and helpers. */
 
-import { type Case } from "@bjornpagen/testing/explore"
 import { array, element, type Gen, shuffled, subset } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Equivalence, Option } from "effect"
 import { type Build, type Verdict } from "#pg/installation.ts"
 

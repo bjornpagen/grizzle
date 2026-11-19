@@ -2,8 +2,8 @@
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined } from "@bjornpagen/testing/assert"
-import type { Case } from "@bjornpagen/testing/explore"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"

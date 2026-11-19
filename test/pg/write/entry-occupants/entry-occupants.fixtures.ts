@@ -1,5 +1,4 @@
 /** What the properties of entry-occupants.test.ts read: its spaces, models and helpers. */
-import { type Steered } from "@bjornpagen/testing/explore"
 import {
 	boolean,
 	constant,
@@ -8,7 +7,8 @@ import {
 	int,
 	map,
 	oneOf,
-	option
+	option,
+	type Steered
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -253,7 +253,7 @@ export type OccupantFeature =
  * the steered phase; otherwise a drawn one, as a rotating case always is. The generator draws it, so it is the case the
  * search runs, prints and keeps.
  */
-export const occupantCases: Steered<OccupantCase, OccupantFeature> = (steering) =>
+export const occupantCases: Steered<OccupantCase, OccupantFeature>["under"] = (steering) =>
 	Option.exists(steering, (pending) => pending.names("inside occupant at the at most one lead"))
 		? oneOf([caseGen, insideLeadGen])
 		: caseGen

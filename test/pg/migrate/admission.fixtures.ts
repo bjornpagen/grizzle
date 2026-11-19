@@ -1,9 +1,8 @@
 /** What the properties of admission.test.ts read: its spaces, models and helpers. */
 
 import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
 import type { Pending } from "@bjornpagen/testing/features"
-import { boolean, element } from "@bjornpagen/testing/gen"
+import { boolean, element, type Steered } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
@@ -151,7 +150,7 @@ const kindsFor = (
 
 /** An edit, its kind drawn among those its steering leaves pending (kindsFor) and kept in the sketch, so a kept case
  * runs the kind it was drawn with. */
-export const editGen: Steered<Edit, EditFeature> = (steering) => (source) => ({
+export const editGen: Steered<Edit, EditFeature>["under"] = (steering) => (source) => ({
 	second: source.draw(boolean),
 	picks: [source.draw(pickGen), source.draw(pickGen), source.draw(pickGen)],
 	kind: steering.pipe(kindsFor, element, source.draw)

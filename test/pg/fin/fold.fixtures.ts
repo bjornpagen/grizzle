@@ -1,9 +1,8 @@
 /** What the properties of fold.test.ts read: its spaces, models and helpers. */
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
-import { type Oracle } from "@bjornpagen/testing/explore"
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { type Kill } from "@bjornpagen/testing/property"
+import { type Kill, type Oracle } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { fin, fold, Monoid, on, relation, schema, tree } from "#compiler/public/schema.ts"

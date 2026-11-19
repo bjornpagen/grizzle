@@ -1,9 +1,9 @@
 /** What the properties of families.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import { type Case } from "@bjornpagen/testing/explore"
 import { boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { type CorruptedFeature, type Corruption } from "@bjornpagen/testing/lsw"
+import type { Case } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { familyShape, type RidingSide } from "#compiler/analysis/theory/families.ts"

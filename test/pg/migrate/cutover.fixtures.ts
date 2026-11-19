@@ -13,7 +13,6 @@ import {
 	runProgram,
 	took
 } from "@bjornpagen/testing/commands"
-import type { Steered } from "@bjornpagen/testing/explore"
 import {
 	array as arrayGen,
 	boolean,
@@ -21,7 +20,8 @@ import {
 	type Gen,
 	int,
 	parents as parentsGen,
-	subset
+	subset,
+	type Steered
 } from "@bjornpagen/testing/gen"
 import { fullSwarm, type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import {
@@ -1090,7 +1090,7 @@ const steeredGen =
 
 /** A case under its steering: a plain draw where the case does not steer, else the steered case aimed at the features
  * its steering leaves pending, its world and program the sketch it runs. */
-export const cutoverSteered: Steered<Cutover, Feature> = (steering) =>
+export const cutoverSteered: Steered<Cutover, Feature>["under"] = (steering) =>
 	Option.match(steering, {
 		onNone: () => cutoverGen,
 		onSome: (pending) => steeredGen(new Set(Arr.filter(features, (f) => pending.has(f))))
@@ -1784,7 +1784,7 @@ export const treeFeatures: Arr.NonEmptyReadonlyArray<TreeFeature> = [
 
 /** A tree case under its steering: a plain draw where the case does not steer, else the tree case aimed at the
  * features its steering leaves pending, its documents and roots the sketch it runs. */
-export const treeSteered: Steered<TreeCase, TreeFeature> = (steering) =>
+export const treeSteered: Steered<TreeCase, TreeFeature>["under"] = (steering) =>
 	Option.match(steering, {
 		onNone: () => treeCaseGen,
 		onSome: (pending) => steeredTreeGen(new Set(Arr.filter(treeFeatures, (f) => pending.has(f))))

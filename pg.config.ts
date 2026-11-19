@@ -3,8 +3,8 @@ import { pin } from "#pg/pin.ts"
 import { connectionsPerLease, unleasedConnections } from "#test/support/substrate/lease.ts"
 
 /**
- * c*, the test workers one member of the family serves at once, each running one network test file at a time (a Vitest
- * worker) or one property's cases (a runner worker). Every cost it divides is the member's own, a cluster's, and grows
+ * c*, the test workers one member of the family serves at once, each running one property's cases at a time (a runner
+ * worker). Every cost it divides is the member's own, a cluster's, and grows
  * with the files that share it: the SSI LWLocks (SerializableFinishedList, SerializableXactHash,
  * SerializablePredicateList) and SxactGlobalXmin, which every SERIALIZABLE transaction of the cluster shares; the safe
  * snapshot a DEFERRABLE read waits for, until every SERIALIZABLE writer of the cluster that began before it has ended;
@@ -16,8 +16,9 @@ import { connectionsPerLease, unleasedConnections } from "#test/support/substrat
  * @limitKind measured
  * @owner grizzle's network test tier (pg.config.ts)
  * @unit test files
- * @scope the network test files one member of the local cluster family runs at once, each in a Vitest worker of its
- *   own, at a run's width (the testing library's testWorkers, one file per core), on a member sized for its share
+ * @scope the network tests one member of the local cluster family runs at once, each worker's case at a time, at a
+ *   run's width (the testing library's testWorkers, one worker per core), on a member sized for its share; measured
+ *   when each worker ran one Vitest file at a time (@environment), which a worker's case now stands in for
  * @evidence packages/experiments/cluster-share at 14b2e2b9 (deleted in the commit after it): two checkouts of grizzle
  *   0b7b5f31 that differ only in this value, each tagged by tag.sh and on a private family scripts/pg/init.sh made from it
  *   (2 members at 32, 4 at 16), run at once by `TEST_SEED=1234567 pair.sh <out> c32 <tree> 5771 c16 <tree> 5781`,

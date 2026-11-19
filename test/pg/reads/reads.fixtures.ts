@@ -1,7 +1,6 @@
 /** What the properties of reads.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import type { Steered } from "@bjornpagen/testing/explore"
 import type { Pending } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -12,7 +11,8 @@ import {
 	int,
 	map,
 	oneOf,
-	weighted
+	weighted,
+	type Steered
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
@@ -292,7 +292,7 @@ interface SnapshotCase {
  * The commit: a new account with an automatic and a manual task, one noted, and a stored task of each kind deleted,
  * so each statement's answer changes; and the wait, drawn among those the case's steering leaves (waitsFor).
  */
-export const snapshotSketches: Steered<SnapshotSketch, SnapshotFeature> =
+export const snapshotSketches: Steered<SnapshotSketch, SnapshotFeature>["under"] =
 	(steering) => (source) => ({
 		deletes: source.draw(boolean),
 		wait: steering.pipe(waitsFor, element, source.draw)

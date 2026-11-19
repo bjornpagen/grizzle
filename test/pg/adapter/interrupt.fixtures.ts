@@ -1,7 +1,6 @@
 /** What the properties of interrupt.test.ts read: its spaces, models and helpers. */
 
 import { assert, assertVariant } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
 import { type Reached } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -10,7 +9,8 @@ import {
 	element,
 	type Gen,
 	type Weight,
-	weighted
+	weighted,
+	type Steered
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
@@ -221,24 +221,25 @@ export const situations: Arr.NonEmptyReadonlyArray<InterruptFeature> = [
  * members and gate type as drawn; while no read has been interrupted waiting for a safe snapshot, half of the rest are
  * a deferrable read under the owner's open transaction; a rotating case is drawn unaimed.
  */
-export const aimedSketchGen: Steered<CaseSketch, InterruptFeature> = (steering) => (source) => {
-	const sketch = source.draw(caseSketchGen)
-	const pending = (feature: InterruptFeature) =>
-		Option.exists(steering, (features) => features.has(feature))
-	if (pending("write completed before the gate") && source.draw(boolean)) {
-		return {
-			...sketch,
-			call: "write",
-			deferrable: false,
-			blocker: "none",
-			point: { ...sketch.point, arm: "beyond" }
+export const aimedSketchGen: Steered<CaseSketch, InterruptFeature>["under"] =
+	(steering) => (source) => {
+		const sketch = source.draw(caseSketchGen)
+		const pending = (feature: InterruptFeature) =>
+			Option.exists(steering, (features) => features.has(feature))
+		if (pending("write completed before the gate") && source.draw(boolean)) {
+			return {
+				...sketch,
+				call: "write",
+				deferrable: false,
+				blocker: "none",
+				point: { ...sketch.point, arm: "beyond" }
+			}
 		}
+		if (pending("interrupted where the server waits for a safe snapshot") && source.draw(boolean)) {
+			return { ...sketch, call: "read", deferrable: true, blocker: "statement" }
+		}
+		return sketch
 	}
-	if (pending("interrupted where the server waits for a safe snapshot") && source.draw(boolean)) {
-		return { ...sketch, call: "read", deferrable: true, blocker: "statement" }
-	}
-	return sketch
-}
 
 /** A change member of array members, applied on `ctx` with the call's facts. */
 export const applyFacts = (ctx: ServedDbContext, change: LoadedMember, facts: unknown) => {

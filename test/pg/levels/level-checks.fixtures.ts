@@ -1,8 +1,16 @@
 /** What the properties of level-checks.test.ts read: its spaces, models and helpers. */
 
 import { defined } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
-import { array, element, type Gen, int, map, oneOf, weighted } from "@bjornpagen/testing/gen"
+import {
+	array,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	weighted,
+	type Steered
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { MigrationPlace } from "#adapter/migrate/errors.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -312,7 +320,7 @@ const ownFirst = (k: LoginsCase): LoginsCase => {
  * first (ownFirst), which a drawn case meets too rarely for the floor and the steered phase. Unsteered (the rotating
  * stream), a plain draw.
  */
-export const steeredLogins: Steered<LoginsCase, LoginsFeature> = (steering) =>
+export const steeredLogins: Steered<LoginsCase, LoginsFeature>["under"] = (steering) =>
 	Option.exists(steering, (pending) =>
 		pending.names("the author refused by its own check, a level's broken too")
 	)

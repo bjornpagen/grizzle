@@ -1,8 +1,8 @@
 /** What the properties of sha256.test.ts read: its spaces, models and helpers. */
 
 import { isWellFormedText, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
-import { type Case } from "@bjornpagen/testing/explore"
 import { array, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, String as Str } from "effect"
 
 const platform = new TextEncoder()

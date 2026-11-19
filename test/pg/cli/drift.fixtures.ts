@@ -1,8 +1,7 @@
 /** What the properties of drift.test.ts read: its spaces, models and helpers. */
 
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
-import type { Steered } from "@bjornpagen/testing/explore"
-import { array, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { array, constant, type Gen, weighted, type Steered } from "@bjornpagen/testing/gen"
 import { Array as Arr, DateTime, Effect, Option, Record as Rec, String as Str } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -382,7 +381,7 @@ const aimCandidates = 32
  * drawn ones, or, where steering names situations no case has reached and they reach none, the first of up to
  * `aimCandidates` further draws that reaches one, else the drawn ones; a rotating case is drawn unaimed.
  */
-export const aimedPlantsGen: Steered<Plants, DriftFeature> = (steering) => (source) => {
+export const aimedPlantsGen: Steered<Plants, DriftFeature>["under"] = (steering) => (source) => {
 	if (
 		Option.exists(steering, (pending) =>
 			pending.aimed("a privilege granted beside the role's column grants")

@@ -1,7 +1,7 @@
 /** What the properties of ids.test.ts read: its spaces, models and helpers. */
 
-import { type Case } from "@bjornpagen/testing/explore"
 import { array, codePoint, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, pipe, String as Str } from "effect"
 
 /** A token of a component: a printable character the escape leaves alone, or one the escape is about. */

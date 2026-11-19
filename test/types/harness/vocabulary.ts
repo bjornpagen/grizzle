@@ -7,25 +7,16 @@ import { upTo } from "#test/support/up-to.ts"
 import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
 
 /**
- * The testing library's vocabulary contract (@bjornpagen/testing features and explore): a suite's situations are a closed
- * union of literal names, so a misspelt name is a type error, never a requirement nothing can meet. The oracle is
- * membership in the drawn vocabulary: a required situation, a pair, a note and a kept case's reaches typecheck
- * exactly when every name they hold is a member, the situations are at least one, a kept case reaches one at least,
- * and the vocabulary is a union of literals, never `string`.
+ * The testing library's vocabulary contract (@bjornpagen/testing features and property): a property's situations and
+ * its case's notes are of its closed union of literal names, so a misspelt name is a type error, never a requirement
+ * nothing can meet. The oracle is membership in the drawn vocabulary: a required situation, a pair and a note typecheck
+ * exactly when every name they hold is a member.
  *
  * A case draws a vocabulary of short lowercase names and, beside its members, a stranger longer than every member, so
  * never one. Each probe stands on one line, under a `refused` directive exactly where the oracle refuses it: the
  * contract is that the probe does not compile, whichever diagnostic the checker elaborates it to.
  */
-const faults = [
-	"a required stranger",
-	"no situation",
-	"an open vocabulary",
-	"a stranger noted",
-	"a stranger paired",
-	"a kept stranger",
-	"a kept case reaching nothing"
-] as const
+const faults = ["a required stranger", "a stranger noted", "a stranger paired"] as const
 type Fault = (typeof faults)[number]
 
 export type VocabularyNote = Fault | "admitted" | "a required pair"
@@ -37,8 +28,6 @@ export interface VocabularyCase {
 	readonly required: ReadonlyArray<string | readonly [string, string]>
 	readonly note: string
 	readonly pair: readonly [string, string]
-	readonly reaches: ReadonlyArray<string>
-	readonly open: boolean
 	readonly fault: Fault | undefined
 }
 
@@ -74,20 +63,11 @@ export const vocabularyCases: Gen<VocabularyCase> = (source) => {
 		members,
 		stranger,
 		required:
-			fault === "no situation"
-				? []
-				: fault === "a required stranger"
-					? [...Arr.take(required, at), stranger, ...Arr.drop(required, at)]
-					: required,
+			fault === "a required stranger"
+				? [...Arr.take(required, at), stranger, ...Arr.drop(required, at)]
+				: required,
 		note: fault === "a stranger noted" ? stranger : pick(),
 		pair: fault === "a stranger paired" ? [pick(), stranger] : [pick(), pick()],
-		reaches:
-			fault === "a kept case reaching nothing"
-				? []
-				: fault === "a kept stranger"
-					? [pick(), stranger]
-					: [pick()],
-		open: fault === "an open vocabulary",
 		fault
 	}
 }
@@ -110,10 +90,9 @@ const situationSource = (s: string | readonly [string, string]): string =>
 
 /** Whether a situation names only members of the case's closed vocabulary. */
 const admits = (c: VocabularyCase, s: string | readonly [string, string]): boolean =>
-	!c.open &&
-	(typeof s === "string"
+	typeof s === "string"
 		? Arr.contains(c.members, s)
-		: Arr.contains(c.members, s[0]) && Arr.contains(c.members, s[1]))
+		: Arr.contains(c.members, s[0]) && Arr.contains(c.members, s[1])
 
 /** One case's statements: its vocabulary, then each probe on one line, refused where the oracle refuses it. */
 const blockOf = (c: VocabularyCase, i: number): ReadonlyArray<string> => {
@@ -122,11 +101,11 @@ const blockOf = (c: VocabularyCase, i: number): ReadonlyArray<string> => {
 		line
 	]
 	return [
-		`type V${i} = ${c.open ? "string" : Arr.join(Arr.map(c.members, jsonText), " | ")}`,
+		`type V${i} = ${Arr.join(Arr.map(c.members, jsonText), " | ")}`,
 		...probe(
-			!Arr.isReadonlyArrayNonEmpty(c.required) || !Arr.every(c.required, (s) => admits(c, s)),
-			"a requirement names one situation at least, each a literal of the vocabulary",
-			`export const q${i} = required<V${i}>([${Arr.join(Arr.map(c.required, situationSource), ", ")}], { cases: 1, sense: notesOnly })`
+			!Arr.every(c.required, (s) => admits(c, s)),
+			"a required situation, each a literal of the vocabulary",
+			`export const q${i}: ReadonlyArray<Reached<V${i}>> = [${Arr.join(Arr.map(c.required, situationSource), ", ")}]`
 		),
 		...probe(
 			c.fault === "a stranger noted",
@@ -138,11 +117,6 @@ const blockOf = (c: VocabularyCase, i: number): ReadonlyArray<string> => {
 			"a pair outside the suite's vocabulary",
 			`export const r${i} = (c: Case<V${i}>) => c.pair(${jsonText(c.pair[0])}, ${jsonText(c.pair[1])})`
 		),
-		...probe(
-			c.fault === "a kept stranger" || c.fault === "a kept case reaching nothing",
-			"a kept case reaches one feature at least, each of the vocabulary",
-			`export const k${i}: Kept<number, V${i}> = { note: "a kept case", sketch: 3, draws: "", reaches: [${Arr.join(Arr.map(c.reaches, jsonText), ", ")}] }`
-		),
 		""
 	]
 }
@@ -150,9 +124,8 @@ const blockOf = (c: VocabularyCase, i: number): ReadonlyArray<string> => {
 /** The vocabulary contract's imports, each a library module a block reads. */
 const vocabularyImports: ReadonlyArray<string> = [
 	"// Generated by test/types/harness/vocabulary.ts: the testing library's vocabulary contract.",
-	'import type { Case, Kept } from "@bjornpagen/testing/explore"',
-	'import { required } from "@bjornpagen/testing/features"',
-	'import { notesOnly } from "@bjornpagen/testing/sense"',
+	'import type { Reached } from "@bjornpagen/testing/features"',
+	'import type { Case } from "@bjornpagen/testing/property"',
 	""
 ]
 
