@@ -247,11 +247,12 @@ const emitted = (statement: SqlStatement): EmittedSql => {
 	return e.value
 }
 
-const insertRow = (schema: string, ordinal: "param" | "folder", onConflict: boolean): Insert => {
+/** The INSERT of a ledger row: a folder's row (ordinal 0, file meta.json), if absent; or a file's. */
+const insertRow = (schema: string, row: "folder" | "file"): Insert => {
 	let n = 0
 	const next = (type: typeof types.text) => param(++n, type)
 	const values: NonEmptyReadonlyArray<Expr> =
-		ordinal === "folder"
+		row === "folder"
 			? [
 					next(types.text),
 					lit.int(BigInt(folderOrdinal), types.integer),
@@ -278,9 +279,10 @@ const insertRow = (schema: string, ordinal: "param" | "folder", onConflict: bool
 		columns: [...ledgerColumns],
 		overriding: undefined,
 		source: { kind: "values", rows: [values] },
-		onConflict: onConflict
-			? { kind: "columns", columns: ["folder", "ordinal"], action: { kind: "doNothing" } }
-			: undefined,
+		onConflict:
+			row === "folder"
+				? { kind: "columns", columns: ["folder", "ordinal"], action: { kind: "doNothing" } }
+				: undefined,
 		returning: []
 	}
 }
@@ -393,9 +395,9 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 			undefined
 		)
 		return {
-			recordFolder: emitted(insertRow(schema, "folder", true)),
+			recordFolder: emitted(insertRow(schema, "folder")),
 			redraftFolder: emitted(redraftUpdate(schema)),
-			recordFile: emitted(insertRow(schema, "param", false)),
+			recordFile: emitted(insertRow(schema, "file")),
 			rows: emitted(rows),
 			fence: emitted(ledgerLock(schema, "ACCESS SHARE", "nowait")),
 			exclusive: emitted(ledgerLock(schema, "ACCESS EXCLUSIVE", "wait")),
