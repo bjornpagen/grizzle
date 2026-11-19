@@ -1,6 +1,6 @@
 import { postorder } from "#text/base/graph.ts"
 import { defect } from "#text/base/invariant.ts"
-import { type CharSet, isEmpty, union } from "#text/regex/charset.ts"
+import { type CharSet, domain, intersection, isEmpty, size, union } from "#text/regex/charset.ts"
 
 /**
  * REG_MAX_COMPILE_SPACE's share of states: the compile space is the bytes of 500,000 states and four arcs for each,
@@ -670,19 +670,39 @@ export class RegexBuilder {
 	}
 
 	/**
-	 * The consuming matches of a node: those that consume at least one code point. A sequence's split at the first item
-	 * that consumes, the items before it matching zero-width.
+	 * The consuming matches of a node: those that consume at least one code point, its matches whose first code point
+	 * lies in the whole domain (firstIn).
 	 */
 	#consuming(node: RegexNode): RegexNode {
-		return folded(this.#consumings, node, (n, of) => {
+		return this.#firstIn(node, domain, this.#consumings)
+	}
+
+	/**
+	 * A node narrowed to its consuming matches whose first code point lies in `within`, exactly: a set keeps the code
+	 * points both hold; an alternation narrows each arm; a sequence's first code point is consumed by one of its items,
+	 * the items before it matching zero-width; and a repetition's by its first iteration that consumes, either its first
+	 * or one after zero-width iterations, which test their assertions at one position, so they are one zero-width
+	 * match, and however many there were, the count of the remaining iterations can be anything up to max - 2 while the
+	 * whole stays within min..max. An assertion and the empty string consume nothing. This is how a word is held to
+	 * begin with a code point of a class without asserting it: the narrowed node matches exactly the words such an
+	 * assertion would let through. A node's last code point is its mirror image's first (folds.ts lastIn).
+	 */
+	firstIn(node: RegexNode, within: CharSet): RegexNode {
+		return this.#firstIn(node, within, new Map<RegexNode, RegexNode>())
+	}
+
+	#firstIn(node: RegexNode, within: CharSet, table: Map<RegexNode, RegexNode>): RegexNode {
+		return folded(table, node, (n, of) => {
 			switch (n.kind) {
 				case "empty":
 				case "never":
 				case "start":
 				case "end":
 					return never
-				case "set":
-					return n
+				case "set": {
+					const kept = intersection(n.set, within)
+					return size(kept) === size(n.set) ? n : set(kept)
+				}
 				case "alt":
 					return this.alt(n.arms.map((arm) => of(arm)))
 				case "seq":
@@ -696,12 +716,6 @@ export class RegexBuilder {
 						)
 					)
 				case "repeat": {
-					/**
-					 * Split at the first iteration that consumes. Either it is the first, or one or more zero-width
-					 * iterations precede it; those test their assertions at one position, so they are one zero-width
-					 * match, and however many there were, the count of the remaining iterations can be anything up to
-					 * max - 2 while the whole stays within min..max.
-					 */
 					const { body, min, max } = n
 					const rest = (lo: number, hi: number | "unbounded"): RegexNode =>
 						hi !== "unbounded" && hi < lo ? never : this.repeat(body, lo, hi)
