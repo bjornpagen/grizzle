@@ -79,6 +79,7 @@ import {
 	type NativeObject,
 	type NativeOf,
 	type RelationInfo,
+	type SpanField,
 	type RowGuard,
 	scalarKeySet,
 	type SpanKeyScalars,
@@ -192,8 +193,15 @@ export type NamedNative =
 /** A primary key's native object: a PRIMARY KEY, or a primary key WITHOUT OVERLAPS. */
 export type PrimaryNative =
 	| NativeOf<"PrimaryKey">
-	| (NativeOf<"WithoutOverlaps"> & {
-			readonly key: Extract<SpanKeyScalars, { readonly kind: "primary" }>
+	| (Omit<NativeOf<"WithoutOverlaps">, "span" | "key"> & {
+			readonly span: { readonly kind: "field"; readonly field: SpanField }
+			readonly key: {
+				readonly kind: "primary"
+				readonly scalars: NonEmptyReadonlyArray<{
+					readonly kind: "field"
+					readonly field: LawField
+				}>
+			}
 	  })
 
 /** A relation's primary key as installed: its native object, named by the identity ownership named it by, and the
@@ -237,23 +245,17 @@ const primaryNative = (
 	if (plan.kind === "PrimaryKey") {
 		return { ...plan, lawIds }
 	}
-	const field = (c: PlannedColumn): NativeColumn =>
-		c.kind === "field" ? c : missing("a primary key's columns, each a field")
 	return {
 		kind: "WithoutOverlaps",
 		relation: plan.relation,
-		span: field(plan.span),
-		key: { kind: "primary", scalars: mapNonEmpty(plan.key.scalars, field) },
+		span: plan.span,
+		key: plan.key,
 		named: plan.named,
 		lawIds
 	}
 }
 
 /** What the model always holds where it reads it: its absence is a defect. */
-const missing = (what: string): never => {
-	throw defect(what)
-}
-
 /** A primary key named by the identity ownership named it by. */
 const namedPrimaryKey = (object: PrimaryNative, described: OwnLaw): NamedPrimaryKey => ({
 	object,
@@ -1432,14 +1434,14 @@ class Specializer {
 		})
 		const [first, ...rest] = tables
 		if (first === undefined) {
-			return missing(`a rule over a query discharged by triggers reads an ordinary relation`)
+			throw defect("a rule over a query discharged by triggers reads an ordinary relation")
 		}
 		return { law, rule, named, tables: [first, ...rest] }
 	}
 
 	/** The law `id` names, which the theory states. */
 	#lawOf(id: LawId): TheoryLaw {
-		return this.#laws.get(id) ?? missing(`the law ${id}, which the theory states`)
+		return defined(this.#laws.get(id), `the law ${id}, which the theory states`)
 	}
 
 	/**

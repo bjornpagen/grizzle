@@ -76,11 +76,6 @@ const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))
 }
 
-/** What the planner always holds where it reads it: its absence is a defect. */
-const missing = (what: string): never => {
-	throw defect(what)
-}
-
 /** A key of `relation` over `key` whose index entry is unrepresentable, for `fault`. */
 const unrepresentable = (
 	loc: SourceLoc,
@@ -155,7 +150,10 @@ type SideColumn =
 	| { readonly kind: "law"; readonly column: Extract<LawColumnPlan, { readonly kind: "term" }> }
 
 /** A field as a planned native reads it. */
-const fieldColumn = (field: LawField): SideColumn => ({ kind: "field", field })
+const fieldColumn = <F extends LawField>(field: F): FieldColumn<F> => ({ kind: "field", field })
+
+/** A field column, of a field of type `F`: a span key's span column is its span field's. */
+type FieldColumn<F extends LawField = LawField> = { readonly kind: "field"; readonly field: F }
 
 /** Whether two selections are one, conjunct for conjunct in order, as a term's law column is known by its selection's
  * conjuncts (laws/model/model.ts lawColumnIdentity). */
@@ -357,9 +355,10 @@ const plannedReverse = (
 	const [widest] = boundedColumns(columns)
 	const fault =
 		widest === undefined ? undefined : btreeEntry([entryColumn(widest.column, widest.datum)])
-	return fault === undefined || fault.ok
-		? missing(`a referencing column of ${subject} a B-tree entry holds or a hash index hashes`)
-		: unrepresentable(loc, subject, columns.map(plannedText), fault.error)
+	if (fault === undefined || fault.ok) {
+		throw defect(`a referencing column of ${subject} a B-tree entry holds or a hash index hashes`)
+	}
+	return unrepresentable(loc, subject, columns.map(plannedText), fault.error)
 }
 
 /**
@@ -373,7 +372,7 @@ const plannedPeriodReverse = (
 	subject: string,
 	loc: SourceLoc
 ): PlannedReverse => {
-	const spanDatum = createdDatum(span) ?? missing(`the bounded datum of the span of ${subject}`)
+	const spanDatum = defined(createdDatum(span), `the bounded datum of the span of ${subject}`)
 	const spanEntry = { field: plannedText(span), datum: spanDatum }
 	const bounded = boundedColumns(scalars)
 	for (let n = Math.min(bounded.length, indexMaxKeys - 1); n >= 0; n--) {
@@ -645,8 +644,12 @@ const tableOf = (r: TheoryRelation): RelationInfo => {
 /** A primary key's native object as planned: a PRIMARY KEY, or a primary key WITHOUT OVERLAPS. */
 export type PrimaryKeyPlan =
 	| Extract<NativePlan, { readonly kind: "PrimaryKey" }>
-	| (Extract<NativePlan, { readonly kind: "WithoutOverlaps" }> & {
-			readonly key: Extract<PlannedSpanKey, { readonly kind: "primary" }>
+	| (Omit<Extract<NativePlan, { readonly kind: "WithoutOverlaps" }>, "span" | "key"> & {
+			readonly span: FieldColumn<SpanField>
+			readonly key: {
+				readonly kind: "primary"
+				readonly scalars: NonEmptyReadonlyArray<FieldColumn>
+			}
 			readonly named: Identity<"primaryKey" | "key">
 	  })
 
@@ -667,7 +670,7 @@ export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): P
 			field: span.name
 		})
 	}
-	const scalarColumns = mapNonEmpty(scalars, fieldColumn)
+	const scalarColumns = mapNonEmpty(scalars, (f) => fieldColumn(f))
 	return {
 		kind: "WithoutOverlaps",
 		relation: r,
@@ -1006,7 +1009,7 @@ const fixingSource = (
 				value: f.value
 			})
 		case "term":
-			return source[f.term] ?? missing("the source's column paired with a fixed field's term")
+			return defined(source[f.term], "the source's column paired with a fixed field's term")
 	}
 }
 
@@ -2039,7 +2042,7 @@ export class Recognizer {
 			case "fold": {
 				const planned = this.#familyPlan(d.family, loc)
 				return done([
-					...(planned.folds[d.fold] ?? missing(`the columns of fold ${d.fold} of its family`)),
+					...defined(planned.folds[d.fold], `the columns of fold ${d.fold} of its family`),
 					planned.axes.predecessor.foreignKey,
 					planned.axes.last.foreignKey,
 					...this.#axisNatives(planned, ["predecessor", "last"]),
@@ -2129,7 +2132,7 @@ export class Recognizer {
 			]
 		}
 		const at = side.terms.indexOf(span)
-		const spanColumn = columns[at] ?? missing(`the column of the span term of ${side.relation}`)
+		const spanColumn = defined(columns[at], `the column of the span term of ${side.relation}`)
 		const scalars = columns.filter((_, i) => i !== at)
 		return [
 			...lawColumns(columns),
@@ -2411,8 +2414,8 @@ export class Recognizer {
 		}
 		const sourceColumns = sideColumns(from)
 		const targetColumns = sideColumns(to)
-		const sourceSpan = sourceColumns[at] ?? missing("a coverage source's span column")
-		const targetSpan = targetColumns[at] ?? missing("a coverage target's span column")
+		const sourceSpan = defined(sourceColumns[at], "a coverage source's span column")
+		const targetSpan = defined(targetColumns[at], "a coverage target's span column")
 		const sourceScalars = sourceColumns.filter((_, i) => i !== at)
 		const targetScalars = targetColumns.filter((_, i) => i !== at)
 		if (!isNonEmpty(sourceScalars) || !isNonEmpty(targetScalars)) {
@@ -2468,8 +2471,9 @@ export class Recognizer {
 
 	/** The fold law at `fold` of the family `key`, which the theory states for every fold it resolves. */
 	foldLaw(key: string, fold: number): FoldLaw {
-		return (
-			this.#foldLaws.get(key)?.get(fold) ?? missing(`the law of fold ${fold} of the family ${key}`)
+		return defined(
+			this.#foldLaws.get(key)?.get(fold),
+			`the law of fold ${fold} of the family ${key}`
 		)
 	}
 
@@ -2515,9 +2519,8 @@ export class Recognizer {
 		if (known !== undefined) {
 			return known
 		}
-		const family =
-			this.#families.get(key) ?? missing(`the family ${key}, which the theory resolved`)
-		const law = this.#familyLaws.get(key) ?? missing(`the law of the family ${key}`)
+		const family = defined(this.#families.get(key), `the family ${key}, which the theory resolved`)
+		const law = defined(this.#familyLaws.get(key), `the law of the family ${key}`)
 		const planned = new FamilyPlanner(this, family, law, loc).plan()
 		this.#planned.set(key, planned)
 		return planned
@@ -3130,11 +3133,10 @@ class FamilyPlanner {
 		if (column.kind !== "drawn" || column.draws.kind !== "before") {
 			return undefined
 		}
-		const plane =
-			this.#family.folds[column.draws.fold]?.planes[column.draws.plane] ??
-			missing(
-				`plane ${column.draws.plane} of fold ${column.draws.fold}, a drawn column of its own family`
-			)
+		const plane = defined(
+			this.#family.folds[column.draws.fold]?.planes[column.draws.plane],
+			`plane ${column.draws.plane} of fold ${column.draws.fold}, a drawn column of its own family`
+		)
 		return { start: plane.identity, type: plane.end.type }
 	}
 
@@ -3155,7 +3157,7 @@ class FamilyPlanner {
 				: { kind: "value" as const, expr: conditions.column(fieldColumn(fold.step.field)) }
 		const combined = combine(monoidSpecs[fold.monoid], befores, step, combineBuild)
 		const stepped = and(
-			mapNonEmpty(afters, (a, p) => cmp("eq", a, combined[p] ?? missing("a combine per plane")))
+			mapNonEmpty(afters, (a, p) => cmp("eq", a, defined(combined[p], "a combine per plane")))
 		)
 		const where = detail.step.selection.conjuncts.map((c) => c.predicate)
 		if (!isNonEmpty(where)) {
@@ -3167,7 +3169,7 @@ class FamilyPlanner {
 			pred: and(where),
 			onTrue: stepped,
 			onFalse: and(
-				mapNonEmpty(afters, (a, p) => cmp("eq", a, befores[p] ?? missing("a before per plane")))
+				mapNonEmpty(afters, (a, p) => cmp("eq", a, defined(befores[p], "a before per plane")))
 			)
 		})
 	}

@@ -3,7 +3,7 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	dedupeNonEmpty,
@@ -177,9 +177,10 @@ const compared = (
 			held.push({ field: c.field, column: c })
 			continue
 		}
-		const native =
-			lawColumns.get(relation.name)?.get(c.column) ??
-			missing(relation, `the native of the law column ${c.column}`)
+		const native = defined(
+			lawColumns.get(relation.name)?.get(c.column),
+			`the native of the law column ${c.column} of ${relation.name}, which the law model planned`
+		)
 		if (native.value.kind === "drawn") {
 			return undefined
 		}
@@ -204,16 +205,19 @@ const compared = (
 	const [first, ...rest] = equal
 	const index = held.flatMap((h) => (h === "another term" ? [] : [h]))
 	const [heldFirst, ...heldRest] = index
-	return first === undefined
-		? missing(relation, "a unique object's columns, at least one")
-		: {
-				equal: dedupeNonEmpty([first, ...rest]),
-				within: [...guards.values()],
-				reach:
-					heldFirst !== undefined && index.length === held.length
-						? { kind: "index", columns: [heldFirst, ...heldRest] }
-						: { kind: "fields" }
-			}
+	if (first === undefined) {
+		throw defect(
+			`a unique object's columns, at least one, of ${relation.name}, which the law model planned`
+		)
+	}
+	return {
+		equal: dedupeNonEmpty([first, ...rest]),
+		within: [...guards.values()],
+		reach:
+			heldFirst !== undefined && index.length === held.length
+				? { kind: "index", columns: [heldFirst, ...heldRest] }
+				: { kind: "fields" }
+	}
 }
 
 /** The unique object a UNIQUE over law columns is (`compared`): a key over its fields when its columns are total, else
@@ -249,7 +253,9 @@ const spanObject = (
 	}
 	const [spanField, ...equal] = c.equal
 	if (!isSpanField(spanField) || equal.includes(spanField)) {
-		return missing(relation, "a span key's span column, a span field's values")
+		throw defect(
+			`a span key's span column, a span field's values, of ${relation.name}, which the law model planned`
+		)
 	}
 	return { ...named, kind: "span", equal, span: spanField, within: c.within }
 }
@@ -278,10 +284,6 @@ export const columnReads = (
 }
 
 /** A law column the law model planned on its relation is always known to it. */
-const missing = (relation: LawRelation, what: string): never => {
-	throw defect(`${what} of ${relation.name}, which the law model planned`)
-}
-
 const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed> => {
 	if (n.namespace !== "constraint") {
 		return []
@@ -402,12 +404,13 @@ const primaryObject = (pk: NamedPrimaryKey): PrimaryKeyObject => {
 	if (o.kind === "PrimaryKey") {
 		return { ...named, kind: "key", equal: o.columns }
 	}
-	const fields = plainFields(o.key.scalars)
-	const span = o.span.kind === "field" ? o.span.field : undefined
-	if (fields === undefined || span === undefined || !isSpanField(span)) {
-		return missing(o.relation, "a primary key's columns, each a field, its span a span field")
+	return {
+		...named,
+		kind: "span",
+		equal: o.key.scalars.map((c) => c.field),
+		span: o.span.field,
+		within: []
 	}
-	return { ...named, kind: "span", equal: fields, span, within: [] }
 }
 
 /** Each ordinary relation of `keyed` by name with its primary key and its unique objects, from a law model's natives on
