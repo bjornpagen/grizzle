@@ -1,4 +1,5 @@
-/** A key's text: a one-digit integer behind any leading zeros, its sign spelled or not, at most four bytes. */
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
+/** What the properties of generated-key.test.ts read: the Keys and Labels schemas and templates, their spaces, and each case. */
 import {
 	array,
 	constant,
@@ -43,7 +44,6 @@ import { str } from "#compiler/public/text.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { answered, rowsOf, writeOnce } from "#test/support/calls.ts"
 import { type Generated, type Installed } from "#test/support/install-migrate.ts"
 import { migratedOnceTemplate } from "#test/support/installed.ts"
@@ -71,6 +71,7 @@ import { clearRows, installationGroup, replaceRows } from "#test/support/substra
 import { Substrate, ownerSession, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
+/** A key's text: a one-digit integer behind any leading zeros, its sign spelled or not, at most four bytes. */
 const KeyText = str.bytes(4, str.regex("^-?0*[0-9]$", "u"))
 
 /** A typed map key: the integer its text spells, and whether the text spells it with a minus. */
