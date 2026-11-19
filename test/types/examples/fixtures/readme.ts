@@ -874,8 +874,8 @@ export const ContentPackage = schema.extend(
 
 /** README: "Retirable units". */
 export const Flow = relation("Flow", { id: uuid, retired: retirement }, ["id"])
-export const FlowStep = relation("FlowStep", { flow: uuid, step: pg.int4 }, ["flow", "step"])
-export const FlowClaim = relation("FlowClaim", { flow: uuid, step: pg.int4, attempt: natural }, [
+export const FlowStep = relation("FlowStep", { flow: uuid, step: pg.integer }, ["flow", "step"])
+export const FlowClaim = relation("FlowClaim", { flow: uuid, step: pg.integer, attempt: natural }, [
 	"flow",
 	"step",
 	"attempt"

@@ -99,7 +99,7 @@ const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 		case "float4":
 			return pg.real
 		case "float8":
-			return pg.float8
+			return pg["double precision"]
 		case "money":
 			return pg.money
 		case "bool":
@@ -147,7 +147,7 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 		case "float4":
 			return pg.real
 		case "float8":
-			return pg.float8
+			return pg["double precision"]
 		case "money":
 			return pg.money
 		case "bool":

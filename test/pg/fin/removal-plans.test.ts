@@ -57,34 +57,34 @@ import { upTo } from "#test/support/up-to.ts"
 const Owner = relation(
 	"Owner",
 	{
-		id: pg.int4,
-		v: pg.int4,
+		id: pg.integer,
+		v: pg.integer,
 		n: drawn(natural),
 		n2: drawn(natural),
-		e: accumulated(pg.int4, 0)
+		e: accumulated(pg.integer, 0)
 	},
 	["id"]
 )
 const Other = relation(
 	"Other",
-	{ id: pg.int4, w: pg.int4, n: drawn(natural), e: accumulated(pg.int4, 0) },
+	{ id: pg.integer, w: pg.integer, n: drawn(natural), e: accumulated(pg.integer, 0) },
 	["id"]
 )
 const Member = relation(
 	"Member",
 	{
-		member: pg.int4,
-		g: pg.int4,
-		h: pg.int4,
-		x: pg.int4,
-		c: accumulated(pg.int4, 0),
-		d: accumulated(pg.int4, 0)
+		member: pg.integer,
+		g: pg.integer,
+		h: pg.integer,
+		x: pg.integer,
+		c: accumulated(pg.integer, 0),
+		d: accumulated(pg.integer, 0)
 	},
 	["member"]
 )
-const Second = relation("Second", { member: pg.int4, g: pg.int4 }, ["member"])
-const Order = relation("Order", { id: pg.int4, n: drawn(natural) }, ["id"])
-const Line = relation("Line", { line: pg.int4, order: pg.int4, at: drawn(natural) }, ["line"])
+const Second = relation("Second", { member: pg.integer, g: pg.integer }, ["member"])
+const Order = relation("Order", { id: pg.integer, n: drawn(natural) }, ["id"])
+const Line = relation("Line", { line: pg.integer, order: pg.integer, at: drawn(natural) }, ["line"])
 
 const byOwner = counted(on(Member, "g"), fin(Owner, "n"))
 const byOther = counted(on(Member, "h"), fin(Other, "n"))

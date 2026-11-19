@@ -38,7 +38,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const Tag = str.regex("^[a-z]{1,4}$")
 const Allowed = relation("Allowed", { tag: Tag }, ["tag"])
 const Closed = relation("Closed", { tag: Tag }, ["tag"])
-const Item = relation("Item", { id: pg.int4, tag: Tag }, ["id"])
+const Item = relation("Item", { id: pg.integer, tag: Tag }, ["id"])
 const Base = schema("RuleProbePattern", [Allowed, Closed, Item], [])
 const Open = derived(
 	"Open",

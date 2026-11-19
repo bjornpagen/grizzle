@@ -16,7 +16,7 @@ import type { TreeNative } from "#test/support/families/tree.ts"
 const Node = relation(
 	"Node",
 	{
-		doc: pg.int4,
+		doc: pg.integer,
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),

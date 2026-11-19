@@ -37,17 +37,19 @@ const before = (name: string) =>
 	schema(
 		name,
 		[
-			relation("Owner", { id: pg.int4 }, ["id"]),
-			relation("Other", { id: pg.int4 }, ["id"]),
-			relation("Member", { member: pg.int4, g: pg.int4, h: pg.int4 }, ["member"])
+			relation("Owner", { id: pg.integer }, ["id"]),
+			relation("Other", { id: pg.integer }, ["id"]),
+			relation("Member", { member: pg.integer, g: pg.integer, h: pg.integer }, ["member"])
 		],
 		[]
 	)
 
 const after = (name: string) => {
-	const Owner = relation("Owner", { id: pg.int4, n: drawnField(natural) }, ["id"])
-	const Other = relation("Other", { id: pg.int4, m: drawnField(natural) }, ["id"])
-	const Member = relation("Member", { member: pg.int4, g: pg.int4, h: pg.int4 }, ["member"])
+	const Owner = relation("Owner", { id: pg.integer, n: drawnField(natural) }, ["id"])
+	const Other = relation("Other", { id: pg.integer, m: drawnField(natural) }, ["id"])
+	const Member = relation("Member", { member: pg.integer, g: pg.integer, h: pg.integer }, [
+		"member"
+	])
 	return schema(
 		name,
 		[Owner, Other, Member],

@@ -45,8 +45,8 @@ import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
-const Club = relation("Club", { id: pg.int4, n: drawnField(natural) }, ["id"])
-const Member = relation("Member", { m: pg.int4, club: pg.int4 }, ["m"])
+const Club = relation("Club", { id: pg.integer, n: drawnField(natural) }, ["id"])
+const Member = relation("Member", { m: pg.integer, club: pg.integer }, ["m"])
 const Doc = relation("Doc", { id: uuid, lines: drawnField(natural) }, ["id"])
 const Line = relation("Line", { id: uuid, doc: uuid, at: drawnField(natural), qty: pg.bigint }, [
 	"id"

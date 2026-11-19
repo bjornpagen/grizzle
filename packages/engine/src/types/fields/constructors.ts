@@ -17,7 +17,6 @@ import type {
 	Refusal
 } from "#compiler/types/core/phantom.ts"
 
-import type { FloatPrecision } from "#compiler/scalar/pg.ts"
 import type {
 	AccumulatedField,
 	BitsField,
@@ -26,7 +25,6 @@ import type {
 	DrawnField,
 	Field,
 	FieldBase,
-	FloatField,
 	GeneratedField,
 	Infer,
 	NaturalField,
@@ -45,17 +43,11 @@ import type { AnyRoster, HandleOf } from "#compiler/types/schema/relation.ts"
 import type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
- * numeric(p, s) and its decimal spelling, precision and scale both declared: no numeric field is without them.
+ * numeric(p, s), precision and scale both declared: no numeric field is without them.
  * PostgreSQL's numerictypmodin rule is checked at runtime (ir/carriers.ts numericMaxPrecision, numericMinScale and
  * numericMaxScale).
  */
 type NumericConstructor = (precision: number, scale: number) => NumericTypmodField
-
-/**
- * float(p): real for binary precision 1-24, double precision for 25-53, as PostgreSQL resolves it; a precision outside
- * them is no float's.
- */
-type FloatConstructor = <const P extends FloatPrecision>(precision: P) => FloatField<P>
 
 /**
  * The signatures of the field descriptor constructors: uuid, pg, contract, span and closedId, the runtime values of
@@ -66,39 +58,24 @@ type FloatConstructor = <const P extends FloatPrecision>(precision: P) => FloatF
  * carry their literal SQL names and members (scalar/registry.ts defineField), so every binding has its public type by
  * construction. Typmod arguments are runtime values: numeric precision and scale, vector dimensions and span widths
  * are checked by the runtime builders, which throw CompileError MalformedDescription on a malformed one. A vector's
- * dimension count is the one literal the type keeps, an equality-only tag, and float's binary precision the one the
- * type resolves, to the real or double precision field PostgreSQL resolves it to; a JavaScript caller's malformed
- * one is refused at runtime as well.
+ * dimension count is the one literal the type keeps, an equality-only tag.
  * A contract is its brand's minting function, the call of Effect's brand constructor: it brands without checking, and
  * the database validates on write. test/unit/scalar pins the runtime behavior, and test/types/fields the signatures.
  *
- * The pg namespace, every PostgreSQL spelling included. An alias is the same descriptor
- * as the name it spells, so it has the same type.
+ * The pg namespace: each type under the one name PostgreSQL's format_type prints for it, its SQL tag.
  */
 export interface Pg {
 	readonly smallint: Field<number, "smallint">
-	readonly int2: Field<number, "smallint">
 	readonly integer: Field<number, "integer">
-	readonly int: Field<number, "integer">
-	readonly int4: Field<number, "integer">
 	readonly bigint: Field<bigint, "bigint">
-	readonly int8: Field<bigint, "bigint">
 	readonly numeric: NumericConstructor
-	readonly decimal: NumericConstructor
 	readonly real: Field<number, "real">
-	readonly float4: Field<number, "real">
 	readonly "double precision": Field<number, "double precision">
-	readonly float8: Field<number, "double precision">
-	readonly float: Field<number, "double precision"> & FloatConstructor
 	readonly money: Field<Money, "money">
 	readonly boolean: Field<boolean, "boolean">
-	readonly bool: Field<boolean, "boolean">
 	readonly smallserial: SerialField<number, "smallint">
-	readonly serial2: SerialField<number, "smallint">
 	readonly serial: SerialField<number, "integer">
-	readonly serial4: SerialField<number, "integer">
 	readonly bigserial: SerialField<bigint, "bigint">
-	readonly serial8: SerialField<bigint, "bigint">
 	/** pg.uuidv7: a uuid PostgreSQL draws for a new row, its column's `uuidv7()` default; an insert may leave it out. */
 	readonly uuidv7: SerialField<Uuid, "uuid">
 	/** pg.vector(1536): a model-agnostic vector field; the dimension count is an equality-only tag. */

@@ -97,8 +97,8 @@ const insert = (
 		", "
 	)}`
 
-const Club = relation("Club", { id: pg.int4 }, ["id"])
-const Seat = relation("Seat", { id: pg.int4, club: pg.int4, lead: pg.bool }, ["id"])
+const Club = relation("Club", { id: pg.integer }, ["id"])
+const Seat = relation("Seat", { id: pg.integer, club: pg.integer, lead: pg.boolean }, ["id"])
 const leads = select(Seat, (s) => s.eq(s.lead, true))
 
 const atMostOne = schema("fin_cap_at_most_one", [Club, Seat], [key(on(leads, "club"))])
@@ -110,8 +110,8 @@ const exactlyOne = schema(
 )
 
 /** A club counting its seats, a counted family. */
-const CountedClub = relation("Club", { id: pg.int4, n: drawn(natural), need: natural }, ["id"])
-const CountedSeat = relation("Seat", { id: pg.int4, club: pg.int4 }, ["id"])
+const CountedClub = relation("Club", { id: pg.integer, n: drawn(natural), need: natural }, ["id"])
+const CountedSeat = relation("Seat", { id: pg.integer, club: pg.integer }, ["id"])
 const seats = counted(on(CountedSeat, "club"), fin(CountedClub, "n"))
 
 const atLeastOne = schema(
@@ -135,12 +135,12 @@ const countAtLeastField = schema(
 /** A club whose seats' weights a sum fold totals: the family ordered, its accumulators hidden. */
 const WeighedClub = relation(
 	"Club",
-	{ id: pg.int4, n: drawn(natural), total: accumulated(pg.int4, 0) },
+	{ id: pg.integer, n: drawn(natural), total: accumulated(pg.integer, 0) },
 	["id"]
 )
 const WeighedSeat = relation(
 	"Seat",
-	{ id: pg.int4, club: pg.int4, at: drawn(natural), weight: pg.int4 },
+	{ id: pg.integer, club: pg.integer, at: drawn(natural), weight: pg.integer },
 	["id"]
 )
 const weighed = ordered(on(WeighedSeat, "club", "at"), fin(WeighedClub, "n"))
@@ -158,14 +158,14 @@ const weightedSchema = schema(
 /** A club's shifts, each a span whose width is a generated field, summed: a duration made a weight. */
 const Shift = relation.generated(
 	"Seat",
-	{ id: pg.int4, club: pg.int4, at: drawn(natural), during: span(pg.int4) },
+	{ id: pg.integer, club: pg.integer, at: drawn(natural), during: span(pg.integer) },
 	["id"],
 	(r) => ({
 		length: generated(
-			pg.int4,
+			pg.integer,
 			Compute.when(
-				Compute.within(Compute.width(r.during, pg.int4), 0n, 2_147_483_647n),
-				(w) => Compute.cast(w, pg.int4),
+				Compute.within(Compute.width(r.during, pg.integer), 0n, 2_147_483_647n),
+				(w) => Compute.cast(w, pg.integer),
 				0
 			)
 		)
@@ -186,12 +186,12 @@ const durationSchema = schema(
 /** A club counting its lead seats by a count fold over a selection. */
 const LedClub = relation(
 	"Club",
-	{ id: pg.int4, n: drawn(natural), leads: accumulated(natural, 0n) },
+	{ id: pg.integer, n: drawn(natural), leads: accumulated(natural, 0n) },
 	["id"]
 )
 const LedSeat = relation(
 	"Seat",
-	{ id: pg.int4, club: pg.int4, at: drawn(natural), lead: pg.bool },
+	{ id: pg.integer, club: pg.integer, at: drawn(natural), lead: pg.boolean },
 	["id"]
 )
 const led = ordered(on(LedSeat, "club", "at"), fin(LedClub, "n"))
@@ -215,7 +215,7 @@ const countingSelection = schema(
 )
 
 /** A seat whose club is its home: the row check the capacity's equal source and target always was. */
-const HomeSeat = relation("Seat", { id: pg.int4, club: pg.int4, home: pg.int4 }, ["id"])
+const HomeSeat = relation("Seat", { id: pg.integer, club: pg.integer, home: pg.integer }, ["id"])
 const sourceEqualsTarget = schema(
 	"fin_cap_equal",
 	[HomeSeat],

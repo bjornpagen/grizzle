@@ -19,9 +19,9 @@ import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
-const Club = relation("Club", { id: pg.int4, n: drawnField(natural) }, ["id"])
+const Club = relation("Club", { id: pg.integer, n: drawnField(natural) }, ["id"])
 
-const Member = relation("Member", { m: pg.int4, club: pg.int4 }, ["m"])
+const Member = relation("Member", { m: pg.integer, club: pg.integer }, ["m"])
 
 const Doc = relation("Doc", { id: uuid, lines: drawnField(natural) }, ["id"])
 
@@ -29,7 +29,7 @@ const Line = relation("Line", { id: uuid, doc: uuid, at: drawnField(natural), qt
 	"id"
 ])
 
-const Tag = relation("Tag", { id: pg.int4, label: pg.int4 }, ["id"])
+const Tag = relation("Tag", { id: pg.integer, label: pg.integer }, ["id"])
 
 const Edits = schema(
 	"StratumEdits",

@@ -84,8 +84,8 @@ export const before = (name: string) =>
 	schema(
 		name,
 		[
-			relation("Owner", { id: pg.int4 }, ["id"]),
-			relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+			relation("Owner", { id: pg.integer }, ["id"]),
+			relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, ["member"])
 		],
 		[]
 	)
@@ -93,10 +93,12 @@ export const before = (name: string) =>
 export const after = (name: string) => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, 0) },
+		{ id: pg.integer, n: drawnField(natural), end: accumulated(pg.integer, 0) },
 		["id"]
 	)
-	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+	const Member = relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, [
+		"member"
+	])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
 	return schema(
 		name,
@@ -116,8 +118,8 @@ export const copyBefore = (name: string) =>
 	schema(
 		name,
 		[
-			relation("Owner", { id: pg.int4, tag: pg.int4 }, ["id"]),
-			relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+			relation("Owner", { id: pg.integer, tag: pg.integer }, ["id"]),
+			relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, ["member"])
 		],
 		[]
 	)
@@ -125,12 +127,12 @@ export const copyBefore = (name: string) =>
 export const copyAfter = (name: string) => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, tag: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, 0) },
+		{ id: pg.integer, tag: pg.integer, n: drawnField(natural), end: accumulated(pg.integer, 0) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
-		{ member: pg.int4, g: pg.int4, x: pg.int4, ownerTag: accumulated(pg.int4, 0) },
+		{ member: pg.integer, g: pg.integer, x: pg.integer, ownerTag: accumulated(pg.integer, 0) },
 		["member"]
 	)
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
@@ -154,14 +156,14 @@ export const treeBefore = (name: string) => {
 	const Node_ = relation(
 		"Node",
 		{
-			doc: pg.int4,
+			doc: pg.integer,
 			page: str.regex("^p[0-9]{1,2}$"),
 			parent: drawnField(natural),
 			at: drawnField(natural),
 			children: drawnField(natural),
 			start: drawnField(natural),
 			end: drawnField(natural),
-			kind: pg.int4
+			kind: pg.integer
 		},
 		["doc", "page", "start"]
 	)
@@ -176,15 +178,15 @@ export const treeAfter = (name: string) => {
 	const Node_ = relation(
 		"Node",
 		{
-			doc: pg.int4,
+			doc: pg.integer,
 			page: str.regex("^p[0-9]{1,2}$"),
 			parent: drawnField(natural),
 			at: drawnField(natural),
 			children: drawnField(natural),
 			start: drawnField(natural),
 			end: drawnField(natural),
-			kind: pg.int4,
-			parentKind: accumulated(pg.int4, 0),
+			kind: pg.integer,
+			parentKind: accumulated(pg.integer, 0),
 			before: accumulated(natural, 0n),
 			after: accumulated(natural, 0n),
 			total: accumulated(natural, 0n)
@@ -497,8 +499,8 @@ const storedMembers = <X extends FieldBase>(
 		name,
 		[
 			...rosters,
-			relation("Owner", { id: pg.int4 }, ["id"]),
-			relation("Member", { member: pg.int4, g: pg.int4, x }, ["member"])
+			relation("Owner", { id: pg.integer }, ["id"]),
+			relation("Member", { member: pg.integer, g: pg.integer, x }, ["member"])
 		],
 		[]
 	)
@@ -516,24 +518,24 @@ export const monoidSeats = [
 			schema(
 				name,
 				[
-					relation("Owner", { id: pg.int4 }, ["id"]),
-					relation("Member", { member: pg.int4, g: pg.int4, on: pg.bool }, ["member"])
+					relation("Owner", { id: pg.integer }, ["id"]),
+					relation("Member", { member: pg.integer, g: pg.integer, on: pg.boolean }, ["member"])
 				],
 				[]
 			),
 		after: (name: string) => {
 			const Owner = relation(
 				"Owner",
-				{ id: pg.int4, n: drawnField(natural), end: accumulated(natural, 0n) },
+				{ id: pg.integer, n: drawnField(natural), end: accumulated(natural, 0n) },
 				["id"]
 			)
 			const Member = relation(
 				"Member",
 				{
-					member: pg.int4,
-					g: pg.int4,
+					member: pg.integer,
+					g: pg.integer,
 					at: drawnField(natural),
-					on: pg.bool,
+					on: pg.boolean,
 					before: accumulated(natural, 0n),
 					after: accumulated(natural, 0n)
 				},
@@ -562,22 +564,22 @@ export const monoidSeats = [
 	},
 	{
 		label: "max of int4",
-		before: (name: string) => storedMembers(name, pg.int4, []),
+		before: (name: string) => storedMembers(name, pg.integer, []),
 		after: (name: string) => {
 			const Owner = relation(
 				"Owner",
-				{ id: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, int4Least) },
+				{ id: pg.integer, n: drawnField(natural), end: accumulated(pg.integer, int4Least) },
 				["id"]
 			)
 			const Member = relation(
 				"Member",
 				{
-					member: pg.int4,
-					g: pg.int4,
+					member: pg.integer,
+					g: pg.integer,
 					at: drawnField(natural),
-					x: pg.int4,
-					before: accumulated(pg.int4, int4Least),
-					after: accumulated(pg.int4, int4Least)
+					x: pg.integer,
+					before: accumulated(pg.integer, int4Least),
+					after: accumulated(pg.integer, int4Least)
 				},
 				["member"]
 			)
@@ -598,14 +600,14 @@ export const monoidSeats = [
 		after: (name: string) => {
 			const Owner = relation(
 				"Owner",
-				{ id: pg.int4, n: drawnField(natural), end: accumulated(closedId(Tag), "a") },
+				{ id: pg.integer, n: drawnField(natural), end: accumulated(closedId(Tag), "a") },
 				["id"]
 			)
 			const Member = relation(
 				"Member",
 				{
-					member: pg.int4,
-					g: pg.int4,
+					member: pg.integer,
+					g: pg.integer,
 					at: drawnField(natural),
 					x: closedId(Tag),
 					before: accumulated(closedId(Tag), "a"),
@@ -630,14 +632,14 @@ export const monoidSeats = [
 		after: (name: string) => {
 			const Owner = relation(
 				"Owner",
-				{ id: pg.int4, n: drawnField(natural), end: accumulated(bits(Tag), noTags) },
+				{ id: pg.integer, n: drawnField(natural), end: accumulated(bits(Tag), noTags) },
 				["id"]
 			)
 			const Member = relation(
 				"Member",
 				{
-					member: pg.int4,
-					g: pg.int4,
+					member: pg.integer,
+					g: pg.integer,
 					at: drawnField(natural),
 					x: bits(Tag),
 					before: accumulated(bits(Tag), noTags),
@@ -663,7 +665,7 @@ export const monoidSeats = [
 			const Owner = relation(
 				"Owner",
 				{
-					id: pg.int4,
+					id: pg.integer,
 					n: drawnField(natural),
 					ones: accumulated(bits(Tag), noTags),
 					twos: accumulated(bits(Tag), noTags)
@@ -673,8 +675,8 @@ export const monoidSeats = [
 			const Member = relation(
 				"Member",
 				{
-					member: pg.int4,
-					g: pg.int4,
+					member: pg.integer,
+					g: pg.integer,
 					at: drawnField(natural),
 					x: bits(Tag),
 					onesBefore: accumulated(bits(Tag), noTags),
@@ -706,10 +708,12 @@ export const monoidSeats = [
 		after: (name: string) => {
 			const Owner = relation(
 				"Owner",
-				{ id: pg.int4, n: drawnField(natural), end: accumulated(bits(Tag), noTags) },
+				{ id: pg.integer, n: drawnField(natural), end: accumulated(bits(Tag), noTags) },
 				["id"]
 			)
-			const Member = relation("Member", { member: pg.int4, g: pg.int4, x: bits(Tag) }, ["member"])
+			const Member = relation("Member", { member: pg.integer, g: pg.integer, x: bits(Tag) }, [
+				"member"
+			])
 			const family = counted(on(Member, "g"), fin(Owner, "n"))
 			return schema(
 				name,
@@ -895,8 +899,8 @@ export const vectorKeyed = (name: string) =>
 	schema(
 		name,
 		[
-			relation("Owner", { id: pg.int4 }, ["id"]),
-			relation("Member", { member: pg.vector(2), g: pg.int4, x: pg.int4 }, ["member"])
+			relation("Owner", { id: pg.integer }, ["id"]),
+			relation("Member", { member: pg.vector(2), g: pg.integer, x: pg.integer }, ["member"])
 		],
 		[]
 	)
@@ -904,7 +908,7 @@ export const vectorKeyed = (name: string) =>
 /** The owners after the migration: each counts its members and sums their x. */
 const countingOwner = relation(
 	"Owner",
-	{ id: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, 0) },
+	{ id: pg.integer, n: drawnField(natural), end: accumulated(pg.integer, 0) },
 	["id"]
 )
 
@@ -912,7 +916,7 @@ const countingOwner = relation(
 const vectorKept = (name: string) => {
 	const Member = relation(
 		"Member",
-		{ member: pg.vector(2), g: pg.int4, at: drawnField(natural), x: pg.int4 },
+		{ member: pg.vector(2), g: pg.integer, at: drawnField(natural), x: pg.integer },
 		["g", "at"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(countingOwner, "n"))
@@ -927,7 +931,7 @@ const vectorKept = (name: string) => {
 const vectorRenamed = (name: string) => {
 	const Member = relation(
 		"Member",
-		{ item: pg.vector(2), g: pg.int4, at: drawnField(natural), x: pg.int4 },
+		{ item: pg.vector(2), g: pg.integer, at: drawnField(natural), x: pg.integer },
 		["g", "at"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(countingOwner, "n"))
@@ -940,7 +944,7 @@ const vectorRenamed = (name: string) => {
 
 /** vectorKept with the vector key dropped. */
 const vectorDropped = (name: string) => {
-	const Member = relation("Member", { g: pg.int4, at: drawnField(natural), x: pg.int4 }, [
+	const Member = relation("Member", { g: pg.integer, at: drawnField(natural), x: pg.integer }, [
 		"g",
 		"at"
 	])
@@ -1070,7 +1074,7 @@ const keyFieldOf = (type: KeyType): FieldBase => {
 		case "text":
 			return keyText
 		case "int8":
-			return pg.int8
+			return pg.bigint
 		case "uuid":
 			return uuid
 	}
@@ -1325,8 +1329,8 @@ const groupName = (j: number): string => `g${j + 1}`
 const accumulatorsOf = (s: Sequence): ReadonlyArray<readonly [string, FieldBase]> =>
 	s.folded
 		? [
-				["before", accumulated(pg.int4, 0)],
-				["after", accumulated(pg.int4, 0)]
+				["before", accumulated(pg.integer, 0)],
+				["after", accumulated(pg.integer, 0)]
 			]
 		: []
 
@@ -1334,7 +1338,7 @@ const accumulatorsOf = (s: Sequence): ReadonlyArray<readonly [string, FieldBase]
 const ownerFamilyFields = (r: Rekey): ReadonlyArray<readonly [string, FieldBase]> =>
 	Arr.flatMap(r.families, (s, i) => [
 		[countName(i), drawnField(natural)] as const,
-		...(s.folded ? [[endName(i), accumulated(pg.int4, 0)] as const] : [])
+		...(s.folded ? [[endName(i), accumulated(pg.integer, 0)] as const] : [])
 	])
 
 /** The schema of a re-key over `group` on each member, paired with `ownerKey` on O: each family ordered by its member's
@@ -1350,9 +1354,9 @@ const sequencesSchema = (
 		storedRelation(
 			memberName(i),
 			Rec.fromEntries([
-				["member", pg.int4] as const,
+				["member", pg.integer] as const,
 				...group,
-				["x", pg.int4] as const,
+				["x", pg.integer] as const,
 				["at", drawnField(natural)] as const,
 				...accumulatorsOf(s)
 			]),
@@ -1391,12 +1395,12 @@ const storedSchema = (name: string, r: Rekey): AnySchema =>
 		r,
 		storedRelation(
 			"O",
-			Rec.fromEntries([["id", pg.int4] as const, ...ownerFamilyFields(r)]),
+			Rec.fromEntries([["id", pg.integer] as const, ...ownerFamilyFields(r)]),
 			["id"],
 			[]
 		),
 		["id"],
-		[["g", pg.int4]]
+		[["g", pg.integer]]
 	)
 
 /** After it: O keyed by its new key fields k1…, each member's group g1… paired with them. */

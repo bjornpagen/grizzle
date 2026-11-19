@@ -4,8 +4,6 @@
  *
  * - Spellings: every spelling of the pg namespace, the serials among them, declares a column PostgreSQL stores as the
  *   type the descriptor names.
- * - float(p): for every precision from -4 to 59, the registry admits float(p) exactly when PostgreSQL does, and names
- *   the type, real or double precision, PostgreSQL selects.
  * - numeric(p, s): for drawn typmods near and past numerictypmodin's bounds, the registry admits exactly what
  *   PostgreSQL admits, and names the typmod it stores.
  * - vector(n): for every dimension count within two of 1 and of the storage limit, the registry admits exactly what
@@ -17,8 +15,7 @@
  *
  * Oracle: PostgreSQL itself, its catalog and the type a column's declaration stores.
  *
- * Features: "a serial" and "a type"; float(p)'s "refused below", "real", "double precision" and "refused above";
- * numeric's "admitted" and "refused"; vector's "refused below", "admitted" and "refused above"; and the carriers' "a
+ * Features: "a serial" and "a type"; numeric's "admitted" and "refused"; vector's "refused below", "admitted" and "refused above"; and the carriers' "a
  * native capability excluded", "a spannable carrier", "a discrete range named as a limit" and "no discrete range".
  */
 
@@ -41,7 +38,6 @@ import {
 	columnSpelling,
 	type DimensionsFeature,
 	exclusions,
-	type FloatFeature,
 	installProbe,
 	nativeOf,
 	polymorphic,
@@ -51,7 +47,6 @@ import {
 	unspanned
 } from "#test/pg/scalar/registry.fixtures.ts"
 import { assert, contains, defined, unorderedEqual } from "#test/support/assert.ts"
-import { floatOf } from "#test/support/descriptors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { isSerial, spelled } from "#test/unit/scalar/support.ts"
 
@@ -84,50 +79,6 @@ export const descriptorsAgainstThePostgreSQL19CatalogNamesTheTypePostgreSQLStore
 				replacement:
 					'const boolean = defineField({}, "bool", { kind: "pg", type: "boolean" }, { column: carrierColumn("bool") }, SourceLoc("pg.boolean", []), bareEnv)',
 				why: "The boolean descriptor names bool; the spellings property fails."
-			}
-		]
-	})
-
-/** Descriptors against the PostgreSQL 19 catalog selects real or double precision for float(p) as PostgreSQL does, and refuses what it refuses. */
-export const descriptorsAgainstThePostgreSQL19CatalogSelectsRealOrDoublePrecisionForFloatPAsPostgreSQLDoesAndRefusesWhatItRefuses =
-	property.exhaust(finite(int(-4, 59)), {
-		needs: { tx: Substrate.transaction },
-		situations: [
-			"refused below",
-			"real",
-			"double precision",
-			"refused above"
-		] satisfies ReadonlyArray<Reached<FloatFeature>>,
-		check:
-			({ tx }, c: Case<FloatFeature>) =>
-			(p) =>
-				Effect.gen(function* () {
-					const { session: db } = yield* tx
-					yield* installProbe(db)
-					return yield* Effect.map(probe(db, [`float(${p})`]), (stored) => {
-						const pgAccepts = !pipe(storedAt(stored, 0), Str.startsWith("refused"))
-						assert.equal(
-							accepts(() => floatOf(p)),
-							pgAccepts,
-							`float(${p})`
-						)
-						if (pgAccepts) {
-							assert.equal(storedAt(stored, 0), floatOf(p).sql, `float(${p})`)
-							c.note(storedAt(stored, 0) === "real" ? "real" : "double precision")
-						} else {
-							c.note(p < 1 ? "refused below" : "refused above")
-						}
-					})
-				}),
-		oracle: { kind: "postgresql", name: "the type PostgreSQL stores float(p) as" },
-		box: "every precision from -4 to 59, past both of float(p)'s edges",
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/scalar/pg.ts",
-				original: "\t25: doublePrecision,",
-				replacement: "\t25: real,",
-				why: "float(25) selects real; the float(p) property fails."
 			}
 		]
 	})

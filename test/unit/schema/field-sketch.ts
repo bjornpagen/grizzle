@@ -18,13 +18,12 @@ import { bareContract, rawClosedId, rawSpan, regex } from "#test/unit/schema/sup
 export type DrawnRoster = AnyRoster & { readonly handles: Arr.NonEmptyReadonlyArray<string> }
 
 /** The constructors of `pg` that take a typmod, which are no descriptor until called. */
-type PgConstructor = "numeric" | "decimal" | "vector"
+type PgConstructor = "numeric" | "vector"
 
-/** A member of `pg` that is a field descriptor by itself, every PostgreSQL spelling and serial form included. */
+/** A member of `pg` that is a field descriptor by itself, every serial form included. */
 export type PgMember = Exclude<keyof typeof pg, PgConstructor>
 
-const isPgMember = (key: keyof typeof pg): key is PgMember =>
-	key !== "numeric" && key !== "decimal" && key !== "vector"
+const isPgMember = (key: keyof typeof pg): key is PgMember => key !== "numeric" && key !== "vector"
 
 /** Every member of `pg` that is a field descriptor by itself, in the namespace's order. */
 const pgMembers: Arr.NonEmptyReadonlyArray<PgMember> = nonEmpty(

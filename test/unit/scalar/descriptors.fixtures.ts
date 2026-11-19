@@ -34,14 +34,12 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { vectorMaxDimensions, integerRanges } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type RosterOrder, rosterOrders, type ScalarType } from "#compiler/ir/scalar.ts"
-import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { type Described, describeField } from "#compiler/scalar/registry.ts"
 import {
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
-import { binary32Precision } from "#compiler/scalar/values/float.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { fieldIdentity } from "#test/support/fixtures/descriptors.ts"
@@ -79,7 +77,7 @@ export const plainPairGen = (source: Source) => {
 }
 
 /** What two descriptors of the namespace came to. */
-export type AliasFeature = "one value, two spellings" | "one type, two writings" | "two types"
+export type SpellingFeature = "one type, two writings" | "two types"
 
 /** Two descriptors: one drawn twice, one time in three, or two drawn apart. */
 export const typePairGen = (source: Source) => {
@@ -103,7 +101,6 @@ export type KindFeature = DescriptorSketch["kind"]
 
 export const kindFeatures: Arr.NonEmptyReadonlyArray<KindFeature> = [
 	"spelling",
-	"float",
 	"numeric",
 	"vector",
 	"uuid",
@@ -177,16 +174,6 @@ export const scaleBounds = [
 	{ feature: "one past the greatest scale", value: numericMaxScale + 1 }
 ] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
 
-/** float(p)'s bounds: none below 1, real's greatest and the one past it, double precision's greatest. */
-export const floatBounds = [
-	{ feature: "precision 0", value: 0 },
-	{ feature: "precision 1", value: 1 },
-	{ feature: "real's greatest precision", value: binary32Precision },
-	{ feature: "one past real's greatest precision", value: binary32Precision + 1 },
-	{ feature: "the greatest precision", value: binary64Precision },
-	{ feature: "one past the greatest precision", value: binary64Precision + 1 }
-] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
-
 /** pgvector's dimension bounds: none below 1, vectorMaxDimensions the greatest, and their neighbours. */
 export const dimensionBounds = [
 	{ feature: "no dimension", value: 0 },
@@ -253,19 +240,6 @@ export const numericTypmodSpace = aimed<
 		})
 	),
 	wildAims(numericTypmodCaseOf)
-)
-
-/** What a float(p) call reached: its verdict, its drawn precision, and each bound. */
-export type FloatTypmodFeature = TypmodFeature | (typeof floatBounds)[number]["feature"]
-
-/** A float(p) precision near its bounds, or wild; aimed at each wild kind still pending, a precision of that kind. */
-export const floatPrecisionSpace = aimed<Drawn<number, never>, FloatTypmodFeature>(
-	lsw<number>({
-		live: nearBounds(int(-4, binary64Precision + 6), floatBounds),
-		stale: Option.none(),
-		wild: WILD_KINDS
-	}),
-	wildAims((precision: Gen<Drawn<number, never>>) => precision)
 )
 
 /** What a vector(n) call reached: its verdict, its drawn dimensions, and each bound. */

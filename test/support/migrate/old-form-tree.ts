@@ -7,7 +7,7 @@
  * its snapshot, the move every installed tree makes.
  *
  *   const Node = relation("Node", { id: uuid, doc: uuid, parent: uuid, at: drawn(natural), children: drawn(natural),
- *     start: drawn(natural), end: drawn(natural), kind: pg.int4, parentKind: accumulated(pg.int4, 0),
+ *     start: drawn(natural), end: drawn(natural), kind: pg.integer, parentKind: accumulated(pg.integer, 0),
  *     before: accumulated(natural, 0n), after: accumulated(natural, 0n), total: accumulated(natural, 0n) }, ["id"])
  *   const nodes = tree(on(Node, "parent", "at"), fin(Node, "children"), { root: "doc" })
  *   schema("OldTree", [Node], [

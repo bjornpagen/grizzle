@@ -112,16 +112,16 @@ const int4Min = -2_147_483_648
 const countOrdered = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(natural, 0n) },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(natural, 0n) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.int4,
-			g: pg.int4,
+			member: pg.integer,
+			g: pg.integer,
 			at: drawn(natural),
-			on: pg.bool,
+			on: pg.boolean,
 			before: accumulated(natural, 0n),
 			after: accumulated(natural, 0n)
 		},
@@ -151,18 +151,18 @@ const countOrdered = (() => {
 const sumInt4 = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.int4,
-			g: pg.int4,
+			member: pg.integer,
+			g: pg.integer,
 			at: drawn(natural),
-			x: pg.int4,
-			before: accumulated(pg.int4, 0),
-			after: accumulated(pg.int4, 0)
+			x: pg.integer,
+			before: accumulated(pg.integer, 0),
+			after: accumulated(pg.integer, 0)
 		},
 		["member"]
 	)
@@ -181,14 +181,14 @@ const sumNumeric = (() => {
 	const zero = Decimal.of("0")
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(pg.numeric(10, 2), zero) },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.numeric(10, 2), zero) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.int4,
-			g: pg.int4,
+			member: pg.integer,
+			g: pg.integer,
 			at: drawn(natural),
 			x: pg.numeric(10, 2),
 			before: accumulated(pg.numeric(10, 2), zero),
@@ -211,14 +211,14 @@ const orBits = (() => {
 	const empty = Bits.of(Tag, [])
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(bits(Tag), empty) },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(bits(Tag), empty) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.int4,
-			g: pg.int4,
+			member: pg.integer,
+			g: pg.integer,
 			at: drawn(natural),
 			x: bits(Tag),
 			before: accumulated(bits(Tag), empty),
@@ -242,7 +242,7 @@ const twosBits = (() => {
 	const Owner = relation(
 		"Owner",
 		{
-			id: pg.int4,
+			id: pg.integer,
 			n: drawn(natural),
 			k: bits(Tag),
 			ones: accumulated(bits(Tag), empty),
@@ -253,8 +253,8 @@ const twosBits = (() => {
 	const Member = relation(
 		"Member",
 		{
-			member: pg.int4,
-			g: pg.int4,
+			member: pg.integer,
+			g: pg.integer,
 			at: drawn(natural),
 			x: bits(Tag),
 			onesBefore: accumulated(bits(Tag), empty),
@@ -286,18 +286,18 @@ const twosBits = (() => {
 const maxInt4 = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, int4Min) },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, int4Min) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.int4,
-			g: pg.int4,
+			member: pg.integer,
+			g: pg.integer,
 			at: drawn(natural),
-			x: pg.int4,
-			before: accumulated(pg.int4, int4Min),
-			after: accumulated(pg.int4, int4Min)
+			x: pg.integer,
+			before: accumulated(pg.integer, int4Min),
+			after: accumulated(pg.integer, int4Min)
 		},
 		["member"]
 	)
@@ -315,14 +315,14 @@ const maxInt4 = (() => {
 const maxCode = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(closedId(Tag), "a") },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(closedId(Tag), "a") },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
 		{
-			member: pg.int4,
-			g: pg.int4,
+			member: pg.integer,
+			g: pg.integer,
 			at: drawn(natural),
 			x: closedId(Tag),
 			before: accumulated(closedId(Tag), "a"),
@@ -344,10 +344,12 @@ const maxCode = (() => {
 const sumCounted = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
 		["id"]
 	)
-	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+	const Member = relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, [
+		"member"
+	])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
 	return schema(
 		"fin_fold_sum_counted",
@@ -360,10 +362,10 @@ const orCounted = (() => {
 	const empty = Bits.of(Tag, [])
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(bits(Tag), empty) },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(bits(Tag), empty) },
 		["id"]
 	)
-	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: bits(Tag) }, ["member"])
+	const Member = relation("Member", { member: pg.integer, g: pg.integer, x: bits(Tag) }, ["member"])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
 	return schema(
 		"fin_fold_or_counted",

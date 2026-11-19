@@ -40,13 +40,15 @@ import {
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Owner = relation("Owner", { id: pg.int4, n: drawn(natural) }, ["id"])
+const Owner = relation("Owner", { id: pg.integer, n: drawn(natural) }, ["id"])
 
-const OrderedMember = relation("Member", { member: pg.int4, g: pg.int4, at: drawn(natural) }, [
-	"member"
-])
+const OrderedMember = relation(
+	"Member",
+	{ member: pg.integer, g: pg.integer, at: drawn(natural) },
+	["member"]
+)
 
-const CountedMember = relation("Member", { member: pg.int4, g: pg.int4 }, ["member"])
+const CountedMember = relation("Member", { member: pg.integer, g: pg.integer }, ["member"])
 
 /** The ordered family: each owner's members indexed by their drawn `at`. */
 const OrderedFamily = schema(

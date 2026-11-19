@@ -31,9 +31,9 @@ import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Kind = closed.ordered("Kind", ["a", "b", "c"])
-const Item = relation("Item", { id: pg.int4, kind: closedId(Kind) }, ["id"])
-const A = relation("A", { item: pg.int4 }, ["item"])
-const B = relation("B", { item: pg.int4 }, ["item"])
+const Item = relation("Item", { id: pg.integer, kind: closedId(Kind) }, ["id"])
+const A = relation("A", { item: pg.integer }, ["item"])
+const B = relation("B", { item: pg.integer }, ["item"])
 
 /**
  * The box's schema, every relation mutable: a containment between immutable relations that joins within one unit is

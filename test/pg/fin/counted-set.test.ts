@@ -82,10 +82,10 @@ const Owner = relation(
 	{
 		a: Name,
 		b: Name,
-		k: pg.int4,
-		label: pg.int4,
+		k: pg.integer,
+		label: pg.integer,
 		n: drawnField(natural),
-		total: accumulated(pg.int4, 0),
+		total: accumulated(pg.integer, 0),
 		seen: accumulated(bits(Tag), Bits.of(Tag, [])),
 		positive: accumulated(natural, 0n)
 	},
@@ -94,7 +94,7 @@ const Owner = relation(
 
 const Attr = relation(
 	"Attr",
-	{ a: Name, b: Name, k: pg.int4, name: Name, x: pg.int4, flags: bits(Tag) },
+	{ a: Name, b: Name, k: pg.integer, name: Name, x: pg.integer, flags: bits(Tag) },
 	["a", "b", "k", "name"]
 )
 

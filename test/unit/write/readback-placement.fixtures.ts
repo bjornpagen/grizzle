@@ -23,22 +23,22 @@ import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/co
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { checking, owning } from "#test/support/policy.ts"
 
-const M = relation("M", { id: pg.int4, v: pg.int4 }, ["id"])
+const M = relation("M", { id: pg.integer, v: pg.integer }, ["id"])
 
-const A = relation("A", { id: pg.int4, v: pg.int4 }, ["id"])
+const A = relation("A", { id: pg.integer, v: pg.integer }, ["id"])
 
-const Z = relation("Z", { id: pg.int4, v: pg.int4 }, ["id"])
+const Z = relation("Z", { id: pg.integer, v: pg.integer }, ["id"])
 
 const schemaName = "readback_placement"
 
 const S = schema(schemaName, [M, A, Z], [])
 
 /** M with an id its sequence draws, in a schema of its own beside copies of A and Z. */
-const MD = relation("M", { id: pg.serial, v: pg.int4 }, ["id"])
+const MD = relation("M", { id: pg.serial, v: pg.integer }, ["id"])
 
-const AD = relation("A", { id: pg.int4, v: pg.int4 }, ["id"])
+const AD = relation("A", { id: pg.integer, v: pg.integer }, ["id"])
 
-const ZD = relation("Z", { id: pg.int4, v: pg.int4 }, ["id"])
+const ZD = relation("Z", { id: pg.integer, v: pg.integer }, ["id"])
 
 const drawnName = "readback_placement_drawn"
 

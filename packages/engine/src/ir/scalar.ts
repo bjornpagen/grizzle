@@ -675,9 +675,7 @@ interface ExactType {
  * A ScalarType is the canonical native carrier identity of a value plus everything that changes its meaning:
  * numeric typmod or a computed numeric's bound, contract identity, text refinement, closed roster, span endpoint, vector
  * dimensions, an exact value's digit bound, and the operation capability set. Two descriptors are the
- * same type exactly when they agree in each of these, a contract by its identity (sameScalarType). Aliases normalize at
- * construction:
- * `pg.decimal` is `numeric`, `pg.bool` is `bool`, and so on, so no alias reaches the IR.
+ * same type exactly when they agree in each of these, a contract by its identity (sameScalarType).
  *
  * There is no nullable type: every ScalarType denotes a non-null domain, and absence is zero rows.
  */

@@ -51,13 +51,13 @@ import { installationNamesOf, type Names } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 import { owner } from "#test/unit/physical/fixtures.ts"
 
-const Owner = relation("Owner", { id: uuid, rank: pg.int4, live: pg.boolean, slots: natural }, [
+const Owner = relation("Owner", { id: uuid, rank: pg.integer, live: pg.boolean, slots: natural }, [
 	"id"
 ])
 
 const Item = relation(
 	"Item",
-	{ id: uuid, owner: uuid, code: pg.int4, live: pg.boolean, at: natural },
+	{ id: uuid, owner: uuid, code: pg.integer, live: pg.boolean, at: natural },
 	["id"]
 )
 

@@ -45,7 +45,7 @@ const Cell = relation(
 		b: pg.bigint,
 		x: pg.numeric(10, 2),
 		m: pg.money,
-		f: pg.float8,
+		f: pg["double precision"],
 		t: pg.boolean
 	},
 	["id"]

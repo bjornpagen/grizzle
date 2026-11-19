@@ -193,7 +193,7 @@ const schemaAt = (name: string, stage: Stage) => {
 		rows
 	)
 	const probe = {
-		id: pg.int4,
+		id: pg.integer,
 		version: closedId(Version),
 		parent: closedId(Kind),
 		at: closedId(Position)

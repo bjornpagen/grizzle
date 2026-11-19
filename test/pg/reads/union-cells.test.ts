@@ -91,7 +91,7 @@ const Cell = relation(
 		s: Text,
 		h: closedId(Kind),
 		x: pg.numeric(10, 2),
-		f: pg.float8
+		f: pg["double precision"]
 	},
 	["id"]
 )

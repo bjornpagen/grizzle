@@ -410,8 +410,8 @@ const foldObserved = (c: FoldCase, state: State) => {
 const countedBefore = schema(
 	"Backfill",
 	[
-		relation("Owner", { id: pg.int4, tag: pg.int4 }, ["id"]),
-		relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+		relation("Owner", { id: pg.integer, tag: pg.integer }, ["id"]),
+		relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, ["member"])
 	],
 	[]
 )
@@ -419,12 +419,12 @@ const countedBefore = schema(
 const countedAfter = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, tag: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) },
+		{ id: pg.integer, tag: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
 		["id"]
 	)
 	const Member = relation(
 		"Member",
-		{ member: pg.int4, g: pg.int4, x: pg.int4, ownerTag: accumulated(pg.int4, 0) },
+		{ member: pg.integer, g: pg.integer, x: pg.integer, ownerTag: accumulated(pg.integer, 0) },
 		["member"]
 	)
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
@@ -462,8 +462,10 @@ const countedCase: FoldCase = {
 const countedWritten = schema(
 	"Backfill",
 	[
-		relation("Owner", { id: pg.int4, tag: pg.int4, n: natural, end: pg.int4 }, ["id"]),
-		relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4, ownerTag: pg.int4 }, ["member"])
+		relation("Owner", { id: pg.integer, tag: pg.integer, n: natural, end: pg.integer }, ["id"]),
+		relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer, ownerTag: pg.integer }, [
+			"member"
+		])
 	],
 	[]
 )
@@ -476,13 +478,15 @@ const newMembers: Migration = (() => {
 	const name = "Backfill"
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
 		["id"]
 	)
-	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+	const Member = relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, [
+		"member"
+	])
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
 	return migrationOf(
-		schema(name, [relation("Owner", { id: pg.int4 }, ["id"])], []),
+		schema(name, [relation("Owner", { id: pg.integer }, ["id"])], []),
 		schema(
 			name,
 			[Owner, Member],
@@ -498,21 +502,21 @@ const orderedCase = (key: LineKey): FoldCase => {
 	const Order_ = relation(
 		"Order",
 		{
-			id: pg.int4,
-			tag: pg.int4,
+			id: pg.integer,
+			tag: pg.integer,
 			n: drawn(natural),
-			total: accumulated(pg.int4, 0),
-			lastQty: accumulated(pg.int4, -1)
+			total: accumulated(pg.integer, 0),
+			lastQty: accumulated(pg.integer, -1)
 		},
 		["id"]
 	)
 	const fields = {
-		line: pg.int4,
-		order: pg.int4,
+		line: pg.integer,
+		order: pg.integer,
 		at: drawn(natural),
-		qty: pg.int4,
-		orderTag: accumulated(pg.int4, 0),
-		prevQty: accumulated(pg.int4, -1)
+		qty: pg.integer,
+		orderTag: accumulated(pg.integer, 0),
+		prevQty: accumulated(pg.integer, -1)
 	}
 	const Line =
 		key === "line" ? relation("Line", fields, ["line"]) : relation("Line", fields, ["order", "at"])
@@ -522,8 +526,8 @@ const orderedCase = (key: LineKey): FoldCase => {
 			schema(
 				name,
 				[
-					relation("Order", { id: pg.int4, tag: pg.int4 }, ["id"]),
-					relation("Line", { line: pg.int4, order: pg.int4, qty: pg.int4 }, ["line"])
+					relation("Order", { id: pg.integer, tag: pg.integer }, ["id"]),
+					relation("Line", { line: pg.integer, order: pg.integer, qty: pg.integer }, ["line"])
 				],
 				[]
 			),
@@ -732,8 +736,8 @@ const lineFieldRenamed = (from: string, to: string): Rename => ({
 const storedLines = schema(
 	"StoredKey",
 	[
-		relation("Order", { id: pg.int4, tag: pg.int4 }, ["id"]),
-		relation("Line", { line: pg.int4, order: pg.int4, qty: pg.int4 }, ["line"])
+		relation("Order", { id: pg.integer, tag: pg.integer }, ["id"]),
+		relation("Line", { line: pg.integer, order: pg.integer, qty: pg.integer }, ["line"])
 	],
 	[]
 )
@@ -741,7 +745,7 @@ const storedLines = schema(
 /** The orders after the migration: each counts its lines and sums their qty. */
 const countedOrder = relation(
 	"Order",
-	{ id: pg.int4, tag: pg.int4, n: drawn(natural), total: accumulated(pg.int4, 0) },
+	{ id: pg.integer, tag: pg.integer, n: drawn(natural), total: accumulated(pg.integer, 0) },
 	["id"]
 )
 
@@ -791,7 +795,7 @@ const droppedKeyCase = (after: DeploySubject): StoredKeyCase => {
 const freshKeyed = (() => {
 	const Line = relation(
 		"Line",
-		{ lineNo: pg.int4, order: pg.int4, at: drawn(natural), qty: pg.int4 },
+		{ lineNo: pg.integer, order: pg.integer, at: drawn(natural), qty: pg.integer },
 		["order", "at"]
 	)
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
@@ -806,7 +810,7 @@ const freshKeyed = (() => {
 const swappedKeyed = (() => {
 	const Line = relation(
 		"Line",
-		{ qty: pg.int4, order: pg.int4, at: drawn(natural), line: pg.int4 },
+		{ qty: pg.integer, order: pg.integer, at: drawn(natural), line: pg.integer },
 		["order", "at"]
 	)
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
@@ -821,7 +825,7 @@ const swappedKeyed = (() => {
 const chainedKeyed = (() => {
 	const Line = relation(
 		"Line",
-		{ qty: pg.int4, order: pg.int4, at: drawn(natural), amount: pg.int4 },
+		{ qty: pg.integer, order: pg.integer, at: drawn(natural), amount: pg.integer },
 		["order", "at"]
 	)
 	const family = ordered(on(Line, "order", "at"), fin(countedOrder, "n"))
@@ -834,7 +838,7 @@ const chainedKeyed = (() => {
 
 /** The lines after a migration that drops their stored key. */
 const droppedKeyed = (() => {
-	const Line = relation("Line", { order: pg.int4, at: drawn(natural), qty: pg.int4 }, [
+	const Line = relation("Line", { order: pg.integer, at: drawn(natural), qty: pg.integer }, [
 		"order",
 		"at"
 	])
@@ -895,14 +899,14 @@ const concatCase: FoldCase = (() => {
 	const name = "Joining"
 	const Attr = relation(
 		"Attr",
-		{ id: pg.int4, n: drawn(natural), joined: accumulated(joinedText, "") },
+		{ id: pg.integer, n: drawn(natural), joined: accumulated(joinedText, "") },
 		["id"]
 	)
 	const Token = relation(
 		"Token",
 		{
-			token: pg.int4,
-			attr: pg.int4,
+			token: pg.integer,
+			attr: pg.integer,
 			at: drawn(natural),
 			piece: joinedText,
 			before: accumulated(joinedText, ""),
@@ -916,8 +920,8 @@ const concatCase: FoldCase = (() => {
 			schema(
 				name,
 				[
-					relation("Attr", { id: pg.int4 }, ["id"]),
-					relation("Token", { token: pg.int4, attr: pg.int4, piece: joinedText }, ["token"])
+					relation("Attr", { id: pg.integer }, ["id"]),
+					relation("Token", { token: pg.integer, attr: pg.integer, piece: joinedText }, ["token"])
 				],
 				[]
 			),

@@ -362,7 +362,7 @@ const loweredLive = ({ c, twin, context }: Extract<LiveSketch, { kind: "lowered"
  * A gauge whose reading is a real number: its row check compares a double with NaN and both infinities, so the
  * installed DDL holds the float literals the persisted forms once lost, which no other fixture states.
  */
-const Gauge = relation("Gauge", { id: pg.integer, reading: pg.float8 }, ["id"])
+const Gauge = relation("Gauge", { id: pg.integer, reading: pg["double precision"] }, ["id"])
 const gauges = schema(
 	"Gauges",
 	[Gauge],

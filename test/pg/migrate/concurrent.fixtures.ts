@@ -50,9 +50,9 @@ export type Feature =
 	| "an installation sent by the real runner beside one sent by the harness's script door"
 	| "three installations at once"
 
-const Note = relation("Note", { id: pg.int4, done: pg.boolean }, ["id"])
+const Note = relation("Note", { id: pg.integer, done: pg.boolean }, ["id"])
 
-const Embedding = relation("Embedding", { id: pg.int4, at: pg.vector(3) }, ["id"])
+const Embedding = relation("Embedding", { id: pg.integer, at: pg.vector(3) }, ["id"])
 
 const plainSchema = schema("concurrent_plain", [Note], [])
 

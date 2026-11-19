@@ -13,7 +13,7 @@ export const Kind = closed.ordered("Kind", ["a", "b"])
 
 export const Account = relation(
 	"Account",
-	{ id: pg.int4, slug: Slug, bal: Cents, kind: closedId(Kind) },
+	{ id: pg.integer, slug: Slug, bal: Cents, kind: closedId(Kind) },
 	["id"]
 )
 
@@ -26,9 +26,9 @@ export type Row = RowScalars<typeof Account>
 const Loose = relation(
 	"Account",
 	{
-		id: pg.int4,
+		id: pg.integer,
 		slug: Slug,
-		bal: pg.int4,
+		bal: pg.integer,
 		kind: closedId(closed.ordered("Kind", ["a", "b", "c"]))
 	},
 	["id"]

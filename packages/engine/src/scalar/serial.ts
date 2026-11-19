@@ -33,7 +33,7 @@ const serialDescriptor = <const N extends SerialName, A>(
 const smallserial = serialDescriptor("smallserial", carrierColumn("int2"))
 
 /**
- * The serial family: pg.smallserial, pg.serial and pg.bigserial, with the serial2, serial4 and serial8 aliases.
+ * The serial family: pg.smallserial, pg.serial and pg.bigserial.
  *
  * A serial is a field of smallint, integer or bigint written by its sequence: it lowers to an identity column GENERATED
  * ALWAYS AS IDENTITY whose sequence the column owns, and its type and host values are the integer's. It is no separate
@@ -60,13 +60,10 @@ const uuidv7 = defineField(
 	bareEnv
 )
 
-/** PostgreSQL's spellings of the family, each the one descriptor it names. */
-export const serialAliases = {
+/** The family's descriptors, each under the one name PostgreSQL prints for it. */
+export const serialDescriptors = {
 	smallserial,
-	serial2: smallserial,
 	serial,
-	serial4: serial,
 	bigserial,
-	serial8: bigserial,
 	uuidv7
 } as const

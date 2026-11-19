@@ -124,8 +124,7 @@ type DescriptorMembers = Readonly<Record<string, unknown>> & Columned<unknown>
  * owned, frozen value that carries, beside its public members (its SQL name and its column, core/decoder.ts, whose
  * values are its host type), two internal ones:
  *
- * - `desc`, its FieldDesc: the descriptor as it crosses the Description boundary (ir/desc.ts), aliases already
- *   normalized, so `pg.int`, `pg.int4` and `pg.integer` have one Description;
+ * - `desc`, its FieldDesc: the descriptor as it crosses the Description boundary (ir/desc.ts);
  * - `scalar`, its ScalarType: the IR identity with its operation capability set (ir/scalar.ts).
  *
  * `describeField` reads them from any descriptor a caller hands in, and admits a descriptor only by identity: one this
@@ -155,7 +154,7 @@ const owned = new WeakSet<object>()
 
 /**
  * Freezes `target` with its members, registers it as an owned descriptor, and returns it. `target` is an object or,
- * for a value-and-callable descriptor (pg.numeric, pg.float, a contract), a function. Every member is non-writable;
+ * for a value-and-callable descriptor (a contract), a function. Every member is non-writable;
  * the public ones, the column among them, are enumerable, and the internal desc and scalar are not enumerated. A caller
  * leaves an absent optional member out of `members`. Only defineField reaches it, so every owned descriptor was
  * decoded and checked.

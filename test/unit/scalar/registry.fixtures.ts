@@ -91,7 +91,6 @@ export const rostersOfSketch = (sketch: DescriptorSketch): ReadonlyMap<string, R
 		case "span":
 			return rostersOfSketch(sketch.endpoint)
 		case "spelling":
-		case "float":
 		case "numeric":
 		case "vector":
 		case "uuid":

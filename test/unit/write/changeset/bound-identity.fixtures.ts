@@ -10,7 +10,7 @@ import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write
 import { assert } from "#test/support/assert.ts"
 
 /** Note(id, body): a body of a's and b's, keyed by id. */
-const Note = relation("Note", { id: pg.int4, body: str.regex("^[ab]*$") }, ["id"])
+const Note = relation("Note", { id: pg.integer, body: str.regex("^[ab]*$") }, ["id"])
 
 const Notes = schema("BoundNotes", [Note], [])
 

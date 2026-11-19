@@ -25,18 +25,16 @@ import {
 } from "#compiler/scalar/values/fault.ts"
 import { admittedClosedId, writingOf, closedBuilder } from "#compiler/schema/relation.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
-import { floatOf } from "#test/support/descriptors.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 
 /**
  * Field descriptors as a JavaScript caller writes them, drawn as sketches over the whole namespace: every spelling of
- * the pg namespace that is a descriptor itself, float(p), numeric(p, s), vector(n), uuid, a closed id over a drawn
+ * the pg namespace that is a descriptor itself, numeric(p, s), vector(n), uuid, a closed id over a drawn
  * roster, a span over a drawn endpoint with or without a width, and a contract over a drawn base. A sketch is what a
  * search prints and shrinks; `descriptorOf` builds the descriptor it names.
  */
 export type DescriptorSketch =
 	| { readonly kind: "spelling"; readonly name: Spelling }
-	| { readonly kind: "float"; readonly precision: number }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
 	| { readonly kind: "vector"; readonly dimensions: number }
 	| { readonly kind: "uuid" }
@@ -56,7 +54,7 @@ export type DescriptorSketch =
 /** A name of the pg namespace. */
 export type Spelling = keyof typeof pgDescriptors
 
-/** The names of the pg namespace whose value is a descriptor itself, not a constructor of one: every alias. */
+/** The names of the pg namespace whose value is a descriptor itself, not a constructor of one. */
 export const spellings: Arr.NonEmptyReadonlyArray<Spelling> = nonEmpty(
 	Arr.filter(Rec.keys(pgDescriptors), (name) => isOwnedDescriptor(pgDescriptors[name])),
 	"the pg namespace's descriptors"
@@ -74,8 +72,6 @@ export const descriptorOf = (sketch: DescriptorSketch): unknown => {
 	switch (sketch.kind) {
 		case "spelling":
 			return spelled(sketch.name)
-		case "float":
-			return floatOf(sketch.precision)
 		case "numeric":
 			return pgDescriptors.numeric(sketch.precision, sketch.scale)
 		case "vector":
@@ -112,7 +108,6 @@ export const spanCarrierOf = (sketch: DescriptorSketch): "range4" | "range8" | u
 		}
 		case "contract":
 			return spanCarrierOf(sketch.base)
-		case "float":
 		case "numeric":
 		case "vector":
 		case "uuid":
@@ -125,7 +120,7 @@ export const spanCarrierOf = (sketch: DescriptorSketch): "range4" | "range8" | u
 /**
  * The type a sketch names, by its parts alone: two descriptors are one type exactly when their keys are equal. A
  * spelling names the SQL type PostgreSQL stores it as (which the catalog suite holds each spelling to), whatever its
- * writing; float(p) names real up to binary32's 24 bits and double precision past them; a typmod, a roster, a width and
+ * writing; a typmod, a roster, a width and
  * a contract's name are each part of the type, a roster by its name, its order and its handles in that order, an
  * unordered roster's a set, sorted.
  */
@@ -133,8 +128,6 @@ export const typeKeyOf = (sketch: DescriptorSketch): string => {
 	switch (sketch.kind) {
 		case "spelling":
 			return spelled(sketch.name).sql
-		case "float":
-			return sketch.precision <= 24 ? "real" : "double precision"
 		case "numeric":
 			return `numeric(${sketch.precision},${sketch.scale === 0 ? 0 : sketch.scale})`
 		case "vector":
@@ -255,8 +248,7 @@ const spanGen =
 	}
 
 /**
- * A descriptor the namespace admits over the spellings `names`, its contracts nested `depth` deep at most; float(p)
- * for every binary precision PostgreSQL admits.
+ * A descriptor the namespace admits over the spellings `names`, its contracts nested `depth` deep at most.
  */
 const descriptorOver = (
 	names: Arr.NonEmptyReadonlyArray<Spelling>,
@@ -264,7 +256,6 @@ const descriptorOver = (
 ): Gen<DescriptorSketch> => {
 	const leaves: Arr.NonEmptyReadonlyArray<Weighted<DescriptorSketch>> = [
 		[4, spellingOf(names)],
-		[2, map(int(1, 53), (precision): DescriptorSketch => ({ kind: "float", precision }))],
 		[2, numericGen],
 		[2, vectorGen],
 		[1, constant<DescriptorSketch>({ kind: "uuid" })],

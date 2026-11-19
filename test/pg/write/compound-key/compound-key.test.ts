@@ -212,8 +212,8 @@ const parentFields = (s: Shape): Readonly<Record<string, FieldBase>> => ({
 	t0: textOf(s.widths[0]),
 	t1: textOf(s.widths[1]),
 	t2: textOf(s.widths[2]),
-	n: pg.int4,
-	payload: pg.int4
+	n: pg.integer,
+	payload: pg.integer
 })
 
 /** A key field's name on Child. */
@@ -223,7 +223,7 @@ const childField = (f: KeyField): string => `c_${f}`
 const childFields = (s: Shape): Readonly<Record<string, FieldBase>> => {
 	const parent = parentFields(s)
 	return Rec.fromEntries([
-		["id", pg.int4] as const,
+		["id", pg.integer] as const,
 		...Arr.map(s.key, (f) => [childField(f), defined(parent[f], "a key field")] as const)
 	])
 }
@@ -877,7 +877,7 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 									return r
 										.match(b.Child, ch)
 										.match(b.Parent, joined)
-										.where(r.eq(defined(ch["id"], "the child id"), r.param("id", pg.int4)))
+										.where(r.eq(defined(ch["id"], "the child id"), r.param("id", pg.integer)))
 										.find(joined)
 								})
 							})

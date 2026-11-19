@@ -62,12 +62,16 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-const Target = relation("Target", { id: pg.int4, k: pg.int4, during: span(pg.int4), on: pg.bool }, [
-	"id"
-])
-const Source = relation("Source", { id: pg.int4, k: pg.int4, during: span(pg.int4), on: pg.bool }, [
-	"id"
-])
+const Target = relation(
+	"Target",
+	{ id: pg.integer, k: pg.integer, during: span(pg.integer), on: pg.boolean },
+	["id"]
+)
+const Source = relation(
+	"Source",
+	{ id: pg.integer, k: pg.integer, during: span(pg.integer), on: pg.boolean },
+	["id"]
+)
 const selectedTarget = select(Target, (t) => t.eq(t.on, true))
 
 /** The target key, over a selected side, which the installation reports as its own law (a projected key). */

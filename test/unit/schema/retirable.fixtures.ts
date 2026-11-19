@@ -82,28 +82,28 @@ const declared = (d: Declared): unknown => {
 	const lifecycle = retirementField(pg.boolean)
 	const rootFields =
 		d.lifecycles === 0
-			? { id: pg.int4 }
+			? { id: pg.integer }
 			: d.lifecycles === 1
-				? { id: pg.int4, retired: lifecycle }
-				: { id: pg.int4, retired: lifecycle, closed: retirementField(pg.boolean) }
+				? { id: pg.integer, retired: lifecycle }
+				: { id: pg.integer, retired: lifecycle, closed: retirementField(pg.boolean) }
 	const Root = relation("Root", rootFields, ["id"], [])
 	const Step = relation(
 		"Step",
-		{ root: pg.int4, step: pg.int4 },
+		{ root: pg.integer, step: pg.integer },
 		d.stepKeyed ? ["root", "step"] : ["step"],
 		[]
 	)
 	const Claim = relation(
 		"Claim",
-		{ root: pg.int4, step: pg.int4, attempt: pg.int4 },
+		{ root: pg.integer, step: pg.integer, attempt: pg.integer },
 		["root", "step", "attempt"],
 		[]
 	)
 	const Note = relation(
 		"Note",
 		d.stray
-			? { root: pg.int4, step: pg.int4, gone: retirementField(pg.boolean) }
-			: { root: pg.int4, step: pg.int4 },
+			? { root: pg.integer, step: pg.integer, gone: retirementField(pg.boolean) }
+			: { root: pg.integer, step: pg.integer },
 		["root", "step"],
 		[]
 	)

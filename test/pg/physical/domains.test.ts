@@ -41,19 +41,19 @@ interface Definition {
 /** Contract A under a definition. */
 const contractA = (d: Definition) =>
 	d.base === "int4"
-		? contract("A", pg.int4, (v) => v.ge(d.least))
-		: contract("A", pg.int8, (v) => v.ge(BigInt(d.least)))
+		? contract("A", pg.integer, (v) => v.ge(d.least))
+		: contract("A", pg.bigint, (v) => v.ge(BigInt(d.least)))
 
 /** Contract B under a definition. */
 const contractB = (d: Definition) =>
 	d.base === "int4"
-		? contract("B", pg.int4, (v) => v.ge(d.least))
-		: contract("B", pg.int8, (v) => v.ge(BigInt(d.least)))
+		? contract("B", pg.integer, (v) => v.ge(d.least))
+		: contract("B", pg.bigint, (v) => v.ge(BigInt(d.least)))
 
 const schemaOf = (a: Definition, b: Definition) =>
 	schema(
 		"fin_domains",
-		[relation("R", { id: pg.int4, a: contractA(a), b: contractB(b) }, ["id"])],
+		[relation("R", { id: pg.integer, a: contractA(a), b: contractB(b) }, ["id"])],
 		[]
 	)
 

@@ -39,10 +39,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const NodeKind = closed.ordered("NodeKind", ["document", "element"])
 const Node = relation(
 	"Node",
-	{ id: pg.int4, kind: closedId(NodeKind), document: pg.int4, depth: natural },
+	{ id: pg.integer, kind: closedId(NodeKind), document: pg.integer, depth: natural },
 	["id"]
 )
-const Document = relation("Document", { node: pg.int4 }, ["node"])
+const Document = relation("Document", { node: pg.integer }, ["node"])
 
 /**
  * The box's schema, both relations mutable: a containment between immutable relations that joins within one unit is

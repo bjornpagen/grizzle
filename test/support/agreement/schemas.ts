@@ -104,7 +104,6 @@ import {
 	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
-import { floatOf } from "#test/support/descriptors.ts"
 import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { messageOf } from "#test/support/message.ts"
 import { checking } from "#test/support/policy.ts"
@@ -157,7 +156,6 @@ const schemaConstructs = [
 	"nestedContract",
 	"regexField",
 	"numericField",
-	"floatField",
 	"dateField",
 	"moneyField",
 	"vectorField",
@@ -914,41 +912,27 @@ const reasonKey = (reason: CompileReason): string => {
 			return reason._tag
 	}
 }
-/** A pg descriptor a field may be spelled by, every alias among them. */
+/** A pg descriptor a field may be spelled by, each type's one name. */
 const pgSpellings = [
 	"smallint",
-	"int2",
 	"integer",
-	"int",
-	"int4",
 	"bigint",
-	"int8",
 	"real",
-	"float4",
 	"double precision",
-	"float8",
 	"money",
-	"boolean",
-	"bool"
+	"boolean"
 ] as const
 type PgSpelling = (typeof pgSpellings)[number]
 
 /** The integer serials' spellings, each drawn by an identity. */
-const integerSerialSpellings = [
-	"smallserial",
-	"serial2",
-	"serial",
-	"serial4",
-	"bigserial",
-	"serial8"
-] as const
+const integerSerialSpellings = ["smallserial", "serial", "bigserial"] as const
 
 /** Every serial's spelling: the integer serials', and pg.uuidv7, drawn by its `uuidv7()` default. */
 const serialSpellings = [...integerSerialSpellings, "uuidv7"] as const
 type SerialSpelling = (typeof serialSpellings)[number]
 
 /** The integer spellings a span's endpoint may be. */
-const endpointSpellings = ["integer", "int", "int4", "bigint", "int8"] as const
+const endpointSpellings = ["integer", "bigint"] as const
 type EndpointSpelling = (typeof endpointSpellings)[number]
 
 /**
@@ -1013,13 +997,7 @@ type FieldType =
 	| { readonly kind: "uuid" }
 	| { readonly kind: "date" }
 	| { readonly kind: "natural" }
-	| {
-			readonly kind: "numeric"
-			readonly spelling: "numeric" | "decimal"
-			readonly precision: number
-			readonly scale: number
-	  }
-	| { readonly kind: "floatOf"; readonly precision: number }
+	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
 	| { readonly kind: "vector"; readonly dims: number }
 	| { readonly kind: "text"; readonly pattern: Pattern }
 	| { readonly kind: "contract"; readonly name: string }
@@ -1207,7 +1185,7 @@ interface Base {
 	readonly slots: SlotsSpec | undefined
 	/** Public values asked whether they are field descriptors, and pairs of pg spellings asked whether one is the other. */
 	readonly publics: ReadonlyArray<PublicValue>
-	readonly spellings: ReadonlyArray<readonly [Spelling, Exclude<Spelling, "float">]>
+	readonly spellings: ReadonlyArray<readonly [Spelling, Spelling]>
 }
 
 /**
@@ -1281,34 +1259,18 @@ const slotStatements = (slots: SlotsSpec): ReadonlyArray<StatementSpec> => [
 ]
 
 /** A public value of the fields and text barrels: a descriptor, or a constructor that makes one. */
-const publicValues = [
-	"numeric",
-	"decimal",
-	"vector",
-	"float",
-	"integer",
-	"str",
-	"uuid",
-	"natural",
-	"date"
-] as const
+const publicValues = ["numeric", "vector", "integer", "str", "uuid", "natural", "date"] as const
 type PublicValue = (typeof publicValues)[number]
 
-/** A pg member that is a descriptor: every scalar and serial spelling, and float, also float(p)'s constructor. */
-type Spelling = PgSpelling | SerialSpelling | "float"
-const spellingsOf: Arr.NonEmptyReadonlyArray<Spelling> = [
-	...pgSpellings,
-	...serialSpellings,
-	"float"
-]
+/** A pg member that is a descriptor: every scalar and serial spelling. */
+type Spelling = PgSpelling | SerialSpelling
+const spellingsOf: Arr.NonEmptyReadonlyArray<Spelling> = [...pgSpellings, ...serialSpellings]
 
 /** A public value as the program spells it, and as the engine holds it. */
 const publicSource = (v: PublicValue): string => {
 	switch (v) {
 		case "numeric":
-		case "decimal":
 		case "vector":
-		case "float":
 		case "integer":
 			return `Fi.pg.${v}`
 		case "str":
@@ -1323,9 +1285,7 @@ const publicSource = (v: PublicValue): string => {
 const publicValue = (v: PublicValue): unknown => {
 	switch (v) {
 		case "numeric":
-		case "decimal":
 		case "vector":
-		case "float":
 		case "integer":
 			return pgDescriptors[v]
 		case "str":
@@ -1466,8 +1426,8 @@ const contractBaseOf = (
 	return nested
 		? { kind: "contract", name: d.from(Arr.map(contracts, (c) => c.name)) }
 		: d.from<FieldType>([
-				{ kind: "pg", spelling: d.from(["bigint", "int8", "integer", "int4"] as const) },
-				{ kind: "numeric", spelling: "numeric", precision: 7, scale: 2 },
+				{ kind: "pg", spelling: d.from(["bigint", "integer"] as const) },
+				{ kind: "numeric", precision: 7, scale: 2 },
 				{ kind: "text", pattern: d.from(patterns) },
 				{ kind: "uuid" },
 				{ kind: "date" },
@@ -1527,13 +1487,11 @@ const fieldTypeOf = (
 				const [precision, scale] = d.from(numericTypmods)
 				return {
 					kind: "numeric",
-					spelling: d.from(["numeric", "decimal"] as const),
 					precision,
 					scale
 				}
 			}
 		],
-		["floatField", () => ({ kind: "floatOf", precision: d.from([1, 24, 25, 53]) })],
 		["dateField", () => ({ kind: "date" })],
 		["moneyField", () => ({ kind: "pg", spelling: "money" })],
 		["vectorField", () => ({ kind: "vector", dims: d.from([1, 3, 1536, 16000]) })],
@@ -1549,9 +1507,7 @@ const fieldTypeOf = (
 				const spelling =
 					endpoint.kind === "pg" ? endpoint.spelling : integerEnd(contracts, endpoint.name)
 				const width: Width =
-					spelling === "bigint" || spelling === "int8"
-						? { host: "bigint", value: 7n }
-						: { host: "number", value: 7 }
+					spelling === "bigint" ? { host: "bigint", value: 7n } : { host: "number", value: 7 }
 				return { kind: "span", endpoint, width: d.upTo(1) === 1 ? width : undefined }
 			}
 		],
@@ -1575,10 +1531,7 @@ const fieldTypeOf = (
 const keyable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boolean => {
 	switch (t.kind) {
 		case "pg":
-			return !Arr.contains(
-				["real", "float4", "double precision", "float8", "money"] as const,
-				t.spelling
-			)
+			return !Arr.contains(["real", "double precision", "money"] as const, t.spelling)
 		case "serial":
 		case "uuid":
 		case "date":
@@ -1592,7 +1545,6 @@ const keyable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boolean 
 			const found = Arr.findFirst(contracts, (c) => c.name === t.name)
 			return Option.isSome(found) && keyable(found.value.base, contracts)
 		}
-		case "floatOf":
 		case "vector":
 		case "bits":
 		case "span":
@@ -1646,7 +1598,7 @@ const relationOf = (
 ): RelationSpec => {
 	const idType = d.from<FieldType>([
 		{ kind: "uuid" },
-		{ kind: "pg", spelling: d.from(["bigint", "integer", "int8"] as const) },
+		{ kind: "pg", spelling: d.from(["bigint", "integer"] as const) },
 		...(d.keep("serialField")
 			? [{ kind: "serial", spelling: d.from(serialSpellings) } as const]
 			: [])
@@ -1676,11 +1628,10 @@ const relationOf = (
 const aggregatable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boolean => {
 	switch (t.kind) {
 		case "pg":
-			return !Arr.contains(["money", "boolean", "bool"] as const, t.spelling)
+			return !Arr.contains(["money", "boolean"] as const, t.spelling)
 		case "serial":
 			return t.spelling !== "uuidv7"
 		case "numeric":
-		case "floatOf":
 			return true
 		case "contract": {
 			const found = Arr.findFirst(contracts, (c) => c.name === t.name)
@@ -1760,7 +1711,7 @@ const sameType = (a: FieldType, b: FieldType): boolean => typeText(a) === typeTe
 
 /**
  * A field type's identity as text: its carrier with what tells its values apart (a contract's or roster's name, a
- * typmod, a pattern, an endpoint), every alias of one carrier one text.
+ * typmod, a pattern, an endpoint).
  */
 const typeText = (t: FieldType): string => {
 	switch (t.kind) {
@@ -1774,8 +1725,6 @@ const typeText = (t: FieldType): string => {
 			return t.kind
 		case "numeric":
 			return `numeric ${t.precision} ${t.scale}`
-		case "floatOf":
-			return t.precision <= 24 ? "pg real" : "pg double precision"
 		case "vector":
 			return `vector ${t.dims}`
 		case "text":
@@ -1793,29 +1742,19 @@ const typeText = (t: FieldType): string => {
 
 const pgCanonical: { readonly [S in PgSpelling]: string } = {
 	smallint: "smallint",
-	int2: "smallint",
 	integer: "integer",
-	int: "integer",
-	int4: "integer",
 	bigint: "bigint",
-	int8: "bigint",
 	real: "real",
-	float4: "real",
 	"double precision": "double precision",
-	float8: "double precision",
 	money: "money",
-	boolean: "boolean",
-	bool: "boolean"
+	boolean: "boolean"
 }
 
 /** A serial's type text, its value type's: an integer serial's integer, and pg.uuidv7's uuid. */
 const serialText: { readonly [S in SerialSpelling]: string } = {
 	smallserial: "pg smallint",
-	serial2: "pg smallint",
 	serial: "pg integer",
-	serial4: "pg integer",
 	bigserial: "pg bigint",
-	serial8: "pg bigint",
 	uuidv7: "uuid"
 }
 /**
@@ -2194,8 +2133,7 @@ const baseOf = (d: Drawing): Base => {
 		publics: [d.from(publicValues), d.from(publicValues)],
 		spellings: Arr.map(Arr.range(0, 2), () => {
 			const x = d.from(spellingsOf)
-			const ys = Arr.filter(spellingsOf, (y): y is Exclude<Spelling, "float"> => y !== "float")
-			const y = d.from(Arr.isReadonlyArrayNonEmpty(ys) ? ys : [pgSpellings[0]])
+			const y = d.from(spellingsOf)
 			return [x, y] as const
 		})
 	}
@@ -2363,9 +2301,7 @@ const fieldValue = (
 		case "natural":
 			return naturalDescriptor
 		case "numeric":
-			return pgDescriptors[t.spelling](t.precision, t.scale)
-		case "floatOf":
-			return floatOf(t.precision)
+			return pgDescriptors.numeric(t.precision, t.scale)
 		case "vector":
 			return pgDescriptors.vector(t.dims)
 		case "text":
@@ -2982,9 +2918,7 @@ const fieldSource = (t: FieldType, ids: Ids): string => {
 		case "natural":
 			return "Fi.natural"
 		case "numeric":
-			return `Fi.pg.${t.spelling}(${t.precision}, ${t.scale})`
-		case "floatOf":
-			return `Fi.pg.float(${t.precision})`
+			return `Fi.pg.numeric(${t.precision}, ${t.scale})`
 		case "vector":
 			return `Fi.pg.vector(${t.dims})`
 		case "text":
@@ -4331,7 +4265,7 @@ const targetType = (t: LiteralTarget, roster: string): FieldType => {
 		case "money":
 			return { kind: "pg", spelling: t }
 		case "numeric":
-			return { kind: "numeric", spelling: "numeric", precision: 7, scale: 2 }
+			return { kind: "numeric", precision: 7, scale: 2 }
 		case "closedId":
 			return { kind: "closedId", roster }
 		case "uuid":
@@ -4952,7 +4886,7 @@ type FieldCall =
 			readonly width: "none" | "number" | "bigint"
 	  }
 	| { readonly kind: "numeric"; readonly arguments: 1 | 2 }
-	| { readonly kind: "typmod"; readonly of: "float" | "numeric" | "vector"; readonly text: boolean }
+	| { readonly kind: "typmod"; readonly of: "numeric" | "vector"; readonly text: boolean }
 	| { readonly kind: "lookAlike" }
 	| { readonly kind: "crossSet"; readonly roster: RosterSpec }
 
@@ -4977,8 +4911,6 @@ const fieldCallSource = (call: FieldCall, ids: Ids): string => {
 		case "typmod": {
 			const first = (value: number) => (call.text ? jsonText(String(value)) : String(value))
 			switch (call.of) {
-				case "float":
-					return `Fi.pg.float(${first(24)})`
 				case "numeric":
 					return `Fi.pg.numeric(${first(18)}, 0)`
 				case "vector":
@@ -5023,8 +4955,6 @@ const fieldCallValue = (call: FieldCall, env: Env): unknown => {
 		case "typmod": {
 			const first = (value: number): number | string => (call.text ? String(value) : value)
 			switch (call.of) {
-				case "float":
-					return floatOf(first(24))
 				case "numeric":
 					return pgDescriptors.numeric(first(18), 0)
 				case "vector": {
@@ -5145,7 +5075,7 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 					{ kind: "pg", spelling: "smallint" },
 					{ kind: "serial", spelling: d.from(integerSerialSpellings) },
 					{ kind: "pg", spelling: "money" },
-					{ kind: "numeric", spelling: "numeric", precision: 10, scale: 0 }
+					{ kind: "numeric", precision: 10, scale: 0 }
 				]),
 				width: "none"
 			}
@@ -5162,11 +5092,11 @@ const fieldProbe = (d: Drawing, base: Base): Probe => {
 		{ fault: "numericArity", call: { kind: "numeric", arguments: 1 } },
 		{
 			fault: undefined,
-			call: { kind: "typmod", of: d.from(["float", "numeric", "vector"] as const), text: false }
+			call: { kind: "typmod", of: d.from(["numeric", "vector"] as const), text: false }
 		},
 		{
 			fault: "argumentKind",
-			call: { kind: "typmod", of: d.from(["float", "numeric", "vector"] as const), text: true }
+			call: { kind: "typmod", of: d.from(["numeric", "vector"] as const), text: true }
 		},
 		{ fault: "lookAlikeDescriptor", call: { kind: "lookAlike" } },
 		{ fault: "crossSet", call: { kind: "crossSet", roster } }

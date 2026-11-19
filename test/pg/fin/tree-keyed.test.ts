@@ -92,9 +92,9 @@ const One = relation(
 		children: drawnField(natural),
 		start: drawnField(natural),
 		end: drawnField(natural),
-		kind: pg.int4,
-		parentKind: accumulated(pg.int4, 0),
-		total: accumulated(pg.int4, 0)
+		kind: pg.integer,
+		parentKind: accumulated(pg.integer, 0),
+		total: accumulated(pg.integer, 0)
 	},
 	["doc", "start"]
 )
@@ -120,16 +120,16 @@ const OneRoot = schema(
 const Two = relation(
 	"Node",
 	{
-		site: pg.int4,
+		site: pg.integer,
 		page: RootText,
 		parent: drawnField(natural),
 		at: drawnField(natural),
 		children: drawnField(natural),
 		start: drawnField(natural),
 		end: drawnField(natural),
-		kind: pg.int4,
-		parentKind: accumulated(pg.int4, 0),
-		total: accumulated(pg.int4, 0)
+		kind: pg.integer,
+		parentKind: accumulated(pg.integer, 0),
+		total: accumulated(pg.integer, 0)
 	},
 	["site", "page", "start"]
 )
@@ -163,15 +163,15 @@ const Three = relation(
 	{
 		a: uuid,
 		b: RootText,
-		c: pg.int4,
+		c: pg.integer,
 		parent: drawnField(natural),
 		at: drawnField(natural),
 		children: drawnField(natural),
 		start: drawnField(natural),
 		end: drawnField(natural),
-		kind: pg.int4,
-		parentKind: accumulated(pg.int4, 0),
-		total: accumulated(pg.int4, 0)
+		kind: pg.integer,
+		parentKind: accumulated(pg.integer, 0),
+		total: accumulated(pg.integer, 0)
 	},
 	["a", "b", "c", "start"]
 )
@@ -396,15 +396,15 @@ const forestFeatures = (
 const Copied = relation(
 	"Node",
 	{
-		site: pg.int4,
+		site: pg.integer,
 		page: RootText,
 		parent: drawnField(natural),
 		at: drawnField(natural),
 		children: drawnField(natural),
 		start: drawnField(natural),
 		end: drawnField(natural),
-		kind: pg.int4,
-		parentKind: accumulated(pg.int4, 0)
+		kind: pg.integer,
+		parentKind: accumulated(pg.integer, 0)
 	},
 	["site", "page", "start"]
 )

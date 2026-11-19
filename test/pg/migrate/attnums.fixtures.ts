@@ -20,7 +20,7 @@ export const wide = (name: string, columns: ReadonlyArray<string>) =>
 		[
 			relation(
 				"Wide",
-				{ id: pg.int4, ...Rec.fromEntries(Arr.map(columns, (c) => [c, pg.int2] as const)) },
+				{ id: pg.integer, ...Rec.fromEntries(Arr.map(columns, (c) => [c, pg.smallint] as const)) },
 				["id"]
 			)
 		],

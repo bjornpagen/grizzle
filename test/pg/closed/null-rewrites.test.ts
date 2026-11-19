@@ -390,7 +390,7 @@ const schemaOf = (c: RewriteCase) => {
 	const Kind = closed.ordered("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
 	const Pick = closed.relation(
 		"Pick",
-		{ kind: closedId(Kind), t: Short, f: pg.float8 },
+		{ kind: closedId(Kind), t: Short, f: pg["double precision"] },
 		["kind"],
 		Arr.flatMap(c.pick, (p, kind) =>
 			p === undefined ? [] : [{ kind: kindOf(kind), t: p.t, f: p.f }]
@@ -406,7 +406,7 @@ const schemaOf = (c: RewriteCase) => {
 		id: pg.integer,
 		kind: closedId(Kind),
 		t: Short,
-		x: pg.float8,
+		x: pg["double precision"],
 		n: pg.integer,
 		m: pg.integer
 	}

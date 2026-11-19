@@ -1716,7 +1716,7 @@ schema.
 | `natural`                                          | bigint, behind a domain that checks `>= 0`                          | `bigint`                                                               |
 | `date`                                             | date, its column checked to 0001-01-01 … 9999-12-31                 | `CalendarDate`, its ISO 8601 text `"YYYY-MM-DD"`                       |
 | `pg.numeric(p, s)`                                 | numeric(p, s)                                                       | `Decimal`, exact, no display scale                                     |
-| `pg.real`, `pg["double precision"]`, `pg.float(p)` | real, double precision                                              | `number`                                                               |
+| `pg.real`, `pg["double precision"]`                | real, double precision                                              | `number`                                                               |
 | `pg.money`                                         | money                                                               | `Money`                                                                |
 | `pg.boolean`                                       | boolean                                                             | `boolean`                                                              |
 | `pg.smallserial`, `pg.serial`, `pg.bigserial`      | an identity column                                                  | `number`, `number`, `bigint`                                           |
@@ -1731,8 +1731,8 @@ schema.
 | `pg.vector(n)`                                     | pgvector's vector(n)                                                | `Vector`, a Float32Array                                               |
 | `bytes`                                            | bytea, at most 1,073,741,819 bytes                                  | `Uint8Array`, a fresh one over its own buffer                          |
 
-`pg.float(p)` is real for p up to 24 and double precision up to 53. `pg.int4`, `pg.float8`, `pg.decimal` and
-PostgreSQL's other spellings are the same fields.
+Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `int4`; `pg["double precision"]`, never
+`float8` or `float(p)`; `pg.numeric`, never `decimal`; `pg.boolean`, never `bool`.
 
 - **A value is parsed exactly, once.** Every value you pass, a fact's field, a parameter or a page's boundary, is read
   as its field's type and never altered: a `Decimal` with more fractional digits than its `pg.numeric(p, s)` holds is
@@ -2422,8 +2422,8 @@ outbox rows must go once their work is finished. A retirable unit lets them go a
 
 ```ts
 export const Flow = relation("Flow", { id: uuid, retired: retirement }, ["id"])
-export const FlowStep = relation("FlowStep", { flow: uuid, step: pg.int4 }, ["flow", "step"])
-export const FlowClaim = relation("FlowClaim", { flow: uuid, step: pg.int4, attempt: natural }, [
+export const FlowStep = relation("FlowStep", { flow: uuid, step: pg.integer }, ["flow", "step"])
+export const FlowClaim = relation("FlowClaim", { flow: uuid, step: pg.integer, attempt: natural }, [
 	"flow",
 	"step",
 	"attempt"

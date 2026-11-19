@@ -96,7 +96,11 @@ const searchProbe = query(search.Search).rule((r) => {
  * A schema whose every read depends on the session's output styles: a date, which DateStyle spells; a float8, which
  * extra_float_digits rounds; and bytes, which bytea_output spells. Its key is the stamp's id.
  */
-const Stamp = relation("Stamp", { id: uuid, day: date, ratio: pg.float8, blob: bytes }, ["id"])
+const Stamp = relation(
+	"Stamp",
+	{ id: uuid, day: date, ratio: pg["double precision"], blob: bytes },
+	["id"]
+)
 const Stamps = schema("Stamps", [Stamp], [])
 
 /** The one stamp a case stores. */

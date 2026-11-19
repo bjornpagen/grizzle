@@ -47,10 +47,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 const Owner = relation(
 	"Owner",
-	{ id: pg.int4, cap: pg.int4, n: drawnField(natural), end: accumulated(pg.int4, 0) },
+	{ id: pg.integer, cap: pg.integer, n: drawnField(natural), end: accumulated(pg.integer, 0) },
 	["id"]
 )
-const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+const Member = relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, ["member"])
 const family = counted(on(Member, "g"), fin(Owner, "n"))
 const Owners = schema(
 	"OwnerKeys",

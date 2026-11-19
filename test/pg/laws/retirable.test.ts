@@ -31,9 +31,9 @@ import { caseHang } from "#test/support/limits.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Root = relation("Root", { id: pg.int4, retired: retirement }, ["id"])
-const Step = relation("Step", { root: pg.int4, step: pg.int4 }, ["root", "step"])
-const Claim = relation("Claim", { root: pg.int4, step: pg.int4, attempt: pg.int4 }, [
+const Root = relation("Root", { id: pg.integer, retired: retirement }, ["id"])
+const Step = relation("Step", { root: pg.integer, step: pg.integer }, ["root", "step"])
+const Claim = relation("Claim", { root: pg.integer, step: pg.integer, attempt: pg.integer }, [
 	"root",
 	"step",
 	"attempt"

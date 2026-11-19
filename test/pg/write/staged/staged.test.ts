@@ -102,7 +102,7 @@ const whole = 1_000
 
 /** The largest size the CHECK Small admits: four fifths of a whole share. */
 const small = 800n
-const Package = relation("Package", { id: uuid, entries: drawnField(natural), name: pg.int4 }, [
+const Package = relation("Package", { id: uuid, entries: drawnField(natural), name: pg.integer }, [
 	"id"
 ])
 const Bin = relation(
@@ -131,7 +131,7 @@ const Entry = relation(
 const entries = ordered(on(Entry, "package", "at"), fin(Package, "entries"))
 const binned = counted(on(Entry, "bin"), fin(Bin, "n"))
 const shelved = counted(on(Entry, "shelf"), fin(Shelf, "n"))
-const Tag = relation("Tag", { id: pg.int4, v: pg.int4 }, ["id"])
+const Tag = relation("Tag", { id: pg.integer, v: pg.integer }, ["id"])
 const Staged = schema(
 	"StagedRows",
 	[Package, Bin, Shelf, Entry, Tag],

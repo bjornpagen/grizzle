@@ -38,22 +38,22 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A text of up to 8 letters, a type other than BText's x, of up to 3. */
 const Longer = str.regex("^[a-z]{1,8}$")
 
-const BNumeric = relation("BNumeric", { id: pg.int4, x: pg.numeric(5, 1) }, ["id"])
+const BNumeric = relation("BNumeric", { id: pg.integer, x: pg.numeric(5, 1) }, ["id"])
 /** BNumeric keyed by id and x, so a containment into it over id is keyed only where its selection fixes x. */
-const BKeyed = relation("BKeyed", { id: pg.int4, x: pg.numeric(5, 1) }, ["id", "x"])
-const BText = relation("BText", { id: pg.int4, x: str.regex("^[a-z]{1,3}$") }, ["id"])
+const BKeyed = relation("BKeyed", { id: pg.integer, x: pg.numeric(5, 1) }, ["id", "x"])
+const BText = relation("BText", { id: pg.integer, x: str.regex("^[a-z]{1,3}$") }, ["id"])
 
-const NumericOther = relation("NumericOther", { id: pg.int4 }, ["id"])
-const NumericOtherExact = relation("NumericOtherExact", { id: pg.int4 }, ["id"])
-const NumericOwn = relation("NumericOwn", { id: pg.int4 }, ["id"])
-const NumericBare = relation("NumericBare", { id: pg.int4 }, ["id"])
-const KeyedOtherExact = relation("KeyedOtherExact", { id: pg.int4 }, ["id"])
-const KeyedRuleOther = relation("KeyedRuleOther", { id: pg.int4 }, ["id"])
-const KeyedRuleOtherExact = relation("KeyedRuleOtherExact", { id: pg.int4 }, ["id"])
-const TextOther = relation("TextOther", { id: pg.int4 }, ["id"])
-const TextOtherExact = relation("TextOtherExact", { id: pg.int4 }, ["id"])
-const RuleOther = relation("RuleOther", { id: pg.int4 }, ["id"])
-const RuleOtherExact = relation("RuleOtherExact", { id: pg.int4 }, ["id"])
+const NumericOther = relation("NumericOther", { id: pg.integer }, ["id"])
+const NumericOtherExact = relation("NumericOtherExact", { id: pg.integer }, ["id"])
+const NumericOwn = relation("NumericOwn", { id: pg.integer }, ["id"])
+const NumericBare = relation("NumericBare", { id: pg.integer }, ["id"])
+const KeyedOtherExact = relation("KeyedOtherExact", { id: pg.integer }, ["id"])
+const KeyedRuleOther = relation("KeyedRuleOther", { id: pg.integer }, ["id"])
+const KeyedRuleOtherExact = relation("KeyedRuleOtherExact", { id: pg.integer }, ["id"])
+const TextOther = relation("TextOther", { id: pg.integer }, ["id"])
+const TextOtherExact = relation("TextOtherExact", { id: pg.integer }, ["id"])
+const RuleOther = relation("RuleOther", { id: pg.integer }, ["id"])
+const RuleOtherExact = relation("RuleOtherExact", { id: pg.integer }, ["id"])
 
 const Selected = schema(
 	"selector_literal",

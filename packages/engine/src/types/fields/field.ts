@@ -10,7 +10,6 @@ import type {
 } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { Patterns } from "#compiler/ir/scalar.ts"
-import type { FloatPrecision, FloatSql } from "#compiler/scalar/pg.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -107,9 +106,6 @@ export interface NumericTypmodField extends Field<Decimal, "numeric"> {
 	readonly precision: number
 	readonly scale: number
 }
-
-/** float(p): the real or double precision field its binary precision P resolves to. */
-export type FloatField<P extends FloatPrecision> = Field<number, FloatSql<P>>
 
 /**
  * natural: a bigint never below zero, which its values are proved to be, and the one field type a law side may read
@@ -235,8 +231,7 @@ type PlainIntegerField<Host, Sql extends SqlTag> = Field<Host, Sql> & NotSerial
 /**
  * Span endpoints: pg.integer, pg.bigint and contracts over them; never a serial. A contract over
  * pg.bigint is a Field<bigint & Brand, "bigint">, and Field is covariant in its host type, so the two plain arms admit
- * every contract over an admitted base. Aliases are the same descriptors: pg.int and pg.int4 are integer, pg.int8 is
- * bigint, and pg.int2, like smallint, is not an endpoint.
+ * every contract over an admitted base. pg.smallint is no endpoint.
  */
 export type IntegerLike = PlainIntegerField<number, "integer"> | PlainIntegerField<bigint, "bigint">
 

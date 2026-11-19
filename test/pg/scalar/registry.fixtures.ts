@@ -106,9 +106,6 @@ export const unspanned: Readonly<Partial<Record<Carrier, string>>> = {
 	date: "daterange: grizzle declares no span carrier over a date yet"
 }
 
-/** What a precision of float(p) reached: PostgreSQL's refusal on either side, or the type it stores. */
-export type FloatFeature = "refused below" | "real" | "double precision" | "refused above"
-
 /** What a carrier reached: an excluded native capability, and its span endpoints against the discrete ranges. */
 export type CarrierFeature =
 	| "a native capability excluded"

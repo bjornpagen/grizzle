@@ -148,12 +148,12 @@ const schemaAt = (name: string, p: Plan, after: boolean) => {
 	const Kind = rosterAt(p, after)
 	const relations: Record<string, ReturnType<typeof rosterAt> | VersionRelation> = { Kind }
 	for (const [i, r] of p.relations.entries()) {
-		const fields: Record<string, FieldBase> = { id: pg.int4 }
+		const fields: Record<string, FieldBase> = { id: pg.integer }
 		for (const [j, f] of r.fields.entries()) {
 			if (after && f.fate === "dropped") {
 				continue
 			}
-			fields[fieldName(j, after, f)] = f.kind === "code" ? closedId(Kind) : pg.int4
+			fields[fieldName(j, after, f)] = f.kind === "code" ? closedId(Kind) : pg.integer
 		}
 		relations[relationName(i, after, r)] = relationBuilder(
 			relationName(i, after, r),

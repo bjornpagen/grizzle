@@ -63,10 +63,12 @@ import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-const Owner = relation("Owner", { id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) }, [
-	"id"
-])
-const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+const Owner = relation(
+	"Owner",
+	{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
+	["id"]
+)
+const Member = relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, ["member"])
 const family = counted(on(Member, "g"), fin(Owner, "n"))
 
 /** The int4 sum over a counted family, both relations mutable so a member's put and delete are planned. */
@@ -126,17 +128,17 @@ const sketchGen: Gen<Sketch> = (source) => {
 const SpanOwner = relation(
 	"SpanOwner",
 	{
-		id: pg.int4,
+		id: pg.integer,
 		during: span(pg.integer),
-		label: pg.int4,
+		label: pg.integer,
 		n: drawn(natural),
-		end: accumulated(pg.int4, 0)
+		end: accumulated(pg.integer, 0)
 	},
 	["id", "during"]
 )
 const SpanMember = relation(
 	"SpanMember",
-	{ member: pg.int4, g: pg.int4, gd: span(pg.integer), x: pg.int4 },
+	{ member: pg.integer, g: pg.integer, gd: span(pg.integer), x: pg.integer },
 	["member"]
 )
 const spanFamily = counted(on(SpanMember, "g", "gd"), fin(SpanOwner, "n"))

@@ -55,7 +55,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
 const EntryPath = str.bytes(keyTextBytes([uuid]), str.regex("^.*$", "su"))
-const Package = relation("Package", { id: uuid, entries: drawn(natural), name: pg.int4 }, ["id"])
+const Package = relation("Package", { id: uuid, entries: drawn(natural), name: pg.integer }, ["id"])
 const Entry = relation(
 	"Entry",
 	{ package: uuid, at: drawn(natural), path: EntryPath, content: bytes },

@@ -56,8 +56,8 @@ import { openRig } from "#test/support/schedules/rig.ts"
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Owner = relation("Owner", { id: pg.int4, n: drawn(natural) }, ["id"])
-const Member = relation("Member", { member: pg.int4, g: pg.int4 }, ["member"])
+const Owner = relation("Owner", { id: pg.integer, n: drawn(natural) }, ["id"])
+const Member = relation("Member", { member: pg.integer, g: pg.integer }, ["member"])
 
 /**
  * The family under a schema name, with a role `app` the grizzle writer opens, whose login's workload holds the empty

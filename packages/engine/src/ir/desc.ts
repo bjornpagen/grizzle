@@ -78,7 +78,7 @@ export type LiteralDesc =
 	| { readonly float: FloatSpecialName }
 	| { readonly handles: ReadonlyArray<string> }
 
-/** Field descriptors, aliases already normalized: decimal is numeric, bool is boolean. */
+/** The pg descriptors' types, each by the one name PostgreSQL prints for it. */
 export const pgScalarNames = [
 	"smallint",
 	"integer",

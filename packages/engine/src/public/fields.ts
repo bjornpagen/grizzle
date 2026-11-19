@@ -91,7 +91,6 @@ export type {
 	DrawnField,
 	Field,
 	FieldBase,
-	FloatField,
 	GeneratedField,
 	HandleOf,
 	Infer,

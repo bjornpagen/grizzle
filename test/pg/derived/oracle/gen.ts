@@ -200,7 +200,7 @@ const descriptor = (k: BaseKind): FieldBase => {
 		case "dec":
 			return pg.numeric(6, 2)
 		case "f8":
-			return pg.float8
+			return pg["double precision"]
 	}
 }
 

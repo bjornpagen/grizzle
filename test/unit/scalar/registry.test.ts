@@ -211,7 +211,6 @@ export const scalarTypeOfAFieldDescToItsScalarTypeReadsEveryDescriptorKindAndAgr
 		needs: {},
 		situations: [
 			"spelling",
-			"float",
 			"numeric",
 			"vector",
 			"uuid",

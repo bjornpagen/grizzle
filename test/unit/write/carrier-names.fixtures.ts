@@ -34,7 +34,7 @@ const schemaName = "carrier_names"
 const layoutOf = (layout: Layout) => {
 	switch (layout) {
 		case "text": {
-			const R = relation("R", { id: pg.int4, v: str.regex("^[a-z]*$") }, ["id"])
+			const R = relation("R", { id: pg.integer, v: str.regex("^[a-z]*$") }, ["id"])
 			const S = schema(schemaName, [R], [mutable(R)])
 			return {
 				S,
@@ -56,7 +56,7 @@ const layoutOf = (layout: Layout) => {
 			}
 		}
 		case "bigint": {
-			const R = relation("R", { id: pg.int4, v: pg.bigint }, ["id"])
+			const R = relation("R", { id: pg.integer, v: pg.bigint }, ["id"])
 			const S = schema(schemaName, [R], [mutable(R)])
 			return {
 				S,
@@ -78,7 +78,7 @@ const layoutOf = (layout: Layout) => {
 			}
 		}
 		case "boolean": {
-			const R = relation("R", { id: pg.int4, v: pg.boolean }, ["id"])
+			const R = relation("R", { id: pg.integer, v: pg.boolean }, ["id"])
 			const S = schema(schemaName, [R], [mutable(R)])
 			return {
 				S,
@@ -100,7 +100,7 @@ const layoutOf = (layout: Layout) => {
 			}
 		}
 		case "uuid": {
-			const R = relation("R", { id: pg.int4, v: uuid }, ["id"])
+			const R = relation("R", { id: pg.integer, v: uuid }, ["id"])
 			const S = schema(schemaName, [R], [mutable(R)])
 			return {
 				S,

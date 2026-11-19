@@ -310,7 +310,7 @@ export const fieldOf = (kind: TypeKind, roster: AnyRoster): FieldBase => {
 		case "numeric(3, 0)":
 			return pg.numeric(3, 0)
 		case "float8":
-			return pg.float8
+			return pg["double precision"]
 		case "memo":
 			return str.regex("^.*$", "su")
 	}

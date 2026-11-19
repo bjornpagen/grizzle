@@ -130,7 +130,7 @@ const unrevived = (): CompileError => faultError("decimalType", SourceLoc("Decim
 const minting: unique symbol = Symbol("Decimal")
 
 /**
- * The owned exact Decimal carrier of pg.numeric and pg.decimal: a numeric value and nothing else. 1, 1.0 and 1.00
+ * The owned exact Decimal carrier of pg.numeric: a numeric value and nothing else. 1, 1.0 and 1.00
  * are one Decimal, written "1".
  *
  * A Decimal is NaN, +Infinity, -Infinity, or a finite value in its one form (ir/decimal.ts FiniteParts):

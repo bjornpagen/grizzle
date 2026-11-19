@@ -1,26 +1,15 @@
 import { dictionary } from "@bjornpagen/testing/dictionary"
 import { Array as Arr } from "effect"
-import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { nonEmpty } from "#test/support/assert.ts"
-import { upTo } from "#test/support/up-to.ts"
 import { type DescriptorSketch, spellings } from "#test/unit/scalar/support.ts"
 
 /**
- * The namespace's descriptors of no typmod: every spelling that is a descriptor itself, and float(p) at every binary
- * precision PostgreSQL admits. The namespace and PostgreSQL's precisions are the domain, never cases a person chose.
+ * The namespace's descriptors of no typmod: every spelling that is a descriptor itself. The namespace is the domain,
+ * never cases a person chose.
  */
 export const plainSketches = dictionary(
 	nonEmpty(
-		[
-			...Arr.map(spellings, (name): DescriptorSketch => ({ kind: "spelling", name })),
-			...Arr.map(
-				upTo(binary64Precision, (i) => i + 1),
-				(precision): DescriptorSketch => ({
-					kind: "float",
-					precision
-				})
-			)
-		],
+		Arr.map(spellings, (name): DescriptorSketch => ({ kind: "spelling", name })),
 		"the plain descriptors"
 	)
 )

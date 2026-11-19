@@ -34,7 +34,7 @@ const Code = str.regex("^[A-Z]{2,6}$")
 /** A pattern no stored field of the first version holds. */
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
 
-const Item = relation("Item", { id: uuid, n: pg.int4 }, ["id"])
+const Item = relation("Item", { id: uuid, n: pg.integer }, ["id"])
 const Coded = relation("Coded", { id: uuid, code: Code }, ["id"])
 const Tagged = relation("Tagged", { id: uuid, slug: Slug }, ["id"])
 

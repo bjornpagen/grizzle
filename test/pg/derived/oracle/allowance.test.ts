@@ -53,7 +53,7 @@ interface MenuItem {
 
 const Amount = relation(
 	"Amount",
-	{ id: pg.integer, grp: pg.integer, amount: pg.numeric(10, 3), ratio: pg.float8 },
+	{ id: pg.integer, grp: pg.integer, amount: pg.numeric(10, 3), ratio: pg["double precision"] },
 	["id"]
 )
 

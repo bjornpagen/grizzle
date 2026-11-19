@@ -2,22 +2,22 @@
  * The scalar descriptors (scalar/pg.ts, scalar/registry.ts describeField, schema/relation.ts closedId, contracts and
  * spans), each held to its own definition:
  *
- * - alias identity and distinct types: two spellings are one descriptor exactly when they name one type and one
- *   writing, and two descriptors one type exactly when their parts name one; a descriptor's Description decodes to
- *   itself, keys in order. Oracle: the sketches' own parts (test/unit/scalar/support.ts), a specification.
- * - typmods: numeric(p, s), float(p) and vector(n) admit exactly what PostgreSQL's rules admit, at every integer near
- *   their bounds and every wild argument, and refuse every other argument and arity as MalformedDescription. Oracle:
- *   PostgreSQL's published rules, restated from the published limits (binary32Precision, binary64Precision,
- *   vectorMaxDimensions, the integer carriers' ranges).
+ * - descriptor identity and distinct types: two spellings of the pg namespace are two descriptors, of one type exactly
+ *   when one is a serial of the other's integer, and two descriptors one type exactly when their parts name one; a
+ *   descriptor's Description decodes to itself, keys in order. Oracle: the sketches' own parts (test/unit/scalar/support.ts), a specification.
+ * - typmods: numeric(p, s) and vector(n) admit exactly what PostgreSQL's rules admit, at every integer near their
+ *   bounds and every wild argument, and refuse every other argument and arity as MalformedDescription. Oracle:
+ *   PostgreSQL's published rules, restated from the published limits (vectorMaxDimensions, the integer carriers'
+ *   ranges).
  * - spans: a span's width is admitted exactly when it is positive and of its endpoint's base type, and a span's
  *   endpoint is one of the span carriers' endpoints.
  * - closed ids: closedId names the roster, keeps the closed relation and its declared handle order, one identity per
  *   roster and another per name; and every forgery of a closed relation, each named by the one rule it breaks, is
  *   refused.
  *
- * Features: as each search names them: the alias and type outcomes, every kind of sketch, admitted and refused, every
- * wild kind, each forgery; for the typmods, each bound and the integer past it (numeric's precision and scale, float's
- * least, real's greatest and its own greatest, vector's least and greatest dimensions), drawn from the bounds half the
+ * Features: as each search names them: the spelling and type outcomes, every kind of sketch, admitted and refused,
+ * every wild kind, each forgery; for the typmods, each bound and the integer past it (numeric's precision and scale,
+ * vector's least and greatest dimensions), drawn from the bounds half the
  * time beside the wide range; for closed ids, one handle and several, two names and one.
  */
 
@@ -31,20 +31,16 @@ import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { contractOf, Roster, rosterOf, sameScalarType, spanOf } from "#compiler/ir/scalar.ts"
-import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { carrierSql, describeField } from "#compiler/scalar/registry.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
-import { binary32Precision } from "#compiler/scalar/values/float.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
 import { admittedClosedId, writingOf, closedBuilder } from "#compiler/schema/relation.ts"
 import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
-import { floatOf } from "#test/support/descriptors.ts"
 import { spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import {
-	type AliasFeature,
 	admits,
 	boundsReached,
 	type ClosedIdFeature,
@@ -53,9 +49,6 @@ import {
 	described,
 	dimensionBounds,
 	type EndpointFeature,
-	type FloatTypmodFeature,
-	floatBounds,
-	floatPrecisionSpace,
 	type ForgeryFeature,
 	forgedGen,
 	forgeries,
@@ -70,6 +63,7 @@ import {
 	plainPairGen,
 	precisionBounds,
 	type SpanWidthFeature,
+	type SpellingFeature,
 	scalarOf,
 	scaleBounds,
 	spanWidthSpace,
@@ -87,18 +81,16 @@ import {
 	typeKeyOf
 } from "#test/unit/scalar/support.ts"
 
-/** Alias identity makes two spellings one descriptor exactly when they name one type and one writing, and a serial one type with its integer. */
-export const aliasIdentityMakesTwoSpellingsOneDescriptorExactlyWhenTheyNameOneTypeAndOneWritingAndASerialOneTypeWithItsInteger =
+/** Two spellings of the pg namespace are two descriptors, of one type exactly when one is a serial of the other's integer. */
+export const twoSpellingsAreTwoDescriptorsOfOneTypeExactlyWhenOneIsASerialOfTheOthersInteger =
 	property.exhaust(finite(plainPairGen), {
-		box: "every pair of the pg namespace's descriptors and float(p) at every precision",
+		box: "every pair of the pg namespace's descriptors",
 		needs: {},
-		situations: [
-			"one value, two spellings",
-			"one type, two writings",
-			"two types"
-		] satisfies ReadonlyArray<Reached<AliasFeature>>,
+		situations: ["one type, two writings", "two types"] satisfies ReadonlyArray<
+			Reached<SpellingFeature>
+		>,
 		check:
-			(_, c: Case<AliasFeature>) =>
+			(_, c: Case<SpellingFeature>) =>
 			([x, y]) =>
 				Effect.sync(() => {
 					const a = descriptorOf(x)
@@ -106,14 +98,15 @@ export const aliasIdentityMakesTwoSpellingsOneDescriptorExactlyWhenTheyNameOneTy
 					const oneType = typeKeyOf(x) === typeKeyOf(y)
 					const oneWriting = writingOf(a).kind === writingOf(b).kind
 					const label = `${Formatter.format(x)} and ${Formatter.format(y)}`
-					assert.equal(a === b, oneType && oneWriting, label)
+					assert.equal(oneType && oneWriting, false, `${label}: one type and writing spelled twice`)
+					assert.equal(a === b, false, label)
 					assert.equal(identityOf(a) === identityOf(b), oneType, label)
 					assert.equal(Object.isFrozen(a), true, label)
 					if (!oneType) {
 						c.note("two types")
 						return
 					}
-					c.note(oneWriting ? "one value, two spellings" : "one type, two writings")
+					c.note("one type, two writings")
 					assert.equal(sameScalarType(scalarOf(a), scalarOf(b)), true, label)
 					assert.deepEqual(descOf(a), descOf(b), label)
 				}),
@@ -133,14 +126,13 @@ export const aliasIdentityMakesTwoSpellingsOneDescriptorExactlyWhenTheyNameOneTy
 	})
 
 /**
- * Alias identity makes two descriptors one type exactly when their parts name one.
+ * Descriptor identity makes two descriptors one type exactly when their parts name one.
  *
  * Budget: its suite's count before the conversion (unit/scalar/distinct-types: 1000 independent cases and 0 steered,
  * Vitest at grizzle 4ca3036a).
  */
-export const aliasIdentityMakesTwoDescriptorsOneTypeExactlyWhenTheirPartsNameOne = property.explore(
-	typePairGen,
-	{
+export const descriptorIdentityMakesTwoDescriptorsOneTypeExactlyWhenTheirPartsNameOne =
+	property.explore(typePairGen, {
 		needs: {},
 		situations: ["one type", "two types of one kind", "two types"] satisfies ReadonlyArray<
 			Reached<TypeFeature>
@@ -173,17 +165,16 @@ export const aliasIdentityMakesTwoDescriptorsOneTypeExactlyWhenTheirPartsNameOne
 				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/decimal.ts:510 in checkNumericTypmod: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
-	}
-)
+	})
 
 /**
- * Alias identity builds every descriptor's Description through its decoder, and a ScalarType the full decoder makes
+ * Descriptor identity builds every descriptor's Description through its decoder, and a ScalarType the full decoder makes
  * exactly.
  *
  * Budget: its suite's count before the conversion (unit/scalar/descriptor-decode: 1000 independent cases and 0
  * steered, Vitest at grizzle 4ca3036a).
  */
-export const aliasIdentityBuildsEveryDescriptorsDescriptionThroughItsDecoderAndAScalarTypeTheFullDecoderMakesExactly =
+export const descriptorIdentityBuildsEveryDescriptorsDescriptionThroughItsDecoderAndAScalarTypeTheFullDecoderMakesExactly =
 	property.explore(descriptorGen(2), {
 		needs: {},
 		situations: kindFeatures satisfies ReadonlyArray<Reached<KindFeature>>,
@@ -258,8 +249,6 @@ export const typmodValidationAgreesWithTheCarriersNumericTypmodRuleOnEveryIntege
 						c.note("admitted")
 						const built = pgDescriptors.numeric(...argumentsOf(args))
 						assert.deepEqual({ precision: built.precision, scale: built.scale }, expected)
-						assert.equal(pgDescriptors.decimal, pgDescriptors.numeric)
-						assert.equal(identityOf(pgDescriptors.decimal(...argumentsOf(args))), identityOf(built))
 					}
 					if (arity === 2 && dp.kind === "live" && ds.kind === "live") {
 						assert.equal(checkNumericTypmod(p, s).ok, expected !== undefined)
@@ -277,55 +266,6 @@ export const typmodValidationAgreesWithTheCarriersNumericTypmodRuleOnEveryIntege
 				original: '\ttypeof value === "number" && Number.isInteger(value)',
 				replacement: '\ttypeof value !== "number" && Number.isInteger(value)',
 				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/decimal.ts:496 in isInteger: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
-			}
-		]
-	})
-
-/**
- * Typmod validation selects real for float(1-24) and double precision for float(25-53), and refuses the rest.
- *
- * Budget: its suite's count before the conversion (unit/scalar/float-typmod: 500 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a).
- */
-export const typmodValidationSelectsRealForFloat124AndDoublePrecisionForFloat2553AndRefusesTheRest =
-	property.explore(floatPrecisionSpace, {
-		needs: {},
-		situations: [
-			"admitted",
-			"refused",
-			...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`),
-			...Arr.map(floatBounds, (bound) => bound.feature)
-		] satisfies ReadonlyArray<Reached<FloatTypmodFeature>>,
-		check: (_, c: Case<FloatTypmodFeature>) => (drawnPrecision) =>
-			Effect.sync(() => {
-				c.note(drawnFeature(drawnPrecision))
-				for (const feature of boundsReached(floatBounds, drawnPrecision)) {
-					c.note(feature)
-				}
-				const precision = passed(drawnPrecision)
-				if (!isInteger(precision) || precision < 1 || precision > binary64Precision) {
-					c.note("refused")
-					throwsRefused(() => floatOf(precision), "MalformedDescription")
-				} else {
-					c.note("admitted")
-					assert.equal(
-						floatOf(precision),
-						precision <= binary32Precision ? pgDescriptors.real : pgDescriptors["double precision"]
-					)
-				}
-			}),
-		oracle: {
-			kind: "specification",
-			name: "PostgreSQL's float(p): real for 1-24, double precision for 25-53, an error otherwise"
-		},
-		budget: { runs: 500, steered: 0 },
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/scalar/pg.ts",
-				original: "\tisInteger(value) && Object.hasOwn(floatDescriptors, value)",
-				replacement: "\ttrue",
-				why: "Operator mutant (boolean-return) at packages/engine/src/scalar/pg.ts:70 in isFloatPrecision: `isInteger(value) && Object.hasOwn(floatDescriptors, value)` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

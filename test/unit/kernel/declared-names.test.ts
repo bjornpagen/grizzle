@@ -125,7 +125,11 @@ export const aRelationsFieldIsAdmittedExactlyWhenItsConversionIsNoneOfPostgreSQL
 			Effect.sync(() => {
 				assert.equal(conversionOf(field.declared), field.converted, field.declared)
 				const owned = ownedInput(
-					schema("Named", [relation("R", { id: pg.int4, [field.declared]: pg.int4 }, ["id"])], [])
+					schema(
+						"Named",
+						[relation("R", { id: pg.integer, [field.declared]: pg.integer }, ["id"])],
+						[]
+					)
 				)
 				const system = Arr.findFirst(pgSystemColumns, (s) => s === field.converted)
 				if (system._tag === "None") {
