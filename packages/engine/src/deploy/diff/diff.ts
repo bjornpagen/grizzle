@@ -148,7 +148,7 @@ interface DiffInput {
 	readonly target: SnapshotContent
 	/** The compiled target, for the violation queries of the laws a migration discharges. */
 	readonly installation: Installation
-	/** The target's checks (snapshot/violation.ts lawChecks), the ones its snapshot records the digests of. */
+	/** The target's checks (snapshot/violation.ts lawChecks), the ones its snapshot records the identities of. */
 	readonly checks: LawChecks
 	/** The renames the migration declares (declared.ts), which `previous` stands after, drafted once the holders are set
 	 * aside. */
@@ -289,8 +289,9 @@ const checkedAtOnce: SqlStatement = { kind: "setConstraintsImmediate" }
 
 /**
  * Whether the previous installation held the law of `check` on every row, as the previous snapshot records it (`was`):
- * by the rule judge under the same check, or by its native objects at every write where the law's statement is its
- * meaning (RuleCheck `meaning`). A law it did not state, or checked once by its migration, it did not hold.
+ * by the rule judge under the same check identity, the law's own (violation.ts MigrationCheck), or by its native
+ * objects at every write where the law's statement is its meaning (RuleCheck `meaning`). A law it did not state, or
+ * checked once by its migration, it did not hold.
  */
 const heldBefore = (was: SnapshotLaw | undefined, check: RuleCheck): boolean => {
 	if (was === undefined) {

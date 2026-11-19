@@ -991,3 +991,34 @@ export const dagDigestWithin = (
 /** The digest of a whole DAG. */
 export const dagDigest = (dag: RelDag, domain: string): Result.Result<DagDigest, CompileError> =>
 	dagDigestWithin(dag, dag.roots, domain)
+
+/**
+ * What a normal DAG states, as a meaning digest reads it: each node's own fields (digestedFields) with the metadata an
+ * analysis derives, its keys, cardinality and evidence context, the conservative metadata that claims none
+ * (rel.ts conservativeMeta), since an improvement of the analysis changes them and not what the DAG asks; its
+ * structural fields, which its own fields and its inputs' make (dag.ts relNode), kept.
+ */
+const statedForm = (normal: DagTable): unknown => ({
+	roots: normal.roots,
+	nodes: Object.fromEntries(
+		Object.entries(normal.nodes).map(([id, node]) => [
+			id,
+			digestedFields({ ...node, meta: { ...node.meta, ...conservativeMeta } })
+		])
+	),
+	exprs: normal.exprs
+})
+
+/**
+ * The digest of what the DAG `roots` reach within `context` asks of the rows it reads (statedForm), allocation, source
+ * locations and derived metadata excluded: one query's whatever lowers, rewrites or analyzes it, the identity of a law's
+ * check (deploy/snapshot/violation.ts checkOf).
+ */
+export const meaningDigestWithin = (
+	context: RelDag,
+	roots: Roots,
+	domain: string
+): Result.Result<DagDigest, CompileError> =>
+	Result.flatMap(normalizeWithin(context, roots), (normal) =>
+		Result.map(digest(domain, statedForm(normal), { omit: omitSourceLocs }), DagDigest)
+	)

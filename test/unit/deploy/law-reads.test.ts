@@ -1,9 +1,10 @@
 /**
  * A law's check reads what the law reads (deploy/snapshot/violation.ts readsOf): a migration that drops or renames a
  * column no law reads checks none of the laws again. A rule's check is its violation query over every row, which the
- * migration that adds the rule, or changes it or a definition it reads, runs once, keyed by the query's digest; the
- * query reads of each stored relation the columns the law binds and the relation's key, so a column it never reads,
- * dropped or renamed, leaves the query, and the digest, as they were. Each case is a rule over D, T's facts by document
+ * migration that adds the rule, or changes it or a definition it reads, runs once, keyed by the identity of what it
+ * asks of the rows it reads (deploy/snapshot/violation.ts checkOf); it reads of each stored relation the columns the
+ * law binds and the relation's key, so a column it never reads, dropped or renamed, leaves its reads, and the identity,
+ * as they were. Each case is a rule over D, T's facts by document
  * and place, selected by a literal of T's `a` or not: S's containment in it, a check over its `b` or a key over its `b`
  * by document; whole, T and S immutable, or probed, both mutable; T's `pay`, which no law reads, dropped or renamed.
  *
@@ -50,10 +51,9 @@ export const aMigrationThatDropsOrRenamesAColumnNoLawReadsChecksNoneOfTheLawsAga
 		kills: [
 			{
 				file: "packages/engine/src/deploy/snapshot/violation.ts",
-				original: "\tconst lowered = lowerConservative(readsOf(installation, violation), {",
-				replacement:
-					"\tconst lowered = lowerConservative({ dag: violations.dag, root: violation }, {",
-				why: "A law's check reads its relations' whole headings again, so dropping or renaming pay changes every rule's check and its digest, and the draft checks every rule again; the property fails."
+				original: "\tconst reads = readsOf(installation, violation)",
+				replacement: "\tconst reads = { dag: violations.dag, root: violation }",
+				why: "A law's check reads its relations' whole headings again, so dropping or renaming pay changes every rule's reads and its identity, and the draft checks every rule again; the property fails."
 			}
 		]
 	})

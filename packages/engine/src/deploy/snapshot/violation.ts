@@ -1,9 +1,8 @@
-import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
-import { digest } from "#compiler/core/fingerprint.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
-import { rooted } from "#compiler/ir/dag.ts"
+import { meaningDigestWithin, rooted } from "#compiler/ir/dag.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
@@ -17,8 +16,8 @@ import type { Select } from "#compiler/sql/ast.ts"
 /**
  * The violation query of one law, its Forbid node `violation`, as it reads its relations: its own DAG pruned by the prune
  * that narrows the sources too (lower/optimize/prune sourcePrunePass), so it reads of each stored relation the columns
- * it binds and the relation's primary key, and a column it does not read, dropped or renamed, leaves its query, and so
- * its check's digest, as they were. Each law's is pruned alone: one law's reads never widen another's.
+ * it binds and the relation's primary key, and a column it does not read, dropped or renamed, leaves its reads, and so
+ * its check's identity, as they were. Each law's is pruned alone: one law's reads never widen another's.
  */
 const readsOf = (installation: Installation, violation: RelNode): ConservativeInput => {
 	const pruned = sourcePrunePass.run(
@@ -35,21 +34,17 @@ const readsOf = (installation: Installation, violation: RelNode): ConservativeIn
 }
 
 /**
- * The full violation query of a law of `installation`'s theory, its Forbid node in `violations`, lowered by the oracle
- * baseline over every row as it reads its relations (`readsOf`): one parameterless statement whose rows are the law's
- * violations. A violation probe reads stored values, which already satisfy their refinements, so a text refinement no
- * stored column carries, such as a contract's base pattern, is typed as text (`ConservativeSubject`).
+ * The full violation query of `law`, its violation DAG as it reads its relations (`reads`), lowered by the oracle
+ * baseline over every row: one parameterless statement whose rows are the law's violations. A violation probe reads
+ * stored values, which already satisfy their refinements, so a text refinement no stored column carries, such as a
+ * contract's base pattern, is typed as text (`ConservativeSubject`).
  */
 const violationQuery = (
 	installation: Installation,
-	violations: TheoryViolations,
-	law: LawId
+	law: LawId,
+	reads: ConservativeInput
 ): Select => {
-	const violation = violations.forbids.get(law)
-	if (violation === undefined) {
-		throw defect(`the violation queries hold the law ${law} of the theory`)
-	}
-	const lowered = lowerConservative(readsOf(installation, violation), {
+	const lowered = lowerConservative(reads, {
 		names: installation.names,
 		params: [],
 		subject: { kind: "violationProbe" }
@@ -73,7 +68,10 @@ const violationQuery = (
 /**
  * A law that reads closed relations only, as the migration that installs them discharges it: once, by its violation
  * query over the rows the migration states, which must return nothing, and never again, since no write changes a
- * closed relation. `digest` is the query's, so a change of the law or of the rows it reads is a new check.
+ * closed relation. `digest` is the check's identity, the law's own: the digest of what its violation DAG asks of the
+ * rows it reads, as it reads them (ir/dag.ts meaningDigestWithin), the closed rows it reads and the definitions of the
+ * derived relations it reads among them, never its SQL, so a change of the law, of the rows it reads or of a definition
+ * it reads is a new check, and a change of how it lowers, rewrites or analyzes is none.
  */
 export interface MigrationCheck {
 	readonly law: LawId
@@ -81,18 +79,22 @@ export interface MigrationCheck {
 	readonly digest: string
 }
 
-/** The check of `law`, its violation query lowered, digested. */
+/** The check of `law`: its violation DAG as it reads its relations, lowered, and the identity of what it asks. */
 const checkOf = (
 	installation: Installation,
 	violations: TheoryViolations,
 	law: LawId
 ): MigrationCheck => {
-	const query = violationQuery(installation, violations, law)
-	const d = digest("migration-check", query, everyProperty)
-	if (!d.ok) {
-		throw new Refusal(d.error)
+	const violation = violations.forbids.get(law)
+	if (violation === undefined) {
+		throw defect(`the violation queries hold the law ${law} of the theory`)
 	}
-	return { law, query, digest: d.value }
+	const reads = readsOf(installation, violation)
+	const identity = meaningDigestWithin(reads.dag, [reads.root], "law-check")
+	if (!identity.ok) {
+		throw new Refusal(identity.error)
+	}
+	return { law, query: violationQuery(installation, law, reads), digest: identity.value }
 }
 
 /**
@@ -117,8 +119,8 @@ export interface LawChecks {
  * `migrations`, the laws that read closed relations alone, in the law model's order of its migration-discharged laws;
  * `rules`, each rule over a query in law order, its violation query over every row, which the migration that adds the
  * rule, or changes it or a definition it reads, runs once its rows are written, before its triggers hold it at every
- * COMMIT after (laws/model/model.ts RuleTrigger). `digest` is the query's, so a change of the law, of the rows it
- * reads or of a definition a rule reads is a new check.
+ * COMMIT after (laws/model/model.ts RuleTrigger). `digest` is the law's identity (MigrationCheck), so a change of
+ * the law, of the rows it reads or of a definition a rule reads is a new check, and a change of its lowering is none.
  */
 export const lawChecks = (installation: Installation): LawChecks => {
 	const violations = theoryViolations(installation.laws.checked, installation.laws.theory)
