@@ -545,7 +545,7 @@ interface RaceInstall {
 }
 
 /** The platform races' schema and logins installed once per member (schedules/rig.ts rigTemplate): every race's seat. */
-const racesRig = rigTemplate(import.meta, "platform races", racesAt)
+export const racesRig = rigTemplate(import.meta, "platform races", racesAt)
 
 /** A case's race installation: its rig over its seat (rigIn), with the installation's names and laws. */
 const racesIn = (taken: SubstrateCase<Generated>) =>
