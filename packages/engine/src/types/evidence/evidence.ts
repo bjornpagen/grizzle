@@ -2,6 +2,7 @@ import type { Built, delta, Phantom, phantom } from "#compiler/core/phantom.ts"
 import type {
 	ComputedOrigin,
 	ConstantOrigin,
+	HeldAt,
 	InputOrigin,
 	Invariant,
 	IsOneLiteral,
@@ -1470,11 +1471,12 @@ type ArmAt<P, PKF, D extends string, Hd extends string, A, RN, B> =
  * The reflexive row of the attach table, as logical/attach.ts reflexiveOne reads it: the
  * child's only match is of a stored or derived relation R; every binding is a parent variable at the field its origin
  * names, or a variable of the child no other binding shares; the head's group terms are all parent variables; at least
- * one parent variable is read; every parent variable read has its origin in R, all in one scope; and every filter is
- * true when the child's fact is the parent's own: a variable bound at field f, and a parent variable of origin R.f,
- * both read the fact's f, so `r.le(t.id, s.id)` holds and `r.lt(t.at, s.at)` fails. A scope's origins are fields of
- * one fact (terms.ts HeadOrigins), so every parent variable of origin R in that scope reads the one fact, and over a
- * self-join parent each scope proves its own fact's group.
+ * one parent variable is read; every parent variable read has its origin in R, some one scope's fact holding each, as
+ * reflexiveOne tries each scan the parent's columns were read from; and every filter is true when the child's fact is
+ * the parent's own: a variable bound at field f, and a parent variable of origin R.f, both read the fact's f, so
+ * `r.le(t.id, s.id)` holds and `r.lt(t.at, s.at)` fails. A scope's origins are fields of one fact (terms.ts
+ * HeadOrigins), so every parent variable of origin R in that scope reads the one fact, and over a self-join parent each
+ * scope proves its own fact's group, a field both facts hold, bound at its own field in each, read in either (HeldAt).
  */
 export type ReflexiveProof<Occurrences, Filters, H> = Occurrences extends readonly [
 	SoleMatch<infer Sh, infer B>
@@ -1491,7 +1493,7 @@ type ReflexiveOf<RN, B, Filters, H> =
 		? GroupTermsAreParents<H, RN> extends true
 			? Filters extends ReadonlyArray<unknown>
 				? true extends ReadsParent<B, H, Filters>
-					? IsOneLiteral<ScopesRead<B, H, Filters>> extends true
+					? HoldsOne<CommonScopes<ScopeBoxesRead<B, H, Filters>>> extends true
 						? AllTrue<Filters, { readonly relation: RN; readonly bindings: B }>
 						: false
 					: false
@@ -1499,11 +1501,33 @@ type ReflexiveOf<RN, B, Filters, H> =
 			: false
 		: false
 
-/** The scopes of every parent variable the child reads: in its bindings, its head and its filters. */
-type ScopesRead<B, H, Filters> =
-	| ScopeOf<B[keyof B]>
-	| ScopeOf<H[keyof H]>
+/**
+ * The scopes whose facts hold each parent variable the child reads, each variable's boxed apart (ScopeBox): in its
+ * bindings, its head and its filters.
+ */
+type ScopeBoxesRead<B, H, Filters> =
+	| { [K in keyof B]-?: ScopeBox<B[K]> }[keyof B]
+	| { [K in keyof H]-?: ScopeBox<H[K]> }[keyof H]
 	| (Filters extends ReadonlyArray<infer P> ? ShapeScopes<ShapeOf<P>> : never)
+
+/**
+ * The scopes whose facts hold the parent variable X, boxed apart from any other variable's: those its origin records
+ * (HeldAt), its own scope alone where it records none; none for any other term.
+ */
+type ScopeBox<X> = [ParentOriginOf<X>] extends [never] ? never : { readonly scopes: HoldingOf<X> }
+type HoldingOf<X> =
+	X extends Phantom<{ readonly origin: infer O }>
+		? O extends HeldAt<infer N>
+			? N
+			: ScopeOfOrigin<O>
+		: never
+
+/** The scopes every box of the union Boxes holds: never where they hold none in common, or where there is no box. */
+type CommonScopes<Boxes> =
+	UnionToIntersection<Boxes> extends { readonly scopes: infer N } ? N : never
+
+/** Whether the scopes N hold one literal scope at least. */
+type HoldsOne<N> = [N] extends [never] ? false : string extends N ? false : true
 
 /**
  * A parent variable at the field of R its origin names, or a child variable whose origin key no other binding shares.
@@ -1709,17 +1733,19 @@ type ShapeReadsParent<Sh> =
 type ListReadsParent<Ps> = Ps extends ReadonlyArray<infer P> ? ShapeReadsParent<ShapeOf<P>> : false
 type IsParentVar<X> = [ParentOriginOf<X>] extends [never] ? false : true
 
-/** The scopes of the parent variables a shape reads. */
+/** The scopes whose facts hold each parent variable a shape reads, each variable's boxed apart (ScopeBox). */
 type ShapeScopes<Sh> =
 	Sh extends Comparison<ComparisonOp, infer A, infer B>
-		? ScopeOf<A> | ScopeOf<B>
+		? ScopeBox<A> | ScopeBox<B>
 		: Sh extends Conjunction<infer Ps>
 			? ListScopes<Ps>
 			: Sh extends Disjunction<infer Ps>
 				? ListScopes<Ps>
 				: Sh extends Opaque<infer Terms>
 					? Terms extends ReadonlyArray<infer T>
-						? ScopeOf<T>
+						? T extends unknown
+							? ScopeBox<T>
+							: never
 						: never
 					: never
 type ListScopes<Ps> = Ps extends ReadonlyArray<infer P> ? ShapeScopes<ShapeOf<P>> : never

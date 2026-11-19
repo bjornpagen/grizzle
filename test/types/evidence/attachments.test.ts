@@ -1,4 +1,4 @@
-import { property } from "@bjornpagen/testing/property"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	attachAimed,
@@ -38,8 +38,38 @@ export const attachments = agreement(attachAimed, {
 		kind: "second-implementation",
 		name: "the engine's proof of each drawn attachment's delivery"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/types/evidence/attachments.test.ts#attachments:-:9.1.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.2.0.1.0.1.1.1.1.1.2"
+			),
+			reason:
+				"a self-join parent, peer's match binding `id: own.id`, and a child stated one that counts Task at `id: p.id` under `r.le(child.account, p.peerAccount)`: the engine proves it from peer's scan, whose fact holds both p.id and p.peerAccount, where the types gave p.id an origin in own's scope alone and found the child's parent variables of two scopes (a full test/types run at 463e57274)",
+			since: "2026-11-19"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/attachments.test.ts#attachments:204b038.5:0.0.0.0.0.0.0.0.1.0.0.1.0.0.0.1"
+			),
+			reason:
+				"a self-join parent sharing id, its head both scopes' kind, and an arm child keyed by `task: p.id` stated with the other handle: the arm claim reads the discriminator of the key field's own scope, where an origin of p.id in both scopes found two discriminators and refused the field instead of the handle (a draft of the self-join's held scopes)",
+			since: "2026-11-19"
+		}
+	],
 	kills: [
+		{
+			file: "packages/engine/src/types/query/terms.ts",
+			original: "\t]: Joined extends true ? Held<W[K], W, Os> : W[K]",
+			replacement: "\t]: Joined extends true ? W[K] : Held<W[K], W, Os>",
+			why: "A self-joined head's variable records no scope but its own (terms.ts OneFactScopes, HeldAt), never the other scope whose fact binds it at its own field; the kept self-join's reflexive child is refused."
+		},
+		{
+			file: "packages/engine/src/types/evidence/evidence.ts",
+			original: "\t\t\t\t\t? HoldsOne<CommonScopes<ScopeBoxesRead<B, H, Filters>>> extends true",
+			replacement:
+				'\t\t\t\t\t? HoldsOne<IsOneLiteral<ScopeBoxesRead<B, H, Filters>["scopes"]> extends true ? CommonScopes<ScopeBoxesRead<B, H, Filters>> : never> extends true',
+			why: "The reflexive proof asks that every parent variable the child reads be of one scope (ReflexiveOf), not that one scope hold an origin of each; the kept self-join's reflexive child is refused."
+		},
 		{
 			file: "packages/engine/src/types/evidence/evidence.ts",
 			original: '\treadonly one: ChildEv extends { readonly card: "one" }',

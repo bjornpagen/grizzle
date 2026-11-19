@@ -10,6 +10,7 @@ import type {
 	ConstantOrigin,
 	DomainOf,
 	HasOrigin,
+	HeldAt,
 	Headed,
 	LanguageOf,
 	InputOrigin,
@@ -374,11 +375,15 @@ export type BindingParams<B> = UnionToIntersection<
  * containment from Account.plan describes. A variable is a field of the fact of each match that binds it at its own
  * field (evidence/evidence.ts HoldingMatches), and a scope keeps its origins where one match's fact holds every head
  * variable of it, so a proof over a parent's origins (ContainmentProof, ArmClaim, ReflexiveProof) reads one scope's
- * origins as one fact's fields: a self-join's two scopes are two facts, each proving its own. A scope whose head
- * variables no one fact holds, each bound at its own field in another match, keeps none. A parent variable's origin is
- * the parent's, not this rule's: its value here was read from the parent's fact, so it is no origin of this head.
+ * origins as one fact's fields: a self-join's two scopes are two facts, each proving its own. A variable another scope's
+ * fact binds at its own field too, a self-join on a field, `peer`'s match binding `id: own.id`, is held by both facts,
+ * as the engine's provenance of the column names both scans (logical/props.ts provenanceOf): its origin keeps its own
+ * scope and records every scope holding it (HeldAt), which the reflexive proof reads (evidence/evidence.ts ReflexiveOf).
+ * A scope whose head variables no one fact holds, each bound at its own field in another match, keeps none. A parent
+ * variable's origin is the parent's, not this rule's: its value here was read from the parent's fact, so it is no
+ * origin of this head.
  */
-export type HeadOrigins<H, Occurrences extends ReadonlyArray<unknown>> = OneFactScopes<
+export type HeadOrigins<H, Occurrences extends ReadonlyArray<unknown>> = OneFactScopesOf<
 	Witnessed<H, Occurrences>,
 	Occurrences
 >
@@ -407,10 +412,51 @@ type WitnessedAt<H, K extends keyof H, Os extends ReadonlyArray<unknown>> =
 				: never
 		: never
 
-/** The witnessed origins of the scopes one match holds every witnessed head variable of. */
-type OneFactScopes<W, Os extends ReadonlyArray<unknown>> = {
-	readonly [K in keyof W as [SharedMatches<W, W[K], Os>] extends [never] ? never : K]: W[K]
+/**
+ * The witnessed origins of the scopes one match holds every witnessed head variable of, each with the scopes holding
+ * it (Held) where some relation has two scopes in the head (Joined), as a self-join's has, and alone otherwise.
+ */
+type OneFactScopes<W, Os extends ReadonlyArray<unknown>, Joined> = {
+	readonly [
+		K in keyof W as [SharedMatches<W, W[K], Os>] extends [never] ? never : K
+	]: Joined extends true ? Held<W[K], W, Os> : W[K]
 }
+type OneFactScopesOf<W, Os extends ReadonlyArray<unknown>> = OneFactScopes<
+	W,
+	Os,
+	SelfJoined<W[keyof W], W[keyof W]>
+>
+
+/** Whether some origin of O shares its relation with an origin of All of another scope, read once per head. */
+type SelfJoined<O, All> = true extends (
+	O extends Origin<infer R, string, infer N>
+		? [Exclude<ScopesOf<All, R>, N>] extends [never]
+			? false
+			: true
+		: never
+)
+	? true
+	: false
+
+/**
+ * The origin O with every scope of its relation one of whose facts, a match holding every witnessed head variable of
+ * the scope, binds O's variable at its own field: its own scope among them, whose fact holds it.
+ */
+type Held<O, W, Os extends ReadonlyArray<unknown>> =
+	O extends Origin<infer R> ? O & HeldAt<HoldingScopes<W, R, HoldingMatches<Os, O>, Os>> : never
+
+/** The scopes of R among the witnessed origins W whose fact is one of the matches Is. */
+type HoldingScopes<W, R extends string, Is, Os extends ReadonlyArray<unknown>> =
+	ScopesOf<W[keyof W], R> extends infer N
+		? N extends string
+			? [ScopeMatches<W, R, N, Os> & Is] extends [never]
+				? never
+				: N
+			: never
+		: never
+
+/** The scopes of R the origins O name. */
+type ScopesOf<O, R extends string> = O extends Origin<R, string, infer N> ? N : never
 
 /** The matches that hold every witnessed head variable of origin O's scope. */
 type SharedMatches<W, O, Os extends ReadonlyArray<unknown>> =

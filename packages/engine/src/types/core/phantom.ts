@@ -139,6 +139,15 @@ export interface Origin<
 }
 
 /**
+ * The scopes whose facts hold a head variable at its own field, beside its Origin's own scope: a self-join's shared
+ * field, `peer`'s match binding `id: own.id`, is held by own's fact and by peer's (types/query/terms.ts HeadOrigins).
+ * A head whose relations each have one scope in it records none, its own scope its only one.
+ */
+export interface HeldAt<out N extends string = string> {
+	readonly heldAt: N
+}
+
+/**
  * Where a variable of a source that is no relation came from: the field of a relation parameter, a query, a bound import,
  * an interior stage or a recursive definition's self that `v` minted it over, and its scope N. Like an Origin it names
  * one variable of its rule, so a filter fixes it and an equality relates it, and the source's own keys determine the
