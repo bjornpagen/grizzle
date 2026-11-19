@@ -812,6 +812,15 @@ const headName = (field: string): string => `f_${field}`
 /** The fresh variable a key's other fact holds a heading field in. */
 const otherId = (field: string): string => `other.${field}`
 
+/** The name a key's grouped read gives the count of the side's facts at a key, apart from every term's. */
+const factsName = "facts"
+
+/** The fresh variable a key's violation reads its i-th key term in. */
+const keyId = (i: number): string => `key.${i}`
+
+/** The fresh variable a key's violation reads the count of the side's facts at a key in. */
+const factsId = "key.facts"
+
 /** The fresh variable a lost tuple's probe reads an unbound term in. */
 const wildcardId = (i: number): string => `wild.${i}`
 
@@ -839,7 +848,7 @@ export const ruleDesc = (
 	vars: ReadonlyArray<VarDesc>,
 	matches: ReadonlyArray<InferredMatch>,
 	where: ReadonlyArray<InferredExpr>,
-	head: Readonly<Record<string, InferredExpr>>,
+	head: Readonly<Record<string, InferredHead>>,
 	loc: SourceLoc
 ): InferredRule => ({ vars, matches, where, head, interiors: [], attach: [], loc })
 
@@ -1193,6 +1202,12 @@ const wholeField = (side: WholeSide, field: string, loc: SourceLoc): InferredExp
  * a definition derives is the equality the inlined arm states over the term that derives it. Read whole, PostgreSQL
  * plans each definition's own joins at a level of their own, a few relations each, where the inlined arms are one join
  * of every relation the definitions read, whose join search grows with the subsets of those relations.
+ *
+ * A key's violation is every key at which its side holds more than one fact: the side read once, every heading field
+ * bound so that each fact is one row of it, grouped by its terms, its facts counted. A side is a set, so two of its
+ * facts at one key differ elsewhere in the heading: the keys counted more than once are exactly those at which a fact
+ * meets another that agrees with it on the key and differs from it elsewhere, which a self-join of the side asks by
+ * deriving the side twice.
  */
 export const violationQuery = (
 	rule: RuleLaw<LawSide>,
@@ -1227,48 +1242,43 @@ export const violationQuery = (
 			)
 		}
 		case "key": {
-			const heading = rule.side.heading
-			const one = wholeSide(rule.side, definition, heading, "s0.", loc)
-			const other = wholeSide(rule.side, definition, heading, "s1.", loc)
-			const otherFacts = imported(
+			const side = wholeSide(rule.side, definition, rule.side.heading, "s0.", loc)
+			const keyTerms = mapNonEmpty(side.terms, (_, i) => varRef(keyId(i)))
+			const counted = imported(
 				[
 					ruleDesc(
-						other.vars,
-						[other.match],
-						other.where,
-						{
-							...termHead(other.terms),
-							...Object.fromEntries(
-								heading.map((f) => [headName(f), wholeField(other, f, loc)] as const)
-							)
-						},
+						side.vars,
+						[side.match],
+						side.where,
+						{ ...termHead(side.terms), [factsName]: { kind: "aggregate", fn: "count" } },
 						loc
 					)
 				],
 				loc
 			)
-			const bindings: Record<string, InferredExpr> = { ...termHead(one.terms) }
-			for (const f of heading) {
-				bindings[headName(f)] = varRef(otherId(f))
-			}
 			return queryOf(
 				[
 					ruleDesc(
-						[...one.vars, ...heading.map((f) => ({ id: otherId(f), origin: undefined, loc }))],
-						[one.match, { source: otherFacts, bindings, loc }],
 						[
-							...one.where,
-							connectiveExpr(
-								"or",
-								heading.map((f): InferredExpr => ({
-									kind: "compare",
-									op: "ne",
-									left: wholeField(one, f, loc),
-									right: varRef(otherId(f))
-								}))
-							)
+							...keyTerms.map((_, i) => ({ id: keyId(i), origin: undefined, loc })),
+							{ id: factsId, origin: undefined, loc }
 						],
-						termHead(one.terms),
+						[
+							{
+								source: counted,
+								bindings: { ...termHead(keyTerms), [factsName]: varRef(factsId) },
+								loc
+							}
+						],
+						[
+							{
+								kind: "compare",
+								op: "gt",
+								left: varRef(factsId),
+								right: { kind: "literal", value: 1n }
+							}
+						],
+						termHead(keyTerms),
 						loc
 					)
 				],

@@ -2,14 +2,15 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { parsePlan, planNodes, rowsTouched } from "#bench/harness/explain.ts"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { findNodes, parsePlan, planNodes, rowsTouched } from "#bench/harness/explain.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { violationCheck } from "#compiler/deploy/render/sql.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { contained, on, relation, schema, select } from "#compiler/public/schema.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { contained, derived, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -48,7 +49,7 @@ const Decl = relation(
  * product of the three, as QTI's __attribute_lexical_document_type_kind_name_in, whose name, kind and document type
  * it estimated at one row of 15,035.
  */
-const Checked = schema(
+const Base = schema(
 	"CheckCost",
 	[Node, Decl],
 	[
@@ -71,6 +72,31 @@ const Checked = schema(
 			on(Decl, "pkg", "path", "at")
 		)
 	]
+)
+
+/** Each declared element with its declaration's weight: Node joined to Decl at its place, as QTI's ChoiceNode. */
+const Declared = derived(
+	"Declared",
+	query(Base).rule((r) => {
+		const { pkg, path, at, kind } = v(Node, "n")
+		const { w } = v(Decl, "d")
+		return r
+			.match(Node, { pkg, path, at, kind })
+			.match(Decl, { pkg, path, at, w })
+			.find({ pkg, path, at, kind, w })
+	})
+)
+
+/**
+ * And no two declared elements of one document and kind share a weight: a key over a join of two stored relations
+ * whose terms read both, as QTI's __choice_node_key_package_path_kind_identifier, whose check derived choice ⋈ node
+ * twice when it was a self-join of the side.
+ */
+const Checked = schema.extend(
+	Base,
+	"CheckCost_1",
+	[Declared],
+	[key(on(Declared, "pkg", "path", "kind", "w"))]
 )
 
 /** The schema installed through its first migration, its tables empty. */
@@ -146,17 +172,18 @@ const plannedStatements = (text: string): ReadonlyArray<string> =>
 
 /**
  * One case in its one transaction, which the case's end rolls back: the elements of `c` loaded with the triggers off,
- * a declaration at each of a declaring kind, the tables analyzed; then the rule's check, as the migration that adds the
- * rule runs it (deploy/render/sql.ts violationCheck), each statement it plans explained with ANALYZE, and the block run.
- * The rules' checks are each planned and run so. Every plan handles each row it reads a bounded number of times: its
- * rows touched (bench/harness/explain.ts rowsTouched,
- * every row each node handled over all its loops, a join's examined pairs among them) at most its nodes times the rows
- * of the two tables, since a filter, a projection, a deduplication, a hash, a sort and a merge pass each row of their
- * input once, and an anti join over sets passes each outer row once and meets each inner row once in its hash or
- * merge. A plan that reads a set again for each row of another, a nested loop over a materialized set, handles the
- * product of the two, past the bound once the outer holds more rows than the plan has nodes. The block raises nothing;
- * then, with one element of a declaring kind and of tag, group and band 5 and no declaration added, each raises SQLSTATE
- * 23000 under its law's identity.
+ * a declaration at each of a declaring kind or of tag 5, weighed by its place, the tables analyzed; then the rule's
+ * check, as the migration that adds the rule runs it (deploy/render/sql.ts violationCheck), each statement it plans
+ * explained with ANALYZE, and the block run. The rules' checks are each planned and run so. Every plan reads each table
+ * by one node, so it derives no relation twice, and handles each row it reads a bounded number of times: its rows
+ * touched (bench/harness/explain.ts rowsTouched, every row each node handled over all its loops, a join's examined
+ * pairs among them) at most its nodes times the rows of the two tables, since a filter, a projection, a deduplication,
+ * a hash, a sort and a merge pass each row of their input once, and an anti join over sets passes each outer row once
+ * and meets each inner row once in its hash or merge. A plan that reads a set again for each row of another, a nested
+ * loop over a materialized set, handles the product of the two, past the bound once the outer holds more rows than the
+ * plan has nodes. The block raises nothing; then, with one element of a declaring kind and of tag, group and band 5 and
+ * no declaration added, and two declared elements of one document and kind of one weight, each raises SQLSTATE 23000
+ * under its law's identity.
  */
 export const runCheck = (
 	installed: Installed,
@@ -172,7 +199,7 @@ export const runCheck = (
 			`ALTER TABLE ${nodeTable} DISABLE TRIGGER USER`,
 			`ALTER TABLE ${declTable} DISABLE TRIGGER USER`,
 			`INSERT INTO ${nodeTable} ${elementsOf(c)}`,
-			`INSERT INTO ${declTable} SELECT pkg, path, at, 0 FROM ${nodeTable} WHERE kind IN (1, 2) OR tag = 5`,
+			`INSERT INTO ${declTable} SELECT pkg, path, at, at FROM ${nodeTable} WHERE kind IN (1, 2) OR tag = 5`,
 			`ANALYZE ${nodeTable}`,
 			`ANALYZE ${declTable}`
 		]) {
@@ -184,7 +211,7 @@ export const runCheck = (
 		)
 		const rows = Number(defined(counted[0]?.[0], "the two tables' count"))
 		const checks = lawChecks(installed.installation)
-		assert.equal(checks.rules.length, 2, "the schema's two rules")
+		assert.equal(checks.rules.length, 3, "the schema's three rules")
 		const blocks = Arr.map(checks.rules, (rule) => ({
 			law: rule.law,
 			text: sqlText(SourceLoc("check-cost", []), (out) =>
@@ -206,11 +233,25 @@ export const runCheck = (
 					touched <= nodes * rows,
 					`${Formatter.format(c)}: the check touches ${touched} rows, past its ${nodes} nodes times the ${rows} rows it reads, ${Formatter.format(Arr.map(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType))}`
 				)
+				const scans = Arr.flatMap(
+					findNodes(plan, (n) => Option.isSome(n.relation) && n.nodeType !== "Bitmap Index Scan"),
+					(n) => Option.toArray(n.relation)
+				)
+				assert.deepEqual(
+					scans,
+					Arr.dedupe(scans),
+					`${Formatter.format(c)}: the check reads each table once`
+				)
 			}
 			yield* connection.query(text, [])
 		}
 		k.note("a law that holds")
-		yield* connection.query(`INSERT INTO ${nodeTable} VALUES (1000000, 0, 0, 1, 5, 5, 5)`, [])
+		for (const sql of [
+			`INSERT INTO ${nodeTable} VALUES (1000000, 0, 0, 1, 5, 5, 5), (1000000, 0, 1, 1, 0, 0, 0), (1000000, 0, 2, 1, 0, 0, 0)`,
+			`INSERT INTO ${declTable} VALUES (1000000, 0, 1, 7), (1000000, 0, 2, 7)`
+		]) {
+			yield* connection.query(sql, [])
+		}
 		for (const { law, text } of blocks) {
 			const refused = yield* Effect.flip(connection.query(text, []))
 			const fields = pgErrorFields(refused)
