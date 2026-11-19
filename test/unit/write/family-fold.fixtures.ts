@@ -358,6 +358,7 @@ const unitY = succeeded(Vector.from(Float32Array.from([0, 1, 0]), 3), "a unit ve
 export const nestingOf = (c: FoldCase, columns: ColumnIndex): HostNode => ({
 	relation: StoredRelationName("Owner"),
 	values: cellsOf(columns, "Owner", [[columnKeyOf("id"), uuidOf(0)]]),
+	texts: [],
 	families: [
 		{
 			family: { owner: "Owner", count: "n" },
@@ -376,6 +377,7 @@ export const nestingOf = (c: FoldCase, columns: ColumnIndex): HostNode => ({
 						? []
 						: [[columnKeyOf("x"), hostOf(c.shape.carrier, m.x)] as const])
 				]),
+				texts: [],
 				families: []
 			}))
 		}

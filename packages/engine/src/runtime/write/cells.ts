@@ -4,7 +4,9 @@
  * the rows the write inserts, reads and writes a row at a position resolved once per layout, never at a key looked up
  * in a map built and copied per row.
  */
+import { defect } from "#compiler/core/invariant.ts"
 import { type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
+import { admittedText, type CarrierSpec } from "#compiler/scalar/values/identity.ts"
 
 /**
  * A row's host values at its relation's column positions (`Columns`): at each column the row holds, the value its
@@ -12,6 +14,40 @@ import { type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
  * (ir/scalar.ts), so no column's value is undefined, and a position past the row's end is a column it does not hold.
  */
 export type Cells = ReadonlyArray<unknown>
+
+/**
+ * The canonical texts a write holds of a row's cells, at the same positions (`Cells`): each value's one text
+ * (scalar/values/identity.ts canonicalText), a bytes value's its digest, held where the write first works it out, by
+ * the admission that admits the value (codec/recordset.ts RelationNormalizer admitOne) or by the first reader of a value
+ * the write drew or holds no text of (`textAt`), so no value's text is worked out twice. A position holding no text
+ * holds a value no reader has needed the text of yet, or none.
+ */
+export type Texts = Array<string | undefined>
+
+/** A row of a write's relation: its cells and the texts the write holds of them (`Cells`, `Texts`). */
+export interface CellRow {
+	readonly values: Cells
+	readonly texts: Texts
+}
+
+/**
+ * The canonical text of a row's value at `at`, its carrier `spec`'s: the one its texts hold, or the value's worked out
+ * and held there (`Texts`). A row the write holds no value of there is a defect: every reader reads a column its row
+ * holds.
+ */
+export const textAt = (values: Cells, texts: Texts, at: number, spec: CarrierSpec): string => {
+	const held = texts[at]
+	if (held !== undefined) {
+		return held
+	}
+	const value = values[at]
+	if (value === undefined) {
+		throw defect(`a value at position ${at} of a row a reader reads`)
+	}
+	const text = admittedText(spec, value)
+	texts[at] = text
+	return text
+}
 
 /**
  * The columns of one relation a write's rows hold, each at its position, interned the first time a layout of the

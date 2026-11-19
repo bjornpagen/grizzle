@@ -9,7 +9,7 @@ import {
 	parameterNormalizer,
 	positionalColumns
 } from "#compiler/codec/recordset.ts"
-import { admittedParam, carrierSpecOf, paramEncoder } from "#compiler/codec/scalar.ts"
+import { carrierSpecOf, paramEncoder, paramOfText } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -37,7 +37,13 @@ import type {
 	JudgedRelation,
 	OwnedColumn
 } from "#compiler/runtime/write/binding.ts"
-import { type Cells, factCells } from "#compiler/runtime/write/cells.ts"
+import {
+	type CellRow,
+	type Cells,
+	factCells,
+	type Texts,
+	textAt
+} from "#compiler/runtime/write/cells.ts"
 import type { MemberCell, MemberKey, Owner } from "#compiler/runtime/write/draw.ts"
 import {
 	type FilledNode,
@@ -426,7 +432,7 @@ export const bindWrite = (
 				return {
 					relation,
 					types: [...layout.key, ...layout.columns].map((c) => c.type),
-					rows: freshMembersOf(stratum, rows.family).map(cellsOf)
+					rows: freshMembersOf(stratum, rows.family).map((m) => cellsOf(m.values, m.texts))
 				}
 			}
 		}
@@ -690,7 +696,7 @@ export const bindWrite = (
 	const fresh = freshlyCounted.value.slots
 	/** A counted family's fresh groups' members at a stratum, as its fresh fill drew them (`freshOwners`): none where the
 	 * stratum inserts no owner of the family's appended members. */
-	const freshMembersOf = (stratum: StratumAt, family: string): ReadonlyArray<Cells> =>
+	const freshMembersOf = (stratum: StratumAt, family: string): ReadonlyArray<CellRow> =>
 		freshlyCounted.value.members.get(stratum)?.get(family) ?? []
 	/** A stratum's nested rows of a relation as its statements send them: a nested owner's with the counts and ends its
 	 * stratum's appends draw (`freshOwners`). */
@@ -761,15 +767,19 @@ export const bindWrite = (
 	}
 	/**
 	 * The reader of a row's primary key texts in `relation`, which its rows are a set by, as a nested row's key is
-	 * (NestedRow `key`): each key column's position and spec worked out once for the relation.
+	 * (NestedRow `key`), from its cells and the texts the write holds of them (cells.ts textAt): each key column's
+	 * position and spec worked out once for the relation.
 	 */
-	const keyReader = (relation: StoredRelationName): ((filled: Cells) => MemberKey) => {
+	const keyReader = (
+		relation: StoredRelationName
+	): ((values: Cells, texts: Texts) => MemberKey) => {
 		const columns = prepared.columns(relation)
 		const key = mapNonEmpty(judgedOf(relation).layout.key, (c) => ({
 			at: columns.at(c.key),
 			spec: carrierSpecOf(c.type, codes)
 		}))
-		return (filled) => mapNonEmpty(key, (c) => admittedParam(c.spec, filled[c.at]))
+		return (cells, texts) =>
+			mapNonEmpty(key, (c) => paramOfText(c.spec, textAt(cells, texts, c.at, c.spec)))
 	}
 	/** Each stratum's inserted rows (`InsertedStratum`), from the sources its statements send. */
 	const inserted = (): ReadonlyArray<InsertedStratum> =>
@@ -797,7 +807,7 @@ export const bindWrite = (
 					const keyOf = keyReader(relation)
 					for (const fact of slotFacts(slot).facts) {
 						const filled = factCells(columns, fact)
-						add(relation, keyOf(filled), filled)
+						add(relation, keyOf(filled, []), filled)
 					}
 				}
 				for (const group of binding.groups) {
@@ -850,7 +860,7 @@ export const bindWrite = (
 						const keyOf = keyReader(f.member)
 						const drawn = new TupleMap<MemberKey, Cells>()
 						for (const member of freshMembersOf(stratum, familyKey(f.id))) {
-							drawn.set(keyOf(member), member)
+							drawn.set(keyOf(member.values, member.texts), member.values)
 						}
 						for (const [key, row] of keyed.get(f.member) ?? []) {
 							const member = drawn.get(key)
@@ -954,13 +964,13 @@ interface FreshGeneratedNull extends GeneratedNull {
  * What a fresh fill leaves (`freshOwners`): each owner slot's facts and, by stratum and relation, each nested owner's
  * rows, every one with the counts and ends of its counted families as its stratum's appends to it draw them; and, by
  * stratum and counted family, by its key, the members of its fresh groups as the fill drew them, each its fill's cells
- * (cells.ts Cells), its own and every column the family draws on it (binding.ts FreshStratum `fresh`), each group's in
- * key order.
+ * and their texts (cells.ts CellRow), its own and every column the family draws on it (binding.ts FreshStratum
+ * `fresh`), each group's in key order.
  */
 interface FreshCounts {
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
 	readonly nested: ReadonlyMap<StratumAt, ReadonlyMap<StoredRelationName, ReadonlyArray<NestedRow>>>
-	readonly members: ReadonlyMap<StratumAt, ReadonlyMap<string, ReadonlyArray<Cells>>>
+	readonly members: ReadonlyMap<StratumAt, ReadonlyMap<string, ReadonlyArray<CellRow>>>
 }
 
 /**
@@ -991,11 +1001,11 @@ const freshOwners = (
 	cellsOf: (
 		stratum: StratumAt,
 		relation: StoredRelationName
-	) => (values: Cells) => ReadonlyArray<MemberCell>
+	) => (values: Cells, texts: Texts) => ReadonlyArray<MemberCell>
 ): Result.Result<FreshCounts, EncodingFailure | FreshGeneratedNull> => {
 	const slotsOut = new Map<ParamId, NormalizedSlot>()
 	const nestedOut = new Map<StratumAt, Map<StoredRelationName, ReadonlyArray<NestedRow>>>()
-	const membersOut = new Map<StratumAt, ReadonlyMap<string, ReadonlyArray<Cells>>>()
+	const membersOut = new Map<StratumAt, ReadonlyMap<string, ReadonlyArray<CellRow>>>()
 	for (const { stratum: s, appended, counted: reached, fresh: layouts, owners } of fresh) {
 		/** A counted family's fresh layout, which the binding decided for every family the stratum reaches. */
 		const layoutOf = (f: CountedFamily): LaidLayout =>
@@ -1008,9 +1018,13 @@ const freshOwners = (
 				at: columns.at(c.key),
 				spec: carrierSpecOf(c.type, ctx.codes)
 			}))
-			return (a: Cells, b: Cells): number => {
+			return (a: CellRow, b: CellRow): number => {
 				for (const c of key) {
-					const order = compareValues(c.spec, admitted(c.spec, a[c.at]), admitted(c.spec, b[c.at]))
+					const order = compareValues(
+						c.spec,
+						admitted(c.spec, a.values[c.at]),
+						admitted(c.spec, b.values[c.at])
+					)
 					if (order !== 0) {
 						return order
 					}
@@ -1020,38 +1034,37 @@ const freshOwners = (
 		}
 		/** The members of each group the fill drew, by the family's key and the group, each group once however many of the
 		 * stratum's owner rows name it. */
-		const drawnMembers = new Map<string, TupleMap<Owner, ReadonlyArray<Cells>>>()
-		/** Each member of a filled owner's families, as its fill's cells: its input's, which the fill starts each member's
-		 * row from, and every column the fill drew on it. */
+		const drawnMembers = new Map<string, TupleMap<Owner, ReadonlyArray<CellRow>>>()
+		/** Each member of a filled owner's families, as its fill's cells and their texts: its input's, which the fill
+		 * starts each member's row from, and every column the fill drew on it. */
 		const keepMembers = (
 			filled: FilledNode,
 			inputs: ReadonlyArray<{ readonly family: string; readonly group: Owner }>
 		): void => {
 			for (const [place, g] of filled.families.entries()) {
 				const input = defined(inputs[place], "the members a filled family was given")
-				const groups = drawnMembers.get(input.family) ?? new TupleMap<Owner, ReadonlyArray<Cells>>()
+				const groups =
+					drawnMembers.get(input.family) ?? new TupleMap<Owner, ReadonlyArray<CellRow>>()
 				drawnMembers.set(input.family, groups)
-				groups.set(
-					input.group,
-					g.members.map((m) => m.values)
-				)
+				groups.set(input.group, g.members)
 			}
 		}
-		/** A relation's appended members' cells, its slots' facts', then its nested rows', each relation's read once. */
-		const appendedMembers = new Map<StoredRelationName, ReadonlyArray<Cells>>()
-		const membersOf = (relation: StoredRelationName): ReadonlyArray<Cells> => {
+		/** A relation's appended members' cells and their texts, its slots' facts', then its nested rows', each relation's
+		 * read once. */
+		const appendedMembers = new Map<StoredRelationName, ReadonlyArray<CellRow>>()
+		const membersOf = (relation: StoredRelationName): ReadonlyArray<CellRow> => {
 			const known = appendedMembers.get(relation)
 			if (known !== undefined) {
 				return known
 			}
 			const columns = ctx.columns(relation)
-			const read = [
+			const read: ReadonlyArray<CellRow> = [
 				...appended.flatMap((a) =>
 					a.relation === relation
-						? factsOf(a.slot).facts.map((fact) => factCells(columns, fact))
+						? factsOf(a.slot).facts.map((fact) => ({ values: factCells(columns, fact), texts: [] }))
 						: []
 				),
-				...nestedOf(s, relation).map((row) => row.values)
+				...nestedOf(s, relation)
 			]
 			appendedMembers.set(relation, read)
 			return read
@@ -1061,11 +1074,11 @@ const freshOwners = (
 		const byGroup = new Map(
 			counted.map((f) => {
 				const groupOf = groupReader(ctx, f, "member", ctx.columns(f.member))
-				const groups = new TupleMap<Owner, Array<Cells>>()
-				for (const values of membersOf(f.member)) {
-					const group = groupOf(values)
+				const groups = new TupleMap<Owner, Array<CellRow>>()
+				for (const member of membersOf(f.member)) {
+					const group = groupOf(member.values, member.texts)
 					const list = groups.get(group) ?? []
-					list.push(values)
+					list.push(member)
 					groups.set(group, list)
 				}
 				const order = keyOrder(f)
@@ -1092,28 +1105,32 @@ const freshOwners = (
 				groupOf: groupReader(ctx, f, "owner", ownerColumns),
 				groups: byGroup.get(familyKey(f.id))
 			}))
-			/** The members each family appends to the owner at `values`, by the owner's group in it. */
-			const inputsOf = (values: Cells) =>
+			/** The members each family appends to the owner `row`, by the owner's group in it. */
+			const inputsOf = (row: CellRow) =>
 				grouped.map((g) => {
-					const group = g.groupOf(values)
+					const group = g.groupOf(row.values, row.texts)
 					return { family: g.key, group, members: g.groups?.get(group) ?? [] }
 				})
 			/** An owner's cells with its counts and ends drawn from `inputs`, its appended members, where it stands, or the
-			 * fill's refusal: the fill starts from its cells but those it draws. */
-			const filledOf = (values: Cells, position: FillAt, inputs: ReturnType<typeof inputsOf>) => {
-				const given = values.slice()
+			 * fill's refusal: the fill starts from its cells and their texts but those it draws. */
+			const filledOf = (row: CellRow, position: FillAt, inputs: ReturnType<typeof inputsOf>) => {
+				const values = row.values.slice()
+				const texts = row.texts.slice()
 				for (const at of drawnAt.values()) {
-					given[at] = undefined
+					values[at] = undefined
+					texts[at] = undefined
 				}
 				const filled = fill(
 					{
 						relation: owner,
-						values: given,
+						values,
+						texts,
 						families: grouped.map((g, i) => ({
 							family: g.family.id,
 							members: defined(inputs[i], "a family's members").members.map((m): HostNode => ({
 								relation: g.family.member,
-								values: m,
+								values: m.values,
+								texts: m.texts,
 								families: []
 							}))
 						}))
@@ -1136,8 +1153,8 @@ const freshOwners = (
 				const current = factsOf(slot)
 				const filledFacts = new Map<Fact, Fact>()
 				for (const fact of current.facts) {
-					const values = factCells(ownerColumns, fact)
-					const filled = filledOf(values, { kind: "top" }, inputsOf(values))
+					const row: CellRow = { values: factCells(ownerColumns, fact), texts: [] }
+					const filled = filledOf(row, { kind: "top" }, inputsOf(row))
 					if (!filled.ok) {
 						return refused(filled.error.stop)
 					}
@@ -1165,20 +1182,21 @@ const freshOwners = (
 				const rows: Array<NestedRow> = []
 				const ownerCells = cellsOf(s, owner)
 				for (const row of nestedOf(s, owner)) {
-					const inputs = inputsOf(row.values)
+					const inputs = inputsOf(row)
 					if (inputs.every((i) => i.members.length === 0)) {
 						rows.push(row)
 						continue
 					}
-					const filled = filledOf(row.values, nested.position, inputs)
+					const filled = filledOf(row, nested.position, inputs)
 					if (!filled.ok) {
 						return refused(filled.error.stop)
 					}
-					const drawn = filled.value.values
+					const { values: drawn, texts } = filled.value
 					rows.push({
 						...row,
 						values: drawn,
-						cells: ownerCells(drawn),
+						texts,
+						cells: ownerCells(drawn, texts),
 						fact: Object.freeze(
 							Object.fromEntries(
 								Object.entries(row.fact).map(([name, v]) => {

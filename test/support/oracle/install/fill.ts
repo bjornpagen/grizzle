@@ -243,6 +243,7 @@ export const familyRows = (
 					supplied.has(f.name) ? [] : [[columnKeyOf(f.name), fact.values.get(f.name)] as const]
 				)
 			),
+			texts: [],
 			families: Arr.map(owned(relation.name), (g) => ({
 				family: g.id,
 				members: Arr.map(groups.get(g)?.get(groupOf(g, "owner", fact)) ?? [], (m) => {

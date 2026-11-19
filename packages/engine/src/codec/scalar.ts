@@ -121,19 +121,24 @@ export const carrierSpecOf = (type: ScalarType, codes: Codebook): CarrierSpec =>
 const paramText = nominal<string, ParamText>()
 
 /**
- * The parameter text of a value `spec` admitted: its canonical text, which PostgreSQL's input function of its type reads.
- * The one site of the fact that no bytes value is a parameter text: a bytes value travels in binary (codec/bytea.ts),
- * and its canonical text, its digest, is no input of byteain, so one here is a defect.
+ * The parameter text of a value `spec` admitted, from its canonical text (values/identity.ts canonicalText), which
+ * PostgreSQL's input function of its type reads: that text itself, the one a write works out of the value and holds
+ * beside it (runtime/write/cells.ts Texts). The one site of the fact that no bytes value is a parameter text: a bytes
+ * value travels in binary (codec/bytea.ts), and its canonical text, its digest, is no input of byteain, so one here is a
+ * defect.
  */
-const parameterText = <C extends Carrier>(
-	spec: SpecOf<C> & CarrierSpec,
-	value: CarrierHost[C]
-): ParamText => {
+export const paramOfText = (spec: CarrierSpec, text: string): ParamText => {
 	if (spec.carrier === "bytes") {
 		throw defect("a bytes value travels in binary, never as a parameter text")
 	}
-	return paramText(canonicalText(spec, value))
+	return paramText(text)
 }
+
+/** The parameter text of a value `spec` admitted: its canonical text (`paramOfText`). */
+const parameterText = <C extends Carrier>(
+	spec: SpecOf<C> & CarrierSpec,
+	value: CarrierHost[C]
+): ParamText => paramOfText(spec, canonicalText(spec, value))
 
 /**
  * The codec of one carrier's spec: its canonical text read through the spec's own carrier, so the admitted value and
@@ -156,17 +161,16 @@ const codecOf = <C extends Carrier>(
 	return Object.freeze({ type, spec, encode, text })
 }
 
-/** The parameter text of a value `spec` already admitted (values/identity.ts admitted): its canonical text. */
-export const admittedParam = (spec: CarrierSpec, value: unknown): ParamText =>
-	parameterText(spec, admitted(spec, value))
-
 /**
- * A column's cell of a value `spec` already admitted, as a family write's transport carries it (runtime/write/draw.ts
- * MemberCell): a bytes value itself, which its column's binary array carries (codec/bytea.ts), and any other its
- * parameter text.
+ * A column's cell of a value `spec` admitted, as a family write's transport carries it (runtime/write/draw.ts
+ * MemberCell), from the value and its canonical text (`paramOfText`): a bytes value itself, which its column's binary
+ * array carries (codec/bytea.ts), and any other its parameter text, its canonical text.
  */
-export const admittedCell = (spec: CarrierSpec, value: unknown): ParamText | AdmittedBytes =>
-	spec.carrier === "bytes" ? admitted(spec, value) : admittedParam(spec, value)
+export const cellOfText = (
+	spec: CarrierSpec,
+	value: unknown,
+	text: string
+): ParamText | AdmittedBytes => (spec.carrier === "bytes" ? admitted(spec, value) : paramText(text))
 
 /**
  * A plain text's parameter text: a name, a fingerprint or a JSON document grizzle's own statements send as text, written

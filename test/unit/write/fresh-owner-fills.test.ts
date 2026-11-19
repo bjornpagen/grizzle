@@ -182,8 +182,8 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 			},
 			{
 				file: "packages/engine/src/runtime/write/nesting.ts",
-				original: "\tconst values = row.values\n",
-				replacement: "\tconst values = row.values.slice()\n",
+				original: "\tconst { values, texts } = row\n",
+				replacement: "\tconst { texts } = row\n\tconst values = row.values.slice()\n",
 				why: "A nested row copies its walk's cells, one copy of every row a nesting fills, where the row is the walk's own."
 			},
 			{

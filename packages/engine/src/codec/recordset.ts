@@ -113,6 +113,9 @@ export interface ReadRelation {
  */
 export interface RelationNormalizer {
 	readonly columns: number
+	/** The heading's field names in the order an admitted fact's identity holds their texts (scalar/values/identity.ts
+	 * FactIdentity): field-name order. */
+	readonly fields: ReadonlyArray<string>
 	readonly read: (facts: Iterable<unknown>) => Result.Result<ReadRelation, EncodingFailure>
 	readonly admit: (
 		read: ReadRelation,
@@ -125,8 +128,12 @@ export interface RelationNormalizer {
 	readonly readOne: (
 		fact: unknown
 	) => Result.Result<{ readonly read: ReadFact; readonly widest: number }, EncodingFailure>
-	/** A fact read alone admitted, as `admit` admits an input of it alone: its one normal fact. */
-	readonly admitOne: (read: ReadFact, book: DigestBook) => Result.Result<Fact, EncodingFailure>
+	/** A fact read alone admitted, as `admit` admits an input of it alone: its one normal fact, with its identity, each
+	 * field's canonical text in `fields`' order, the one text the write works out of each of its values. */
+	readonly admitOne: (
+		read: ReadFact,
+		book: DigestBook
+	) => Result.Result<IdentifiedFact, EncodingFailure>
 }
 
 /** A relation parameter's normalization, its facts' text rows written beside them. */
@@ -379,7 +386,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	const digested = (
 		one: ReadFact,
 		book: DigestBook
-	): Result.Result<{ readonly identity: FactIdentity; readonly fact: Fact }, EncodingFailure> => {
+	): Result.Result<IdentifiedFact, EncodingFailure> => {
 		const admittedFact = digestFact(s.plan, one)
 		for (const at of bytesAt) {
 			const field = defined(s.plan.entries[at], "a bytes field of the heading").name
@@ -413,11 +420,14 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		const one = readOneFact(fact)
 		return one.ok ? Result.ok({ read: one.value, widest: aloneBytes(one.value) }) : one
 	}
-	const admitOne = (one: ReadFact, book: DigestBook): Result.Result<Fact, EncodingFailure> => {
-		const admittedFact = digested(one, book)
-		return admittedFact.ok ? Result.ok(admittedFact.value.fact) : admittedFact
+	return {
+		columns: columns.length,
+		fields: s.plan.entries.map((f) => f.name),
+		read,
+		admit,
+		readOne,
+		admitOne: digested
 	}
-	return { columns: columns.length, read, admit, readOne, admitOne }
 }
 
 /**

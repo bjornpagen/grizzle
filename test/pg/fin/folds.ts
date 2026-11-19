@@ -1059,6 +1059,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 				onSome: () => [[columnKeyOf("k"), spec.carrier.toHost(f.k)] as const]
 			})
 		]),
+		texts: [],
 		families: [
 			{
 				family: { owner: "Owner", count: "n" },
@@ -1075,6 +1076,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 							onSome: () => [[columnKeyOf("on"), m.selected] as const]
 						})
 					]),
+					texts: [],
 					families: []
 				}))
 			}

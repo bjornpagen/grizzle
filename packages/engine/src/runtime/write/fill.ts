@@ -53,7 +53,7 @@ import {
 import { type CombineBuild, type CombineStep, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type PatternSource, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { Cells, ColumnIndex, Columns } from "#compiler/runtime/write/cells.ts"
+import type { Cells, ColumnIndex, Columns, Texts } from "#compiler/runtime/write/cells.ts"
 import {
 	type EvalLeaves,
 	type EvalStop,
@@ -81,12 +81,13 @@ import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
 /**
  * A row of a nesting as its caller wrote it: its relation, its caller fields' values as cells of its relation's columns
  * (runtime/write/cells.ts Cells), each the host value its carrier's codec admitted (scalar/values/identity.ts
- * CarrierHost), and each family it owns, by its id, with its members in slot order. A member holds no field its nesting
- * supplies: its group, a tree node's root fields.
+ * CarrierHost), the texts the write holds of them (cells.ts Texts), its admission's, and each family it owns, by its id,
+ * with its members in slot order. A member holds no field its nesting supplies: its group, a tree node's root fields.
  */
 export interface HostNode {
 	readonly relation: StoredRelationName
 	readonly values: Cells
+	readonly texts: Texts
 	readonly families: ReadonlyArray<{
 		readonly family: FamilyId
 		readonly members: ReadonlyArray<HostNode>
@@ -95,11 +96,13 @@ export interface HostNode {
 
 /**
  * A row of a nesting filled: its walk's own cells (`Cells`), its node's and every column the host writes, a generated
- * field it read among them, and each family it owns, with its members filled.
+ * field it read among them, the texts the write holds of them (cells.ts Texts), its node's, which a reader of a value
+ * the walk drew adds to (cells.ts textAt), and each family it owns, with its members filled.
  */
 export interface FilledNode {
 	readonly relation: StoredRelationName
 	readonly values: Cells
+	readonly texts: Texts
 	readonly families: ReadonlyArray<{
 		readonly family: FamilyId
 		readonly members: ReadonlyArray<FilledNode>
@@ -775,11 +778,12 @@ type Place =
 			readonly tree: Interval | undefined
 	  }
 
-/** A row being filled: its layout, its cells so far (runtime/write/cells.ts Cells), where it stands, and what its rules
- * read beyond it. */
+/** A row being filled: its layout, its cells so far (runtime/write/cells.ts Cells) and the texts its node held of them
+ * (cells.ts Texts), where it stands, and what its rules read beyond it. */
 interface Row {
 	readonly layout: Layout
 	readonly values: Array<unknown>
+	readonly texts: Texts
 	readonly place: Place
 	/** Each family it owns, by key, with the count of its members. */
 	readonly counts: ReadonlyMap<string, number>
@@ -1158,6 +1162,7 @@ export const filler = (
 	const rowOf = (node: HostNode, position: FillAt, place: Place): Row => ({
 		layout: laidOut(node.relation, position),
 		values: node.values.slice(),
+		texts: node.texts.slice(),
 		place,
 		counts: new Map(node.families.map((g) => [familyKey(g.family), g.members.length] as const)),
 		last: new Map()
@@ -1251,6 +1256,7 @@ export const filler = (
 			const done: FilledNode = Object.freeze({
 				relation: frame.row.layout.relation.name,
 				values: frame.row.values,
+				texts: frame.row.texts,
 				families: Object.freeze(
 					frame.filled.map((g) =>
 						Object.freeze({ family: g.family, members: Object.freeze(g.members) })

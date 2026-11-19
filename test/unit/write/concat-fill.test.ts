@@ -39,6 +39,7 @@ export const theHostFillOfAConcatFoldDrawsTheNaiveLeftFoldOfItsSlotsTexts = prop
 				const nesting: HostNode = {
 					relation: StoredRelationName("Owner"),
 					values: cellsOf(columns, "Owner", [[columnKeyOf("id"), uuidOf(0)]]),
+					texts: [],
 					families: [
 						{
 							family: { owner: "Owner", count: "n" },
@@ -49,6 +50,7 @@ export const theHostFillOfAConcatFoldDrawsTheNaiveLeftFoldOfItsSlotsTexts = prop
 									[columnKeyOf("piece"), m.piece],
 									[columnKeyOf("flag"), m.flag]
 								]),
+								texts: [],
 								families: []
 							}))
 						}
