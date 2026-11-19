@@ -61,6 +61,16 @@ export const equalSteps = (step: number): EqualSteps => ({
 	sizes: [step, 2 * step, 3 * step]
 })
 
+/**
+ * An item's index as a generated program's names write it, at the width of `widest`, the largest index the dimension's
+ * largest size writes: so each item's names are as long at every size as at the largest, the items of a dimension
+ * alike (test/support/growth.ts), as a name's type reads each of its characters (types/core/phantom.ts DeclaredName).
+ */
+export const indexAt =
+	(widest: number) =>
+	(i: number): string =>
+		Str.padStart(String(widest).length, "0")(String(i))
+
 /** "index.ts(12,3): error TS2345: ..." -> its file, line and code. */
 const diagnosticLine = regex("^(.+?)\\((\\d+),(\\d+)\\): error (TS\\d+): ")
 

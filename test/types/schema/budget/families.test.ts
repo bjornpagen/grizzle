@@ -26,6 +26,12 @@ export const growth = growthGate(familyDimensions, {
 	box: "the family-scale program's one dimension, its families",
 	kills: [
 		{
+			file: "test/types/batch/measured.ts",
+			original: '\t\tStr.padStart(String(widest).length, "0")(String(i))',
+			replacement: "\t\tString(i)",
+			why: "Each index is written at its own width (indexAt), so the largest size's last items are named a digit longer than every other item, and each name's type reads each of its characters (types/core/phantom.ts DeclaredName): the second step adds those characters' reading beside its items', more than the first, and the law refuses it."
+		},
+		{
 			file: "packages/engine/src/types/changeset/changeset.ts",
 			original:
 				"/**\n * The owners of S's ordered and counted families under the name of their member relation, a member of several families\n * once with all their owners, and none under any other name: built once per schema, in one pass over its families, so\n * a member's owners are one property read, as SequenceIndexOf reads an owner's sequences.\n */\ntype RowOwnerIndexOf<S> = {\n\treadonly [Fa in RowFamilyOf<S> as NameOf<MemberRelationOf<Fa>>]: OwnerNameOf<Fa>\n} & { readonly [member: string]: never }\n\n/**\n * The immutable owners of the ordered and counted families R is a member of in S: one read of the schema's index\n * (RowOwnerIndexOf), so insertAll's keys cost one each, however many families the schema holds.\n */\ntype FixedOwnerOf<S, R> =\n\tstring extends NameOf<R> ? never : Exclude<RowOwnerIndexOf<S>[NameOf<R>], MutableName<S>>",
