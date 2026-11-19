@@ -1,0 +1,213 @@
+/** What the properties of parse-double.test.ts read: its spaces, models and helpers. */
+
+import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { identity } from "#compiler/core/identity.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
+import { predicateTable } from "#compiler/ir/expr.ts"
+import {
+	compileInstallation,
+	type Installation,
+	installOptions
+} from "#compiler/physical/install/compile.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { generated, pg } from "#compiler/public/fields.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
+import { doubleText } from "#compiler/public/text.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { regexField } from "#compiler/text/field.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { installationSql } from "#test/support/compile.ts"
+import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import {
+	bitsOfNumber,
+	type Conversion,
+	decimalTextOf
+} from "#test/support/oracle/evaluate/double-text.ts"
+import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import { owning } from "#test/support/policy.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+import { baseParams, lowerWith, spelledExpr, testPg, v } from "#test/unit/compute/support.ts"
+
+export type Feature =
+	| "a special spelling"
+	| "an overflow to an infinity"
+	| "an underflow to a zero"
+	| "a negative zero"
+	| "a subnormal"
+	| "the greatest finite double"
+	| "a tie"
+	| "more than 15 significant digits"
+	| "more than 17 significant digits"
+	| "an exponent past 400 in magnitude"
+	| "a leading plus"
+	| "a bare fraction"
+	| "a trailing point"
+
+export const features: Arr.NonEmptyReadonlyArray<Feature> = [
+	"a special spelling",
+	"an overflow to an infinity",
+	"an underflow to a zero",
+	"a negative zero",
+	"a subnormal",
+	"the greatest finite double",
+	"a tie",
+	"more than 15 significant digits",
+	"more than 17 significant digits",
+	"an exponent past 400 in magnitude",
+	"a leading plus",
+	"a bare fraction",
+	"a trailing point"
+]
+
+const signBit = 1n << 63n
+
+const infinityBits = 0x7ff0000000000000n
+
+const greatestFiniteBits = 0x7fefffffffffffffn
+
+const leastNormalBits = 1n << 52n
+
+/** A text's characters up to its exponent, and the exponent it writes, zero where it writes none. */
+const splitExponent = (text: string): { readonly mantissa: string; readonly exponent: bigint } => {
+	const characters = Arr.fromIterable(text)
+	const at = Arr.findFirstIndex(characters, (ch) => ch === "e" || ch === "E")
+	return Option.match(at, {
+		onNone: () => ({ mantissa: text, exponent: 0n }),
+		onSome: (e) => ({
+			mantissa: Str.slice(0, e)(text),
+			exponent: BigInt(Str.slice(e + 1)(text))
+		})
+	})
+}
+
+/** The digits of a whole number's text before its trailing zeros. */
+const significantDigits = (digits: string): number => {
+	const characters = Arr.fromIterable(digits)
+	const last = Arr.findLastIndex(characters, (ch) => ch !== "0")
+	return Option.match(last, { onNone: () => 0, onSome: (i) => i + 1 })
+}
+
+/** The situations a text and its conversion reach, read from the text's own parts and the reference's encoding. */
+export const featuresOf = (text: string, conversion: Conversion): ReadonlyArray<Feature> => {
+	const read = decimalTextOf(text)
+	if (read?.kind !== "finite") {
+		return ["a special spelling"]
+	}
+	const magnitude = conversion.bits & ~signBit
+	const significant = significantDigits(read.value.digits.toString())
+	const { mantissa, exponent } = splitExponent(text)
+	const unsigned =
+		Str.startsWith("+")(mantissa) || Str.startsWith("-")(mantissa)
+			? Str.slice(1)(mantissa)
+			: mantissa
+	const facts: ReadonlyArray<readonly [Feature, boolean]> = [
+		["an overflow to an infinity", magnitude === infinityBits],
+		["an underflow to a zero", magnitude === 0n && read.value.digits !== 0n],
+		["a negative zero", conversion.bits === signBit],
+		["a subnormal", magnitude > 0n && magnitude < leastNormalBits],
+		["the greatest finite double", magnitude === greatestFiniteBits],
+		["a tie", conversion.tie],
+		["more than 15 significant digits", significant > 15],
+		["more than 17 significant digits", significant > 17],
+		["an exponent past 400 in magnitude", exponent > 400n || exponent < -400n],
+		["a leading plus", Str.startsWith("+")(text)],
+		["a bare fraction", Str.startsWith(".")(unsigned)],
+		["a trailing point", Str.endsWith(".")(mantissa)]
+	]
+	return Arr.map(
+		Arr.filter(facts, ([, holds]) => holds),
+		([feature]) => feature
+	)
+}
+
+/** The host evaluator's parse of a text: the evaluation, as a generated field's check lowers it, of parseDouble(v). */
+const keyField = testPg.regex(doubleText.source, "u")
+
+const lowered = succeeded(
+	lowerWith(
+		"check",
+		spelledExpr(computeCore.parseDouble(v("v", keyField)).expr),
+		{ v: { kind: "column", type: keyField.scalar } },
+		false,
+		baseParams
+	)
+).root.expr
+
+const table = predicateTable(lowered)
+
+const patterns = ProgramPatterns.of(tablePatterns(table))
+
+export const hostBits = (text: string): bigint => {
+	const value = succeeded(
+		Engine.mapError(
+			compiledExpr(table)(
+				{ value: undefined, column: () => text, closed: () => undefined },
+				patterns
+			),
+			(stop) => new Error(Formatter.format(stop))
+		),
+		"the host evaluates it"
+	)
+	return typeof value === "number"
+		? bitsOfNumber(value)
+		: assert.fail(`a double, not ${Formatter.format(value)}`)
+}
+
+const Keys = relation.generated(
+	"Keys",
+	{ id: pg.integer, key: regexField<string>(doubleText.source, []) },
+	["id"],
+	(r) => ({ value: generated(pg["double precision"], Compute.parseDouble(r.key)) })
+)
+
+const parsed = schema("ParseDouble", [Keys], [])
+
+export const parseDoubleInstallation = Effect.gen(function* () {
+	const substrate = yield* Substrate
+	const schemaName = yield* substrate.schema({ create: false, label: "parse_double" })
+	const owned = owning(parsed)
+	const real = compileInstallation(owned, {
+		...installOptions(owned),
+		levels: [identity.schema(parsedSchemaName(schemaName))]
+	})
+	return real.ok ? real.value : yield* Effect.die(new Error(`compile ${real.error.message}`))
+})
+
+/** Installs the relation on the pinned session in a transaction, stores `texts`, reads each value's bits, rolls back. */
+export const storedBits = (
+	pinned: PgConnection,
+	database: string,
+	installation: Installation,
+	texts: ReadonlyArray<string>
+): Effect.Effect<ReadonlyArray<bigint>, SqlError> =>
+	Effect.ensuring(
+		Effect.gen(function* () {
+			const names = installationNamesOf(installation)
+			yield* pinned.query("BEGIN", [])
+			for (const statement of installationSql(installation, database)) {
+				yield* pinned.query(statement, [])
+			}
+			yield* pinned.query(
+				`INSERT INTO ${names.table(Keys)} (${names.column(Keys, "id")}, ${names.column(Keys, "key")}) SELECT r.ord, r.v FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, v text)`,
+				[jsonText(Arr.map(texts, (text, ord) => ({ ord, v: text })))]
+			)
+			const rows = yield* pinned.queryValues(
+				`SELECT pg_catalog.float8send(${names.column(Keys, "value")})::text FROM ${names.table(Keys)} ORDER BY ${names.column(Keys, "id")}`,
+				[]
+			)
+			return Arr.map(rows, (row) => BigInt(`0x${Str.slice(2)(String(defined(row[0])))}`))
+		}),
+		Effect.orDie(pinned.query("ROLLBACK", []))
+	)
+
+/**
+ * qti-pie's xs:double map keys b0e98c456 fixed, kept by value since the space draws none of them (toolchain-test keep
+ * found none), each refused before by the cast's bounded form: past 15 digits, past the exponent bound, the greatest
+ * finite double, the least subnormal, and an overflow and an underflow.
+ */
+export const mapKeyDoubles: Arr.NonEmptyReadonlyArray<ReadonlyArray<string>> = [
+	["1e294", "1.2345678901234567", "1.7976931348623157e308", "5e-324", "1e400", "1e-400"]
+]
