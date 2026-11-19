@@ -5,7 +5,11 @@ import { Array as Arr } from "effect"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { fieldSketchGen, type SketchedField } from "#test/unit/schema/field-sketch.ts"
+import {
+	fieldSketchGen,
+	type PgMember,
+	type SketchedField
+} from "#test/unit/schema/field-sketch.ts"
 
 /** A relation of drawn fields: each roster's handle count, and its fields' types, each contract named by its field. */
 interface DeclaredCase {
@@ -36,7 +40,11 @@ export const declaredGen: Gen<DeclaredCase> = (source) => {
 	}
 }
 
-export type DeclaredFeature = `kind ${SketchedField["kind"]}`
+/**
+ * A declared field's kind, a `pg` member's by its member: each member is a descriptor of its own, which its own arm of
+ * declaredDescOf gives back, so a case of one member reaches no other's.
+ */
+export type DeclaredFeature = `kind ${Exclude<SketchedField["kind"], "pg">}` | `pg ${PgMember}`
 
 /** Contracts over bigint, each checked or not, the ones a relation declares, and the one a derived field is cast to. */
 interface ContractCase {

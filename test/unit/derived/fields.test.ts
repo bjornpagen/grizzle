@@ -5,7 +5,7 @@
  * - Declared kinds: over drawn relations of one to four fields of every declarable type (field-sketch.ts: every pg
  *   descriptor, the numeric typmod box, refined and wildcard text, contracts over drawn bases,
  *   spans, closed ids and sets over drawn rosters, vectors), every declared field's descriptor comes back from its
- *   type unchanged. Oracle: the round trip fieldDescOf ∘ scalarOf = id. Features: each kind.
+ *   type unchanged. Oracle: the round trip fieldDescOf ∘ scalarOf = id. Features: each kind, each pg member by itself.
  * - Undeclared contracts: over drawn contracts, each declared by a relation or not, and a derived field cast to one
  *   of them, a contract no relation declares has no descriptor, fieldDescOf names it and the derived field is
  *   refused at that field (DerivedRefused, undeclaredContract); a declared one is the derived field's descriptor, as
@@ -57,7 +57,13 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 		needs: {},
 		budget: { runs: 100, steered: 200 },
 		situations: [
-			"kind pg",
+			"pg smallint",
+			"pg integer",
+			"pg bigint",
+			"pg real",
+			"pg double precision",
+			"pg money",
+			"pg boolean",
 			"kind numeric",
 			"kind uuid",
 			"kind text",
@@ -100,7 +106,7 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 				const line = defined(owned.relations["Line"], "Line").desc
 				assert.ok(line.kind === "relation", "Line is a relation")
 				for (const [i, sketch] of d.fields.entries()) {
-					c.note(`kind ${sketch.kind}`)
+					c.note(sketch.kind === "pg" ? `pg ${sketch.member}` : `kind ${sketch.kind}`)
 					const declared = defined(line.fields[`f${i}`], `Line.f${i}`).type
 					assert.deepEqual(
 						succeeded(fieldDescOf(scalarOf(declared, handles), owned.contracts)),
