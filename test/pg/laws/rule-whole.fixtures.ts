@@ -913,7 +913,7 @@ const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlState
 	)
 
 /** The queries a judge's body tests by EXISTS at its top to raise: each whole rule's statement. */
-const wholeStatementsOf = (installation: Installation): ReadonlyArray<OperandSelect> =>
+export const wholeStatementsOf = (installation: Installation): ReadonlyArray<OperandSelect> =>
 	Arr.flatMap(bodyOf(installation, identifierOf(identity.ruleJudge())), (s) =>
 		s.kind === "if"
 			? Arr.flatMap(s.branches, (b) =>

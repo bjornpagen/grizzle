@@ -29,7 +29,7 @@ import type {
 } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier, fewValued, isSpanCarrier } from "#compiler/ir/scalar.ts"
 import { type Atom, atomKey, operandOf, predicateAtoms } from "#compiler/physical/access/atoms.ts"
-import { uniquePaths } from "#compiler/physical/access/paths.ts"
+import { type Lookup, uniqueLookups, uniquePaths } from "#compiler/physical/access/paths.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 /**
@@ -553,6 +553,17 @@ type ProbeContext =
 			readonly spans: NonEmptyReadonlyArray<string>
 	  }
 
+/** The columns a probe context fixes by equality, its own facts' and its partners'. */
+const equalities = (ctx: ProbeContext): ReadonlyMap<string, "fixed" | "literal"> => {
+	switch (ctx.kind) {
+		case "key":
+			return ctx.bound.eq
+		case "scalar":
+		case "span":
+			return ctx.eq
+	}
+}
+
 /** What a probe context pushes into a non-stored source. */
 const pushedOf = (ctx: ProbeContext): Pushed => {
 	switch (ctx.kind) {
@@ -612,7 +623,9 @@ type Classed<A> =
 
 class Extractor {
 	readonly options: ExtractOptions
-	readonly paths: Array<AccessPath> = []
+	/** Every path asked for, with the columns of the lookup through it (`equalities`), none for an ordered or a vector
+	 * one. */
+	readonly lookups: Array<Lookup> = []
 	readonly statistics = new Map<string, StatisticsShape>()
 	/** The pushed facts each node was visited under, by their key: the walk's seen-set. */
 	readonly #visited = new Map<RelNode, Set<string>>()
@@ -977,7 +990,11 @@ class Extractor {
 			(columns) => this.keyWithin(base, columns),
 			keyDriven
 		)) {
-			appendAll(this.paths, contextPaths(ctx))
+			const binds = sorted([...equalities(ctx).keys()])
+			appendAll(
+				this.lookups,
+				contextPaths(ctx).map((p): Lookup => ({ path: p, binds: [binds] }))
+			)
 		}
 		/** Correlated selections. */
 		const selected = sorted([...o.eq.keys()].filter((c) => !isVectorColumn(heading, c)))
@@ -1154,7 +1171,7 @@ class Extractor {
 		for (const r of this.resolve(input, requests, pushed)) {
 			const path = this.orderedPath(r, use)
 			if (path !== undefined) {
-				this.paths.push(path)
+				this.lookups.push({ path, binds: [] })
 			}
 		}
 	}
@@ -1239,12 +1256,15 @@ class Extractor {
 				) {
 					continue
 				}
-				this.paths.push({
-					relation: r.base.relation,
-					derived: r.base.relationKind === "derived",
-					method: "hnsw",
-					keys: [{ field, dir: "asc" }],
-					use: "approximate vector retrieval"
+				this.lookups.push({
+					path: {
+						relation: r.base.relation,
+						derived: r.base.relationKind === "derived",
+						method: "hnsw",
+						keys: [{ field, dir: "asc" }],
+						use: "approximate vector retrieval"
+					},
+					binds: []
 				})
 			}
 		}
@@ -1337,12 +1357,25 @@ export const extractAccess = (
 	roots: ReadonlyArray<RelNode>,
 	options: ExtractOptions
 ): ProgramAccess => {
+	const x = extracted(roots, options)
+	return {
+		paths: uniquePaths(x.lookups.map((l) => l.path)),
+		statistics: [...x.statistics.values()].toSorted(statisticsOrder)
+	}
+}
+
+/** The paths of `extractAccess`, each with the lookups through it (paths.ts Lookup): what a judged read's index requests
+ * read (physical/ddl/rules.ts requestsOf). */
+export const extractLookups = (
+	roots: ReadonlyArray<RelNode>,
+	options: ExtractOptions
+): ReadonlyArray<Lookup> => uniqueLookups(extracted(roots, options).lookups)
+
+/** The walk of `roots` (see `extractAccess`). */
+const extracted = (roots: ReadonlyArray<RelNode>, options: ExtractOptions): Extractor => {
 	const x = new Extractor(options)
 	for (const root of roots) {
 		x.visit(root, nothing)
 	}
-	return {
-		paths: uniquePaths(x.paths),
-		statistics: [...x.statistics.values()].toSorted(statisticsOrder)
-	}
+	return x
 }

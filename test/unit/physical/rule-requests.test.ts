@@ -51,9 +51,8 @@ export const aRuleOverAQueryAsksAnIndexOfEachReadItsJudgeMakesAWholeRulesLedByIt
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					"\t\t\treturn isNonEmpty(bound) ? (isNonEmpty(rest) ? [bound, rest] : [bound]) : [keys]",
-				replacement: "\t\t\treturn [keys]",
+				original: "\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }",
+				replacement: "\t\t\t\t? { blocks: [keys], reads }",
 				why: "A whole rule's request is one block, so the engine merges it into the index Q's probes ask of U by g, led by g: the whole rule's read is served by an index whose scan by g reads every unit's rows of that value, which PostgreSQL may AND into another read, as qti.node's path-led indexes were for the manifest rules; the property fails."
 			}
 		]

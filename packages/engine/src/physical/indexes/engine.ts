@@ -161,6 +161,7 @@ export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> 
 					opclass: defaultOpclass
 				}))
 			],
+			reads: { kind: "rows" },
 			method: n.method,
 			role: "lawMaintenance",
 			use: "reverse reference",
@@ -930,6 +931,15 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * the `(span, other)` it is planned on.
  * Within a block the columns keep the request's own order. Since the draft looks ahead, the plan's order only fixes the outcome:
  * it is canonical, so the plan does not depend on the order requests arrive in.
+ * A created B-tree is held to the units of the whole rules that read its relation (`confined`): when a lookup of one
+ * unit (ir/law.ts LawIndexRequest `reads`) binds every key of the drafted B-tree by equality, the fields of its unit the
+ * keys lack follow them, so PostgreSQL, which may read the lookup through any index whose keys it binds, reads one unit
+ * through this one too whatever it estimates. It prices every index whose keys the lookup binds at one row alike
+ * (selfuncs.c btcostestimate) and takes the smaller: on PostgreSQL 19, a whole rule's lookup of one node by (package, path,
+ * start, kind, governor) read through a law's (package, kind, start), 47 rows of other documents filtered for each of
+ * 24,991 lookups, 1.38 s, and with path appended, 0.36 s through the unit's key. Appending never unseats a placement:
+ * a created index is never unique, and every placement it took is a run of its leading keys. A B-tree some of whose
+ * keys the lookup binds, a prefix, is left to PostgreSQL's estimate of the rows it reads.
  * Its keys are canonical under reversal: a key no ordered request directs takes the first key's direction, and an index
  * whose first key descends is created reversed, so an order and its exact reverse are one index. Its identity is its
  * columns, the canonical directions and each key's operator class, which serving requires equal, and its access method;
@@ -1066,7 +1076,12 @@ export const planIndexes = (
 					b.graph.addReasons(host.index.object, [reasonOf(entry.request)])
 					continue
 				}
-				const index = createIndex(b, entry, draftFor(entry, ahead(entry, relationPlan, own)))
+				const index = createIndex(
+					b,
+					entry,
+					draftFor(entry, ahead(entry, relationPlan, own)),
+					unitReads(relationPlan)
+				)
 				const created = { index, requests: [entry.request] }
 				candidates.push(created)
 				hold(created)
@@ -1143,16 +1158,64 @@ const draftFor = (planned: Planned, reads: ReadonlyArray<Ahead>): Drafted =>
 const canonicalKeys = (keys: NonEmptyReadonlyArray<IndexKey>): NonEmptyReadonlyArray<IndexKey> =>
 	keys[0].dir === "desc" ? mapNonEmpty(keys, (k) => ({ ...k, dir: opposite(k.dir) })) : keys
 
+/** A lookup of one unit of a whole rule (ir/law.ts LawLookup): its unit's fields, its request's first block, and every
+ * column it fixes by equality. */
+interface UnitRead {
+	readonly unit: Block
+	readonly binds: ReadonlyArray<IndexColumn>
+}
+
+/** The lookups of one unit among a relation's requests, in the plan's order. */
+const unitReads = (relationPlan: ReadonlyArray<Planned>): ReadonlyArray<UnitRead> =>
+	relationPlan.flatMap(({ request }): ReadonlyArray<UnitRead> =>
+		request.role === "lawMaintenance" && request.reads.kind === "unit"
+			? request.reads.lookups.map((lookup) => ({
+					unit: lawBlocks(request)[0],
+					binds: lookup.map(indexColumnOf)
+				}))
+			: []
+	)
+
+/** A created B-tree's keys, each unit read of its relation that binds every one of them by equality holding them to its
+ * unit (see `planIndexes`): the fields of that read's unit the keys lack, appended after them in the unit's order, read
+ * by read in the plan's order, so a read binds the widened keys whole only when the reads before it appended fields it
+ * binds too. */
+const confined = (keys: Keys, reads: ReadonlyArray<UnitRead>): Keys =>
+	reads.reduce((held: Keys, read): Keys => {
+		const among = (k: IndexKey, of: ReadonlyArray<IndexColumn>): boolean =>
+			of.some((column) => sameColumn(column, k.column))
+		const missing = read.unit.filter(
+			(k) =>
+				!among(
+					k,
+					held.map((h) => h.column)
+				)
+		)
+		return held.every((k) => among(k, read.binds)) && isNonEmpty(missing)
+			? extendNonEmpty(
+					held,
+					missing.map((k): IndexKey => ({ column: k.column, dir: held[0].dir, opclass: k.opclass }))
+				)
+			: held
+	}, keys)
+
 /** A new index for an unserved request, as drafted for it (draftFor): the draft's method, and its keys in the order
- * the draft fixes, its entry checked against the access method's limit. */
-const createIndex = (b: InstallBuilder, planned: Planned, drafted: Drafted): PlannedIndex => {
+ * the draft fixes, a B-tree's confined to the units of the whole rules that read its relation (`confined`), its entry
+ * checked against the access method's limit. */
+const createIndex = (
+	b: InstallBuilder,
+	planned: Planned,
+	drafted: Drafted,
+	reads: ReadonlyArray<UnitRead>
+): PlannedIndex => {
 	const { request, label, target: o } = planned
 	const { draft, answers } = drafted
 	const method = draft.method
 	const targetField = (column: IndexColumn): TargetField =>
 		o.field(column) ??
 		fail("MalformedDescription", label, `a field ${columnText(column)} of ${request.relation}`)
-	const keys = keysOf(draft, rankIn(planned.keys), planned.columns)
+	const drafts = keysOf(draft, rankIn(planned.keys), planned.columns)
+	const keys = method === "btree" ? confined(drafts, reads) : drafts
 	const fields = keys.map((k) => columnText(k.column))
 	const unrepresentable = (fault: KeyFault): never => {
 		throw new Refusal(

@@ -172,6 +172,7 @@ export const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 						}))
 					)
 				],
+				reads: { kind: "rows" },
 				method: "btree",
 				role: "lawMaintenance",
 				use: "reverse reference",

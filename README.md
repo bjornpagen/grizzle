@@ -2211,12 +2211,18 @@ definition too.
   table at the columns the steps before it bound. On a table with no statistics, a lookup at the table's key may be
   planned through a narrower index of some of the key's columns, which reads every row those columns share, until
   ANALYZE runs: PostgreSQL prices both reads at one row (selfuncs.c btcostestimate, the key's one tuple against the
-  default selectivity of each equality), and the index of the shorter tree wins. A unit-local rule's reads are held to
-  the written units' key ranges whatever PostgreSQL estimates, but within a unit the same holds: a recursion's step
-  that finds a node's children by `(package, path, parent)`, or a negation's lookup, may be planned through another
-  index of the unit's prefix and read the whole unit for each row it extends, so a rule over a recursion costs the
-  square of its unit on a table no ANALYZE has run on, and the first unit published into fresh tables pays it until
-  autoanalyze runs. grizzle runs no ANALYZE and sets no planner option; analyze a table after the first load into it.
+  default selectivity of each equality), and the index of the shorter tree wins. A unit-local rule's lookup that binds
+  its unit's key reads within that unit through whatever index PostgreSQL takes whose keys it binds all of: grizzle
+  appends the unit's fields to the keys of each index it creates that such a lookup binds whole, so no index the lookup
+  binds entirely reads past its unit, whatever PostgreSQL estimates. On PostgreSQL 19, edullm's element_type_in_node
+  looked a node up by its key, kind and governor through a law's index of `(package, kind, start)`, estimated at one
+  row as the key is, and read 47 nodes of other documents for each of 24,991 lookups, 1.38 s; with path appended to
+  that index it reads the unit's key, 0.36 s. A lookup that binds only a prefix of an index's keys is left to
+  PostgreSQL's estimate of the rows that prefix reads, within a unit as across units: a recursion's step that finds a
+  node's children by `(package, path, parent)`, or a negation's lookup, may be planned through another index of the
+  unit's prefix and read the whole unit for each row it extends, so a rule over a recursion costs the square of its
+  unit on a table no ANALYZE has run on, and the first unit published into fresh tables pays it until autoanalyze runs.
+  grizzle runs no ANALYZE and sets no planner option; analyze a table after the first load into it.
 - **Outcomes.** A write's `once` fails with `refused` naming the rule, its witness `unreported`: the row that breaks
   it may be one the transaction never wrote.
 - **Concurrent writers.** Every writer is SERIALIZABLE, so PostgreSQL orders the judge's reads against the writes

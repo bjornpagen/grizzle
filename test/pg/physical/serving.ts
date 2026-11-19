@@ -263,6 +263,7 @@ const requestOf = (spec: RequestSpec, at: number, fieldOf: FieldOf): IndexReques
 						opclass: defaultOpclass
 					}))
 				],
+				reads: { kind: "rows" },
 				method: "btree",
 				role: "lawMaintenance",
 				use: "reverse reference",

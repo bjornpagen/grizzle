@@ -28,7 +28,14 @@ import * as Result from "#compiler/core/result.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { weightOf } from "#compiler/core/zset.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
-import { defaultOpclass, type LawIndexKey, type RelationInfo } from "#compiler/ir/law.ts"
+import {
+	defaultOpclass,
+	type LawIndexKey,
+	type LawIndexRequest,
+	type LawLookup,
+	type NativeColumn,
+	type RelationInfo
+} from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
 import type { DeltaSide, RelNode } from "#compiler/ir/rel.ts"
@@ -37,7 +44,7 @@ import type { RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
-import { extractAccess } from "#compiler/physical/access/extract.ts"
+import { extractLookups } from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
@@ -228,58 +235,64 @@ const requestsOf = (
 	rule: RuleTrigger,
 	root: RelNode
 ): ReadonlyArray<IndexRequest> =>
-	extractAccess([root], { pageable: [] }).paths.flatMap((path): ReadonlyArray<IndexRequest> => {
-		const target = b.model.relations.get(path.relation)?.relation
-		if (target === undefined || path.method === "hnsw" || path.derived) {
-			return []
-		}
-		const keys = path.keys.flatMap((k) =>
-			target.fields.flatMap((f) =>
-				f.name === k.field
-					? [
-							{
-								column: { kind: "field" as const, field: f },
-								dir: k.dir,
-								opclass: defaultOpclass
-							}
-						]
-					: []
+	extractLookups([root], { pageable: [] }).flatMap(
+		({ path, binds }): ReadonlyArray<IndexRequest> => {
+			const target = b.model.relations.get(path.relation)?.relation
+			if (target === undefined || path.method === "hnsw" || path.derived) {
+				return []
+			}
+			const keys = path.keys.flatMap((k) =>
+				target.fields.flatMap((f) =>
+					f.name === k.field
+						? [
+								{
+									column: { kind: "field" as const, field: f },
+									dir: k.dir,
+									opclass: defaultOpclass
+								}
+							]
+						: []
+				)
 			)
-		)
-		return isNonEmpty(keys)
-			? [
-					{
-						relation: target.name,
-						blocks: unitLead(rule, target.name, keys),
-						method: path.method,
-						role: "lawMaintenance",
-						use: "rule probe",
-						justification: { kind: "law", law: rule.law.id }
-					}
-				]
-			: []
-	})
+			return isNonEmpty(keys)
+				? [
+						{
+							relation: target.name,
+							...unitLead(rule, target, keys, binds),
+							method: path.method,
+							role: "lawMaintenance",
+							use: "rule probe",
+							justification: { kind: "law", law: rule.law.id }
+						}
+					]
+				: []
+		}
+	)
 
 /**
- * The blocks of a judged read's request over `relation` by `keys` (ir/law.ts LawIndexRequest): one block of its keys for
- * a probed rule's; for a whole rule's, first the fields `relation` holds its unit's key in (ir/unit.ts Unit holders) that
- * the read's path binds, the longest run of them from the first in the unit key's order, then the rest, so an index the
- * request asks for never reads past the unit and none another column leads serves it. Its judge reads the units a
+ * The blocks of a judged read's request over `relation` by `keys`, and what each lookup of it reads (ir/law.ts
+ * LawIndexRequest), `binds` the columns each lookup through its path fixes by equality (physical/access/paths.ts
+ * Lookup): one block of its keys for a probed rule's, which reads rows; for a whole rule's, first the fields `relation`
+ * holds its unit's key in (ir/unit.ts Unit holders) that the read's path binds, the longest run of them from the first in
+ * the unit key's order, then the rest, so an index the request asks for never reads past the unit and none another
+ * column leads serves it, and a lookup that binds every one of those fields reads one unit. Its judge reads the units a
  * transaction wrote, every holder leading with that key (analysis/theory/unit.ts), but a path need not bind them: a key
- * lookup by a declared key the unit does not lead reads one row by that key's own index, and a path binds no field
- * of a type it does not index, a vector's; such a read is one block of its keys too.
+ * lookup by a declared key the unit does not lead reads one row by that key's own index, and a path binds no field of a
+ * type it does not index, a vector's; such a read is one block of its keys too, and reads rows.
  */
 const unitLead = (
 	rule: RuleTrigger,
-	relation: string,
-	keys: NonEmptyReadonlyArray<LawIndexKey>
-): NonEmptyReadonlyArray<NonEmptyReadonlyArray<LawIndexKey>> => {
+	target: RelationInfo,
+	keys: NonEmptyReadonlyArray<LawIndexKey>,
+	binds: ReadonlyArray<ReadonlyArray<string>>
+): Pick<LawIndexRequest, "blocks" | "reads"> => {
 	const r = rule.rule
+	const relation = target.name
 	switch (r.kind) {
 		case "contained":
 		case "key":
 		case "check":
-			return [keys]
+			return { blocks: [keys], reads: { kind: "rows" } }
 		case "whole": {
 			const holder = defined(
 				r.unit.holders.find((h) => h.relation === relation),
@@ -296,7 +309,18 @@ const unitLead = (
 				bound.push(key)
 			}
 			const rest = keys.filter((k) => !bound.includes(k))
-			return isNonEmpty(bound) ? (isNonEmpty(rest) ? [bound, rest] : [bound]) : [keys]
+			const lookups = binds.map((columns): ReadonlyArray<NativeColumn> =>
+				target.fields.flatMap((field): ReadonlyArray<NativeColumn> =>
+					columns.includes(field.name) ? [{ kind: "field", field }] : []
+				)
+			)
+			const reads: LawLookup =
+				bound.length === holder.fields.length && isNonEmpty(lookups)
+					? { kind: "unit", lookups }
+					: { kind: "rows" }
+			return isNonEmpty(bound)
+				? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }
+				: { blocks: [keys], reads }
 		}
 	}
 }

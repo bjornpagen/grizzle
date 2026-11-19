@@ -146,10 +146,8 @@ export const theFreshInstallationIsInInstallOrderEveryObjectNeededAndJustifiedEv
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					"\t\t\treturn isNonEmpty(bound) ? (isNonEmpty(rest) ? [bound, rest] : [bound]) : [keys]",
-				replacement:
-					'\t\t\treturn isNonEmpty(bound) ? (isNonEmpty(rest) ? [bound, rest] : [bound]) : (() => { throw new Error("a read binds no field of its unit") })()',
+				original: "\t\t\t\t: { blocks: [keys], reads }",
+				replacement: '\t\t\t\t: (() => { throw new Error("a read binds no field of its unit") })()',
 				why: "A whole rule's read whose path binds no field of its unit, a key lookup by a key the unit does not lead, is refused rather than asked for its keys alone: the kept case's installation dies."
 			}
 		]
