@@ -83,8 +83,8 @@ export const eachOperationOverNULLIsEvaluatedByTheHostAsPostgreSQLEvaluatesItAtE
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
-				original: "\t\t\treturn present.length === 0",
-				replacement: "\t\t\treturn present.length < values.length",
+				original: "\t\t\treturn { present, absent: (values) => Result.ok(extreme(values)) }",
+				replacement: "\t\t\treturn { present, absent: () => nullValue }",
 				why: "The host's greatest and least return NULL when any operand is NULL."
 			}
 		]

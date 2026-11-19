@@ -11,7 +11,7 @@ import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { builtExpr, OpId, predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
@@ -106,9 +106,7 @@ const opNode = (id: string, args: ReadonlyArray<ScalarExpr>, type: ScalarType, l
 const hostValue = (root: ScalarExpr) => {
 	const table = predicateTable(root)
 	return succeeded(
-		evaluateTable(
-			table.exprs,
-			table.root,
+		compiledExpr(table)(
 			{ value: undefined, column: () => undefined, closed: () => sqlNull },
 			ProgramPatterns.of(tablePatterns(table))
 		),

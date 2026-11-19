@@ -44,7 +44,7 @@ import {
 	comparisonHolds,
 	type EvalLeaves,
 	type EvalStop,
-	evaluateTable,
+	compiledExpr,
 	type SqlValue,
 	sqlNull,
 	valueMember
@@ -766,7 +766,7 @@ export const judgeOf = (
 			return value === undefined ? undefined : hostOf(declared.type.carrier, value)
 		}
 		const leaves: EvalLeaves = { value: undefined, column: (ref) => valueOf(ref.name), closed }
-		const value = evaluateTable(expr.exprs, expr.root, leaves, patterns)
+		const value = compiledExpr(expr)(leaves, patterns)
 		return !value.ok
 			? { kind: "unknown", stop: value.error }
 			: value.value === sqlNull

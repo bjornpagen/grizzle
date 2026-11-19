@@ -40,7 +40,7 @@ import { generated, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { doubleText } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -166,9 +166,7 @@ const patterns = ProgramPatterns.of(tablePatterns(table))
 const hostBits = (text: string): bigint => {
 	const value = succeeded(
 		Engine.mapError(
-			evaluateTable(
-				table.exprs,
-				table.root,
+			compiledExpr(table)(
 				{ value: undefined, column: () => text, closed: () => undefined },
 				patterns
 			),

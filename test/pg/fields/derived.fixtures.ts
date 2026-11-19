@@ -51,7 +51,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { type ClosedReadNode, evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
+import { type ClosedReadNode, compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
@@ -1154,9 +1154,7 @@ export const sameAsModel = (sys: System, model: Model) =>
 				}
 				const table = predicateTable(writing.expr)
 				const evaluated = succeeded(
-					evaluateTable(
-						table.exprs,
-						table.root,
+					compiledExpr(table)(
 						{ value: undefined, column: (ref) => host.get(ref.name), closed: closedRead },
 						ProgramPatterns.of(tablePatterns(table))
 					),

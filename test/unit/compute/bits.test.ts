@@ -1,5 +1,5 @@
 /**
- * The host evaluator's set algebra over a roster (scalar/compute/evaluate.ts evaluateTable), each operation as the
+ * The host evaluator's set algebra over a roster (scalar/compute/evaluate.ts compiledExpr), each operation as the
  * registry names it, against a naive model of sets of codes.
  *
  * - The model: a set is a Set<number> of its codes in a roster of five codes, each live or a hole; union, intersection
@@ -59,9 +59,9 @@ export const theHostsSetAlgebraAgreesWithAModelOfSetsOfCodesAndWritesItsSetsOneB
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
 				original:
-					'\t\t\treturn Result.ok(new Set([...hostOf("bits", a)].filter((h) => !y.has(h))))',
+					'\t\t\t\treturn Result.ok(new Set([...hostOf("bits", a(args))].filter((h) => !y.has(h))))',
 				replacement:
-					'\t\t\treturn Result.ok(new Set([...hostOf("bits", a)].filter((h) => y.has(h))))',
+					'\t\t\t\treturn Result.ok(new Set([...hostOf("bits", a(args))].filter((h) => y.has(h))))',
 				why: "The host evaluates a set's difference as its intersection; the model property fails."
 			}
 		]

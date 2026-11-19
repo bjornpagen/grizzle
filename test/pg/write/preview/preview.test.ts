@@ -80,9 +80,9 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
-				original: "\t\t\t\treturn castTo(v.value, arg.type, baseOf(expr.type))",
+				original: "\t\t\t\treturn castExpr(expr.args[0], base)",
 				replacement:
-					'\t\t\t\treturn Result.flatMap(castTo(v.value, arg.type, baseOf(expr.type)), (coerced) => Result.flatMap(membership(coerced, expr.type, patterns), (member) => (member ? Result.ok(coerced) : undefinedAt("contract"))))',
+					'\t\t\t\tconst coerce = castExpr(expr.args[0], base)\n\t\t\t\treturn (leaves, patterns) => Result.flatMap(coerce(leaves, patterns), (coerced) => coerced === sqlNull ? Result.ok(coerced) : Result.flatMap(membership(coerced, expr.type, patterns), (member) => (member ? Result.ok(coerced) : undefinedAt("contract"))))',
 				why: "A domain cast's membership is the evaluation's precondition again: the fresh fill stops on a long label's tag, past Label, and the preview and the write refuse the call as input, a refusal naming no law, where PostgreSQL refuses the row by the label's domain law."
 			},
 			{

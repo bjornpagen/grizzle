@@ -49,7 +49,7 @@ import {
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { CompilePatterns, ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
@@ -188,9 +188,7 @@ const hostDigest = (term: Lowered, body: Uint8Array<ArrayBuffer>): string => {
 	const table = predicateTable(term.expr)
 	const admitted = new AdmittedBytes(body)
 	const value = succeeded(
-		evaluateTable(
-			table.exprs,
-			table.root,
+		compiledExpr(table)(
 			{ value: undefined, column: () => admitted, closed: () => undefined },
 			ProgramPatterns.of(tablePatterns(table))
 		),

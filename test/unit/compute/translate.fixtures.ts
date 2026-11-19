@@ -17,7 +17,7 @@ import * as Engine from "#compiler/core/result.ts"
 import { codePoints, codePointsText, collapsed } from "#compiler/core/text.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { assert, assertNot, defined, succeeded } from "#test/support/assert.ts"
@@ -60,9 +60,7 @@ export const values = (
 	const table = predicateTable(root)
 	const host = succeeded(
 		Engine.mapError(
-			evaluateTable(
-				table.exprs,
-				table.root,
+			compiledExpr(table)(
 				{ value: undefined, column: (ref) => row.get(ref.name), closed: () => undefined },
 				ProgramPatterns.of(tablePatterns(table))
 			),

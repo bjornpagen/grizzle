@@ -26,7 +26,7 @@ import {
 import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
 import {
 	type EvalLeaves,
-	evaluateTable,
+	compiledExpr,
 	type SqlValue,
 	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
@@ -224,9 +224,7 @@ const plannedConstants = (
  */
 const evaluated = (form: ScalarExpr, closed: EvalLeaves["closed"]): SqlValue | undefined => {
 	const table = predicateTable(form)
-	const value = evaluateTable(
-		table.exprs,
-		table.root,
+	const value = compiledExpr(table)(
 		{ value: undefined, column: () => undefined, closed },
 		ProgramPatterns.of(tablePatterns(table))
 	)

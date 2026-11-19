@@ -24,7 +24,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
 import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
-import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { type NativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -683,9 +683,7 @@ const roundingCase = (
 		)
 		const payload = world.pick[e.slot]
 		const table = predicateTable(node)
-		const host = evaluateTable(
-			table.exprs,
-			table.root,
+		const host = compiledExpr(table)(
 			{
 				value: undefined,
 				column: (ref) =>
@@ -735,9 +733,7 @@ export const operatorCase = (owner: CaseSession, oc: OperatorCase, c: Case<Featu
 		if (evaluated === undefined) {
 			return assert.fail("the check compares the case's term")
 		}
-		const host = evaluateTable(
-			table.exprs,
-			evaluated,
+		const host = compiledExpr({ exprs: table.exprs, root: evaluated })(
 			{ value: undefined, column: () => undefined, closed: closedRows(model) },
 			ProgramPatterns.of(tablePatterns(table))
 		)

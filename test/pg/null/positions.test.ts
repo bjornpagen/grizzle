@@ -82,7 +82,7 @@ import {
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { closedLeaf, type ClosedRows } from "#compiler/runtime/write/fill.ts"
-import { evaluateTable, type EvalLeaves } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, type EvalLeaves } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
@@ -505,9 +505,7 @@ const postgresAnswers = (
 /** The host evaluator's value of a law model expression over a row: SQL's value as the model reads it. */
 const hostValueOf = (closed: EvalLeaves["closed"], expr: ScalarExpr, item: Item, id: number) => {
 	const table = predicateTable(expr)
-	return evaluateTable(
-		table.exprs,
-		table.root,
+	return compiledExpr(table)(
 		{ value: undefined, column: hostColumns(item, id), closed },
 		ProgramPatterns.of(tablePatterns(table))
 	)

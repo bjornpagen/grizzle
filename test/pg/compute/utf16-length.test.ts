@@ -51,7 +51,7 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
-import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
@@ -165,9 +165,7 @@ const unitsDesc: ExprDesc = {
 const hostUnits = (term: Lowered, text: string): bigint => {
 	const table = predicateTable(term.expr)
 	const value = succeeded(
-		evaluateTable(
-			table.exprs,
-			table.root,
+		compiledExpr(table)(
 			{ value: undefined, column: () => text, closed: () => undefined },
 			ProgramPatterns.of(tablePatterns(table))
 		),

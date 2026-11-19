@@ -157,9 +157,9 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
 				original:
-					'\t\t\treturn Result.ok(patterns.matches(hostOf("text", b()), hostOf("text", a)))',
+					'\t\t\t\tResult.ok(patterns.matches(hostOf("text", b(args)), hostOf("text", a(args))))',
 				replacement:
-					'\t\t\treturn Result.ok(hostOf("text", a).length > 0 && patterns.matches(hostOf("text", b()), hostOf("text", a)))',
+					'\t\t\t\tResult.ok(hostOf("text", a(args)).length > 0 && patterns.matches(hostOf("text", b(args)), hostOf("text", a(args))))',
 				why: "The host never matches the empty text; the matches property fails."
 			}
 		]
@@ -237,8 +237,10 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
-				original: '\t\t\treturn Result.ok(hostOf("text", a).endsWith(hostOf("text", b())))',
-				replacement: '\t\t\treturn Result.ok(hostOf("text", a).includes(hostOf("text", b())))',
+				original:
+					'\t\t\treturn (args) => Result.ok(hostOf("text", a(args)).endsWith(hostOf("text", b(args))))',
+				replacement:
+					'\t\t\treturn (args) => Result.ok(hostOf("text", a(args)).includes(hostOf("text", b(args))))',
 				why: "The host evaluates endsWith as includes; the affix property fails."
 			}
 		]

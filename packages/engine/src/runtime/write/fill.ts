@@ -55,7 +55,7 @@ import { baseOf, type PatternSource, type ScalarType } from "#compiler/ir/scalar
 import {
 	type EvalLeaves,
 	type EvalStop,
-	evaluateTable,
+	compiledExpr,
 	type SqlValue,
 	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
@@ -505,7 +505,7 @@ export const hostEvaluator =
 			},
 			closed
 		}
-		return evaluateTable(table.exprs, table.root, leaves, patterns)
+		return compiledExpr(table)(leaves, patterns)
 	}
 
 /**

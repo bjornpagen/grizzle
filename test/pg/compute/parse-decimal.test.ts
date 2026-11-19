@@ -41,7 +41,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { decimalText, decimalTextMaxBytes, str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -211,9 +211,7 @@ const parseSql = renderSql(lowered, plainRender)
 const hostValue = (text: string): DecimalValue => {
 	const value = succeeded(
 		Engine.mapError(
-			evaluateTable(
-				table.exprs,
-				table.root,
+			compiledExpr(table)(
 				{ value: undefined, column: () => text, closed: () => undefined },
 				patterns
 			),

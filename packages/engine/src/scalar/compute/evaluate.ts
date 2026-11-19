@@ -100,8 +100,11 @@ export interface EvalLeaves {
 	readonly closed: (read: ClosedReadNode, args: ReadonlyArray<HostValue>) => SqlValue | undefined
 }
 
-/** Whether a value is a value of its type, not NULL. */
-const isPresent = (v: SqlValue): v is HostValue => v !== sqlNull
+/**
+ * An expression compiled (compiledExpr): its value over one evaluation's leaves, regex membership read by `patterns`,
+ * the value PostgreSQL computes for it, NULL included (sqlNull), or why the host has none (EvalStop).
+ */
+export type CompiledExpr = (leaves: EvalLeaves, patterns: PatternReads) => SqlResult
 
 /** A truth value of Kleene's logic: true, false, or NULL, unknown. */
 type Truth = boolean | typeof sqlNull
@@ -119,7 +122,10 @@ const undefinedAt = (precondition: Undefined): Result.Err<EvalStop> =>
 const unsupported = (what: string): Result.Err<EvalStop> =>
 	Result.err({ kind: "unsupported", what })
 
-/** A text's membership in a regex refinement, by the caller's patterns: a regex refines a text type alone. */
+/** NULL, the one value an evaluation reads of a strict operation over a NULL operand. */
+const nullValue: SqlResult = Result.ok(sqlNull)
+
+/** A regex refinement's membership of a text, by the caller's patterns: a regex refines a text type alone. */
 const regexHolds = (patterns: PatternReads, regex: RegexRef, v: HostValue): boolean =>
 	patterns.member(regex, hostOf("text", v))
 
@@ -161,10 +167,13 @@ export const evaluatorOrder = (type: ScalarType): OrderSpec => {
 	}
 }
 
-/** PostgreSQL's order of two values of `type`, the host's one comparison (identity.ts compareValues, evaluatorOrder). */
-const compare = (a: HostValue, b: HostValue, type: ScalarType): -1 | 0 | 1 => {
+/** PostgreSQL's order of two values of one type, the host's one comparison (identity.ts compareValues). */
+type Compare = (a: HostValue, b: HostValue) => -1 | 0 | 1
+
+/** PostgreSQL's order of two values of `type` (Compare), its order read once (evaluatorOrder). */
+const orderOf = (type: ScalarType): Compare => {
 	const order = evaluatorOrder(type)
-	return compareValues(order, hostOf(order.carrier, a), hostOf(order.carrier, b))
+	return (a, b) => compareValues(order, hostOf(order.carrier, a), hostOf(order.carrier, b))
 }
 
 /** The comparisons of values of one type: the six orderings, BETWEEN and IN. */
@@ -174,80 +183,122 @@ export type ComparisonFn = Extract<
 >
 
 /**
- * The truth of a comparison of values of one type `type`, none NULL, by the type's order (compare): `=`, `<>`, `<`,
- * `<=`, `>` and `>=` of its two operands, BETWEEN of its first between its second and third, IN of its first among the
- * rest. The one evaluation of a comparison, the evaluator's and constant folding's (lower/optimize/simplify/boolean.ts).
- * An operand its arity holds that is missing is a defect of the IR that built it.
+ * The truth of a comparison `fn` of values of one type `type`, none NULL, by the type's order read once (orderOf): `=`,
+ * `<>`, `<`, `<=`, `>` and `>=` of its two operands, BETWEEN of its first between its second and third, IN of its first
+ * among the rest. The one evaluation of a comparison, the evaluator's, staged where its expression is compiled, and
+ * constant folding's (lower/optimize/simplify/boolean.ts, comparisonHolds). An operand its arity holds that is missing
+ * is a defect of the IR that built it.
  */
+const comparison = (
+	fn: ComparisonFn,
+	type: ScalarType
+): ((values: ReadonlyArray<HostValue>) => boolean) => {
+	const compare = orderOf(type)
+	const first = (values: ReadonlyArray<HostValue>): HostValue =>
+		defined(values[0], `the first operand of ${fn}`)
+	const at = (values: ReadonlyArray<HostValue>, i: number): HostValue =>
+		defined(values[i], `operand ${i} of ${fn}`)
+	switch (fn) {
+		case "eq":
+			return (values) => compare(first(values), at(values, 1)) === 0
+		case "ne":
+			return (values) => compare(first(values), at(values, 1)) !== 0
+		case "lt":
+			return (values) => compare(first(values), at(values, 1)) < 0
+		case "le":
+			return (values) => compare(first(values), at(values, 1)) <= 0
+		case "gt":
+			return (values) => compare(first(values), at(values, 1)) > 0
+		case "ge":
+			return (values) => compare(first(values), at(values, 1)) >= 0
+		case "between":
+			return (values) => {
+				const a = first(values)
+				return compare(a, at(values, 1)) >= 0 && compare(a, at(values, 2)) <= 0
+			}
+		case "in":
+			return (values) => {
+				const a = first(values)
+				return values.some((v, i) => i > 0 && compare(a, v) === 0)
+			}
+	}
+}
+
+/** The truth of a comparison of values of one type, none NULL (comparison), staged and applied at once. */
 export const comparisonHolds = (
 	fn: ComparisonFn,
 	values: ReadonlyArray<HostValue>,
 	type: ScalarType
-): boolean => {
-	const [first, ...rest] = values
-	const a = defined(first, `the first operand of ${fn}`)
-	const at = (i: number): HostValue => defined(values[i], `operand ${i} of ${fn}`)
-	switch (fn) {
-		case "eq":
-			return compare(a, at(1), type) === 0
-		case "ne":
-			return compare(a, at(1), type) !== 0
-		case "lt":
-			return compare(a, at(1), type) < 0
-		case "le":
-			return compare(a, at(1), type) <= 0
-		case "gt":
-			return compare(a, at(1), type) > 0
-		case "ge":
-			return compare(a, at(1), type) >= 0
-		case "between":
-			return compare(a, at(1), type) >= 0 && compare(a, at(2), type) <= 0
-		case "in":
-			return rest.some((v) => compare(a, v, type) === 0)
-	}
-}
-
-/** The integer carriers, a term's exact integers among them, whose values the evaluator computes as bigints. */
-type IntegerCarrier = "int2" | "int4" | "int8" | "exactInteger"
-
-const isIntegerCarrier = (c: Carrier): c is IntegerCarrier =>
-	c === "int2" || c === "int4" || c === "int8" || c === "exactInteger"
+): boolean => comparison(fn, type)(values)
 
 /**
- * An integer operand's exact value, widened at the operation: smallint's and integer's JavaScript integers as bigints,
- * bigint's and an exact integer's as they are. An operand of no integer carrier is a defect of the IR's typing.
+ * An integer operand's exact value, widened at the operation, read by the carrier `c` of its operand: smallint's and
+ * integer's JavaScript integers as bigints, bigint's and an exact integer's as they are. An operand of no integer
+ * carrier is a defect of the IR's typing, which a reader of it throws.
  */
-const integerOf = (c: Carrier, v: HostValue): bigint => {
-	if (!isIntegerCarrier(c)) {
-		throw defect(`an integer operand, not a ${c}`)
-	}
+const integerOf = (c: Carrier): ((v: HostValue) => bigint) => {
 	switch (c) {
 		case "int2":
 		case "int4":
-			return BigInt(hostOf(c, v))
+			return (v) => BigInt(hostOf(c, v))
 		case "int8":
 		case "exactInteger":
-			return hostOf(c, v)
+			return (v) => hostOf(c, v)
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "money":
+		case "exactMoney":
+		case "bool":
+		case "uuid":
+		case "date":
+		case "text":
+		case "bytes":
+		case "code":
+		case "bits":
+		case "range4":
+		case "range8":
+		case "rangeDate":
+		case "vector":
+			return () => {
+				throw defect(`an integer operand, not a ${c}`)
+			}
 	}
 }
 
 /**
  * An exact integer as the host value of `type`'s carrier: a smallint's or an integer's a JavaScript integer, which the
  * operation's proof keeps within the carrier, a bigint's and an exact integer's the bigint. A result of no integer
- * carrier is a defect of the IR's typing.
+ * carrier is a defect of the IR's typing, which a writer of it throws.
  */
-const integerHost = (type: ScalarType, x: bigint): HostValue => {
+const integerHost = (type: ScalarType): ((x: bigint) => HostValue) => {
 	const c = baseOf(type).carrier
-	if (!isIntegerCarrier(c)) {
-		throw defect(`an integer result, not a ${c}`)
-	}
 	switch (c) {
 		case "int2":
 		case "int4":
-			return Number(x)
+			return (x) => Number(x)
 		case "int8":
 		case "exactInteger":
-			return x
+			return (x) => x
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "money":
+		case "exactMoney":
+		case "bool":
+		case "uuid":
+		case "date":
+		case "text":
+		case "bytes":
+		case "code":
+		case "bits":
+		case "range4":
+		case "range8":
+		case "rangeDate":
+		case "vector":
+			return () => {
+				throw defect(`an integer result, not a ${c}`)
+			}
 	}
 }
 
@@ -291,71 +342,89 @@ const gcdOf = (a: bigint, b: bigint): bigint => {
 	return x
 }
 
+/** An operation of one operand, staged once for its operation, over its operand's value. */
+type Unary = (a: HostValue) => EvalResult
+
+/** An operation of two operands, staged once for its operation, over their values. */
+type Binary = (a: HostValue, b: HostValue) => EvalResult
+
+/** An operation the evaluator refuses whatever its operands, staged once: the same stop at every value. */
+const refused = (what: string): (() => EvalResult) => {
+	const stop = unsupported(what)
+	return () => stop
+}
+
 /**
- * Arithmetic over operands of the carrier `c`, the result of `type`: a date's difference in days, numeric as numeric.c
- * computes it, floats as IEEE 754, money exactly in minor units and money / money as a double, and integers exactly,
- * truncated division and remainder defined where the divisor is not zero. Any other operation of a carrier is no
- * check's, unsupported.
+ * Arithmetic over operands of the carrier `c`, the result of `type`, staged once: a date's difference in days, numeric
+ * as numeric.c computes it, floats as IEEE 754, money exactly in minor units and money / money as a double, and
+ * integers exactly, truncated division and remainder defined where the divisor is not zero. Any other operation of a
+ * carrier is no check's, unsupported.
  */
 const arithmetic = (
 	fn: "add" | "sub" | "mul" | "div" | "mod",
 	c: Carrier,
-	a: HostValue,
-	b: HostValue,
 	type: ScalarType
-): EvalResult => {
+): Binary => {
 	switch (c) {
-		case "date":
+		case "date": {
+			const days = integerHost(type)
 			return fn === "sub"
-				? Result.ok(integerHost(type, BigInt(dayNumber(hostOf(c, a)) - dayNumber(hostOf(c, b)))))
-				: unsupported(`${fn} over date`)
-		case "numeric":
-			return lift(
-				{ add: N.add, sub: N.sub, mul: N.mul, div: N.div, mod: N.mod }[fn](
-					hostOf(c, a),
-					hostOf(c, b)
-				)
-			)
+				? (a, b) => Result.ok(days(BigInt(dayNumber(hostOf(c, a)) - dayNumber(hostOf(c, b)))))
+				: refused(`${fn} over date`)
+		}
+		case "numeric": {
+			const f = { add: N.add, sub: N.sub, mul: N.mul, div: N.div, mod: N.mod }[fn]
+			return (a, b) => lift(f(hostOf(c, a), hostOf(c, b)))
+		}
 		case "float4":
 		case "float8":
 			return fn === "mod"
-				? unsupported(`mod over ${c}`)
-				: Result.ok(ieee(fn, hostOf(c, a), hostOf(c, b), c))
+				? refused(`mod over ${c}`)
+				: (a, b) => Result.ok(ieee(fn, hostOf(c, a), hostOf(c, b), c))
 		case "money":
-		case "exactMoney": {
-			const x = hostOf(c, a)
-			const y = hostOf(c, b)
+		case "exactMoney":
 			switch (fn) {
 				case "add":
-					return Result.ok(Money.exact(x.minorUnits + y.minorUnits))
+					return (a, b) => Result.ok(Money.exact(hostOf(c, a).minorUnits + hostOf(c, b).minorUnits))
 				case "sub":
-					return Result.ok(Money.exact(x.minorUnits - y.minorUnits))
+					return (a, b) => Result.ok(Money.exact(hostOf(c, a).minorUnits - hostOf(c, b).minorUnits))
 				case "div":
-					return y.minorUnits === 0n
-						? undefinedAt("nonzero")
-						: Result.ok(canonicalZero(Number(x.minorUnits) / Number(y.minorUnits)))
+					return (a, b) => {
+						const x = hostOf(c, a)
+						const y = hostOf(c, b)
+						return y.minorUnits === 0n
+							? undefinedAt("nonzero")
+							: Result.ok(canonicalZero(Number(x.minorUnits) / Number(y.minorUnits)))
+					}
 				case "mul":
 				case "mod":
-					return unsupported(`${fn} over ${c}`)
+					return refused(`${fn} over ${c}`)
 			}
-		}
 		case "int2":
 		case "int4":
 		case "int8":
 		case "exactInteger": {
-			const x = integerOf(c, a)
-			const y = integerOf(c, b)
+			const read = integerOf(c)
+			const host = integerHost(type)
 			switch (fn) {
 				case "add":
-					return Result.ok(integerHost(type, x + y))
+					return (a, b) => Result.ok(host(read(a) + read(b)))
 				case "sub":
-					return Result.ok(integerHost(type, x - y))
+					return (a, b) => Result.ok(host(read(a) - read(b)))
 				case "mul":
-					return Result.ok(integerHost(type, x * y))
+					return (a, b) => Result.ok(host(read(a) * read(b)))
 				case "div":
-					return y === 0n ? undefinedAt("nonzero") : Result.ok(integerHost(type, x / y))
+					return (a, b) => {
+						const x = read(a)
+						const y = read(b)
+						return y === 0n ? undefinedAt("nonzero") : Result.ok(host(x / y))
+					}
 				case "mod":
-					return y === 0n ? undefinedAt("nonzero") : Result.ok(integerHost(type, x % y))
+					return (a, b) => {
+						const x = read(a)
+						const y = read(b)
+						return y === 0n ? undefinedAt("nonzero") : Result.ok(host(x % y))
+					}
 			}
 		}
 		case "bool":
@@ -368,34 +437,45 @@ const arithmetic = (
 		case "range8":
 		case "rangeDate":
 		case "vector":
-			return unsupported(`${fn} over ${c}`)
+			return refused(`${fn} over ${c}`)
 	}
 }
 
-/** neg, abs and sign of an operand of the carrier `c`: numeric's, a float's in total IEEE 754, an integer's exactly. */
-const signed = (
-	fn: "neg" | "abs" | "sign",
-	c: Carrier,
-	a: HostValue,
-	type: ScalarType
-): EvalResult => {
+/**
+ * neg, abs and sign of an operand of the carrier `c`, staged once: numeric's, a float's in total IEEE 754, an integer's
+ * exactly.
+ */
+const signed = (fn: "neg" | "abs" | "sign", c: Carrier, type: ScalarType): Unary => {
 	switch (c) {
-		case "numeric":
-			return lift({ neg: N.neg, abs: N.abs, sign: N.sign }[fn](hostOf(c, a)))
+		case "numeric": {
+			const f = { neg: N.neg, abs: N.abs, sign: N.sign }[fn]
+			return (a) => lift(f(hostOf(c, a)))
+		}
 		case "float4":
-		case "float8":
-			return Result.ok(canonicalZero(totalFloat[fn](hostOf(c, a))))
+		case "float8": {
+			const f = totalFloat[fn]
+			return (a) => Result.ok(canonicalZero(f(hostOf(c, a))))
+		}
 		case "int2":
 		case "int4":
 		case "int8":
 		case "exactInteger": {
-			const x = integerOf(c, a)
-			return Result.ok(
-				integerHost(
-					type,
-					fn === "neg" ? -x : fn === "abs" ? (x < 0n ? -x : x) : x < 0n ? -1n : x > 0n ? 1n : 0n
-				)
-			)
+			const read = integerOf(c)
+			const host = integerHost(type)
+			switch (fn) {
+				case "neg":
+					return (a) => Result.ok(host(-read(a)))
+				case "abs":
+					return (a) => {
+						const x = read(a)
+						return Result.ok(host(x < 0n ? -x : x))
+					}
+				case "sign":
+					return (a) => {
+						const x = read(a)
+						return Result.ok(host(x < 0n ? -1n : x > 0n ? 1n : 0n))
+					}
+			}
 		}
 		case "money":
 		case "exactMoney":
@@ -410,119 +490,144 @@ const signed = (
 		case "range8":
 		case "rangeDate":
 		case "vector":
-			return unsupported(`${fn} over ${c}`)
+			return refused(`${fn} over ${c}`)
 	}
 }
 
 /**
- * The native operations a check admits (registry.ts computeSpecs, check) applied to their evaluated operands, each a host value
- * of its operand's type and the result one of `type`, each defined on every value or where its proved precondition
- * holds: integer and money arithmetic exactly (an exact integer, exact money), numeric as numeric.c computes it, floats
- * as IEEE 754, comparisons, BETWEEN and IN by the type's order (comparisonHolds), NOT, char_length, a text's UTF-16 code
- * units (String.length, within the bytes PostgreSQL's regex engine reads), a text's concatenation, prefix and suffix
- * tests, regex match (by the pattern's automaton) and translation (by code points, as PostgreSQL's translate reads
- * them), a double's parse from its decimal text, a decimal's from its text, a bytes value's SHA-256 digest, worked out
- * by core/sha256.ts sha256Hex where the value was admitted (scalar/values/bytes.ts AdmittedBytes), span endpoints,
- * LEAST and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and
+ * A native operation over its operands' values, none NULL, staged once where its expression is compiled (applied): a
+ * value of its type, the one LEAST and GREATEST choose among them, or why the host has none.
+ */
+type Apply = (args: ReadonlyArray<HostValue>, patterns: PatternReads) => SqlResult
+
+/**
+ * The native operations a check admits (registry.ts computeSpecs, check), each staged once for its overload, its
+ * operands' types and its type `type`, and then applied to their evaluated operands, each a host value of its
+ * operand's type and the result one of `type`, each defined on every value or where its proved precondition holds:
+ * integer and money arithmetic exactly (an exact integer, exact money), numeric as numeric.c computes it, floats as
+ * IEEE 754, comparisons, BETWEEN and IN by the type's order (comparison), NOT, char_length, a text's UTF-16 code units
+ * (String.length, within the bytes PostgreSQL's regex engine reads), a text's concatenation, prefix and suffix tests,
+ * regex match (by the pattern's automaton) and translation (by code points, as PostgreSQL's translate reads them), a
+ * double's parse from its decimal text, a decimal's from its text, a bytes value's SHA-256 digest, worked out by
+ * core/sha256.ts sha256Hex where the value was admitted (scalar/values/bytes.ts AdmittedBytes), span endpoints, LEAST
+ * and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and
  * disjointness, and a set with one more handle, over its handles. Each case reads its operands as the host values of
  * the carriers its overload takes (identity.ts hostOf); the IR's typing guarantees them, so another is a defect. `and`,
  * `or` and casts are evaluated by their nodes, never applied.
  */
-const apply = (
-	op: NativeOp,
-	args: ReadonlyArray<HostValue>,
-	argTypes: ReadonlyArray<ScalarType>,
-	type: ScalarType,
-	patterns: PatternReads
-): EvalResult => {
-	const a = operandAt(args, 0, op)
-	const b = (): HostValue => operandAt(args, 1, op)
+const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: ScalarType): Apply => {
+	const a = (args: ReadonlyArray<HostValue>): HostValue => operandAt(args, 0, op)
+	const b = (args: ReadonlyArray<HostValue>): HostValue => operandAt(args, 1, op)
 	const c = firstOperand(op.operands)
-	switch (op.fn) {
+	const fn = op.fn
+	switch (fn) {
 		case "add":
 		case "sub":
 		case "mul":
 		case "div":
-		case "mod":
-			return arithmetic(op.fn, c, a, b(), type)
+		case "mod": {
+			const f = arithmetic(fn, c, type)
+			return (args) => f(a(args), b(args))
+		}
 		case "quot":
-			return lift(N.divTrunc(hostOf("numeric", a), hostOf("numeric", b())))
+			return (args) => lift(N.divTrunc(hostOf("numeric", a(args)), hostOf("numeric", b(args))))
 		case "rem":
-			return lift(N.mod(hostOf("numeric", a), hostOf("numeric", b())))
+			return (args) => lift(N.mod(hostOf("numeric", a(args)), hostOf("numeric", b(args))))
 		case "neg":
 		case "abs":
-		case "sign":
-			return signed(op.fn, c, a, type)
+		case "sign": {
+			const f = signed(fn, c, type)
+			return (args) => f(a(args))
+		}
 		case "gcd":
 		case "lcm": {
 			if (c === "numeric") {
-				return unsupported(`${op.fn} over numeric, outside a check`)
+				return refused(`${fn} over numeric, outside a check`)
 			}
-			const x = integerOf(c, a)
-			const y = integerOf(c, b())
-			const g = gcdOf(x, y)
-			if (op.fn === "gcd") {
-				return Result.ok(integerHost(type, g))
+			const read = integerOf(c)
+			const host = integerHost(type)
+			return (args) => {
+				const x = read(a(args))
+				const y = read(b(args))
+				const g = gcdOf(x, y)
+				if (fn === "gcd") {
+					return Result.ok(host(g))
+				}
+				const product = x * y
+				return Result.ok(host(g === 0n ? 0n : (product < 0n ? -product : product) / g))
 			}
-			const product = x * y
-			return Result.ok(integerHost(type, g === 0n ? 0n : (product < 0n ? -product : product) / g))
 		}
 		case "lower":
 		case "upper": {
 			if (c !== "range4" && c !== "range8" && c !== "rangeDate") {
-				throw defect(`${op.fn} of a span, not of a ${c}`)
+				return () => {
+					throw defect(`${fn} of a span, not of a ${c}`)
+				}
 			}
-			const span = hostOf(c, a)
-			return Result.ok(op.fn === "lower" ? span.start : span.end)
+			return fn === "lower"
+				? (args) => Result.ok(hostOf(c, a(args)).start)
+				: (args) => Result.ok(hostOf(c, a(args)).end)
 		}
-		case "charLength":
-			return Result.ok(integerHost(type, BigInt(Array.from(hostOf("text", a)).length)))
-		case "octetLength":
-			return Result.ok(integerHost(type, BigInt(utf8Length(hostOf("text", a)))))
+		case "charLength": {
+			const host = integerHost(type)
+			return (args) => Result.ok(host(BigInt(Array.from(hostOf("text", a(args))).length)))
+		}
+		case "octetLength": {
+			const host = integerHost(type)
+			return (args) => Result.ok(host(BigInt(utf8Length(hostOf("text", a(args))))))
+		}
 		case "utf16Length": {
-			const text = hostOf("text", a)
-			return utf8Length(text) > regexTextMaxBytes
-				? undefinedAt("bounded")
-				: Result.ok(integerHost(type, BigInt(text.length)))
+			const host = integerHost(type)
+			return (args) => {
+				const text = hostOf("text", a(args))
+				return utf8Length(text) > regexTextMaxBytes
+					? undefinedAt("bounded")
+					: Result.ok(host(BigInt(text.length)))
+			}
 		}
 		case "concat":
-			return Result.ok(hostOf("text", a) + hostOf("text", b()))
+			return (args) => Result.ok(hostOf("text", a(args)) + hostOf("text", b(args)))
 		case "startsWith":
-			return Result.ok(hostOf("text", a).startsWith(hostOf("text", b())))
+			return (args) => Result.ok(hostOf("text", a(args)).startsWith(hostOf("text", b(args))))
 		case "endsWith":
-			return Result.ok(hostOf("text", a).endsWith(hostOf("text", b())))
-		case "right":
-			return Result.ok(
-				rightOf(
-					hostOf("text", a),
-					integerOf(baseOf(defined(argTypes[1], "right's count")).carrier, b())
-				)
-			)
+			return (args) => Result.ok(hostOf("text", a(args)).endsWith(hostOf("text", b(args))))
+		case "right": {
+			const count = integerOf(baseOf(defined(argTypes[1], "right's count")).carrier)
+			return (args) => Result.ok(rightOf(hostOf("text", a(args)), count(b(args))))
+		}
 		case "matches":
-			return Result.ok(patterns.matches(hostOf("text", b()), hostOf("text", a)))
+			return (args, patterns) =>
+				Result.ok(patterns.matches(hostOf("text", b(args)), hostOf("text", a(args))))
 		case "collapse":
-			return Result.ok(collapsed(hostOf("text", a)))
+			return (args) => Result.ok(collapsed(hostOf("text", a(args))))
 		case "lowerAscii":
-			return Result.ok(asciiLowered(hostOf("text", a)))
+			return (args) => Result.ok(asciiLowered(hostOf("text", a(args))))
 		case "sha256":
-			return Result.ok(hostOf("bytes", a).digest)
+			return (args) => Result.ok(hostOf("bytes", a(args)).digest)
 		case "replace":
 		case "btrim":
-			return unsupported(`${op.fn} alone, which only collapse's SQL reads`)
+			return refused(`${fn} alone, which only collapse's SQL reads`)
 		case "regexpCount":
-			return unsupported("regexp_count alone, which only utf16Length's SQL reads")
-		case "parseDouble": {
-			const value = doubleOfText(hostOf("text", a))
-			return value === undefined ? undefinedAt("lexical") : Result.ok(value)
-		}
-		case "parseDecimal": {
-			const value = decimalOfText(hostOf("text", a))
-			return value === undefined ? undefinedAt("lexical") : Result.ok(value)
-		}
+			return refused("regexp_count alone, which only utf16Length's SQL reads")
+		case "parseDouble":
+			return (args) => {
+				const value = doubleOfText(hostOf("text", a(args)))
+				return value === undefined ? undefinedAt("lexical") : Result.ok(value)
+			}
+		case "parseDecimal":
+			return (args) => {
+				const value = decimalOfText(hostOf("text", a(args)))
+				return value === undefined ? undefinedAt("lexical") : Result.ok(value)
+			}
 		case "translate":
-			return Result.ok(
-				translated(hostOf("text", a), hostOf("text", b()), hostOf("text", operandAt(args, 2, op)))
-			)
+			return (args) =>
+				Result.ok(
+					translated(
+						hostOf("text", a(args)),
+						hostOf("text", b(args)),
+						hostOf("text", operandAt(args, 2, op))
+					)
+				)
 		case "eq":
 		case "ne":
 		case "lt":
@@ -530,47 +635,46 @@ const apply = (
 		case "gt":
 		case "ge":
 		case "between":
-		case "in":
-			return Result.ok(
-				comparisonHolds(op.fn, args, defined(argTypes[0], `the operand type of ${op.fn}`))
-			)
+		case "in": {
+			const holds = comparison(fn, defined(argTypes[0], `the operand type of ${fn}`))
+			return (args) => Result.ok(holds(args))
+		}
 		case "not":
-			return Result.ok(!hostOf("bool", a))
+			return (args) => Result.ok(!hostOf("bool", a(args)))
 		case "union":
-			return Result.ok(new Set([...hostOf("bits", a), ...hostOf("bits", b())]))
-		case "intersection": {
-			const y = hostOf("bits", b())
-			return Result.ok(new Set([...hostOf("bits", a)].filter((h) => y.has(h))))
+			return (args) => Result.ok(new Set([...hostOf("bits", a(args)), ...hostOf("bits", b(args))]))
+		case "intersection":
+			return (args) => {
+				const y = hostOf("bits", b(args))
+				return Result.ok(new Set([...hostOf("bits", a(args))].filter((h) => y.has(h))))
+			}
+		case "difference":
+			return (args) => {
+				const y = hostOf("bits", b(args))
+				return Result.ok(new Set([...hostOf("bits", a(args))].filter((h) => !y.has(h))))
+			}
+		case "cardinality": {
+			const host = integerHost(type)
+			return (args) => Result.ok(host(BigInt(hostOf("bits", a(args)).size)))
 		}
-		case "difference": {
-			const y = hostOf("bits", b())
-			return Result.ok(new Set([...hostOf("bits", a)].filter((h) => !y.has(h))))
-		}
-		case "cardinality":
-			return Result.ok(integerHost(type, BigInt(hostOf("bits", a).size)))
-		case "subset": {
-			const y = hostOf("bits", b())
-			return Result.ok([...hostOf("bits", a)].every((h) => y.has(h)))
-		}
-		case "disjoint": {
-			const y = hostOf("bits", b())
-			return Result.ok(![...hostOf("bits", a)].some((h) => y.has(h)))
-		}
+		case "subset":
+			return (args) => {
+				const y = hostOf("bits", b(args))
+				return Result.ok([...hostOf("bits", a(args))].every((h) => y.has(h)))
+			}
+		case "disjoint":
+			return (args) => {
+				const y = hostOf("bits", b(args))
+				return Result.ok(![...hostOf("bits", a(args))].some((h) => y.has(h)))
+			}
 		case "adjoin":
-			return Result.ok(new Set([...hostOf("bits", a), hostOf("code", b())]))
+			return (args) => Result.ok(new Set([...hostOf("bits", a(args)), hostOf("code", b(args))]))
 		case "complement":
-			return unsupported("complement, which no Compute operation yields")
+			return refused("complement, which no Compute operation yields")
 		case "least":
 		case "greatest": {
-			const t = defined(argTypes[0], `the operand type of ${op.fn}`)
-			let chosen = a
-			for (const v of args.slice(1)) {
-				const order = compare(v, chosen, t)
-				if (op.fn === "greatest" ? order > 0 : order < 0) {
-					chosen = v
-				}
-			}
-			return Result.ok(chosen)
+			const extreme = extremum(fn, argTypes)
+			return (args) => Result.ok(extreme(args))
 		}
 		case "round":
 		case "trunc":
@@ -581,209 +685,115 @@ const apply = (
 		case "widthBucket":
 		case "minScale":
 		case "cosineDistance":
-			return unsupported(`${op.fn}, outside a check's vocabulary`)
+			return refused(`${fn}, outside a check's vocabulary`)
 		case "and":
 		case "or":
 		case "cast":
-			return unsupported(`${op.fn} evaluated by its node`)
+			return refused(`${fn} evaluated by its node`)
 	}
 }
 
 /**
- * Evaluates a contract predicate, `root` in its expression table `exprs`, over its VALUE `value`, reading regex
- * membership by `patterns`.
+ * LEAST or GREATEST of its operands' values, NULL skipped, staged once over its operands' types `argTypes`: the first
+ * value that is no NULL, replaced by each later one past it in the order of that first value's type (orderOf), NULL
+ * where every operand is NULL.
  */
-const evaluatePredicate = (
-	exprs: Readonly<Record<ExprId, TableExpr>>,
-	root: ExprId,
-	value: HostValue,
-	patterns: PatternReads
-): SqlResult =>
-	evaluateTable(exprs, root, { value, column: () => undefined, closed: () => undefined }, patterns)
-
-/**
- * The host's value of the expression `root` in its table `exprs`, its leaves read from `leaves` and regex membership
- * by `patterns`: the value PostgreSQL computes for it, NULL included (sqlNull), or why the host has none (EvalStop).
- * The one evaluation of a contract predicate over its VALUE and of a generation expression, a row check, a selection
- * or a guard over its row.
- */
-export const evaluateTable = (
-	exprs: Readonly<Record<ExprId, TableExpr>>,
-	root: ExprId,
-	leaves: EvalLeaves,
-	patterns: PatternReads
-): SqlResult => {
-	const at = (id: ExprId): TableExpr | undefined =>
-		Object.hasOwn(exprs, id) ? exprs[id] : undefined
-	/**
-	 * AND or OR over `args` by Kleene's logic, left to right as PostgreSQL evaluates them: the deciding operand, false
-	 * for AND and true for OR, ends it; otherwise it is NULL where an operand is NULL.
-	 */
-	const connective = (fn: "and" | "or", args: ReadonlyArray<ExprId>): SqlResult => {
-		const deciding = fn === "or"
-		const read: Array<Truth> = []
-		for (const a of args) {
-			const v = run(a)
-			if (!v.ok || v.value === deciding) {
-				return v
+const extremum = (
+	fn: "least" | "greatest",
+	argTypes: ReadonlyArray<ScalarType>
+): ((values: ReadonlyArray<SqlValue>) => SqlValue) => {
+	const orders = argTypes.map(orderOf)
+	return (values) => {
+		let chosen: { readonly value: HostValue; readonly compare: Compare } | undefined
+		for (const [i, v] of values.entries()) {
+			if (v === sqlNull) {
+				continue
 			}
-			read.push(v.value === sqlNull ? sqlNull : !deciding)
+			if (chosen === undefined) {
+				chosen = { value: v, compare: defined(orders[i], `the operand type of ${fn}`) }
+				continue
+			}
+			const order = chosen.compare(v, chosen.value)
+			if (fn === "greatest" ? order > 0 : order < 0) {
+				chosen = { value: v, compare: chosen.compare }
+			}
 		}
-		return Result.ok(fn === "and" ? conjunction(read) : disjunction(read))
+		return chosen === undefined ? sqlNull : chosen.value
 	}
-	/** A native operation of the type `type` over its arguments' values, each evaluated left to right (nullAware). */
-	const applied = (op: NativeOp, args: ReadonlyArray<ExprId>, type: ScalarType): SqlResult => {
-		const values: Array<SqlValue> = []
-		const types: Array<ScalarType> = []
-		for (const a of args) {
-			const v = run(a)
-			const operand = at(a)
-			if (!v.ok || operand === undefined) {
-				return !v.ok ? v : unsupported(`an expression named ${a}`)
-			}
-			values.push(v.value)
-			types.push(operand.type)
-		}
-		return nullAware(op, values, types, type, patterns)
-	}
-	const run = (id: ExprId): SqlResult => {
-		const expr = at(id)
-		if (expr === undefined) {
-			return unsupported(`an expression named ${id}`)
-		}
-		switch (expr.kind) {
-			case "value":
-				return leaves.value === undefined
-					? unsupported("a contract's VALUE outside a contract predicate")
-					: Result.ok(leaves.value)
-			case "column": {
-				const read = leaves.column(expr.column)
-				return read === undefined ? unsupported(`the column ${expr.column.name}`) : Result.ok(read)
-			}
-			case "param":
-				return unsupported(`the parameter ${expr.param}`)
-			case "literal":
-				return Result.ok(hostOfLiteral(baseOf(expr.type).carrier, expr.value))
-			case "cond": {
-				const [p, t, e] = expr.args
-				const c = run(p)
-				if (!c.ok) {
-					return c
-				}
-				return run(c.value === true ? t : e)
-			}
-			case "cast": {
-				const [operand] = expr.args
-				const arg = at(operand)
-				const v = run(operand)
-				if (arg === undefined || !v.ok || v.value === sqlNull) {
-					return v
-				}
-				return castTo(v.value, arg.type, expr.type)
-			}
-			case "domainCast": {
-				/**
-				 * A domain cast is its coercion into the target's base: whether the value is a member of the target's
-				 * domain is the domain's to judge where the value is stored or read, PostgreSQL's CHECK on a write, by the
-				 * domain's law, and rowEvaluator's DomainRefused on a row, never this evaluation's precondition. Over a row
-				 * inside its domains a proved cast's value is a member; over a written row past its own domain, which only
-				 * PostgreSQL holds to it, the value is still the one PostgreSQL computes before its domain refuses it.
-				 */
-				const [operand] = expr.args
-				const arg = at(operand)
-				const v = run(operand)
-				if (arg === undefined || !v.ok || v.value === sqlNull) {
-					return v
-				}
-				return castTo(v.value, arg.type, baseOf(expr.type))
-			}
-			case "op": {
-				/**
-				 * Left to right, stopping at the deciding operand.
-				 */
-				const op = nativeOp(expr.op)
-				if (op === undefined) {
-					return unsupported(`the operator ${describeOp(expr.op)}`)
-				}
-				return op.fn === "and" || op.fn === "or"
-					? connective(op.fn, expr.args)
-					: applied(op, expr.args, expr.type)
-			}
-			case "closedAt":
-			case "closedRow":
-			case "closedHas": {
-				const values: Array<SqlValue> = []
-				for (const a of expr.args) {
-					const v = run(a)
-					if (!v.ok) {
-						return v
-					}
-					values.push(v.value)
-				}
-				const args = values.filter(isPresent)
-				if (args.length < values.length) {
-					return Result.ok(sqlNull)
-				}
-				const read = leaves.closed(expr, args)
-				return read === undefined
-					? unsupported(`a read of the closed relation ${expr.relation}`)
-					: Result.ok(read)
-			}
-		}
-	}
-	return run(root)
 }
 
 /**
- * A native operation over operand values that may be NULL, as PostgreSQL applies it: over values alone, `apply`;
- * otherwise LEAST and GREATEST over their values that are no NULL, NULL where none is; BETWEEN as `a >= low AND a <=
- * high` and IN as the OR of its equalities, by Kleene's logic; and every other operation, which is strict, NULL. Each
- * operation states its NULL behaviour here, so a new one is a case to decide.
+ * A native operation over operand values that may be NULL, as PostgreSQL applies it, staged once where its expression is
+ * compiled: over values alone, `present`; otherwise, where one or more is NULL, `absent`.
  */
-const nullAware = (
+interface Operation {
+	readonly present: Apply
+	readonly absent: (values: ReadonlyArray<SqlValue>) => SqlResult
+}
+
+/**
+ * The native operation `op` over operands of the types `argTypes`, of the type `type`, staged once (Operation): over
+ * values alone, its application (applied); over a NULL operand, LEAST and GREATEST over their values that are no NULL,
+ * NULL where none is; BETWEEN as `a >= low AND a <= high` and IN as the OR of its equalities, by Kleene's logic; and
+ * every other operation, which is strict, NULL. Each operation states its NULL behaviour here, so a new one is a case
+ * to decide.
+ */
+const operation = (
 	op: NativeOp,
-	values: ReadonlyArray<SqlValue>,
-	types: ReadonlyArray<ScalarType>,
-	type: ScalarType,
-	patterns: PatternReads
-): SqlResult => {
-	const present = values.filter(isPresent)
-	if (present.length === values.length) {
-		return apply(op, present, types, type, patterns)
-	}
-	const [first, ...rest] = values
-	const a = defined(first, `the first operand of ${op.fn}`)
-	const t = defined(types[0], `the operand type of ${op.fn}`)
-	/** One comparison of `a` with `b` by `holds` over their order, NULL where either is NULL. */
-	const compared = (b: SqlValue, holds: (order: -1 | 0 | 1) => boolean): Truth =>
-		a === sqlNull || b === sqlNull ? sqlNull : holds(compare(a, b, t))
-	switch (op.fn) {
+	argTypes: ReadonlyArray<ScalarType>,
+	type: ScalarType
+): Operation => {
+	const present = applied(op, argTypes, type)
+	const fn = op.fn
+	switch (fn) {
 		case "least":
-		case "greatest":
-			return present.length === 0
-				? Result.ok(sqlNull)
-				: apply(
-						op,
-						present,
-						types.filter((_, i) => values[i] !== sqlNull),
-						type,
-						patterns
-					)
-		case "between": {
-			const [low, high] = rest
-			return Result.ok(
-				conjunction([
-					compared(defined(low, "BETWEEN's low"), (order) => order >= 0),
-					compared(defined(high, "BETWEEN's high"), (order) => order <= 0)
-				])
-			)
+		case "greatest": {
+			const extreme = extremum(fn, argTypes)
+			return { present, absent: (values) => Result.ok(extreme(values)) }
 		}
-		case "in":
-			return Result.ok(disjunction(rest.map((item) => compared(item, (order) => order === 0))))
+		case "between":
+		case "in": {
+			const compare = orderOf(defined(argTypes[0], `the operand type of ${fn}`))
+			/** One comparison of `a` with `b` by `holds` over their order, NULL where either is NULL. */
+			const compared = (a: SqlValue, b: SqlValue, holds: (order: -1 | 0 | 1) => boolean): Truth =>
+				a === sqlNull || b === sqlNull ? sqlNull : holds(compare(a, b))
+			return fn === "between"
+				? {
+						present,
+						absent: ([a, low, high]) =>
+							Result.ok(
+								conjunction([
+									compared(
+										defined(a, `the first operand of ${fn}`),
+										defined(low, "BETWEEN's low"),
+										(order) => order >= 0
+									),
+									compared(
+										defined(a, `the first operand of ${fn}`),
+										defined(high, "BETWEEN's high"),
+										(order) => order <= 0
+									)
+								])
+							)
+					}
+				: {
+						present,
+						absent: ([a, ...items]) =>
+							Result.ok(
+								disjunction(
+									items.map((item) =>
+										compared(defined(a, `the first operand of ${fn}`), item, (order) => order === 0)
+									)
+								)
+							)
+					}
+		}
 		case "and":
 		case "or":
-		case "cast":
-			return unsupported(`${op.fn} evaluated by its node`)
+		case "cast": {
+			const stop = unsupported(`${fn} evaluated by its node`)
+			return { present, absent: () => stop }
+		}
 		case "abs":
 		case "add":
 		case "adjoin":
@@ -839,80 +849,347 @@ const nullAware = (
 		case "upper":
 		case "utf16Length":
 		case "widthBucket":
-			return Result.ok(sqlNull)
+			return { present, absent: () => nullValue }
 	}
 }
 
+/** The integer carriers, a term's exact integers among them, whose values the evaluator computes as bigints. */
+type IntegerCarrier = "int2" | "int4" | "int8" | "exactInteger"
+
+const isIntegerCarrier = (c: Carrier): c is IntegerCarrier =>
+	c === "int2" || c === "int4" || c === "int8" || c === "exactInteger"
+
 /**
- * A registered cast's host conversion of `v`, a host value of the cast's source carrier `source`, read as its family's
- * (cast.ts HostCast): an integer widened to a bigint, a float or money as it is. The IR's typing makes `source` one of
- * the family's carriers, so another is a defect.
+ * A registered cast's host conversion of a host value of the cast's source carrier `source`, read as its family's
+ * (cast.ts HostCast), staged once: an integer widened to a bigint, a float or money as it is. The IR's typing makes
+ * `source` one of the family's carriers, so another is a defect, which the conversion throws.
  */
 const castOperand = (
 	host: HostCast,
-	v: HostValue,
 	source: Carrier,
 	to: ScalarType
-): Result.Result<CastValue, Undefined> => {
+): ((v: HostValue) => Result.Result<CastValue, Undefined>) => {
 	switch (host.from) {
-		case "integer":
-			return host.convert(integerOf(source, v))
+		case "integer": {
+			const read = integerOf(source)
+			return (v) => host.convert(read(v))
+		}
 		case "numeric":
-			return host.convert(hostOf("numeric", v))
+			return (v) => host.convert(hostOf("numeric", v))
 		case "float":
 			if (source !== "float4" && source !== "float8") {
-				throw defect(`a cast from a float, not from a ${source}`)
+				return () => {
+					throw defect(`a cast from a float, not from a ${source}`)
+				}
 			}
-			return host.convert(hostOf(source, v))
+			return (v) => host.convert(hostOf(source, v))
 		case "money":
 			if (source !== "money" && source !== "exactMoney") {
-				throw defect(`a cast from money, not from a ${source}`)
+				return () => {
+					throw defect(`a cast from money, not from a ${source}`)
+				}
 			}
-			return host.convert(hostOf(source, v))
-		case "text":
-			return host.convert(hostOf("text", v), baseOf(to))
+			return (v) => host.convert(hostOf(source, v))
+		case "text": {
+			const base = baseOf(to)
+			return (v) => host.convert(hostOf("text", v), base)
+		}
 	}
 }
 
 /**
- * A cast's result as the host value of its target `to`: an integer's bigint narrowed to its carrier's (integerHost),
- * every other result its target's host value as the cast computes it.
+ * A cast's result as the host value of its target `to`, staged once: an integer's bigint narrowed to its carrier's
+ * (integerHost), every other result its target's host value as the cast computes it.
  */
-const castHost = (to: ScalarType, value: CastValue): HostValue => {
+const castHost = (to: ScalarType): ((value: CastValue) => HostValue) => {
 	if (!isIntegerCarrier(baseOf(to).carrier)) {
-		return value
+		return (value) => value
 	}
-	if (typeof value !== "bigint") {
-		throw defect(`a cast into ${typeLabel(to)} yields an integer`)
+	const host = integerHost(to)
+	return (value) => {
+		if (typeof value !== "bigint") {
+			throw defect(`a cast into ${typeLabel(to)} yields an integer`)
+		}
+		return host(value)
 	}
-	return integerHost(to, value)
 }
 
-/** A native cast between the value types of two descriptors, then the target's numeric typmod coercion. */
-const castTo = (v: HostValue, from: ScalarType, to: ScalarType): EvalResult => {
+/**
+ * A native cast between the value types of two descriptors, then the target's numeric typmod coercion, staged once:
+ * the registered cast between their carriers resolved (castOf), none where they are one carrier.
+ */
+const caster = (from: ScalarType, to: ScalarType): Unary => {
 	const source = baseOf(from).carrier
 	const target = baseOf(to).carrier
-	let out: HostValue = v
-	if (source !== target) {
+	const typmod = numericTypmodOf(baseOf(to))
+	const converted = ((): Unary => {
+		if (source === target) {
+			return (v) => Result.ok(v)
+		}
 		const native = castOf(source, target)
 		if (native === undefined) {
-			return unsupported(`a cast from ${source} to ${target}`)
+			return refused(`a cast from ${source} to ${target}`)
 		}
-		const cast = castOperand(native.host, v, source, to)
-		if (!cast.ok) {
-			return undefinedAt(cast.error)
+		const operand = castOperand(native.host, source, to)
+		const host = castHost(to)
+		return (v) => {
+			const cast = operand(v)
+			return cast.ok ? Result.ok(host(cast.value)) : undefinedAt(cast.error)
 		}
-		out = castHost(to, cast.value)
+	})()
+	if (typmod === undefined) {
+		return converted
 	}
-	const typmod = numericTypmodOf(baseOf(to))
-	if (typmod !== undefined) {
-		const normalized = normalizeNumeric(hostOf("numeric", out), typmod)
-		if (!normalized.ok) {
-			return undefinedAt("fits")
+	return (v) => {
+		const out = converted(v)
+		if (!out.ok) {
+			return out
 		}
-		out = normalized.value
+		const normalized = normalizeNumeric(hostOf("numeric", out.value), typmod)
+		return normalized.ok ? Result.ok(normalized.value) : undefinedAt("fits")
 	}
-	return Result.ok(out)
+}
+
+/** An expression the evaluator refuses wherever it is evaluated, compiled once: the same stop at every evaluation. */
+const refusedExpr = (what: string): CompiledExpr => {
+	const stop = unsupported(what)
+	return () => stop
+}
+
+/**
+ * AND or OR over its operands by Kleene's logic, left to right as PostgreSQL evaluates them: the deciding operand, false
+ * for AND and true for OR, ends it; otherwise it is NULL where an operand is NULL, and the other truth where none is.
+ */
+const connective = (fn: "and" | "or", args: ReadonlyArray<CompiledExpr>): CompiledExpr => {
+	const deciding = fn === "or"
+	const undecided: SqlResult = Result.ok(!deciding)
+	return (leaves, patterns) => {
+		let unknown = false
+		for (const arg of args) {
+			const v = arg(leaves, patterns)
+			if (!v.ok || v.value === deciding) {
+				return v
+			}
+			unknown ||= v.value === sqlNull
+		}
+		return unknown ? nullValue : undecided
+	}
+}
+
+/**
+ * A native operation of its type over its operands, each evaluated left to right, the first stop ending it, then applied
+ * as PostgreSQL applies it over values that may be NULL (Operation): its application over values alone, read as they
+ * are evaluated, and its NULL behaviour where one is NULL, read once every operand is evaluated.
+ */
+const operationExpr = (args: ReadonlyArray<CompiledExpr>, op: Operation): CompiledExpr => {
+	/** The operands past the first NULL one at `values`, evaluated, then the operation's NULL behaviour over them. */
+	const absent = (
+		values: Array<SqlValue>,
+		leaves: EvalLeaves,
+		patterns: PatternReads
+	): SqlResult => {
+		for (const arg of args.slice(values.length)) {
+			const v = arg(leaves, patterns)
+			if (!v.ok) {
+				return v
+			}
+			values.push(v.value)
+		}
+		return op.absent(values)
+	}
+	return (leaves, patterns) => {
+		const present: Array<HostValue> = []
+		for (const arg of args) {
+			const v = arg(leaves, patterns)
+			if (!v.ok) {
+				return v
+			}
+			if (v.value === sqlNull) {
+				return absent([...present, sqlNull], leaves, patterns)
+			}
+			present.push(v.value)
+		}
+		return op.present(present, patterns)
+	}
+}
+
+/**
+ * A read of a closed relation (C.at, C.row, C.has) at its operands' values, each evaluated left to right, the first
+ * stop ending it: NULL where one is NULL, else what the leaves' closed relations answer, unsupported where they hold
+ * none.
+ */
+const closedExpr = (
+	read: TableExprOf<"closedAt" | "closedRow" | "closedHas">,
+	args: ReadonlyArray<CompiledExpr>
+): CompiledExpr => {
+	const stop = unsupported(`a read of the closed relation ${read.relation}`)
+	return (leaves, patterns) => {
+		const key: Array<HostValue> = []
+		let absent = false
+		for (const arg of args) {
+			const v = arg(leaves, patterns)
+			if (!v.ok) {
+				return v
+			}
+			if (v.value === sqlNull) {
+				absent = true
+			} else {
+				key.push(v.value)
+			}
+		}
+		if (absent) {
+			return nullValue
+		}
+		const value = leaves.closed(read, key)
+		return value === undefined ? stop : Result.ok(value)
+	}
+}
+
+/**
+ * The operands before a dangling one, each evaluated left to right, the first stop ending it, and then the dangling
+ * operand's own stop: what an operation over an operand its table does not hold evaluates to.
+ */
+const danglingExpr =
+	(before: ReadonlyArray<CompiledExpr>, dangling: CompiledExpr): CompiledExpr =>
+	(leaves, patterns) => {
+		for (const arg of before) {
+			const v = arg(leaves, patterns)
+			if (!v.ok) {
+				return v
+			}
+		}
+		return dangling(leaves, patterns)
+	}
+
+/**
+ * The expression `root` of its table `exprs` compiled (CompiledExpr), each expression of the table compiled once,
+ * however many expressions read it (compiledNode): each literal converted to its host value, each operator resolved to
+ * its native operation and staged over its operands' types (operation), each comparison's order read and each cast
+ * resolved, so an evaluation reads no table, converts no literal and resolves no operator. An expression the table does
+ * not hold, an operator the registry does not list, a parameter and a VALUE outside a contract predicate are
+ * unsupported where they are evaluated, as a branch the evaluation does not take never reads them.
+ */
+const compiledTable = (exprs: Readonly<Record<ExprId, TableExpr>>, root: ExprId): CompiledExpr => {
+	const compiled = new Map<ExprId, CompiledExpr>()
+	const entryOf = (id: ExprId): TableExpr | undefined =>
+		Object.hasOwn(exprs, id) ? exprs[id] : undefined
+	const node = (id: ExprId): CompiledExpr => {
+		const known = compiled.get(id)
+		if (known !== undefined) {
+			return known
+		}
+		const made = compiledNode(id, entryOf(id))
+		compiled.set(id, made)
+		return made
+	}
+	/** One expression of the table compiled, its operands compiled first (node). */
+	const compiledNode = (id: ExprId, expr: TableExpr | undefined): CompiledExpr => {
+		if (expr === undefined) {
+			return refusedExpr(`an expression named ${id}`)
+		}
+		switch (expr.kind) {
+			case "value": {
+				const stop = unsupported("a contract's VALUE outside a contract predicate")
+				return (leaves) => (leaves.value === undefined ? stop : Result.ok(leaves.value))
+			}
+			case "column": {
+				const ref = expr.column
+				const stop = unsupported(`the column ${ref.name}`)
+				return (leaves) => {
+					const read = leaves.column(ref)
+					return read === undefined ? stop : Result.ok(read)
+				}
+			}
+			case "param":
+				return refusedExpr(`the parameter ${expr.param}`)
+			case "literal": {
+				const value: SqlResult = Result.ok(hostOfLiteral(baseOf(expr.type).carrier, expr.value))
+				return () => value
+			}
+			case "cond": {
+				const [p, t, e] = expr.args
+				const condition = node(p)
+				const then = node(t)
+				const otherwise = node(e)
+				return (leaves, patterns) => {
+					const c = condition(leaves, patterns)
+					if (!c.ok) {
+						return c
+					}
+					return c.value === true ? then(leaves, patterns) : otherwise(leaves, patterns)
+				}
+			}
+			case "cast":
+				return castExpr(expr.args[0], expr.type)
+			case "domainCast": {
+				/**
+				 * A domain cast is its coercion into the target's base: whether the value is a member of the target's
+				 * domain is the domain's to judge where the value is stored or read, PostgreSQL's CHECK on a write, by the
+				 * domain's law, and rowEvaluator's DomainRefused on a row, never this evaluation's precondition. Over a row
+				 * inside its domains a proved cast's value is a member; over a written row past its own domain, which only
+				 * PostgreSQL holds to it, the value is still the one PostgreSQL computes before its domain refuses it.
+				 */
+				const base = baseOf(expr.type)
+				return castExpr(expr.args[0], base)
+			}
+			case "op": {
+				const op = nativeOp(expr.op)
+				if (op === undefined) {
+					return refusedExpr(`the operator ${describeOp(expr.op)}`)
+				}
+				const args = expr.args.map(node)
+				if (op.fn === "and" || op.fn === "or") {
+					return connective(op.fn, args)
+				}
+				const types: Array<ScalarType> = []
+				for (const [i, a] of expr.args.entries()) {
+					const operand = entryOf(a)
+					if (operand === undefined) {
+						return danglingExpr(args.slice(0, i), node(a))
+					}
+					types.push(operand.type)
+				}
+				return operationExpr(args, operation(op, types, expr.type))
+			}
+			case "closedAt":
+			case "closedRow":
+			case "closedHas":
+				return closedExpr(expr, expr.args.map(node))
+		}
+	}
+	/** A cast of the operand `operand` into `to`, its value NULL where the operand's is (caster). */
+	const castExpr = (operand: ExprId, to: ScalarType): CompiledExpr => {
+		const arg = entryOf(operand)
+		const run = node(operand)
+		if (arg === undefined) {
+			return run
+		}
+		const cast = caster(arg.type, to)
+		return (leaves, patterns) => {
+			const v = run(leaves, patterns)
+			return !v.ok || v.value === sqlNull ? v : cast(v.value)
+		}
+	}
+	return node(root)
+}
+
+/** Every table compiled, by the table: an immutable table's compiled form, kept with it for as long as it lives. */
+const compiledTables = new WeakMap<ExprTable, CompiledExpr>()
+
+/**
+ * The host's evaluation of a table's root expression (CompiledExpr), compiled where the table is first evaluated
+ * (compiledTable) and kept with the table: a table is immutable, so every later evaluation of it, over any row, reads
+ * the same compiled form, and interprets nothing. The one evaluation of a contract predicate over its VALUE and of a
+ * generation expression, a row check, a selection or a guard over its row.
+ */
+export const compiledExpr = (table: ExprTable): CompiledExpr => {
+	const known = compiledTables.get(table)
+	if (known !== undefined) {
+		return known
+	}
+	const made = compiledTable(table.exprs, table.root)
+	compiledTables.set(table, made)
+	return made
 }
 
 /**
@@ -1005,7 +1282,13 @@ export const refined = (
 	return Result.ok(literal)
 }
 
-/** Whether a contract's predicate holds of `v`: a contract without one constrains nothing. */
+/** A contract predicate's read of what it holds none of: a column and a closed relation, which it never reads. */
+const noRead = (): undefined => undefined
+
+/**
+ * Whether a contract's predicate holds of `v`, its VALUE, regex membership read by `patterns`: a contract without one
+ * constrains nothing.
+ */
 const predicateHolds = (
 	predicate: ExprTable | undefined,
 	v: HostValue,
@@ -1014,7 +1297,7 @@ const predicateHolds = (
 	if (predicate === undefined) {
 		return Result.ok(true)
 	}
-	const holds = evaluatePredicate(predicate.exprs, predicate.root, v, patterns)
+	const holds = compiledExpr(predicate)({ value: v, column: noRead, closed: noRead }, patterns)
 	return !holds.ok ? Result.err(holds.error) : Result.ok(holds.value === true)
 }
 
