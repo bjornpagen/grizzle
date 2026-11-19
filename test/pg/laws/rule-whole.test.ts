@@ -16,10 +16,12 @@
  *   broken, naming a rule they find broken; and the whole judge refuses exactly where the probed judge, the one rules
  *   that are not unit-local keep, refuses, wherever the aggregate's rule holds.
  * - **narrowed region**: Marks joins Tag and Node at Node's key, Tag contained in Node there, so its region reads a
- *   node a transaction wrote only where it replaces one the transaction removed (analysis/theory/unit.ts replacedAt):
- *   the equivalence holds the narrowed region to the whole checks, a node replaced under its tag and an expression
- *   written at a node that stood before among its cases, and a transaction that writes documents whole beside a few tags
- *   reads Tag once per tag, never once per node.
+ *   node a transaction wrote only where it replaces one the transaction removed (analysis/theory/unit.ts proofsOf),
+ *   and Kinded's KindOne matches a node at kind 1 beside its expression, Expressed holding every node of kind 1 or 2
+ *   in Expr, so its region reads an expression written only where it replaces one: the equivalence holds the narrowed
+ *   regions to the whole checks, a node replaced under its tag and an expression written at a node that stood before
+ *   among its cases, and a transaction that writes documents whole beside a few tags reads Tag once per tag, never
+ *   once per node.
  * - **locality**: hundreds of documents stored, analyzed or not, beside one a transaction writes whole: each whole
  *   rule's statement reads the same rows when as many documents again are stored, the written document's alone; and
  *   with tens of documents written, then four times as many, each node it runs once per unit reads that unit alone,
@@ -95,9 +97,9 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\t\ts.left.selection.conjuncts.length > 0",
-				replacement: "\t\t\tfalse",
-				why: "A containment from a selection of its source states a fact of every row of it, so Expressed, which holds the nodes of kind 1 or 2 in Expr, proves Typed's expressions read where they replace one alone: an expression written at a node of kind 0 that stood before, the node's parent no expression's, is never judged, and a transaction that breaks Rooted commits."
+				original: "\t\t\t\t\t\tc.selection.every((conjunct) => implies(e.where, conjunct))",
+				replacement: "\t\t\t\t\t\ttrue",
+				why: "A containment from a selection of its source proves an occurrence beside one that reads rows outside the selection, so Expressed, which holds the nodes of kind 1 or 2 in Expr, proves Typed's expressions read where they replace one alone, beside nodes of every kind: an expression written at a node of kind 0 that stood before, the node's parent no expression's, is never judged, and a transaction that breaks Rooted commits."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
@@ -181,7 +183,7 @@ export const aWholeRuleOverAContainedRelationsJoinReadsItOncePerRowItGainedNever
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\tconst at = replacedAt(r, regions, facts, relations)",
+				original: "\t\tconst at = proofs.get(place)",
 				replacement: "\t\tconst at: NonEmptyReadonlyArray<string> | undefined = undefined",
 				why: "Marks's region reads every node a transaction wrote, so its statement reads Tag once per node, three a document, where it read it once per tag."
 			}

@@ -159,7 +159,10 @@ type Judge = "whole" | "probed"
  *   selected sides, which an expression's insert breaks and a node's delete does.
  * - Rooted: every expression's parent is an expression: a containment of a join into a table, which a node's insert
  *   breaks and an expression's delete does.
- * - Kinded: a node of kind 1 that is an expression is of type 1: a check over a join.
+ * - Kinded: a node of kind 1 that is an expression is of type 1: a check over a join of a node matched at kind 1 and
+ *   its expression, Expressed's selection holding every node the match reads, so its region reads the expressions a
+ *   transaction wrote only where they replace one it removed (analysis/theory/unit.ts proofsOf), which an expression's
+ *   insert breaks and its node's does.
  * - One type: the expressions below one parent share one type: a key over a projection of the join.
  * - Fanout: a node has at most three children, and one of kind 2 at least two, a root its own child among them: a
  *   check over a count of each node's children, zero by a second rule for a node with none, which a node's insert and
@@ -177,10 +180,10 @@ type Judge = "whole" | "probed"
  *   insert breaks and its node's delete does.
  * - Marked: a tag of mark 1 stands at a node of kind 0: a check over a join of Tag and Node, Tag contained in Node at
  *   Node's key, so its region reads the nodes a transaction wrote only where they replace a node it removed
- *   (analysis/theory/unit.ts replacedAt), which a tag's insert breaks and its node's replacement by one of another kind
+ *   (analysis/theory/unit.ts proofsOf), which a tag's insert breaks and its node's replacement by one of another kind
  *   does. Typed and Parents join Expr and Node as Marks joins Tag and Node, but no containment holds every Expr in
- *   Node, nor every Node in Expr, Expressed's source a selection of Node, so theirs reads every node and every
- *   expression written.
+ *   Node, nor every Node in Expr, and their matches of Node read every kind, which Expressed's selection does not
+ *   imply, so theirs reads every node and every expression written.
  */
 const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 	const [width, order] = shapes[shape]
@@ -255,6 +258,17 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 				.find({ ...at, parent, type })
 		})
 	)
+	const KindOne = derived(
+		"KindOne",
+		query(Base).rule((r) => {
+			const { doc, sub, part, start, type } = v(Expr, "e")
+			const at = ordered({ doc, sub, part })
+			return r
+				.match(Expr, { ...at, start, type })
+				.match(Node, { ...at, start, kind: 1 })
+				.find({ ...at, start, type })
+		})
+	)
 	const Marks = derived(
 		"Marks",
 		query(Base).rule((r) => {
@@ -269,12 +283,12 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 	)
 	const spj = [
 		contained(on(Typed, "doc", "sub", "part", "parent"), on(Expr, "doc", "sub", "part", "start")),
-		check("Kinded", Typed, (t) => t.or(t.ne(t.kind, 1), t.eq(t.type, 1))),
+		check("Kinded", KindOne, (k) => k.eq(k.type, 1)),
 		key(on(Parents, "doc", "sub", "part", "parent")),
 		check("Marked", Marks, (m) => m.or(m.ne(m.mark, 1), m.eq(m.kind, 0)))
 	] as const
 	if (probed) {
-		return schema.extend(Base, `${name}_1`, [Typed, Parents, Marks], spj)
+		return schema.extend(Base, `${name}_1`, [Typed, Parents, KindOne, Marks], spj)
 	}
 	const Fanout = derived(
 		"Fanout",
@@ -346,7 +360,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 	return schema.extend(
 		Leaves,
 		`${name}_1`,
-		[Typed, Parents, Fanout, Reach, Barren, Marks],
+		[Typed, Parents, KindOne, Fanout, Reach, Barren, Marks],
 		[
 			...spj,
 			check("Fanout", Fanout, (f) =>
@@ -1291,7 +1305,7 @@ export const narrowedGen: Gen<Narrowed> = (s) => ({
  * written whole through the captures, as a publish writes them, the first `tagged` of them tagged at their start 2, a
  * node of kind 0 at mark 1, then the judge, and every whole rule's statement explained. Each scan of Tag runs at most
  * once per tag written: Marks joins Tag and Node at Node's key, Tag contained in Node there, so its region holds the
- * tags' units and no node's, every node written fresh (analysis/theory/unit.ts replacedAt), and Tagged's region holds
+ * tags' units and no node's, every node written fresh (analysis/theory/unit.ts proofsOf), and Tagged's region holds
  * the tags' units and the nodes removed, none; where the region held every node written, Marks would read Tag once per
  * node, three a document.
  */
