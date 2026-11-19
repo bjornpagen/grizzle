@@ -7,7 +7,7 @@ import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { lastNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { builtMark } from "#compiler/core/phantom.ts"
+import { builtMark, fieldMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
@@ -208,6 +208,7 @@ export const drawnField = (type: NaturalField, extra: ReadonlyArray<unknown>): D
 	}
 	const value: DrawnField = Object.freeze({
 		...builtMark,
+		...fieldMark,
 		writing: "drawn",
 		natural: true,
 		column: type.column,
@@ -225,6 +226,7 @@ export const drawnField = (type: NaturalField, extra: ReadonlyArray<unknown>): D
 export const retirementField = (type: Field<boolean, "boolean">): RetirementField => {
 	const value: RetirementField = Object.freeze({
 		...builtMark,
+		...fieldMark,
 		writing: "retirement",
 		column: type.column,
 		sql: type.sql
@@ -258,6 +260,7 @@ export const accumulatedField = <F extends FieldBase>(
 	const literal = literalFor(described.desc, start, "accumulated start", rosterHandlesOf(type))
 	const value: AccumulatedField<F> = Object.freeze({
 		...builtMark,
+		...fieldMark,
 		writing: "accumulated",
 		field: type,
 		column: type.column,

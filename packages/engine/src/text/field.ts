@@ -3,7 +3,7 @@ import { textColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import { flatMapNonEmpty, isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { builtMark } from "#compiler/core/phantom.ts"
+import { builtMark, fieldMark } from "#compiler/core/phantom.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { PatternLanguage, Patterns } from "#compiler/ir/scalar.ts"
 import { isRegexFlags, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
@@ -96,6 +96,7 @@ const textField = <Host extends string>(
 	registerTextDescriptor(
 		Object.freeze({
 			...builtMark,
+			...fieldMark,
 			sql: "text",
 			patterns: Object.freeze(patterns),
 			column: textColumn<Host>()

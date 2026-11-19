@@ -89,6 +89,20 @@ export interface Built {
 /** The brand, for a builder to spread into the value it makes. */
 export const builtMark: Built = Object.freeze({ [built]: true } as const)
 
+const field: unique symbol = Symbol("grizzle.field")
+
+/**
+ * What the field registry sets on every descriptor it makes, beside the brand (scalar/registry.ts defineDescriptor), a
+ * real symbol no other builder sets: a term carries a column and an SQL type as a descriptor does, and is no field, so
+ * FieldBase requires this and a term lacks it.
+ */
+export interface FieldMarked {
+	readonly [field]: true
+}
+
+/** The field mark, for the field registry to spread into each descriptor it makes. */
+export const fieldMark: FieldMarked = Object.freeze({ [field]: true } as const)
+
 export interface Phantom<out Bundle> extends Built {
 	readonly [phantom]?: Bundle | undefined
 }

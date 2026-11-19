@@ -30,6 +30,7 @@ const DICTIONARY_MINTS = [
 	"test/pg/oracle/mutants/invalid.dictionary.ts",
 	"test/types/api/config.dictionary.ts",
 	"test/types/api/decoder.dictionary.ts",
+	"test/types/api/fields.dictionary.ts",
 	"test/types/api/handle.dictionary.ts",
 	"test/types/api/names.dictionary.ts",
 	"test/types/api/results.dictionary.ts",

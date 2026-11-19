@@ -4,6 +4,7 @@ import type {
 	Built,
 	Domained,
 	domain,
+	FieldMarked,
 	Languaged,
 	language,
 	Proving
@@ -30,7 +31,7 @@ import type {
  * and language it states, which are any for a descriptor of unknown type: a variable minted over one is of unknown
  * type, never of none.
  */
-export interface FieldBase extends Built, Domained<unknown>, Languaged<unknown> {
+export interface FieldBase extends Built, FieldMarked, Domained<unknown>, Languaged<unknown> {
 	readonly sql: SqlTag
 	readonly column: Column<unknown>
 }
@@ -300,6 +301,7 @@ export interface RetirementField extends Field<boolean, "boolean">, UnwrittenFie
 export interface AccumulatedField<out F extends FieldBase>
 	extends
 		Built,
+		FieldMarked,
 		UnwrittenField,
 		Domained<DomainOf<F>>,
 		Proving<FactsOf<F>>,

@@ -4,7 +4,13 @@ import { hostRead } from "#compiler/core/host.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
+import {
+	type Built,
+	built,
+	builtMark,
+	type FieldMarked,
+	fieldMark
+} from "#compiler/core/phantom.ts"
 import { deepFreeze, hasProperties } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc, InferredFieldDesc, PgScalarName } from "#compiler/ir/desc.ts"
@@ -146,7 +152,8 @@ type DescriptorMembers = Readonly<Record<string, unknown>> & Columned<unknown>
  * A runtime descriptor: what it carries for the compiler, and the brand every builder-made value holds
  * (core/phantom.ts), so it has the public Field type its constructor's signature gives it.
  */
-export interface Descriptor<out Sql extends SqlTag = SqlTag> extends Described<Sql>, Built {}
+export interface Descriptor<out Sql extends SqlTag = SqlTag>
+	extends Described<Sql>, Built, FieldMarked {}
 
 /** Descriptors this package defined. A WeakSet holds no descriptor alive and is never enumerated, so it is no cache. */
 const owned = new WeakSet<object>()
@@ -178,6 +185,7 @@ const defineDescriptor = <T extends object, M extends DescriptorMembers, Sql ext
 	}
 	const descriptor = Object.assign(target, members, {
 		...builtMark,
+		...fieldMark,
 		sql: described.sql,
 		desc: described.desc,
 		scalar: described.scalar
