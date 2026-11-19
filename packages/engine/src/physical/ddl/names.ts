@@ -19,9 +19,15 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
-import { missing, type PhysicalNames, type SelectionKey } from "#compiler/ir/physical.ts"
+import {
+	type LibraryFn,
+	missing,
+	type PhysicalNames,
+	type SelectionKey
+} from "#compiler/ir/physical.ts"
 import { type RegexRef, type ScalarType, textInfoBounds } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
+import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import type { Owned, OwnedEntry, OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
 import { imagedText } from "#compiler/schema/representability.ts"
 import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
@@ -171,6 +177,8 @@ interface NamesInput {
 	readonly closed: ReadonlyMap<string, ClosedConstant>
 	/** Each stored relation's selection keys' law columns, by its declared name (`selectionKeysOf`). */
 	readonly selectionKeys: ReadonlyMap<string, ReadonlyArray<SelectionKey>>
+	/** The library functions the installation installs (physical/ddl/library.ts libraryCalls). */
+	readonly library: ReadonlyArray<LibraryFn>
 }
 
 /** A role of an installation named under its levels: the owned role and its PostgreSQL role, fitted once, here, before
@@ -340,6 +348,7 @@ export const roleReadNames = (
 	vectorSchema: names.vectorSchema,
 	codes: names.codes,
 	closed: names.closed,
+	library: names.library,
 	refusal: names.refusal,
 	declaredFunction: names.declaredFunction,
 	imaged: imagedViews(names, world, role, entries)
@@ -440,6 +449,17 @@ export function uninstalled(domain: UninstalledType): never {
 	)
 }
 
+/**
+ * A call of the library function `fn`, which the installation does not install, refused as UninstalledFunction where
+ * the statement is compiled, never by PostgreSQL where it runs. A function declaration, so that control flow knows a
+ * call never returns.
+ */
+function uninstalledFunction(fn: LibraryFn): never {
+	throw new Refusal(
+		CompileError.make({ _tag: "UninstalledFunction", at: SourceLoc("physical names", []), fn })
+	)
+}
+
 export const installNames = (input: NamesInput): InstallNames => {
 	const { owned, levels } = input
 	const installation = levels[0]
@@ -484,6 +504,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 	)
 	const bitsNamed = (roster: DeclaredName): Identity<"bitsDomain"> =>
 		bits.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
+	const library: ReadonlySet<LibraryFn> = new Set(input.library)
 	const names: InstallNames = {
 		installation,
 		schema,
@@ -526,6 +547,10 @@ export const installNames = (input: NamesInput): InstallNames => {
 		codes: input.codes,
 		closed: (relation) =>
 			input.closed.get(relation) ?? missing(`physical: no closed relation ${relation}`),
+		library: (fn) =>
+			library.has(fn)
+				? { kind: "qualified", schema, name: identifierOf(libraryIdentity(fn)) }
+				: uninstalledFunction(fn),
 		selectionKeys: (relation) => input.selectionKeys.get(relation) ?? [],
 		imaged: imagedColumns(
 			Object.values(owned.relations).flatMap((r) =>

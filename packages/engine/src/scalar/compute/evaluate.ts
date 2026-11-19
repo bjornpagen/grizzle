@@ -1,4 +1,5 @@
 import { asciiLowered, collapsed, translated } from "@bjornpagen/grizzle-text/text"
+import { resolveReference } from "@bjornpagen/grizzle-text/uri"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { ExprId } from "#compiler/core/ids.ts"
@@ -623,6 +624,8 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			return (args) => Result.ok(collapsed(hostOf("text", a(args))))
 		case "lowerAscii":
 			return (args) => Result.ok(asciiLowered(hostOf("text", a(args))))
+		case "resolveReference":
+			return (args) => Result.ok(resolveReference(hostOf("text", a(args)), hostOf("text", b(args))))
 		case "sha256":
 			return (args) => Result.ok(hostOf("bytes", a(args)).digest)
 		case "replace":
@@ -854,6 +857,7 @@ const operation = (
 		case "regexpCount":
 		case "rem":
 		case "replace":
+		case "resolveReference":
 		case "right":
 		case "round":
 		case "sha256":

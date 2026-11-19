@@ -1,6 +1,7 @@
 import { defect } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { OpId, PatternTable, ScalarExpr } from "#compiler/ir/expr.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
 import { exactForm, ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
@@ -17,7 +18,7 @@ import {
 	builtinFunctions,
 	type Expr
 } from "#compiler/sql/ast.ts"
-import { and, binary, call, cast, lit, not, or, types } from "#compiler/sql/build.ts"
+import { and, binary, call, cast, lit, not, or, qualifiedCall, types } from "#compiler/sql/build.ts"
 
 type OpForm = { readonly kind: "binary"; readonly op: BinaryOperator } | { readonly kind: "negate" }
 
@@ -277,11 +278,16 @@ const isBuiltin = (name: string): name is BuiltinFunctionName => builtins.has(na
  * An entry of the Compute catalogue's overload registry (scalar/compute/registry.ts), whose OpIds
  * are the IR's convention: an operator by its oprcode, a function by its regprocedure signature
  * ("round(numeric,integer)"), a construct by its keyword and type ("between:integer"). Extension operators and
- * functions are the vector/ plug-in's, so they are not lowered here.
+ * functions are the vector/ plug-in's, so they are not lowered here. A library function is the installation's own,
+ * qualified as `library` names it (ir/physical.ts PhysicalNames.library).
  *
  * A cast is the IR's own cast node, never an op node.
  */
-const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => {
+const registryForm = (
+	id: OpId,
+	args: ReadonlyArray<Expr>,
+	library: PhysicalNames["library"]
+): Expr | undefined => {
 	const native = nativeOp(id)
 	if (native === undefined) {
 		return undefined
@@ -340,6 +346,12 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 			return bytesDigest(args)
 		case "utf16Length":
 			return utf16Units(args)
+		case "library": {
+			const fn = library(sql.fn)
+			return admitsArity(native.operands, args.length)
+				? qualifiedCall(fn.schema, fn.name, args)
+				: undefined
+		}
 	}
 }
 
@@ -426,7 +438,8 @@ const totalForm = (
  */
 export const defaultOps = (
 	expr: ScalarExpr & { readonly kind: "op" },
-	operands: ReadonlyArray<Expr>
+	operands: ReadonlyArray<Expr>,
+	library: PhysicalNames["library"]
 ): Expr | undefined => {
 	const [subject, pattern] = operands
 	const args = readOperands(
@@ -446,7 +459,9 @@ export const defaultOps = (
 	const form = typeof expr.op === "string" ? opForms.get(expr.op) : undefined
 	if (form === undefined) {
 		const connective = connectiveOf(expr.op)
-		return connective === undefined ? registryForm(expr.op, args) : keyword(connective, args)
+		return connective === undefined
+			? registryForm(expr.op, args, library)
+			: keyword(connective, args)
 	}
 	const [left, right] = args
 	switch (form.kind) {

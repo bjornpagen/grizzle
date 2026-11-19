@@ -1,5 +1,6 @@
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { describeOp, type RangeOpCode, type ScalarExpr } from "#compiler/ir/expr.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, type SpanCarrier } from "#compiler/ir/scalar.ts"
 import { refuseAt } from "#compiler/lower/conservative/context.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
@@ -162,7 +163,8 @@ const registryCarriersAgree = (
 export const lowerSpanOp = (
 	expr: ScalarExpr & { readonly kind: "op" },
 	args: ReadonlyArray<Expr>,
-	at: SourceLoc
+	at: SourceLoc,
+	library: PhysicalNames["library"]
 ): Expr => {
 	if (typeof expr.op !== "string") {
 		const form = rangeForms[expr.op.code]
@@ -179,7 +181,7 @@ export const lowerSpanOp = (
 				`operands and result of the carriers ${describeOp(expr.op)} names (${operandCarriers(native.operands).join(", ")} to ${native.result})`
 			)
 		}
-		const lowered = defaultOps(expr, args)
+		const lowered = defaultOps(expr, args, library)
 		if (lowered !== undefined) {
 			return lowered
 		}

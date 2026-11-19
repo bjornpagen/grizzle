@@ -1076,6 +1076,22 @@ export const identity = Object.freeze({
 	 */
 	closedConstant: (digest: ConstantDigest<"closed-constant">): Identity<"closedConstant"> =>
 		mint("closedConstant", [digest], ["constant"], `closed constant ${digest}`, hashed),
+	/**
+	 * A function of grizzle's library (ir/physical.ts LibraryFn), by its name and the digest of its definition
+	 * (physical/ddl/library.ts): a library that changes a function's definition names a new function, which every
+	 * statement calling it re-points at, as a changed constant is a new constant.
+	 */
+	libraryFunction: (
+		fn: string,
+		digest: ConstantDigest<"library-function">
+	): Identity<"libraryFunction"> =>
+		mint(
+			"libraryFunction",
+			[fn, digest],
+			nameSegments(fn),
+			`library function ${fn} (${digest})`,
+			hashed
+		),
 	/** A derived relation's materialized view. */
 	view: (relation: DeclaredName): Identity<"view"> =>
 		readableAs("view", relation, `derived relation ${relation}`),

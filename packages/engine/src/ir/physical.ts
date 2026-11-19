@@ -65,6 +65,15 @@ export interface SelectionKey {
 	readonly guard: NonEmptyReadonlyArray<ScalarExpr>
 }
 
+/**
+ * grizzle's library: the SQL functions of its own that a Compute operation's SQL calls, each a constant of parameters
+ * (sql/ast.ts CreateConstant) named by its definition's digest (physical/ddl/library.ts), which an installation installs
+ * where its schema's persistent expressions call it: resolveReference, RFC 3986's resolution of a reference against a
+ * base (scalar/compute/registry.ts textResolveReference).
+ */
+const libraryFns = ["resolveReference"] as const
+export type LibraryFn = (typeof libraryFns)[number]
+
 /** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */
 export interface PhysicalNames {
 	/** The table of a relation, or the materialized view of a derived relation. */
@@ -121,6 +130,12 @@ export interface PhysicalNames {
 	readonly codes: Codebook
 	/** A closed relation's installed constants, by its declared name. */
 	readonly closed: (relation: string) => ClosedConstant
+	/**
+	 * A library function of the installation (`LibraryFn`), qualified by the installation's schema, where the
+	 * installation installs it: one its schema's persistent expressions call. Any other is refused as UninstalledDomain
+	 * where the statement calling it is compiled, never by PostgreSQL where it runs.
+	 */
+	readonly library: (fn: LibraryFn) => QualifiedFunctionRef
 	/** The selection keys' law columns of a stored relation, by its declared name (`SelectionKey`): none for a
 	 * relation with none. */
 	readonly selectionKeys: (relation: string) => ReadonlyArray<SelectionKey>

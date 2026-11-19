@@ -166,7 +166,7 @@ import {
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
-import { varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
+import { bytesMaxLength, varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
 import { binary32Digits } from "#compiler/scalar/values/float.ts"
 import { binary32LeastExponent } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -219,6 +219,15 @@ export const utf8EncodingMaxBytes = 4
 export const translateMaxBytes = Math.floor(
 	(maxAllocSize - varlenaHeaderBytes) / utf8EncodingMaxBytes
 )
+
+/**
+ * The bytes RFC 3986 §5.2.3's merge adds to a reference's path, the `/` it begins one with where the base has an
+ * authority and an empty path: all a resolved target holds past its base's bytes and its reference's
+ * (resolveReference).
+ *
+ * @formatConstant RFC 3986 §5.2.3 merge: one "/"
+ */
+const mergedSlashBytes = utf8Length("/")
 
 /**
  * The fraction digits of every binary32 value: the least subnormal 2^-k = 5^k / 10^k has exactly k of them, and every
@@ -2273,6 +2282,56 @@ class Typing<R extends Refs> {
 	}
 
 	/**
+	 * Compute.resolveReference(base, reference), the target of `reference` resolved against `base` as RFC 3986 §5.2
+	 * defines it (registry.ts textResolveReference): the node computes text, and the term is text of no pattern within
+	 * the sum of its operands' bytes and one more where both are bounded, since the target takes its components from
+	 * the reference and the base, each at most once, its path the base's merged with the reference's, which adds a `/`
+	 * where the base has an authority and an empty path, and removing dot segments never lengthens a path; any text
+	 * where either is unbounded, or where the text goes unanalyzed. Its SQL builds the target by concatenation, which
+	 * PostgreSQL refuses past 1 GB, so a query holds it only over operands whose types bound that sum within the most
+	 * bytes one varlena holds (values/fault.ts bytesMaxLength), and a check or generated field over longer texts fails
+	 * its write, as a concatenation does.
+	 */
+	resolveReference(
+		baseDesc: ExprDesc<Located, R>,
+		referenceDesc: ExprDesc<Located, R>,
+		at: SourceLoc
+	): Typed {
+		const [base, reference] = this.texts("resolveReference", baseDesc, referenceDesc, at)
+		const op = this.overload("resolveReference", [base.actual, reference.actual], at)
+		const node = this.native(
+			op,
+			[base, reference],
+			wildcardText,
+			undefined,
+			at,
+			"Compute.resolveReference"
+		)
+		const baseBytes = textBytes(base)
+		const referenceBytes = textBytes(reference)
+		const bytes =
+			baseBytes === undefined || referenceBytes === undefined
+				? undefined
+				: baseBytes + referenceBytes + mergedSlashBytes
+		if (bytes === undefined || bytes > bytesMaxLength) {
+			this.refusedAt(
+				"query",
+				at,
+				`resolveReference in a query over texts whose patterns bound the target within ${bytesMaxLength} bytes: its target is built by concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or resolve in a contract predicate, row check or generated field`
+			)
+		}
+		const analysis = this.env.analysis
+		return analysis.kind === "unanalyzed" || bytes === undefined
+			? node
+			: this.restate(
+					node,
+					this.textWithin([wildcardPattern], bytes, analysis.lookup, at),
+					node.actual,
+					node.facts
+				)
+	}
+
+	/**
 	 * An equation of a text with a concatenation, `t = p || q` or its negation, decided without building the
 	 * concatenation: `CASE WHEN char_length(t) = char_length(p) + char_length(q) THEN starts_with(t, p) AND right(t,
 	 * char_length(q)) = q ELSE <the lengths' equation> END`, which holds exactly where t is p then q, since its first
@@ -3752,6 +3811,8 @@ class Typing<R extends Refs> {
 				return this.translate(arg(0), arg(1), arg(2), here)
 			case "lowerAscii":
 				return this.lowerAscii(arg(0), here)
+			case "resolveReference":
+				return this.resolveReference(arg(0), arg(1), here)
 			case "collapse":
 				return this.collapse(arg(0), here)
 			case "parseDouble":

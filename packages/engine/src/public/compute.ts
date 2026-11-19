@@ -64,6 +64,7 @@ const catalogue: ComputeApi = {
 	lowerAscii: (x) => C.lowerAscii(x),
 	replaceWhitespace: (x) => C.replaceWhitespace(x),
 	collapse: (x) => C.collapse(x),
+	resolveReference: (base, reference) => C.resolveReference(base, reference),
 	parseDouble: (x) => C.parseDouble(x),
 	parseDecimal: (x) => C.parseDecimal(x),
 	sha256: (x) => C.sha256(x),

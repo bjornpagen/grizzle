@@ -1,8 +1,12 @@
-/** What the property of uri.test.ts reads: drawn bases and references, and the oracle that resolves them. */
+/**
+ * What URI reference resolution's properties read: RFC 3986 §5.4's examples, and drawn bases and references, which the
+ * host's resolver (uri.test.ts) and the library function's SQL (test/pg/compute/resolve-reference.test.ts) are held to
+ * RFC 3986 read by other means over (test/support/oracle/evaluate/uri.ts).
+ */
 
 import { array, element, type Gen, weighted } from "@bjornpagen/testing/gen"
-import { regex } from "arkregex"
-import { Array as Arr, Option, String as Str } from "effect"
+import { Array as Arr, String as Str } from "effect"
+import { partsOf } from "#test/support/oracle/evaluate/uri.ts"
 
 export type UriFeature =
 	| "a reference with a scheme"
@@ -15,112 +19,65 @@ export type UriFeature =
 	| "an undefined query against a base's"
 	| "the RFC's example base"
 
-/** A reference's components as the oracle reads them: one undefined where the reference states none. */
-interface Parts {
-	readonly scheme: string | undefined
-	readonly authority: string | undefined
-	readonly path: string
-	readonly query: string | undefined
-	readonly fragment: string | undefined
-}
-
-/**
- * RFC 3986 Appendix B's own expression, which splits every reference into its five components, capture 2 the scheme,
- * 4 the authority, 5 the path, 7 the query and 9 the fragment.
- */
-const appendixB = regex("^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?")
-
-const partsOf = (reference: string): Parts => {
-	const m = Option.getOrThrow(Option.fromNullishOr(appendixB.exec(reference)))
-	return { scheme: m[2], authority: m[4], path: m[5], query: m[7], fragment: m[9] }
-}
-
-/** §5.2.4's rules, each the pattern of the input buffer's prefix it reads. */
-const ruleA = regex("^\\.\\.?/")
-const ruleB = regex("^/\\.(/|$)")
-const ruleC = regex("^/\\.\\.(/|$)")
-const ruleD = regex("^\\.\\.?$")
-const ruleE = regex("^/?[^/]*")
-const lastSegment = regex("/?[^/]*$")
-
-/** remove_dot_segments (§5.2.4), by its rules A to E applied as patterns to the input buffer until it is empty. */
-const removeDots = (path: string): string => {
-	let input = path
-	let output = ""
-	while (input !== "") {
-		if (ruleA.test(input)) {
-			input = Str.replace(ruleA, "")(input)
-		} else if (ruleB.test(input)) {
-			input = Str.replace(ruleB, "/")(input)
-		} else if (ruleC.test(input)) {
-			input = Str.replace(ruleC, "/")(input)
-			output = Str.replace(lastSegment, "")(output)
-		} else if (ruleD.test(input)) {
-			input = ""
-		} else {
-			const segment = Option.getOrThrow(Option.fromNullishOr(ruleE.exec(input)))[0]
-			output = `${output}${segment}`
-			input = Str.slice(segment.length)(input)
-		}
-	}
-	return output
-}
-
-/** §5.2.3's merge: the base's path to its last `/` and the reference's, or `/` and it where the base has only an
- * authority. */
-const mergePaths = (base: Parts, path: string): string =>
-	base.authority !== undefined && base.path === ""
-		? `/${path}`
-		: `${Str.slice(
-				0,
-				Str.lastIndexOf("/")(base.path).pipe(
-					Option.map((at) => at + 1),
-					Option.getOrElse(() => 0)
-				)
-			)(base.path)}${path}`
-
-/** §5.3's recomposition. */
-const recompose = (t: Parts): string =>
-	Arr.join(
-		[
-			t.scheme === undefined ? "" : `${t.scheme}:`,
-			t.authority === undefined ? "" : `//${t.authority}`,
-			t.path,
-			t.query === undefined ? "" : `?${t.query}`,
-			t.fragment === undefined ? "" : `#${t.fragment}`
-		],
-		""
-	)
-
-/** §5.2.2's transformation, strict, then §5.3's recomposition. */
-export const oracleResolve = (base: string, reference: string): string => {
-	const b = partsOf(base)
-	const r = partsOf(reference)
-	const target: Parts =
-		r.scheme !== undefined
-			? { ...r, path: removeDots(r.path) }
-			: r.authority !== undefined
-				? { ...r, scheme: b.scheme, path: removeDots(r.path) }
-				: r.path === ""
-					? {
-							scheme: b.scheme,
-							authority: b.authority,
-							path: b.path,
-							query: r.query ?? b.query,
-							fragment: r.fragment
-						}
-					: {
-							scheme: b.scheme,
-							authority: b.authority,
-							path: removeDots(Str.startsWith("/")(r.path) ? r.path : mergePaths(b, r.path)),
-							query: r.query,
-							fragment: r.fragment
-						}
-	return recompose(target)
-}
-
 /** The RFC's example base (§5.4). */
 const rfcBase = "http://a/b/c/d;p?q"
+
+/**
+ * RFC 3986 §5.4's 42 examples, each a reference against the example base and its target: §5.4.1's 23 normal ones and
+ * §5.4.2's 19 abnormal ones, the last the strict resolver's reading of a reference that states the base's own scheme.
+ *
+ * @see {@link https://www.rfc-editor.org/rfc/rfc3986#section-5.4 | RFC 3986, §5.4 Reference Resolution Examples}
+ */
+const examples: Arr.NonEmptyReadonlyArray<readonly [reference: string, target: string]> = [
+	["g:h", "g:h"],
+	["g", "http://a/b/c/g"],
+	["./g", "http://a/b/c/g"],
+	["g/", "http://a/b/c/g/"],
+	["/g", "http://a/g"],
+	["//g", "http://g"],
+	["?y", "http://a/b/c/d;p?y"],
+	["g?y", "http://a/b/c/g?y"],
+	["#s", "http://a/b/c/d;p?q#s"],
+	["g#s", "http://a/b/c/g#s"],
+	["g?y#s", "http://a/b/c/g?y#s"],
+	[";x", "http://a/b/c/;x"],
+	["g;x", "http://a/b/c/g;x"],
+	["g;x?y#s", "http://a/b/c/g;x?y#s"],
+	["", "http://a/b/c/d;p?q"],
+	[".", "http://a/b/c/"],
+	["./", "http://a/b/c/"],
+	["..", "http://a/b/"],
+	["../", "http://a/b/"],
+	["../g", "http://a/b/g"],
+	["../..", "http://a/"],
+	["../../", "http://a/"],
+	["../../g", "http://a/g"],
+	["../../../g", "http://a/g"],
+	["../../../../g", "http://a/g"],
+	["/./g", "http://a/g"],
+	["/../g", "http://a/g"],
+	["g.", "http://a/b/c/g."],
+	[".g", "http://a/b/c/.g"],
+	["g..", "http://a/b/c/g.."],
+	["..g", "http://a/b/c/..g"],
+	["./../g", "http://a/b/g"],
+	["./g/.", "http://a/b/c/g/"],
+	["g/./h", "http://a/b/c/g/h"],
+	["g/../h", "http://a/b/c/h"],
+	["g;x=1/./y", "http://a/b/c/g;x=1/y"],
+	["g;x=1/../y", "http://a/b/c/y"],
+	["g?y/./x", "http://a/b/c/g?y/./x"],
+	["g?y/../x", "http://a/b/c/g?y/../x"],
+	["g#s/./x", "http://a/b/c/g#s/./x"],
+	["g#s/../x", "http://a/b/c/g#s/../x"],
+	["http:g", "http:g"]
+]
+
+export const rfcExamples: Arr.NonEmptyReadonlyArray<{
+	readonly base: string
+	readonly reference: string
+	readonly target: string
+}> = Arr.map(examples, ([reference, target]) => ({ base: rfcBase, reference, target }))
 
 const segment = element(["", ".", "..", "g", "g;x", "h", "g.", "..g"] as const)
 

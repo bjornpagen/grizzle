@@ -18,7 +18,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { oracleResolve, referenceCaseGen, type UriFeature } from "#test/unit/text/uri.fixtures.ts"
+import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
+import { referenceCaseGen, type UriFeature } from "#test/unit/text/uri.fixtures.ts"
 
 /** resolveReference gives every drawn reference's target against every drawn base as RFC 3986 §5.2 defines it. */
 export const resolveReferenceGivesEveryDrawnReferencesTargetAsRFC3986Defines = property.explore(
@@ -45,7 +46,7 @@ export const resolveReferenceGivesEveryDrawnReferencesTargetAsRFC3986Defines = p
 					}
 					assert.equal(
 						resolveReference(base, reference),
-						oracleResolve(base, reference),
+						resolvedReference(base, reference),
 						`${reference} against ${base}`
 					)
 				}),

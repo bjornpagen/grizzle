@@ -31,6 +31,7 @@ import {
 } from "#test/pg/lower-conservative/vocabulary.fixtures.ts"
 import { assert, contains, defined } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { temporaryLibrary } from "#test/unit/compute/support.ts"
 
 /** The conservative vocabulary on PostgreSQL 19 names a builtin operator for every operator form. */
 export const theConservativeVocabularyOnPostgreSQL19NamesABuiltinOperatorForEveryOperatorForm =
@@ -95,7 +96,7 @@ export const theConservativeVocabularyOnPostgreSQL19LowersEveryFunctionByItsRegp
 					const args = Arr.map(indices(operandCarriers(native.operands).length), (n) =>
 						col("r1", `c${n + 1}`)
 					)
-					const lowered = defaultOps(opExpr(native), args)
+					const lowered = defaultOps(opExpr(native), args, temporaryLibrary)
 					if (lowered === undefined) {
 						c.note("not lowered by name")
 						return

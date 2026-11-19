@@ -476,6 +476,10 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UninstalledDomain`: a statement at `at` casts a value to `domain` (UninstalledType), a domain the installation it is
  *   compiled for installs none of: a statement is served only over the domains its installation holds, so a value cast
  *   to another is refused where it is compiled, never by PostgreSQL where it runs.
+ * - `UninstalledFunction`: a statement at `at` calls `fn`, a function of grizzle's library (ir/physical.ts LibraryFn)
+ *   the installation it is compiled for installs none of, since no persistent expression of its schema calls it: a
+ *   statement is served only over the functions its installation holds, so a call of another is refused where it is
+ *   compiled, never by PostgreSQL where it runs (42883).
  */
 export type CompileReason =
 	| { readonly _tag: "Refused"; readonly at: SourceLoc; readonly refusal: Refused }
@@ -682,6 +686,7 @@ export type CompileReason =
 	  }
 	| { readonly _tag: "NoReadCommittedForm"; readonly at: SourceLoc; readonly relation: string }
 	| { readonly _tag: "UninstalledDomain"; readonly at: SourceLoc; readonly domain: UninstalledType }
+	| { readonly _tag: "UninstalledFunction"; readonly at: SourceLoc; readonly fn: string }
 export type CompileReasonTag = CompileReason["_tag"]
 
 /**
@@ -980,6 +985,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return noReadCommittedFormText(reason.relation)
 		case "UninstalledDomain":
 			return uninstalledText(reason.domain)
+		case "UninstalledFunction":
+			return `the installation installs no library function ${reason.fn}, which no stored field, check or contract of its schema calls: call it in a persistent expression of the schema, or compute the value in the application`
 		case "UndeclaredDrop": {
 			const spelled = droppedText(reason.dropped)
 			return `${spelled} is dropped but not declared: declare it with --drop ${spelled}, or --rename it`

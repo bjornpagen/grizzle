@@ -1138,7 +1138,8 @@ const fromSource = (
 						call: call("generate_series", [lit.int(1, types.integer), lit.int(2, types.integer)]),
 						alias: p.alias,
 						columns: [OWN_COLUMN],
-						lateral: false
+						lateral: false,
+						ordinality: false
 					}
 			}
 	}

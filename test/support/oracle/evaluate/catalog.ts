@@ -57,6 +57,7 @@ import {
 } from "#test/support/oracle/evaluate/integer.ts"
 import * as N from "#test/support/oracle/evaluate/numeric.ts"
 import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
+import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
 
 /**
  * How the oracle computes a node's value. It never claims a value it cannot reproduce bit for bit:
@@ -73,6 +74,7 @@ import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
  * and set_bit compute exactly the Set operations over them.
  * A double's parse from its decimal text is IEEE 754's conversion from decimal written from its definition
  * (double-text.ts), apart from the engine's and ECMAScript's.
+ * A reference's resolution against a base is RFC 3986 read by other means than grizzle-text's (uri.ts), exact.
  * A text's concatenation, prefix and suffix tests and translation are exact over its code points, and its regex match is grizzle's own
  * automaton over the pattern's parse (src's scalar/regex/nfa.ts), which PostgreSQL's `~` over the pattern's ARE agrees
  * with (test/pg/compute/text.test.ts).
@@ -134,6 +136,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "translate":
 		case "lowerAscii":
 		case "collapse":
+		case "resolveReference":
 		case "parseDouble":
 		case "parseDecimal":
 		case "eq":
@@ -765,6 +768,8 @@ const catalogApply = (
 		}
 		case "lowerAscii":
 			return isString(a) ? Result.succeed(asciiLowered(a)) : mismatch(op)
+		case "resolveReference":
+			return isString(a) && isString(b) ? Result.succeed(resolvedReference(a, b)) : mismatch(op)
 		case "eq":
 			return compared(op, a, b, t, (cmp) => cmp === 0)
 		case "ne":

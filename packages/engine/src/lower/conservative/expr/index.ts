@@ -208,13 +208,13 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 			const args = expr.args.map(lower)
 			const operandTypes = [expr.type, ...expr.args.map((a) => a.type)]
 			if (operandTypes.some((t) => spanCarrierOf(t) !== undefined)) {
-				return lowerSpanOp(expr, args, site.at(expr))
+				return lowerSpanOp(expr, args, site.at(expr), site.names.library)
 			}
 			if (operandTypes.some((t) => t.carrier === "vector")) {
 				return lowerVectorOp(expr, args, site.at(expr), site.names.vectorSchema)
 			}
 			return (
-				defaultOps(expr, args) ??
+				defaultOps(expr, args, site.names.library) ??
 				refuseIn(
 					site,
 					expr,

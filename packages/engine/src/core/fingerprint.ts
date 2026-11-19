@@ -63,10 +63,10 @@ export type OwnedDomain =
 	| ConstantDomain
 
 /**
- * The domains of an installed constant's content: a closed relation's or side's string of cells, and a roster's names
- * in code order.
+ * The domains of an installed constant's content: a closed relation's or side's string of cells, a roster's names in
+ * code order, and a library function's definition (physical/ddl/library.ts).
  */
-export type ConstantDomain = "closed-constant" | "roster-names"
+export type ConstantDomain = "closed-constant" | "roster-names" | "library-function"
 
 declare const constantDigestBrand: unique symbol
 
@@ -94,7 +94,8 @@ const ownedDomains: { readonly [D in OwnedDomain]: WellFormedText } = {
 	"row-type-definition": wellFormed("row-type-definition"),
 	"function-definition": wellFormed("function-definition"),
 	"closed-constant": wellFormed("closed-constant"),
-	"roster-names": wellFormed("roster-names")
+	"roster-names": wellFormed("roster-names"),
+	"library-function": wellFormed("library-function")
 }
 
 declare const rosterDigestBrand: unique symbol

@@ -18,6 +18,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
+import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import { patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -60,6 +61,7 @@ import {
 	textDomainNames,
 	type TextDomainPlan
 } from "#compiler/physical/ddl/domains.ts"
+import { libraryCalls } from "#compiler/physical/ddl/library.ts"
 import {
 	type ContractSource,
 	type InstallNames,
@@ -219,6 +221,9 @@ export interface InstallPlan {
 	readonly names: InstallNames
 	/** Each closed relation's constants as readers address them, the basis's: what the snapshot records. */
 	readonly closed: ClosedNames
+	/** The library functions the installation installs, those its schema's persistent expressions call
+	 * (physical/ddl/library.ts libraryCalls), in name order. */
+	readonly library: ReadonlyArray<LibraryFn>
 	/** Each structural text domain, planned (planTextDomains). */
 	readonly textPlans: ReadonlyArray<TextDomainPlan>
 	/** The contracts the base does not declare that the context fields of the installed roles name, or the served
@@ -516,6 +521,7 @@ export const planInstallation = (
 			throw new Refusal(outside.error)
 		}
 		const contracts = contractSources(model, outside.value)
+		const library = libraryCalls(model)
 		const recorded = params.kind === "recorded" ? params.installed.contracts : []
 		const names = installNames({
 			owned,
@@ -535,7 +541,8 @@ export const planInstallation = (
 			define: contractDigest,
 			codes,
 			closed: qualifiedClosed(identifierOf(headNonEmpty(settings.levels)), closed),
-			selectionKeys: selectionKeysOf(model.natives)
+			selectionKeys: selectionKeysOf(model.natives),
+			library
 		})
 		const defined = paramContractsDefined(names, owned, outside.value.context, planned.contracts)
 		if (!defined.ok) {
@@ -578,6 +585,7 @@ export const planInstallation = (
 			laws: model,
 			names,
 			closed,
+			library,
 			textPlans,
 			outsideContracts: outside.value,
 			paramDomains,

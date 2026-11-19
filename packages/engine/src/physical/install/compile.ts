@@ -32,6 +32,7 @@ import {
 } from "#compiler/physical/ddl/domains.ts"
 import { addFunctions } from "#compiler/physical/ddl/functions.ts"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
+import { addLibrary } from "#compiler/physical/ddl/library.ts"
 import { addLiveSource } from "#compiler/physical/ddl/live.ts"
 import { addUnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
@@ -424,6 +425,7 @@ export const installationOver = (
 					model,
 					names: plan.names,
 					settings,
+					library: plan.library,
 					readCommitted: readCommittedRelations(
 						plan.logins.flatMap(({ login, roles }) =>
 							roles.map(({ checked }) => ({
@@ -435,6 +437,7 @@ export const installationOver = (
 				})
 				const rosters = addRosters(b)
 				addClosedRelations(b, planned)
+				addLibrary(b)
 				const domains = [
 					...rosters.flatMap((r) =>
 						r.bits === undefined ? [r.domain.name] : [r.domain.name, r.bits.domain.name]

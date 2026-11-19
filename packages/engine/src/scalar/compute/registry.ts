@@ -13,6 +13,7 @@ import {
 	rangeOp,
 	type Volatility
 } from "#compiler/ir/expr.ts"
+import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { OperandIndex, ParseForm, Precondition } from "#compiler/ir/proof.ts"
 import {
 	type Carrier,
@@ -116,7 +117,9 @@ type Owner = "catalog" | "vector"
  * bytes value's digest is its SHA-256 written as lowercase hex, `encode(sha256(x), 'hex')`; a text's UTF-16 code units
  * are its code points and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`;
  * a text's ASCII case fold is lower under the C collation, collated back as every text is,
- * `lower(x COLLATE "C") COLLATE pg_c_utf8` (textLowerAscii).
+ * `lower(x COLLATE "C") COLLATE pg_c_utf8` (textLowerAscii); a reference's resolution against a base is a call of the
+ * installation's own function of grizzle's library (ir/physical.ts LibraryFn), `<schema>.<fn>(base, reference)`
+ * (textResolveReference).
  */
 type SqlForm =
 	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
@@ -144,6 +147,7 @@ type SqlForm =
 				| "lowerAscii"
 				| "utf16Length"
 	  }
+	| { readonly kind: "library"; readonly fn: LibraryFn }
 
 /**
  * The catalog object that implements the node, as PostgreSQL's catalog names it. Every type it names is a carrier's
@@ -222,6 +226,7 @@ export type NativeFn =
 	| "translate"
 	| "lowerAscii"
 	| "collapse"
+	| "resolveReference"
 	| "replace"
 	| "btrim"
 	| "parseDouble"
@@ -301,6 +306,7 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	translate: { arity: 3, check: true, nodes: ["translate"] },
 	lowerAscii: { arity: 1, check: true, nodes: ["lowerAscii"] },
 	collapse: { arity: 1, check: true, nodes: ["collapse"] },
+	resolveReference: { arity: 2, check: true, nodes: ["resolveReference"] },
 	parseDouble: { arity: 1, check: true, nodes: ["parseDouble"] },
 	parseDecimal: { arity: 1, check: true, nodes: ["parseDecimal"] },
 	sha256: { arity: 1, check: true, nodes: ["sha256"] },
@@ -795,6 +801,27 @@ const textLowerAscii: FixedOverload = frozen({
 })
 
 /**
+ * A reference's target resolved against a base, RFC 3986 §5.2's strict transformation and §5.3's recomposition, as
+ * @bjornpagen/grizzle-text's uri.ts resolveReference computes it on the host, Compute.resolveReference wherever it
+ * stands (compute/typing.ts resolveReference): a call of the installation's library function
+ * (physical/ddl/library.ts), `<schema>.<fn>(base, reference)`, an IMMUTABLE, PARALLEL SAFE SQL function of the
+ * reference's and the base's components and the target path's segments, which no RegExp reads, so no operand's
+ * length is bounded and it is defined on every pair of texts, in a query, a CHECK and a generated field alike, its
+ * result within their bytes and the delimiters it adds. It reads no catalog object a Compute operation is, so it uses
+ * no entry here.
+ */
+const textResolveReference: FixedOverload = frozen({
+	fn: "resolveReference",
+	operands: positional(["text", "text"]),
+	result: "text",
+	sql: { kind: "library", fn: "resolveReference" },
+	catalog: { kind: "construct", uses: [] },
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/**
  * A text's UTF-16 code units, JavaScript's String.length: one for each code point, and one more for each supplementary
  * one, which UTF-16 writes as a surrogate pair, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`
  * (lower/conservative/expr/ops.ts utf16Units). A text holds at most MaxAllocSize bytes, so at most that many code points
@@ -949,7 +976,7 @@ const endpoint = (
  * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
  *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text" and its ASCII case fold's
- *   "lowerAscii:text", and a bytes value's "sha256:bytea";
+ *   "lowerAscii:text", a reference's resolution "resolveReference:text", and a bytes value's "sha256:bytea";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
@@ -1162,6 +1189,7 @@ const catalogOverloads = {
 	"btrim(text)": fnCall("btrim", "btrim", ["text"], "text", total, "value"),
 	"collapse:text": textCollapse,
 	"lowerAscii:text": textLowerAscii,
+	"resolveReference:text": textResolveReference,
 	"parseDouble:text": textParseDouble,
 	"parseDecimal:text": textParseDecimal,
 	"sha256:bytea": bytesDigest,

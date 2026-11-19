@@ -318,6 +318,8 @@ export const builtinFunctions = {
 	ltrim: { reach: "row" },
 	rtrim: { reach: "row" },
 	split_part: { reach: "row" },
+	string_to_table: { reach: "row" },
+	reverse: { reach: "row" },
 	replace: { reach: "row" },
 	left: { reach: "row" },
 	lower: { reach: "row" },
@@ -793,13 +795,17 @@ export type FromSource =
 			readonly lateral: boolean
 	  }
 	| {
-			/** A function's rows. */
+			/**
+			 * A function's rows, each `WITH ORDINALITY` numbered by its place among them, from 1, in one more column
+			 * after the function's own: the one order SQL states of a function's rows.
+			 */
 			readonly kind: "function"
 			readonly call: Call
 			readonly alias: string
-			/** The column alias list; an empty one is none. */
+			/** The column alias list, the number's column last where the rows are numbered; an empty one is none. */
 			readonly columns: ReadonlyArray<string>
 			readonly lateral: boolean
+			readonly ordinality: boolean
 	  }
 	| {
 			/**

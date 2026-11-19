@@ -1,3 +1,5 @@
+import { unwrap } from "#compiler/check/fail.ts"
+import { appendAll } from "#compiler/core/array.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { int4Max } from "#compiler/core/canonical.ts"
@@ -41,7 +43,12 @@ import {
 	type Tuple
 } from "#compiler/ir/cells.ts"
 import { type Codebook, codeOf, liveHex, type RosterCodec } from "#compiler/ir/codes.ts"
-import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	exprClosure,
+	predicateTree,
+	type ScalarExpr,
+	type TypedLiteral
+} from "#compiler/ir/expr.ts"
 import type {
 	ClosedSlot,
 	ClosedTheoryRelation,
@@ -53,6 +60,7 @@ import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { persistentText } from "#compiler/physical/ddl/expr.ts"
@@ -939,8 +947,63 @@ const holeName = lit.text("", types.name(false))
 /** An integer PostgreSQL types integer, which prints bare. */
 const int = (value: number): Expr => lit.int(value, types.integer)
 
+/**
+ * The scalar expressions the installation lowers into its tables and domains from `model`, the roots of each: every
+ * stored relation's generated field, and its law model's natives' (a table's CHECK, a law column's term and guard, a
+ * closed check's guards, a contract domain's predicate). What a set literal or cast among them names (setRosters) and
+ * the library functions they call (physical/ddl/library.ts libraryCalls) are installed for them.
+ */
+export const persistentExprs = (model: LawModel): ReadonlyArray<ScalarExpr> => {
+	const roots: Array<ScalarExpr> = []
+	for (const r of model.relations.values()) {
+		for (const f of r.relation.fields) {
+			if (f.writing.kind === "generated") {
+				roots.push(f.writing.expr)
+			}
+		}
+	}
+	for (const { object: o } of model.natives) {
+		switch (o.kind) {
+			case "TableCheck":
+				roots.push(o.predicate)
+				continue
+			case "LawColumn":
+				if (o.value.kind === "generated") {
+					roots.push(o.value.term)
+					appendAll(roots, o.value.guard)
+				}
+				continue
+			case "ClosedCheck":
+				appendAll(
+					roots,
+					o.guard.map((g) => g.predicate)
+				)
+				continue
+			case "Domain":
+				if (o.check.kind === "checked") {
+					for (const t of o.check.terms) {
+						if (t.kind === "predicate") {
+							roots.push(unwrap(predicateTree(t.predicate)))
+						}
+					}
+				}
+				continue
+			case "PrimaryKey":
+			case "Unique":
+			case "RosterDomain":
+			case "ForeignKey":
+			case "WithoutOverlaps":
+			case "PeriodForeignKey":
+			case "ReverseIndex":
+				continue
+		}
+	}
+	return roots
+}
+
 /** The rosters some set is typed over: each a field of a stored relation holds a set of, or a persistent expression
- * the installation lowers holds a set of, so every bits domain a column, a literal or a cast names is installed. */
+ * the installation lowers holds a set of (persistentExprs), so every bits domain a column, a literal or a cast names
+ * is installed. */
 const setRosters = (b: InstallBuilder): ReadonlySet<DeclaredName> => {
 	const out = new Set<DeclaredName>()
 	const note = (t: ScalarType): void => {
@@ -949,48 +1012,13 @@ const setRosters = (b: InstallBuilder): ReadonlySet<DeclaredName> => {
 			out.add(base.roster.closed)
 		}
 	}
-	const walk = (e: ScalarExpr): void => {
-		note(e.type)
-		for (const a of e.args) {
-			walk(a)
-		}
-	}
 	for (const r of b.model.relations.values()) {
 		for (const f of r.relation.fields) {
 			note(f.type)
-			if (f.writing.kind === "generated") {
-				walk(f.writing.expr)
-			}
 		}
 	}
-	for (const { object: o } of b.natives) {
-		switch (o.kind) {
-			case "TableCheck":
-				walk(o.predicate)
-				continue
-			case "LawColumn":
-				if (o.value.kind === "generated") {
-					walk(o.value.term)
-					for (const g of o.value.guard) {
-						walk(g)
-					}
-				}
-				continue
-			case "ClosedCheck":
-				for (const g of o.guard) {
-					walk(g.predicate)
-				}
-				continue
-			case "PrimaryKey":
-			case "Unique":
-			case "Domain":
-			case "RosterDomain":
-			case "ForeignKey":
-			case "WithoutOverlaps":
-			case "PeriodForeignKey":
-			case "ReverseIndex":
-				continue
-		}
+	for (const e of exprClosure(persistentExprs(b.model))) {
+		note(e.type)
 	}
 	return out
 }

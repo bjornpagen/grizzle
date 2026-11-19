@@ -1284,8 +1284,9 @@ const covers = (own: Membership, family: Membership): boolean =>
  * EXECUTE against the invoker. Its statements evaluate the domains its own statements name, those its columns are typed
  * by, which a write's carriers and casts coerce into; every statement on a table it writes or updates an owner's count
  * in, its columns' types and defaults, its CHECKs and generated columns, each cast to a domain in them included, and its
- * indexes' expressions; its policies' predicates; its views' columns, a closed id's decoded name among them; and every
- * closed relation's constants, which its queries' closed reads call.
+ * indexes' expressions; its policies' predicates; its views' columns, a closed id's decoded name among them; every
+ * closed relation's constants, which its queries' closed reads call; and every library function the installation
+ * installs, which its queries may call.
  */
 const roleExecutes = (
 	b: InstallBuilder,
@@ -1298,9 +1299,12 @@ const roleExecutes = (
 		statements: [...written.flatMap((relation) => b.evaluatedOn(relation)), ...views],
 		predicates: policies.flatMap((m) => (m.kind === "narrowed" ? [m.filter] : [])),
 		domains: [...use.domains.values()].map((u) => u.name),
-		constants: Object.values(b.owned.relations).flatMap((r) =>
-			r.kind === "closedRelation" ? b.names.closed(r.name).functions.map((f) => f.name) : []
-		)
+		constants: [
+			...Object.values(b.owned.relations).flatMap((r) =>
+				r.kind === "closedRelation" ? b.names.closed(r.name).functions.map((f) => f.name) : []
+			),
+			...b.library.map((fn) => b.names.library(fn).name)
+		]
 	})
 
 /** One role's theory role, schema, views, filter functions, key and unique probes and grants, and its writable entries,

@@ -1163,6 +1163,24 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Admitted<TakesFirst<A, "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
 	/**
+	 * The target of `reference` resolved against `base`, RFC 3986 §5.2's strict transformation and §5.3's
+	 * recomposition: the reference's components where it states them and the base's where it does not, its path merged
+	 * with the base's and its dot segments removed, as @bjornpagen/grizzle-text/uri resolveReference computes it, which
+	 * the host evaluates by. Text of no pattern, which compilation reads within the operands' bytes and one more where
+	 * both are bounded. PostgreSQL computes it by a function of grizzle's library the installation installs where its
+	 * schema calls it, defined on every pair of texts. Admitted in contract predicates, row checks and generated fields;
+	 * in a query only over texts whose types bound the target within 1 GB, since it is built by concatenation, which
+	 * PostgreSQL refuses past 1 GB, and a read never fails on a value. The reference is a text term the base meets, a
+	 * parameter among them, or a string.
+	 */
+	resolveReference<A extends TermBase | FirstValue, X, PA, OA, const B>(
+		base: A & First<A, [B]> & InputTerm<X, PA, OA, "text">,
+		reference: Fit<B, NoInfer<Meets<X, "text"> | string>>
+	): Admitted<
+		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | string>]>,
+		Term<string, PA & P<B>, ComputedOrigin<OA | O<B>>, "text">
+	>
+	/**
 	 * The double a decimal text names, IEEE 754-2019's conversion from decimal character sequences: the text's exact
 	 * value rounded to the nearest double, ties to even, ±Infinity past the greatest finite double and a zero of the
 	 * mantissa's sign below half the least subnormal; `INF`, `-INF` and `NaN` name themselves. Its text is

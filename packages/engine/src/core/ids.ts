@@ -50,6 +50,7 @@ export type IdentityKind =
 	| "rosterLive"
 	| "bitsDomain"
 	| "closedConstant"
+	| "libraryFunction"
 	| "sequence"
 	| "advance"
 	| "hold"

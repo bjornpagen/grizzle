@@ -912,7 +912,8 @@ const printFromItem = (item: FromItem): string => {
 		}
 		case "function": {
 			const lateral = item.lateral ? "LATERAL " : ""
-			return `${lateral}${printCall(item.call).text} AS ${quoteIdent(item.alias)}${aliasList(item.columns)}`
+			const numbered = item.ordinality ? " WITH ORDINALITY" : ""
+			return `${lateral}${printCall(item.call).text}${numbered} AS ${quoteIdent(item.alias)}${aliasList(item.columns)}`
 		}
 		case "arrays":
 			return printArrays(item.source, item.alias)

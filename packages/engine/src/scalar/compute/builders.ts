@@ -1109,6 +1109,7 @@ const checks = Object.freeze({
 	lowerAscii: unary("lowerAscii"),
 	replaceWhitespace,
 	collapse: unary("collapse"),
+	resolveReference: binary("resolveReference", "literal"),
 	parseDouble: unary("parseDouble"),
 	parseDecimal: unary("parseDecimal"),
 	sha256: unary("sha256"),
@@ -1259,6 +1260,7 @@ export const compute = Object.freeze({
 	lowerAscii: (x: unknown) => plain(checks.lowerAscii(x, []), "text"),
 	replaceWhitespace: (x: unknown) => plain(checks.replaceWhitespace(x, []), "text"),
 	collapse: (x: unknown) => plain(checks.collapse(x, []), "text"),
+	resolveReference: (a: unknown, b: unknown) => plain(checks.resolveReference(a, b), "text"),
 	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
 	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
 	sha256: (x: unknown) => plain(checks.sha256(x, []), "text"),
@@ -1399,6 +1401,7 @@ export const computeCore = Object.freeze({
 	replaceWhitespace: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.replaceWhitespace(x, extra)),
 	collapse: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.collapse(x, extra)),
+	resolveReference: (a: unknown, b: unknown) => plainBy(checks.resolveReference(a, b)),
 	parseDouble: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.parseDouble(x, extra)),
 	parseDecimal: (x: unknown, ...extra: ReadonlyArray<unknown>) =>

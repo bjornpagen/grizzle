@@ -10,10 +10,11 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { headNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
-import { missing } from "#compiler/ir/physical.ts"
+import { type LibraryFn, missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -158,6 +159,22 @@ export interface EvaluationRoots {
 }
 
 /**
+ * The types of the parameters of the constant `ddl` creates: a literal pack's none, and a CREATE's its parameters'. A
+ * constant's statements create it once, beside its revoke.
+ */
+const constantArgs = (ddl: ReadonlyArray<SqlStatement>): ReadonlyArray<TypeRef> => {
+	for (const s of ddl) {
+		if (s.kind === "createConstant") {
+			return s.params.map((p) => p.type)
+		}
+		if (s.kind === "packConstant") {
+			return []
+		}
+	}
+	throw defect("a constant's statements create it")
+}
+
+/**
  * The installed table a statement creates or changes the rows' evaluation of: a CREATE TABLE's columns, defaults,
  * generated columns and constraints, an ALTER TABLE's added columns and constraints, and a CREATE INDEX's expressions
  * and predicate, which every write of the table evaluates. Any other statement's evaluation is no write's.
@@ -226,18 +243,22 @@ export class InstallBuilder {
 	readonly isolation: Node<"setup">
 	/** The relations whose tables take no isolation trigger (physical/ddl/isolation.ts readCommittedRelations). */
 	readonly readCommitted: ReadonlySet<string>
+	/** The library functions the installation installs (physical/ddl/library.ts libraryCalls), in name order. */
+	readonly library: ReadonlyArray<LibraryFn>
 	/** The snapshot guard every Db transaction and Db.open call behind the ledger's fence. */
 	readonly snapshotGuard: Node<"setup">
 	readonly #named: Array<Identity<IdentityKind>> = []
 	readonly #providers = new Map<Capability, Node<"setup">>()
 	/** Each domain the installation creates, by its name's key (sql/ast.ts nameKey). */
 	readonly #types = new Map<NameKey, Node<"setup">>()
-	/** Each constant by identifier: its identity, its object and the constants its body calls. */
+	/** Each constant by identifier: its identity, its object and the types of its parameters, by which a GRANT names
+	 * it. */
 	readonly #constants = new Map<
 		string,
 		{
 			readonly named: Identity<IdentityKind>
 			readonly node: Node<"setup">
+			readonly args: ReadonlyArray<TypeRef>
 		}
 	>()
 	readonly #tables = new Map<string, Node<"structure">>()
@@ -259,9 +280,11 @@ export class InstallBuilder {
 		readonly names: InstallNames
 		readonly settings: InstallSettings
 		readonly readCommitted: ReadonlySet<string>
+		readonly library: ReadonlyArray<LibraryFn>
 	}) {
 		this.owned = input.owned
 		this.readCommitted = input.readCommitted
+		this.library = input.library
 		this.checked = input.checked
 		this.model = input.model
 		this.names = input.names
@@ -449,13 +472,14 @@ export class InstallBuilder {
 	}
 
 	/**
-	 * Adds a constant of the installed schema, a function of no argument (physical/ddl/constants.ts), which a domain's
-	 * CHECK, a table's CHECK, a generated column or a view calls: its object is a function of the graph, so every object
-	 * whose statements call it is created after it (`readsOf`). A constant is named by its content, so one added again
-	 * is the object already added, which takes the new reasons too.
+	 * Adds a constant of the installed schema, a function of no argument (physical/ddl/constants.ts) or a library
+	 * function of its parameters (physical/ddl/library.ts), which a domain's CHECK, a table's CHECK, a generated column
+	 * or a view calls: its object is a function of the graph, so every object whose statements call it is created after
+	 * it (`readsOf`). A constant is named by its content, so one added again is the object already added, which takes
+	 * the new reasons too.
 	 */
 	addConstant(
-		name: Identity<"closedConstant" | "rosterConstant" | "rosterLive">,
+		name: Identity<"closedConstant" | "rosterConstant" | "rosterLive" | "libraryFunction">,
 		spec: Omit<ObjectSpec<"setup">, "kind" | "ident" | "phase">,
 		after: ReadonlyArray<Node<"setup">>
 	): Node<"setup"> {
@@ -474,7 +498,7 @@ export class InstallBuilder {
 			},
 			after
 		)
-		this.#constants.set(name.identifier, { named: name, node })
+		this.#constants.set(name.identifier, { named: name, node, args: constantArgs(spec.ddl) })
 		return node
 	}
 
@@ -570,7 +594,7 @@ export class InstallBuilder {
 			})
 			.toSorted((a, b) => compareIdentities(a.named, b.named))
 			.map((known) => ({
-				name: { schema: this.schema, name: known.named.identifier, args: [] },
+				name: { schema: this.schema, name: known.named.identifier, args: known.args },
 				node: known.node
 			}))
 	}

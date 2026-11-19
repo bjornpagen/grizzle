@@ -62,6 +62,7 @@ import {
 	type TextDomain,
 	textDomainIdentity
 } from "#compiler/physical/ddl/domains.ts"
+import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import {
 	installationTypes,
 	namedRole,
@@ -204,6 +205,7 @@ export const productionNames = (
 		}),
 		vectorSchema: vectorTypes(vectorSchema),
 		codes,
+		library: (fn) => ({ kind: "qualified", schema, name: identifierOf(libraryIdentity(fn)) }),
 		closed: (relation) => {
 			throw new Error(
 				`productionNames names no installed constant, so none of closed relation ${relation}: a test that reads one names an installation (installationOf)`

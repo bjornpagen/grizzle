@@ -191,7 +191,8 @@ const statedGroups = (
 		call: call("unnest", params.map(argument)),
 		alias: unnested,
 		columns,
-		lateral: false
+		lateral: false,
+		ordinality: false
 	}
 	const [first, ...rest] = columns.map((c) => targetAs(col(unnested, c), c))
 	if (first === undefined) {

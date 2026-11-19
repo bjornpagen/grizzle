@@ -196,6 +196,7 @@ const signatures: { readonly [F in ComputeFn]: Signature } = {
 	matches: { result: "bool", args: ["text", "text"] },
 	translate: { result: "text", args: ["text"] },
 	lowerAscii: { result: "text", args: ["text"] },
+	resolveReference: { result: "text", args: ["text", "text"] },
 	collapse: { result: "text", args: ["text"] },
 	parseDouble: { result: "float", args: ["text"] },
 	parseDecimal: { result: "numeric", args: ["text"] },

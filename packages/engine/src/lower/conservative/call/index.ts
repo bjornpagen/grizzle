@@ -72,7 +72,8 @@ const lowerCall: NodeLowerer<"Call"> = (node, cx, env) => {
 		call: qualifiedCall(fn.ref.schema, fn.ref.name, args),
 		alias,
 		columns: columns.map((c) => c.column),
-		lateral: false
+		lateral: false,
+		ordinality: false
 	}
 	const reads = columns.map((c) => col(alias, c.column))
 	const whole = binary("=", call("num_nonnulls", reads), lit.int(reads.length, types.integer))

@@ -709,7 +709,8 @@ const addContractDomain = (
 	b.addType("domain", b.names.installation, named, { ddl: [ddl], reasons }, [
 		b.schemaNode,
 		...(baseNode === undefined ? [] : [baseNode]),
-		...(isVectorRef(b, ddl.base) ? [b.provider("vector")] : [])
+		...(isVectorRef(b, ddl.base) ? [b.provider("vector")] : []),
+		...b.constantNodes([ddl])
 	])
 	return name
 }

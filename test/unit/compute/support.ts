@@ -2,6 +2,7 @@ import { Array as Arr, Record as Rec } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { bitsColumn, bytesColumn, codeColumn, type Column } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { identifierOf } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -16,10 +17,12 @@ import {
 	storedColumn
 } from "#compiler/ir/expr.ts"
 import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import { baseOf, type Carrier, Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
+import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { spellExpr } from "#compiler/query/build/walk.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import {
@@ -505,10 +508,27 @@ export interface RenderOptions {
 		| undefined
 	/** The schema the vector extension is installed in. */
 	readonly vectorSchema: string
+	/** Where a library function the expression calls is (ir/physical.ts PhysicalNames.library). */
+	readonly library: PhysicalNames["library"]
 }
 
-/** The rendering of an expression over no contract, the vector extension in vector_ext. */
-export const plainRender: RenderOptions = { domain: undefined, vectorSchema: "vector_ext" }
+/**
+ * A library function as a compute suite's transaction creates it, in its session's temporary schema, pg_temp, under
+ * the name an installation gives it (physical/ddl/library.ts libraryIdentity), which only a call qualified by pg_temp
+ * reaches.
+ */
+export const temporaryLibrary: PhysicalNames["library"] = (fn) => ({
+	kind: "qualified",
+	schema: "pg_temp",
+	name: identifierOf(libraryIdentity(fn))
+})
+
+/** The rendering of an expression over no contract, the vector extension in vector_ext, the library in pg_temp. */
+export const plainRender: RenderOptions = {
+	domain: undefined,
+	vectorSchema: "vector_ext",
+	library: temporaryLibrary
+}
 
 const typeRef = (t: ScalarType, options: RenderOptions): TypeRef => {
 	const { contract } = t
@@ -648,7 +668,7 @@ export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 					operand: undefined
 				}
 			case "op": {
-				const rendered = defaultOps(e, args)
+				const rendered = defaultOps(e, args, options.library)
 				if (rendered === undefined) {
 					throw new Error(`no form of ${describeOp(e.op)} over ${args.length} operand(s)`)
 				}
