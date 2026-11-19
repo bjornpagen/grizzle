@@ -22,11 +22,20 @@ import {
 import { workload } from "#compiler/public/workload.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import type { Certifier, IsolationRace, RaceCall, Shape } from "#test/pg/isolation/support/race.ts"
+import {
+	certifiedShapeTemplate,
+	generatedShapeTemplate,
+	type InstalledShape,
+	type IsolationRace,
+	type RaceCall,
+	type Shape
+} from "#test/pg/isolation/support/race.ts"
 import { defined } from "#test/support/assert.ts"
+import type { Generated } from "#test/support/install-migrate.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { Strategy } from "#test/support/schedules/interleave.ts"
 import type { Explained, RaceTxn } from "#test/support/schedules/serial.ts"
+import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /** The shapes, by the writer whose rules they test (see the header). */
 export type Variant = "writer" | "deleted" | "pair" | "gated" | "retired"
@@ -408,6 +417,50 @@ export const writerFeatures = (e: Explained<never>): ReadonlyArray<Feature> => {
 	]
 }
 
-export const generate: Certifier = { kind: "generate" }
+/** Each variant's shape installed once per member as generate certifies it (race.ts generatedShapeTemplate). */
+export const generatedShapes: Readonly<Record<Variant, SubstrateTemplate<Generated>>> = {
+	writer: generatedShapeTemplate(import.meta, "monotone writer", monotoneShape("writer")),
+	deleted: generatedShapeTemplate(import.meta, "monotone deleted", monotoneShape("deleted")),
+	pair: generatedShapeTemplate(import.meta, "monotone pair", monotoneShape("pair")),
+	gated: generatedShapeTemplate(import.meta, "monotone gated", monotoneShape("gated")),
+	retired: generatedShapeTemplate(import.meta, "monotone retired", monotoneShape("retired"))
+}
+
+/**
+ * Each counter's shape installed once per member with its writer forced READ COMMITTED, the flaw it stands for stated
+ * (race.ts certifiedShapeTemplate).
+ */
+export const forcedShapes: Readonly<Record<Counter, SubstrateTemplate<InstalledShape>>> = {
+	deleted: certifiedShapeTemplate(
+		import.meta,
+		"monotone forced deleted",
+		monotoneShape("deleted"),
+		{
+			kind: "forced",
+			flaw: "a delete of a relation a rule reads absent left out of the occurrences writes make true",
+			roles: ["holder"]
+		}
+	),
+	pair: certifiedShapeTemplate(import.meta, "monotone forced pair", monotoneShape("pair"), {
+		kind: "forced",
+		flaw: "a key's two rows of R counted as one occurrence",
+		roles: ["coordinator"]
+	}),
+	gated: certifiedShapeTemplate(import.meta, "monotone forced gated", monotoneShape("gated"), {
+		kind: "forced",
+		flaw: "the relations a writer's probes read left out of its outside reads",
+		roles: ["holder"]
+	}),
+	retired: certifiedShapeTemplate(
+		import.meta,
+		"monotone forced retired",
+		monotoneShape("retired"),
+		{
+			kind: "forced",
+			flaw: "a retirable unit's retirement left out of the writes that make a row absent",
+			roles: ["holder"]
+		}
+	)
+}
 
 export const runs = 2

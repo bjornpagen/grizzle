@@ -21,23 +21,23 @@
 
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import {
 	caseGen,
 	cases,
+	docsWorld,
 	type Ending,
 	endingOf,
 	leftQuery,
 	situations
 } from "#test/pg/world-model/sessions.fixtures.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, runStep } from "#test/support/worlds/drive/index.ts"
 import { drawAction, unnoted } from "#test/support/worlds/drive/suite.ts"
-import { realize } from "#test/support/worlds/execute/index.ts"
+import { templateWorld } from "#test/support/worlds/execute/template.ts"
 import { realityGen } from "#test/support/worlds/generate/reality.ts"
 import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
@@ -51,46 +51,54 @@ import type { ModelState } from "#test/support/worlds/model/types.ts"
  */
 export const theWorldsModelADirectWritersCaseEveryDirectWriterACaseBeginsEndsWithThatCase =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { docs: Substrate.seat(docsWorld) },
 		situations: situations satisfies ReadonlyArray<Reached<Ending>>,
 		check:
-			({ substrate }, c: Case<Ending>) =>
+			({ docs }, c: Case<Ending>) =>
 			(sc) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const world = yield* realize(docsInstall, ordinarySession)
-						const host = hostSchemaOf(docsBase, world.names)
+				Effect.flatMap(docs, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
+							const world = yield* templateWorld(taken, Option.none())
+							const host = hostSchemaOf(docsBase, world.names)
 
-						const ended = yield* Effect.scoped(
-							Effect.gen(function* () {
-								const reality = c.draw(realityGen(docsBase, host))
-								yield* world.reset(reality)
-								const start = yield* checkStart(
-									world,
-									initialState(docsInstall, world.names, reality)
-								)
-								return yield* Effect.reduce(
-									indices(sc.moves),
-									(): ModelState => start,
-									(state, index) =>
-										Effect.map(
-											runStep(world, state, drawAction(c.draw, state, sc.weights), index, unnoted),
-											(stepped) => stepped.next
-										)
-								)
-							})
-						)
-						c.note(endingOf(ended))
-						const left = yield* s.admin.queryValues(leftQuery, [pgCluster.owner])
-						assert.deepEqual(
-							left,
-							[],
-							`after a case whose program left it so (${endingOf(ended)}), no backend of the world's logins is in a transaction and no direct writer's remains`
-						)
-					}),
-					Substrate,
-					substrate
+							const ended = yield* Effect.scoped(
+								Effect.gen(function* () {
+									const reality = c.draw(realityGen(docsBase, host))
+									yield* world.reset(reality)
+									const start = yield* checkStart(
+										world,
+										initialState(docsInstall, world.names, reality)
+									)
+									return yield* Effect.reduce(
+										indices(sc.moves),
+										(): ModelState => start,
+										(state, index) =>
+											Effect.map(
+												runStep(
+													world,
+													state,
+													drawAction(c.draw, state, sc.weights),
+													index,
+													unnoted
+												),
+												(stepped) => stepped.next
+											)
+									)
+								})
+							)
+							c.note(endingOf(ended))
+							const left = yield* s.admin.queryValues(leftQuery, [pgCluster.owner])
+							assert.deepEqual(
+								left,
+								[],
+								`after a case whose program left it so (${endingOf(ended)}), no backend of the world's logins is in a transaction and no direct writer's remains`
+							)
+						}),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",

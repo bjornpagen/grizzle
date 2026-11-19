@@ -8,6 +8,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { DeltaSource } from "#compiler/types/changeset/changeset.ts"
+import { rigTemplate } from "#test/support/schedules/rig.ts"
 import type { ScheduleOutcome } from "#test/support/schedules/types.ts"
 
 export const Held = relation("Held", { id: pg.uuidv7, k: pg.integer, a: pg.integer }, ["id"])
@@ -105,3 +106,6 @@ export const byKey = (rows: ReadonlyArray<HeldText>): ReadonlyArray<HeldText> =>
 /** Whether a schedule outcome is SSI's serialization failure: 40001 at a statement, or a COMMIT rolled back. */
 export const isSerialization = (o: ScheduleOutcome): boolean =>
 	(o._tag === "PgError" && o.fields.code === "40001") || o._tag === "RolledBack"
+
+/** The schedule's installation made once per member (support/schedules/rig.ts rigTemplate), which each case's seat holds. */
+export const skewRig = rigTemplate(import.meta, "met skew", skew)

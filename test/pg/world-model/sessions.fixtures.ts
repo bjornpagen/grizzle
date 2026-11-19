@@ -2,12 +2,15 @@
 
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { worldTemplate } from "#test/support/worlds/execute/template.ts"
 import {
 	noAims,
 	type Weights,
 	weightsGen,
 	zeroWeights
 } from "#test/support/worlds/generate/weights.ts"
+import { docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import type { ModelState } from "#test/support/worlds/model/types.ts"
 
 /** How a case's program left its direct writers when it ended: one in a transaction, open or aborted, or none. */
@@ -67,3 +70,15 @@ WHERE a.datname = pg_catalog.current_database() AND a.pid <> pg_catalog.pg_backe
 	AND (a.xact_start IS NOT NULL OR a.application_name LIKE 'grizzle-substrate psql direct %')`
 
 export const cases = 24
+
+/**
+ * The docs world installed once per member (worlds/execute/template.ts worldTemplate), each case realizing its layers
+ * and sessions over the worker's own clone of it, a database no other worker's case connects to, as the search's was
+ * its file's own.
+ */
+export const docsWorld = worldTemplate({
+	declaredIn: import.meta,
+	name: "sessions",
+	install: docsInstall,
+	ambient: ordinarySession
+})

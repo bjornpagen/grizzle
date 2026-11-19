@@ -7,6 +7,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { rigTemplate } from "#test/support/schedules/rig.ts"
 
 const Subject = str.regex("^u_[a-z]{1,8}$")
 
@@ -93,3 +94,6 @@ export const wTeam = 1
 export const otherId = 2
 
 export const otherTeam = 2
+
+/** The schedule's installation made once per member (support/schedules/rig.ts rigTemplate), which each case's seat holds. */
+export const seatsRig = rigTemplate(import.meta, "entry occupants", seats)

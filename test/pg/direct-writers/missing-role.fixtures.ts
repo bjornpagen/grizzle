@@ -12,8 +12,10 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
+import { worldTemplate } from "#test/support/worlds/execute/template.ts"
 import { docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import type { LoginSpec } from "#test/support/worlds/model/types.ts"
 
@@ -224,3 +226,11 @@ export const loginOf = (name: LoginName): LoginSpec =>
 		Option.getOrUndefined(Arr.findFirst(docsInstall.logins, (l) => l.name === name)),
 		`the login ${name}`
 	)
+
+/** The docs world installed once per member (worlds/execute/template.ts worldTemplate), which each case's seat holds. */
+export const docsWorld = worldTemplate({
+	declaredIn: import.meta,
+	name: "missing role",
+	install: docsInstall,
+	ambient: ordinarySession
+})

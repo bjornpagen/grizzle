@@ -39,21 +39,22 @@ import { openServed } from "#adapter/db/served.ts"
 import {
 	byKey,
 	Held,
-	type HeldText,
 	heldText,
+	type HeldText,
 	isSerialization,
 	Mark,
 	markKey,
 	otherMark,
 	skew,
 	type SkewFeature,
-	skewGen
+	skewGen,
+	skewRig
 } from "#test/schedules/write/met-skew.fixtures.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
-import { openRig } from "#test/support/schedules/rig.ts"
+import { rigIn } from "#test/support/schedules/rig.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -61,136 +62,138 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNeverCommits =
 	property.exhaust(finite(skewGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { rigged: Substrate.seat(skewRig) },
 		situations: [
 			"the skew through a met row refused with 40001",
 			"a new row beside D's deletion, D committed"
 		] satisfies ReadonlyArray<Reached<SkewFeature>>,
 		check:
-			({ substrate }, k: Case<SkewFeature>) =>
+			({ rigged }, k: Case<SkewFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const rig = yield* openRig(skew)
-						const names = namesOf(rig.installed)
-						const held = names.table(Held)
-						const mark = names.table(Mark)
-						const column = (field: "id" | "k" | "a") => names.column(Held, field)
-						const markColumn = names.column(Mark, "k")
-						const l = yield* rig.servedWriter(
-							"l",
-							(context) =>
-								openServed(rig.served.roles.writer, {}).pipe(Effect.provideContext(context)),
-							(db) =>
-								answered(
-									db.workload.meet.once({ params: { held: [] }, facts: { insert: { Mark: [] } } })
-								)
-						)
-						assert.equal(
-							l.ctx.isolation,
-							"serializable",
-							"a role beside a deleter of Held runs SERIALIZABLE"
-						)
-						const { d } = yield* openActors(s, { d: { kind: "raw", as: rig.direct } })
-						const heldState = Effect.map(
-							s.admin.queryValues(
-								`SELECT ${column("k")}::text, ${column("a")}::text, ${column("id")}::text FROM ${held} ORDER BY 1`,
-								[]
-							),
-							(rows): ReadonlyArray<HeldText> =>
-								Arr.map(rows, ([k, a, id]) => ({ k: String(k), a: String(a), id: String(id) }))
-						)
-						const markState = Effect.map(
-							s.admin.queryValues(`SELECT ${markColumn}::text FROM ${mark} ORDER BY 1`, []),
-							(rows) => Arr.map(rows, ([k]) => String(k))
-						)
+				Effect.flatMap(rigged, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
+							const rig = yield* rigIn(taken, skew)
+							const names = namesOf(rig.installed)
+							const held = names.table(Held)
+							const mark = names.table(Mark)
+							const column = (field: "id" | "k" | "a") => names.column(Held, field)
+							const markColumn = names.column(Mark, "k")
+							const l = yield* rig.servedWriter(
+								"l",
+								(context) =>
+									openServed(rig.served.roles.writer, {}).pipe(Effect.provideContext(context)),
+								(db) =>
+									answered(
+										db.workload.meet.once({ params: { held: [] }, facts: { insert: { Mark: [] } } })
+									)
+							)
+							assert.equal(
+								l.ctx.isolation,
+								"serializable",
+								"a role beside a deleter of Held runs SERIALIZABLE"
+							)
+							const { d } = yield* openActors(s, { d: { kind: "raw", as: rig.direct } })
+							const heldState = Effect.map(
+								s.admin.queryValues(
+									`SELECT ${column("k")}::text, ${column("a")}::text, ${column("id")}::text FROM ${held} ORDER BY 1`,
+									[]
+								),
+								(rows): ReadonlyArray<HeldText> =>
+									Arr.map(rows, ([k, a, id]) => ({ k: String(k), a: String(a), id: String(id) }))
+							)
+							const markState = Effect.map(
+								s.admin.queryValues(`SELECT ${markColumn}::text FROM ${mark} ORDER BY 1`, []),
+								(rows) => Arr.map(rows, ([k]) => String(k))
+							)
 
-						yield* rig.replace([
-							`INSERT INTO ${held} (${column("k")}, ${column("a")}) VALUES (1, 0), (2, 0)`
-						])
-						const before = yield* heldState
-						const at = (key: string): HeldText =>
-							defined(
-								Option.getOrUndefined(Arr.findFirst(before, (r) => r.k === key)),
-								`the stored row at k ${key}`
+							yield* rig.replace([
+								`INSERT INTO ${held} (${column("k")}, ${column("a")}) VALUES (1, 0), (2, 0)`
+							])
+							const before = yield* heldState
+							const at = (key: string): HeldText =>
+								defined(
+									Option.getOrUndefined(Arr.findFirst(before, (r) => r.k === key)),
+									`the stored row at k ${key}`
+								)
+							const m = at("1")
+							const o = at("2")
+							const target = c.deletesMet ? m : o
+							yield* d.perform({ _tag: "Begin" })
+							const read = yield* d.perform({
+								_tag: "Sql",
+								sql: `SELECT 1 FROM ${mark} WHERE ${markColumn} = ${c.readsMark ? markKey : otherMark}`
+							})
+							assert.equal(read._tag, "Ok", "D reads Mark")
+							const ran = yield* Effect.result(
+								answered(
+									l.db.workload.meet.once({
+										params: { held: [{ k: c.repeats ? 1 : 3, a: 0 }] },
+										facts: { insert: { Mark: [{ k: markKey }] } }
+									})
+								)
 							)
-						const m = at("1")
-						const o = at("2")
-						const target = c.deletesMet ? m : o
-						yield* d.perform({ _tag: "Begin" })
-						const read = yield* d.perform({
-							_tag: "Sql",
-							sql: `SELECT 1 FROM ${mark} WHERE ${markColumn} = ${c.readsMark ? markKey : otherMark}`
-						})
-						assert.equal(read._tag, "Ok", "D reads Mark")
-						const ran = yield* Effect.result(
-							answered(
-								l.db.workload.meet.once({
-									params: { held: [{ k: c.repeats ? 1 : 3, a: 0 }] },
-									facts: { insert: { Mark: [{ k: markKey }] } }
-								})
-							)
-						)
-						const deleted = yield* d.perform({
-							_tag: "Sql",
-							sql: `DELETE FROM ${held} WHERE ${column("id")} = '${target.id}'`
-						})
-						const ended = deleted._tag === "Ok" ? yield* d.perform({ _tag: "Commit" }) : deleted
-						if (ended._tag !== "Ok" && ended._tag !== "RolledBack") {
-							yield* d.perform({ _tag: "Rollback" })
-						}
-						const after = yield* heldState
-						const marks = yield* markState
-						assert.ok(Result.isSuccess(ran), `L commits: ${Formatter.format(ran)}`)
-						const outcome = ran.success
-						assert.ok(
-							outcome.kind === "accepted" || outcome.kind === "unchanged",
-							`L inserts its mark: ${Formatter.format(outcome)}`
-						)
-						const made = Arr.filter(after, (r) => r.k === "3")
-						assert.deepEqual(
-							byKey(Arr.map(outcome.reads.met, heldText)),
-							c.repeats ? [m] : [],
-							"L reads back as met exactly the stored m it repeats, its id included"
-						)
-						assert.deepEqual(
-							byKey(Arr.map(outcome.reads.added, heldText)),
-							c.repeats ? [] : made,
-							"L reads back as added exactly the row it made, its drawn id included"
-						)
-						assert.deepEqual(marks, [String(markKey)], "L's mark is stored")
-						if (c.repeats && c.deletesMet && c.readsMark) {
+							const deleted = yield* d.perform({
+								_tag: "Sql",
+								sql: `DELETE FROM ${held} WHERE ${column("id")} = '${target.id}'`
+							})
+							const ended = deleted._tag === "Ok" ? yield* d.perform({ _tag: "Commit" }) : deleted
+							if (ended._tag !== "Ok" && ended._tag !== "RolledBack") {
+								yield* d.perform({ _tag: "Rollback" })
+							}
+							const after = yield* heldState
+							const marks = yield* markState
+							assert.ok(Result.isSuccess(ran), `L commits: ${Formatter.format(ran)}`)
+							const outcome = ran.success
 							assert.ok(
-								isSerialization(ended),
-								`D, whose deletion of the met m and read of the absence of L's mark no serial order explains beside L, fails with 40001: ${Formatter.format(ended)}`
+								outcome.kind === "accepted" || outcome.kind === "unchanged",
+								`L inserts its mark: ${Formatter.format(outcome)}`
 							)
-							k.note("the skew through a met row refused with 40001")
-							return
-						}
-						if (ended._tag !== "Ok") {
-							assert.ok(
-								isSerialization(ended),
-								`D fails only by a serialization failure: ${Formatter.format(ended)}`
+							const made = Arr.filter(after, (r) => r.k === "3")
+							assert.deepEqual(
+								byKey(Arr.map(outcome.reads.met, heldText)),
+								c.repeats ? [m] : [],
+								"L reads back as met exactly the stored m it repeats, its id included"
 							)
-							k.note("a 40001 no skew forces")
-							return
-						}
-						assert.deepEqual(
-							after,
-							byKey(Arr.filter([...before, ...made], (r) => r.id !== target.id)),
-							"the table ends as L, then D, leave it"
-						)
-						k.note(
-							!c.repeats
-								? "a new row beside D's deletion, D committed"
-								: c.deletesMet
-									? "a met row D deletes, beside no read of L's mark, D committed"
-									: "a met row D does not delete, D committed"
-						)
-					}),
-					Substrate,
-					substrate
+							assert.deepEqual(
+								byKey(Arr.map(outcome.reads.added, heldText)),
+								c.repeats ? [] : made,
+								"L reads back as added exactly the row it made, its drawn id included"
+							)
+							assert.deepEqual(marks, [String(markKey)], "L's mark is stored")
+							if (c.repeats && c.deletesMet && c.readsMark) {
+								assert.ok(
+									isSerialization(ended),
+									`D, whose deletion of the met m and read of the absence of L's mark no serial order explains beside L, fails with 40001: ${Formatter.format(ended)}`
+								)
+								k.note("the skew through a met row refused with 40001")
+								return
+							}
+							if (ended._tag !== "Ok") {
+								assert.ok(
+									isSerialization(ended),
+									`D fails only by a serialization failure: ${Formatter.format(ended)}`
+								)
+								k.note("a 40001 no skew forces")
+								return
+							}
+							assert.deepEqual(
+								after,
+								byKey(Arr.filter([...before, ...made], (r) => r.id !== target.id)),
+								"the table ends as L, then D, leave it"
+							)
+							k.note(
+								!c.repeats
+									? "a new row beside D's deletion, D committed"
+									: c.deletesMet
+										? "a met row D deletes, beside no read of L's mark, D committed"
+										: "a met row D does not delete, D committed"
+							)
+						}),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",

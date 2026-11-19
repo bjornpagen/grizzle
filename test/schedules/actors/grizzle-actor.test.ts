@@ -26,10 +26,10 @@ import { rowsOn } from "#test/pg/adapter/support.ts"
 import {
 	type ActorFeature,
 	caseGen,
-	interruptedCall
+	interruptedCall,
+	timekeepingTemplate
 } from "#test/schedules/actors/grizzle-actor.fixtures.ts"
 import { assert } from "#test/support/assert.ts"
-import { timekeepingHistory } from "#test/support/history/families.ts"
 import { timekeeping } from "#test/support/laws/boxes.ts"
 import { openWriter } from "#test/support/laws/support.ts"
 import { grizzleActor } from "#test/support/schedules/actors.ts"
@@ -42,7 +42,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const grizzleActorsAGrizzleActorIsTheBackendItsDbsCallsRunOnWhateverSessionsOfItsLoginStandBesideIt =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { seated: Substrate.seat(timekeepingTemplate) },
 		situations: [
 			"a writer named alone",
 			"a writer named beside an earlier writer",
@@ -51,73 +51,80 @@ export const grizzleActorsAGrizzleActorIsTheBackendItsDbsCallsRunOnWhateverSessi
 			"a writer whose interrupted call's connection its pool dropped"
 		] satisfies ReadonlyArray<Reached<ActorFeature>>,
 		check:
-			({ substrate }, c: Case<ActorFeature>) =>
+			({ seated }, c: Case<ActorFeature>) =>
 			(writers) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const install = yield* timekeepingHistory.install(timekeepingHistory.family.variants[0])
-						const opened = {
-							installed: install.installed,
-							schema: timekeeping(install.params)(install.installed.declared)
-						}
-						/** A Db of the writers' login whose pool leases one session, which the case holds to its end. */
-						const held = Effect.flatMap(openWriter(opened), (db) => db.ctx.pool.lease)
-						/** A Db of the writers' login whose pool leased one session and ended at once. */
-						const departed = Effect.scoped(
-							Effect.flatMap(openWriter(opened), (db) => Effect.scoped(db.ctx.pool.lease))
-						)
-						/** The writers named so far, every case's: each writer's statement is its own text. */
-						const named = yield* Ref.make(0)
-
-						for (const [w, writer] of writers.entries()) {
-							for (const bystander of writer.beside) {
-								yield* bystander === "held" ? Effect.asVoid(held) : Effect.asVoid(departed)
+				Effect.flatMap(seated, ({ substrate: seat, value: install }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
+							const opened = {
+								installed: install.installed,
+								schema: timekeeping(install.params)(install.installed.declared)
 							}
-							const db = yield* openWriter(opened)
-							const actor = yield* grizzleActor(`w${w}`, db.ctx.pool)
-							const statement = `SELECT 'the statement of writer ${yield* Ref.getAndUpdate(named, (n) => n + 1)}'::text`
-							const interrupted =
-								writer.first === "interrupted"
-									? yield* Effect.asSome(interruptedCall(s.admin, db.ctx.pool, actor, statement))
-									: Option.none()
-							const read = yield* Effect.orDie(
-								Effect.scoped(
-									Effect.flatMap(db.ctx.pool.lease, (session) =>
-										Effect.andThen(rowsOn(session, statement, []), actor.backend)
+							/** A Db of the writers' login whose pool leases one session, which the case holds to its end. */
+							const held = Effect.flatMap(openWriter(opened), (db) => db.ctx.pool.lease)
+							/** A Db of the writers' login whose pool leased one session and ended at once. */
+							const departed = Effect.scoped(
+								Effect.flatMap(openWriter(opened), (db) => Effect.scoped(db.ctx.pool.lease))
+							)
+							/**
+							 * The writers named so far: each writer's statement is its own text in the case's own database, where
+							 * the backend that ran it is read.
+							 */
+							const named = yield* Ref.make(0)
+
+							for (const [w, writer] of writers.entries()) {
+								for (const bystander of writer.beside) {
+									yield* bystander === "held" ? Effect.asVoid(held) : Effect.asVoid(departed)
+								}
+								const db = yield* openWriter(opened)
+								const actor = yield* grizzleActor(`w${w}`, db.ctx.pool)
+								const statement = `SELECT 'the statement of writer ${yield* Ref.getAndUpdate(named, (n) => n + 1)}'::text`
+								const interrupted =
+									writer.first === "interrupted"
+										? yield* Effect.asSome(interruptedCall(s.admin, db.ctx.pool, actor, statement))
+										: Option.none()
+								const read = yield* Effect.orDie(
+									Effect.scoped(
+										Effect.flatMap(db.ctx.pool.lease, (session) =>
+											Effect.andThen(rowsOn(session, statement, []), actor.backend)
+										)
 									)
 								)
-							)
-							const ran = yield* s.admin.queryValues(
-								"SELECT a.pid::text, a.usename::text FROM pg_catalog.pg_stat_activity AS a WHERE a.query = $1::text AND a.backend_type = 'client backend'::text",
-								[statement]
-							)
-							assert.deepEqual(
-								ran,
-								[[Option.match(read, { onNone: () => "none", onSome: String }), actor.role]],
-								`the backend that ran ${statement}, as its actor read it while the call held it`
-							)
-							const after = yield* actor.backend
-							assert.ok(Option.isNone(after), `once ${statement} ended, its actor holds no backend`)
-							if (Option.exists(interrupted, (waited) => !Option.contains(read, waited))) {
-								c.note("a writer whose interrupted call's connection its pool dropped")
+								const ran = yield* s.admin.queryValues(
+									"SELECT a.pid::text, a.usename::text FROM pg_catalog.pg_stat_activity AS a WHERE a.query = $1::text AND a.backend_type = 'client backend'::text AND a.datname = pg_catalog.current_database()",
+									[statement]
+								)
+								assert.deepEqual(
+									ran,
+									[[Option.match(read, { onNone: () => "none", onSome: String }), actor.role]],
+									`the backend that ran ${statement}, as its actor read it while the call held it`
+								)
+								const after = yield* actor.backend
+								assert.ok(
+									Option.isNone(after),
+									`once ${statement} ended, its actor holds no backend`
+								)
+								if (Option.exists(interrupted, (waited) => !Option.contains(read, waited))) {
+									c.note("a writer whose interrupted call's connection its pool dropped")
+								}
+								if (w === 0 && writer.beside.length === 0) {
+									c.note("a writer named alone")
+								}
+								if (w > 0) {
+									c.note("a writer named beside an earlier writer")
+								}
+								if (Arr.contains(writer.beside, "held")) {
+									c.note("a writer named beside a held session of its login")
+								}
+								if (Arr.contains(writer.beside, "departed")) {
+									c.note("a writer named beside a departed session of its login")
+								}
 							}
-							if (w === 0 && writer.beside.length === 0) {
-								c.note("a writer named alone")
-							}
-							if (w > 0) {
-								c.note("a writer named beside an earlier writer")
-							}
-							if (Arr.contains(writer.beside, "held")) {
-								c.note("a writer named beside a held session of its login")
-							}
-							if (Arr.contains(writer.beside, "departed")) {
-								c.note("a writer named beside a departed session of its login")
-							}
-						}
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
+						}).pipe(Effect.scoped),
+						Substrate,
+						seat
+					)
 				),
 		oracle: {
 			kind: "postgresql",

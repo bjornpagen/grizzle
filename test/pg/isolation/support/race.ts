@@ -33,6 +33,7 @@ import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { noLive } from "#compiler/live/notify.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
 	noCarriers,
@@ -52,12 +53,17 @@ import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
+import { pgCluster } from "#test/support/env.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import {
+	appliedHistory,
+	draftedHistory,
+	type Generated,
+	generatedTemplate,
 	type Installed,
 	installGenerated,
-	installMigrated,
-	replaceMigrated
+	replaceMigrated,
+	templateInstalled
 } from "#test/support/install-migrate.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -74,7 +80,13 @@ import {
 } from "#test/support/schedules/serial.ts"
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { installationGroup } from "#test/support/substrate/replace.ts"
+import {
+	installTemplate,
+	Substrate,
+	type SubstrateCase,
+	type SubstrateTemplate
+} from "#test/support/substrate/substrate.ts"
 
 /**
  * A shape as the oracle installs it (shapes.ts, drawn.ts): its schema, its roles by name, and the login over them, whose
@@ -258,12 +270,12 @@ const servedOf = (loaded: LoadedLogin) => ({
  * role's ChangeSets from the login's served file.
  *
  * - generate's: installed as `grizzle generate` drafts and serves it (test/support/install-migrate.ts installGenerated),
- *   each role at the level its served file records;
+ *   each role at the level its served file records (generatedShape);
  * - a flawed certifier's or generate's with roles forced: generate's draft of the shape certifies it first
  *   (cli/generate.ts draftSchema); the installation holds the stated certificates through an installer extension, as
  *   it holds the served workload's; and the served file is the draft's of the installed name (servedFiles), each role
- *   at its stated level. A draft under the installed name that certifies otherwise than under the first is a defect: a
- *   certificate is a function of the shape, never of its name.
+ *   at its stated level (certifiedPlan). A draft under the installed name that certifies otherwise than under the first
+ *   is a defect: a certificate is a function of the shape, never of its name.
  */
 export const installShape = (
 	build: (name: string) => Shape,
@@ -275,29 +287,58 @@ export const installShape = (
 > =>
 	Effect.gen(function* () {
 		if (certifier.kind === "generate") {
-			const generated = yield* installGenerated(
-				(name) => {
-					const shape = build(name)
-					return { schema: shape.schema, logins: [shape.login] }
-				},
-				{ label: "iso", ambient: ordinarySession }
-			)
-			const shape = build(generated.installed.declared)
-			const json = defined(
-				generated.served.get(shape.login.name),
-				`the served file of login ${shape.login.name}`
-			)
-			const file = yield* fromEngine(servedFile(json))
-			const loaded = yield* Effect.fromResult(loadServed(file, shape.login.name))
-			const served = servedOf(loaded)
-			return {
-				installed: generated.installed,
-				names: namesOf(generated.installed),
-				shape,
-				generated: served.levels,
-				...served
-			}
+			const generated = yield* installGenerated((name) => shapeLogins(build(name)), {
+				label: "iso",
+				ambient: ordinarySession
+			})
+			return yield* generatedShape(generated, build)
 		}
+		const substrate = yield* Substrate
+		const name = yield* substrate.schema({ create: false, label: "iso" })
+		const plan = yield* certifiedPlan(build, certifier, name, substrate.owner.role)
+		const installed = yield* appliedHistory(plan.history, name, plan.options, new Map())
+		return shapeOf(plan, installed)
+	})
+
+/** A shape's schema and the one login its installation carries. */
+const shapeLogins = (shape: Shape) => ({ schema: shape.schema, logins: [shape.login] })
+
+/** A generated installation of `build(name)` as a race reads it: every role at the level its served file records. */
+const generatedShape = (
+	generated: Generated,
+	build: (name: string) => Shape
+): Effect.Effect<InstalledShape, CompileError | OpenError> =>
+	Effect.gen(function* () {
+		const shape = build(generated.installed.declared)
+		const json = defined(
+			generated.served.get(shape.login.name),
+			`the served file of login ${shape.login.name}`
+		)
+		const file = yield* fromEngine(servedFile(json))
+		const loaded = yield* Effect.fromResult(loadServed(file, shape.login.name))
+		const served = servedOf(loaded)
+		return {
+			installed: generated.installed,
+			names: namesOf(generated.installed),
+			shape,
+			generated: served.levels,
+			...served
+		}
+	})
+
+/**
+ * A certified installation of `build(name)` planned under `name`, owned by `owner`, all but its install: the history
+ * that installs the shape's schema with its login, holding the certificates `certifier` states (certifying), its
+ * options, the shape rebuilt under `name`, the levels generate certifies, and the login's served file of the installed
+ * name, each role at its stated level, loaded.
+ */
+const certifiedPlan = (
+	build: (name: string) => Shape,
+	certifier: Exclude<Certifier, { readonly kind: "generate" }>,
+	name: string,
+	owner: string
+) =>
+	Effect.gen(function* () {
 		const declared = build("Iso")
 		const first = yield* draftOf(declared)
 		const generated = first.served.certification
@@ -307,18 +348,24 @@ export const installShape = (
 				: Arr.map(generated, (r): RoleIsolation =>
 						certifier.roles.includes(r.role) ? { ...r, certificate: { level: "readCommitted" } } : r
 					)
-		const installed = yield* installMigrated(declared.schema, {
-			ambient: ordinarySession,
+		const options = {
 			label: "iso",
-			logins: [declared.login],
 			extensions: [
 				certifying(
 					certified,
 					servedHolds(new Map(Arr.map([...first.served.logins], ([l, p]) => [l, p.roles] as const)))
 				)
-			]
-		})
-		const shape = build(installed.declared)
+			],
+			ambient: ordinarySession,
+			compile: compileInstallation
+		}
+		const history = yield* draftedHistory(
+			[{ schema: declared.schema, logins: [declared.login], declarations: noDeclarations }],
+			options,
+			name,
+			owner
+		)
+		const shape = build(name)
 		const { compiled, draft, served } = yield* draftOf(shape)
 		const named = levelsOf(served.certification)
 		for (const [role, level] of levelsOf(generated)) {
@@ -333,11 +380,11 @@ export const installShape = (
 		const levels = levelsOf(certified)
 		const stated = yield* Effect.forEach([...served.logins], ([login, planned]) =>
 			Effect.map(
-				Effect.forEach([...planned.roles], ([name, role]) => {
-					const level = defined(levels.get(name), `the stated level of role ${name}`)
-					return level === role.level
-						? Effect.succeed([name, role] as const)
-						: Effect.map(fromEngine(changesAt(role, level)), (at) => [name, at] as const)
+				Effect.forEach([...planned.roles], ([role, at]) => {
+					const level = defined(levels.get(role), `the stated level of role ${role}`)
+					return level === at.level
+						? Effect.succeed([role, at] as const)
+						: Effect.map(fromEngine(changesAt(at, level)), (changed) => [role, changed] as const)
 				}),
 				(roles) => [login, { ...planned, roles: new Map(roles) }] as const
 			)
@@ -354,13 +401,71 @@ export const installShape = (
 		)
 		const file = yield* fromEngine(servedFile(trustedJson<unknown>(entry.text)))
 		const login = yield* Effect.fromResult(loadServed(file, shape.login.name))
-		return {
-			installed,
-			names: namesOf(installed),
-			shape,
-			generated: levelsOf(generated),
-			...servedOf(login)
-		}
+		return { history, options, shape, generated: levelsOf(generated), served: servedOf(login) }
+	})
+
+/** What a certified plan (certifiedPlan) reads once its history is installed as `installed`. */
+const shapeOf = (
+	plan: Effect.Success<ReturnType<typeof certifiedPlan>>,
+	installed: Installed
+): InstalledShape => ({
+	installed,
+	names: namesOf(installed),
+	shape: plan.shape,
+	generated: plan.generated,
+	...plan.served
+})
+
+/**
+ * installShape's generated installation as a template (install-migrate.ts generatedTemplate): `build(name)` drafted and
+ * served once per member under the template's name. A case reads its shape over its clone (generatedShapeIn).
+ */
+export const generatedShapeTemplate = (
+	declaredIn: ImportMeta,
+	name: string,
+	build: (name: string) => Shape
+): SubstrateTemplate<Generated> =>
+	generatedTemplate({
+		declaredIn,
+		name,
+		content: { shape: name },
+		build: (installed) => shapeLogins(build(installed)),
+		ambient: ordinarySession
+	})
+
+/** The shape of a case over a clone of a generated shape's template (generatedShapeTemplate), as installShape reads it. */
+export const generatedShapeIn = (
+	taken: SubstrateCase<Generated>,
+	build: (name: string) => Shape
+): Effect.Effect<InstalledShape, CompileError | OpenError> => generatedShape(taken.value, build)
+
+/**
+ * installShape's certified installation as a template (substrate.ts installTemplate): `build(name)` holding
+ * `certifier`'s certificates, every draft, certificate and served file of it planned once per worker under the
+ * template's name (certifiedPlan), and installed once per member; each case's InstalledShape the installation in its
+ * clone, every login logging in with the password its template derived. `name` tells it from the other templates its
+ * declaring module states.
+ */
+export const certifiedShapeTemplate = (
+	declaredIn: ImportMeta,
+	name: string,
+	build: (name: string) => Shape,
+	certifier: Exclude<Certifier, { readonly kind: "generate" }>
+): SubstrateTemplate<InstalledShape> =>
+	installTemplate({
+		declaredIn,
+		name,
+		content: { shape: name, certifier: certifier.kind },
+		plan: (names) =>
+			Effect.map(certifiedPlan(build, certifier, names.schema, pgCluster.owner), (plan) => ({
+				names,
+				plan
+			})),
+		install: ({ names, plan }) =>
+			Effect.asVoid(appliedHistory(plan.history, names.schema, plan.options, new Map())),
+		bind: ({ names, plan }, binding) =>
+			shapeOf(plan, templateInstalled(names, plan.history, ordinarySession, new Map(), binding)),
+		reset: (shape) => installationGroup(shape.names)
 	})
 
 /** A SQL text literal of `text`: in quotes, its quotes doubled. */

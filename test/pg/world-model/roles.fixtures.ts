@@ -4,7 +4,9 @@ import { type Branch, enumerated, firstBranch } from "@bjornpagen/testing/enumer
 import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { recorder } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
+import { worldTemplate } from "#test/support/worlds/execute/template.ts"
 import { classifyEntry } from "#test/support/worlds/model/host.ts"
 import type {
 	Action,
@@ -504,3 +506,11 @@ export const openOf = (actions: ReadonlyArray<Action>, role: string): Action =>
 const box = boxOf(shapes)
 
 export const { install, roleOf } = installationOf(box)
+
+/** The box's installation as a world installed once per member (worlds/execute/template.ts worldTemplate), which each case's seat holds. */
+export const pairWorld = worldTemplate({
+	declaredIn: import.meta,
+	name: "roles",
+	install,
+	ambient: ordinarySession
+})

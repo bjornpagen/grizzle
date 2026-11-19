@@ -39,21 +39,23 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import {
 	aimedDisjoint,
 	aimedHistory,
-	atLevel,
 	type DisjointFeature,
+	generatedShape,
 	importShape,
 	initialOf,
 	raceOf,
+	readCommittedShape,
 	runDisjoint,
 	runs,
 	runSerial,
 	sameHistory,
 	type SerialFeature,
+	serializableShape,
 	type SharedFeature,
 	sharedRaces,
 	strategyOf
 } from "#test/pg/isolation/arbiter.fixtures.ts"
-import { installShape, runIsolationRace } from "#test/pg/isolation/support/race.ts"
+import { generatedShapeIn, runIsolationRace } from "#test/pg/isolation/support/race.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -63,7 +65,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theInsertProtocolsArbitrationsWritersOfDisjointKeysCommitEveryCallButAnUnsettledInvoiceAndSIReadLockInvoicesIndexesAloneDocsNone =
 	property.explore(steered(aimedDisjoint), {
-		needs: { substrate: Substrate.installing },
+		needs: {
+			readCommitted: Substrate.seat(readCommittedShape),
+			serializable: Substrate.seat(serializableShape)
+		},
 		situations: [
 			"docs only",
 			"an invoice posted",
@@ -71,59 +76,61 @@ export const theInsertProtocolsArbitrationsWritersOfDisjointKeysCommitEveryCallB
 			"a CHECK refused"
 		] satisfies ReadonlyArray<Reached<DisjointFeature>>,
 		check:
-			({ substrate }, c: Case<DisjointFeature>) =>
+			({ readCommitted, serializable }, c: Case<DisjointFeature>) =>
 			(race) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const shapes = {
-							readCommitted: yield* installShape(importShape, atLevel("readCommitted")),
-							serializable: yield* installShape(importShape, atLevel("serializable"))
-						}
+				Effect.gen(function* () {
+					const rcSeat = yield* readCommitted
+					const serSeat = yield* serializable
 
-						c.note(race.docsOnly ? "docs only" : "an invoice posted")
-						if (race.calls.length === 3) {
-							c.note("three sessions")
-						}
-						const rc = yield* runDisjoint(shapes.readCommitted, race, "readCommitted")
-						const ser = yield* runDisjoint(shapes.serializable, race, "serializable")
-						const refused = (f: string | undefined) => f === "23514" || f === "23000"
-						const outcomes = Arr.flatMap(race.calls, (call, i) => {
-							const atRc = rc.failures[i]
-							const atSer = ser.failures[i]
-							return [
-								...(call.unsettled === refused(atRc) && (call.unsettled || atRc === undefined)
-									? []
-									: [`READ COMMITTED s${i}: ${atRc ?? "committed"}`]),
-								...((atSer === "40001" && !race.docsOnly) ||
-								(call.unsettled === refused(atSer) && (call.unsettled || atSer === undefined))
-									? []
-									: [`SERIALIZABLE s${i}: ${atSer ?? "committed"}`])
-							]
-						})
-						const locks = [
-							...Arr.map(rc.locks, (l) => `READ COMMITTED holds ${l.kind} ${l.relation}`),
-							...Arr.flatMap(ser.locks, (l) =>
-								!race.docsOnly && l.referenced && (l.kind === "page" || l.kind === "relation")
-									? []
-									: [`SERIALIZABLE holds ${l.kind} ${l.relation}`]
-							)
+					c.note(race.docsOnly ? "docs only" : "an invoice posted")
+					if (race.calls.length === 3) {
+						c.note("three sessions")
+					}
+					const rc = yield* Effect.provideService(
+						runDisjoint(rcSeat.value, race, "readCommitted"),
+						Substrate,
+						rcSeat.substrate
+					)
+					const ser = yield* Effect.provideService(
+						runDisjoint(serSeat.value, race, "serializable"),
+						Substrate,
+						serSeat.substrate
+					)
+					const refused = (f: string | undefined) => f === "23514" || f === "23000"
+					const outcomes = Arr.flatMap(race.calls, (call, i) => {
+						const atRc = rc.failures[i]
+						const atSer = ser.failures[i]
+						return [
+							...(call.unsettled === refused(atRc) && (call.unsettled || atRc === undefined)
+								? []
+								: [`READ COMMITTED s${i}: ${atRc ?? "committed"}`]),
+							...((atSer === "40001" && !race.docsOnly) ||
+							(call.unsettled === refused(atSer) && (call.unsettled || atSer === undefined))
+								? []
+								: [`SERIALIZABLE s${i}: ${atSer ?? "committed"}`])
 						]
-						const problems = [...outcomes, ...locks]
-						if (Arr.some(race.calls, (call) => call.unsettled)) {
-							c.note("a CHECK refused")
-						}
-						if (Arr.some(ser.failures, (f) => f === "40001")) {
-							c.note("a 40001 under an Invoice race")
-						}
-						if (Arr.isReadonlyArrayNonEmpty(problems)) {
-							return yield* Effect.die(
-								new Error(`${Arr.join(problems, "\n")}\nin ${Formatter.format(race)}`)
-							)
-						}
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
-				),
+					})
+					const locks = [
+						...Arr.map(rc.locks, (l) => `READ COMMITTED holds ${l.kind} ${l.relation}`),
+						...Arr.flatMap(ser.locks, (l) =>
+							!race.docsOnly && l.referenced && (l.kind === "page" || l.kind === "relation")
+								? []
+								: [`SERIALIZABLE holds ${l.kind} ${l.relation}`]
+						)
+					]
+					const problems = [...outcomes, ...locks]
+					if (Arr.some(race.calls, (call) => call.unsettled)) {
+						c.note("a CHECK refused")
+					}
+					if (Arr.some(ser.failures, (f) => f === "40001")) {
+						c.note("a 40001 under an Invoice race")
+					}
+					if (Arr.isReadonlyArrayNonEmpty(problems)) {
+						return yield* Effect.die(
+							new Error(`${Arr.join(problems, "\n")}\nin ${Formatter.format(race)}`)
+						)
+					}
+				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "specification",
 			name: "disjoint calls commit unless their Invoice is unsettled, which the Settled CHECK refuses at either level, an Invoice race's SERIALIZABLE call perhaps with 40001; no SIRead lock at READ COMMITTED, and at SERIALIZABLE none but a page or an index of Invoice, none for Docs alone"
@@ -140,47 +147,54 @@ export const theInsertProtocolsArbitrationsWritersOfDisjointKeysCommitEveryCallB
  */
 export const theInsertProtocolsArbitrationsEveryRaceOverSharedKeysIsSerialAtGeneratesLevelAndAtSERIALIZABLE =
 	property.explore(sharedRaces, {
-		needs: { substrate: Substrate.installing },
+		needs: {
+			generated: Substrate.seat(generatedShape),
+			serializable: Substrate.seat(serializableShape)
+		},
 		situations: ["a stored Doc", "two calls at one key"] satisfies ReadonlyArray<
 			Reached<SharedFeature>
 		>,
 		check:
-			({ substrate }, c: Case<SharedFeature>) =>
+			({ generated, serializable }, c: Case<SharedFeature>) =>
 			(race) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const shapes = [
-							yield* installShape(importShape, { kind: "generate" }),
-							yield* installShape(importShape, atLevel("serializable"))
-						]
-						return yield* Effect.suspend(() => {
-							if (race.initial === "doc") {
-								c.note("a stored Doc")
-							}
-							if (race.calls.length === 3) {
-								c.note("three sessions")
-							}
-							if (
-								Arr.some(race.calls, (a, i) =>
-									Arr.some(
-										race.calls,
-										(b, j) => i < j && Arr.some(a.keys, (k) => b.keys.includes(k))
-									)
-								)
-							) {
-								c.note("two calls at one key")
-							}
-							return Effect.forEach(
-								shapes,
-								(s) =>
-									Effect.scoped(runIsolationRace(s, raceOf(race), strategyOf(c), () => undefined)),
-								{ discard: true }
+				Effect.gen(function* () {
+					const generatedSeat = yield* generated
+					const serSeat = yield* serializable
+					const shapes = [
+						{
+							shape: yield* generatedShapeIn(generatedSeat, importShape),
+							seat: generatedSeat.substrate
+						},
+						{ shape: serSeat.value, seat: serSeat.substrate }
+					]
+					return yield* Effect.suspend(() => {
+						if (race.initial === "doc") {
+							c.note("a stored Doc")
+						}
+						if (race.calls.length === 3) {
+							c.note("three sessions")
+						}
+						if (
+							Arr.some(race.calls, (a, i) =>
+								Arr.some(race.calls, (b, j) => i < j && Arr.some(a.keys, (k) => b.keys.includes(k)))
 							)
-						})
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
-				),
+						) {
+							c.note("two calls at one key")
+						}
+						return Effect.forEach(
+							shapes,
+							({ shape, seat }) =>
+								Effect.provideService(
+									Effect.scoped(
+										runIsolationRace(shape, raceOf(race), strategyOf(c), () => undefined)
+									),
+									Substrate,
+									seat
+								),
+							{ discard: true }
+						)
+					})
+				}).pipe(Effect.scoped),
 		oracle: { kind: "specification", name: "a serial order of the same calls" },
 		budget: { runs: runs, steered: runs },
 		kept: [],
@@ -194,7 +208,10 @@ export const theInsertProtocolsArbitrationsEveryRaceOverSharedKeysIsSerialAtGene
  */
 export const theInsertProtocolsArbitrationsOneHistoryGivesTheSameRowsRefusalsAndStateAtEitherLevel =
 	property.explore(steered(aimedHistory), {
-		needs: { substrate: Substrate.installing },
+		needs: {
+			readCommitted: Substrate.seat(readCommittedShape),
+			serializable: Substrate.seat(serializableShape)
+		},
 		situations: [
 			"an exact repeat",
 			"a key or axis refusal",
@@ -202,57 +219,49 @@ export const theInsertProtocolsArbitrationsOneHistoryGivesTheSameRowsRefusalsAnd
 			"lines sent alone"
 		] satisfies ReadonlyArray<Reached<SerialFeature>>,
 		check:
-			({ substrate }, c: Case<SerialFeature>) =>
+			({ readCommitted, serializable }, c: Case<SerialFeature>) =>
 			(history) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const shapes = {
-							readCommitted: yield* installShape(importShape, atLevel("readCommitted")),
-							serializable: yield* installShape(importShape, atLevel("serializable"))
-						}
+				Effect.gen(function* () {
+					const rcSeat = yield* readCommitted
+					const serSeat = yield* serializable
 
-						const initial = initialOf(history)
-						const rc = yield* runSerial(
-							shapes.readCommitted,
-							initial,
-							history.calls,
-							"readCommitted"
-						)
-						const ser = yield* runSerial(
-							shapes.serializable,
-							initial,
-							history.calls,
-							"serializable"
-						)
-						for (const shown of rc.shown) {
-							if (shown === "refused by a CHECK" || shown === "refused by the host") {
-								c.note("an unsettled invoice refused")
-							}
-							if (shown === "refused by a key or an axis") {
-								c.note("a key or axis refusal")
-							}
+					const initial = initialOf(history)
+					const rc = yield* Effect.provideService(
+						runSerial(rcSeat.value, initial, history.calls, "readCommitted"),
+						Substrate,
+						rcSeat.substrate
+					)
+					const ser = yield* Effect.provideService(
+						runSerial(serSeat.value, initial, history.calls, "serializable"),
+						Substrate,
+						serSeat.substrate
+					)
+					for (const shown of rc.shown) {
+						if (shown === "refused by a CHECK" || shown === "refused by the host") {
+							c.note("an unsettled invoice refused")
 						}
-						if (Arr.some(history.calls, (call) => call.kind === "lines")) {
-							c.note("lines sent alone")
+						if (shown === "refused by a key or an axis") {
+							c.note("a key or axis refusal")
 						}
-						if (
-							Arr.some(history.calls, (a, i) =>
-								Arr.some(history.calls, (b, j) => i < j && Option.isNone(exact(a.input, b.input)))
-							)
-						) {
-							c.note("an exact repeat")
-						}
-						yield* agree(
-							[
-								["READ COMMITTED", rc],
-								["SERIALIZABLE", ser]
-							],
-							sameHistory
+					}
+					if (Arr.some(history.calls, (call) => call.kind === "lines")) {
+						c.note("lines sent alone")
+					}
+					if (
+						Arr.some(history.calls, (a, i) =>
+							Arr.some(history.calls, (b, j) => i < j && Option.isNone(exact(a.input, b.input)))
 						)
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
-				),
+					) {
+						c.note("an exact repeat")
+					}
+					yield* agree(
+						[
+							["READ COMMITTED", rc],
+							["SERIALIZABLE", ser]
+						],
+						sameHistory
+					)
+				}).pipe(Effect.scoped),
 		oracle: { kind: "specification", name: "the READ COMMITTED form's outcomes" },
 		budget: { runs: runs, steered: runs },
 		kept: [],

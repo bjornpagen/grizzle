@@ -25,8 +25,8 @@ import {
 	type SeatTemplate,
 	type Start,
 	sameRoles,
-	seatIn,
 	seatOf,
+	seatOfInstalled,
 	seatTemplate
 } from "#test/pg/fin/installed.ts"
 import { canonical, emptyStored, sqlstateOf } from "#test/pg/substrate/fin.ts"
@@ -42,7 +42,7 @@ import {
 	sameMoment
 } from "#test/support/substrate.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import type { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Owner = relation("Owner", { id: pg.integer, n: drawn(natural) }, ["id"])
 
@@ -125,13 +125,22 @@ export const familyTemplates = (
 	counted: familyTemplate(declaredIn, "counted", label)
 })
 
-/** The family seat of a case over a clone of a shape's family template (familyTemplates), as familySeat reads one. */
+/**
+ * The family seat of a case over a clone of a shape's family template (familyTemplates): its seat over the clone's
+ * installation (installed.ts seatOfInstalled), on the case's own substrate, as familySeat reads one over its install.
+ */
 export const familySeatIn = (
 	shape: Shape,
 	taken: SeatCase,
 	label: string
 ): Effect.Effect<FamilySeat, SqlError, Scope.Scope> =>
-	Effect.flatMap(seatIn(taken, FAMILY_RELATIONS, label), (seat) => familyOf(shape, seat, label))
+	Effect.provideService(
+		Effect.flatMap(seatOfInstalled(taken.value, FAMILY_RELATIONS, label), (seat) =>
+			familyOf(shape, seat, label)
+		),
+		Substrate,
+		taken.substrate
+	)
 
 /** The families model's constraint an installed constraint is, by its columns' roles; none for the owner's keys. */
 export const constraintOf = (f: FamilySeat, c: Catalogued): Option.Option<Constraint> => {

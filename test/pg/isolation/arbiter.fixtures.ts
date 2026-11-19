@@ -27,7 +27,9 @@ import { workload } from "#compiler/public/workload.ts"
 import {
 	type CallInput,
 	callStatements,
+	certifiedShapeTemplate,
 	type Certifier,
+	generatedShapeTemplate,
 	hostRefused,
 	type InstalledShape,
 	type IsolationRace,
@@ -105,7 +107,7 @@ const certificateAt = (level: Isolation): RoleCertificate =>
 			}
 
 /** Every role of the shape at `level`: the certificates an installation holds for a race at that level. */
-export const atLevel = (level: Isolation): Certifier => ({
+const atLevel = (level: Isolation): Extract<Certifier, { readonly kind: "stated" }> => ({
 	kind: "stated",
 	roles: [{ login: "app", role: "importer", certificate: certificateAt(level) }]
 })
@@ -523,3 +525,22 @@ export type SerialFeature =
 	| "lines sent alone"
 
 export const runs = 8
+
+/** The import shape installed once per member as generate certifies it (race.ts generatedShapeTemplate). */
+export const generatedShape = generatedShapeTemplate(import.meta, "arbiter generate", importShape)
+
+/** The import shape installed once per member with every role READ COMMITTED (race.ts certifiedShapeTemplate). */
+export const readCommittedShape = certifiedShapeTemplate(
+	import.meta,
+	"arbiter read committed",
+	importShape,
+	atLevel("readCommitted")
+)
+
+/** The import shape installed once per member with every role SERIALIZABLE (race.ts certifiedShapeTemplate). */
+export const serializableShape = certifiedShapeTemplate(
+	import.meta,
+	"arbiter serializable",
+	importShape,
+	atLevel("serializable")
+)

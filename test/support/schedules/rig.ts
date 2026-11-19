@@ -7,7 +7,12 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
-import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
+import {
+	type Generated,
+	generatedTemplate,
+	type Installed,
+	installGenerated
+} from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -17,7 +22,11 @@ import { servedFixtureOf } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	Substrate,
+	type SubstrateCase,
+	type SubstrateTemplate
+} from "#test/support/substrate/substrate.ts"
 
 /**
  * A schedule's schema and its worlds: every role a grizzle writer opens is in the login `server`; `direct`, the role
@@ -98,15 +107,52 @@ export const openRig = <W extends RigWorlds>(
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
+	Effect.flatMap(
+		installGenerated((name) => rigLogins(build(name)), { label: "real", ambient: ordinarySession }),
+		(generated) => rigOver(generated, build)
+	)
+
+/** A schedule's schema and the logins its installation carries: `server`, whose roles the writers open, and `psql`. */
+const rigLogins = (declared: RigWorlds) => ({
+	schema: declared.schema,
+	logins: [declared.server, declared.psql]
+})
+
+/**
+ * openRig's installation as a template (install-migrate.ts generatedTemplate): build(name) with its logins drafted and
+ * served once per member under the template's name, `name` telling it from the other templates its declaring module
+ * states. A case reads its rig over its clone (rigIn), installing nothing.
+ */
+export const rigTemplate = (
+	declaredIn: ImportMeta,
+	name: string,
+	build: (name: string) => RigWorlds
+): SubstrateTemplate<Generated> =>
+	generatedTemplate({
+		declaredIn,
+		name,
+		content: { rig: name },
+		build: (installed) => rigLogins(build(installed)),
+		ambient: ordinarySession
+	})
+
+/** The rig of a case over a clone of a schedule's template (rigTemplate), as openRig opens one over its install. */
+export const rigIn = <W extends RigWorlds>(
+	taken: SubstrateCase<Generated>,
+	build: (name: string) => W
+): Effect.Effect<Rig<W>, SqlError, Scope.Scope> =>
+	Effect.provideService(rigOver(taken.value, build), Substrate, taken.substrate)
+
+/**
+ * The rig over a generated installation of build(name) in the substrate's database: the schema and its worlds rebuilt
+ * under the installed name, the login `server` served from the same draft, and the observer opened.
+ */
+const rigOver = <W extends RigWorlds>(
+	{ installed, served }: Generated,
+	build: (name: string) => W
+): Effect.Effect<Rig<W>, SqlError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const { installed, served } = yield* installGenerated(
-			(name) => {
-				const declared = build(name)
-				return { schema: declared.schema, logins: [declared.server, declared.psql] }
-			},
-			{ label: "real", ambient: ordinarySession }
-		)
 		const worlds = build(installed.declared)
 		const fixture = servedFixtureOf<W["server"]>(
 			installed,

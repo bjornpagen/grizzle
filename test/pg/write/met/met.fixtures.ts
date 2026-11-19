@@ -11,6 +11,7 @@ import { workload } from "#compiler/public/workload.ts"
 import type { Witness } from "#compiler/types/changeset/changeset.ts"
 import { deepEquals } from "#test/support/assert.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
+import { rigTemplate } from "#test/support/schedules/rig.ts"
 
 const Krc = relation("Krc", { k: pg.integer, a: pg.integer, b: pg.integer }, ["k"])
 
@@ -495,3 +496,6 @@ export const columnsOf = (n: Name): ReadonlyArray<string> => {
 		...(drawsId(shape) ? ["id"] : [])
 	]
 }
+
+/** The schedule's installation made once per member (support/schedules/rig.ts rigTemplate), which each case's seat holds. */
+export const metRig = rigTemplate(import.meta, "met", metSchema)

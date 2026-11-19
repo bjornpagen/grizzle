@@ -51,6 +51,7 @@ import {
 	type MetFeature,
 	metFeatures,
 	metGen,
+	metRig,
 	metSchema,
 	type Name,
 	relations,
@@ -63,7 +64,7 @@ import {
 import { assert, deepEquals } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { openRig } from "#test/support/schedules/rig.ts"
+import { rigIn } from "#test/support/schedules/rig.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -73,226 +74,241 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevelsAndInEveryForm =
 	property.explore(aimed(metGen, aims), {
-		needs: { substrate: Substrate.installing },
+		needs: { rigged: Substrate.seat(metRig) },
 		situations: metFeatures satisfies ReadonlyArray<Reached<MetFeature>>,
 		check:
-			({ substrate }, k: Case<MetFeature>) =>
+			({ rigged }, k: Case<MetFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const rig = yield* openRig(metSchema)
-						const tables = namesOf(rig.installed)
-						const rc = yield* rig.servedWriter(
-							"rc",
-							(context) => openServed(rig.served.roles.rc, {}).pipe(Effect.provideContext(context)),
-							(db) =>
-								db.workload.Krc.once({ params: {}, facts: { insert: { Krc: [] } } }).pipe(answered)
-						)
-						const ser = yield* rig.servedWriter(
-							"ser",
-							(context) =>
-								openServed(rig.served.roles.ser, {}).pipe(Effect.provideContext(context)),
-							(db) =>
-								db.workload.Kser.once({ params: {}, facts: { insert: { Kser: [] } } }).pipe(
-									answered
+				Effect.flatMap(rigged, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const s = yield* Substrate
+							const rig = yield* rigIn(taken, metSchema)
+							const tables = namesOf(rig.installed)
+							const rc = yield* rig.servedWriter(
+								"rc",
+								(context) =>
+									openServed(rig.served.roles.rc, {}).pipe(Effect.provideContext(context)),
+								(db) =>
+									db.workload.Krc.once({ params: {}, facts: { insert: { Krc: [] } } }).pipe(
+										answered
+									)
+							)
+							const ser = yield* rig.servedWriter(
+								"ser",
+								(context) =>
+									openServed(rig.served.roles.ser, {}).pipe(Effect.provideContext(context)),
+								(db) =>
+									db.workload.Kser.once({ params: {}, facts: { insert: { Kser: [] } } }).pipe(
+										answered
+									)
+							)
+							assert.equal(
+								rc.ctx.isolation,
+								"readCommitted",
+								"generate certifies rc READ COMMITTED"
+							)
+							assert.equal(
+								ser.ctx.isolation,
+								"serializable",
+								"ser, beside a deleter of its relations, runs SERIALIZABLE"
+							)
+							const columnOf = (n: Name, field: string): string =>
+								quoteIdent(tables.columnIdent(relations[n], field))
+							/** A relation's stored rows, each read as text and then as a Row, in key order. */
+							const stateOf = (n: Name) => {
+								const { shape } = shapes[n]
+								const fields = columnsOf(n)
+								return Effect.map(
+									s.admin.queryValues(
+										`SELECT ${Arr.join(
+											Arr.map(fields, (c) => `${columnOf(n, c)}::text`),
+											", "
+										)} FROM ${tables.table(relations[n])}`,
+										[]
+									),
+									(rows) =>
+										Arr.sort(
+											Arr.map(rows, (row): Row => {
+												const value = (field: string): Option.Option<string> =>
+													Option.flatMap(
+														Arr.findFirstIndex(fields, (f) => f === field),
+														(i) => Option.map(Arr.get(row, i), String)
+													)
+												const number = (field: string): number =>
+													Option.getOrElse(Option.map(value(field), Number), () => 0)
+												return {
+													k: number("k"),
+													a: number("a"),
+													b: number("b"),
+													id: drawsId(shape) ? value("id") : Option.none()
+												}
+											}),
+											byKey
+										)
 								)
-						)
-						assert.equal(rc.ctx.isolation, "readCommitted", "generate certifies rc READ COMMITTED")
-						assert.equal(
-							ser.ctx.isolation,
-							"serializable",
-							"ser, beside a deleter of its relations, runs SERIALIZABLE"
-						)
-						const columnOf = (n: Name, field: string): string =>
-							quoteIdent(tables.columnIdent(relations[n], field))
-						/** A relation's stored rows, each read as text and then as a Row, in key order. */
-						const stateOf = (n: Name) => {
-							const { shape } = shapes[n]
-							const fields = columnsOf(n)
-							return Effect.map(
-								s.admin.queryValues(
-									`SELECT ${Arr.join(
-										Arr.map(fields, (c) => `${columnOf(n, c)}::text`),
-										", "
-									)} FROM ${tables.table(relations[n])}`,
-									[]
-								),
-								(rows) =>
-									Arr.sort(
-										Arr.map(rows, (row): Row => {
-											const value = (field: string): Option.Option<string> =>
-												Option.flatMap(
-													Arr.findFirstIndex(fields, (f) => f === field),
-													(i) => Option.map(Arr.get(row, i), String)
-												)
-											const number = (field: string): number =>
-												Option.getOrElse(Option.map(value(field), Number), () => 0)
-											return {
-												k: number("k"),
-												a: number("a"),
-												b: number("b"),
-												id: drawsId(shape) ? value("id") : Option.none()
-											}
-										}),
-										byKey
-									)
-							)
-						}
-						/** The call of relation `n`'s member with its requests, every row the shape states. */
-						const call = (n: Name, facts: ReadonlyArray<Fact>): Effect.Effect<Answer> => {
-							const keyed = Arr.map(facts, (f) => ({ k: f.k, a: f.a, b: f.b }))
-							const set = Arr.map(facts, (f) => ({ k: f.k, a: f.a }))
-							const drawnSet = Arr.map(facts, (f) => ({ k: f.k }))
-							switch (n) {
-								case "Krc":
-									return answerOf(
-										n,
-										rc.db.workload.Krc.once({ params: {}, facts: { insert: { Krc: keyed } } }).pipe(
-											answered
-										),
-										keyedRow
-									)
-								case "Prc":
-									return answerOf(
-										n,
-										rc.db.workload.Prc.once({ params: {}, facts: { insert: { Prc: set } } }).pipe(
-											answered
-										),
-										setRow
-									)
-								case "Drc":
-									return answerOf(
-										n,
-										rc.db.workload.Drc.once({ params: { rows: set }, facts: {} }).pipe(answered),
-										drawnRow
-									)
-								case "Erc":
-									return answerOf(
-										n,
-										rc.db.workload.Erc.once({ params: { rows: drawnSet }, facts: {} }).pipe(
-											answered
-										),
-										drawnSetRow
-									)
-								case "Kser":
-									return answerOf(
-										n,
-										ser.db.workload.Kser.once({
-											params: {},
-											facts: { insert: { Kser: keyed } }
-										}).pipe(answered),
-										keyedRow
-									)
-								case "Pser":
-									return answerOf(
-										n,
-										ser.db.workload.Pser.once({
-											params: {},
-											facts: { insert: { Pser: set } }
-										}).pipe(answered),
-										setRow
-									)
-								case "Dser":
-									return answerOf(
-										n,
-										ser.db.workload.Dser.once({ params: { rows: set }, facts: {} }).pipe(answered),
-										drawnRow
-									)
-								case "Eser":
-									return answerOf(
-										n,
-										ser.db.workload.Eser.once({ params: { rows: drawnSet }, facts: {} }).pipe(
-											answered
-										),
-										drawnSetRow
-									)
 							}
-						}
-
-						const { shape } = shapes[c.relation]
-						const stated = Arr.filter(columnsOf(c.relation), (col) => col !== "id")
-						const valueOf = (f: Fact, col: string): number =>
-							col === "k" ? f.k : col === "a" ? f.a : f.b
-						yield* rig.replace(
-							Arr.isReadonlyArrayNonEmpty(c.stored)
-								? [
-										`INSERT INTO ${tables.table(relations[c.relation])} (${Arr.join(
-											Arr.map(stated, (col) => columnOf(c.relation, col)),
-											", "
-										)}) VALUES ${Arr.join(
-											Arr.map(
-												c.stored,
-												(f) =>
-													`(${Arr.join(
-														Arr.map(stated, (col) => String(valueOf(f, col))),
-														", "
-													)})`
+							/** The call of relation `n`'s member with its requests, every row the shape states. */
+							const call = (n: Name, facts: ReadonlyArray<Fact>): Effect.Effect<Answer> => {
+								const keyed = Arr.map(facts, (f) => ({ k: f.k, a: f.a, b: f.b }))
+								const set = Arr.map(facts, (f) => ({ k: f.k, a: f.a }))
+								const drawnSet = Arr.map(facts, (f) => ({ k: f.k }))
+								switch (n) {
+									case "Krc":
+										return answerOf(
+											n,
+											rc.db.workload.Krc.once({
+												params: {},
+												facts: { insert: { Krc: keyed } }
+											}).pipe(answered),
+											keyedRow
+										)
+									case "Prc":
+										return answerOf(
+											n,
+											rc.db.workload.Prc.once({ params: {}, facts: { insert: { Prc: set } } }).pipe(
+												answered
 											),
-											", "
-										)}`
-									]
-								: []
-						)
-						const before = yield* stateOf(c.relation)
-						const answer = yield* call(
-							c.relation,
-							Arr.map(c.requests, (r) => r.fact)
-						)
-						const after = yield* stateOf(c.relation)
-						const at = (rows: ReadonlyArray<Row>, requests: ReadonlyArray<Request>) =>
-							Arr.filter(rows, (row) => Arr.some(requests, (r) => sameKey(shape, row, r.fact)))
-						const differing = Arr.filter(c.requests, (r) => r.kind === "differing")
-						if (Arr.isReadonlyArrayNonEmpty(differing)) {
+											setRow
+										)
+									case "Drc":
+										return answerOf(
+											n,
+											rc.db.workload.Drc.once({ params: { rows: set }, facts: {} }).pipe(answered),
+											drawnRow
+										)
+									case "Erc":
+										return answerOf(
+											n,
+											rc.db.workload.Erc.once({ params: { rows: drawnSet }, facts: {} }).pipe(
+												answered
+											),
+											drawnSetRow
+										)
+									case "Kser":
+										return answerOf(
+											n,
+											ser.db.workload.Kser.once({
+												params: {},
+												facts: { insert: { Kser: keyed } }
+											}).pipe(answered),
+											keyedRow
+										)
+									case "Pser":
+										return answerOf(
+											n,
+											ser.db.workload.Pser.once({
+												params: {},
+												facts: { insert: { Pser: set } }
+											}).pipe(answered),
+											setRow
+										)
+									case "Dser":
+										return answerOf(
+											n,
+											ser.db.workload.Dser.once({ params: { rows: set }, facts: {} }).pipe(
+												answered
+											),
+											drawnRow
+										)
+									case "Eser":
+										return answerOf(
+											n,
+											ser.db.workload.Eser.once({ params: { rows: drawnSet }, facts: {} }).pipe(
+												answered
+											),
+											drawnSetRow
+										)
+								}
+							}
+
+							const { shape } = shapes[c.relation]
+							const stated = Arr.filter(columnsOf(c.relation), (col) => col !== "id")
+							const valueOf = (f: Fact, col: string): number =>
+								col === "k" ? f.k : col === "a" ? f.a : f.b
+							yield* rig.replace(
+								Arr.isReadonlyArrayNonEmpty(c.stored)
+									? [
+											`INSERT INTO ${tables.table(relations[c.relation])} (${Arr.join(
+												Arr.map(stated, (col) => columnOf(c.relation, col)),
+												", "
+											)}) VALUES ${Arr.join(
+												Arr.map(
+													c.stored,
+													(f) =>
+														`(${Arr.join(
+															Arr.map(stated, (col) => String(valueOf(f, col))),
+															", "
+														)})`
+												),
+												", "
+											)}`
+										]
+									: []
+							)
+							const before = yield* stateOf(c.relation)
+							const answer = yield* call(
+								c.relation,
+								Arr.map(c.requests, (r) => r.fact)
+							)
+							const after = yield* stateOf(c.relation)
+							const at = (rows: ReadonlyArray<Row>, requests: ReadonlyArray<Request>) =>
+								Arr.filter(rows, (row) => Arr.some(requests, (r) => sameKey(shape, row, r.fact)))
+							const differing = Arr.filter(c.requests, (r) => r.kind === "differing")
+							if (Arr.isReadonlyArrayNonEmpty(differing)) {
+								assert.ok(
+									answer.kind === "refused",
+									`a differing request refuses the call: ${Formatter.format(answer)}`
+								)
+								const witness = answer.witness
+								assert.ok(
+									witness.kind === "key" &&
+										Arr.some(differing, (r) => deepEquals(witness.values, { k: r.fact.k })),
+									`the witness is one of the differing keys: ${Formatter.format(witness)}`
+								)
+								assert.deepEqual(after, before, "a refused call changes nothing")
+								k.note(`${c.relation}: refused at a differing key`)
+								return
+							}
 							assert.ok(
-								answer.kind === "refused",
-								`a differing request refuses the call: ${Formatter.format(answer)}`
+								answer.kind === "committed",
+								`the call commits: ${Formatter.format(answer)}`
 							)
-							const witness = answer.witness
-							assert.ok(
-								witness.kind === "key" &&
-									Arr.some(differing, (r) => deepEquals(witness.values, { k: r.fact.k })),
-								`the witness is one of the differing keys: ${Formatter.format(witness)}`
+							const repeats = Arr.filter(c.requests, (r) => r.kind === "repeat")
+							const free = Arr.filter(c.requests, (r) => r.kind === "free")
+							assert.equal(
+								answer.outcome,
+								Arr.isReadonlyArrayNonEmpty(free) ? "accepted" : "unchanged",
+								"accepted where it adds a request, unchanged otherwise"
 							)
-							assert.deepEqual(after, before, "a refused call changes nothing")
-							k.note(`${c.relation}: refused at a differing key`)
-							return
-						}
-						assert.ok(answer.kind === "committed", `the call commits: ${Formatter.format(answer)}`)
-						const repeats = Arr.filter(c.requests, (r) => r.kind === "repeat")
-						const free = Arr.filter(c.requests, (r) => r.kind === "free")
-						assert.equal(
-							answer.outcome,
-							Arr.isReadonlyArrayNonEmpty(free) ? "accepted" : "unchanged",
-							"accepted where it adds a request, unchanged otherwise"
-						)
-						assert.equal(answer.added, BigInt(free.length), "its count is the requests it adds")
-						assert.deepEqual(
-							Arr.sort(answer.addedRows, byKey),
-							at(after, free),
-							"added: exactly the rows it made, their drawn ids as stored"
-						)
-						assert.deepEqual(
-							Arr.sort(answer.metRows, byKey),
-							at(before, repeats),
-							"met: exactly the stored rows it repeats, each whole"
-						)
-						assert.deepEqual(
-							Arr.filter(after, (row) => !Arr.some(free, (r) => sameKey(shape, row, r.fact))),
-							before,
-							"the stored rows stay as they are"
-						)
-						if (Arr.isReadonlyArrayNonEmpty(repeats)) {
-							k.note(`${c.relation}: met`)
-							k.note(
-								Arr.isReadonlyArrayNonEmpty(free)
-									? `${c.relation}: added beside met`
-									: `${c.relation}: unchanged, met only`
+							assert.equal(answer.added, BigInt(free.length), "its count is the requests it adds")
+							assert.deepEqual(
+								Arr.sort(answer.addedRows, byKey),
+								at(after, free),
+								"added: exactly the rows it made, their drawn ids as stored"
 							)
-						}
-					}),
-					Substrate,
-					substrate
+							assert.deepEqual(
+								Arr.sort(answer.metRows, byKey),
+								at(before, repeats),
+								"met: exactly the stored rows it repeats, each whole"
+							)
+							assert.deepEqual(
+								Arr.filter(after, (row) => !Arr.some(free, (r) => sameKey(shape, row, r.fact))),
+								before,
+								"the stored rows stay as they are"
+							)
+							if (Arr.isReadonlyArrayNonEmpty(repeats)) {
+								k.note(`${c.relation}: met`)
+								k.note(
+									Arr.isReadonlyArrayNonEmpty(free)
+										? `${c.relation}: added beside met`
+										: `${c.relation}: unchanged, met only`
+								)
+							}
+						}),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",
