@@ -83,5 +83,6 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/runtime/sequential.test.ts",
 	"test/runtime/serialize-form.test.ts",
 	"test/runtime/serialize.test.ts",
-	"test/runtime/sse.test.ts"
+	"test/runtime/sse.test.ts",
+	"test/support/cli-package.test.ts"
 ]
