@@ -119,5 +119,5 @@ export default toolchain({
 	},
 	exceptions: [],
 	effectFree: [],
-	packs: []
+	packs: {}
 })
