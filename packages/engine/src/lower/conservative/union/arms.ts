@@ -5,17 +5,10 @@ import {
 	type ColumnMap,
 	columnIn,
 	type Env,
-	type LowerContext
+	type LowerContext,
+	readsSet
 } from "#compiler/lower/conservative/context.ts"
-
-import {
-	type Expr,
-	isSetQuery,
-	type Select,
-	type SelectCore,
-	type Target,
-	type TypeRef
-} from "#compiler/sql/ast.ts"
+import type { Expr, Select, SelectCore, Target, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	cast,
 	core,
@@ -84,7 +77,7 @@ export const armColumns = (
 export const armCore = (cx: LowerContext, arm: RelNode, heading: Heading, env: Env): SelectCore => {
 	const source = cx.source(arm, env)
 	const targets = armTargets(cx, heading, source.map)
-	return source.item.kind !== "derived" || isSetQuery(source.item.query)
+	return readsSet(source.item)
 		? provedCore("keyed", targets, [source.item], undefined)
 		: core(targets, [source.item], undefined)
 }

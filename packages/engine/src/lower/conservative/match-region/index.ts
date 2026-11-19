@@ -21,7 +21,8 @@ import {
 	type Lowerers,
 	type NodeLowerer,
 	nodeLabel,
-	refuse
+	refuse,
+	wholeSelect
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
@@ -265,10 +266,25 @@ interface RegionParts {
  */
 const lowerMatchRegion: NodeLowerer<"MatchRegion"> = (node, cx, env) => {
 	const parts = regionParts(node, cx, env)
-	return distinctSelect(
-		parts.targets,
-		parts.occurrences.map((o) => o.item),
-		parts.conditions
+	const from = parts.occurrences.map((o) => o.item)
+	return bindsEveryColumn(node)
+		? wholeSelect(from, parts.targets, parts.conditions)
+		: distinctSelect(parts.targets, from, parts.conditions)
+}
+
+/**
+ * Whether a region witnesses nothing: every column of each occurrence's source is bound to a variable of its heading or
+ * fixed by a constant, so two distinct bindings of its sources' rows are two distinct bindings of its variables, and
+ * over sets the region's bindings are a set with no deduplication (wholeSelect).
+ */
+const bindsEveryColumn = (node: Region): boolean => {
+	const heading = new Set(node.heading.map((c) => c.name))
+	return node.occurrences.every((o) =>
+		o.source.heading.every(
+			(c) =>
+				o.bindings.some((b) => b.column === c.name && heading.has(b.var.name)) ||
+				o.constants.some((k) => k.column === c.name)
+		)
 	)
 }
 

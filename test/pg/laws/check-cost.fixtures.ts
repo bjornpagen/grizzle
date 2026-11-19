@@ -11,7 +11,9 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema, select } from "#compiler/public/schema.ts"
+import { type FromSource, isSetQuery, type Select, type SelectCore } from "#compiler/sql/ast.ts"
 import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
+import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
@@ -149,6 +151,47 @@ const elementsOf = (c: CheckCase): string => {
 	}
 }
 
+/** The columns of a derived table a core reads, as `<alias>.<column>`, where its query is a set; none for any other source. */
+const setColumns = (source: FromSource): ReadonlyArray<string> =>
+	source.kind === "derived" && isSetQuery(source.query)
+		? Arr.map(source.columns, (column) => `${source.alias}.${column}`)
+		: []
+
+/**
+ * The deduplications of `query` that a set makes needless: each SELECT DISTINCT whose every source is a derived table of
+ * a set, and whose targets read every column of each as it is, so that no two rows it reads deliver one row.
+ */
+const needlessDeduplications = (query: Select): ReadonlyArray<SelectCore> => {
+	const needless: Array<SelectCore> = []
+	transformSelect(query, {
+		...identityHooks,
+		core: (c) => {
+			const sources = Arr.flatMap(c.from, (item) =>
+				item.kind === "joins" ? [item.first, ...Arr.map(item.steps, (step) => step.source)] : [item]
+			)
+			const read = new Set(
+				Arr.flatMap(c.targets, (t) =>
+					t.expr.kind === "column" && t.expr.table !== undefined
+						? [`${t.expr.table}.${t.expr.column}`]
+						: []
+				)
+			)
+			if (
+				c.distinct === true &&
+				sources.length > 0 &&
+				Arr.every(sources, (source) => {
+					const columns = setColumns(source)
+					return columns.length > 0 && Arr.every(columns, (column) => read.has(column))
+				})
+			) {
+				needless.push(c)
+			}
+			return c
+		}
+	})
+	return needless
+}
+
 /**
  * The statements PostgreSQL plans for a check's block, from its text, each as PL/pgSQL plans it: a PERFORM as the
  * SELECT whose keyword it replaces, for every row (pl_exec.c exec_stmt_perform), an IF's condition as SELECT
@@ -212,6 +255,13 @@ export const runCheck = (
 		const rows = Number(defined(counted[0]?.[0], "the two tables' count"))
 		const checks = lawChecks(installed.installation)
 		assert.equal(checks.rules.length, 3, "the schema's three rules")
+		for (const rule of checks.rules) {
+			assert.equal(
+				needlessDeduplications(rule.query).length,
+				0,
+				`${rule.law}: the check deduplicates no set it reads whole`
+			)
+		}
 		const blocks = Arr.map(checks.rules, (rule) => ({
 			law: rule.law,
 			text: sqlText(SourceLoc("check-cost", []), (out) =>

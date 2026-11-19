@@ -39,17 +39,18 @@ import type {
 } from "#compiler/lower/conservative/types.ts"
 import { columnType, namedColumn } from "#compiler/runtime/lower/columns.ts"
 import { unitColumn } from "#compiler/runtime/lower/tree.ts"
-import type {
-	ArrayCheck,
-	ArraysSource,
-	Cte,
-	Expr,
-	FromItem,
-	FromSource,
-	OperandSelect,
-	Select,
-	Target,
-	TypeRef
+import {
+	type ArrayCheck,
+	type ArraysSource,
+	type Cte,
+	type Expr,
+	type FromItem,
+	type FromSource,
+	isSetQuery,
+	type OperandSelect,
+	type Select,
+	type Target,
+	type TypeRef
 } from "#compiler/sql/ast.ts"
 import {
 	baseCheck,
@@ -61,6 +62,7 @@ import {
 	distinctCore,
 	lit,
 	positionalValue,
+	provedSelect,
 	sameTypeRef,
 	select,
 	slotParam,
@@ -973,3 +975,26 @@ export const distinctSelect = (
 	from: ReadonlyArray<FromItem>,
 	where: ReadonlyArray<Expr>
 ): Select => select(distinctCore(targets, from, conjunction(where)))
+
+/**
+ * Whether a source's rows are a set: a derived table whose query is one (sql/ast.ts isSetQuery), deduplicated or a
+ * core under its proof, as every node a lowering deduplicates or proves is, or any other source.
+ */
+export const readsSet = (source: FromSource): boolean =>
+	source.kind !== "derived" || isSetQuery(source.query)
+
+/**
+ * The rows of the sources `from` where `where` holds, delivered by `targets`, which hold every column of each source,
+ * each as it is, through the binary coercion, which keeps every value, or fixed by `where`: a filter's heading, a
+ * renaming's, a region's every column bound. Two distinct rows of the sources then deliver two distinct rows, so over
+ * sets no row repeats and the core stands under the proof `keyed`, the sets' whole headings (sql/ast.ts RowsProof),
+ * with no deduplication; over rows that may repeat, it is the conservative set boundary.
+ */
+export const wholeSelect = (
+	from: ReadonlyArray<FromSource>,
+	targets: NonEmptyReadonlyArray<Target>,
+	where: ReadonlyArray<Expr>
+): Select =>
+	from.every(readsSet)
+		? provedSelect("keyed", targets, from, conjunction(where))
+		: distinctSelect(targets, from, where)

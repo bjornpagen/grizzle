@@ -19,9 +19,16 @@
  * 32.2 s of the series' 320.7 s on that copy. It is the side read once, grouped by the key, its facts counted
  * (analysis/theory/query.ts violationQuery), so it reads each table once.
  *
- * Property: for each case of the box, every statement the check's block plans, explained with ANALYZE as PL/pgSQL
- * plans it, reads each table by one plan node and touches at most its plan's nodes times the rows of the two tables
- * (check-cost.fixtures.ts runCheck), and the block raises nothing; then, with an element of a declaring kind no
+ * Every level of a check read its rows as a set by SELECT DISTINCT, the conservative lowering's set boundary, though
+ * a filter of a set, a renaming of one and a region that binds every column of its sets are sets already
+ * (lower/conservative/context.ts wholeSelect): __assessment_object_in_node's check hashed node's 1,829,374 rows twice
+ * before its EXCEPT hashed them again, 9.6 s of its standalone run on PRODLAB's production template. Each such level
+ * is the set its input is, proved by the input's shape, and reads it once with no deduplication.
+ *
+ * Property: for each case of the box, no SELECT DISTINCT of a check's query reads only sets whose every column its
+ * targets keep (check-cost.fixtures.ts needlessDeduplications), and every statement the check's block plans, explained
+ * with ANALYZE as PL/pgSQL plans it, reads each table by one plan node and touches at most its plan's nodes times the
+ * rows of the two tables (runCheck), and the block raises nothing; then, with an element of a declaring kind no
  * declaration names and two declared elements of one document and kind that share a weight, it raises SQLSTATE 23000
  * under the law's identity. The oracle is the bound itself, rows counted over every loop and scans counted per table,
  * never a clock.
@@ -45,8 +52,8 @@ import {
 } from "#test/pg/laws/check-cost.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A law's full check reads each table it checks once and each row a bounded number of times, finds nothing where the law holds, and refuses a violation under the law's identity. */
-export const aLawsFullCheckReadsEachTableOnceAndEachRowABoundedNumberOfTimesAndRefusesAViolationUnderTheLawsIdentity =
+/** A law's full check reads each table it checks once and each row a bounded number of times, deduplicates no set, finds nothing where the law holds, and refuses a violation under the law's identity. */
+export const aLawsFullCheckReadsEachTableOnceAndEachRowABoundedNumberOfTimesDeduplicatesNoSetAndRefusesAViolationUnderTheLawsIdentity =
 	property.exhaust(finite(checkCaseGen), {
 		needs: { ledger: Substrate.rolledBack(checkCostTemplate) },
 		situations: ["a law that holds", "a violation found"] satisfies ReadonlyArray<
@@ -58,7 +65,7 @@ export const aLawsFullCheckReadsEachTableOnceAndEachRowABoundedNumberOfTimesAndR
 				Effect.flatMap(ledger, ({ connection, value }) => runCheck(value, connection, c, k)),
 		oracle: {
 			kind: "specification",
-			name: "the bound: every plan of the check reads each table by one node and touches at most its nodes times the rows of the tables it reads, counted over all loops; and SQLSTATE 23000 under the law's identity for an undeclared element and for two declared elements at one key"
+			name: "the bound: no deduplication of a set, and every plan of the check reads each table by one node and touches at most its nodes times the rows of the tables it reads, counted over all loops; and SQLSTATE 23000 under the law's identity for an undeclared element and for two declared elements at one key"
 		},
 		box: "the rules Node's elements of a declaring kind, and of tag, group and band 5, contained in Decl on (pkg, path, at), and Node ⋈ Decl keyed by (pkg, path, kind, w), two layouts at 500, 1,000, 2,000, 4,000, 8,000 and 16,000 elements, analyzed",
 		kept: [],
@@ -74,6 +81,18 @@ export const aLawsFullCheckReadsEachTableOnceAndEachRowABoundedNumberOfTimesAndR
 				original: `\t\t\tconst side = wholeSide(rule.side, definition, rule.side.heading, "s0.", loc)\n`,
 				replacement: `\t\t\tconst heading = rule.side.heading\n\t\t\tconst one = wholeSide(rule.side, definition, heading, "s0.", loc)\n\t\t\tconst other = wholeSide(rule.side, definition, heading, "s1.", loc)\n\t\t\tconst otherFacts = imported(\n\t\t\t\t[\n\t\t\t\t\truleDesc(\n\t\t\t\t\t\tother.vars,\n\t\t\t\t\t\t[other.match],\n\t\t\t\t\t\tother.where,\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\t...termHead(other.terms),\n\t\t\t\t\t\t\t...Object.fromEntries(\n\t\t\t\t\t\t\t\theading.map((f) => [headName(f), wholeField(other, f, loc)] as const)\n\t\t\t\t\t\t\t)\n\t\t\t\t\t\t},\n\t\t\t\t\t\tloc\n\t\t\t\t\t)\n\t\t\t\t],\n\t\t\t\tloc\n\t\t\t)\n\t\t\tconst bindings: Record<string, InferredExpr> = { ...termHead(one.terms) }\n\t\t\tfor (const f of heading) {\n\t\t\t\tbindings[headName(f)] = varRef(otherId(f))\n\t\t\t}\n\t\t\treturn queryOf(\n\t\t\t\t[\n\t\t\t\t\truleDesc(\n\t\t\t\t\t\t[...one.vars, ...heading.map((f) => ({ id: otherId(f), origin: undefined, loc }))],\n\t\t\t\t\t\t[one.match, { source: otherFacts, bindings, loc }],\n\t\t\t\t\t\t[\n\t\t\t\t\t\t\t...one.where,\n\t\t\t\t\t\t\tconnectiveExpr(\n\t\t\t\t\t\t\t\t"or",\n\t\t\t\t\t\t\t\theading.map((f): InferredExpr => ({\n\t\t\t\t\t\t\t\t\tkind: "compare",\n\t\t\t\t\t\t\t\t\top: "ne",\n\t\t\t\t\t\t\t\t\tleft: wholeField(one, f, loc),\n\t\t\t\t\t\t\t\t\tright: varRef(otherId(f))\n\t\t\t\t\t\t\t\t}))\n\t\t\t\t\t\t\t)\n\t\t\t\t\t\t],\n\t\t\t\t\t\ttermHead(one.terms),\n\t\t\t\t\t\tloc\n\t\t\t\t\t)\n\t\t\t\t],\n\t\t\t\tloc\n\t\t\t)\n\t\t\tconst side = wholeSide(rule.side, definition, rule.side.heading, "s0.", loc)\n`,
 				why: "A key's check is the self-join of its side again, a fact of the side met by another that agrees with it on the key and differs from it elsewhere, which derives the side twice, each relation it reads by a scan of each derivation."
+			},
+			{
+				file: "packages/engine/src/lower/conservative/context.ts",
+				original: '\tsource.kind !== "derived" || isSetQuery(source.query)',
+				replacement: '\tsource.kind !== "derived"',
+				why: "No derived table reads as a set, so every filter, renaming and region over one deduplicates again: the DISTINCT tower, a sort or hash of every row of node at each level of QTI's checks."
+			},
+			{
+				file: "packages/engine/src/lower/conservative/match-region/index.ts",
+				original: "\t\t? wholeSelect(from, parts.targets, parts.conditions)",
+				replacement: "\t\t? distinctSelect(parts.targets, from, parts.conditions)",
+				why: "A region that binds every column of its sets deduplicates them again, as each scan of a check's tables is a region of one occurrence."
 			}
 		]
 	})
