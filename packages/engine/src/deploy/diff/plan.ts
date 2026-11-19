@@ -74,8 +74,8 @@ export interface Declarations {
  *   constraints of tables that may hold rows, NOT VALID, after every value they read is drawn; and last the roles' changed
  *   views, world functions and policies created again with their grants, each whose role stands before the migration:
  *   in the one transaction that dropped them, so no committed state lacks one an existing role relies on;
- * - indexes: ordinary CREATE INDEX on relations this migration creates, which are empty, and CREATE STATISTICS
- *   followed by ANALYZE of a table that existed;
+ * - indexes: ordinary CREATE INDEX on relations this migration creates, which are empty, and CREATE STATISTICS, which
+ *   no ANALYZE follows: a migration runs no ANALYZE, which the operator's runbook runs after a first package;
  * - indexes.concurrent: CREATE INDEX CONCURRENTLY on relations that may hold rows, each after dropping an invalid
  *   index a failed build left;
  * - validate, validate.retrigger: VALIDATE CONSTRAINT of the constraints Structure added NOT VALID, the rule judge's
@@ -303,7 +303,6 @@ export const alterationStatement = (
  *   identity's advance;
  * - `violation`: the full violation query of a law the migration discharges once, which raises with the law's identity
  *   when it has a row;
- * - `analyze`: ANALYZE of a table that may hold rows, after a new statistics object;
  * - `dropStatistics`: DROP STATISTICS, which the SQL AST has no form for. */
 export type Action =
 	| { readonly kind: "statement"; readonly statement: SqlStatement }
@@ -319,7 +318,6 @@ export type Action =
 			readonly anchor: GenerationAnchor | undefined
 	  }
 	| { readonly kind: "violation"; readonly law: LawId; readonly query: Select }
-	| { readonly kind: "analyze"; readonly table: ObjectName }
 	| { readonly kind: "dropStatistics"; readonly name: ObjectName }
 
 /** A column's conversion to a new type: in place by its cast, when the new type holds the old one's values (its domains

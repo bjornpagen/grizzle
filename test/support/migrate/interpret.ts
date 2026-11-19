@@ -4073,9 +4073,6 @@ class Model {
 				}
 				return
 			}
-			case "analyze":
-				this.#relation(a.table)
-				return
 			case "violation":
 				for (const relation of readsOf(a.query, this.#schema, (r) =>
 					this.#columnsOfRelation(r)

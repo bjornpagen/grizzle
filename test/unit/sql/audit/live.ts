@@ -427,7 +427,7 @@ const chains: ReadonlyArray<readonly [string, ReadonlyArray<ChainStep>]> = [
 /**
  * The statements an action holds: a statement action's own, and a table alteration's ALTER TABLE of its subcommands but
  * its placeholders. Every other piece is reviewer-facing template text the drafter renders (a placeholder, a law's
- * violation check, an ANALYZE, a drop the AST has no form for), which no
+ * violation check, a drop the AST has no form for), which no
  * production audit reads.
  */
 const actionStatements = (a: Action): ReadonlyArray<SqlStatement> => {
@@ -440,7 +440,6 @@ const actionStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 		}
 		case "fill":
 		case "violation":
-		case "analyze":
 		case "dropStatistics":
 			return []
 	}
@@ -460,7 +459,6 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 		case "alteration":
 		case "fill":
 		case "violation":
-		case "analyze":
 		case "dropStatistics":
 			return actionStatements(d)
 	}

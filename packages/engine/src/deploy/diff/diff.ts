@@ -796,7 +796,6 @@ const alteredBy = (
 			return { table: d.table, actions: d.actions }
 		case "fill":
 		case "violation":
-		case "analyze":
 		case "dropStatistics":
 		case "loss":
 		case "confirm":
@@ -2757,9 +2756,6 @@ class Differ {
 			this.push("indexes", { kind: "dropStatistics", name: create.name })
 		}
 		this.sql("indexes", [create])
-		if (this.mayHoldRows(create.table)) {
-			this.push("indexes", { kind: "analyze", table: create.table })
-		}
 	}
 
 	/** An object the target no longer has and no step takes away first (Fate removed), dropped in place by a statement
@@ -3208,7 +3204,6 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 			return [alterationStatement(d.table, d.actions)]
 		case "fill":
 		case "violation":
-		case "analyze":
 		case "dropStatistics":
 			return []
 	}

@@ -513,7 +513,6 @@ const statementsOf = (draft: GenerateResult): ReadonlyArray<SqlStatement> =>
 				case "fill":
 					return [fillStatement(a.table, a.fields)]
 				case "violation":
-				case "analyze":
 				case "dropStatistics":
 					return []
 			}

@@ -132,7 +132,7 @@ const spelled = (
 
 const bare = (statement: SqlStatement): NonEmptyReadonlyArray<Spelled> => spelled([], statement)
 
-/** A statement printed on its one line, which the SQL AST has no form for: ANALYZE and DROP STATISTICS. */
+/** A statement printed on its one line, which the SQL AST has no form for: DROP STATISTICS. */
 const oneLine = (above: ReadonlyArray<string>, text: string): Spelled => ({
 	above,
 	write: (out) => out.line(text)
@@ -252,8 +252,6 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 					write: (out) => writeDoBlock(out, violationCheck(action.law, action.query))
 				}
 			]
-		case "analyze":
-			return [oneLine([], `ANALYZE ${printObjectName(action.table)}`)]
 		case "dropStatistics":
 			return [oneLine([], `DROP STATISTICS ${printObjectName(action.name)}`)]
 	}
@@ -265,7 +263,6 @@ const renderDraft = (out: Lines, draft: Draft): void => {
 		case "alteration":
 		case "fill":
 		case "violation":
-		case "analyze":
 		case "dropStatistics":
 			for (const s of spellAction(draft)) {
 				spelledLines(out, s)
@@ -301,7 +298,7 @@ const renderDraft = (out: Lines, draft: Draft): void => {
  * - a violation check: a DO block that reads the violation query whole and raises when it found a row (sql/build.ts
  *   whenFound), SQLSTATE 23000 with the law's identity as the constraint name, as the law function itself does, so a
  *   violating Validate file rolls back with the law's identity;
- * - `ANALYZE <table>` and `DROP STATISTICS <name>`;
+ * - `DROP STATISTICS <name>`;
  * - a confirm's marker and its statements;
  * - a loss's marker, saying what it loses and how to decide it, above its statement commented the same way.
  *
@@ -332,7 +329,6 @@ const recordStep = (d: Draft): ReadonlyArray<MetaStep> => {
 		case "alteration":
 		case "fill":
 		case "violation":
-		case "analyze":
 		case "dropStatistics":
 			return spellAction(d).map((x): MetaStep => ({ kind: "statement", statement: spelledText(x) }))
 		case "confirm":
