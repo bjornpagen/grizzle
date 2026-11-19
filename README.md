@@ -1736,8 +1736,8 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   as its field's type and never altered: a `Decimal` with more fractional digits than its `pg.numeric(p, s)` holds is
   an `EncodingFailure` (`numericScale`), never rounded, so `1.005` at scale 2 is refused where PostgreSQL would store
   `1.01`; a `number` for `pg.real` must be a binary32 value as it is, `Math.fround(x) === x`, or it is an
-  `EncodingFailure` (`realInexact`), never rounded to the nearest one. A uuid's case and a float's `-0` are spellings of
-  one value, and nothing else is changed. Everything else a field's type says, its pattern and contract, is
+  `EncodingFailure` (`realInexact`), never rounded to the nearest one. A uuid's case is a spelling of one value, a
+  float's `-0` a value of its own, kept as written, and nothing else is changed. Everything else a field's type says, its pattern and contract, is
   PostgreSQL's to check ([Errors and outcomes](#errors-and-outcomes)).
 
 - **Contracts.** `Cents(500n)` brands a value without checking it; the database checks it on every write. A fourth
@@ -2755,7 +2755,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 - **A JavaScript value takes the type of what it meets:** its column, the term it is compared with, the field a write puts it in, or the type the query's other rules give its field. Meeting nothing, a string is text, a safe integer an integer, a bigint a bigint, a `Decimal` a numeric, a `Money` money and a boolean a boolean; any other value is refused. It never stands first in a comparison, and a list such as `r.in`'s holds only JavaScript values. Opposite a term, at a column, for a parameter or in a fact, it is a value of its type: in a pattern's language, a uuid's hyphenated spelling, a roster's names, so `"abc"` at a uuid column is a type error, and so is a plain `string` until `Uuid.parse` reads it.
 - **A typed term states its type** and stands wherever such a term does. `Status.handle("Published")` is a member of the `Status` roster, and `Compute.literal(F, x)` is `x` at the type of any other descriptor `F`. A head keeps a handle's member, so `find({ status: Status.handle("Published") })` delivers `status: "Published"`; `Compute.literal` delivers F's type.
 - **Terms that meet have one type:** one SQL type, one contract and one roster. A text term never meets a uuid column, and two rosters of the same members never meet. Texts of any two patterns meet: a pattern is no part of a text's type. The rules of one query deliver each field they share at one type.
-- **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field holds at most two places, refusing a value of more rather than rounding it, and delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float's zero is `0`, never `-0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Compute.div(x, 3n)` is the same number whatever scale `x` was stored at.
+- **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field holds at most two places, refusing a value of more rather than rounding it, and delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float keeps its zero's sign: `-0` is a value of its own, stored, computed and delivered as `-0`, equal to `0` under `=`, `DISTINCT` and a key's equality and apart from it as a fact's identity; a vector's components have one zero, `0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Compute.div(x, 3n)` is the same number whatever scale `x` was stored at.
 - **Float and money sums are exact.** A sum of `real` or `double precision` values is their exact total rounded once to the result type, and of `Money` values their exact total; a mean of floats is that total over the count, rounded once. The same rows give the same sum in any order, under any plan.
 - **Every answer is a function of the facts**, but for two exceptions, both pgvector's. `.approximateNearest` returns candidates from pgvector's index: which rows, and how many, depend on the index and the database owner's pgvector settings too. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates in exact distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan that reaches their bounds returns fewer rows than asked. `Compute.cosineDistance` is pgvector's own float arithmetic: one server gives the same result for the same vectors on every evaluation, but pgvector builds or CPUs may differ in the last place.
 - **No read fails on a value.** Every Compute operation is defined on every value its operands' types admit, or its precondition is proved where it stands, so no query, role view or check raises an arithmetic error on any row.
@@ -3921,8 +3921,9 @@ and once.
 
 `codecText(field)` reads a field descriptor once and gives the one text of each value of its type, a function of the
 value alone: bind `const startText = codecText(Node.fields.start)`, then `startText(row.start)` is a `Result` of the
-value's text, or the `CodecFault` of a value its type does not admit. Two values have one text exactly when
-PostgreSQL's equality of the type holds them equal (numeric 1.0 and 1.00, NaN and NaN, -0 and +0). A closed id's text
+value's text, or the `CodecFault` of a value its type does not admit. Two values have one text exactly when they are
+one value: numeric 1.0 and 1.00 are one, as NaN and NaN are, and a float's -0 and +0, equal under PostgreSQL's
+equality, are two, `-0` and `0`. A closed id's text
 is its handle, its host value, and a set's its handles in its roster's declared order as a JSON array: a code is a
 storage detail of one installation, so a text is the same in every installation, and readable in a message. Every other
 carrier's is the codec's own, which PostgreSQL's input function reads as the value: an integer's digits, a numeric's
@@ -4615,9 +4616,11 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   owner's count and each fold's running values, and the owner's count and ends, under their installed names
   (`grizzle names` lists the hashed ones).
   PostgreSQL refuses every value that breaks the family, with 23505, 23514 or 23503.
-- **Spellings are not values.** A writer may store `-0` in a float or vector field; grizzle reads it as `0`, and no
-  query result depends on the spelling stored. A key holds one fact per value: `[-0,1]` and `[0,1]` in a vector key
-  field collide (23505).
+- **A float's `-0` is a value, a vector component's a spelling.** A writer may store `-0` in a float field, and grizzle
+  reads it back as `-0`, a value of its own: equal to `0` under `=`, `DISTINCT` and PostgreSQL's equality, so a key
+  over the field holds `-0` and `0` as one key (23505), and apart from it as a fact's identity. A vector component's
+  `-0` is a spelling of `0`: grizzle reads it as `0`, no query result depends on the spelling stored, and `[-0,1]` and
+  `[0,1]` in a vector key field collide (23505).
 - **A login without `SET ROLE`** holds only USAGE on its schema, SELECT on the ledger, and EXECUTE on the snapshot
   guard, the lock and the check that every `Db` transaction takes.
 - **The owner and superusers bypass** every rule and role, and the owner is reserved for migrations.
