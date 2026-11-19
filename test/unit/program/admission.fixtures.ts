@@ -4,7 +4,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
 import { relation } from "#compiler/public/dynamic.ts"
-import { contract, date, Decimal, pg } from "#compiler/public/fields.ts"
+import { bytes, contract, date, Decimal, pg } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
@@ -14,8 +14,8 @@ const anyText = str.regex("^.*$", "su")
 
 /**
  * The fields of the relation every case admits a row of: one at each site a value sits, each integer type, a text, a
- * date and a numeric of a typmod, plainly and under a contract whose predicate the host judges (a refined field, the
- * domain loop's), so a value the input function refuses reaches both the column's type and its domain.
+ * date, a numeric of a typmod and a bytes value, plainly and under a contract whose predicate the host judges (a refined
+ * field, the domain loop's), so a value the input function refuses reaches both the column's type and its domain.
  */
 export const cellFields = {
 	id: Id,
@@ -25,6 +25,7 @@ export const cellFields = {
 	t: anyText,
 	d: date,
 	n: pg.numeric(5, 2),
+	b: bytes,
 	ci4: contract("Slot", pg.integer, (v) => Compute.ge(v, 0)),
 	ci8: contract("Tally", pg.bigint, (v) => Compute.ge(v, 0n)),
 	ct: contract("Short", anyText, (v) => Compute.le(Compute.charLength(v), 8))
@@ -47,6 +48,7 @@ export const admittedRow = {
 	t: "a",
 	d: "2024-02-29",
 	n: Decimal.of("123.45"),
+	b: new Uint8Array([1, 2]),
 	ci4: 1,
 	ci8: 1n,
 	ct: "a"
@@ -65,7 +67,7 @@ export interface BadInput {
 /**
  * The values each site's type refuses, its input function's every class F7 names: an integer that is none (a fraction,
  * a value of the other integer host) or past its type's range, a text holding NUL, a date no calendar holds, and a
- * numeric past its typmod's scale or its precision.
+ * numeric past its typmod's scale or its precision, and a bytes value that is no Uint8Array.
  */
 const integerOfNumber = (site: Cell, high: number): ReadonlyArray<BadInput> => [
 	{ site, label: "a fraction", value: 1.5 },
@@ -93,6 +95,8 @@ const badInputs: Arr.NonEmptyReadonlyArray<BadInput> = [
 	{ site: "d", label: "a thirteenth month", value: "2024-13-01" },
 	{ site: "n", label: "past its scale", value: Decimal.of("123.456") },
 	{ site: "n", label: "past its precision", value: Decimal.of("12345.6") },
+	{ site: "b", label: "a text", value: "AQI=" },
+	{ site: "b", label: "an array of numbers", value: [1, 2] },
 	...integerOfNumber("ci4", 2147483647),
 	...integerOfBigint("ci8"),
 	...textWithNul("ct")

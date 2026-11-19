@@ -799,22 +799,12 @@ export const readFact = (plan: HeadingPlan, fact: unknown): Result.Result<ReadFa
 		if (!read.ok) {
 			return Result.err(read.error)
 		}
-		if (field.spec.carrier === "bytes") {
-			const bytes =
-				read.value instanceof AdmittedBytes ? Result.ok(read.value) : checkBytes(read.value)
-			if (!bytes.ok) {
-				return Result.err({ fault: bytes.error, field: field.name })
-			}
-			values.push(bytes.value)
-			parts.push(String(lengthOf(bytes.value)))
-			continue
-		}
-		const value = parseValue(field.spec, read.value)
+		const value = admitValue(field.spec, read.value)
 		if (!value.ok) {
 			return Result.err({ fault: value.error, field: field.name })
 		}
 		values.push(value.value)
-		parts.push(canonicalText(field.spec, value.value))
+		parts.push(partOf(field.spec, value.value))
 	}
 	if (names === "repeated") {
 		return Result.err({ fault: "factShape", field: undefined })
@@ -822,9 +812,32 @@ export const readFact = (plan: HeadingPlan, fact: unknown): Result.Result<ReadFa
 	return Result.ok({ values, parts })
 }
 
-/** The length of a read bytes value: the caller's array's, or an admitted value's bytes'. */
-const lengthOf = (value: Uint8Array | AdmittedBytes): number =>
-	value instanceof AdmittedBytes ? value.bytes.length : value.length
+/**
+ * A stated value read as its field's: the one admission of a caller's value of a field, every reader's, a write's facts
+ * (readFact), an evaluated row's (program/evaluate.ts admission) and a decoded row's (program/decode.ts): a bytes value
+ * checked and kept as it is, its bytes unread (values/bytes.ts checkBytes), or a value admitted already; every other
+ * carrier's value its exact parse (parseValue).
+ */
+export const admitValue = (
+	spec: CarrierSpec,
+	value: unknown
+): Result.Result<HostValue | Uint8Array, ValueFault> =>
+	spec.carrier !== "bytes"
+		? parseValue(spec, value)
+		: value instanceof AdmittedBytes
+			? Result.ok(value)
+			: checkBytes(value)
+
+/**
+ * A read value's part of its fact's identity (ReadFact `parts`), from the value admitValue read: a bytes value's length,
+ * the caller's array's or an admitted value's, and any other's canonical text.
+ */
+const partOf = (spec: CarrierSpec, value: HostValue | Uint8Array): string =>
+	value instanceof Uint8Array
+		? String(value.length)
+		: spec.carrier === "bytes" && value instanceof AdmittedBytes
+			? String(value.bytes.length)
+			: canonicalText(spec, value)
 
 /**
  * A read fact's bytes field `name` admitted with its digest: the caller's array digested, or a value admitted already

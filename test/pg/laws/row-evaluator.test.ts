@@ -76,8 +76,8 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 		kills: [
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "\tfor (const field of relation.refined) {",
-				replacement: "\tfor (const field of relation.refined.slice(1)) {",
+				original: "\tfor (const field of refined) {",
+				replacement: "\tfor (const field of refined.slice(1)) {",
 				why: "admit skips a refined field: a row its first refined field's domain refuses is admitted, where PostgreSQL's CHECK refuses it."
 			},
 			{
@@ -138,7 +138,8 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "\t\tread.set(name, relationReading(name, statedFields(closed.heading), []))",
+				original:
+					"\t\tread.set(name, relationReading(name, statedFields(closed.heading), [], codes))",
 				replacement: "\t\tread.delete(name)",
 				why: "No closed relation is read as a source, as before: a row of a closed relation or of a selection of one, which RowSource admits, is a defect thrown, a row source of the schema not found."
 			}

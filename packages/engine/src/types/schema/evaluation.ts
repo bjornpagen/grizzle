@@ -64,8 +64,9 @@ export interface DomainRefused<R> {
 /**
  * A row PostgreSQL refuses before it reads any domain: `field` holds no value of its column's type, which the type's
  * input function refuses (an integer that is none or past its type's range, a text holding NUL, a date no calendar
- * holds, a numeric past its typmod, a handle no roster holds), by the codec's fault, the word every other admission of
- * the column's values refuses it by (codec/scalar.ts hostText, as codecText and a ChangeSet's EncodingFailure read it).
+ * holds, a numeric past its typmod, a handle no roster holds, a bytes value that is no Uint8Array), by the codec's
+ * fault, the word a write's admission of the column's values refuses it by (scalar/values/identity.ts admitValue, as a
+ * ChangeSet's EncodingFailure and a decoded fact read it).
  */
 export interface ValueRefused<R> {
 	readonly _tag: "ValueRefused"

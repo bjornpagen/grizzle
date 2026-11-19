@@ -166,8 +166,8 @@ export const factIdentityGivesTwoSpellingsOfOneFactOneIdentityAndAChangedFactAno
 				},
 				{
 					file: "packages/engine/src/scalar/values/identity.ts",
-					original: "\t\tparts.push(canonicalText(field.spec, value.value))",
-					replacement: "\t\tparts.push(String(read.value))",
+					original: "\t\t\t: canonicalText(spec, value)",
+					replacement: "\t\t\t: String(value)",
 					why: "A field's part of the identity is its value's own text rather than its canonical one; the identity property fails."
 				}
 			]
