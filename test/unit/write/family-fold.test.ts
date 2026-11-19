@@ -157,9 +157,9 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 			{
 				file: "packages/engine/src/runtime/write/fill.ts",
 				original:
-					'\t\tcase "predecessor":\n\t\t\treturn row.predecessor === undefined\n\t\t\t\t? Result.ok(rule.base)\n\t\t\t\t: filledBefore(row.predecessor, rule.to, row, evaluate)',
+					'\t\tcase "predecessor":\n\t\t\treturn row.place.kind !== "member" || row.place.predecessor === undefined\n\t\t\t\t? Result.ok(rule.base)\n\t\t\t\t: filledBefore(row.place.predecessor, rule.to, row, evaluate)',
 				replacement:
-					'\t\tcase "predecessor": {\n\t\t\tconst after = row.layout.byPosition.get(rule.to)?.rule\n\t\t\tif (row.predecessor === undefined && after?.kind === "after" && after.fold.monoid === "max" && after.x !== undefined) {\n\t\t\t\treturn valueOf(row, after.x, evaluate)\n\t\t\t}\n\t\t\treturn row.predecessor === undefined\n\t\t\t\t? Result.ok(rule.base)\n\t\t\t\t: filledBefore(row.predecessor, rule.to, row, evaluate)\n\t\t}',
+					'\t\tcase "predecessor": {\n\t\t\tconst after = row.layout.byPosition.get(rule.to)?.rule\n\t\t\tconst predecessor = row.place.kind === "member" ? row.place.predecessor : undefined\n\t\t\tif (predecessor === undefined && after?.kind === "after" && after.fold.monoid === "max" && after.x !== undefined) {\n\t\t\t\treturn valueOf(row, after.x, evaluate)\n\t\t\t}\n\t\t\treturn predecessor === undefined\n\t\t\t\t? Result.ok(rule.base)\n\t\t\t\t: filledBefore(predecessor, rule.to, row, evaluate)\n\t\t}',
 				why: "A max fold's first before is seeded from the first member's value, not the identity; the fills disagree with the reference fold at slot 0's before."
 			},
 			{

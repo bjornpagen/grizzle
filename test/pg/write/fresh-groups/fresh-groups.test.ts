@@ -309,8 +309,9 @@ export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndA
 			},
 			{
 				file: "packages/engine/src/runtime/write/fill.ts",
-				original: "\t\t\treturn Result.ok(BigInt(row.at))",
-				replacement: "\t\t\treturn Result.ok(BigInt(row.at + 1))",
+				original: '\t\t\treturn Result.ok(BigInt(row.place.kind === "member" ? row.place.at : 0))',
+				replacement:
+					'\t\t\treturn Result.ok(BigInt((row.place.kind === "member" ? row.place.at : 0) + 1))',
 				why: "The host draws each member's slot ‹i› one past its place; PostgreSQL refuses the fresh write, or the differential fails."
 			},
 			{

@@ -745,29 +745,45 @@ const maxHost = (spec: CarrierSpec, a: unknown, b: unknown): unknown => {
 	return compareValues(spec, left.value, right.value) >= 0 ? left.value : right.value
 }
 
+/** A tree node's interval, its end its start plus its subtree's size. */
+interface Interval {
+	readonly start: number
+	readonly end: number
+}
+
+/**
+ * Where a row being filled stands (ir/fill.ts FillAt): a row the ChangeSet writes itself (`top`); a walk's first row at a
+ * member's position, of its family by key, its owner outside the walk, as a fresh owner's counted fill enters a nested
+ * owner (write/bind.ts freshOwners, `entered`); a tree's root, of its tree's family, at its tree's first interval
+ * (`root`); or a member the walk reaches in its owner's family, by key, at its slot `at` under the family's count field
+ * `count`, after the member before it (`predecessor`, none at its first slot), a tree node at its interval (`tree`, none
+ * for a member of a family that is no tree of its relation). A member holds its one step from its owner, never its whole
+ * path, which `pathOf` walks only for a refusal, so a chain of any depth fills in linear time and space.
+ */
+type Place =
+	| { readonly kind: "top" }
+	| { readonly kind: "entered"; readonly family: string }
+	| { readonly kind: "root"; readonly family: string; readonly tree: Interval }
+	| {
+			readonly kind: "member"
+			readonly family: string
+			readonly owner: Row
+			readonly count: string
+			readonly at: number
+			readonly predecessor: Row | undefined
+			readonly tree: Interval | undefined
+	  }
+
 /** A row being filled: its layout, its cells so far (runtime/write/cells.ts Cells), where it stands, and what its rules
  * read beyond it. */
 interface Row {
 	readonly layout: Layout
 	readonly values: Array<unknown>
-	/** Where it stands in its owner's family, the count field and the member position its path ends with; none for the
-	 * nesting's root. A row holds this one step, never the whole path, which `pathOf` walks only for a refusal, so a
-	 * chain of any depth fills in linear time and space. */
-	readonly step: { readonly count: string; readonly at: number } | undefined
-	/** Its owner: a member's owner row, a tree node's parent; none for a row the ChangeSet writes itself. */
-	readonly owner: Row | undefined
-	/** The member before it in its family, none at its first slot. */
-	readonly predecessor: Row | undefined
-	/** Its slot in its family, 0 for a tree's root and a row the ChangeSet writes itself. */
-	readonly at: number
-	/** The family its position names: a member's, a tree root's own; none for a row the ChangeSet writes itself. */
-	readonly family: string | undefined
+	readonly place: Place
 	/** Each family it owns, by key, with the count of its members. */
 	readonly counts: ReadonlyMap<string, number>
 	/** Each family it owns, by key, with its last member once filled; none for an empty family. */
 	readonly last: Map<string, Row>
-	/** A tree node's interval, its end its start plus its subtree's size. */
-	readonly tree: { readonly start: number; readonly end: number } | undefined
 }
 
 /** The value of a row's column at `at`, filling it and every column it reads first; a refusal when it has none. */
@@ -795,8 +811,8 @@ const valueOf = (
 /** A row's path from the nesting's root: each owner's count field and member position, root first. */
 const pathOf = (row: Row): ReadonlyArray<string | number> => {
 	const steps: Array<string | number> = []
-	for (let at: Row | undefined = row; at?.step !== undefined; at = at.owner) {
-		steps.push(at.step.at, at.step.count)
+	for (let at = row.place; at.kind === "member"; at = at.owner.place) {
+		steps.push(at.at, at.count)
 	}
 	return steps.toReversed()
 }
@@ -869,18 +885,21 @@ const filledBefore = (
 	)
 }
 
-const treeOf = (row: Row): NonNullable<Row["tree"]> => {
-	if (row.tree === undefined) {
+/** A tree node's interval: a tree root's, or a member's of a family that is a tree of its relation. */
+const treeOf = (row: Row): Interval => {
+	const place = row.place
+	if (place.kind === "top" || place.kind === "entered" || place.tree === undefined) {
 		throw defect(`a tree node of ${row.layout.relation.name}`)
 	}
-	return row.tree
+	return place.tree
 }
 
-const familyOf = (row: Row): string => {
-	if (row.family === undefined) {
-		throw defect(`a row of ${row.layout.relation.name} in a family`)
+/** A member's owner row. */
+const ownerOf = (row: Row): Row => {
+	if (row.place.kind !== "member") {
+		throw defect(`an owner of ${row.layout.relation.name}'s member`)
 	}
-	return row.family
+	return row.place.owner
 }
 
 const ruleValue = (
@@ -893,33 +912,32 @@ const ruleValue = (
 		case "given":
 			throw defect(`the caller's ${column.name} of ${row.layout.relation.name}, admitted`)
 		case "owner":
-			if (row.owner === undefined) {
-				throw defect(`an owner of ${row.layout.relation.name}'s member`)
-			}
-			return filledBefore(row.owner, rule.to, row, evaluate)
+		case "ownerCopy":
+			return filledBefore(ownerOf(row), rule.to, row, evaluate)
 		case "own":
 			return valueOf(row, rule.to, evaluate)
 		case "index":
-			return Result.ok(BigInt(row.at))
-		case "copy": {
-			const counts = row.owner === undefined ? row.counts : row.owner.counts
-			return Result.ok(BigInt(counts.get(familyOf(row)) ?? 0))
-		}
+			return Result.ok(BigInt(row.place.kind === "member" ? row.place.at : 0))
+		case "copy":
+			switch (row.place.kind) {
+				case "top":
+					throw defect(`a row of ${row.layout.relation.name} in a family`)
+				case "entered":
+				case "root":
+					return Result.ok(BigInt(row.counts.get(row.place.family) ?? 0))
+				case "member":
+					return Result.ok(BigInt(row.place.owner.counts.get(row.place.family) ?? 0))
+			}
 		case "count":
 			return Result.ok(BigInt(row.counts.get(rule.family) ?? 0))
 		case "start":
 			return Result.ok(BigInt(treeOf(row).start))
 		case "end":
 			return Result.ok(BigInt(treeOf(row).end))
-		case "ownerCopy":
-			if (row.owner === undefined) {
-				throw defect(`an owner of ${row.layout.relation.name}'s member`)
-			}
-			return filledBefore(row.owner, rule.to, row, evaluate)
 		case "predecessor":
-			return row.predecessor === undefined
+			return row.place.kind !== "member" || row.place.predecessor === undefined
 				? Result.ok(rule.base)
-				: filledBefore(row.predecessor, rule.to, row, evaluate)
+				: filledBefore(row.place.predecessor, rule.to, row, evaluate)
 		case "last": {
 			const last = row.last.get(rule.family)
 			return last === undefined ? Result.ok(rule.base) : filledBefore(last, rule.to, row, evaluate)
@@ -1126,27 +1144,12 @@ export const filler = (
 		const rank = (o: Owned): number => layout.owns.indexOf(familyKey(o.family.id))
 		return owned.toSorted((a, b) => rank(a) - rank(b))
 	}
-	const rowOf = (
-		node: HostNode,
-		position: FillAt,
-		at: {
-			readonly step: Row["step"]
-			readonly owner: Row | undefined
-			readonly predecessor: Row | undefined
-			readonly at: number
-			readonly tree: Row["tree"]
-		}
-	): Row => ({
+	const rowOf = (node: HostNode, position: FillAt, place: Place): Row => ({
 		layout: laidOut(node.relation, position),
 		values: node.values.slice(),
-		step: at.step,
-		owner: at.owner,
-		predecessor: at.predecessor,
-		at: at.at,
-		family: position.kind === "top" ? undefined : familyKey(position.family.id),
+		place,
 		counts: new Map(node.families.map((g) => [familyKey(g.family), g.members.length] as const)),
-		last: new Map(),
-		tree: at.tree
+		last: new Map()
 	})
 	const frameOf = (row: Row, node: HostNode, tree: Frame["tree"]): Frame => ({
 		row,
@@ -1160,20 +1163,24 @@ export const filler = (
 	return (root: HostNode, position: FillAt): Result.Result<FilledNode, FillRefusal> => {
 		const tree = position.kind === "root" ? position.family.id : undefined
 		const sizes = tree === undefined ? new Map<HostNode, number>() : subtreeSizes(root, tree)
-		const intervalOf = (node: HostNode, start: number): Row["tree"] => {
+		const intervalOf = (node: HostNode, start: number): Interval => {
 			const size = sizes.get(node)
 			if (size === undefined) {
 				throw defect(`the subtree size of a node of ${node.relation}`)
 			}
 			return { start, end: start + size }
 		}
-		const first = rowOf(root, position, {
-			step: undefined,
-			owner: undefined,
-			predecessor: undefined,
-			at: 0,
-			tree: tree === undefined ? undefined : intervalOf(root, 0)
-		})
+		const entry = ((): Place => {
+			switch (position.kind) {
+				case "top":
+					return { kind: "top" }
+				case "member":
+					return { kind: "entered", family: familyKey(position.family.id) }
+				case "root":
+					return { kind: "root", family: familyKey(position.family.id), tree: intervalOf(root, 0) }
+			}
+		})()
+		const first = rowOf(root, position, entry)
 		const entered = fillStage(first, first.layout.entering, evaluate)
 		if (!entered.ok) {
 			return Result.err(entered.error)
@@ -1210,10 +1217,12 @@ export const filler = (
 					node,
 					{ kind: "member", family: current.family },
 					{
-						step: { count: current.family.count, at },
+						kind: "member",
+						family: familyKey(current.family.id),
 						owner: frame.row,
-						predecessor: frame.previous,
+						count: current.family.count,
 						at,
+						predecessor: frame.previous,
 						tree: start === undefined ? undefined : intervalOf(node, start)
 					}
 				)

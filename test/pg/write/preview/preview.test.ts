@@ -100,9 +100,10 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 			},
 			{
 				file: "packages/engine/src/runtime/write/fill.ts",
-				original: "\t\t\treturn row.predecessor === undefined\n\t\t\t\t? Result.ok(rule.base)",
+				original:
+					'\t\t\treturn row.place.kind !== "member" || row.place.predecessor === undefined\n\t\t\t\t? Result.ok(rule.base)',
 				replacement:
-					"\t\t\treturn row.predecessor === undefined\n\t\t\t\t? Result.ok(row.values.get(rule.to) ?? rule.base)",
+					'\t\t\treturn row.place.kind !== "member" || row.place.predecessor === undefined\n\t\t\t\t? Result.ok(row.values.get(rule.to) ?? rule.base)',
 				why: "A sequence's first member copies its own source where its predecessor copy has no predecessor, not the axis's start: Stroke's prior at its base is its shade, not a; the preview gives it and PostgreSQL refuses the base."
 			},
 			{
