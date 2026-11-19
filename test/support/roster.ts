@@ -98,6 +98,8 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/live/reconnect.test.ts",
 	"test/pg/live/routing.test.ts",
 	"test/pg/live/source.test.ts",
+	"test/pg/live/text-keys.test.ts",
+	"test/pg/live/visibility.test.ts",
 	"test/pg/lower-conservative/**/*.test.ts",
 	"test/pg/lower-shapes/**/*.test.ts",
 	"test/pg/migrate/admission.test.ts",
