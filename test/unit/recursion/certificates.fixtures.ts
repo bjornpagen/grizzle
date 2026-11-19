@@ -30,6 +30,7 @@ import {
 	type RuleDesc,
 	textDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { idDesc } from "#test/support/ids.ts"
 import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
@@ -587,7 +588,7 @@ export const descOfSpec = (spec: Spec): QueryDesc =>
 		recursive: {
 			name: "Gen",
 			row: {
-				node: { kind: "uuid" },
+				node: idDesc,
 				h: typeOf(spec.carrier),
 				t: typeOf(spec.carrier),
 				m: markType
@@ -596,7 +597,7 @@ export const descOfSpec = (spec: Spec): QueryDesc =>
 				rule({
 					vars: vars("Vertex", "id"),
 					matches: [match(relationSource("Vertex"), { id: ref("Vertex", "id") })],
-					where: [eq(ref("Vertex", "id"), param("start", { kind: "uuid" }))],
+					where: [eq(ref("Vertex", "id"), param("start", idDesc))],
 					head: {
 						node: ref("Vertex", "id"),
 						h: literal(spec.carrier, seed.h),

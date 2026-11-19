@@ -25,7 +25,7 @@ import {
 	textDesc,
 	type VarDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, idDesc } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
@@ -126,8 +126,6 @@ export const recursive = (
 	rec: Arr.NonEmptyReadonlyArray<RuleDesc>
 ): QueryDesc => ({ stage: { kind: "recursive", recursive: { name, row, base, rec } } })
 
-export const uuidField: FieldDesc = { kind: "uuid" }
-
 export const integer: FieldDesc = { kind: "pg", type: "integer" }
 
 export const bigint: FieldDesc = { kind: "pg", type: "bigint" }
@@ -157,7 +155,7 @@ export const seed = (
 				Rec.fromEntries(Arr.map(["id", ...more], (f) => [f, ref("Vertex", f)]))
 			)
 		],
-		where: [eq(ref("Vertex", "id"), param("start", { kind: "uuid" }))],
+		where: [eq(ref("Vertex", "id"), param("start", idDesc))],
 		head,
 		interiors: [],
 		attach: []
@@ -455,7 +453,7 @@ export const mainArm = (m: Main): RuleDesc => {
 		[
 			...(m.negatesSelf ? [not({ kind: "self" }, { node: ref("Edge", "to") })] : []),
 			...(m.negatesBlocked ? [not(relationSource("Blocked"), { id: ref("Edge", "to") })] : []),
-			...(m.avoids ? [ne(ref("Edge", "to"), param("avoid", { kind: "uuid" }))] : [])
+			...(m.avoids ? [ne(ref("Edge", "to"), param("avoid", idDesc))] : [])
 		],
 		{ node: ref("Edge", "to"), n: m.aggregates ? count() : s("n") },
 		{
@@ -655,7 +653,7 @@ const vertexRule = (where: ReadonlyArray<ExprDesc>, y: ExprDesc): QueryDesc =>
 	)
 
 export const Inc = vertexRule(
-	[eq(ref("Vertex", "id"), param("at", { kind: "uuid" }))],
+	[eq(ref("Vertex", "id"), param("at", idDesc))],
 	narrowed(compute("add", typedLit(1, integer), param("x", integer)), "integer")
 )
 
@@ -763,7 +761,7 @@ const idsOf = (relation: string): RuleDesc =>
 /** A recursion of its own: every vertex, and every vertex an edge reaches from one, the inner walk a step may read. */
 const inner = recursive(
 	"Inner",
-	{ id: uuidField },
+	{ id: idDesc },
 	[idsOf("Vertex")],
 	[
 		rule({
@@ -844,7 +842,7 @@ export const readingDefinition = (place: ReadPlace, read: ReadSource, how: ReadH
 	})
 	return recursive(
 		"Reach",
-		{ node: uuidField, n: naturalField },
+		{ node: idDesc, n: naturalField },
 		[base],
 		place === "arm reading no self" ? [main, selfless] : [main]
 	)

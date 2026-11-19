@@ -22,7 +22,7 @@ import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { int8Min } from "#compiler/ir/carriers.ts"
-import { accumulated, bits, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, bits, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import {
 	accumulatedField,
@@ -662,7 +662,7 @@ const fieldsOf = (spec: SwarmSpec, r: number): Record<string, FieldBase> => {
 			} else {
 				const group = groupFieldsOf(core, f)
 				for (const [i, name] of group.entries()) {
-					fields[name] = group.length === 1 ? uuid : i === group.length - 1 ? natural : rootText
+					fields[name] = group.length === 1 ? Id : i === group.length - 1 ? natural : rootText
 				}
 			}
 			if (family.kind !== "counted") {

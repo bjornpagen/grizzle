@@ -41,6 +41,7 @@ import { DecimalText } from "#compiler/ir/decimal.ts"
 import { type FieldDesc } from "#compiler/ir/desc.ts"
 import { assert, containsEqual, defined, placeOf, succeeded } from "#test/support/assert.ts"
 import { type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
+import { idDesc } from "#test/support/ids.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import {
 	cast,
@@ -116,7 +117,6 @@ import {
 	totalCast,
 	type UnboundedFeature,
 	unboundedHops,
-	uuidField,
 	verdicts,
 	type Via,
 	type X
@@ -142,7 +142,7 @@ export const armHeadsRefusesAnArmWhoseHeadMissesOrAddsAStateColumnAtThatArmsHead
 					Effect.sync(() => {
 						const desc = recursive(
 							"Walks",
-							{ node: uuidField, hops: integer },
+							{ node: idDesc, hops: integer },
 							[seed(shaped(baseHead, ref("Vertex", "id"), typedLit(0, integer)), [])],
 							[
 								step(
@@ -242,7 +242,7 @@ export const theStateHeadingAdmitsAColumnOfTheDeclaredTypeCastsAnExactConversion
 						const term = spelled === "cast by the author" ? cast(a.term, d.field) : a.term
 						const desc = recursive(
 							"Labels",
-							{ node: uuidField, c: d.field },
+							{ node: idDesc, c: d.field },
 							[seed({ node: ref("Vertex", "id"), c: term }, a.reads)],
 							[step(["node", "c"], [], { node: ref("Edge", "to"), c: s("c") }, nothingMore)]
 						)
@@ -360,7 +360,7 @@ export const theFeedbacksShapeRefusesFeedbackReadTwiceNegatedAggregatedMisplaced
 					Effect.sync(() => {
 						const desc = recursive(
 							"Reach",
-							{ node: uuidField, n: naturalField },
+							{ node: idDesc, n: naturalField },
 							[baseArm(base)],
 							[mainArm(m), ...extraArms(extra)]
 						)
@@ -624,7 +624,7 @@ export const unboundedComputedStateAdmitsOnlyACounterOverAnIntegerCarrierBounded
 										: lt(compute("add", hops, k(1)), k(4))
 						const desc = recursive(
 							"Walks",
-							{ node: uuidField, hops: type },
+							{ node: idDesc, hops: type },
 							[seed({ node: ref("Vertex", "id"), hops: k(0) }, [])],
 							[
 								step(
@@ -848,7 +848,7 @@ export const unboundedComputedStateThroughACorrelatedImportRefusesACounterLaunde
 								: varRef("inc.y")
 						const desc = recursive(
 							"Walks",
-							{ node: uuidField, hops: integer },
+							{ node: idDesc, hops: integer },
 							[seed({ node: ref("Vertex", "id"), hops: typedLit(0, integer) }, [])],
 							[
 								rule({

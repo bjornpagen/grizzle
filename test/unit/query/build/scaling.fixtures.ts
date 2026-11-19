@@ -1,7 +1,6 @@
 /** What the properties of scaling.test.ts read: its spaces, models and helpers. */
 
-import { Array as Arr, Record as Rec } from "effect"
-import { isRecord } from "#compiler/core/record.ts"
+import { Array as Arr } from "effect"
 import { decodeDesc, type QueryDesc } from "#compiler/ir/desc.ts"
 import {
 	type OrderedValue,
@@ -12,37 +11,9 @@ import {
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { queryState } from "#compiler/query/build/state.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { containersOf, freshContainers, keyOrders } from "#test/support/containers.ts"
 import { Task, Work } from "#test/support/fixtures/api/work.ts"
 import { sitesRead } from "#test/support/sites.ts"
-
-/** The arrays and plain objects reachable from `value`, added to `into`. */
-const containersOf = (value: unknown, into: Set<object>): Set<object> => {
-	const pending: Array<unknown> = [value]
-	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
-		if (isRecord(at) && !into.has(at)) {
-			into.add(at)
-			for (const child of Rec.values(at)) {
-				pending.push(child)
-			}
-		}
-	}
-	return into
-}
-
-/** The containers reachable from `value` without passing through one of `known`: the ones a step built. */
-const freshContainers = (value: unknown, known: ReadonlySet<object>): number => {
-	const seen = new Set<object>()
-	const pending: Array<unknown> = [value]
-	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
-		if (isRecord(at) && !known.has(at) && !seen.has(at)) {
-			seen.add(at)
-			for (const child of Rec.values(at)) {
-				pending.push(child)
-			}
-		}
-	}
-	return seen.size
-}
 
 /** A query value's Description, read from its state, pending attachment children or not. */
 const descOf = (value: unknown): QueryDesc => defined(queryState(value), "a query's state").desc
@@ -111,22 +82,6 @@ export const counts = (kind: StepKind, n: number): ReadonlyArray<number> => {
 		const known = containersOf(given, containersOf(descOf(before), new Set()))
 		out.push(freshContainers(descOf(after), known))
 		before = after
-	}
-	return out
-}
-
-/** The keys of every object reachable from `value`, in order, by path: the key order a Description has. */
-const keyOrders = (value: unknown): ReadonlyArray<string> => {
-	const out: Array<string> = []
-	const pending: Array<readonly [string, unknown]> = [["", value]]
-	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
-		const [path, node] = at
-		if (isRecord(node)) {
-			out.push(`${path}: ${Arr.join(Rec.keys(node), ",")}`)
-			for (const [key, child] of Rec.toEntries(node)) {
-				pending.push([`${path}.${key}`, child])
-			}
-		}
 	}
 	return out
 }

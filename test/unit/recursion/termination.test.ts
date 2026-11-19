@@ -18,6 +18,7 @@ import { Array as Arr, Effect } from "effect"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { type HeadTermDesc } from "#test/support/fixtures/ir/desc.ts"
+import { idDesc } from "#test/support/ids.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
@@ -89,7 +90,7 @@ export const theSeenStateEstimateMultipliesIndependentCountersAComputedColumnByT
 										recursive: {
 											name: "Grid",
 											row: {
-												node: { kind: "uuid" },
+												node: idDesc,
 												x: integer,
 												y: integer,
 												sum: integer,
@@ -105,7 +106,7 @@ export const theSeenStateEstimateMultipliesIndependentCountersAComputedColumnByT
 															[column]: ref("Vertex", column)
 														})
 													],
-													where: [eq(ref("Vertex", "id"), param("start", { kind: "uuid" }))],
+													where: [eq(ref("Vertex", "id"), param("start", idDesc))],
 													head: {
 														node: ref("Vertex", "id"),
 														x: integerLit(0),
@@ -209,12 +210,12 @@ export const theSeenStateEstimateRefusesASetStateColumnWhichNoHashOperatorClassD
 							kind: "recursive",
 							recursive: {
 								name: "Marks",
-								row: { node: { kind: "uuid" }, m: set },
+								row: { node: idDesc, m: set },
 								base: [
 									rule({
 										vars: vars("Node", "id"),
 										matches: [match(relationSource("Node"), { id: ref("Node", "id") })],
-										where: [eq(ref("Node", "id"), param("start", { kind: "uuid" }))],
+										where: [eq(ref("Node", "id"), param("start", idDesc))],
 										head: { node: ref("Node", "id"), m: of([]) },
 										interiors: [],
 										attach: []

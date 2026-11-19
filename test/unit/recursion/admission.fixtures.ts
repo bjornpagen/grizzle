@@ -1,8 +1,8 @@
 /** What the properties of admission.test.ts read: its spaces, models and helpers. */
 
 import { Array as Arr } from "effect"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { QueryDesc, RuleDesc } from "#test/support/fixtures/ir/desc.ts"
+import { idDesc } from "#test/support/ids.ts"
 import {
 	match,
 	param,
@@ -13,8 +13,6 @@ import {
 	varRef,
 	vars
 } from "#test/unit/check/dsl.ts"
-
-const uuidField: FieldDesc = { kind: "uuid" }
 
 /** The pairs (a, b) of the transitive closure of Edge, and the arms beside the transitive one. */
 export type Arm = "b repeating a" | "b fixed to a parameter"
@@ -39,7 +37,7 @@ const armOf = (arm: Arm): RuleDesc =>
 		matches: [
 			match(
 				{ kind: "self" },
-				{ a: s("a"), b: arm === "b repeating a" ? s("a") : param("start", uuidField) }
+				{ a: s("a"), b: arm === "b repeating a" ? s("a") : param("start", idDesc) }
 			)
 		],
 		where: [],
@@ -53,7 +51,7 @@ export const pairs = (arms: ReadonlyArray<Arm>): QueryDesc => ({
 		kind: "recursive",
 		recursive: {
 			name: "Pairs",
-			row: { a: uuidField, b: uuidField },
+			row: { a: idDesc, b: idDesc },
 			base: [
 				rule({
 					vars: vars("Edge", "from", "to"),
