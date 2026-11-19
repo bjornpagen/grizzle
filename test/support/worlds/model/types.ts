@@ -1131,6 +1131,7 @@ export type WorldFeature =
 	| `page:${PageKey}:${PageFrom}`
 	| "attach:nested"
 	| "reach:chained"
+	| "reach:union-refused"
 	| "read:span"
 	| `claim:${ClaimDomain}`
 	| `claim-refused:${ClaimDomain}:${ClaimRefusal}`

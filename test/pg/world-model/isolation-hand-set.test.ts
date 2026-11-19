@@ -18,5 +18,6 @@ export const isolationHandSetClaims = programProperty({
 	realities: orgHeldRealities,
 	lead: handSetTransaction(handSetRequired),
 	check: noCheck,
-	kept: []
+	kept: [],
+	kills: []
 })

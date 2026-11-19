@@ -19,5 +19,6 @@ export const isolationWrites = programProperty({
 	realities: docsTenantRealities,
 	lead: leadsOf(directTransaction(writesRequired), dbSession(writesRequired)),
 	check: reachingPastRefused,
-	kept: []
+	kept: [],
+	kills: []
 })

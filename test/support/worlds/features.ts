@@ -16,7 +16,7 @@ import {
 	isMember,
 	sameFact
 } from "#test/support/worlds/model/host.ts"
-import { reachedPairs, steppedPairs } from "#test/support/worlds/model/reads.ts"
+import { reachedPairs, readsAsUnion, steppedPairs } from "#test/support/worlds/model/reads.ts"
 import { compileRefused, readBackClasses } from "#test/support/worlds/model/session/apply.ts"
 import { handSetFaults, onConflictSets } from "#test/support/worlds/model/session/direct.ts"
 import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
@@ -1421,13 +1421,22 @@ const pageKeyOf = (base: BaseSpec, entry: EntrySpec): PageKey =>
  * What a read that delivered rows shows of how it went: the key a page's order is completed by (pageKeyOf) and where
  * it started; an attachment that nested a row under another; a
  * recursive read that chained a pair past one step; a span read through the world; and each domain of a context
- * field the relation's rules read under a fact its Db holds, decoded from the token.
+ * field the relation's rules read under a fact its Db holds, decoded from the token; and a recursive read of a relation
+ * its role reads as a union (readsAsUnion), refused when it compiles.
  */
 const readsOf = (
 	state: ModelState,
 	action: Extract<Action, { readonly kind: "read" }>,
 	observation: Observation
 ): ReadonlyArray<WorldFeature> => {
+	if (observation.kind === "compile-refused") {
+		return action.via.kind === "reach" &&
+			Option.exists(dbRoleAt(state, action.session), (role) =>
+				readsAsUnion(roleEntryOf(role, action.relation))
+			)
+			? ["reach:union-refused"]
+			: []
+	}
 	if (observation.kind !== "rows") {
 		return []
 	}

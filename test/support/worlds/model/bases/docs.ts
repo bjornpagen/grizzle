@@ -348,6 +348,40 @@ export const docsInstall: InstallSpec = {
 }
 
 /**
+ * The documents base's README-shaped worlds with the nightly `job` reading DocLinks beside its entries: every document's
+ * id and organization, by two rules, one over every document and one over those of no negative word count, so the role
+ * reads a union of rules, which a recursive read of it may not read in its step (README "A recursive rule joins
+ * `self`": RecursionRefused, cause unionStep), its two uuid fields a pair a recursive read chains.
+ */
+export const docsUnionInstall: InstallSpec = {
+	...docsInstall,
+	roles: Arr.map(docsInstall.roles, (r) =>
+		r.name === "job"
+			? {
+					...r,
+					entries: {
+						...r.entries,
+						DocLinks: {
+							kind: "query",
+							rules: [
+								rule([of("Doc", { id, org })], { id, org }, none),
+								rule(
+									[of("Doc", { id, org, words })],
+									{ id, org },
+									{
+										negations: [],
+										comparisons: [{ left: words, op: ">=", right: literal(0) }]
+									}
+								)
+							]
+						}
+					}
+				}
+			: r
+	)
+}
+
+/**
  * The documents base's README-shaped worlds over its one-share variant (docsOneShareBase): the member writing its own
  * shares through MyShare meets another user's share of a document, which MyShare hides, at the key on Share's `doc`.
  */

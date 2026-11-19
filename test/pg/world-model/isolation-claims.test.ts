@@ -19,5 +19,6 @@ export const isolationClaims = programProperty({
 	realities: docsTenantRealities,
 	lead: dbSession(claimsRequired),
 	check: noCheck,
-	kept: []
+	kept: [],
+	kills: []
 })

@@ -19,5 +19,6 @@ export const laws = programProperty({
 	realities: docsTenantRealities,
 	lead: leadsOf(directTransaction(required), breakingAtCommit(required), dbSession(required)),
 	check: besideTheModel,
-	kept: []
+	kept: [],
+	kills: []
 })
