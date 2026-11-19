@@ -79,6 +79,7 @@ export {
 	type UncoveredRead,
 	type ServedKey,
 	type ServedKeyLaws,
+	type MemberForm,
 	type ServedMember,
 	type ServedMemberForm,
 	type ServedPage,

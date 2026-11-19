@@ -37,6 +37,7 @@ import {
 	ServedPatterns
 } from "#compiler/plan/runtime.ts"
 import type {
+	MemberForm,
 	ServedChange,
 	ServedFile,
 	ServedInstantRead,
@@ -46,7 +47,6 @@ import type {
 	ServedPage,
 	ServedRead,
 	ServedReadLive,
-	ServedRefresh,
 	ServedRoleForm,
 	ServedSession,
 	ServedTables,
@@ -153,14 +153,12 @@ export type LoadedVariants =
  * (live/member.ts ServedWire), the JSON forms of its input and its events and the digest a client names them by, which
  * a call over HTTP is parsed and answered by, and what runs it, by its kind.
  */
-export type LoadedMember = { readonly name: string; readonly wire: ServedMember["wire"] } & (
-	| { readonly kind: "read"; readonly read: LoadedRead }
-	| { readonly kind: "instant"; readonly read: LoadedInstantRead }
-	| { readonly kind: "paged"; readonly read: LoadedRead; readonly page: LoadedPage }
-	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: LoadedRead }
-	| { readonly kind: "change"; readonly variants: LoadedVariants }
-	| { readonly kind: "refresh"; readonly refresh: ServedRefresh }
-)
+export type LoadedMember = MemberForm<{
+	readonly read: LoadedRead
+	readonly instant: LoadedInstantRead
+	readonly page: LoadedPage
+	readonly variants: LoadedVariants
+}> & { readonly wire: ServedMember["wire"] }
 
 /**
  * One role of the login, loaded: its name in the login, the PostgreSQL role each of its Dbs' transactions enters, the

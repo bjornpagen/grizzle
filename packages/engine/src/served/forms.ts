@@ -286,12 +286,32 @@ export interface ServedContext {
  * key's values; a ChangeSet, compiled for each set of its fill contexts that may hold a fact; or a refresh of
  * materialized derived relations, its targets in refresh order.
  */
-export type ServedMemberForm = { readonly name: string } & (
-	| { readonly kind: "read"; readonly read: ServedRead }
-	| { readonly kind: "instant"; readonly read: ServedInstantRead }
-	| { readonly kind: "paged"; readonly read: ServedRead; readonly page: ServedPage }
-	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: ServedRead }
-	| { readonly kind: "change"; readonly variants: ServedVariants }
+export type ServedMemberForm = MemberForm<{
+	readonly read: ServedRead
+	readonly instant: ServedInstantRead
+	readonly page: ServedPage
+	readonly variants: ServedVariants
+}>
+
+/**
+ * What a program of a role's workload is read by, part by part: a read's and a key's read, a clocked read's, a paged
+ * read's page and a ChangeSet's variants, as a served file holds them (ServedMemberForm) or as a layer loaded them
+ * (packages/grizzle adapter/served/load.ts LoadedMember).
+ */
+export interface MemberParts {
+	readonly read: unknown
+	readonly instant: unknown
+	readonly page: unknown
+	readonly variants: unknown
+}
+
+/** One program of a role's workload, by name, of each kind its form takes (ServedMemberForm), over its parts `P`. */
+export type MemberForm<P extends MemberParts> = { readonly name: string } & (
+	| { readonly kind: "read"; readonly read: P["read"] }
+	| { readonly kind: "instant"; readonly read: P["instant"] }
+	| { readonly kind: "paged"; readonly read: P["read"]; readonly page: P["page"] }
+	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: P["read"] }
+	| { readonly kind: "change"; readonly variants: P["variants"] }
 	| { readonly kind: "refresh"; readonly refresh: ServedRefresh }
 )
 
