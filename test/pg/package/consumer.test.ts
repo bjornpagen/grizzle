@@ -17,41 +17,46 @@
  * its link and agrees with the shell: every assignment of pin.env as scripts/pg/build.sh and source.sh source it in
  * the checkout. Box: the layouts.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { array, type Gen, int } from "@bjornpagen/testing/gen"
-import type { PgMember } from "@bjornpagen/testing/pg"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import * as NodeServices from "@effect/platform-node/NodeServices"
-import { layer } from "@effect/vitest"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Effect,
 	FileSystem,
-	Formatter,
-	Layer,
 	Option,
 	Path,
-	Predicate,
 	Record,
 	Redacted,
 	String as Str
 } from "effect"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import type { Pin } from "#pg/pin.ts"
+import {
+	consumerConfig,
+	consumerConnections,
+	type ConsumerFeature,
+	consumerProgram,
+	declared,
+	grizzleCli,
+	Note,
+	noteId,
+	type NoteRow,
+	notesOf,
+	numbersGen,
+	pinProgram,
+	shellPin,
+	shellSpelling
+} from "#test/pg/package/consumer.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
-import { caseHang, testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
+import { testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
 import { privateCluster } from "#test/support/private-cluster.ts"
 import { hardenedNode } from "#test/support/process.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -65,375 +70,198 @@ import {
 	layouts,
 	packageFrom,
 	runChild,
-	type SubmoduleConsumer,
 	submoduleConsumer
 } from "#test/unit/dev/consumer.ts"
 
-const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
+/**
+ * The package as a submodule consumer takes it, on the dev cluster opens a role of a login with the linked package's Db.open and reads exactly every note written so far.
+ *
+ * Its pre-conversion budget: runs 2, coverage cases 8 (test/pg/package/consumer.test.ts at d8eed1786).
+ */
+export const thePackageAsASubmoduleConsumerTakesItOnTheDevClusterOpensARoleOfALoginWithTheLinkedPackagesDbOpenAndReadsExactlyEveryNoteWrittenSoFar =
+	property.explore(numbersGen, {
+		needs: { substrate: Substrate.installing },
+		situations: [
+			"one note",
+			"several notes",
+			"a read after an earlier write"
+		] satisfies ReadonlyArray<Reached<ConsumerFeature>>,
+		check:
+			({ substrate }, c: Case<ConsumerFeature>) =>
+			(numbers) =>
+				Effect.provideServiceEffect(
+					Effect.gen(function* () {
+						const written: Array<NoteRow> = []
+						const fs = yield* FileSystem.FileSystem
+						const path = yield* Path.Path
+						const consumer = yield* consumerProject
+						const generated = yield* installGenerated(
+							(name) => {
+								const at = declared(name)
+								return { schema: at, logins: [fullWorld(at, { notes: notesOf(at) }).server] }
+							},
+							{ label: "consumer", ambient: ordinarySession }
+						)
+						const installed = generated.installed
+						const App = declared(installed.declared)
+						const own = fullWorld(App, { notes: notesOf(App) })
+						const file = defined(
+							generated.served.get(own.server.name),
+							`the served file of login ${own.server.name}`
+						)
+						const served = path.join(consumer.project, "server.json")
+						yield* fs.writeFileString(
+							served,
+							succeeded(
+								servedText(succeeded(servedFile(file), "the login's served file")),
+								"the login's served file's text"
+							)
+						)
+						const program = path.join(consumer.project, "consumer.mjs")
+						yield* fs.writeFileString(program, consumerProgram)
+						const config = path.join(consumer.project, "config.json")
+						yield* fs.writeFileString(
+							config,
+							jsonText({
+								host: pgPin.host,
+								port: installed.cluster.port,
+								ca: installed.cluster.ca,
+								database: installed.database,
+								password: Redacted.value(installed.as(own.server).password),
+								connectTimeoutMs: testConnectTimeout,
+								idleTimeoutMs: testIdleTimeout,
+								served
+							})
+						)
 
-const declared = (name: string) => schema(name, [Note], [])
-
-/** Every note, the one read the consumer's workload serves. */
-const notesOf = (base: ReturnType<typeof declared>) =>
-	query(base).rule((r) => {
-		const { id, n } = v(Note, "note")
-		return r.match(Note, { id, n }).find({ id, n })
+						const notes = Arr.map(numbers, (n, i) => ({ id: noteId(written.length + i), n }))
+						c.note(notes.length === 1 ? "one note" : "several notes")
+						if (Arr.isReadonlyArrayNonEmpty(written)) {
+							c.note("a read after an earlier write")
+						}
+						const outcome = yield* withServedDb(installed, own.server.roles.app, {}, ({ serve }) =>
+							Effect.flatMap(serve({ add: ChangeSet.empty(App).insert(Note, []) }), (served) =>
+								answered(
+									writeOnce(member(served, "add"))({
+										params: {},
+										facts: { insert: { Note: notes } }
+									})
+								)
+							)
+						).pipe(Effect.scoped)
+						assert.equal(outcome.kind, "accepted")
+						for (const note of notes) {
+							written.push(note)
+						}
+						const read = yield* Effect.scoped(
+							Effect.andThen(
+								installed.cluster.budget.within(consumerConnections),
+								runChild(process.execPath, [...hardenedNode, program, config], consumer.project, {})
+							)
+						)
+						assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
+						unorderedEqual(trustedJson<ReadonlyArray<NoteRow>>(Str.trim(read.stdout)), written)
+					}),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "specification",
+			name: "the notes the cases wrote, each read once by the linked package"
+		},
+		budget: { runs: 2, steered: 8 },
+		kept: [],
+		kills: []
 	})
 
 /**
- * The connections the consumer opens on the cluster at once, which its run draws from the file's budget: its pool's
- * one session (`pool: { max: 1 }` below), and the CancelRequest's connection an interrupted statement of it opens.
+ * The package's pin and command line through a submodule consumer's install a consumer's own install imports the pin and runs a migrate, its checkout holding no node_modules and effect one package.
  */
-const consumerConnections = ["the pool's session", "a cancel request"].length
-
-/**
- * The consumer, as an application writes it against the package: the login's served file, served under the
- * login's name, its layer given its installation's live source (LiveSource.layer), the full role's Db of it
- * (test/support/worlds.ts fullWorld), and one read of every note through the workload's member. It loads the runtime
- * entry alone, so no schema module and none of the compiler runs. It reads by once alone, so its live source never
- * connects and never asks its decoder's credential, which the installation, migrated with no live source, holds none of.
- */
-const consumerProgram = `import { readFileSync } from "node:fs"
-import net from "node:net"
-import { Effect, Layer, Redacted } from "effect"
-import pgDriver from "pg"
-import { Db, DbLayer, LiveSource, served } from "@bjornpagen/grizzle/runtime"
-
-const config = JSON.parse(readFileSync(process.argv[2], "utf8"))
-const server = served(JSON.parse(readFileSync(config.served, "utf8")), "server")
-const connection = {
-	driver: pgDriver,
-	transport: {
-		kind: "sslRequest",
-		host: config.host,
-		port: config.port,
-		open: () => new net.Socket(),
-		ca: config.ca,
-		servername: config.host
-	},
-	database: config.database,
-	connectTimeoutMs: config.connectTimeoutMs
-}
-const layer = Layer.provide(
-	DbLayer.make({
-		...connection,
-		password: Redacted.make(config.password),
-		pool: { max: 1, min: 0, idleTimeoutMs: config.idleTimeoutMs },
-		login: server
-	}),
-	LiveSource.layer({
-		...connection,
-		password: Effect.die(new Error("the consumer reads by once, so its live source asks no decoder")),
-		login: server
-	})
-)
-const rows = await Effect.runPromise(
-	Effect.gen(function* () {
-		const db = yield* Db.open(server.roles.app, {})
-		return [...(yield* db.workload.notes.once({ params: {}, facts: {} }))]
-	}).pipe(Effect.provide(layer))
-)
-process.stdout.write(JSON.stringify(rows) + "\\n")
-`
-
-/** A note as the consumer reads it: its id and its number. */
-interface NoteRow {
-	readonly id: string
-	readonly n: number
-}
-
-/** One to three notes' numbers. */
-const numbersGen: Gen<ReadonlyArray<number>> = array(int(-1000, 1000), { min: 1, max: 3 })
-
-/** The uuid of the `i`th note written. */
-const noteId = (i: number): Uuid => `00000000-0000-4000-8000-${Str.padStart(12, "0")(String(i))}`
-
-type ConsumerFeature = "one note" | "several notes" | "a read after an earlier write"
-
-layer(Layer.merge(Substrate.layer, NodeServices.layer))(
-	"the package as a submodule consumer takes it, on the dev cluster",
-	(it) => {
-		it.effect(
-			"opens a role of a login with the linked package's Db.open and reads exactly every note written so far",
-			(ctx) =>
+export const thePackagesPinAndCommandLineThroughASubmoduleConsumersInstallAConsumersOwnInstallImportsThePinAndRunsAMigrateItsCheckoutHoldingNoNodeModulesAndEffectOnePackage =
+	property.exhaust(finite(layoutGen), {
+		needs: {},
+		situations: nonEmpty(layouts, "the layouts of a consumer's install") satisfies ReadonlyArray<
+			Reached<Layout>
+		>,
+		check: (_, c: Case<Layout>) => (layout) =>
+			Effect.scoped(
 				Effect.gen(function* () {
+					c.note(layout)
 					const fs = yield* FileSystem.FileSystem
 					const path = yield* Path.Path
-					const consumer = yield* consumerProject
-					const generated = yield* installGenerated(
-						(name) => {
-							const at = declared(name)
-							return { schema: at, logins: [fullWorld(at, { notes: notesOf(at) }).server] }
-						},
-						{ label: "consumer", ambient: ordinarySession }
+					const consumer = yield* submoduleConsumer(layout)
+					const member = yield* privateCluster
+					const imported = yield* runChild(
+						process.execPath,
+						[...hardenedNode, "--input-type=module", "-e", pinProgram],
+						consumer.project,
+						{}
 					)
-					const installed = generated.installed
-					const App = declared(installed.declared)
-					const own = fullWorld(App, { notes: notesOf(App) })
-					const file = defined(
-						generated.served.get(own.server.name),
-						`the served file of login ${own.server.name}`
+					assert.equal(
+						imported.exitCode,
+						exitedCleanly,
+						`the project's import of the pin: ${imported.stderr}`
 					)
-					const served = path.join(consumer.project, "server.json")
-					yield* fs.writeFileString(
-						served,
-						succeeded(
-							servedText(succeeded(servedFile(file), "the login's served file")),
-							"the login's served file's text"
+					const pin = trustedJson<Pin>(imported.stdout)
+					const names = Record.keys(pin)
+					const sourced = yield* runChild(
+						"bash",
+						["-c", shellPin, "bash", consumer.checkout, ...names],
+						consumer.project,
+						{}
+					)
+					assert.equal(
+						sourced.exitCode,
+						exitedCleanly,
+						`scripts/pg/pin.env sourced: ${sourced.stderr}`
+					)
+					const shellValues = Record.fromEntries(
+						Arr.map(
+							Str.split(Str.trimEnd(sourced.stdout), "\n"),
+							(line): readonly [string, string] => {
+								const [name, ...value] = Str.split(line, "=")
+								return [defined(name, `a line of no name: ${line}`), Arr.join(value, "=")]
+							}
 						)
 					)
-					const program = path.join(consumer.project, "consumer.mjs")
-					yield* fs.writeFileString(program, consumerProgram)
-					const config = path.join(consumer.project, "config.json")
-					yield* fs.writeFileString(
-						config,
-						jsonText({
-							host: pgPin.host,
-							port: installed.cluster.port,
-							ca: installed.cluster.ca,
-							database: installed.database,
-							password: Redacted.value(installed.as(own.server).password),
-							connectTimeoutMs: testConnectTimeout,
-							idleTimeoutMs: testIdleTimeout,
-							served
-						})
+					assert.deepEqual(
+						Record.map(pin, shellSpelling),
+						shellValues,
+						"the pin the project imports is pin.env as the shell sources it"
 					)
-					const written: Array<NoteRow> = []
-					return yield* searched(
-						ctx,
-						explore(
-							{
-								suite: "package/consumer",
-								draw: drawn(numbersGen),
-								literal: Formatter.format,
-								oracle: {
-									kind: "specification",
-									name: "the notes the cases wrote, each read once by the linked package"
-								},
-								coverage: required<ConsumerFeature>(
-									["one note", "several notes", "a read after an earlier write"],
-									{ cases: 8, sense: notesOnly }
-								),
-								kept: [],
-								runs: 2,
-								shrink: completeShrink,
-								steerEvery: 16,
-								caseHang
-							},
-							(numbers, c) =>
-								Effect.gen(function* () {
-									const notes = Arr.map(numbers, (n, i) => ({ id: noteId(written.length + i), n }))
-									c.note(notes.length === 1 ? "one note" : "several notes")
-									if (Arr.isReadonlyArrayNonEmpty(written)) {
-										c.note("a read after an earlier write")
-									}
-									const outcome = yield* withServedDb(
-										installed,
-										own.server.roles.app,
-										{},
-										({ serve }) =>
-											Effect.flatMap(
-												serve({ add: ChangeSet.empty(App).insert(Note, []) }),
-												(served) =>
-													answered(
-														writeOnce(member(served, "add"))({
-															params: {},
-															facts: { insert: { Note: notes } }
-														})
-													)
-											)
-									).pipe(Effect.scoped)
-									assert.equal(outcome.kind, "accepted")
-									for (const note of notes) {
-										written.push(note)
-									}
-									const read = yield* Effect.scoped(
-										Effect.andThen(
-											installed.cluster.budget.within(consumerConnections),
-											runChild(
-												process.execPath,
-												[...hardenedNode, program, config],
-												consumer.project,
-												{}
-											)
-										)
-									)
-									assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
-									unorderedEqual(
-										trustedJson<ReadonlyArray<NoteRow>>(Str.trim(read.stdout)),
-										written
-									)
-								})
+					yield* fs.writeFileString(
+						path.join(consumer.project, "grizzle.config.ts"),
+						consumerConfig(member)
+					)
+					for (const step of ["generate", "migrate"]) {
+						const ran = yield* runChild(
+							process.execPath,
+							[...hardenedNode, grizzleCli(consumer), step, "grizzle.config.ts"],
+							consumer.project,
+							{}
 						)
+						assert.equal(ran.exitCode, exitedCleanly, `grizzle ${step}: ${ran.stdout}${ran.stderr}`)
+					}
+					const ownModules = yield* fs.exists(path.join(consumer.checkout, "node_modules"))
+					assert.equal(ownModules, false, "the checkout holds a node_modules of its own")
+					const projects = yield* packageFrom(consumer.project, "effect")
+					assert.ok(Option.isSome(projects), "the project finds no effect")
+					const grizzles = yield* packageFrom(
+						path.join(consumer.checkout, "packages", "grizzle", "src"),
+						"effect"
+					)
+					assert.deepEqual(
+						grizzles,
+						projects,
+						"grizzle's source finds another effect than the project's"
 					)
 				})
-		)
-	}
-)
-
-/** A program the project runs: it imports the pin through its link to grizzle-pg and prints it as JSON. */
-const pinProgram = `import { pin } from "@bjornpagen/grizzle-pg/pin"
-process.stdout.write(JSON.stringify(pin))
-`
-
-/**
- * A program bash runs with the checkout and pin.env's names as its arguments: it sources scripts/pg/pin.env as the
- * build's scripts do, and prints each name's value as the shell holds it, one `<name>=<value>` line each.
- */
-const shellPin = `source "$1/scripts/pg/pin.env" || exit 1
-shift
-for name in "$@"; do
-	printf '%s=%s\n' "$name" "\${!name}"
-done
-`
-
-/** A value of the pin as the shell spells it: text as it is, a port in decimal, the patches joined by spaces. */
-const shellSpelling = (value: string | number | ReadonlyArray<string>): string =>
-	Predicate.isString(value) ? value : Predicate.isNumber(value) ? `${value}` : Arr.join(value, " ")
-
-/** The grizzle command line's entry point, through the consumer's link to grizzle. */
-const grizzleCli = (consumer: SubmoduleConsumer): string =>
-	`${consumer.modules}/node_modules/@bjornpagen/grizzle/src/cli/main.ts`
-
-/**
- * The consumer's configuration: one relation, migrated into the owner's own database of the case's cluster, through
- * its TLS and the owner's password, which the configuration wraps in the project's Redacted, so grizzle reads it
- * only when its effect is the project's.
- */
-const consumerConfig = (member: PgMember): string => `import { readFileSync } from "node:fs"
-import net from "node:net"
-import { Effect, Redacted } from "effect"
-import pgDriver from "pg"
-import { defineConfig, pg, relation, schema, uuid } from "@bjornpagen/grizzle"
-
-const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
-const Consumer = schema("Consumer", [Note], [])
-
-export default defineConfig({
-	schemas: [Consumer],
-	logins: [],
-	migrations: "migrations",
-	connection: () => ({
-		driver: pgDriver,
-		transport: {
-			kind: "sslRequest",
-			host: "localhost",
-			port: ${member.port},
-			open: () => new net.Socket(),
-			ca: readFileSync(${jsonText(member.caFile)}, "utf8"),
-			servername: "localhost"
+			),
+		oracle: {
+			kind: "specification",
+			name: "each command exits cleanly, the checkout holds no node_modules, and grizzle's source finds the project's effect"
 		},
-		database: ${jsonText(member.owner)},
-		role: ${jsonText(member.owner)},
-		password: Effect.succeed(Redacted.make(readFileSync(${jsonText(member.passwordFile)}, "utf8").trim())),
-		connectTimeoutMs: ${testConnectTimeout}
+		box: "every layout of a consumer's install (test/unit/dev/consumer.ts dependencyHome)",
+		kept: [],
+		kills: []
 	})
-})
-`
-
-layer(NodeServices.layer)(
-	"the package's pin and command line through a submodule consumer's install",
-	(it) => {
-		it.effect(
-			"a consumer's own install imports the pin and runs a migrate, its checkout holding no node_modules and effect one package",
-			(ctx) =>
-				searched(
-					ctx,
-					exhaust(
-						{
-							suite: "package/submodule-consumer",
-							generator: layoutGen,
-							literal: Formatter.format,
-							coverage: requiredInSpace<Layout>(
-								nonEmpty(layouts, "the layouts of a consumer's install")
-							),
-							box: "every layout of a consumer's install (test/unit/dev/consumer.ts dependencyHome)",
-							oracle: {
-								kind: "specification",
-								name: "each command exits cleanly, the checkout holds no node_modules, and grizzle's source finds the project's effect"
-							},
-							caseHang
-						},
-						(layout, c) =>
-							Effect.scoped(
-								Effect.gen(function* () {
-									c.note(layout)
-									const fs = yield* FileSystem.FileSystem
-									const path = yield* Path.Path
-									const consumer = yield* submoduleConsumer(layout)
-									const member = yield* privateCluster
-									const imported = yield* runChild(
-										process.execPath,
-										[...hardenedNode, "--input-type=module", "-e", pinProgram],
-										consumer.project,
-										{}
-									)
-									assert.equal(
-										imported.exitCode,
-										exitedCleanly,
-										`the project's import of the pin: ${imported.stderr}`
-									)
-									const pin = trustedJson<Pin>(imported.stdout)
-									const names = Record.keys(pin)
-									const sourced = yield* runChild(
-										"bash",
-										["-c", shellPin, "bash", consumer.checkout, ...names],
-										consumer.project,
-										{}
-									)
-									assert.equal(
-										sourced.exitCode,
-										exitedCleanly,
-										`scripts/pg/pin.env sourced: ${sourced.stderr}`
-									)
-									const shellValues = Record.fromEntries(
-										Arr.map(
-											Str.split(Str.trimEnd(sourced.stdout), "\n"),
-											(line): readonly [string, string] => {
-												const [name, ...value] = Str.split(line, "=")
-												return [defined(name, `a line of no name: ${line}`), Arr.join(value, "=")]
-											}
-										)
-									)
-									assert.deepEqual(
-										Record.map(pin, shellSpelling),
-										shellValues,
-										"the pin the project imports is pin.env as the shell sources it"
-									)
-									yield* fs.writeFileString(
-										path.join(consumer.project, "grizzle.config.ts"),
-										consumerConfig(member)
-									)
-									for (const step of ["generate", "migrate"]) {
-										const ran = yield* runChild(
-											process.execPath,
-											[...hardenedNode, grizzleCli(consumer), step, "grizzle.config.ts"],
-											consumer.project,
-											{}
-										)
-										assert.equal(
-											ran.exitCode,
-											exitedCleanly,
-											`grizzle ${step}: ${ran.stdout}${ran.stderr}`
-										)
-									}
-									const ownModules = yield* fs.exists(path.join(consumer.checkout, "node_modules"))
-									assert.equal(ownModules, false, "the checkout holds a node_modules of its own")
-									const projects = yield* packageFrom(consumer.project, "effect")
-									assert.ok(Option.isSome(projects), "the project finds no effect")
-									const grizzles = yield* packageFrom(
-										path.join(consumer.checkout, "packages", "grizzle", "src"),
-										"effect"
-									)
-									assert.deepEqual(
-										grizzles,
-										projects,
-										"grizzle's source finds another effect than the project's"
-									)
-								})
-							)
-					)
-				)
-		)
-	}
-)

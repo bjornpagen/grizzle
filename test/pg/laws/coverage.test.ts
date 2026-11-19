@@ -23,261 +23,116 @@
  * Features: a commit, one with the source outside its selection, each refusal, and a coverage refused across a gap,
  * every one required of the space.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option, Pool } from "effect"
-import { pg, span } from "#compiler/public/fields.ts"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, Pool } from "effect"
+import { cleared, seatOf, seatPool } from "#test/pg/fin/installed.ts"
 import {
-	contained,
-	key,
-	on,
-	relation,
-	schema,
-	select,
-	type Statement
-} from "#compiler/public/schema.ts"
+	Coverage,
+	type CoverageFeature,
+	Disagreed,
+	insertSql,
+	modelOf,
+	refusalOf,
+	RELATIONS,
+	sketchGen,
+	SQLSTATE
+} from "#test/pg/laws/coverage.fixtures.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import {
-	type Catalogued,
-	cleared,
-	type Seat,
-	seatOf,
-	seatPool,
-	seatsAtOnce
-} from "#test/pg/fin/installed.ts"
-import { covered, isEmpty, keyRefusal, type Row, SPANS } from "#test/pg/substrate/temporal.ts"
-import { nonEmpty } from "#test/support/assert.ts"
-import type { Moment } from "#test/support/families/mutate.ts"
-import { type Names, namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import {
-	type Attempted,
 	attempt,
+	type Attempted,
 	momentText,
 	refusalText,
 	sameMoment
 } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { upTo } from "#test/support/up-to.ts"
-
-const Target = relation(
-	"Target",
-	{ id: pg.integer, k: pg.integer, during: span(pg.integer), on: pg.boolean },
-	["id"]
-)
-const Source = relation(
-	"Source",
-	{ id: pg.integer, k: pg.integer, during: span(pg.integer), on: pg.boolean },
-	["id"]
-)
-const selectedTarget = select(Target, (t) => t.eq(t.on, true))
-
-/** The target key, over a selected side, which the installation reports as its own law (a projected key). */
-const targetKey = key(on(selectedTarget, "k", "during"))
-
-/** The coverage: a selected source's span within its key's selected target spans. */
-const coverage = contained(
-	on(
-		select(Source, (s) => s.eq(s.on, true)),
-		"k",
-		"during"
-	),
-	on(selectedTarget, "k", "during")
-)
-
-const Coverage = schema("fin_coverage", [Target, Source], [targetKey, coverage])
-
-const RELATIONS = ["Target", "Source"] as const
-
-class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
-
-/** What refuses a statement, by the model: an empty span's shape CHECK, the target key, or the coverage. */
-type Refusal = "empty span" | "key" | "coverage"
-
-type Model =
-	| { readonly kind: "committed" }
-	| { readonly kind: "refused"; readonly moment: Moment; readonly by: Refusal }
-
-/** A case: target rows in one INSERT, then one source row. */
-interface Sketch {
-	readonly targets: ReadonlyArray<Row>
-	readonly source: Row
-}
-
-const ROWS: Arr.NonEmptyReadonlyArray<Row> = nonEmpty(
-	Arr.flatMap([0, 1], (k) => Arr.map(SPANS, (s): Row => ({ k, span: s })))
-)
-
-const sketchGen: Gen<Sketch> = (source) => {
-	const n = source.draw(element([0, 1, 2] as const))
-	return {
-		targets: Arr.map(
-			upTo(n, (i) => i + 1),
-			() => source.draw(element(ROWS))
-		),
-		source: source.draw(element(ROWS))
-	}
-}
-
-/** The statements' model: each INSERT refused by an empty span first, then the key or the coverage. */
-const modelOf = (sketch: Sketch): Model => {
-	const empty = (rows: ReadonlyArray<Row>) =>
-		Arr.some(rows, (r) => r.span.kind === "span" && isEmpty(r.span))
-	const targets = Arr.isReadonlyArrayNonEmpty(sketch.targets)
-	if (targets && empty(sketch.targets)) {
-		return { kind: "refused", moment: { kind: "statement", index: 0 }, by: "empty span" }
-	}
-	if (targets && Option.isSome(keyRefusal(sketch.targets))) {
-		return { kind: "refused", moment: { kind: "statement", index: 0 }, by: "key" }
-	}
-	if (empty([sketch.source])) {
-		return {
-			kind: "refused",
-			moment: { kind: "statement", index: targets ? 1 : 0 },
-			by: "empty span"
-		}
-	}
-	return covered(sketch.targets, sketch.source)
-		? { kind: "committed" }
-		: { kind: "refused", moment: { kind: "commit" }, by: "coverage" }
-}
-
-/** A row's values: its span, or a placeholder span outside the selection. */
-const valuesOf = (id: number, row: Row): string =>
-	row.span.kind === "null"
-		? `(${id}, ${row.k}, '[0,1)', false)`
-		: `(${id}, ${row.k}, '[${row.span.lo},${row.span.hi})', true)`
-
-const insertSql = (seat: Seat, relation: string, rows: ReadonlyArray<Row>, from: number): string =>
-	`INSERT INTO ${seat.table(relation)} (${Arr.join(
-		Arr.map(["id", "k", "during", "on"], (r) => seat.column(relation, r)),
-		", "
-	)}) VALUES ${Arr.join(
-		Arr.map(rows, (row, i) => valuesOf(from + i, row)),
-		", "
-	)}`
 
 /**
- * What a refusal's constraint is, as the installation reports it: a CHECK over a span field, its shape; a unique or a
- * foreign key reporting the target key's law or the coverage's law, each the law its statement declares
- * (kernel/naming.ts lawOf), whatever kind of law the theory makes of it.
+ * Coverage through grizzle's lowering on PostgreSQL 19rc2 commit exactly the covered states of G2's box, refuse a gap or an overlap by its native, and an empty span by the span's named CHECK, each at its statement.
  */
-const refusalOf =
-	(laws: Names) =>
-	(c: Catalogued): Option.Option<Refusal> => {
-		const reports = (law: Statement) => Option.contains(c.law, laws.lawOf(law))
-		switch (c.kind) {
-			case "check":
-				return c.columns.includes("during") ? Option.some("empty span") : Option.none()
-			case "unique":
-			case "primary":
-				return reports(targetKey) ? Option.some("key") : Option.none()
-			case "foreign":
-				return reports(coverage) ? Option.some("coverage") : Option.none()
-		}
-	}
+export const coverageThroughGrizzlesLoweringOnPostgreSQL19rc2CommitExactlyTheCoveredStatesOfG2sBoxRefuseAGapOrAnOverlapByItsNativeAndAnEmptySpanByTheSpansNamedCHECKEachAtItsStatement =
+	property.exhaust(finite(sketchGen), {
+		needs: { substrate: Substrate.installing },
+		situations: [
+			"committed",
+			"committed with a source outside its selection",
+			"refused empty span",
+			"refused key",
+			"refused coverage",
+			"refused coverage across a gap"
+		] satisfies ReadonlyArray<Reached<CoverageFeature>>,
+		check:
+			({ substrate }, c: Case<CoverageFeature>) =>
+			(sketch) =>
+				Effect.provideServiceEffect(
+					Effect.gen(function* () {
+						const seats = yield* seatPool(seatOf(Coverage, RELATIONS, "coverage"))
 
-const SQLSTATE: Readonly<Record<Refusal, string>> = {
-	"empty span": "23514",
-	key: "23P01",
-	coverage: "23503"
-}
-
-type CoverageFeature =
-	| "committed"
-	| "committed with a source outside its selection"
-	| `refused ${Refusal}`
-	| "refused coverage across a gap"
-
-layer(Substrate.layer)("coverage through grizzle's lowering on PostgreSQL 19rc2", (it) => {
-	it.effect(
-		"commit exactly the covered states of G2's box, refuse a gap or an overlap by its native, and an empty span by the span's named CHECK, each at its statement",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const seats = yield* seatPool(seatOf(Coverage, RELATIONS, "coverage"))
-					return yield* exhaust(
-						{
-							suite: "fin/coverage",
-							generator: sketchGen,
-							literal: Formatter.format,
-							box: "keys 0 and 1, points 0 to 3, each span a non-empty interval, the empty one, or outside its selection: at most two target rows in one INSERT, then one source row",
-							oracle: {
-								kind: "specification",
-								name: "G2's coverage model (test/pg/substrate/temporal.ts covered, keyRefusal) as a checker, an empty span refused first by its field's shape CHECK"
-							},
-							coverage: requiredInSpace<CoverageFeature>([
-								"committed",
-								"committed with a source outside its selection",
-								"refused empty span",
-								"refused key",
-								"refused coverage",
-								"refused coverage across a gap"
-							]),
-							caseHang,
-							concurrency: seatsAtOnce
-						},
-						(sketch, c) =>
-							Effect.gen(function* () {
-								const seat = yield* Pool.get(seats)
-								const laws = namesOf(seat.installed)
-								const model = modelOf(sketch)
-								const statements = [
-									...(Arr.isReadonlyArrayNonEmpty(sketch.targets)
-										? [insertSql(seat, "Target", sketch.targets, 0)]
-										: []),
-									insertSql(seat, "Source", [sketch.source], 100)
-								]
-								const real: Attempted = yield* attempt(seat.session, statements)
-								const disagree = (why: string) =>
-									new Disagreed({
-										message: `${why}: the model predicts ${Formatter.format(model)}, PostgreSQL gave ${real.kind === "committed" ? "commit" : `refusal ${momentText(real.moment)}: ${refusalText(real.fields)}`}, for ${Formatter.format(sketch)}`
-									})
-								if (real.kind === "committed") {
-									yield* cleared(seat, RELATIONS)
-									if (model.kind !== "committed") {
-										return yield* disagree("PostgreSQL committed")
-									}
-									c.note(
-										sketch.source.span.kind === "null"
-											? "committed with a source outside its selection"
-											: "committed"
-									)
-									return
-								}
-								if (model.kind !== "refused") {
-									return yield* disagree("PostgreSQL refused")
-								}
-								const named = Option.flatMap(seat.refusedBy(real.fields), refusalOf(laws))
-								if (
-									!sameMoment(real.moment, model.moment) ||
-									!Option.contains(named, model.by) ||
-									real.fields.code !== SQLSTATE[model.by]
-								) {
-									return yield* disagree("the moment, the native or the SQLSTATE differs")
-								}
-								c.note(`refused ${model.by}`)
-								if (model.by === "coverage" && sketch.source.span.kind === "span") {
-									const { lo, hi } = sketch.source.span
-									if (
-										Arr.some(
-											sketch.targets,
-											(t) =>
-												t.k === sketch.source.k &&
-												t.span.kind === "span" &&
-												t.span.lo < hi &&
-												lo < t.span.hi
-										)
-									) {
-										c.note("refused coverage across a gap")
-									}
-								}
+						const seat = yield* Pool.get(seats)
+						const laws = namesOf(seat.installed)
+						const model = modelOf(sketch)
+						const statements = [
+							...(Arr.isReadonlyArrayNonEmpty(sketch.targets)
+								? [insertSql(seat, "Target", sketch.targets, 0)]
+								: []),
+							insertSql(seat, "Source", [sketch.source], 100)
+						]
+						const real: Attempted = yield* attempt(seat.session, statements)
+						const disagree = (why: string) =>
+							new Disagreed({
+								message: `${why}: the model predicts ${Formatter.format(model)}, PostgreSQL gave ${real.kind === "committed" ? "commit" : `refusal ${momentText(real.moment)}: ${refusalText(real.fields)}`}, for ${Formatter.format(sketch)}`
 							})
-					)
-				})
-			)
-	)
-})
+						if (real.kind === "committed") {
+							yield* cleared(seat, RELATIONS)
+							if (model.kind !== "committed") {
+								return yield* disagree("PostgreSQL committed")
+							}
+							c.note(
+								sketch.source.span.kind === "null"
+									? "committed with a source outside its selection"
+									: "committed"
+							)
+							return
+						}
+						if (model.kind !== "refused") {
+							return yield* disagree("PostgreSQL refused")
+						}
+						const named = Option.flatMap(seat.refusedBy(real.fields), refusalOf(laws))
+						if (
+							!sameMoment(real.moment, model.moment) ||
+							!Option.contains(named, model.by) ||
+							real.fields.code !== SQLSTATE[model.by]
+						) {
+							return yield* disagree("the moment, the native or the SQLSTATE differs")
+						}
+						c.note(`refused ${model.by}`)
+						if (model.by === "coverage" && sketch.source.span.kind === "span") {
+							const { lo, hi } = sketch.source.span
+							if (
+								Arr.some(
+									sketch.targets,
+									(t) =>
+										t.k === sketch.source.k &&
+										t.span.kind === "span" &&
+										t.span.lo < hi &&
+										lo < t.span.hi
+								)
+							) {
+								c.note("refused coverage across a gap")
+							}
+						}
+					}),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "specification",
+			name: "G2's coverage model (test/pg/substrate/temporal.ts covered, keyRefusal) as a checker, an empty span refused first by its field's shape CHECK"
+		},
+		box: "keys 0 and 1, points 0 to 3, each span a non-empty interval, the empty one, or outside its selection: at most two target rows in one INSERT, then one source row",
+		kept: [],
+		kills: []
+	})

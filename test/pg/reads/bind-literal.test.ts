@@ -15,175 +15,63 @@
  * - Features: an importer reading no row, the take cutting the eligible rows, a mark excluding an eligible item, and a
  *   binding outside the facts, each from a host model of the query over the drawn facts.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, element, type Gen, increasing, int, subset } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { array } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import type { Schema } from "#compiler/types/schema/schema.ts"
+import {
+	type BindFeature,
+	bindingGen,
+	factsGen,
+	featuresOf,
+	Item,
+	Mark,
+	Scores,
+	topOver
+} from "#test/pg/reads/bind-literal.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { unorderedEqual } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const Tag = str.regex("^[a-z]{1,4}$")
-const Item = relation("Item", { id: pg.integer, grp: pg.integer, score: pg.integer }, ["id"])
-const Mark = relation("Mark", { item: pg.integer, tag: Tag }, ["item", "tag"])
-const Scores = schema("Scores", [Item, Mark], [])
-
-interface ItemFact {
-	readonly id: number
-	readonly grp: number
-	readonly score: number
-}
-
-interface MarkFact {
-	readonly item: number
-	readonly tag: string
-}
-
-interface Facts {
-	readonly items: ReadonlyArray<ItemFact>
-	readonly marks: ReadonlyArray<MarkFact>
-}
-
-interface Binding {
-	readonly grp: number
-	readonly lo: number
-	readonly k: number
-	readonly tag: string
-}
-
 /**
- * The imported query over the schema value `over`: a group's items scored at least `lo`, none a mark of `tag` names,
- * the first `k` by score. The installation serves it over the declared schema, so it installs the pattern domain its
- * `tag` parameter casts to, and every importer and every direct read of it is compiled under the installed name.
+ * An imported query's parameters bound to literals read the rows the query reads with those values as its parameters.
+ *
+ * Its pre-conversion budget: runs 24, coverage cases 24 (test/pg/reads/bind-literal.test.ts at d8eed1786).
  */
-const topOver = <N extends string>(over: Schema<N, (typeof Scores)["relations"], []>) =>
-	query(over)
-		.rule((r) => {
-			const { id, score } = v(Item, "item")
-			return r
-				.match(Item, { id, grp: r.param("grp", Item.fields.grp), score })
-				.where(
-					r.ge(score, r.param("lo", pg.integer)),
-					r.not(Mark, { item: id, tag: r.param("tag", Mark.fields.tag) })
-				)
-				.find({ id, score })
-		})
-		.orderBy(["score", "desc"], ["id", "asc"])
-		.take("k")
-
-/** The tags a mark holds; a binding also draws one no mark holds. */
-const markTags = ["red", "blue"] as const
-const tags = [...markTags, "gold"] as const
-
-/** The groups the items fall into; a binding also draws one no item is in. */
-const groups = 2
-
-/**
- * Items at distinct ids, a set drawn as its increasing ids, each with a group and a score; then marks, a subset of the
- * items' pairs with a mark's tag, so no two share a key and none is retried.
- */
-const factsGen: Gen<Facts> = (source) => {
-	const ids = source.draw(increasing(1, 12, { min: 1, max: 9 }))
-	const items = Arr.map(ids, (id) => ({
-		id,
-		grp: source.draw(int(1, groups)),
-		score: source.draw(int(-2, 3))
-	}))
-	const pairs = Arr.flatMap(ids, (item) => Arr.map(markTags, (tag) => ({ item, tag })))
-	return { items, marks: source.draw(subset(pairs, { min: 0, max: pairs.length })) }
-}
-
-const bindingGen: Gen<Binding> = (source) => ({
-	grp: source.draw(int(1, groups + 1)),
-	lo: source.draw(int(-3, 4)),
-	k: source.draw(int(1, 4)),
-	tag: source.draw(element(tags))
-})
-
-type BindFeature =
-	| "an importer reading no row"
-	| "the take cutting the eligible rows"
-	| "a mark excluding an eligible item"
-	| "a binding outside the facts"
-
-/** The situations a binding reaches over the facts, from the query restated on the host. */
-const featuresOf = (facts: Facts, b: Binding): ReadonlyArray<BindFeature> => {
-	const scored = Arr.filter(facts.items, (i) => i.grp === b.grp && i.score >= b.lo)
-	const marked = (i: ItemFact) => Arr.some(facts.marks, (m) => m.item === i.id && m.tag === b.tag)
-	const eligible = Arr.filter(scored, (i) => !marked(i))
-	return [
-		...(eligible.length === 0 ? (["an importer reading no row"] as const) : []),
-		...(eligible.length > b.k ? (["the take cutting the eligible rows"] as const) : []),
-		...(Arr.some(scored, marked) ? (["a mark excluding an eligible item"] as const) : []),
-		...(b.grp > groups || !Arr.some(markTags, (t) => t === b.tag)
-			? (["a binding outside the facts"] as const)
-			: [])
-	]
-}
-
-layer(Substrate.layer, { excludeTestServices: true })(
-	"an imported query's parameters bound to literals",
-	(it) => {
-		it.effect("read the rows the query reads with those values as its parameters", (ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const opened = yield* installed(
-						Scores,
-						{},
-						{ label: "real", programs: { top: topOver(Scores) } }
-					)
-					const names = namesOf(opened.installed)
-					const itemInsert = `INSERT INTO ${names.table(Item)} (${names.column(Item, "id")}, ${names.column(Item, "grp")}, ${names.column(Item, "score")}) VALUES ($1::int4, $2::int4, $3::int4)`
-					const markInsert = `INSERT INTO ${names.table(Mark)} (${names.column(Mark, "item")}, ${names.column(Mark, "tag")}) VALUES ($1::int4, $2::text)`
-					const top = topOver(opened.schema)
-					return yield* explore(
-						{
-							oracle: {
-								kind: "second-implementation",
-								name: "the query executed with the binding's values as its parameters"
-							},
-							suite: "pg/reads/bind-literal",
-							draw: drawn(
-								(source) =>
-									[
-										source.draw(factsGen),
-										source.draw(array(bindingGen, { min: 1, max: 4 }))
-									] as const
-							),
-							literal: Formatter.format,
-							coverage: required<BindFeature>(
-								[
-									"an importer reading no row",
-									"the take cutting the eligible rows",
-									"a mark excluding an eligible item",
-									"a binding outside the facts"
-								],
-								{ cases: 24, sense: notesOnly }
-							),
-							kept: [],
-							runs: 24,
-							shrink: completeShrink,
-							steerEvery: 8,
-							caseHang
-						},
-						([facts, bindings], c) =>
-							Effect.gen(function* () {
+export const anImportedQuerysParametersBoundToLiteralsReadTheRowsTheQueryReadsWithThoseValuesAsItsParameters =
+	property.explore(
+		(source) =>
+			[source.draw(factsGen), source.draw(array(bindingGen, { min: 1, max: 4 }))] as const,
+		{
+			needs: { substrate: Substrate.installing },
+			situations: [
+				"an importer reading no row",
+				"the take cutting the eligible rows",
+				"a mark excluding an eligible item",
+				"a binding outside the facts"
+			] satisfies ReadonlyArray<Reached<BindFeature>>,
+			check:
+				({ substrate }, c: Case<BindFeature>) =>
+				([facts, bindings]) =>
+					Effect.provideServiceEffect(
+						Effect.gen(function* () {
+							const s = yield* Substrate
+							const opened = yield* installed(
+								Scores,
+								{},
+								{ label: "real", programs: { top: topOver(Scores) } }
+							)
+							const names = namesOf(opened.installed)
+							const itemInsert = `INSERT INTO ${names.table(Item)} (${names.column(Item, "id")}, ${names.column(Item, "grp")}, ${names.column(Item, "score")}) VALUES ($1::int4, $2::int4, $3::int4)`
+							const markInsert = `INSERT INTO ${names.table(Mark)} (${names.column(Mark, "item")}, ${names.column(Mark, "tag")}) VALUES ($1::int4, $2::text)`
+							const top = topOver(opened.schema)
+							return yield* Effect.gen(function* () {
 								yield* replaceRows(s.admin, installationGroup(names), [
 									...Arr.map(facts.items, (i) => ({
 										sql: itemInsert,
@@ -227,9 +115,16 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									})
 								)
 							}).pipe(Effect.scoped)
-					)
-				}).pipe(Effect.scoped)
-			)
-		)
-	}
-)
+						}).pipe(Effect.scoped),
+						Substrate,
+						substrate
+					),
+			oracle: {
+				kind: "second-implementation",
+				name: "the query executed with the binding's values as its parameters"
+			},
+			budget: { runs: 24, steered: 24 },
+			kept: [],
+			kills: []
+		}
+	)

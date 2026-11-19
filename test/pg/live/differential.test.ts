@@ -36,17 +36,14 @@
  * at it draws its sketch from those the compile admits by construction (oracle/public/generate.ts admittedSketchGen,
  * `aims`), the sketch it runs, prints and keeps, so a run that draws mostly refused programs still compares served ones.
  */
-import { aimed, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import type { Gen } from "@bjornpagen/testing/gen"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
 import { agree } from "@bjornpagen/testing/oracle"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, Result } from "effect"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import type { ServedLogin } from "#adapter/types/layer.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import {
 	type AnyLogin,
@@ -55,296 +52,203 @@ import {
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
+import {
+	aims,
+	answerOf,
+	cases,
+	Differs,
+	directFacts,
+	type Feature,
+	paramsOf,
+	readMember,
+	refusesProseKey
+} from "#test/pg/live/differential.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { liveSurfaces } from "#test/support/live/calls.ts"
 import { standingOn } from "#test/support/live/standing.ts"
-import type { LiveValue } from "#test/support/live/system.ts"
 import { printKeyed, sameKeyed } from "#test/support/live/values.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import {
-	type Answer,
-	answerEquivalence,
-	publicRows,
-	shapeOf
-} from "#test/support/oracle/public/answer.ts"
-import { buildRoot, buildSchema, factRecord, hostValue } from "#test/support/oracle/public/build.ts"
-import {
-	admittedSketchGen,
-	type CaseSketch,
-	caseSketchGen,
-	resolveCase
-} from "#test/support/oracle/public/generate.ts"
+import { answerEquivalence, shapeOf } from "#test/support/oracle/public/answer.ts"
+import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
+import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { expectedQuery } from "#test/support/oracle/public/meaning.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
-import {
-	deliveredOrder,
-	type ProgramCase,
-	type ProgramRead,
-	type ProgramSchema
-} from "#test/support/oracle/public/program.ts"
+import { deliveredOrder } from "#test/support/oracle/public/program.ts"
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
-import { storedInput } from "#test/support/oracle/runner.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
-class Differs extends Data.TaggedError("Differs")<{ readonly report: string }> {}
-
-type Feature =
-	| "a set read"
-	| "an ordered read"
-	| "an attachment"
-	| "a relation parameter"
-	| "a read of no row"
-	| "a read of several rows"
-	| "a column the reference declines"
-	| "a read refused for a key over prose"
-	| "an admitted program whose live answers match the reference over an index read"
-
-const cases = 40
-
-/** The admitted program over an index read, with the sketches a witness whose turn aims at it draws (aimed). */
-const aims: ReadonlyArray<readonly [Feature, Gen<CaseSketch>]> = [
-	[
-		"an admitted program whose live answers match the reference over an index read",
-		admittedSketchGen
-	]
-]
-
 /**
- * Whether `error` is the compile's refusal of an index over a prose field of `schema`, the generated schema's text with
- * no byte bound: UnrepresentableKey, its fault unboundedText of a prose field of a relation whose fields are every
- * field of the refused key.
+ * A generated program holds at an HTTP call's ready the in-process once's value, which is the reference's answer, over ${cases} generated programs.
+ *
+ * Its pre-conversion budget: runs cases, coverage cases 60 (test/pg/live/differential.test.ts at d8eed1786).
  */
-const refusesProseKey = (schema: ProgramSchema, error: CompileError): boolean => {
-	const reason = error.reason
-	if (reason._tag !== "UnrepresentableKey" || reason.fault.kind !== "unboundedText") {
-		return false
-	}
-	const field = reason.fault.field
-	return Arr.some(
-		schema.relations,
-		(r) =>
-			Arr.some(r.fields, (f) => f.kind === "prose" && f.name === field) &&
-			Arr.every(reason.key, (k) => Arr.some(r.fields, (f) => f.name === k))
-	)
-}
-
-type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
-
-/** The member a query read is served as, by its place among the case's reads. */
-const readMember = (place: number): string => `read${place}`
-
-/** A read's parameters as a call takes them: each scalar's host value, each relation parameter's facts. */
-const paramsOf = (read: QueryRead): Readonly<Record<string, unknown>> =>
-	Rec.fromEntries([
-		...Arr.map(read.params, (p): readonly [string, unknown] => [
-			p.name,
-			hostValue(p.value, p.type)
-		]),
-		...Arr.map(read.relations, (r): readonly [string, unknown] => [
-			r.name,
-			Arr.map(r.rows, (fact) => factRecord(r.relation, fact))
-		])
-	])
-
-/** The case's facts as the oracle loader's records, each value in the spelling its fact drew. */
-const directFacts = (c: ProgramCase) =>
-	Rec.fromEntries(
-		Arr.map(c.schema.relations, (r) => [
-			r.name,
-			Arr.map(c.facts.get(r.name) ?? [], (fact) =>
-				Rec.fromEntries(
-					Arr.flatMap(r.fields, (f, i): ReadonlyArray<readonly [string, unknown]> => {
-						const value = fact[i]
-						return value === undefined ? [] : [[f.name, storedInput(value, f.type)]]
-					})
-				)
-			)
-		])
-	)
-
-/** A value's rows as the public answer reads delivered rows. */
-const answerOf = (read: QueryRead, value: LiveValue): Answer =>
-	publicRows(shapeOf(read.query), [...value])
-
-layer(Substrate.layer)("a generated program", (it) => {
-	it.effect(
-		`holds at an HTTP call's ready the in-process once's value, which is the reference's answer, over ${cases} generated programs`,
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "the reference evaluator's answer, and the two surfaces held to each other exactly"
-						},
-						suite: "pg/live/differential",
-						draw: aimed(caseSketchGen, aims),
-						literal: Formatter.format,
-						coverage: required<Feature>(
-							[
-								"a set read",
-								"an ordered read",
-								"an attachment",
-								"a relation parameter",
-								"a read of no row",
-								"a read of several rows",
-								"an admitted program whose live answers match the reference over an index read"
-							],
-							{ cases: 60, sense: notesOnly }
-						),
-						kept: [],
-						runs: cases,
-						shrink: { kind: "bounded", candidates: 60 },
-						steerEvery: 8,
-						caseHang
-					},
-					(sketch, notes) =>
-						Effect.gen(function* () {
-							const c = notes.draw(resolveCase(sketch))
-							const reads = Arr.flatMap(c.reads, (read, place) =>
-								read.kind === "query" ? [{ read, place }] : []
-							)
-							if (!Arr.isReadonlyArrayNonEmpty(reads)) {
-								return
-							}
-							const built = buildSchema(c.schema)
-							/**
-							 * The case's world under the installed name `name`: a full role, which serves every query read of
-							 * the case as a member of its workload, in the login `server`, as generate drafts and serves it.
-							 */
-							const servedWorld = (name: string) => {
-								const value = built.installedAs(name)
-								const app = role(value, "app", wholeEntriesOf(value), {
-									write: writableNamesOf(value)
-								})
-								const programs = Rec.fromEntries(
-									Arr.map(reads, ({ read, place }) => [
-										readMember(place),
-										buildRoot(built, value, read.query)
-									])
-								)
-								return {
-									value,
-									app,
-									server: login(value, "server", [app], { workload: [workload(app, programs)] })
-								}
-							}
-							const installedCase = yield* Effect.result(
-								installGenerated(
-									(name) => {
-										const world = servedWorld(name)
-										return { schema: world.value, logins: [world.server] }
-									},
-									{ label: "live_differential", ambient: ordinarySession }
-								)
-							)
-							if (Result.isFailure(installedCase)) {
-								const failure = installedCase.failure
-								if (failure._tag === "CompileError" && refusesProseKey(c.schema, failure)) {
-									notes.note("a read refused for a key over prose")
-									return
-								}
-								return yield* Effect.fail(failure)
-							}
-							const generated = installedCase.success
-							const done = generated.installed
-							const world = servedWorld(done.declared)
-							const statements = factStatements(done.plan, directFacts(c))
-							if (!statements.ok) {
-								return yield* new Differs({
-									report: `the facts do not load: ${statements.error.message}\n${printCase(c)}`
-								})
-							}
-							const substrate = yield* Substrate
-							const writer = yield* substrate.session(worldSession(done.world(world.app)))
-							yield* writer.begin
-							for (const sql of statements.value) {
-								yield* writer.query(sql, [])
-							}
-							yield* writer.commit
-							const file: ServedLogin<AnyLogin> = served(
-								defined(generated.served.get("server"), "the served file of login server"),
-								"server"
-							)
-							const fixtureLayer = sourcedDbLayer(done, {
-								...clusterConnection(done.cluster, done.database, done.as(world.server).password),
-								pool: clusterPool,
-								login: file,
-								verify: testVerify
+export const aGeneratedProgramHoldsAtAnHTTPCallsReadyTheInProcessOncesValueWhichIsTheReferencesAnswerOverCasesGeneratedPrograms =
+	property.explore(aimed(caseSketchGen, aims), {
+		needs: { substrate2: Substrate.installing },
+		situations: [
+			"a set read",
+			"an ordered read",
+			"an attachment",
+			"a relation parameter",
+			"a read of no row",
+			"a read of several rows",
+			"an admitted program whose live answers match the reference over an index read"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check:
+			({ substrate2 }, notes: Case<Feature>) =>
+			(sketch) =>
+				Effect.provideServiceEffect(
+					Effect.gen(function* () {
+						const c = notes.draw(resolveCase(sketch))
+						const reads = Arr.flatMap(c.reads, (read, place) =>
+							read.kind === "query" ? [{ read, place }] : []
+						)
+						if (!Arr.isReadonlyArrayNonEmpty(reads)) {
+							return
+						}
+						const built = buildSchema(c.schema)
+						/**
+						 * The case's world under the installed name `name`: a full role, which serves every query read of
+						 * the case as a member of its workload, in the login `server`, as generate drafts and serves it.
+						 */
+						const servedWorld = (name: string) => {
+							const value = built.installedAs(name)
+							const app = role(value, "app", wholeEntriesOf(value), {
+								write: writableNamesOf(value)
 							})
-							yield* Effect.gen(function* () {
-								const surfaces = yield* liveSurfaces(file, "app", tokenOf({}))
-								for (const { read, place } of Arr.take(reads, 1)) {
-									yield* standingOn(surfaces.inProcess, readMember(place), {
-										params: paramsOf(read),
-										facts: {}
-									})
-								}
-								for (const { read, place } of reads) {
-									const label = `read ${place}`
-									const input = { params: paramsOf(read), facts: {} }
-									const inProcess = yield* surfaces.inProcess.once(readMember(place), input)
-									const overHttp = yield* surfaces.http.once(readMember(place), input)
-									if (!sameKeyed(inProcess, overHttp)) {
-										return yield* new Differs({
-											report: `${label}: over HTTP ${printKeyed(overHttp)}, in process ${printKeyed(inProcess)}\n${printCase(c)}`
-										})
-									}
-									const inOrder = Option.isSome(deliveredOrder(read.query))
-									notes.note(inOrder ? "an ordered read" : "a set read")
-									notes.note(
-										inProcess.size === 0
-											? "a read of no row"
-											: inProcess.size > 1
-												? "a read of several rows"
-												: "a set read"
-									)
-									if (Arr.isReadonlyArrayNonEmpty(read.query.attachments)) {
-										notes.note("an attachment")
-									}
-									if (Arr.isReadonlyArrayNonEmpty(read.relations)) {
-										notes.note("a relation parameter")
-									}
-									const expected = expectedQuery(c, read, unobserved)
-									if (Result.isFailure(expected)) {
-										notes.note("a column the reference declines")
-									}
-									yield* Effect.mapError(
-										agree(
-											[
-												["the reference", expected],
-												["in process", answerOf(read, inProcess)],
-												["over HTTP", answerOf(read, overHttp)]
-											],
-											answerEquivalence(shapeOf(read.query), inOrder)
-										),
-										(disagreement) =>
-											new Differs({
-												report: `${label}: ${disagreement.message}\n${printCase(c)}`
-											})
-									)
-									if (Arr.isReadonlyArrayNonEmpty(read.params)) {
-										notes.note(
-											"an admitted program whose live answers match the reference over an index read"
-										)
-									}
-								}
-							}).pipe(withLayer(fixtureLayer))
-						}).pipe(
-							Effect.scoped,
-							Effect.mapError((e) =>
-								e instanceof Differs ? e : new Differs({ report: Formatter.format(e) })
+							const programs = Rec.fromEntries(
+								Arr.map(reads, ({ read, place }) => [
+									readMember(place),
+									buildRoot(built, value, read.query)
+								])
+							)
+							return {
+								value,
+								app,
+								server: login(value, "server", [app], { workload: [workload(app, programs)] })
+							}
+						}
+						const installedCase = yield* Effect.result(
+							installGenerated(
+								(name) => {
+									const world = servedWorld(name)
+									return { schema: world.value, logins: [world.server] }
+								},
+								{ label: "live_differential", ambient: ordinarySession }
 							)
 						)
-				)
-			)
-	)
-})
+						if (Result.isFailure(installedCase)) {
+							const failure = installedCase.failure
+							if (failure._tag === "CompileError" && refusesProseKey(c.schema, failure)) {
+								notes.note("a read refused for a key over prose")
+								return
+							}
+							return yield* Effect.fail(failure)
+						}
+						const generated = installedCase.success
+						const done = generated.installed
+						const world = servedWorld(done.declared)
+						const statements = factStatements(done.plan, directFacts(c))
+						if (!statements.ok) {
+							return yield* new Differs({
+								report: `the facts do not load: ${statements.error.message}\n${printCase(c)}`
+							})
+						}
+						const substrate = yield* Substrate
+						const writer = yield* substrate.session(worldSession(done.world(world.app)))
+						yield* writer.begin
+						for (const sql of statements.value) {
+							yield* writer.query(sql, [])
+						}
+						yield* writer.commit
+						const file: ServedLogin<AnyLogin> = served(
+							defined(generated.served.get("server"), "the served file of login server"),
+							"server"
+						)
+						const fixtureLayer = sourcedDbLayer(done, {
+							...clusterConnection(done.cluster, done.database, done.as(world.server).password),
+							pool: clusterPool,
+							login: file,
+							verify: testVerify
+						})
+						yield* Effect.gen(function* () {
+							const surfaces = yield* liveSurfaces(file, "app", tokenOf({}))
+							for (const { read, place } of Arr.take(reads, 1)) {
+								yield* standingOn(surfaces.inProcess, readMember(place), {
+									params: paramsOf(read),
+									facts: {}
+								})
+							}
+							for (const { read, place } of reads) {
+								const label = `read ${place}`
+								const input = { params: paramsOf(read), facts: {} }
+								const inProcess = yield* surfaces.inProcess.once(readMember(place), input)
+								const overHttp = yield* surfaces.http.once(readMember(place), input)
+								if (!sameKeyed(inProcess, overHttp)) {
+									return yield* new Differs({
+										report: `${label}: over HTTP ${printKeyed(overHttp)}, in process ${printKeyed(inProcess)}\n${printCase(c)}`
+									})
+								}
+								const inOrder = Option.isSome(deliveredOrder(read.query))
+								notes.note(inOrder ? "an ordered read" : "a set read")
+								notes.note(
+									inProcess.size === 0
+										? "a read of no row"
+										: inProcess.size > 1
+											? "a read of several rows"
+											: "a set read"
+								)
+								if (Arr.isReadonlyArrayNonEmpty(read.query.attachments)) {
+									notes.note("an attachment")
+								}
+								if (Arr.isReadonlyArrayNonEmpty(read.relations)) {
+									notes.note("a relation parameter")
+								}
+								const expected = expectedQuery(c, read, unobserved)
+								if (Result.isFailure(expected)) {
+									notes.note("a column the reference declines")
+								}
+								yield* Effect.mapError(
+									agree(
+										[
+											["the reference", expected],
+											["in process", answerOf(read, inProcess)],
+											["over HTTP", answerOf(read, overHttp)]
+										],
+										answerEquivalence(shapeOf(read.query), inOrder)
+									),
+									(disagreement) =>
+										new Differs({
+											report: `${label}: ${disagreement.message}\n${printCase(c)}`
+										})
+								)
+								if (Arr.isReadonlyArrayNonEmpty(read.params)) {
+									notes.note(
+										"an admitted program whose live answers match the reference over an index read"
+									)
+								}
+							}
+						}).pipe(withLayer(fixtureLayer))
+					}).pipe(
+						Effect.scoped,
+						Effect.mapError((e) =>
+							e instanceof Differs ? e : new Differs({ report: Formatter.format(e) })
+						)
+					),
+					Substrate,
+					substrate2
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the reference evaluator's answer, and the two surfaces held to each other exactly"
+		},
+		budget: { runs: cases, steered: 60 },
+		kept: [],
+		kills: []
+	})

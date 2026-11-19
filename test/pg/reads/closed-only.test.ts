@@ -1,95 +1,36 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, type Gen, int, map, shuffled } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
+import {
+	type ClosedFeature,
+	handlePool,
+	Label,
+	labelPool,
+	plansCaseGen
+} from "#test/pg/reads/closed-only.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * A schema of closed relations only installs, opens and reads on PostgreSQL 19.
+ * A schema of closed relations only installs with no law and no table, opens, and reads every roster's handles.
  *
- * Rosters and closed relations state no law of their own, so such a schema has no law at all and an empty law DAG. No
- * generated population reaches it (every generated schema holds a stored relation), so it is planted: each case draws
- * two rosters, a drawn subset of a handle pool in a drawn order, and a closed relation over one of them, keyed by its
- * closed id, with a number and a text drawn per handle. It installs through its first migration as any schema does, its
- * law theory is empty, it stores no table (a roster is a domain and its names constant, a closed relation's rows reach
- * the database only as constants), Db.open admits it, and a workload member reads every roster's handles. A closed
- * relation's rows are read only through its closed reads, which stand in predicates and generation expressions, never
- * in a query's head, so no query delivers them.
- *
- * - Property: the schema installs with no law and no table, and each roster's read delivers its handles, as a set.
- * - Oracle: the specification turned into a checker, the schema restated.
- * - Features: a roster of one handle, and one of every handle.
+ * Its pre-conversion budget: runs 24, coverage cases 24 (test/pg/reads/closed-only.test.ts at d8eed1786).
  */
-const Label = str.regex("^.*$", "su")
-
-const handlePool = ["Free", "Pro", "Team", "Gold", "Basic"] as const
-const labelPool = ["", "a", "é", "\u{1F600}", "two words"] as const
-
-/** A nonempty subset of the handle pool, in a drawn order. */
-const rosterGen: Gen<Arr.NonEmptyReadonlyArray<string>> = map(
-	shuffled(handlePool, { min: 1, max: handlePool.length }),
-	(handles) => nonEmptyList(handles, "a roster")
-)
-
-interface PlansCase {
-	readonly tiers: Arr.NonEmptyReadonlyArray<string>
-	/** Each tier's seats and label, by position. */
-	readonly payload: ReadonlyArray<readonly [number, number]>
-	readonly regions: Arr.NonEmptyReadonlyArray<string>
-}
-
-const plansCaseGen: Gen<PlansCase> = (source) => ({
-	tiers: source.draw(rosterGen),
-	payload: source.draw(
-		array(
-			(drawing) => [drawing.draw(int(-3, 60)), drawing.draw(int(0, labelPool.length - 1))] as const,
-			{ min: handlePool.length, max: handlePool.length }
-		)
-	),
-	regions: source.draw(rosterGen)
-})
-
-type ClosedFeature = "one handle" | "every handle"
-
-layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relations only", (it) => {
-	it.effect("installs with no law and no table, opens, and reads every roster's handles", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "specification",
-						name: "the schema restated: no law, no table, and each roster's handles as drawn, as a set"
-					},
-					suite: "reads/closed-only",
-					draw: drawn(plansCaseGen),
-					literal: Formatter.format,
-					coverage: required<ClosedFeature>(["one handle", "every handle"], {
-						cases: 24,
-						sense: notesOnly
-					}),
-					kept: [],
-					runs: 24,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				(c, notes) =>
+export const aSchemaOfClosedRelationsOnlyInstallsWithNoLawAndNoTableOpensAndReadsEveryRostersHandles =
+	property.explore(plansCaseGen, {
+		needs: { substrate: Substrate.installing },
+		situations: ["one handle", "every handle"] satisfies ReadonlyArray<Reached<ClosedFeature>>,
+		check:
+			({ substrate }, notes: Case<ClosedFeature>) =>
+			(c) =>
+				Effect.provideServiceEffect(
 					Effect.gen(function* () {
 						const tierFacts = Arr.map(c.tiers, (id, i) => {
 							const [seats, label] = defined(c.payload[i])
@@ -144,8 +85,15 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 										: []
 							)
 						)
-					}).pipe(Effect.scoped)
-			)
-		)
-	)
-})
+					}).pipe(Effect.scoped),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "specification",
+			name: "the schema restated: no law, no table, and each roster's handles as drawn, as a set"
+		},
+		budget: { runs: 24, steered: 24 },
+		kept: [],
+		kills: []
+	})

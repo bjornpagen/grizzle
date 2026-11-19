@@ -33,501 +33,288 @@
  *
  * Features: each class above, each surface, a watch refused by its parameter's pattern.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Fiber, Formatter, Option, Stream } from "effect"
-import { memberCalls } from "#adapter/db/handles.ts"
-import { openServed } from "#adapter/db/served.ts"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Fiber, Formatter } from "effect"
 import { served } from "#adapter/public/layer.ts"
-import type { DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
+import type { DbLayerOf } from "#adapter/types/layer.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { type CallError, type CallErrorKind, callErrors } from "#compiler/live/index.ts"
-import { workload } from "#compiler/program/workload/value.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { type CallErrorKind, callErrors } from "#compiler/live/index.ts"
+import type { AnyLogin } from "#compiler/public/schema.ts"
 import {
-	type AnyLogin,
-	context,
-	login,
-	mutable,
-	relation,
-	role,
-	schema,
-	wholeEntriesOf
-} from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
+	cases,
+	classOf,
+	emptyBody,
+	type Feature,
+	Misclassified,
+	notebook,
+	outcomeKind,
+	provokedGen,
+	rawError,
+	sourced,
+	watched
+} from "#test/pg/live/errors.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { errorOf, liveSurfaces, wireOf } from "#test/support/live/calls.ts"
 import { commitDirectly, insertRow, updateRow } from "#test/support/live/direct.ts"
-import type { RawEvent } from "#test/support/live/system.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
-/** A call's body with no parameter and no fact, as a request writes it. */
-const emptyBody = `{"params":{},"facts":{}}`
-
-/** What a call ended as: its error's class, or a success. */
-const outcomeKind = <A>(
-	call: Effect.Effect<A, CallError>
-): Effect.Effect<CallErrorKind | "succeeded"> =>
-	Effect.match(call, {
-		onFailure: (error): CallErrorKind | "succeeded" => error.kind,
-		onSuccess: (): CallErrorKind | "succeeded" => "succeeded"
-	})
-
-class Misclassified extends Data.TaggedError("Misclassified")<{ readonly report: string }> {}
-
-/** The pattern `tagged`'s parameter is of. */
-const Tag = str.regex("^[a-z]{1,8}$", "u")
-
-/** Texts outside Tag's pattern: empty, past its length, of another letter case, script or character. */
-const untagged = ["", "abcdefghi", "Abc", "a-b", "é", "a b"] as const
-
-/** The notebook under `name`: its schema, its writer's login and the direct writer's. */
-const notebook = (name: string) => {
-	const Session = context("Session", { sub: pg.integer })
-	const Note = relation("Note", { id: pg.integer, author: pg.integer, body: pg.integer }, ["id"])
-	const base = schema(name, [Note], [mutable(Note)])
-	const mine = query(base).rule((r) => {
-		const { id, author, body } = v(Note, "note")
-		return r
-			.match(Note, { id, author, body })
-			.match(Session, { sub: author })
-			.find({ id, author, body })
-	})
-	const writer = role(base, "writer", { MyNote: mine }, { write: ["MyNote"] })
-	const { MyNote } = writer.relations
-	const notes = query(writer).rule((r) => {
-		const { id, author, body } = v(MyNote, "mine")
-		return r.match(MyNote, { id, author, body }).find({ id, author, body })
-	})
-	const tagged = query(writer).rule((r) => {
-		const { id, author, body } = v(MyNote, "mine")
-		return r.match(MyNote, { id, author, body }).find({ id, tag: r.param("tag", Tag) })
-	})
-	const direct = role(base, "direct", wholeEntriesOf(base), { write: ["Note"] })
-	return {
-		schema: base,
-		writer,
-		direct,
-		app: login(base, "app", [writer], {
-			workload: [
-				workload(writer, {
-					notes,
-					tagged,
-					add: ChangeSet.empty(writer).insert(MyNote, []),
-					edit: ChangeSet.empty(writer).put(MyNote, [])
-				})
-			]
-		}),
-		psql: login(base, "notes_psql", [direct])
-	}
-}
-
-/** A failing call's class, as the case provokes it (see the header). */
-type Fault =
-	| "a path no program serves"
-	| "a method other than POST"
-	| "a body that is no JSON"
-	| "a fact of another type"
-	| "a parameter outside its pattern"
-	| "a header that is no bearer token"
-	| "no token"
-	| "claims that do not decode"
-	| "a stored note's id"
-	| "a note of another author"
-	| "an edit of a held note"
-
 /**
- * The faults only an HTTP request carries: its path, method, body and header are the request's own, and a Db of a role
- * that reads a context opens with a token by its type.
+ * A failing live call ends with its class's CallError, whose retry holds when the call is sent again, over ${cases} drawn failures.
+ *
+ * Its pre-conversion budget: runs cases, coverage cases 60 (test/pg/live/errors.test.ts at d8eed1786).
  */
-const httpOnly: ReadonlySet<Fault> = new Set<Fault>([
-	"a path no program serves",
-	"a method other than POST",
-	"a body that is no JSON",
-	"a header that is no bearer token",
-	"no token"
-])
-
-/** The class each fault's meaning gives it (see the header). */
-const classOf = (fault: Fault): CallErrorKind => {
-	switch (fault) {
-		case "a path no program serves":
-		case "a method other than POST":
-			return "route"
-		case "a body that is no JSON":
-		case "a fact of another type":
-			return "input"
-		case "a parameter outside its pattern":
-			return "paramRejected"
-		case "a header that is no bearer token":
-		case "no token":
-		case "claims that do not decode":
-			return "tokenRefused"
-		case "a stored note's id":
-			return "refused"
-		case "a note of another author":
-			return "outsideWorld"
-		case "an edit of a held note":
-			return "transient"
-	}
-}
-
-interface Provoked {
-	readonly fault: Fault
-	readonly overHttp: boolean
-	readonly sub: number
-	readonly id: number
-	readonly body: number
-	readonly tag: (typeof untagged)[number]
-}
-
-const faultGen: Gen<Fault> = weighted<Fault>([
-	[1, () => "a path no program serves"],
-	[1, () => "a method other than POST"],
-	[1, () => "a body that is no JSON"],
-	[1, () => "a fact of another type"],
-	[2, () => "a parameter outside its pattern"],
-	[1, () => "a header that is no bearer token"],
-	[1, () => "no token"],
-	[1, () => "claims that do not decode"],
-	[2, () => "a stored note's id"],
-	[2, () => "a note of another author"],
-	[2, () => "an edit of a held note"]
-])
-
-const provokedGen: Gen<Provoked> = (source) => {
-	const fault = source.draw(faultGen)
-	return {
-		fault,
-		overHttp: httpOnly.has(fault) || source.draw(boolean),
-		sub: source.draw(int(1, 3)),
-		id: source.draw(int(1, 4)),
-		body: source.draw(int(0, 9)),
-		tag: source.draw(element(untagged))
-	}
-}
-
-type Feature =
-	| CallErrorKind
-	| "over HTTP"
-	| "in process"
-	| "a watch refused by its parameter's pattern"
-
-const cases = 40
-
-/**
- * A watch of the read member `name` of the writer in process, its Db opened with `token` as a request handler opens one
- * (adapter/db/handles.ts memberCalls): the events it answers up to its first `ready` or `error`.
- */
-const watched = (file: ServedLogin<AnyLogin>, token: string, name: string, input: unknown) =>
-	Effect.gen(function* () {
-		const opened = yield* Effect.orDie(
-			openServed(defined(file.roles["writer"], "the served role writer"), { token })
-		)
-		const member = defined(
-			Option.getOrUndefined(Arr.findFirst(opened.role.members, (m) => m.name === name)),
-			`the served member ${name}`
-		)
-		const calls = memberCalls(opened.ctx, member)
-		if (calls.shape !== "set") {
-			return yield* Effect.die(new Error(`the served member ${name} is no set read`))
-		}
-		return yield* Stream.runCollect(
-			Stream.takeUntil(
-				calls.watch(input),
-				(event) => event.kind === "ready" || event.kind === "error"
-			)
-		)
-	})
-
-/**
- * A watch's answer once the installation's live source stands: its leader makes the replication slot at the layer's
- * first watch, and until the slot stands a watch is `unavailable`, retried `safe`, which a caller sends again as it is
- * meant to, so `watch` is sent again while `unavailable` says its answer is that.
- */
-const sourced = <A, E, R>(
-	watch: Effect.Effect<A, E, R>,
-	unavailable: (answer: A) => boolean
-): Effect.Effect<A, E, R> => Effect.repeat(watch, { while: unavailable })
-
-/** The error a call's raw answer ends with, its events being exactly that error and its end. */
-const rawError = (events: ReadonlyArray<RawEvent>) => {
-	assert.deepEqual(
-		Arr.map(events, (e) => e.type),
-		["error", "end"],
-		"a failing call's answer is its one error event and its end"
-	)
-	return errorOf(defined(events[0], "the error event"))
-}
-
-layer(Substrate.layer)("a failing live call", (it) => {
-	it.effect(
-		`ends with its class's CallError, whose retry holds when the call is sent again, over ${cases} drawn failures`,
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "each failure's meaning (live/events.ts callErrors) and the database's own state"
-						},
-						suite: "pg/live/errors",
-						draw: drawn(provokedGen),
-						literal: Formatter.format,
-						coverage: required<Feature>(
-							[
-								"route",
-								"input",
-								"paramRejected",
-								"tokenRefused",
-								"refused",
-								"outsideWorld",
-								"transient",
-								"over HTTP",
-								"in process",
-								"a watch refused by its parameter's pattern"
-							],
-							{ cases: 60, sense: notesOnly }
-						),
-						kept: [],
-						runs: cases,
-						shrink: { kind: "bounded", candidates: 40 },
-						steerEvery: 8,
-						caseHang
-					},
-					(p, notes) =>
-						Effect.gen(function* () {
-							const substrate = yield* Substrate
-							const generated = yield* installGenerated(
-								(name) => {
-									const book = notebook(name)
-									return { schema: book.schema, logins: [book.app, book.psql] }
-								},
-								{ label: "live_errors", ambient: ordinarySession }
-							)
-							const installed = generated.installed
-							const built = notebook(installed.declared)
-							const file = served(defined(generated.served.get("app"), "app's served file"), "app")
-							const layerOf = sourcedDbLayer(installed, {
-								...clusterConnection(
-									installed.cluster,
-									installed.database,
-									installed.as(built.app).password
-								),
-								pool: clusterPool,
-								login: file,
-								verify: testVerify
-							})
-							const directWriter = yield* substrate.session(
-								worldSession(installed.world(built.direct))
-							)
-							yield* commitDirectly(directWriter, [
-								insertRow(installed.plan, "Note", { id: p.id, author: p.sub, body: p.body })
-							])
-							const expected = classOf(p.fault)
-							notes.note(expected)
-							notes.note(p.overHttp ? "over HTTP" : "in process")
-							yield* Effect.gen(function* () {
-								const token =
-									p.fault === "claims that do not decode"
-										? tokenOf({ sub: "not a number" })
-										: tokenOf({ sub: p.sub })
-								const surfaces = yield* liveSurfaces(file, "writer", token)
-								/** The served layer's context the in-process watch opens its Db in, as the surfaces do. */
-								const dbContext = yield* Effect.context<DbLayerOf<AnyLogin>>()
-								/** The notes member's wire digest, which a call to it names to be read at all. */
-								const wire = wireOf(file, "writer", "notes")
-								const note = (author: number) => ({ id: p.id, author, body: p.body + 1 })
-								const call = (): Effect.Effect<CallErrorKind | "succeeded"> => {
-									switch (p.fault) {
-										case "a path no program serves":
-											return Effect.map(
-												surfaces.raw({
-													method: "POST",
-													path: "/app/writer/nothing",
-													headers: {},
-													body: "{}"
-												}),
-												(events) => rawError(events).kind
-											)
-										case "a method other than POST":
-											return Effect.map(
-												surfaces.raw({
-													method: "GET",
-													path: "/app/writer/notes",
-													headers: {},
-													body: "{}"
-												}),
-												(events) => rawError(events).kind
-											)
-										case "a body that is no JSON":
-											return Effect.map(
-												surfaces.raw({
-													method: "POST",
-													path: "/app/writer/notes",
-													headers: {
-														authorization: `Bearer ${tokenOf({ sub: p.sub })}`,
-														"grizzle-wire": wire
-													},
-													body: "{ not json"
-												}),
-												(events) => rawError(events).kind
-											)
-										case "a header that is no bearer token":
-											return Effect.map(
-												surfaces.raw({
-													method: "POST",
-													path: "/app/writer/notes",
-													headers: { authorization: "Basic dXNlcjpwYXNz", "grizzle-wire": wire },
-													body: emptyBody
-												}),
-												(events) => rawError(events).kind
-											)
-										case "no token":
-											return Effect.map(
-												surfaces.raw({
-													method: "POST",
-													path: "/app/writer/notes",
-													headers: { "grizzle-wire": wire },
-													body: emptyBody
-												}),
-												(events) => rawError(events).kind
-											)
-										case "claims that do not decode":
-											return outcomeKind(
-												(p.overHttp ? surfaces.http : surfaces.inProcess).once("notes", {
-													params: {},
-													facts: {}
-												})
-											)
-										case "a fact of another type":
-											return outcomeKind(
-												(p.overHttp ? surfaces.http : surfaces.inProcess).write("add", {
-													params: {},
-													facts: {
-														insert: { MyNote: [{ id: p.id + 10, author: p.sub, body: "a text" }] }
-													}
-												})
-											)
-										case "a parameter outside its pattern": {
-											notes.note("a watch refused by its parameter's pattern")
-											const input = { params: { tag: p.tag }, facts: {} }
-											if (p.overHttp) {
-												return Effect.map(
-													sourced(
-														surfaces.raw({
-															method: "POST",
-															path: "/app/writer/tagged",
-															headers: {
-																authorization: `Bearer ${token}`,
-																"grizzle-wire": wireOf(file, "writer", "tagged")
-															},
-															body: jsonText(input)
-														}),
-														(events) =>
-															Arr.some(
-																events,
-																(e) => e.type === "error" && errorOf(e).kind === "unavailable"
-															)
-													),
-													(events) => rawError(events).kind
-												)
-											}
+export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCallIsSentAgainOverCasesDrawnFailures =
+	property.explore(provokedGen, {
+		needs: { substrate2: Substrate.installing },
+		situations: [
+			"route",
+			"input",
+			"paramRejected",
+			"tokenRefused",
+			"refused",
+			"outsideWorld",
+			"transient",
+			"over HTTP",
+			"in process",
+			"a watch refused by its parameter's pattern"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check:
+			({ substrate2 }, notes: Case<Feature>) =>
+			(p) =>
+				Effect.provideServiceEffect(
+					Effect.gen(function* () {
+						const substrate = yield* Substrate
+						const generated = yield* installGenerated(
+							(name) => {
+								const book = notebook(name)
+								return { schema: book.schema, logins: [book.app, book.psql] }
+							},
+							{ label: "live_errors", ambient: ordinarySession }
+						)
+						const installed = generated.installed
+						const built = notebook(installed.declared)
+						const file = served(defined(generated.served.get("app"), "app's served file"), "app")
+						const layerOf = sourcedDbLayer(installed, {
+							...clusterConnection(
+								installed.cluster,
+								installed.database,
+								installed.as(built.app).password
+							),
+							pool: clusterPool,
+							login: file,
+							verify: testVerify
+						})
+						const directWriter = yield* substrate.session(
+							worldSession(installed.world(built.direct))
+						)
+						yield* commitDirectly(directWriter, [
+							insertRow(installed.plan, "Note", { id: p.id, author: p.sub, body: p.body })
+						])
+						const expected = classOf(p.fault)
+						notes.note(expected)
+						notes.note(p.overHttp ? "over HTTP" : "in process")
+						yield* Effect.gen(function* () {
+							const token =
+								p.fault === "claims that do not decode"
+									? tokenOf({ sub: "not a number" })
+									: tokenOf({ sub: p.sub })
+							const surfaces = yield* liveSurfaces(file, "writer", token)
+							/** The served layer's context the in-process watch opens its Db in, as the surfaces do. */
+							const dbContext = yield* Effect.context<DbLayerOf<AnyLogin>>()
+							/** The notes member's wire digest, which a call to it names to be read at all. */
+							const wire = wireOf(file, "writer", "notes")
+							const note = (author: number) => ({ id: p.id, author, body: p.body + 1 })
+							const call = (): Effect.Effect<CallErrorKind | "succeeded"> => {
+								switch (p.fault) {
+									case "a path no program serves":
+										return Effect.map(
+											surfaces.raw({
+												method: "POST",
+												path: "/app/writer/nothing",
+												headers: {},
+												body: "{}"
+											}),
+											(events) => rawError(events).kind
+										)
+									case "a method other than POST":
+										return Effect.map(
+											surfaces.raw({
+												method: "GET",
+												path: "/app/writer/notes",
+												headers: {},
+												body: "{}"
+											}),
+											(events) => rawError(events).kind
+										)
+									case "a body that is no JSON":
+										return Effect.map(
+											surfaces.raw({
+												method: "POST",
+												path: "/app/writer/notes",
+												headers: {
+													authorization: `Bearer ${tokenOf({ sub: p.sub })}`,
+													"grizzle-wire": wire
+												},
+												body: "{ not json"
+											}),
+											(events) => rawError(events).kind
+										)
+									case "a header that is no bearer token":
+										return Effect.map(
+											surfaces.raw({
+												method: "POST",
+												path: "/app/writer/notes",
+												headers: { authorization: "Basic dXNlcjpwYXNz", "grizzle-wire": wire },
+												body: emptyBody
+											}),
+											(events) => rawError(events).kind
+										)
+									case "no token":
+										return Effect.map(
+											surfaces.raw({
+												method: "POST",
+												path: "/app/writer/notes",
+												headers: { "grizzle-wire": wire },
+												body: emptyBody
+											}),
+											(events) => rawError(events).kind
+										)
+									case "claims that do not decode":
+										return outcomeKind(
+											(p.overHttp ? surfaces.http : surfaces.inProcess).once("notes", {
+												params: {},
+												facts: {}
+											})
+										)
+									case "a fact of another type":
+										return outcomeKind(
+											(p.overHttp ? surfaces.http : surfaces.inProcess).write("add", {
+												params: {},
+												facts: {
+													insert: { MyNote: [{ id: p.id + 10, author: p.sub, body: "a text" }] }
+												}
+											})
+										)
+									case "a parameter outside its pattern": {
+										notes.note("a watch refused by its parameter's pattern")
+										const input = { params: { tag: p.tag }, facts: {} }
+										if (p.overHttp) {
 											return Effect.map(
 												sourced(
-													Effect.provideContext(watched(file, token, "tagged", input), dbContext),
+													surfaces.raw({
+														method: "POST",
+														path: "/app/writer/tagged",
+														headers: {
+															authorization: `Bearer ${token}`,
+															"grizzle-wire": wireOf(file, "writer", "tagged")
+														},
+														body: jsonText(input)
+													}),
 													(events) =>
 														Arr.some(
 															events,
-															(e) => e.kind === "error" && e.error.kind === "unavailable"
+															(e) => e.type === "error" && errorOf(e).kind === "unavailable"
 														)
 												),
-												(events) => {
-													const [only, ...more] = events
-													assert.ok(
-														only?.kind === "error" && more.length === 0,
-														`a refused input's watch answers its one error, no reset before it: ${Formatter.format(Arr.map(events, (e) => e.kind))}`
-													)
-													return only.error.kind
-												}
+												(events) => rawError(events).kind
 											)
 										}
-										case "a stored note's id":
-											return outcomeKind(
-												(p.overHttp ? surfaces.http : surfaces.inProcess).write("add", {
-													params: {},
-													facts: { insert: { MyNote: [note(p.sub)] } }
-												})
-											)
-										case "a note of another author":
-											return outcomeKind(
-												(p.overHttp ? surfaces.http : surfaces.inProcess).write("add", {
-													params: {},
-													facts: { insert: { MyNote: [{ ...note(p.sub + 1), id: p.id + 10 }] } }
-												})
-											)
-										case "an edit of a held note":
-											return outcomeKind(
-												(p.overHttp ? surfaces.http : surfaces.inProcess).write("edit", {
-													params: {},
-													facts: { put: { MyNote: [note(p.sub)] } }
-												})
-											)
+										return Effect.map(
+											sourced(
+												Effect.provideContext(watched(file, token, "tagged", input), dbContext),
+												(events) =>
+													Arr.some(
+														events,
+														(e) => e.kind === "error" && e.error.kind === "unavailable"
+													)
+											),
+											(events) => {
+												const [only, ...more] = events
+												assert.ok(
+													only?.kind === "error" && more.length === 0,
+													`a refused input's watch answers its one error, no reset before it: ${Formatter.format(Arr.map(events, (e) => e.kind))}`
+												)
+												return only.error.kind
+											}
+										)
 									}
+									case "a stored note's id":
+										return outcomeKind(
+											(p.overHttp ? surfaces.http : surfaces.inProcess).write("add", {
+												params: {},
+												facts: { insert: { MyNote: [note(p.sub)] } }
+											})
+										)
+									case "a note of another author":
+										return outcomeKind(
+											(p.overHttp ? surfaces.http : surfaces.inProcess).write("add", {
+												params: {},
+												facts: { insert: { MyNote: [{ ...note(p.sub + 1), id: p.id + 10 }] } }
+											})
+										)
+									case "an edit of a held note":
+										return outcomeKind(
+											(p.overHttp ? surfaces.http : surfaces.inProcess).write("edit", {
+												params: {},
+												facts: { put: { MyNote: [note(p.sub)] } }
+											})
+										)
 								}
-								/** The class `kind` the call ended with, held to the expected class. */
-								const judge = (kind: CallErrorKind | "succeeded") =>
-									kind === expected
-										? Effect.void
-										: Effect.fail(
-												new Misclassified({
-													report: `${p.fault} ended as ${kind}, its meaning is ${expected} (retry ${callErrors[expected].retry})`
-												})
-											)
-								if (p.fault === "an edit of a held note") {
-									yield* directWriter.begin
-									yield* directWriter.query(
-										updateRow(installed.plan, "Note", { id: p.id, body: p.body + 100 }),
-										[]
-									)
-									const edit = yield* Effect.forkChild(call())
-									yield* substrate.awaitBlockedBy(directWriter.pid, installed.as(built.app).role)
-									yield* directWriter.commit
-									const kind = yield* Fiber.join(edit)
-									yield* judge(kind)
-									const again = yield* call()
-									if (again !== "succeeded") {
-										return yield* new Misclassified({
-											report: `a safe ${kind} sent again once its fault was gone met ${again}`
-										})
-									}
-									return
-								}
-								const kind = yield* call()
+							}
+							/** The class `kind` the call ended with, held to the expected class. */
+							const judge = (kind: CallErrorKind | "succeeded") =>
+								kind === expected
+									? Effect.void
+									: Effect.fail(
+											new Misclassified({
+												report: `${p.fault} ended as ${kind}, its meaning is ${expected} (retry ${callErrors[expected].retry})`
+											})
+										)
+							if (p.fault === "an edit of a held note") {
+								yield* directWriter.begin
+								yield* directWriter.query(
+									updateRow(installed.plan, "Note", { id: p.id, body: p.body + 100 }),
+									[]
+								)
+								const edit = yield* Effect.forkChild(call())
+								yield* substrate.awaitBlockedBy(directWriter.pid, installed.as(built.app).role)
+								yield* directWriter.commit
+								const kind = yield* Fiber.join(edit)
 								yield* judge(kind)
 								const again = yield* call()
-								if (again !== kind) {
+								if (again !== "succeeded") {
 									return yield* new Misclassified({
-										report: `a ${kind}, retried never, sent again met ${again}`
+										report: `a safe ${kind} sent again once its fault was gone met ${again}`
 									})
 								}
-							}).pipe(withLayer(layerOf))
-						}).pipe(Effect.scoped)
-				)
-			)
-	)
-})
+								return
+							}
+							const kind = yield* call()
+							yield* judge(kind)
+							const again = yield* call()
+							if (again !== kind) {
+								return yield* new Misclassified({
+									report: `a ${kind}, retried never, sent again met ${again}`
+								})
+							}
+						}).pipe(withLayer(layerOf))
+					}).pipe(Effect.scoped),
+					Substrate,
+					substrate2
+				),
+		oracle: {
+			kind: "specification",
+			name: "each failure's meaning (live/events.ts callErrors) and the database's own state"
+		},
+		budget: { runs: cases, steered: 60 },
+		kept: [],
+		kills: []
+	})
