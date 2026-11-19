@@ -385,16 +385,14 @@ export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFolds
 		kills: [
 			{
 				file: "packages/engine/src/ir/dag.ts",
-				original:
-					"\t\t\tbefore !== undefined && before.current === current && unchangedEdges(before.node, spec)",
+				original: "\t\t\tbefore?.current === current && unchangedEdges(before.node, spec)",
 				replacement: "\t\t\tbefore !== undefined && unchangedEdges(before.node, spec)",
 				why: "A finish keeps the node of a cell an edit redefined; the redefined cell is not folded anew."
 			},
 			{
 				file: "packages/engine/src/ir/dag.ts",
-				original:
-					"\t\t\tbefore !== undefined && before.current === current && unchangedEdges(before.node, spec)",
-				replacement: "\t\t\tbefore !== undefined && before.current === current",
+				original: "\t\t\tbefore?.current === current && unchangedEdges(before.node, spec)",
+				replacement: "\t\t\tbefore?.current === current",
 				why: "A finish keeps the node of a cell whose input was folded anew; the cell above a redefined one is stale."
 			},
 			{

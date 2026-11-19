@@ -622,7 +622,7 @@ export const finishCells = <R extends Roots>(
 		const spec = yield* mapNode<EditRefs, SpecRefs>(current, keptRefs)
 		const before = previous.get(cell)
 		const node =
-			before !== undefined && before.current === current && unchangedEdges(before.node, spec)
+			before?.current === current && unchangedEdges(before.node, spec)
 				? before.node
 				: relNode(cell.id, spec)
 		folded.set(cell, { current, node })
