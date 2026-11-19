@@ -1603,7 +1603,7 @@ export interface DropPolicy {
 export type DropObject =
 	| {
 			readonly kind: "drop"
-			readonly object: "TABLE" | "MATERIALIZED VIEW" | "VIEW" | "DOMAIN" | "SEQUENCE"
+			readonly object: "TABLE" | "MATERIALIZED VIEW" | "VIEW" | "DOMAIN" | "SEQUENCE" | "STATISTICS"
 			readonly name: ObjectName
 			readonly ifExists: boolean
 	  }

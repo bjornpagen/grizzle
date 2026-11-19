@@ -3467,6 +3467,11 @@ class Model {
 				this.#sequences.delete(name)
 				return
 			}
+			case "STATISTICS":
+				if (!this.#statistics.delete(name) && !s.ifExists) {
+					refuse("42704", `the statistics object ${printObjectName(s.name)} does not exist`)
+				}
+				return
 		}
 	}
 
@@ -4078,14 +4083,6 @@ class Model {
 					this.#columnsOfRelation(r)
 				).keys()) {
 					this.#relation({ schema: this.#schema, name: relation })
-				}
-				return
-			case "dropStatistics":
-				if (!this.#ours(a.name)) {
-					return
-				}
-				if (!this.#statistics.delete(a.name.name)) {
-					refuse("42704", `the statistics object ${printObjectName(a.name)} does not exist`)
 				}
 				return
 		}

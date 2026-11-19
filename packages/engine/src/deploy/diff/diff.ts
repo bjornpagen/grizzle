@@ -379,6 +379,14 @@ const viewIdent = (name: ObjectName): string =>
 
 const statement = (s: SqlStatement): Action => ({ kind: "statement", statement: s })
 
+/** DROP STATISTICS of an extended statistics object, which RESTRICT would refuse while nothing depends on one anyway. */
+const dropStatistics = (name: ObjectName): SqlStatement => ({
+	kind: "drop",
+	object: "STATISTICS",
+	name,
+	ifExists: false
+})
+
 const alter = (table: ObjectName, actions: AlterTable["actions"]): SqlStatement => ({
 	kind: "alterTable",
 	table,
@@ -796,7 +804,6 @@ const alteredBy = (
 			return { table: d.table, actions: d.actions }
 		case "fill":
 		case "violation":
-		case "dropStatistics":
 		case "loss":
 		case "confirm":
 			return undefined
@@ -2753,7 +2760,7 @@ class Differ {
 			return
 		}
 		if (before !== undefined) {
-			this.push("indexes", { kind: "dropStatistics", name: create.name })
+			this.sql("indexes", [dropStatistics(create.name)])
 		}
 		this.sql("indexes", [create])
 	}
@@ -2891,7 +2898,7 @@ class Differ {
 				return
 			}
 			case "statistics":
-				drop(v.kind, { kind: "dropStatistics", name: v.create.name })
+				drop(v.kind, statement(dropStatistics(v.create.name)))
 				return
 			case "role":
 			case "decoder":
@@ -3204,7 +3211,6 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 			return [alterationStatement(d.table, d.actions)]
 		case "fill":
 		case "violation":
-		case "dropStatistics":
 			return []
 	}
 }
@@ -3949,7 +3955,7 @@ const replacementDrop = (v: BuiltOver<AnyObject>["part"]): Drop => {
 				})
 			}
 		case "statistics":
-			return { rank: dropOrder.statistics, draft: { kind: "dropStatistics", name: v.create.name } }
+			return { rank: dropOrder.statistics, draft: statement(dropStatistics(v.create.name)) }
 		case "lawTrigger":
 			return {
 				rank: dropOrder.lawTrigger,

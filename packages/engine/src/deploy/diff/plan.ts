@@ -303,7 +303,7 @@ export const alterationStatement = (
  *   identity's advance;
  * - `violation`: the full violation query of a law the migration discharges once, which raises with the law's identity
  *   when it has a row;
- * - `dropStatistics`: DROP STATISTICS, which the SQL AST has no form for. */
+ */
 export type Action =
 	| { readonly kind: "statement"; readonly statement: SqlStatement }
 	| {
@@ -318,7 +318,6 @@ export type Action =
 			readonly anchor: GenerationAnchor | undefined
 	  }
 	| { readonly kind: "violation"; readonly law: LawId; readonly query: Select }
-	| { readonly kind: "dropStatistics"; readonly name: ObjectName }
 
 /** A column's conversion to a new type: in place by its cast, when the new type holds the old one's values (its domains
  * read through, the two are one base type under one collation, so the cast keeps every value and only the laws its
