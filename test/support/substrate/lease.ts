@@ -10,13 +10,13 @@ import { Array as Arr } from "effect"
 export const testPoolMax: number = availableParallelism()
 
 /**
- * The sessions a substrate holds for its life besides its lease's: its shared database's claim's, that database's
- * owner's, and the observer's that reads other backends' lock waits (substrate.ts build). The claim has a session of
- * its own: the lease's runs only LOCK, inside the transaction that holds its slot, and a query there would keep its
- * snapshot in the open portal (the extended protocol drops a transaction's unnamed portal only at its next Bind or the
- * transaction's end), holding the backend's xmin for the file's life.
+ * The sessions a substrate holds for its life besides its lease's: its database's owner's, and the observer's that
+ * reads other backends' lock waits (substrate.ts build). The lease's own session runs only LOCK, inside the transaction
+ * that holds its slot, and a query there would keep its snapshot in the open portal (the extended protocol drops a
+ * transaction's unnamed portal only at its next Bind or the transaction's end), holding the backend's xmin for the
+ * lease's life, so no substrate's work runs on it.
  */
-const substrateSessions = ["claim", "owner", "observer"] as const
+const substrateSessions = ["owner", "observer"] as const
 /**
  * The connections a lease grants its file, the width of the budget every connection the file opens after its lease
  * draws from (budget.ts): a test's full pool (testPoolMax, one session per core) and the sessions its substrate holds
