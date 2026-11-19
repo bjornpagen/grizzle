@@ -37,7 +37,12 @@ export const definitionMeanings = (installation: Installation): ReadonlyMap<stri
 				throw new Refusal(pruned.error)
 			}
 			const reads = conservativeInput(pruned.value)
-			const meaning = rowsDigestWithin(reads.dag, [reads.root], "derived-definition")
+			const meaning = rowsDigestWithin(
+				reads.dag,
+				[reads.root],
+				"derived-definition",
+				installation.checked.closed
+			)
 			if (!meaning.ok) {
 				throw new Refusal(meaning.error)
 			}

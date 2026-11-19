@@ -138,8 +138,8 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 			},
 			{
 				file: "packages/engine/src/ir/dag.ts",
-				original: "statedForm(normal, rowsFields)",
-				replacement: "statedForm(normal, digestedFields)",
+				original: "statedForm(normal, rowsFields, closedFacts)",
+				replacement: "statedForm(normal, digestedFields, closedFacts)",
 				why: "A view's meaning holds the keys the relations it reads declare, so a key added to T drops and creates Ones, Twos and Fives again and refreshes them over every row, where the key's unique indexes alone are new."
 			},
 			{

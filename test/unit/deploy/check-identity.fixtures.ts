@@ -8,6 +8,7 @@ import { type LawChecks, lawChecks } from "#compiler/deploy/snapshot/violation.t
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -26,16 +27,30 @@ import { defined, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 
-/** A law of the schema, each over what no other reads: Positive over D1, Small over D2, Tiered over the closed tiers. */
-export const laws = ["Positive", "Small", "Tiered"] as const
+/**
+ * A law of the schema, each over what no other reads: Positive over D1, Small over D2, Tiered over the closed tiers;
+ * and over D3, each reading the closed caps by a closed read alone, Capped by C.at its cap, Listed by C.has its key set
+ * and Covered by C.row its key set.
+ */
+export const laws = ["Positive", "Small", "Tiered", "Capped", "Listed", "Covered"] as const
 
 export type Law = (typeof laws)[number]
 
 /**
  * What the second version changes: nothing; Positive's bound; D1's definition, the selection Positive's rule reads;
- * D2's, Small's; or a closed row, Tiered's.
+ * D2's, Small's; a closed row, Tiered's; a cap, the payload Capped's C.at reads; a cap's tier added, the key set every
+ * closed read of the caps reads; or a cap's note, a payload no law reads.
  */
-const changes = ["none", "bound", "first definition", "second definition", "closed row"] as const
+const changes = [
+	"none",
+	"bound",
+	"first definition",
+	"second definition",
+	"closed row",
+	"cap",
+	"capped tier",
+	"cap note"
+] as const
 
 export type Change = (typeof changes)[number]
 
@@ -62,6 +77,12 @@ export const changedBy = (change: Change): ReadonlyArray<Law> => {
 			return ["Small"]
 		case "closed row":
 			return ["Tiered"]
+		case "cap":
+			return ["Capped"]
+		case "capped tier":
+			return ["Capped", "Listed", "Covered"]
+		case "cap note":
+			return []
 	}
 }
 
@@ -71,7 +92,10 @@ const Tier = closed.ordered("Tier", ["low", "mid", "high"])
  * The schema of `shape` at `version`: T's facts by document and place; D1, those of T whose `a` is one, and D2, whose
  * `a` is two, each a derived relation; Positive, D1's `b` at least its bound, and Small, D2's `b` at most 100, each a
  * rule over a query; TierRank and TierNext, closed, and Tiered, TierNext's next a ranked tier, a law over closed
- * relations alone. The second version holds the case's change.
+ * relations alone; U's facts by document, each of a tier, D3 all of them, and Cap, closed, each capped tier's cap and
+ * note; and over D3, each a rule over a query reading Cap by a closed read alone, Capped, its `b` at most its tier's
+ * cap, Listed, its tier one Cap holds, and Covered, its tier among those Cap holds. The second version holds the case's
+ * change.
  */
 const schemaOf = (shape: Shape, version: "first" | "second") => {
 	const changed = (c: Change): boolean => version === "second" && shape.change === c
@@ -100,10 +124,26 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 		["tier"],
 		[{ tier: "low", next: "high" }]
 	)
+	const U = relation("U", { doc: pg.integer, tier: closedId(Tier), b: pg.integer }, ["doc"])
+	const Cap = closed.relation(
+		"Cap",
+		{ tier: closedId(Tier), cap: pg.integer, note: pg.integer },
+		["tier"],
+		changed("capped tier")
+			? [
+					{ tier: "low", cap: 10, note: 1 },
+					{ tier: "mid", cap: 15, note: 1 },
+					{ tier: "high", cap: 20, note: 1 }
+				]
+			: [
+					{ tier: "low", cap: 10, note: changed("cap note") ? 2 : 1 },
+					{ tier: "high", cap: changed("cap") ? 30 : 20, note: 1 }
+				]
+	)
 	const Base = schema(
 		"check_identity",
-		[T, Tier, TierRank, TierNext],
-		shape.judge === "probed" ? [mutable(T)] : []
+		[T, U, Tier, TierRank, TierNext, Cap],
+		shape.judge === "probed" ? [mutable(T), mutable(U)] : []
 	)
 	const selected = (a: number) =>
 		query(Base).rule((r) => {
@@ -112,15 +152,25 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 		})
 	const D1 = derived("D1", selected(changed("first definition") ? 3 : 1))
 	const D2 = derived("D2", selected(changed("second definition") ? 4 : 2))
+	const D3 = derived(
+		"D3",
+		query(Base).rule((r) => {
+			const { doc, tier, b } = v(U, "u")
+			return r.match(U, { doc, tier, b }).find({ doc, tier, b })
+		})
+	)
 	const bound = changed("bound") ? 1 : 0
 	return schema.extend(
 		Base,
 		"check_identity_1",
-		[D1, D2],
+		[D1, D2, D3],
 		[
 			check("Positive", D1, (d) => d.ge(d.b, bound)),
 			check("Small", D2, (d) => d.le(d.b, 100)),
-			contained(on(TierNext, "next"), on(TierRank, "tier"))
+			contained(on(TierNext, "next"), on(TierRank, "tier")),
+			check("Capped", D3, (d) => d.le(d.b, Cap.at("cap", d.tier))),
+			check("Listed", D3, (d) => Cap.has(d.tier)),
+			check("Covered", D3, (d) => d.eq(Compute.subset(Compute.singleton(d.tier), Cap.row()), true))
 		]
 	)
 }
@@ -129,7 +179,10 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 const stems: Readonly<Record<Law, string>> = {
 	Positive: "positive",
 	Small: "small",
-	Tiered: "tier"
+	Tiered: "tier_next",
+	Capped: "capped",
+	Listed: "listed",
+	Covered: "covered"
 }
 
 /** The law of a check's identifier, by its stem. */

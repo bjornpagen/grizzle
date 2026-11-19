@@ -2287,11 +2287,13 @@ definition too.
   40001.
 - **Migrations.** A migration that adds a rule over a query, or changes one, runs its violation query over the stored
   rows, and fails where a row breaks it, as it validates a foreign key. The check's identity is the rule's meaning over
-  what it reads, never its SQL: the rule, the definitions it reads, and of each table the columns it reads and the key.
-  A draft proves, as it is generated, whether a migration keeps that meaning: one that only changes how grizzle lowers
-  the rule, or drops or renames a column the rule does not read, keeps it, so the proof the rule's earlier check made of
-  the stored rows still stands, and one that changes the rule, a definition or a column it reads states a new identity,
-  which its check proves over the rows.
+  what it reads, never its SQL: the rule, the definitions it reads, of each table the columns it reads and the key, and
+  of each closed relation it reads by `C.at`, `C.has` or `C.row` the facts those read, its key set and each payload
+  field a `C.at` reads. A draft proves, as it is generated, whether a migration keeps that meaning: one that only
+  changes how grizzle lowers the rule, drops or renames a column the rule does not read, or changes a closed payload it
+  does not read, keeps it, so the proof the rule's earlier check made of the stored rows still stands, and one that
+  changes the rule, a definition, a column it reads or a closed fact it reads (a seat count lowered under the live
+  holds it bounds) states a new identity, which its check proves over the rows.
 - **TRUNCATE** fires no capture, so a rule over a query does not judge a TRUNCATE of a table it reads, and judges
   the rows a transaction added to it before a TRUNCATE as if they stood. grizzle never truncates and no role may; a
   direct writer who truncates such a table answers for the rule itself.
