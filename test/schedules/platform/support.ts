@@ -1,15 +1,11 @@
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
-import { required, type Situations } from "@bjornpagen/testing/features"
-import { array, constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import type { Situations } from "@bjornpagen/testing/features"
+import { type Aimed, array, constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { type PctSchedule, pctSchedule } from "@bjornpagen/testing/interleave"
-import { notesOnly } from "@bjornpagen/testing/sense"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
 import {
 	Array as Arr,
 	Effect,
-	Formatter,
 	Option,
 	Order,
 	pipe,
@@ -36,6 +32,7 @@ import { workload } from "#compiler/public/workload.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { type WriteAnswer as CallAnswer, answered } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
+import type { Generated } from "#test/support/install-migrate.ts"
 import {
 	sameIdentity,
 	type ValueIdentity,
@@ -47,7 +44,6 @@ import {
 	type Names,
 	namesOf
 } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.ts"
 import {
@@ -91,12 +87,11 @@ import {
 	type Txn,
 	type TxnResult
 } from "#test/support/schedules/interleave.ts"
-import { openRig, type Rig } from "#test/support/schedules/rig.ts"
+import { type Rig, rigIn, rigTemplate } from "#test/support/schedules/rig.ts"
 import { type PsqlProcessError, reportedOwnerOf } from "#test/support/substrate/errors.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { untilAnswered } from "#test/support/transient.ts"
 
-import { regex } from "arkregex"
 import { openServed } from "#adapter/db/served.ts"
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
 /**
@@ -549,10 +544,15 @@ interface RaceInstall {
 	readonly laws: ReadonlyMap<LawId, HostLaw>
 }
 
-const installRaces = Effect.map(openRig(racesAt), (rig): RaceInstall => {
-	const names = namesOf(rig.installed)
-	return { rig, names, laws: lawsById(names) }
-})
+/** The platform races' schema and logins installed once per member (schedules/rig.ts rigTemplate): every race's seat. */
+const racesRig = rigTemplate(import.meta, "platform races", racesAt)
+
+/** A case's race installation: its rig over its seat (rigIn), with the installation's names and laws. */
+const racesIn = (taken: SubstrateCase<Generated>) =>
+	Effect.map(rigIn(taken, racesAt), (rig): RaceInstall => {
+		const names = namesOf(rig.installed)
+		return { rig, names, laws: lawsById(names) }
+	})
 
 interface Connected {
 	readonly dbs: Readonly<Record<GrizzleSession, RacesDb>>
@@ -1678,58 +1678,46 @@ const runRace = (i: RaceInstall, race: Race, c: Case<RaceFeature>) =>
 		c.noteAll(reached)
 	})
 
-/** Races per test. */
+/** Races per property. */
 const runsPerTest = 40
 
 /**
- * A race suite: its races drawn as sketches `S`, each resolved in the case to its race (a resolution draws what the
- * sketch's swarms thin), the kept sketches replayed first, and the features its population must reach.
+ * A race property: its races drawn as sketches `S` from `sketch` (aimed at what its kept races reached, where it has
+ * them), each resolved in the case to its race (a resolution draws what the sketch's swarms thin), on the worker's seat
+ * of the races' template (racesRig), and the features its population must reach.
+ *
+ * Its pre-conversion budget: runs 40, coverage cases 40 (test/schedules/platform/support.ts at 1061bc026).
  */
-interface RaceSuite<S> {
-	readonly label: string
-	readonly sketch: Gen<S>
+export const raceSuite = <S>(suite: {
+	readonly sketch: Gen<S> | Aimed<S, RaceFeature>
 	readonly resolve: (sketch: S) => Gen<Race>
-	readonly kept: ReadonlyArray<Kept<S, RaceFeature>>
 	readonly required: Situations<RaceFeature>
-}
-
-export const raceSuite = <S>(suite: RaceSuite<S>): void => {
-	layer(Substrate.layer, { excludeTestServices: true })(`platform races: ${suite.label}`, (it) => {
-		it.effect("every race is explained by the billing model and converges", (ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const installed = yield* installRaces
-					return yield* explore(
-						{
-							oracle: {
-								kind: "second-implementation",
-								name: "the host billing model applying a serial order that respects real time explains every run"
-							},
-							suite: `platform-races/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(suite.label)}`,
-							draw: drawn(suite.sketch),
-							literal: Formatter.format,
-							coverage: required<RaceFeature>(suite.required, {
-								cases: runsPerTest,
-								sense: notesOnly
-							}),
-							kept: suite.kept,
-							runs: runsPerTest,
-							shrink: { kind: "bounded", candidates: 200 },
-							steerEvery: 16,
-							caseHang
-						},
-						(sketch, c) =>
-							Effect.gen(function* () {
-								const race = c.draw(suite.resolve(sketch))
-								yield* Effect.scoped(runRace(installed, race, c))
-							})
+}) =>
+	property.explore(suite.sketch, {
+		needs: { rigged: Substrate.seat(racesRig) },
+		situations: suite.required,
+		check:
+			({ rigged }, c: Case<RaceFeature>) =>
+			(sketch) =>
+				Effect.scoped(
+					Effect.flatMap(rigged, (taken) =>
+						Effect.flatMap(racesIn(taken), (installed) =>
+							Effect.provideService(
+								runRace(installed, c.draw(suite.resolve(sketch)), c),
+								Substrate,
+								taken.substrate
+							)
+						)
 					)
-				})
-			)
-		)
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the host billing model applying a serial order that respects real time explains every run"
+		},
+		budget: { runs: runsPerTest, steered: runsPerTest },
+		kept: [],
+		kills: []
 	})
-}
 
 /** The features every platform race suite reaches. */
 export const commonRequired: Arr.NonEmptyReadonlyArray<RaceFeature> = [

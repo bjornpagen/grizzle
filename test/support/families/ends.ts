@@ -67,7 +67,7 @@ export type FamilyKind = "counted" | "ordered" | "tree"
 export const familyKinds: Arr.NonEmptyReadonlyArray<FamilyKind> = ["counted", "ordered", "tree"]
 
 /** The widths of the rosters a set is drawn over: one code to nine, the box a set's hex spelling turns on. */
-export const setWidths: Arr.NonEmptyReadonlyArray<number> = nonEmpty(Arr.range(1, 9))
+const setWidths: Arr.NonEmptyReadonlyArray<number> = nonEmpty(Arr.range(1, 9))
 
 /** The plain plane kinds a monoid's admission and identity branch on, each one field kind. */
 type PlainKind = "int2" | "int4" | "int8" | "natural" | "numeric" | "money" | "code" | "text"

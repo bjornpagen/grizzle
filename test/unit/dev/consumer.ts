@@ -62,7 +62,7 @@ export const runChild = Effect.fnUntraced(function* (
 }, Effect.scoped)
 
 /** A scratch project that takes grizzle as a submodule consumer does. */
-export interface ConsumerProject {
+interface ConsumerProject {
 	/** The repository's root. */
 	readonly root: string
 	/** The consumer's project directory, with a package.json of `"type": "module"`. */

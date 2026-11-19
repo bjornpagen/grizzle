@@ -7,76 +7,44 @@
  *
  * That the linked package opens a role against the cluster and reads is test/pg/package/consumer.test.ts's.
  *
- * Oracle: TypeScript's own checker.
+ * Oracle: TypeScript's own checker. Box: each mirrored program, SKILL.md's with the README's it imports.
  */
-import * as NodeServices from "@effect/platform-node/NodeServices"
-import { layer } from "@effect/vitest"
-import { Context, Effect, FileSystem, Layer, Path, String as Str } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect, FileSystem, Path, String as Str } from "effect"
 import { assert } from "#test/support/assert.ts"
-import {
-	type ConsumerProject,
-	consumerProject,
-	exitedCleanly,
-	runChild
-} from "#test/unit/dev/consumer.ts"
+import { consumerProject, exitedCleanly, runChild } from "#test/unit/dev/consumer.ts"
+import { type Mirror, mirrorBox, mirrors, mirrorTsconfig } from "#test/unit/dev/package.fixtures.ts"
 
 /**
- * The compiler options a consumer of the README's programs checks them under: the repository's own strictness, Node's
- * types, and nothing of the repository's tsconfigs: no project references, no paths.
+ * The package as a submodule consumer takes it typechecks the README's and SKILL.md's programs against its source,
+ * through its exports: each mirrored program, in a consumer's scratch project of its own, SKILL.md's beside the
+ * README's it imports.
  */
-const mirrorTsconfig = `{
-	"compilerOptions": {
-		"target": "esnext",
-		"lib": ["esnext"],
-		"module": "nodenext",
-		"moduleResolution": "nodenext",
-		"moduleDetection": "force",
-		"strict": true,
-		"exactOptionalPropertyTypes": true,
-		"noUncheckedIndexedAccess": true,
-		"allowImportingTsExtensions": true,
-		"noEmit": true,
-		"skipLibCheck": true,
-		"types": ["node"]
-	},
-	"include": ["readme.ts", "skill.ts"]
-}
-`
-
-/** The README's and SKILL.md's mirrored programs, which the type batch holds to their blocks, by their paths. */
-const mirrors = {
-	readme: "test/types/examples/fixtures/readme.ts",
-	skill: "test/types/examples/fixtures/skill.ts"
-} as const
-
-/** The consumer's scratch project, made once for the file, which lives as long as the layer. */
-class Consumer extends Context.Service<Consumer, ConsumerProject>()(
-	"grizzle-workspace/test/unit/dev/package.test/Consumer"
-) {
-	static readonly layer = Layer.provideMerge(
-		Layer.effect(Consumer, consumerProject),
-		NodeServices.layer
-	)
-}
-
-layer(Consumer.layer, { excludeTestServices: true })(
-	"the package as a submodule consumer takes it",
-	(it) => {
-		it.effect(
-			"typechecks the README's and SKILL.md's programs against its source, through its exports",
-			() =>
+export const thePackageAsASubmoduleConsumerTakesItTypechecksTheREADMEsAndSKILLmdsProgramsAgainstItsSourceThroughItsExports =
+	property.exhaust(mirrorBox, {
+		box: "each mirrored program, the README's and SKILL.md's, which imports the README's",
+		needs: {},
+		situations: ["readme", "skill"] satisfies ReadonlyArray<Reached<Mirror>>,
+		check: (_, c: Case<Mirror>) => (mirror) =>
+			Effect.scoped(
 				Effect.gen(function* () {
 					const fs = yield* FileSystem.FileSystem
 					const path = yield* Path.Path
-					const { root, project } = yield* Consumer
+					const { root, project } = yield* consumerProject
 					const readme = yield* fs.readFileString(path.join(root, mirrors.readme))
-					const skill = yield* fs.readFileString(path.join(root, mirrors.skill))
 					yield* fs.writeFileString(path.join(project, "readme.ts"), readme)
+					if (mirror === "skill") {
+						const skill = yield* fs.readFileString(path.join(root, mirrors.skill))
+						yield* fs.writeFileString(
+							path.join(project, "skill.ts"),
+							Str.replaceAll(`#${mirrors.readme}`, "./readme.ts")(skill)
+						)
+					}
 					yield* fs.writeFileString(
-						path.join(project, "skill.ts"),
-						Str.replaceAll(`#${mirrors.readme}`, "./readme.ts")(skill)
+						path.join(project, "tsconfig.json"),
+						mirrorTsconfig(mirror === "skill" ? ["readme.ts", "skill.ts"] : ["readme.ts"])
 					)
-					yield* fs.writeFileString(path.join(project, "tsconfig.json"), mirrorTsconfig)
 					const checked = yield* runChild(
 						process.execPath,
 						[
@@ -90,9 +58,15 @@ layer(Consumer.layer, { excludeTestServices: true })(
 					assert.equal(
 						checked.exitCode,
 						exitedCleanly,
-						`the README's programs, typechecked as a consumer's:\n${checked.stdout}${checked.stderr}`
+						`the ${mirror} program, typechecked as a consumer's:\n${checked.stdout}${checked.stderr}`
 					)
+					c.note(mirror)
 				})
-		)
-	}
-)
+			),
+		oracle: {
+			kind: "specification",
+			name: "TypeScript's own checker, under a consumer's tsconfig"
+		},
+		kept: [],
+		kills: []
+	})
