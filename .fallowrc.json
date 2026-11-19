@@ -76,6 +76,7 @@
 					"packages/grizzle/src/adapter/public/db.ts",
 					"packages/grizzle/src/adapter/public/errors.ts",
 					"packages/grizzle/src/adapter/public/layer.ts",
+					"packages/grizzle/src/adapter/public/settled.ts",
 					"packages/grizzle/src/adapter/reader/params.ts",
 					"packages/grizzle/src/adapter/reader/relations.ts",
 					"packages/grizzle/src/adapter/reader/stream.ts",

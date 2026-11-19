@@ -48,6 +48,7 @@ import {
 	role,
 	schema,
 	select,
+	settled,
 	span,
 	str,
 	uuid,
@@ -346,17 +347,14 @@ export const Credits = schema(
 
 export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
 
-/** Debit a grant for one call. Your code decides the retry; grizzle never retries. */
+/** Debit a grant for one call, run again past each transient refusal; grizzle never retries by itself. */
 export const debitGrant = ChangeSet.empty(Credits).insert(Debit, [])
 export const metering = workload(Metering, { debitGrant })
 
 export const spend = (
 	db: Db<typeof Metering, typeof metering.programs>,
 	debit: Fact<typeof Debit>
-) =>
-	db.workload.debitGrant
-		.once({ params: {}, facts: { insert: { Debit: [debit] } } })
-		.pipe(Effect.retry({ while: (e) => e.kind === "transient", times: 3 }))
+) => settled(db.workload.debitGrant.once({ params: {}, facts: { insert: { Debit: [debit] } } }))
 
 /** README: "Hard in Drizzle, one declaration here", 6. Books that always balance. */
 const AccountCode = str.regex("^[a-z][a-z_]{0,63}$")
@@ -755,9 +753,9 @@ export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly v
 	etl.runPromise(
 		Effect.gen(function* () {
 			const db = yield* Db.open(EtlServed.roles.etl, {})
-			return yield* db.workload.recordViews
-				.once({ params: {}, facts: { put: { PostViews: views } } })
-				.pipe(Effect.retry({ while: (e) => e.kind === "transient", times: 4 }))
+			return yield* settled(
+				db.workload.recordViews.once({ params: {}, facts: { put: { PostViews: views } } })
+			)
 		})
 	)
 
