@@ -1,4 +1,3 @@
-import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 /**
  * PostgreSQL as the second oracle of the SQL generator and of the structural audit (test/support/oracle/verify/sql.ts).
  *
@@ -19,211 +18,58 @@ import { maxOf } from "@bjornpagen/grizzle-text/base/array"
  * Features: each statement kind it plans, each Wild operator of a mirrored rule PostgreSQL refuses, the LATERAL
  * rewrite planned, each zero-width form planned, and the shape of every statement it plans.
  */
-import { explore, drawn, type Kept } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import type { CreateTable, SqlStatement } from "#compiler/sql/ast.ts"
-import { builtinType, cUtf8Collation } from "#compiler/sql/build.ts"
-import { lex } from "#compiler/sql/lexer.ts"
+import { aimed } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect, Formatter, String as Str } from "effect"
+import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
+import {
+	type AuditFeature,
+	auditCaseGen,
+	auditCatalog,
+	auditTemplate,
+	cases,
+	explainText,
+	lateralCountAims,
+	nulls,
+	situations
+} from "#test/pg/sql/audit.fixtures.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { type ShapeFeature, shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
-import {
-	breaks,
-	oneHole,
-	resolveStatement,
-	type SqlCatalog,
-	type SqlColumnType,
-	statementGen
-} from "#test/support/kernel/sqlgen.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
-import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
+import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
+import { pickFrom } from "#test/support/pick.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
-import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
-import {
-	lateralRewrite,
-	mirroredBreaks,
-	type StatementBreakName
-} from "#test/unit/sql/audit/operators.ts"
-
-type AuditFeature =
-	| `statement ${SqlStatement["kind"]}`
-	| "lateral planned"
-	| `refused ${StatementBreakName}`
-	| ShapeFeature
-
-const situations: Arr.NonEmptyReadonlyArray<AuditFeature> = [
-	"statement select",
-	"statement insert",
-	"statement update",
-	"statement delete",
-	"statement merge",
-	"lateral planned",
-	"derived of no column",
-	"function of no column",
-	"arrays of no column",
-	"cte of no column",
-	"core of no target",
-	"insert of no column",
-	...Arr.map(mirroredBreaks, (b) => `refused ${b.operator.name}` as const)
-]
-
-const columnTypes: { readonly [T in SqlColumnType]: CreateTable["columns"][number]["type"] } = {
-	bigint: builtinType("bigint"),
-	integer: builtinType("integer"),
-	text: builtinType("text"),
-	boolean: builtinType("boolean"),
-	numeric: builtinType("numeric")
-}
-
-/** The generator's catalog, moved into the test's own schema. */
-const catalogIn = (schema: string): SqlCatalog => {
-	const [first, ...rest] = sqlCatalog
-	const moved = (t: (typeof sqlCatalog)[number]) => ({ ...t, schema })
-	return [moved(first), ...Arr.map(rest, moved)]
-}
-
-/** The catalog's tables, every column NOT NULL, text under the fixed collation, the first column the key. */
-const installation = (catalog: SqlCatalog): ReadonlyArray<SqlStatement> =>
-	Arr.map(catalog, (t): SqlStatement => ({
-		kind: "createTable",
-		table: { schema: t.schema, name: t.name },
-		columns: Arr.map(t.columns, (c) => ({
-			name: c.name,
-			type: columnTypes[c.type],
-			collation: c.type === "text" ? cUtf8Collation : undefined,
-			generated: undefined
-		})),
-		primaryKey: {
-			kind: "primaryKey",
-			name: `${t.name}_key`,
-			columns: [{ column: t.columns[0].name, withoutOverlaps: false }]
-		},
-		secondary: []
-	}))
-
-const explain = (statement: SqlStatement): string =>
-	`EXPLAIN (GENERIC_PLAN, COSTS OFF) ${printStatement(statement)}`
+import { Substrate } from "#test/support/substrate/substrate.ts"
+import { lateralRewrite, mirroredBreaks } from "#test/unit/sql/audit/operators.ts"
 
 /**
- * A NULL for each placeholder up to the highest a text uses: the test's sessions speak the extended protocol, whose Bind
- * carries that many values, and GENERIC_PLAN plans the statement without reading them.
+ * PostgreSQL plans every generated statement, and refuses every break of a rule that mirrors its own, each case on the
+ * worker's seat of the catalog.
+ *
+ * Its pre-conversion budget: runs 150, coverage cases 150 (test/pg/sql/audit.test.ts at f6a7126a8).
  */
-const nulls = (text: string): ReadonlyArray<null> => {
-	const lexed = lex(text)
-	if (lexed.error !== undefined) {
-		throw new Error(
-			`the lexer refuses a printed statement at ${lexed.error.offset}: ${lexed.error.message}\n${text}`
-		)
-	}
-	const highest = maxOf(
-		Arr.flatMap(lexed.tokens, (t) => (t.kind === "param" ? [t.index] : [])),
-		0
-	)
-	return Array.from({ length: highest }, () => null)
-}
-
-const cases = 150
-
-/** A case: a generated statement, and a drawn site per mirrored break, then one for the LATERAL rewrite. */
-interface AuditCase {
-	readonly statement: SqlStatement
-	readonly sites: ReadonlyArray<number>
-}
-
-/** The sites a case draws: a pick per mirrored break, then one for the LATERAL rewrite. */
-const siteCount = mirroredBreaks.length + 1
-
-/** A statement over the catalog and its sites. */
-const auditCaseGen =
-	(catalog: SqlCatalog): Gen<AuditCase> =>
-	(source) => ({
-		statement: source.draw(statementGen(catalog)),
-		sites: source.draw(array(pickGen, { min: siteCount, max: siteCount }))
-	})
-
-/**
- * The kept cases over the catalog, each statement a planted sketch replayed against the generator: its swarm and the
- * decisions the generator takes after it.
- */
-const keptOver = (catalog: SqlCatalog): ReadonlyArray<Kept<AuditCase, AuditFeature>> => [
-	{
-		note: "a LATERAL derived table's count(*) FILTER read only the outer relation's column, which makes PostgreSQL place the aggregate in the outer query, whose FROM may not hold it (42803)",
-		sketch: {
-			statement: resolveStatement(catalog, {
-				swarm: {
-					lateral: 1,
-					values: 1,
-					cte: 3,
-					materialized: 1,
-					where: 2,
-					"group by": 1,
-					aggregate: 2,
-					"count filter": 2,
-					"distinct on": 3,
-					arithmetic: 1
-				},
-				tape: [
-					0, 1, 0, 0, 0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-					0, 1, 2, 0, 0, 0, 2, 1
-				]
-			}),
-			sites: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6164]
-		},
-		draws: "",
-		reaches: ["statement select", "lateral", "count(*)"]
-	}
-]
-
-layer(Substrate.layer)("generated SQL on PostgreSQL 19", (it) => {
-	it.effect(
-		`plans every generated statement, and refuses every break of a rule that mirrors its own (${cases} cases)`,
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema(freshSchema)
-					const catalog = catalogIn(schema)
-					for (const statement of installation(catalog)) {
-						assert.deepEqual(auditStatementViolations(statement), [])
-						yield* s.admin.query(printStatement(statement), [])
-					}
-					/**
-					 * Runs a statement's EXPLAIN: the SQLSTATE PostgreSQL refuses it with, or undefined when it plans it.
-					 */
-					const plan = (statement: SqlStatement) => {
-						const text = explain(statement)
-						return Effect.matchEffect(s.admin.query(text, nulls(text)), {
-							onSuccess: () => Effect.void,
-							onFailure: (error) => {
-								const fields = pgErrorFields(error)
-								return fields === undefined ? Effect.fail(error) : Effect.succeed(fields)
-							}
-						})
-					}
-					return yield* explore(
-						{
-							oracle: { kind: "postgresql", name: "EXPLAIN (GENERIC_PLAN) of each statement" },
-							suite: "pg/sql/generated",
-							draw: drawn(auditCaseGen(catalog)),
-							literal: Formatter.format,
-							coverage: required<AuditFeature>(situations, { cases: cases, sense: notesOnly }),
-							kept: keptOver(catalog),
-							runs: cases,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						({ statement, sites }, c) =>
+export const plansEveryGeneratedStatementAndRefusesEveryBreakOfARuleThatMirrorsItsOwn =
+	property.explore(aimed(auditCaseGen(auditCatalog), lateralCountAims), {
+		needs: { catalog: Substrate.seat(auditTemplate) },
+		situations,
+		check:
+			({ catalog }, c: Case<AuditFeature>) =>
+			({ statement, sites }) =>
+				Effect.scoped(
+					Effect.flatMap(catalog, (seat) =>
+						Effect.provideService(
 							Effect.gen(function* () {
+								const s = yield* Substrate
+								const plan = (statement: SqlStatement) => {
+									const text = explainText(statement)
+									return Effect.matchEffect(s.admin.query(text, nulls(text)), {
+										onSuccess: () => Effect.void,
+										onFailure: (error) => {
+											const fields = pgErrorFields(error)
+											return fields === undefined ? Effect.fail(error) : Effect.succeed(fields)
+										}
+									})
+								}
 								const refused = yield* plan(statement)
 								if (refused !== undefined) {
 									assert.fail(
@@ -265,9 +111,15 @@ layer(Substrate.layer)("generated SQL on PostgreSQL 19", (it) => {
 									}
 									c.note("lateral planned")
 								}
-							})
+							}),
+							Substrate,
+							seat.substrate
+						)
 					)
-				})
-			)
-	)
-})
+				),
+		oracle: { kind: "postgresql", name: "EXPLAIN (GENERIC_PLAN) of each statement" },
+		show: Formatter.format,
+		budget: { runs: cases, steered: cases },
+		kept: [],
+		kills: []
+	})

@@ -1,4 +1,4 @@
-/** What the properties of connect-classes.test.ts read: the plants, their classes, attempts and both paths. */
+/** What the properties of connect-classes.test.ts read: the failures, their classes, attempts and both paths. */
 
 import { createServer, type Socket } from "node:net"
 import { inspect } from "node:util"
@@ -22,7 +22,7 @@ import { testConnectTimeout } from "#test/support/limits.ts"
 import { clusterPool, clusterTransport, noPassword, parsedConnection } from "#test/support/pg.ts"
 import type { SubstrateShape } from "#test/support/substrate/substrate.ts"
 
-const plants = [
+const failures = [
 	"a server that never answers",
 	"nothing listening",
 	"a role over its connection limit",
@@ -35,23 +35,23 @@ const plants = [
 	"a failing password Effect",
 	"no password for a SCRAM role"
 ] as const
-export type Plant = (typeof plants)[number]
+export type ConnectFailure = (typeof failures)[number]
 
 export type Path = "grizzle migrate" | "a Db's call"
 
-/** Every plant, once each. */
-export const plantGen: Gen<Plant> = (source) => source.draw(element(plants))
+/** Every failure, once each. */
+export const failureGen: Gen<ConnectFailure> = (source) => source.draw(element(failures))
 
-/** Every two plants, the first before the second in plants' order, once each. */
-export const plantPairs: Gen<readonly [Plant, Plant]> = (source) => {
-	const first = source.draw(int(0, plants.length - 2))
-	const second = source.draw(int(first + 1, plants.length - 1))
-	return [Arr.getUnsafe(plants, first), Arr.getUnsafe(plants, second)] as const
+/** Every two failures, the first before the second in failures' order, once each. */
+export const failurePairs: Gen<readonly [ConnectFailure, ConnectFailure]> = (source) => {
+	const first = source.draw(int(0, failures.length - 2))
+	const second = source.draw(int(first + 1, failures.length - 1))
+	return [Arr.getUnsafe(failures, first), Arr.getUnsafe(failures, second)] as const
 }
 
-/** Every plant through each path, the features a plant's case notes. */
-export const plantSituations: ReadonlyArray<Reached<ConnectClassFeature>> = Arr.flatMap(
-	plants,
+/** Every failure through each path, the features a failure's case notes. */
+export const failureSituations: ReadonlyArray<Reached<ConnectClassFeature>> = Arr.flatMap(
+	failures,
 	(p): ReadonlyArray<ConnectClassFeature> => [
 		`${p} through grizzle migrate`,
 		`${p} through a Db's call`
@@ -108,9 +108,9 @@ const statedOf = (error: CallError): ReadonlyArray<string> => {
 			: [error.kind, reason.kind, error.retry]
 }
 
-/** Each plant's class (its fact) and the call error a Db's call reads it as (README "Errors and outcomes"). */
-export const plantedClass: {
-	readonly [P in Plant]: { readonly fact: string; readonly called: ReadonlyArray<string> }
+/** Each failure's class (its fact) and the call error a Db's call reads it as (README "Errors and outcomes"). */
+export const expectedClass: {
+	readonly [P in ConnectFailure]: { readonly fact: string; readonly called: ReadonlyArray<string> }
 } = {
 	"a server that never answers": {
 		fact: `timed out after ${silentTimeout}`,
@@ -225,10 +225,10 @@ interface Attempt {
 	readonly secrets: ReadonlyArray<string>
 }
 
-export type ConnectClassFeature = `${Plant} through ${Path}`
+export type ConnectClassFeature = `${ConnectFailure} through ${Path}`
 
-/** The plant's attempt, its precondition set up in the case's scope: a login of its own in `schema`, dropped with it. */
-export const attemptOf = (s: SubstrateShape, schema: string, plant: Plant) =>
+/** The failure's attempt, its precondition set up in the case's scope: a login of its own in `schema`, dropped with it. */
+export const attemptOf = (s: SubstrateShape, schema: string, condition: ConnectFailure) =>
 	Effect.gen(function* () {
 		const writer = yield* substrateLogin(schema, "server", [])
 		const own = Redacted.value(writer.password)
@@ -241,7 +241,7 @@ export const attemptOf = (s: SubstrateShape, schema: string, plant: Plant) =>
 			connectTimeoutMs: testConnectTimeout,
 			secrets: [own]
 		}
-		switch (plant) {
+		switch (condition) {
 			case "a server that never answers":
 				return {
 					...direct,
@@ -320,9 +320,9 @@ export const throughMigrate = (s: SubstrateShape, attempt: Attempt) =>
 
 /**
  * The attempt's failure through a pool's lease, as a Db's call takes one: a ReadFailure at stage acquire, whose
- * reason is the class, and which the call reads as the plant's CallError.
+ * reason is the class, and which the call reads as the failure's CallError.
  */
-export const throughCall = (s: SubstrateShape, attempt: Attempt, plant: Plant) =>
+export const throughCall = (s: SubstrateShape, attempt: Attempt, condition: ConnectFailure) =>
 	Effect.gen(function* () {
 		const pool = yield* makePool({
 			connection: connectionOf(s, attempt),
@@ -340,8 +340,8 @@ export const throughCall = (s: SubstrateShape, attempt: Attempt, plant: Plant) =
 		const called = readCallError(failure)
 		assert.deepEqual(
 			statedOf(called),
-			plantedClass[plant].called,
-			`${plant} through a Db's call: its CallError, ${called.message}`
+			expectedClass[condition].called,
+			`${condition} through a Db's call: its CallError, ${called.message}`
 		)
 		return {
 			refusal,
