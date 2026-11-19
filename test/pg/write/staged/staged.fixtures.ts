@@ -1,5 +1,5 @@
 import { assert } from "@bjornpagen/testing/assert"
-import { array, type Gen, int, recorded } from "@bjornpagen/testing/gen"
+import { aimed, array, type Gen, int, recorded } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { type ServedDbContext } from "#adapter/db/context.ts"
@@ -434,4 +434,36 @@ export const stagedOn = (taken: SubstrateCase<Generated>) =>
 	})
 
 /** A sketch drawn, beside pantry's import (gen.ts recorded), which no draw is. */
-export const stagedCases = recorded(sketchGen, [pantry])
+/**
+ * A sketch aimed at a stored mutable shelf recounted: one package of four to eight entries within the bound at shares
+ * the CHECK Small admits and that together pass one Bind message, so its write is staged in several fills and accepted,
+ * recounting each stored Shelf its entries land on (pantry's shape, its shares and places drawn); the database holding
+ * TEMPORARY and the flight bound in force. A drawn sketch reaches it seldom: passing the bound takes entries of large
+ * shares, and Small refuses a write any of whose entries passes four fifths of a whole one.
+ */
+const recountedGen: Gen<Sketch> = (source) => ({
+	packages: [
+		source.draw(
+			array(
+				(s): Member => ({
+					kind: "within",
+					share: s.draw(int(700, Number(small))),
+					bin: s.draw(placeGen),
+					shelf: s.draw(placeGen)
+				}),
+				{ min: 4, max: 8 }
+			)
+		)
+	],
+	temporary: true,
+	tag: "none",
+	flight: "in force"
+})
+
+/**
+ * The cases the property runs: drawn sketches beside pantry's import, recorded (gen.ts recorded), and, for a witness
+ * whose turn aims at it, a sketch that recounts a stored mutable shelf (recountedGen).
+ */
+export const stagedCases = aimed(recorded(sketchGen, [pantry]), [
+	["a stored mutable shelf recounted", recountedGen]
+])
