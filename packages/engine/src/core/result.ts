@@ -1,10 +1,21 @@
+import type { Result as Public } from "effect"
+
 /**
  * The engine's answer to a step that can refuse: a tagged union with no runtime dependency. Compiler passes return a
  * Result and never throw for an expected refusal; the public builders turn a refusal into a thrown CompileError at the
  * user's call, and the shell carries the same value in Effect's error channel. Read a Result by its tag
- * (`r.ok ? r.value : r.error`); the functions below are the data-first operations the engine uses.
+ * (`r.ok ? r.value : r.error`); the functions below are the data-first operations the engine uses. It is the engine's
+ * own: every answer a caller reads is Effect's Result (PublicResult).
  */
 export type Result<A, E> = Ok<A> | Err<E>
+
+/**
+ * How a public answer spells a Result: the shell's conversion of an engine Result into Effect's (packages/grizzle
+ * adapter/engine.ts toResult), passed where the shell builds a public reader, rowEvaluator, insertPreview or codecText,
+ * so the engine answers every item a caller reads as Effect's Result, where the item is computed, without a runtime
+ * dependency on Effect.
+ */
+export type PublicResult = <A, E>(result: Result<A, E>) => Public.Result<A, E>
 
 /** A step that succeeded, with its value. */
 export interface Ok<A> {

@@ -6,16 +6,15 @@
  */
 import { array, characterOf, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
+import { rowEvaluator } from "#adapter/public/host.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { map as mapResult, type Result } from "#compiler/core/result.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
 	closed,
 	constraintNamesOf,
 	derived,
 	relation,
-	rowEvaluator,
 	schema,
 	type Unevaluated,
 	type RelationName
@@ -357,12 +356,12 @@ const textOf = (value: unknown, what: string): string =>
  * An item of the host's evaluation, the value it holds; the case fails where the host had none, naming why, or where
  * its evaluation holds no such item, a check's read by a name only the run time knows.
  */
-const evaluatedItem = <A>(item: Result<A, Unevaluated> | undefined, what: string): A =>
+const evaluatedItem = <A>(item: Result.Result<A, Unevaluated> | undefined, what: string): A =>
 	item === undefined
 		? assert.fail(`the host's evaluation holds ${what}`)
-		: item.ok
-			? item.value
-			: assert.fail(`the host evaluates ${what}: ${item.error.why}`)
+		: Result.isSuccess(item)
+			? item.success
+			: assert.fail(`the host evaluates ${what}: ${item.failure.why}`)
 
 /** A truth's verdict as `CHECK ((p) IS TRUE)` reads it, and its note. */
 const checkNote = (truth: Truth): Feature =>
@@ -398,10 +397,11 @@ const closedSelectionNote = (truth: Truth): Feature =>
  * it: no generated field and no row check, which a closed relation holds none of, and selected, as a relation keeps
  * every row, being select(C, TRUE).
  */
-const closedEvaluation = {
-	ok: true,
-	value: { generated: {}, checks: {}, selected: { ok: true, value: true } }
-} as const
+const closedEvaluation = Result.succeed({
+	generated: {},
+	checks: {},
+	selected: Result.succeed(true)
+})
 
 /**
  * One case: the schema compiled by rowEvaluator and installed through its first migration; each row evaluated by the
@@ -453,10 +453,10 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 			const at = `row ${id}, ${Formatter.format(row)}, of ${Formatter.format(ec)}`
 			const fact = { ...itemFact(built.c, row.item, id), p: row.p, u: Units(row.u) }
 			const asGen = evaluate.admit(Gen, fact)
-			const ofGen = mapResult(asGen, (admitted) => evaluate(Gen, admitted))
-			const ofAll = mapResult(evaluate.admit(All, fact), (admitted) => evaluate(All, admitted))
-			const ofSelection = mapResult(asGen, (admitted) => evaluate(built.selected, admitted))
-			const ofRefined = mapResult(
+			const ofGen = Result.map(asGen, (admitted) => evaluate(Gen, admitted))
+			const ofAll = Result.map(evaluate.admit(All, fact), (admitted) => evaluate(All, admitted))
+			const ofSelection = Result.map(asGen, (admitted) => evaluate(built.selected, admitted))
+			const ofRefined = Result.map(
 				evaluate.admit(built.Refined, {
 					kind: kindOf(row.item.kind),
 					p: row.p,
@@ -466,13 +466,13 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 			)
 			const judged = Arr.map(built.checks, (check) => ({
 				...check,
-				of: mapResult(evaluate.admit(check.Each, fact), (admitted) =>
+				of: Result.map(evaluate.admit(check.Each, fact), (admitted) =>
 					evaluate(check.Each, admitted)
 				)
 			}))
 			const ruled = Arr.map(built.rules, (rule) => ({
 				...rule,
-				of: mapResult(evaluate.admit(rule.D, fact), (admitted) => evaluate(rule.D, admitted))
+				of: Result.map(evaluate.admit(rule.D, fact), (admitted) => evaluate(rule.D, admitted))
 			}))
 			const domains = yield* session.values(
 				`SELECT pg_input_is_valid($1::text, $2::text), pg_input_is_valid($3::text, $4::text)`,
@@ -497,7 +497,7 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 					...Arr.map(ruled, (j) => [j.of, j.D.name] as const)
 				] as const) {
 					assert.ok(
-						!evaluation.ok && fields.includes(evaluation.error.field),
+						Result.isFailure(evaluation) && fields.includes(evaluation.failure.field),
 						`the host refuses ${at} as a row of ${of} at a field PostgreSQL's domain refuses, ${Formatter.format(fields)}, not ${Formatter.format(evaluation)}`
 					)
 				}
@@ -518,16 +518,22 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 				continue
 			}
 			admitted.push([id, row.item])
-			if (!asGen.ok || !ofGen.ok || !ofAll.ok || !ofSelection.ok) {
+			if (
+				Result.isFailure(asGen) ||
+				Result.isFailure(ofGen) ||
+				Result.isFailure(ofAll) ||
+				Result.isFailure(ofSelection)
+			) {
 				return assert.fail(`the host admits ${at}, inside its domains`)
 			}
 			assert.ok(
-				evaluate(built.selected, asGen.value).generated.g ===
-					evaluate(Gen, asGen.value).generated.g,
+				evaluate(built.selected, asGen.success).generated.g ===
+					evaluate(Gen, asGen.success).generated.g,
 				`two sources of Gen over one admitted row share the item both read, g at ${at}`
 			)
 			assert.ok(
-				evaluate(built.selected, asGen.value).generated === evaluate(Gen, asGen.value).generated,
+				evaluate(built.selected, asGen.success).generated ===
+					evaluate(Gen, asGen.success).generated,
 				`two sources of Gen over one admitted row read one record of its generated values, built once for the row, at ${at}`
 			)
 			assert.deepEqual(
@@ -535,7 +541,7 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 				closedEvaluation,
 				`the host evaluates ${at} as a row of the closed Refined, inside its domains`
 			)
-			const g = evaluatedItem(ofGen.value.generated.g, `g at ${at}`)
+			const g = evaluatedItem(ofGen.success.generated.g, `g at ${at}`)
 			const stored = yield* insert(Gen, id, row)
 			if (g === null) {
 				assert.ok(
@@ -562,7 +568,7 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 				)
 				k.note(`a generated ${ec.generated.sort}`)
 			}
-			const allVerdicts = ofAll.value.checks
+			const allVerdicts = ofAll.success.checks
 			assert.deepEqual(
 				Arr.sort(Rec.keys(allVerdicts), Order.String),
 				Arr.sort(
@@ -573,11 +579,11 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 			)
 			const breaking: Array<string> = []
 			for (const check of judged) {
-				if (!check.of.ok) {
+				if (Result.isFailure(check.of)) {
 					return assert.fail(`the host admits ${at} as a row of Each of ${check.name}`)
 				}
 				const verdict = evaluatedItem(
-					check.of.value.checks[check.name],
+					check.of.success.checks[check.name],
 					`${check.name} alone at ${at}`
 				)
 				assert.equal(
@@ -600,11 +606,11 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 				k.note(checkNote(evalPred(ec.world, row.item, check.pred, silent)))
 			}
 			for (const rule of ruled) {
-				if (!rule.of.ok) {
+				if (Result.isFailure(rule.of)) {
 					return assert.fail(`the host admits ${at} as a row of ${rule.D.name}`)
 				}
 				const verdict = evaluatedItem(
-					rule.of.value.checks[rule.name],
+					rule.of.success.checks[rule.name],
 					`${rule.name} of ${rule.D.name} at ${at}`
 				)
 				const refused = yield* insert(rule.Src, id, row)
@@ -634,7 +640,7 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 			if (breaking.length > 1) {
 				k.note("a refusal naming one check of several a row breaks")
 			}
-			if (evaluatedItem(ofSelection.value.selected, `the selection at ${at}`)) {
+			if (evaluatedItem(ofSelection.success.selected, `the selection at ${at}`)) {
 				hostSelected.push(`${id}`)
 			}
 			k.note(selectionNote(evalPred(ec.world, row.item, ec.selection, silent)))
@@ -650,25 +656,25 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 		const { c } = built
 		const closedRows = [
 			...Arr.map(c.Kind.handles, (id) =>
-				mapResult(evaluate.admit(c.Kind, { id }), (admitted) => evaluate(c.Kind, admitted))
+				Result.map(evaluate.admit(c.Kind, { id }), (admitted) => evaluate(c.Kind, admitted))
 			),
 			...Arr.map(c.Flag.handles, (id) =>
-				mapResult(evaluate.admit(c.Flag, { id }), (admitted) => evaluate(c.Flag, admitted))
+				Result.map(evaluate.admit(c.Flag, { id }), (admitted) => evaluate(c.Flag, admitted))
 			),
 			...Arr.map(c.Pick.rows, (row) =>
-				mapResult(evaluate.admit(c.Pick, row), (admitted) => evaluate(c.Pick, admitted))
+				Result.map(evaluate.admit(c.Pick, row), (admitted) => evaluate(c.Pick, admitted))
 			),
 			...Arr.map(c.Wt.rows, (row) =>
-				mapResult(evaluate.admit(c.Wt, row), (admitted) => evaluate(c.Wt, admitted))
+				Result.map(evaluate.admit(c.Wt, row), (admitted) => evaluate(c.Wt, admitted))
 			),
 			...Arr.map(c.Succ.rows, (row) =>
-				mapResult(evaluate.admit(c.Succ, row), (admitted) => evaluate(c.Succ, admitted))
+				Result.map(evaluate.admit(c.Succ, row), (admitted) => evaluate(c.Succ, admitted))
 			),
 			...Arr.map(c.Next.rows, (row) =>
-				mapResult(evaluate.admit(c.Next, row), (admitted) => evaluate(c.Next, admitted))
+				Result.map(evaluate.admit(c.Next, row), (admitted) => evaluate(c.Next, admitted))
 			),
 			...Arr.map(c.Allowed.rows, (row) =>
-				mapResult(evaluate.admit(c.Allowed, row), (admitted) => evaluate(c.Allowed, admitted))
+				Result.map(evaluate.admit(c.Allowed, row), (admitted) => evaluate(c.Allowed, admitted))
 			)
 		]
 		for (const evaluation of closedRows) {
@@ -680,13 +686,13 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 		}
 		const hostPicked = Rec.fromEntries(
 			Arr.map(c.Pick.rows, (row) => {
-				const evaluation = mapResult(evaluate.admit(c.Pick, row), (admitted) =>
+				const evaluation = Result.map(evaluate.admit(c.Pick, row), (admitted) =>
 					evaluate(built.pickSelected, admitted)
 				)
-				return evaluation.ok
+				return Result.isSuccess(evaluation)
 					? ([
 							row.kind,
-							evaluatedItem(evaluation.value.selected, `the closed selection at ${row.kind}`)
+							evaluatedItem(evaluation.success.selected, `the closed selection at ${row.kind}`)
 						] as const)
 					: assert.fail(`the host admits Pick's row ${row.kind}: ${Formatter.format(evaluation)}`)
 			})

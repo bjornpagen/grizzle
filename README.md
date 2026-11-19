@@ -3663,7 +3663,9 @@ throws `CompileError` for a rule that is no check of the schema.
 
 `rowEvaluator(schema)` compiles the schema once and gives the host's evaluation of a row: what PostgreSQL computes of
 it, by the one evaluator grizzle judges a refused write's rows by. Bind it once,
-`const evaluate = rowEvaluator(Accounts)`, a `Result` whose error is the schema's `CompileError`. A row is admitted
+`const evaluate = rowEvaluator(Accounts)`, a `Result` whose failure is the schema's `CompileError`: every `Result`
+grizzle answers, here and in `codecText`, `insertPreview` and `indexesOf`, is Effect's (`effect/Result`), read with
+`Result.isSuccess`, `Result.match` or `Effect.fromResult`. A row is admitted
 once, `evaluate.admit(Account, row)`, then evaluated as a row of any source of its relation, `evaluate(Account,
 admitted)` or `evaluate(select(Account, (a) => a.units.gt(3)), admitted)` for a selection. A source is any relation of
 the schema, stored, derived or closed, a roster among the closed ones, or a selection of one. The row is typed off the
@@ -3704,7 +3706,7 @@ Key a set or a map of rows by these texts, and never by `String()` of a host val
 
 `insertPreview(schema)` compiles the schema once and gives the rows `ChangeSet.empty(schema).insertAll(rows)` stores
 as the first write of an installation holding no row, closed relations aside, with nothing sent: bind
-`const preview = insertPreview(BoxOffice)`, a `Result` whose error is the schema's `CompileError`, then call
+`const preview = insertPreview(BoxOffice)`, a `Result` whose failure is the schema's `CompileError`, then call
 `preview(rows)`. `rows` is insertAll's record over every top-level relation with every serial field stated
 (`PreviewInputOf<S>`): a preview states every value, and PostgreSQL draws nothing in it. Each call is the write's own
 binding of its rows, the one every application of it runs before any SQL, so every count, index, interval, fold end

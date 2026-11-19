@@ -190,7 +190,7 @@ export const scalarCodec = (type: ScalarType, codes: Codebook): ScalarCodec =>
 	codecOf(type, carrierSpecOf(type, codes))
 
 /**
- * A value's one text read under no installation (program/text.ts codecText), a function of its host value alone: a
+ * A value's one text read under no installation (program/text.ts codecTextOver), a function of its host value alone: a
  * closed id's its handle, which is its host value; a set's its handles in its roster's declared order (ir/codes.ts
  * declaredOrder) as a JSON array, a handle holding any text but NUL; each admitted against its roster's live handles as
  * the codec admits them (scalar/values/identity.ts admitHandle, admitHandles). A code is a storage detail of one

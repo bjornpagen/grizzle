@@ -1,0 +1,53 @@
+import type { Result } from "effect"
+import { toResult } from "#adapter/engine.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import { type InsertPreview, inForce, insertPreviewOver } from "#compiler/plan/change.ts"
+import {
+	type AnySchema,
+	type CodecFault,
+	type CompileError,
+	codecTextOver,
+	type RowEvaluator,
+	rowEvaluatorOver,
+	type TextedField
+} from "#compiler/plan/common.ts"
+
+/**
+ * Public barrel: the host's readings of a schema's values, which send no SQL: insertPreview, rowEvaluator and
+ * codecText. packages/grizzle/src/index.ts re-exports it. Each answers Effect's Result, the one Result a caller reads:
+ * the engine computes each answer in its own (core/result.ts) and spells it through toResult (adapter/engine.ts), the
+ * PublicResult each takes, where the answer is made, so an item computed where it is first read stays so.
+ */
+
+/**
+ * insertPreview(schema): the rows `ChangeSet.empty(schema).insertAll(rows)` stores as the first write of an
+ * installation holding no row, closed relations aside, with no SQL sent: the schema compiled once, by the compile every
+ * write takes, as a Result whose error is its CompileError, then each call the write's own binding of its rows before
+ * any SQL, every writable relation's rows or the refusal that write meets there (engine program/preview.ts). The
+ * binding runs under the transport of the wire the write would go over (wire/batch.ts bindFrame), so a call past its
+ * message bound is refused as the write is, InputTooLarge.
+ */
+export const insertPreview = <S extends AnySchema>(
+	schema: S
+): Result.Result<InsertPreview<S>, CompileError> =>
+	toResult(insertPreviewOver(schema, inForce(bindFrame), toResult))
+
+/**
+ * rowEvaluator(schema): the host's evaluation of rows of the schema's sources, by the one evaluator grizzle judges a
+ * refused write's rows by (engine program/evaluate.ts): the schema compiled once, as a Result whose error is its
+ * CompileError, then `evaluate.admit(R, row)` holds a row to its relation's domains once and `evaluate(source,
+ * admitted)` is its evaluation as a row of any source of its relation, each item its own Result, computed where it is
+ * first read.
+ */
+export const rowEvaluator = <S extends AnySchema>(
+	schema: S
+): Result.Result<RowEvaluator<S>, CompileError> => toResult(rowEvaluatorOver(schema, toResult))
+
+/**
+ * codecText(field): the one text of each value of the field's type, a function of the value alone, its descriptor
+ * read once (engine program/text.ts): bind `const startText = codecText(Node.fields.start)`, then
+ * `startText(row.start)` is a Result of the value's text, or the CodecFault of a value its type does not admit.
+ */
+export const codecText = <V>(
+	field: TextedField<V>
+): ((value: V) => Result.Result<string, CodecFault>) => codecTextOver(field, toResult)

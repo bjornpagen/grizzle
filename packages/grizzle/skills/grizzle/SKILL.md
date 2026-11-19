@@ -796,7 +796,8 @@ The command line's own refusals, by stage:
   `constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`, and a check over a
   derived relation's is its triggers' digest name: a direct writer or a test that matches a refusal's constraint takes it
   from there, never spelling it. To know on the host what PostgreSQL computes of a row, bind
-  `const evaluate = rowEvaluator(schema)` once, which compiles (a `Result` over `CompileError`), admit each row once,
+  `const evaluate = rowEvaluator(schema)` once, which compiles (Effect's `Result` over `CompileError`, as every `Result`
+  grizzle answers is), admit each row once,
   `evaluate.admit(R, row)`, R any relation of the schema, stored, derived or closed, the row typed off R without its
   generated fields: `DomainRefused` naming a field PostgreSQL's domain refuses, or the `AdmittedRow`; then
   `evaluate(R, admitted)` or `evaluate(select(R, φ), admitted)` is `{ generated, checks, selected }`, each item

@@ -1191,8 +1191,8 @@ const declaredDescriptorOf = (value: unknown): unknown => {
  * The description of a field value, any field of a relation or a descriptor itself: its declared type's descriptor
  * (declaredDescriptorOf) as the registry reads it, its FieldDesc, ScalarType and column, or MalformedDescription at
  * `loc` for a value that is neither. It is the one reading of a field value as a type: a relation's column is described
- * by it (describedFields), and every public reading of a field reads it, codecText (program/text.ts), keyTextBytes,
- * lexicalForm and lexical (public/text.ts), so none of them refuses a field its type admits.
+ * by it (describedFields), and every public reading of a field reads it, codecText (program/text.ts codecTextOver),
+ * keyTextBytes, lexicalForm and lexical (public/text.ts), so none of them refuses a field its type admits.
  */
 export const describeDeclared = (value: unknown, loc: SourceLoc): Described =>
 	describeFieldOrThrow(declaredDescriptorOf(value), loc)

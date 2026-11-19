@@ -26,7 +26,6 @@ const lexicalTargetOfField = (type: unknown): LexicalTarget => {
 	}
 	return target
 }
-export { codecText } from "#compiler/program/text.ts"
 export { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 export { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
 export { maxStringLength } from "#compiler/core/canonical.ts"

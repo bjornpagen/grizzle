@@ -5,12 +5,11 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, type Result } from "effect"
 import { onceCalls } from "#adapter/db/handles.ts"
+import { rowEvaluator } from "#adapter/public/host.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import type * as Engine from "#compiler/core/result.ts"
 import { previewOver } from "#compiler/program/preview.ts"
-import { rowEvaluator } from "#compiler/public/schema.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { insertableNamesOf } from "#compiler/schema/world.ts"
 import type { Unevaluated } from "#compiler/types/schema/evaluation.ts"
@@ -939,7 +938,7 @@ const checkCase = (
 								`a stored ${relationName(r)} row is admitted`
 							)
 							/** Its generated fields' items by name, which an AnyRelation's type cannot name. */
-							const items: Readonly<Record<string, Engine.Result<unknown, Unevaluated>>> = evaluate(
+							const items: Readonly<Record<string, Result.Result<unknown, Unevaluated>>> = evaluate(
 								relation,
 								admitted
 							).generated

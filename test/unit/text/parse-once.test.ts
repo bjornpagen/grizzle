@@ -20,12 +20,12 @@
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
+import { rowEvaluator } from "#adapter/public/host.ts"
 import { indices } from "#compiler/core/array.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
-import { rowEvaluator } from "#compiler/program/evaluate.ts"
 import { closedLeaf, evaluatedRelation, hostEvaluator } from "#compiler/runtime/write/fill.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -139,8 +139,8 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 								return {
 									expected: patternMember({ patterns: [{ source: match, flags: "u" }] }, member),
 									selected: Arr.map(sources, (source) =>
-										admitted.ok
-											? evaluate(source, admitted.value).selected
+										Result.isSuccess(admitted)
+											? evaluate(source, admitted.success).selected
 											: assert.fail(
 													`a row of each member, inside its domains: ${Formatter.format(admitted)}`
 												)
@@ -160,7 +160,7 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 				Arr.forEach(evaluated, ({ expected, selected }) =>
 					Arr.forEach(selected, (s) =>
 						assert.ok(
-							s.ok && s.value === expected,
+							Result.isSuccess(s) && s.success === expected,
 							`a selection by its match: ${Formatter.format(s)}`
 						)
 					)

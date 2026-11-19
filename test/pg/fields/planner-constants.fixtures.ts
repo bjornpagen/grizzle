@@ -3,8 +3,9 @@
 import { element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Effect, Formatter } from "effect"
+import { rowEvaluator } from "#adapter/public/host.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { rowEvaluator, schema } from "#compiler/public/schema.ts"
+import { schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
@@ -410,19 +411,15 @@ export const runPlanner = (drawn: PlannerCase, c: Case<PlannerFeature>) =>
 				`SELECT ${names.column(R, "g")}, ${names.column(R, "h")} FROM ${table} WHERE ${names.column(R, "id")} = $1::integer`,
 				[id]
 			)
-			const admitted = evaluate.admit(R, { id, t: row.t, n: row.n })
-			assert.ok(
-				admitted.ok,
+			const admitted = succeeded(
+				evaluate.admit(R, { id, t: row.t, n: row.n }),
 				`the host evaluates row ${Formatter.format(row)} of ${Formatter.format(drawn)}`
 			)
-			const { g, h } = evaluate(R, admitted.value).generated
-			assert.ok(
-				g.ok && h.ok,
-				`the host evaluates g and h at row ${Formatter.format(row)} of ${Formatter.format(drawn)}`
-			)
+			const { g, h } = evaluate(R, admitted).generated
+			const at = `at row ${Formatter.format(row)} of ${Formatter.format(drawn)}`
 			assert.deepEqual(
 				stored,
-				[[g.value, h.value]],
+				[[succeeded(g, `the host evaluates g ${at}`), succeeded(h, `the host evaluates h ${at}`)]],
 				`PostgreSQL stores what the host computes for row ${Formatter.format(row)} of ${Formatter.format(drawn)}`
 			)
 		}

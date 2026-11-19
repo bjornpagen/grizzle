@@ -27,6 +27,7 @@ import {
 	String as Str
 } from "effect"
 import type { WrittenOutcome } from "#adapter/db/handles.ts"
+import { rowEvaluator } from "#adapter/public/host.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type * as Engine from "#compiler/core/result.ts"
 import type { CallError, CallErrorOf } from "#compiler/live/index.ts"
@@ -56,7 +57,6 @@ import {
 	ordered,
 	pred,
 	relation as typedRelation,
-	rowEvaluator,
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -740,22 +740,25 @@ const judged = (
 				relation.name,
 				Arr.flatMap(rows, (row) => {
 					const admitted = evaluate.admit(relation, row)
-					if (!admitted.ok) {
-						outside.push({ relation: relation.name, field: admitted.error.field })
+					if (Result.isFailure(admitted)) {
+						outside.push({ relation: relation.name, field: admitted.failure.field })
 						return []
 					}
-					const evaluation = { value: evaluate(relation, admitted.value) }
 					/** Its generated fields' items by name, which an AnyRelation's type cannot name. */
-					const items: Readonly<Record<string, Engine.Result<unknown, Unevaluated>>> =
-						evaluation.value.generated
+					const items: Readonly<Record<string, Result.Result<unknown, Unevaluated>>> = evaluate(
+						relation,
+						admitted.success
+					).generated
 					const generated = Rec.map(items, (item, field) => {
-						if (!item.ok) {
-							return assert.fail(`the host evaluates ${relation.name}.${field}: ${item.error.why}`)
+						if (Result.isFailure(item)) {
+							return assert.fail(
+								`the host evaluates ${relation.name}.${field}: ${item.failure.why}`
+							)
 						}
-						if (item.value === null) {
+						if (item.success === null) {
 							nulls.push({ relation: relation.name, field })
 						}
-						return item.value
+						return item.success
 					})
 					return [{ ...row, ...generated }]
 				})

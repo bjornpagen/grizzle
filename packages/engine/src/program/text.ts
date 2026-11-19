@@ -1,7 +1,8 @@
 /**
- * The one text of a value of a field's type, a function of its host value alone (public/text.ts codecText): the one
- * public reading of a host value as text.
+ * The one text of a value of a field's type, a function of its host value alone (codecText, the shell's, packages/grizzle
+ * adapter/public/host.ts): the one public reading of a host value as text.
  */
+import type { Result as Public } from "effect"
 import { hostText } from "#compiler/codec/scalar.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
@@ -21,8 +22,8 @@ type TextSql = Exclude<SqlTag, StoredOnlySql>
 export type TextedField<V> = Field<V, TextSql, unknown> | GeneratedField<Field<V, TextSql, unknown>>
 
 /**
- * codecText(field): the one text of each value of the field's type, a function of the value alone, its descriptor read
- * once: `const startText = codecText(Node.fields.start)`, then `startText(row.start)` is the value's text (codec/scalar.ts
+ * codecText(field), the shell's, over `answer`, its spelling of a caller's Result: the one text of each value of the
+ * field's type, a function of the value alone, its descriptor read once: `const startText = codecText(Node.fields.start)`, then `startText(row.start)` is the value's text (codec/scalar.ts
  * hostText). The field is any field of a relation: a caller's is its own descriptor, and a drawn, accumulated,
  * retirement, generated or slot field reads its declared type's, the one its column is stored and read with
  * (schema/relation.ts describeDeclared), so a drawn natural's text is its integer's. Two values of the type have
@@ -35,9 +36,11 @@ export type TextedField<V> = Field<V, TextSql, unknown> | GeneratedField<Field<V
  * admit, outside its type's range, typmod or roster, is its CodecFault, never a text. A bytes value is stored only and
  * travels as no text, so its field is a type error.
  */
-export const codecText = <V>(
-	field: TextedField<V>
-): ((value: V) => Result.Result<string, CodecFault>) => {
+export const codecTextOver = <V>(
+	field: TextedField<V>,
+	answer: Result.PublicResult
+): ((value: V) => Public.Result<string, CodecFault>) => {
 	const { scalar } = describeDeclared(field, captureLoc("codecText", []))
-	return hostText(scalar)
+	const text = hostText(scalar)
+	return (value) => answer(text(value))
 }

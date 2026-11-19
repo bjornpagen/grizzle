@@ -22,6 +22,7 @@ export type FileKind =
 	| "a Windows path"
 	| "an HTTP URL"
 	| "the library"
+	| "the shell"
 	| "the runtime"
 
 /** Each kind's spelling of a file named `name`. */
@@ -31,6 +32,7 @@ const spelled: { readonly [K in FileKind]: (name: string) => string } = {
 	"a Windows path": (name) => `C:\\work\\${name}.ts`,
 	"an HTTP URL": (name) => `http://localhost:3000/${name}.js`,
 	"the library": (name) => `file:///repo/packages/engine/src/core/${name}.ts`,
+	"the shell": (name) => `file:///repo/packages/grizzle/src/adapter/public/${name}.ts`,
 	"the runtime": (name) => `node:internal/${name}`
 }
 
@@ -52,11 +54,11 @@ const fileOf =
 		return { kind, file: spelled[kind](source.draw(matching(regex("^[a-z][a-z0-9_]{0,7}$")))) }
 	}
 
-const fileGen = fileOf([...userKinds, "the library", "the runtime"])
+const fileGen = fileOf([...userKinds, "the library", "the shell", "the runtime"])
 
 /** Whether a frame in a file of this kind is the user's, which a user-facing location names. */
 export const userKind = (kind: FileKind): boolean =>
-	kind !== "the library" && kind !== "the runtime"
+	kind !== "the library" && kind !== "the shell" && kind !== "the runtime"
 
 export type Form =
 	| "V8 in a function"

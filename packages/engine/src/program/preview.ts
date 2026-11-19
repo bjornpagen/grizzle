@@ -283,20 +283,24 @@ export const previewOver = (
 }
 
 /**
- * insertPreview over `transport` (see the header): `previewOver` under S's types, its rows read as PreviewInputOf<S>
- * and its rows by name given as PreviewRows<S> (`isPreviewRowsOf`).
+ * insertPreview over `transport` (see the header), the shell's (packages/grizzle adapter/public/host.ts): `previewOver`
+ * under S's types, its rows read as PreviewInputOf<S> and its rows by name given as PreviewRows<S> (`isPreviewRowsOf`),
+ * each preview answered as `answer`, the shell's spelling of a caller's Result, makes it.
  */
 export const insertPreviewOver = <S extends AnySchema>(
 	schema: S,
-	transport: Transport
+	transport: Transport,
+	answer: Result.PublicResult
 ): Result.Result<InsertPreview<S>, CompileError> =>
 	Result.map(previewOver(schema, transport), (preview): InsertPreview<S> => {
 		const names: ReadonlyArray<string> = writableNamesOf(schema)
 		return (rows) =>
-			Result.map(preview(rows), (built) => {
-				if (!isPreviewRowsOf<S>(built, names)) {
-					throw defect("a preview's rows keyed by the schema's writable relations")
-				}
-				return built
-			})
+			answer(
+				Result.map(preview(rows), (built) => {
+					if (!isPreviewRowsOf<S>(built, names)) {
+						throw defect("a preview's rows keyed by the schema's writable relations")
+					}
+					return built
+				})
+			)
 	})

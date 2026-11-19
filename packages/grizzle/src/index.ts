@@ -1,7 +1,7 @@
 export * from "#adapter/public/config.ts"
 export * from "#adapter/public/db.ts"
 export * from "#adapter/public/errors.ts"
+export * from "#adapter/public/host.ts"
 export * from "#adapter/public/layer.ts"
-export * from "#adapter/public/preview.ts"
 export { roleNameOf } from "#adapter/served/served.ts"
 export * from "@bjornpagen/grizzle-engine"

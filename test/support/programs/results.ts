@@ -1,0 +1,22 @@
+/**
+ * The names the public-Result program reads (test/types/api/results.ts), its prelude (test/support/prelude.ts): the
+ * program imports these alone, each through this module, each public reader through the package's root or its compile
+ * entry, as a caller imports it.
+ */
+export type { Result } from "effect"
+export { indexesOf } from "#adapter/public/compile.ts"
+export type { Err, Ok } from "#compiler/core/result.ts"
+export {
+	check,
+	codecText,
+	generated,
+	insertPreview,
+	type InsertPreview,
+	pg,
+	relation,
+	rowEvaluator,
+	type RowEvaluation,
+	type RowEvaluator,
+	schema,
+	uuid
+} from "#index.ts"

@@ -1,10 +1,10 @@
 import { array, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { codecText } from "#adapter/public/host.ts"
 import { hostText } from "#compiler/codec/scalar.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 /**
  * What the property of codec-text.test.ts reads: the carriers a value's text is of, the fields of every kind codecText
@@ -13,7 +13,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { int8Max } from "#compiler/ir/carriers.ts"
 import { type Codebook, declaredOrder, firstCodebook } from "#compiler/ir/codes.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { codecText, type TextedField } from "#compiler/program/text.ts"
+import type { TextedField } from "#compiler/program/text.ts"
 import {
 	accumulated,
 	bits,
@@ -44,7 +44,7 @@ import {
 	orderCodes,
 	orderedBy
 } from "#test/pg/values/order.fixtures.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { type AnyResult, assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
@@ -60,8 +60,11 @@ type FieldKind = (typeof fieldKinds)[number]
 /** What a case reached: a carrier whose values it gave a text, by its label, or a kind of field it read one through. */
 export type TextFeature = `texts ${string}` | `reads ${FieldKind}`
 
-/** What a case reads its values' texts by: a function of the value alone, a CodecFault for a value it does not admit. */
-type Texts = (value: unknown) => Result.Result<string, CodecFault>
+/**
+ * What a case reads its values' texts by: a function of the value alone, a CodecFault for a value it does not admit, a
+ * carrier's by the engine's hostText and a field's by the public codecText, which answers Effect's Result.
+ */
+type Texts = (value: unknown) => AnyResult<string, CodecFault>
 
 /**
  * A case: its label, the type PostgreSQL judges its texts at, its values as a caller writes them, the situation it

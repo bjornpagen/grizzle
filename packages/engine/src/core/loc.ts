@@ -253,11 +253,17 @@ export const parseStack = (stack: string): ReadonlyArray<CallSite> => {
 	return sites
 }
 
-/** Frames belonging to grizzle itself or to the runtime, which a user-facing location skips. */
+/**
+ * Frames belonging to grizzle itself, its engine or its shell, or to the runtime, which a user-facing location skips:
+ * a shell function that reads a caller's value through the engine, codecText among them (packages/grizzle
+ * adapter/public/host.ts), locates a refusal at its caller's line, not its own.
+ */
 export const isLibraryFrame = (file: string): boolean =>
 	file.startsWith("node:") ||
 	file.includes("/packages/engine/src/") ||
-	file.includes("\\packages\\engine\\src\\")
+	file.includes("\\packages\\engine\\src\\") ||
+	file.includes("/packages/grizzle/src/") ||
+	file.includes("\\packages\\grizzle\\src\\")
 
 /** The first call site of `stack` outside the library, or undefined when every frame is the library's. */
 export const siteFromStack = (stack: string): CallSite | undefined =>

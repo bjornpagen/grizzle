@@ -26,6 +26,7 @@
  * An item whose expression the host does not lower or does not evaluate is Unevaluated, its place its own.
  */
 
+import type { Result as Public } from "effect"
 import { typingEnv } from "#compiler/analysis/theory/theory.ts"
 import { rowNode } from "#compiler/check/generated.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
@@ -346,8 +347,8 @@ const isRowField = <R>(
  */
 interface Items {
 	readonly relation: Prepared
-	readonly generated: Readonly<Record<string, Result.Result<unknown, Unevaluated>>>
-	readonly checks: Readonly<Record<string, Result.Result<CheckVerdict, Unevaluated>>>
+	readonly generated: Readonly<Record<string, Public.Result<unknown, Unevaluated>>>
+	readonly checks: Readonly<Record<string, Public.Result<CheckVerdict, Unevaluated>>>
 }
 
 /** An admitted row's items as R's evaluation types them (isItemsOf). */
@@ -356,14 +357,15 @@ type ItemsOf<S, R> = Items & Pick<RowEvaluation<S, R>, "generated" | "checks">
 /**
  * What admitting a row records of it, by the admitted row's identity: its relation, read as a whole source of itself
  * (select(R, TRUE)); the row as the judge reads it, built once; its relation's items (Items), built where the row is
- * first evaluated, which every source of the relation shares; and each source's selection of it, memoized. A WeakMap
- * holds nothing alive and is never enumerated, so it is no cache: it is the admitted row's state.
+ * first evaluated, which every source of the relation shares; and each source's selection of it, memoized, each item
+ * as the caller reads it, Effect's Result. A WeakMap holds nothing alive and is never enumerated, so it is no cache: it
+ * is the admitted row's state.
  */
 interface Admission {
 	readonly relation: Prepared
 	readonly judged: JudgedRow
 	readonly items: () => Items
-	readonly selected: Map<Prepared, Result.Result<boolean, Unevaluated>>
+	readonly selected: Map<Prepared, Public.Result<boolean, Unevaluated>>
 }
 
 const admissions = new WeakMap<object, Admission>()
@@ -405,18 +407,20 @@ const lazyRecord = <T extends { readonly name: string }, A>(
 
 /**
  * The items of a row admitted to `relation` (Items): each generated field's value and each row check's verdict, by its
- * name, evaluated over the row as the judge reads it where it is first read.
+ * name, evaluated over the row as the judge reads it where it is first read, as `answer` spells a caller's Result.
  */
-const itemsOf = (relation: Prepared, judged: JudgedRow): Items => {
+const itemsOf = (relation: Prepared, judged: JudgedRow, answer: Result.PublicResult): Items => {
 	const { judge, table } = relation
 	return {
 		relation,
 		generated: lazyRecord(relation.generated, (g) =>
-			valueOf(judge.evaluate(table, g.expr, judged))
+			answer(valueOf(judge.evaluate(table, g.expr, judged)))
 		),
 		checks: lazyRecord(relation.checks, (c) =>
-			Result.flatMap(c.predicate, (predicate) =>
-				Result.map(truthOf(judge.evaluate(table, predicate, judged)), verdictOf)
+			answer(
+				Result.flatMap(c.predicate, (predicate) =>
+					Result.map(truthOf(judge.evaluate(table, predicate, judged)), verdictOf)
+				)
 			)
 		)
 	}
@@ -439,7 +443,8 @@ const isItemsOf = <S, R>(items: Items, relation: Prepared): items is ItemsOf<S, 
  */
 const admitted = <R>(
 	relation: Prepared,
-	row: EvaluatedRow<R>
+	row: EvaluatedRow<R>,
+	answer: Result.PublicResult
 ): Result.Result<AdmittedRow<R>, DomainRefused<R>> => {
 	const fields: Readonly<Record<string, unknown>> = row
 	for (const field of relation.refined) {
@@ -460,7 +465,7 @@ const admitted = <R>(
 	admissions.set(value, {
 		relation,
 		judged,
-		items: once(() => itemsOf(relation, judged)),
+		items: once(() => itemsOf(relation, judged, answer)),
 		selected: new Map()
 	})
 	if (!isAdmittedRow<R>(value)) {
@@ -474,7 +479,11 @@ const admitted = <R>(
  * is first read and memoized on the admitted row, its relation's generated values and verdicts by its relation's reading,
  * which every source of the relation shares, and its selection by the source's.
  */
-const evaluated = <S, R>(source: Prepared, row: AdmittedRow<R>): RowEvaluation<S, R> => {
+const evaluated = <S, R>(
+	source: Prepared,
+	row: AdmittedRow<R>,
+	answer: Result.PublicResult
+): RowEvaluation<S, R> => {
 	const admission = admissions.get(row)
 	if (admission === undefined) {
 		throw defect("an admitted row, which admit made")
@@ -492,8 +501,10 @@ const evaluated = <S, R>(source: Prepared, row: AdmittedRow<R>): RowEvaluation<S
 		checks: items.checks,
 		get selected() {
 			return memoized(admission.selected, source, () =>
-				Result.flatMap(source.selection, (selection) =>
-					truthOf(source.judge.evaluate(source.table, selection, judged))
+				answer(
+					Result.flatMap(source.selection, (selection) =>
+						truthOf(source.judge.evaluate(source.table, selection, judged))
+					)
 				)
 			)
 		}
@@ -501,14 +512,17 @@ const evaluated = <S, R>(source: Prepared, row: AdmittedRow<R>): RowEvaluation<S
 }
 
 /**
- * rowEvaluator(schema): the host's evaluation of rows of the schema's sources (see the header), its schema compiled and
- * its relations read once: `const evaluate = rowEvaluator(schema)`, then `evaluate.admit(R, row)` admits a row of R
- * once, holding it to its domains, and `evaluate(source, admitted)` is the admitted row's evaluation as a row of any
- * source of R, R itself or select(R, φ), each source read once, where it is first evaluated. A schema that does not
- * compile is its CompileError.
+ * rowEvaluator(schema), the shell's (packages/grizzle adapter/public/host.ts), over `answer`, the shell's spelling of a
+ * caller's Result: the host's evaluation of rows of the schema's sources (see the header), its schema compiled and its
+ * relations read once: `const evaluate = rowEvaluator(schema)`, then `evaluate.admit(R, row)` admits a row of R once,
+ * holding it to its domains, and `evaluate(source, admitted)` is the admitted row's evaluation as a row of any source of
+ * R, R itself or select(R, φ), each source read once, where it is first evaluated. Each answer a caller reads, an
+ * admission and every item, is `answer`'s, made where it is computed. A schema that does not compile is its
+ * CompileError.
  */
-export const rowEvaluator = <S extends AnySchema>(
-	schema: S
+export const rowEvaluatorOver = <S extends AnySchema>(
+	schema: S,
+	answer: Result.PublicResult
 ): Result.Result<RowEvaluator<S>, CompileError> =>
 	Result.map(lawModel(schema, "rowEvaluator"), (model): RowEvaluator<S> => {
 		const relations = readRelations(model)
@@ -528,11 +542,12 @@ export const rowEvaluator = <S extends AnySchema>(
 			source: Src,
 			row: AdmittedRow<SourceRelation<Src>>
 		): RowEvaluation<S, SourceRelation<Src>> =>
-			evaluated<S, SourceRelation<Src>>(preparedOf(source), row)
+			evaluated<S, SourceRelation<Src>>(preparedOf(source), row, answer)
 		return Object.assign(evaluate, {
 			admit: <R extends RelationOf<S>>(
 				relation: R,
 				row: EvaluatedRow<R>
-			): Result.Result<AdmittedRow<R>, DomainRefused<R>> => admitted<R>(preparedOf(relation), row)
+			): Public.Result<AdmittedRow<R>, DomainRefused<R>> =>
+				answer(admitted<R>(preparedOf(relation), row, answer))
 		})
 	})

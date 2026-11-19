@@ -7,8 +7,8 @@
  * runtime module, a line and a column), written in each engine's form, so the oracle is the parts themselves.
  *
  * - Frames: every engine's frame line reads as its file, line and column, every other line reads as no site, a stack
- *   reads as its frames' sites in order, a frame is the library's exactly when its file is the library's or the
- *   runtime's, and a stack's site is its first user frame's. Oracle: the frame's own parts.
+ *   reads as its frames' sites in order, a frame is the library's exactly when its file is the library's, its engine's
+ *   or its shell's, or the runtime's, and a stack's site is its first user frame's. Oracle: the frame's own parts.
  * - Capture: a declaration made through a chain of compiled frames is located at its innermost caller outside the
  *   library. Oracle: the drawn chain, whose call lines are placed by construction.
  * - Structure: a SourceLoc is recognized by its exact structure, and nothing else is. Oracle: the constructors
@@ -19,7 +19,8 @@
  * Features: each engine's form and each kind of file, a line of no site; the caller's own call, through the library, a
  * user frame the library calls; each spelling of a SourceLoc and each malformation; a site and no site.
  *
- * A file as a stack names it: a user's, or the library's or the runtime's, which a user-facing location skips.
+ * A file as a stack names it: a user's, or the library's (its engine's or its shell's) or the runtime's, which a
+ * user-facing location skips.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -70,6 +71,7 @@ export const stackFrameParsingReadsEveryEnginesFrameAsItsFileLineAndColumnAndNoS
 			"a Windows path",
 			"an HTTP URL",
 			"the library",
+			"the shell",
 			"the runtime",
 			"a line of no site"
 		] satisfies ReadonlyArray<Reached<Form | FileKind | "a line of no site">>,
@@ -126,6 +128,12 @@ export const stackFrameParsingReadsEveryEnginesFrameAsItsFileLineAndColumnAndNoS
 				original: '\tfile.startsWith("node:") ||\n',
 				replacement: "",
 				why: "a runtime frame (`node:`) taken as the user's; the frames and the capture properties fail."
+			},
+			{
+				file: "packages/engine/src/core/loc.ts",
+				original: '\tfile.includes("/packages/grizzle/src/") ||\n',
+				replacement: "",
+				why: "a frame of grizzle's shell taken as the user's, so a refusal codecText reads through the engine is located in the shell; the frames property fails."
 			}
 		]
 	})

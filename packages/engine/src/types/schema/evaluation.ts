@@ -3,7 +3,7 @@
  * off the schema: the row's fields, each the codec's host value of its field's type, and what the row comes to, each
  * generated field's value, each row check's verdict and whether its source selects it, as PostgreSQL computes them.
  */
-import type { Result } from "#compiler/core/result.ts"
+import type { Result } from "effect"
 import type { Fact } from "#compiler/types/schema/relation.ts"
 import type { RelationOf, StatementsOf } from "#compiler/types/schema/schema.ts"
 import type { Selection } from "#compiler/types/schema/statements.ts"
@@ -63,14 +63,14 @@ export interface DomainRefused<R> {
 /**
  * A row's evaluation over S: each generated field of its relation, its value or NULL, null; each row check of its
  * relation, its verdict; and whether its source selects it, the truth of the source's predicate, a relation's being
- * select(R, TRUE). Each item is its own Result, so an item the host cannot evaluate leaves the others theirs.
+ * select(R, TRUE). Each item is its own Result, Effect's, so an item the host cannot evaluate leaves the others theirs.
  */
 export interface RowEvaluation<S, R> {
 	readonly generated: {
-		readonly [K in GeneratedFieldOf<R>]: Result<Fact<R>[K] | null, Unevaluated>
+		readonly [K in GeneratedFieldOf<R>]: Result.Result<Fact<R>[K] | null, Unevaluated>
 	}
-	readonly checks: { readonly [N in CheckNameOf<S, R>]: Result<CheckVerdict, Unevaluated> }
-	readonly selected: Result<boolean, Unevaluated>
+	readonly checks: { readonly [N in CheckNameOf<S, R>]: Result.Result<CheckVerdict, Unevaluated> }
+	readonly selected: Result.Result<boolean, Unevaluated>
 }
 
 /**
@@ -99,5 +99,5 @@ export interface RowEvaluator<S> {
 	readonly admit: <R extends RelationOf<S>>(
 		relation: R,
 		row: EvaluatedRow<R>
-	) => Result<AdmittedRow<R>, DomainRefused<R>>
+	) => Result.Result<AdmittedRow<R>, DomainRefused<R>>
 }

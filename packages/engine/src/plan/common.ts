@@ -43,6 +43,7 @@ export {
 	rowText
 } from "#compiler/core/decoder.ts"
 export {
+	type CodecFault,
 	CompileError,
 	compileReasonText,
 	type EncodingFailure,
@@ -91,6 +92,8 @@ export {
 } from "#compiler/core/phantom.ts"
 export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 export * as Engine from "#compiler/core/result.ts"
+export { rowEvaluatorOver } from "#compiler/program/evaluate.ts"
+export { codecTextOver, type TextedField } from "#compiler/program/text.ts"
 export type { Isolation } from "#compiler/core/isolation.ts"
 export type { Result } from "#compiler/core/result.ts"
 export { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
@@ -232,6 +235,7 @@ export type {
 } from "#compiler/types/db/workload.ts"
 export type { Evidence } from "#compiler/types/evidence/evidence.ts"
 export type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
+export type { RowEvaluator } from "#compiler/types/schema/evaluation.ts"
 export type { AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"
 export type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.ts"
 export type {

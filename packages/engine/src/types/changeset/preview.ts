@@ -4,8 +4,8 @@
  * relation's, each row whole but for the fields PostgreSQL generates from it, or the refusal that write meets before
  * any SQL.
  */
+import type { Result } from "effect"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
-import type { Result } from "#compiler/core/result.ts"
 import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import type { OwnLaw, PreviewInputOf, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { EvaluatedRow } from "#compiler/types/schema/evaluation.ts"
@@ -65,7 +65,10 @@ interface OwnerAbsent {
  */
 export type PreviewRefusal = InputRefused | KeyConflict | GeneratedNull | OwnerAbsent
 
-/** The preview of an insertion into S (program/preview.ts insertPreview): the rows its write stores, or its refusal. */
+/**
+ * The preview of an insertion into S (program/preview.ts insertPreviewOver): the rows its write stores, or its refusal,
+ * as Effect's Result.
+ */
 export type InsertPreview<S extends AnySchema> = (
 	rows: PreviewInputOf<S>
-) => Result<PreviewRows<S>, PreviewRefusal>
+) => Result.Result<PreviewRows<S>, PreviewRefusal>
