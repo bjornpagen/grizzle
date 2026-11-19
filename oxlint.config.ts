@@ -759,10 +759,11 @@ export default defineConfig(
 				files: [
 					"bench/cold/probe.ts",
 					"bench/harness/runner.ts",
+					"scripts/dev/load-modules.ts",
 					"test/unit/deps/runtime-probe.ts"
 				],
 				rules: active({
-					/** The cold probe times a first load, the bench runner loads the bench files it runs, and the runtime probe loads each module under its trap. */
+					/** The cold probe times a first load, the bench runner loads the bench files it runs, the load check loads every test module the runner runs, as the runner does, and the runtime probe loads each module under its trap. */
 					"devtools/no-dynamic-imports": "off"
 				})
 			},
