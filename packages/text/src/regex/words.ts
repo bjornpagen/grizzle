@@ -154,9 +154,10 @@ export const digitRange = (from: string, to: string): RegexNode => {
 
 /**
  * The decimal spellings of the naturals from `lo` to `hi`, or every natural from `lo` on: no leading zero but in 0
- * itself, as JSON and XML Schema write a natural's canonical digits. The lengths strictly between the bounds' own are
- * every digit string of their length that starts with a nonzero digit, one run; each bound's own length is a range of
- * digit strings (sameLength). An empty interval is the empty language; a negative `lo` is no natural's bound, a defect.
+ * itself, as JSON and XML Schema write a natural's canonical digits. Every length all of whose naturals the interval
+ * holds is one run with the lengths beside it, a nonzero digit and any digits (`[1-9][0-9]{0,8}`, `[1-9][0-9]*`): the
+ * lengths strictly between the bounds' own, and a bound's own where it is its length's least or greatest natural; each
+ * bound's own length otherwise is a range of digit strings (sameLength). An empty interval is the empty language; a negative `lo` is no natural's bound, a defect.
  * Its size grows with the digits of its bounds alone.
  */
 export const naturals = (lo: bigint, hi: bigint | "unbounded"): RegexNode => {
@@ -172,19 +173,26 @@ export const naturals = (lo: bigint, hi: bigint | "unbounded"): RegexNode => {
 		return literal("0")
 	}
 	const least = lo === 0n ? "1" : lo.toString()
-	const longer = (min: number, max: number | "unbounded"): RegexNode =>
-		seq([digitsFrom(1, 9), b.repeat(set(digit), min, max)])
+	/** Every natural of `from` to `to` digits, both lengths whole: a nonzero digit, then any digits. */
+	const lengths = (from: number, to: number | "unbounded"): RegexNode =>
+		seq([digitsFrom(1, 9), b.repeat(set(digit), from - 1, to === "unbounded" ? to : to - 1)])
+	/** Whether the least is its length's least natural, so its length is whole, one run with the lengths above it. */
+	const leastWhole = allOf(least.slice(1), 0) && least.startsWith("1")
+	const firstRun = leastWhole ? least.length : least.length + 1
+	const lower = leastWhole ? [] : [atLeast(b, least)]
 	if (hi === "unbounded") {
-		return b.alt([...zeroArm, atLeast(b, least), longer(least.length, "unbounded")])
+		return b.alt([...zeroArm, ...lower, lengths(firstRun, "unbounded")])
 	}
 	const most = hi.toString()
 	if (least.length === most.length) {
 		return b.alt([...zeroArm, sameLength(b, least, most)])
 	}
+	const mostWhole = allOf(most, 9)
+	const lastRun = mostWhole ? most.length : most.length - 1
 	return b.alt([
 		...zeroArm,
-		atLeast(b, least),
-		...(most.length - least.length >= 2 ? [longer(least.length, most.length - 2)] : []),
-		sameLength(b, `1${"0".repeat(most.length - 1)}`, most)
+		...lower,
+		...(firstRun <= lastRun ? [lengths(firstRun, lastRun)] : []),
+		...(mostWhole ? [] : [sameLength(b, `1${"0".repeat(most.length - 1)}`, most)])
 	])
 }

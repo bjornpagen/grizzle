@@ -33,6 +33,7 @@ type WordsFeature =
 	| "an interval across three lengths or more"
 	| "an empty interval"
 	| "a text longer than every bound"
+	| "a whole length one run"
 	| "digitRange held"
 	| "digitRange refused"
 	| "literal held"
@@ -176,6 +177,7 @@ export const theIRsWrittenOutLanguagesHoldExactlyTheNaturalsDigitRangesTextsAndR
 			"an interval across three lengths or more",
 			"an empty interval",
 			"a text longer than every bound",
+			"a whole length one run",
 			"digitRange held",
 			"digitRange refused",
 			"literal held",
@@ -209,6 +211,14 @@ export const theIRsWrittenOutLanguagesHoldExactlyTheNaturalsDigitRangesTextsAndR
 						c.note("a text longer than every bound")
 					}
 				}
+				const power = 10n ** BigInt(k.range.from.length - 1)
+				const run = naturals(power, "unbounded")
+				assert.ok(run.kind !== "never", "the naturals from a power of ten hold a natural")
+				assert.ok(
+					!Str.includes("|")(printSource(run, (s) => s)),
+					`naturals(${power}, "unbounded") is one run of a nonzero digit and any digits, no alternation`
+				)
+				c.note("a whole length one run")
 				const ofRange = holds(digitRange(k.range.from, k.range.to))
 				for (const text of k.rangeTexts) {
 					const held =
@@ -257,19 +267,22 @@ export const theIRsWrittenOutLanguagesHoldExactlyTheNaturalsDigitRangesTextsAndR
 			},
 			{
 				file: "packages/text/src/regex/words.ts",
-				original:
-					'\t\treturn b.alt([...zeroArm, atLeast(b, least), longer(least.length, "unbounded")])',
-				replacement:
-					'\t\treturn b.alt([...zeroArm, atLeast(b, least), longer(least.length + 1, "unbounded")])',
+				original: '\t\treturn b.alt([...zeroArm, ...lower, lengths(firstRun, "unbounded")])',
+				replacement: '\t\treturn b.alt([...zeroArm, ...lower, lengths(firstRun + 1, "unbounded")])',
 				why: "An unbounded interval skips the length after its least's: every natural one digit longer is refused."
 			},
 			{
 				file: "packages/text/src/regex/words.ts",
-				original:
-					"\t\t...(most.length - least.length >= 2 ? [longer(least.length, most.length - 2)] : []),",
+				original: "\t\t...(firstRun <= lastRun ? [lengths(firstRun, lastRun)] : []),",
+				replacement: "\t\t...(firstRun < lastRun ? [lengths(firstRun, lastRun)] : []),",
+				why: "An interval drops its one length all of whose naturals it holds: a natural of that length is refused."
+			},
+			{
+				file: "packages/text/src/regex/words.ts",
+				original: '\tconst leastWhole = allOf(least.slice(1), 0) && least.startsWith("1")',
 				replacement:
-					"\t\t...(most.length - least.length >= 3 ? [longer(least.length, most.length - 2)] : []),",
-				why: "An interval across three lengths drops its whole middle length: a natural of that length is refused."
+					'\tconst leastWhole = allOf(least.slice(1), 0) && least.startsWith("1") && false',
+				why: "A least that is its length's least natural keeps a range of its own beside the run of the lengths above it: the naturals from a power of ten print as an alternation."
 			}
 		]
 	})
