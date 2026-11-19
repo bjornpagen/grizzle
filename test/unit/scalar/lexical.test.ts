@@ -31,6 +31,7 @@
  * refused, a decimal's refused by its language and by its bytes; each kind of field lexicalForm reads.
  */
 
+import { inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
@@ -51,7 +52,7 @@ import {
 	type LexicalTarget,
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
-import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
+import { regexDfaLimits } from "#compiler/scalar/regex/inclusion.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
@@ -279,7 +280,7 @@ export const languageInclusionAnIncludedPairAdmitsNoMemberOfTheInnerPatternOutsi
 						}
 						const innerNfa = buildNfa(a.value)
 						const outerNfa = buildNfa(b.value)
-						const result = inclusion([innerNfa], [outerNfa])
+						const result = inclusion([innerNfa], [outerNfa], regexDfaLimits)
 						run.note(result.kind)
 						const label = `/${inner}/ in /${outer}/`
 						switch (result.kind) {
@@ -316,7 +317,7 @@ export const languageInclusionAnIncludedPairAdmitsNoMemberOfTheInnerPatternOutsi
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/inclusion.ts",
+					file: "packages/text/src/regex/inclusion.ts",
 					original: '\t\t\treturn { kind: "refuted", witness: witness(at) }',
 					replacement: '\t\t\treturn { kind: "included" }',
 					why: "The inclusion walk calls every pair it reaches included, never refuted; the inclusion walk's refutation property fails, and the parse properties with it."
@@ -355,7 +356,11 @@ export const aParsesLexicalPreconditionIsProvedExactlyWhenTheOperandsLanguageIsI
 							analyzeText([{ source: pattern, flags: "u" }], SourceLoc("str.regex", [])).ok,
 							`${pattern}: an admitted pattern's text analyzes`
 						)
-						const verdict = inclusion([nfaOf(pattern)], [nfaOf(formSource(target))]).kind
+						const verdict = inclusion(
+							[nfaOf(pattern)],
+							[nfaOf(formSource(target))],
+							regexDfaLimits
+						).kind
 						const checked = checkedIn(schema("Lexical", [build(pattern, route)], []))
 						run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
 						assert.equal(
@@ -378,7 +383,7 @@ export const aParsesLexicalPreconditionIsProvedExactlyWhenTheOperandsLanguageIsI
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/inclusion.ts",
+					file: "packages/text/src/regex/inclusion.ts",
 					original: '\t\t\treturn { kind: "refuted", witness: witness(at) }',
 					replacement: '\t\t\treturn { kind: "included" }',
 					why: "The inclusion walk calls every pair it reaches included, never refuted; the inclusion walk's refutation property fails, and the parse properties with it."
@@ -422,7 +427,11 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 						if (!analyzed.ok) {
 							return assert.fail(`${pattern}: an admitted pattern's text analyzes`)
 						}
-						const verdict = inclusion([nfaOf(pattern)], [nfaOf(decimalText.source)]).kind
+						const verdict = inclusion(
+							[nfaOf(pattern)],
+							[nfaOf(decimalText.source)],
+							regexDfaLimits
+						).kind
 						const check = analyzed.value.check
 						const patternBytes =
 							check.kind === "tautology" || check.bounds === undefined
@@ -475,7 +484,7 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/inclusion.ts",
+					file: "packages/text/src/regex/inclusion.ts",
 					original: '\t\t\treturn { kind: "refuted", witness: witness(at) }',
 					replacement: '\t\t\treturn { kind: "included" }',
 					why: "The inclusion walk calls every pair it reaches included, never refuted; the inclusion walk's refutation property fails, and the parse properties with it."

@@ -27,6 +27,7 @@
  * a regex check of several patterns and an IN list.
  */
 
+import { inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
@@ -35,7 +36,7 @@ import { aimed, array, element } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { wildcardPattern } from "#compiler/ir/scalar.ts"
-import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
+import { regexDfaLimits } from "#compiler/scalar/regex/inclusion.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -226,7 +227,7 @@ export const aConjunctionsInclusionHoldsExactlyWhenNoShortTextOrInnerWalkHoldsEv
 							return
 						}
 						const label = `${Formatter.format(inner)} in ${Formatter.format(outer)}`
-						const verdict = inclusion(innerNfas, outerNfas)
+						const verdict = inclusion(innerNfas, outerNfas, regexDfaLimits)
 						k.note(verdict.kind)
 						const ofInner = jsAll(inner)
 						const ofOuter = jsAll(outer)
@@ -240,7 +241,10 @@ export const aConjunctionsInclusionHoldsExactlyWhenNoShortTextOrInnerWalkHoldsEv
 								)
 								if (
 									inner.length > 1 &&
-									Arr.every(innerNfas, (n) => inclusion([n], outerNfas).kind !== "included")
+									Arr.every(
+										innerNfas,
+										(n) => inclusion([n], outerNfas, regexDfaLimits).kind !== "included"
+									)
 								) {
 									k.note("included by inner members together, by none alone")
 								}
@@ -271,7 +275,7 @@ export const aConjunctionsInclusionHoldsExactlyWhenNoShortTextOrInnerWalkHoldsEv
 			],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/inclusion.ts",
+					file: "packages/text/src/regex/inclusion.ts",
 					original: "\treturn (",
 					replacement: '\treturn (\n\t\tverdicts.find((v) => v.kind === "included") ??',
 					why: "An inclusion in one outer member is taken for inclusion in the outer conjunction; the inclusion property fails."
@@ -321,10 +325,14 @@ export const aMatchGuardOverARefinedSubjectTypesItsBranchByTheSubjectsPatternsAn
 						const actual: GuardOutcome = checked.ok
 							? { kind: "admitted" }
 							: { kind: "refused", reason: checked.error.reason._tag }
-						assert.deepEqual(actual, guardOutcome[inclusion(nfas, [form]).kind], label)
+						assert.deepEqual(
+							actual,
+							guardOutcome[inclusion(nfas, [form], regexDfaLimits).kind],
+							label
+						)
 						if (
 							checked.ok &&
-							Arr.every(nfas, (nfa) => inclusion([nfa], [form]).kind !== "included")
+							Arr.every(nfas, (nfa) => inclusion([nfa], [form], regexDfaLimits).kind !== "included")
 						) {
 							k.note("admitted where neither pattern alone lies inside the form")
 						}

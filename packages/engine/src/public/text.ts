@@ -32,6 +32,7 @@ export { maxStringLength } from "#compiler/core/canonical.ts"
 export { regexTextMaxBytes } from "#compiler/core/errors.ts"
 export { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 export { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
+export { regexDfaLimits } from "#compiler/scalar/regex/inclusion.ts"
 export { type JoinedHost, type RegexText, str } from "#compiler/text/field.ts"
 
 /**

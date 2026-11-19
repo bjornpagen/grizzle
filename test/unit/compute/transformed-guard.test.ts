@@ -11,6 +11,7 @@
  * Features: each route admitted and refused, for the guard and for the byte cast.
  */
 
+import { inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -18,7 +19,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
+import { regexDfaLimits } from "#compiler/scalar/regex/inclusion.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
@@ -84,7 +85,8 @@ export const aGuardOverATransformedTextProvesAPartialOperationExactlyWhenTheTran
 				}
 				const verdict = inclusion(
 					[nfaOf(c.guard, "u"), nfaOf(image.source, image.flags)],
-					[nfaOf(formOf(c.operation), "u")]
+					[nfaOf(formOf(c.operation), "u")],
+					regexDfaLimits
 				).kind
 				const label = `${Formatter.format(c)}: ${verdict}`
 				if (verdict === "bounded") {
@@ -173,7 +175,8 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 				installsStored(c.steps, OperandText, TargetText)
 				const verdict = inclusion(
 					[nfaOf(languageSource(typed.language), "u")],
-					[nfaOf(target.source, target.flags)]
+					[nfaOf(target.source, target.flags)],
+					regexDfaLimits
 				).kind
 				const longest = longestWithin(typed.language, bound)
 				const label = `${Formatter.format(c)}: ${verdict} within ${bound} bytes, its longest text ${longest}, cast into ${bytes}`

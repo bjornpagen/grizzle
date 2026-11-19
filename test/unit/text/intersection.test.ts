@@ -7,14 +7,32 @@
  * Oracle: ECMAScript's RegExp test (test/support/regex.ts jsMatcher) of each language and of the intersection printed in
  * grizzle's grammar (print.ts printSource).
  *
- * Features: a text both hold, one only the first holds, one only the second holds, one neither holds, and an empty
- * intersection.
+ * Where one language strictly includes the other over the same alphabet (the first's alternation with the second
+ * narrowed to the first's code points includes the first, and a drawn text the first lacks shows it strictly), the
+ * intersection is the included node as it stands, the same canonical IR, never a product of it read through the other.
+ *
+ * Every language's texts of an even length are its intersection with the texts of an even length, whose DFA of two
+ * states moves on every code point, so one side is read through the other's and each repetition's closure is drawn
+ * from both states, whichever side's DFA is the smaller.
+ *
+ * Features: a text both hold, one only the first holds, one only the second holds, one neither holds, an empty
+ * intersection, and an included side.
  */
 
+import { charSet, intersection } from "@bjornpagen/grizzle-text/regex/charset"
+import { alphabetOf, mapSets } from "@bjornpagen/grizzle-text/regex/folds"
 import { intersect } from "@bjornpagen/grizzle-text/regex/intersection"
-import { end, type RegexNode, seq, start } from "@bjornpagen/grizzle-text/regex/ir"
+import {
+	canonicalText,
+	end,
+	RegexBuilder,
+	type RegexNode,
+	seq,
+	set,
+	start
+} from "@bjornpagen/grizzle-text/regex/ir"
 import { printSource } from "@bjornpagen/grizzle-text/regex/print"
-import { codePointsText } from "@bjornpagen/grizzle-text/text"
+import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -30,6 +48,7 @@ type IntersectionFeature =
 	| "only the second holds"
 	| "neither holds"
 	| "an empty intersection"
+	| "an included side"
 
 /** The alphabet a case draws its languages and texts over. */
 const alphabet: Arr.NonEmptyReadonlyArray<number> = [0x61, 0x62, 0x63]
@@ -80,7 +99,8 @@ export const theIntersectionOfTwoLanguagesOfWholeTextsHoldsATextExactlyWhenBothD
 			"only the first holds",
 			"only the second holds",
 			"neither holds",
-			"an empty intersection"
+			"an empty intersection",
+			"an included side"
 		] satisfies ReadonlyArray<Reached<IntersectionFeature>>,
 		check: (_, c: Case<IntersectionFeature>) => (k) =>
 			Effect.sync(() => {
@@ -91,7 +111,10 @@ export const theIntersectionOfTwoLanguagesOfWholeTextsHoldsATextExactlyWhenBothD
 				}
 				const ofLeft = holds(k.left)
 				const ofRight = holds(k.right)
+				const swapped = intersect(k.right, k.left, limits)
+				assert.ok(swapped.ok, "a small pair's intersection is within the DFA's bound")
 				const ofBoth = holds(met.value)
+				const ofSwapped = holds(swapped.value)
 				for (const text of k.texts) {
 					const l = ofLeft(text)
 					const r = ofRight(text)
@@ -105,6 +128,50 @@ export const theIntersectionOfTwoLanguagesOfWholeTextsHoldsATextExactlyWhenBothD
 									: "neither holds"
 					)
 					assert.equal(ofBoth(text), l && r, `${Formatter.format(text)}: the intersection`)
+					assert.equal(
+						ofSwapped(text),
+						l && r,
+						`${Formatter.format(text)}: the intersection, its sides swapped`
+					)
+				}
+				const any = set(charSet(Arr.map(alphabet, (cp): readonly [number, number] => [cp, cp])))
+				const builder = new RegexBuilder()
+				const even = builder.repeat(seq([any, any]), 0, "unbounded")
+				for (const [a, b] of [
+					[k.left, even],
+					[even, k.left]
+				] as const) {
+					const read = intersect(a, b, limits)
+					assert.ok(read.ok, "a small pair's intersection is within the DFA's bound")
+					const ofRead = holds(read.value)
+					for (const text of k.texts) {
+						assert.equal(
+							ofRead(text),
+							ofLeft(text) && codePoints(text).length % 2 === 0,
+							`${Formatter.format(text)}: the first language's texts of an even length`
+						)
+					}
+				}
+				const within = alphabetOf(k.left)
+				const wider = new RegexBuilder().alt([
+					k.left,
+					mapSets(k.right, (s) => set(intersection(s, within)))
+				])
+				const ofWider = holds(wider)
+				if (Arr.some(k.texts, (text) => ofWider(text) && !ofLeft(text))) {
+					for (const [a, b] of [
+						[k.left, wider],
+						[wider, k.left]
+					] as const) {
+						const kept = intersect(a, b, limits)
+						assert.ok(kept.ok, "a small pair's intersection is within the DFA's bound")
+						assert.equal(
+							canonicalText(kept.value),
+							canonicalText(k.left),
+							"the intersection of a language and one that strictly includes it is the included one as it stands"
+						)
+					}
+					c.note("an included side")
 				}
 			}),
 		oracle: {
@@ -114,6 +181,12 @@ export const theIntersectionOfTwoLanguagesOfWholeTextsHoldsATextExactlyWhenBothD
 		budget: { runs: 400, steered: 0 },
 		kept: [],
 		kills: [
+			{
+				file: "packages/text/src/regex/intersection.ts",
+				original: "\tif (mineInTheirs || theirsInMine) {",
+				replacement: "\tif (false) {",
+				why: "An included side is read through the other's DFA as a product: the intersection is the same language and no longer the included node."
+			},
 			{
 				file: "packages/text/src/regex/intersection.ts",
 				original: "\t\tif (keepsWhere(n, state)) {",

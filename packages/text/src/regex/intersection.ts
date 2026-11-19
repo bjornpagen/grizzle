@@ -3,6 +3,7 @@ import * as Result from "#text/base/result.ts"
 import { type CharSet, intersection, size } from "#text/regex/charset.ts"
 import { type CanonicalDfa, type DfaBounded, type DfaLimits, minimalDfa } from "#text/regex/dfa.ts"
 import { alphabetOf, assertsAnywhere, mapSets } from "#text/regex/folds.ts"
+import { included } from "#text/regex/inclusion.ts"
 import {
 	empty,
 	end,
@@ -18,14 +19,18 @@ import {
 import { buildNfa } from "#text/regex/nfa.ts"
 
 /**
- * The intersection of two languages of whole texts as one node, exactly: both narrowed to the code points both may hold,
- * then the first read through the second's minimal DFA (`tracked`), its own shape kept, so a domain's facets compose
- * into the one pattern its domain stores. pantry's grammar/domains.ts intersectTwo and tracked (UNIFY's op 3) on the
- * one IR. It is refused, never approximated, where the second's DFA passes `limits`, or where either node tests an
- * assertion, since a language of whole texts tests none.
+ * The intersection of two languages of whole texts as one node, exactly: both narrowed to the code points both may hold;
+ * where one then includes the other, the included one, as it stands (inclusion.ts included), the one of fewer
+ * positions where each includes the other, the first on a tie; otherwise one read through the other's minimal DFA
+ * (`tracked`), its own shape kept, through the DFA of fewer states, so a fixed sequence of sets such as
+ * `[0-9]{4}-[0-9]{2}` is a chain of states that cuts the other to its columns, and a domain's facets compose into the
+ * one pattern its domain stores, no larger than its facets make it. pantry's grammar/domains.ts intersectTwo and
+ * tracked (UNIFY's op 3) on the one IR. It is refused, never approximated, where neither DFA is built within `limits`,
+ * or where either node tests an assertion, since a language of whole texts tests none.
  */
 
-/** Why an intersection is refused: an assertion in a node, or the bound the second's DFA passed. */
+/** Why an intersection is refused: an assertion in a node, or the bound the second's DFA passed where the first's
+ * did too. */
 export type IntersectionRefusal = { readonly kind: "assertion" } | DfaBounded
 
 /** A subtree's words read from one state of the automaton, by the state each leads to. */
@@ -220,6 +225,28 @@ export const intersect = (
 	if (mine.kind === "never" || theirs.kind === "never") {
 		return Result.ok(never)
 	}
-	const outcome = minimalDfa(buildNfa(seq([start, theirs, end])), limits)
-	return outcome.kind === "minimal" ? Result.ok(tracked(mine, outcome.dfa)) : Result.err(outcome)
+	const ofMine = minimalDfa(buildNfa(seq([start, mine, end])), limits)
+	const ofTheirs = minimalDfa(buildNfa(seq([start, theirs, end])), limits)
+	if (ofMine.kind === "bounded") {
+		return ofTheirs.kind === "bounded"
+			? Result.err(ofTheirs)
+			: Result.ok(tracked(mine, ofTheirs.dfa))
+	}
+	if (ofTheirs.kind === "bounded") {
+		return Result.ok(tracked(theirs, ofMine.dfa))
+	}
+	const mineInTheirs = included(ofMine.dfa, ofTheirs.dfa, limits).kind === "included"
+	const theirsInMine = included(ofTheirs.dfa, ofMine.dfa, limits).kind === "included"
+	if (mineInTheirs && theirsInMine) {
+		const builder = new RegexBuilder()
+		return Result.ok(builder.expandedSize(theirs) < builder.expandedSize(mine) ? theirs : mine)
+	}
+	if (mineInTheirs || theirsInMine) {
+		return Result.ok(mineInTheirs ? mine : theirs)
+	}
+	return Result.ok(
+		ofMine.dfa.states.length < ofTheirs.dfa.states.length
+			? tracked(theirs, ofMine.dfa)
+			: tracked(mine, ofTheirs.dfa)
+	)
 }
