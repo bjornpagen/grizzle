@@ -55,7 +55,7 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
   `@bjornpagen/grizzle` and its subpaths to the source, under no condition. grizzle is not published: a consumer takes
   the repository as a git submodule and adds `packages/engine` and `packages/grizzle` to its pnpm workspace, so each
   module's real path lies outside `node_modules`, where Node strips types, and pnpm links the `grizzle` bin to
-  `src/cli/main.ts`. A package's `tsconfig.json` extends only the repository's own `tsconfig.base.json`, by relative
+  `src/cli/bin.ts`. A package's `tsconfig.json` extends only the repository's own `tsconfig.base.json`, by relative
   path, because a consumer's Vite reads the nearest tsconfig of every module it transforms, and a consumer installs
   none of the repository's dev tools. test/unit/dev/package.test.ts typechecks the README's programs as such a
   consumer's, and test/pg/package/consumer.test.ts runs one against the cluster. Never add a bundler or a build.
@@ -382,8 +382,8 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   import. The engine's own lists say the same in its words, and hold more (its `process` global, every Node module
   but `node:crypto`). What the library needs is its caller's input. Its readers are
   `packages/grizzle/src/adapter/connection/environment.ts`, which refuses the variables node-postgres would send at a
-  session's startup, `PGOPTIONS` and `PGREPLICATION`, and the `grizzle` command's entry module,
-  `packages/grizzle/src/cli/main.ts`, which reads its own `argv` and `cwd` and passes them on. One file imports
+  session's startup, `PGOPTIONS` and `PGREPLICATION`, and the `grizzle` command's module,
+  `packages/grizzle/src/cli/main.ts`, which its bin loads, and which reads its own `argv` and `cwd` and passes them on. One file imports
   `node:os` by an override with its reason: `packages/grizzle/src/adapter/live/call-error.ts`, for the platform's
   errno names.
 - **Regular expressions are arkregex's `regex()`**, which types a pattern's captures, everywhere, tests included (the

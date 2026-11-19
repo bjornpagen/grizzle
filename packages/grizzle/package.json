@@ -25,7 +25,7 @@
 		"./package.json": "./package.json"
 	},
 	"bin": {
-		"grizzle": "./src/cli/main.ts"
+		"grizzle": "./src/cli/bin.ts"
 	},
 	"sideEffects": false,
 	"scripts": {

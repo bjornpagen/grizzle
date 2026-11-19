@@ -61,7 +61,7 @@ const configChild = `${repo}test/pg/cli/config.child.ts`
  * the migration identity `grizzle_dev`, whose password and CA come from the initialised cluster
  * (test/support/cluster.ts), which a CLI child reads for itself (config.child.ts), or as a role a test created, whose
  * password its spec names.
- * `cli` runs a command line in process with a fixed clock; `bin` runs the real bin, `node packages/grizzle/src/cli/main.ts`, as a child
+ * `cli` runs a command line in process with a fixed clock; `bin` runs the real bin, `node packages/grizzle/src/cli/bin.ts`, as a child
  * process the test owns.
  *
  * The password of the configuration's "wrong" connection, which no role has.
@@ -474,7 +474,7 @@ export const bin = (
 		Effect.gen(function* () {
 			const handle = yield* ChildProcess.make(
 				process.execPath,
-				[...hardenedNode, `${repo}packages/grizzle/src/cli/main.ts`, ...argv],
+				[...hardenedNode, `${repo}packages/grizzle/src/cli/bin.ts`, ...argv],
 				{ cwd: dir, env: { ...env }, extendEnv: true, stdin: "ignore" }
 			)
 			const [stdout, stderr, status] = yield* Effect.all(

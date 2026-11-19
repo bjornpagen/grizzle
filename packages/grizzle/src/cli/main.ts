@@ -1,4 +1,3 @@
-#!/usr/bin/env -S node --disable-proto=delete --disable-sigusr1
 import { registerHooks } from "node:module"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
@@ -28,7 +27,7 @@ const unloaded =
 /**
  * The configuration file at `file`, the absolute path the command line names, imported once.
  *
- * It lies outside grizzle's sources, so the bin imports it by one fixed specifier, `grizzle:config`, which a module
+ * It lies outside grizzle's sources, so the command line imports it by one fixed specifier, `grizzle:config`, which a module
  * resolve hook maps to its file: every import in src/ keeps a literal specifier, the dependency audit's condition for
  * knowing src/'s whole import graph (test/unit/deps), and the application's configuration is an external module of
  * that graph, as `effect` is. A process runs one command line, so the hook answers that specifier with one file, and
@@ -78,10 +77,9 @@ const argumentsStart = 2
  * roles` and `grizzle uninstall`, each over
  * the configuration file its command line names.
  *
- * The bin runs the command line in the current directory, against which a relative configuration file resolves, on the
+ * The command line runs in the current directory, against which a relative configuration file resolves, on the
  * real clock and its output (run.ts), and sets the exit status its report carries. SIGINT interrupts the command, so a
- * migrate closes its connection and its open file transaction rolls back; the runtime then exits 130. It runs only as
- * the program Node runs: a module that imports the bin (the dependency audit loads every entry point) runs nothing.
+ * migrate closes its connection and its open file transaction rolls back; the runtime then exits 130.
  */
 const main = Effect.gen(function* () {
 	const argv = yield* Effect.sync(() => process.argv.slice(argumentsStart))
@@ -94,6 +92,9 @@ const main = Effect.gen(function* () {
 	})
 }).pipe(Effect.onInterrupt(() => Console.error("grizzle: interrupted")))
 
-if (import.meta.main) {
+/**
+ * Runs the command line as the program Node runs, and sets its exit status: the bin's one call (bin.ts), only as the
+ * program Node runs, so a module that imports the bin (the dependency audit loads every entry point) runs nothing.
+ */
+export const runCommand = (): void =>
 	NodeRuntime.runMain(Effect.provide(main, NodeServices.layer), { disableErrorReporting: true })
-}

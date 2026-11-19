@@ -114,7 +114,7 @@ export const shellSpelling = (value: string | number | ReadonlyArray<string>): s
 
 /** The grizzle command line's entry point, through the consumer's link to grizzle. */
 export const grizzleCli = (consumer: SubmoduleConsumer): string =>
-	`${consumer.modules}/node_modules/@bjornpagen/grizzle/src/cli/main.ts`
+	`${consumer.modules}/node_modules/@bjornpagen/grizzle/src/cli/bin.ts`
 
 /**
  * The consumer's configuration: one relation, migrated into the owner's own database of the case's cluster, through

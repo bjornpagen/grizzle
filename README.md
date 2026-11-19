@@ -1301,7 +1301,7 @@ Then depend on it from your package, beside its peers:
 }
 ```
 
-Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/dynamic`, `@bjornpagen/grizzle/client` and `@bjornpagen/grizzle/http`. `pnpm exec grizzle` runs the command line from `src/cli/main.ts`. To upgrade, move the submodule to a newer commit and run `pnpm install`.
+Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/dynamic`, `@bjornpagen/grizzle/client` and `@bjornpagen/grizzle/http`. `pnpm exec grizzle` runs the command line from `src/cli/bin.ts`, which turns on Node's compile cache before it loads the rest. To upgrade, move the submodule to a newer commit and run `pnpm install`.
 
 The agent guide is `vendor/grizzle/packages/grizzle/skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
 

@@ -300,8 +300,8 @@ export default defineConfig(
 			library: ["packages/engine/src", "packages/grizzle/src"],
 			/**
 			 * The connection's one reader of the environment, which refuses the variables node-postgres would send at a
-			 * session's startup; and the command line's entry module, which reads its own arguments and working directory
-			 * and passes them on as its program's input.
+			 * session's startup; and the command line's module, which its bin loads, and which reads its own arguments and
+			 * working directory and passes them on as its program's input.
 			 */
 			readers: [
 				"packages/grizzle/src/adapter/connection/environment.ts",
@@ -466,6 +466,7 @@ export default defineConfig(
 			},
 			"no-dynamic-imports": {
 				allowed: [
+					{ file: "packages/grizzle/src/cli/bin.ts", specifier: "#cli/main.ts" },
 					{ file: "packages/grizzle/src/cli/main.ts", specifier: "grizzle:config" },
 					{ file: "test.config.ts", specifier: "#test/support/mutation/mutation.ts" }
 				]

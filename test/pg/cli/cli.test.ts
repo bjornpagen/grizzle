@@ -7,7 +7,7 @@
  * its customer lookup or with none, or the ledger with its law, derived relation and workload; and where migrate connects,
  * the configuration's connection: as the migration identity with its password or an Effect yielding it, or as a role
  * that does not own the declared schemas, which exist. The loop runs in an application directory with the lean config,
- * every command through one executor: the bin, `node packages/grizzle/src/cli/main.ts`, as a child process whose
+ * every command through one executor: the bin, `node packages/grizzle/src/cli/bin.ts`, as a child process whose
  * environment names another server, database, role, password and CA in the variables PostgreSQL clients read for a
  * connection, none of which the command line reads; or `runCli` in process. The property, by each schema's own model
  * (its directory, snapshot and ledger):
