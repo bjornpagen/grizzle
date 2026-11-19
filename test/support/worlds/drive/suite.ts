@@ -1,35 +1,24 @@
-import { type Case, type Draw, explore, type Kept } from "@bjornpagen/testing/explore"
 import {
 	type Pending as Unreached,
 	type Reached,
-	required,
 	type Situations
 } from "@bjornpagen/testing/features"
-import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import type { Vitest } from "@effect/vitest"
 import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Predicate,
-	Record,
-	type Scope,
-	String as Str
-} from "effect"
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	steered as steeredSpace,
+	type Steered
+} from "@bjornpagen/testing/gen"
+import { type Case, type Kept, type Property, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option, Predicate, Record, type Scope, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
 import { isImmediate, relationOf, sameValue, valueText } from "#test/support/laws/model.ts"
-import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import {
-	type CaseSubstrate,
-	caseSubstrateSessions,
-	caseSubstrates,
-	Substrate
-} from "#test/support/substrate/substrate.ts"
+import { type SubstrateShape, Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	checkStart,
 	type ModelMismatch,
@@ -1172,8 +1161,8 @@ export const programDraw = <F extends string>(
 	{ lead, ...draws }: Draws,
 	maxSteps: number,
 	required: ReadonlyArray<Reached<F | WorldFeature>>
-): Draw<ProgramCase, ProgramCase, F | WorldFeature> => ({
-	generator: (steering) => (source) => ({
+): Steered<ProgramCase, F | WorldFeature> =>
+	steeredSpace((steering) => (source) => ({
 		install: source.draw(installs),
 		ambient: source.draw(ambientSessionGen),
 		weights: { ...source.draw(weightsGen), ...draws },
@@ -1181,9 +1170,7 @@ export const programDraw = <F extends string>(
 		led: source.draw(int(0, 3)) > 0,
 		pending: pendingOf<F>(steering, required),
 		lead
-	}),
-	resolve: (pc) => pc
-})
+	}))
 
 /** The features of a required situation: its feature, or both of a pair. */
 export const featuresOfSituation = <F extends string>(
@@ -1759,8 +1746,6 @@ export const unnoted: Noting = { noteAll: () => undefined }
  * each action. Each case realizes its installation afresh, every login's pool of one connection (serialPool).
  */
 export interface ProgramSuite {
-	readonly suite: string
-	readonly name: string
 	readonly installs: Gen<InstallSpec>
 	readonly focus: Focus
 	readonly steps: number
@@ -1771,34 +1756,9 @@ export interface ProgramSuite {
 	readonly realities: Realities
 	/** What each program draws first (Lead): noLead, or moves the suite needs in every program. */
 	readonly lead: Lead
-	/** Its counterexamples kept by value, each replayed before any stream (KeptProgram). */
-	readonly kept: ReadonlyArray<KeptProgram>
+	/** Its counterexamples, each replayed before any stream. */
+	readonly kept: ReadonlyArray<Kept>
 }
-
-/**
- * A program case kept by value (explore's Kept): what its sketch drew of its own, every field of a ProgramCase but
- * those the suite's draws give every case (programDraw), its swarm weights' action and validity weights and what its
- * steering left pending among them; the tape token of what its program drew; and the features it must still reach.
- * The suite's kinds, roles, aims and lead complete its sketch (keptCase), so a kept case is plain data a failure's
- * report prints.
- */
-export interface KeptProgram {
-	readonly note: string
-	readonly sketch: Omit<ProgramCase, "weights" | "lead"> & {
-		readonly weights: Pick<Weights, "actions" | "validity">
-	}
-	readonly draws: string
-	readonly reaches: Arr.NonEmptyReadonlyArray<WorldFeature>
-}
-
-/** A kept program's case, its sketch completed by the suite's draws as programDraw completes a drawn one. */
-const keptCase = (
-	{ lead, ...draws }: Draws,
-	kept: KeptProgram
-): Kept<ProgramCase, WorldFeature> => ({
-	...kept,
-	sketch: { ...kept.sketch, weights: { ...kept.sketch.weights, ...draws }, lead }
-})
 
 /**
  * A generated installation of a documents base (installGen): of the base itself, of the base with at most one share
@@ -1855,16 +1815,6 @@ export const noteNaming = (pc: ProgramCase, c: Case<WorldFeature>): void => {
 	}
 }
 
-/** The most shrink candidates a failing program tries: every case installs a schema of its own. */
-const programShrink = 200
-
-/**
- * A program suite's steering window: its cases steer by what no case before their window of this many reached, and an
- * exploration runs no more than a window at once, its cases at once held further to the widths the file's test pool
- * admits (caseSubstrates).
- */
-const programSteerEvery = 16
-
 /** How many cases a program suite's steered phase may run, as a multiple of its cases. */
 const programSteered = 4
 
@@ -1875,109 +1825,50 @@ const programSteered = 4
 const serialPool = 1
 
 /**
- * What a world's case may come to hold: the Db opens it may perform, each of which may lease a pool of its own (a Db
- * opened under a snapshot other than the current one is laid over a layer of its own), and a direct writer for each
- * transaction it may begin directly.
+ * A program case's installation realized afresh in a substrate of its own (a property's Substrate.fresh), a database no
+ * case beside it uses, every login's pool serial (serialPool).
  */
-interface WorldDemand {
-	readonly opens: number
-	readonly directs: number
-}
-
-/**
- * The connections a world's case holds at once at most, the width of its substrate (caseSubstrates), with every pool of
- * `poolSize`: the substrate's own sessions (caseSubstrateSessions); one connection opened and closed in turn, a
- * superuser's, an installation's or a migration's session, or a cancel's, since the driver runs one action at a time and
- * each closes before the action ends; a pool for each open it may perform, which holds its connections from the open on
- * (execute/index.ts openedDb); and its direct writers. A migration, a tamper or a drift holds nothing past its action.
- */
-const worldWidth = (poolSize: number, demand: WorldDemand): number =>
-	caseSubstrateSessions + 1 + poolSize * demand.opens + demand.directs
-
-/**
- * The connections a program's case holds at once at most (worldWidth), its pools serial (serialPool): each of its
- * actions, `lead`'s draws and its own steps, is an open where some of their weights draw one or a wild input, which
- * may open a Db at its site (WildSite), or else a direct begin where they draw one, each holding one connection more at
- * most.
- */
-const programWidth = (pc: ProgramCase, lead: ReadonlyArray<Weights>): number => {
-	const actions = lead.length + pc.steps
-	const draws = (kind: ActionKind): boolean =>
-		Arr.some([pc.weights, ...lead], (w) => Arr.contains(w.kinds, kind))
-	const opens = draws("open-db") || draws("wild") ? actions : 0
-	return worldWidth(serialPool, {
-		opens,
-		directs: draws("direct-begin") ? actions - opens : 0
-	})
-}
-
-/**
- * A program case's installation realized afresh in a substrate of its own (caseSubstrates), a database no case beside
- * it uses, every login's pool serial (serialPool), within the connections its program holds at once at most
- * (programWidth, its lead read under what its steering left pending, resolved of `required` as driveProgram reads it).
- */
-export const realizedProgram = <F extends string>(
-	substrates: CaseSubstrate,
-	pc: ProgramCase,
-	required: ReadonlyArray<Reached<F | WorldFeature>>
+export const ownWorld = (
+	substrate: SubstrateShape,
+	pc: ProgramCase
 ): Effect.Effect<RealWorld, RealizeRefused | SqlError, Scope.Scope> =>
-	Effect.flatMap(
-		substrates(programWidth(pc, programLead(pc, pendingIn<F>(pc.pending, required)))),
-		(substrate) =>
-			Effect.provideService(realizeRace(pc.install, pc.ambient, serialPool), Substrate, substrate)
-	)
+	Effect.provideService(realizeRace(pc.install, pc.ambient, serialPool), Substrate, substrate)
 
 /**
- * Registers a program suite's test: each case realizes its installation, stages its reality and runs its program under
- * the driver and the suite's rule. A steered phase of up to programSteered times as many cases as the suite runs aims
- * programs, through their leads and aims, at the required features no case has reached yet, and stops once every one
- * is reached; the rotating stream's programs aim at nothing. Every case installs a schema of its own, so a failure
- * shrinks through at most programShrink candidates.
+ * A program suite's property: each case realizes its installation afresh in a database of its own (Substrate.fresh), a
+ * database no case beside it uses, every login's pool serial (serialPool), so a program's database-wide changes (a
+ * tamper of the database's settings or privileges) never meet a case beside it; then it stages its reality and runs its
+ * program under the driver and the suite's rule. A steered phase of up to programSteered times as many cases as the
+ * suite runs aims programs, through their leads and aims, at the required features no case has reached yet, and stops
+ * once every one is reached; the rotating stream's programs aim at nothing.
  *
- * A case realizes its world in a substrate of its own (caseSubstrates), a database no case beside it uses, its pools of
- * one connection each (serialPool), within the connections it holds at once at most (programWidth), so the cases of a
- * window run at once, as many as the file's test pool admits by their widths: a program's database-wide changes (a
- * tamper of the database's settings or privileges) never meet a case beside it.
+ * Its pre-conversion budget: runs `cases`, coverage cases programSteered · `cases` (test/support/worlds/drive/suite.ts
+ * at c568eb123).
  */
-export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: ProgramSuite): void => {
-	it.effect(spec.name, (ctx) =>
-		searched(
-			ctx,
-			Effect.flatMap(caseSubstrates, (substrates) =>
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "the worlds model (test/support/worlds/model), stepped beside every action: its allowed observations, its stored relations and every open session's probe"
-						},
-						suite: spec.suite,
-						draw: programDraw(spec.installs, worldDraws(spec), spec.steps, spec.required),
-						literal: Formatter.format,
-						coverage: required<WorldFeature>(spec.required, {
-							cases: programSteered * spec.cases,
-							sense: notesOnly
-						}),
-						kept: Arr.map(spec.kept, (kept) => keptCase(worldDraws(spec), kept)),
-						runs: spec.cases,
-						shrink: { kind: "bounded", candidates: programShrink },
-						concurrency: programSteerEvery,
-						steerEvery: programSteerEvery,
-						caseHang
-					},
-					(pc, c) =>
-						Effect.scoped(
-							Effect.gen(function* () {
-								const world = yield* realizedProgram(substrates, pc, spec.required)
-								noteNaming(pc, c)
-								const staged = yield* stage(world, pc.install, c.draw, spec.realities)
-								yield* driveProgram(staged, pc, c, spec.required, spec.check)
-							})
-						)
-				)
-			)
-		)
-	)
-}
+export const programProperty = (spec: ProgramSuite): Property =>
+	property.explore(programDraw(spec.installs, worldDraws(spec), spec.steps, spec.required), {
+		needs: { own: Substrate.fresh },
+		situations: spec.required,
+		check:
+			({ own }, c: Case<WorldFeature>) =>
+			(pc) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const substrate = yield* own
+						const world = yield* ownWorld(substrate, pc)
+						noteNaming(pc, c)
+						const staged = yield* stage(world, pc.install, c.draw, spec.realities)
+						yield* driveProgram(staged, pc, c, spec.required, spec.check)
+					})
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the worlds model (test/support/worlds/model), stepped beside every action: its allowed observations, its stored relations and every open session's probe"
+		},
+		budget: { runs: spec.cases, steered: programSteered * spec.cases },
+		kept: spec.kept,
+		kills: []
+	})
 
 /**
  * The worlds features a suite's area must reach: each required feature of the feature map that `holds` admits, and

@@ -10,8 +10,7 @@ import { includeOf, tiers } from "#test/support/tiers.ts"
  * clones one shared database per worker (test/support/pg-global-setup.ts); its teardown sweeps again. Every file runs
  * beside every other on one cluster's SSI state, whose pool of finished SERIALIZABLE transactions, ten per backend,
  * fills while any transaction stays open (CONTRIBUTING.md): at one file per core one held open for seconds makes SSI
- * summarize every file's, so none holds one past its work. The world model's random suite steers by V8's block
- * coverage of the code under test.
+ * summarize every file's, so none holds one past its work.
  *
  * No test is bounded by the clock: each search runs exactly its counted budget, however busy the machine and the
  * cluster are, and a case that never ends is reported hung at the hang limit (limits.ts caseHang). A hook takes as long
@@ -25,7 +24,7 @@ import { includeOf, tiers } from "#test/support/tiers.ts"
  */
 export default defineTestConfig({
 	include: [...includeOf(tiers.network), ...Arr.map(propertyModules, (glob) => `!${glob}`)],
-	guided: ["test/pg/world-model/random.test.ts"],
+	guided: [],
 	setup: ["test/support/pg-global-setup.ts"],
 	conditions: [],
 	timeouts: {

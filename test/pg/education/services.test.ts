@@ -9,7 +9,6 @@
  * sets: each import program first writes as a direct writer under hand-set claims and under malformed ones
  * (importerUnderClaims), after a write through its Db that changes its world (roleChangesItsWorld).
  */
-import { layer } from "@effect/vitest"
 import {
 	educationTests,
 	gradeDeletedThenRefreshed,
@@ -18,64 +17,63 @@ import {
 	roleSeesItsWorld,
 	worldsFocus
 } from "#test/pg/education/support.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 import { leadsOf } from "#test/support/worlds/drive/suite.ts"
 
-layer(Substrate.layer)(
-	"education: the analytics and import logins",
-	educationTests([
-		{
-			suite: "pg/education/analyst",
-			roles: { kind: "only", roles: ["district_analyst"] },
-			lead: leadsOf(roleSeesItsWorld("district_analyst"), gradeDeletedThenRefreshed),
-			name: "the analyst never reads a student identifier, and a refresh drops a deleted student's grade",
-			focus: worldsFocus,
-			steps: 20,
-			cases: 40,
-			realization: "once",
-			required: [
-				"district_analyst open-db opened",
-				"district_analyst read rows",
-				"district_analyst saw rows of its world",
-				"district_analyst refresh ok",
-				"a refresh dropped a grade",
-				"a refresh dropped a deleted grade"
-			],
-			properties: [
-				{ kind: "world", role: "district_analyst" },
-				{ kind: "rollup" },
-				{ kind: "witnesses" },
-				{ kind: "reach" }
-			]
-		},
-		{
-			suite: "pg/education/importer",
-			roles: { kind: "only", roles: ["importer"] },
-			lead: leadsOf(
-				roleSeesItsWorld("importer"),
-				roleChangesItsWorld("importer"),
-				importerUnderClaims
-			),
-			name: "the import login never reads a name and never reaches the web login's relations, whatever claims it sets",
-			focus: worldsFocus,
-			steps: 20,
-			cases: 40,
-			realization: "once",
-			required: [
-				"importer open-db opened",
-				"importer read rows",
-				"importer saw rows of its world",
-				"importer write accepted",
-				"importer apply invariant-rejected",
-				"the importer wrote under hand-set claims",
-				"the importer wrote under malformed claims"
-			],
-			properties: [
-				{ kind: "world", role: "importer" },
-				{ kind: "no-name" },
-				{ kind: "reach" },
-				{ kind: "witnesses" }
-			]
-		}
-	])
-)
+/**
+ * Education: the analytics and import logins, a property for each suite:
+ * - analyst: the analyst never reads a student identifier, and a refresh drops a deleted student's grade.
+ * - importer: the import login never reads a name and never reaches the web login's relations, whatever claims it sets.
+ */
+export const servicesSuites = educationTests([
+	{
+		key: "analyst",
+		roles: { kind: "only", roles: ["district_analyst"] },
+		lead: leadsOf(roleSeesItsWorld("district_analyst"), gradeDeletedThenRefreshed),
+		focus: worldsFocus,
+		steps: 20,
+		cases: 40,
+		realization: "once",
+		required: [
+			"district_analyst open-db opened",
+			"district_analyst read rows",
+			"district_analyst saw rows of its world",
+			"district_analyst refresh ok",
+			"a refresh dropped a grade",
+			"a refresh dropped a deleted grade"
+		],
+		properties: [
+			{ kind: "world", role: "district_analyst" },
+			{ kind: "rollup" },
+			{ kind: "witnesses" },
+			{ kind: "reach" }
+		]
+	},
+	{
+		key: "importer",
+		roles: { kind: "only", roles: ["importer"] },
+		lead: leadsOf(
+			roleSeesItsWorld("importer"),
+			roleChangesItsWorld("importer"),
+			importerUnderClaims
+		),
+		focus: worldsFocus,
+		steps: 20,
+		cases: 40,
+		realization: "once",
+		required: [
+			"importer open-db opened",
+			"importer read rows",
+			"importer saw rows of its world",
+			"importer write accepted",
+			"importer apply invariant-rejected",
+			"the importer wrote under hand-set claims",
+			"the importer wrote under malformed claims"
+		],
+		properties: [
+			{ kind: "world", role: "importer" },
+			{ kind: "no-name" },
+			{ kind: "reach" },
+			{ kind: "witnesses" }
+		]
+	}
+])

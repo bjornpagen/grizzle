@@ -1,10 +1,13 @@
-import { type Case, explore } from "@bjornpagen/testing/explore"
-import { required, type Situations } from "@bjornpagen/testing/features"
+import type { Situations } from "@bjornpagen/testing/features"
 import { constant } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import type { Vitest } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
+import {
+	type Case,
+	family,
+	type Family as PropertyFamily,
+	type NeedFailed,
+	property
+} from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, Record, type Scope, String as Str } from "effect"
 import type { ReadonlyTupleSet } from "#compiler/core/tuple-map.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
@@ -15,14 +18,14 @@ import {
 } from "#test/support/fixtures/education/index.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValue } from "#test/support/laws/model.ts"
-import { caseSubstrates, type Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	reachingPastRefused,
 	sessionOf,
 	witnessesShowTheirOwn
 } from "#test/support/worlds/drive/acting.ts"
 
-import { caseHang } from "#test/support/limits.ts"
+import type { SqlError } from "#test/support/pg.ts"
 import {
 	aimScope,
 	drawnRealities,
@@ -32,13 +35,16 @@ import {
 	type Lead,
 	noteNaming,
 	programDraw,
-	realizedProgram,
+	ownWorld,
+	type ProgramCase,
 	type SeenAction,
 	type StepCheck,
 	stage,
 	whilePending
 } from "#test/support/worlds/drive/suite.ts"
-import { type RealWorld, realize } from "#test/support/worlds/execute/index.ts"
+import type { RealWorld } from "#test/support/worlds/execute/index.ts"
+import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
+import { templateWorld, worldTemplate } from "#test/support/worlds/execute/template.ts"
 import { withOpener } from "#test/support/worlds/generate/action.ts"
 import {
 	noAims,
@@ -1328,8 +1334,8 @@ const checkOf = (property: Property): StepCheck => {
  * properties it holds each action to.
  */
 type EducationSuite = Realization & {
-	readonly suite: string
-	readonly name: string
+	/** Its key among its file's suites (educationTests). */
+	readonly key: string
 	/** The roles its programs open a Db as: the one its properties are about, or every role. */
 	readonly roles: RoleFocus
 	/** What every program draws first (drive/suite.ts Lead). */
@@ -1341,86 +1347,109 @@ type EducationSuite = Realization & {
 }
 
 /**
- * An education suite's steering window: its cases steer by what no case before their window reached, and a suite whose
- * cases each realize their own world runs a window at once, held further to the widths the file's test pool admits
- * (caseSubstrates). A suite realized once runs its cases one at a time: each resets the one world they share.
+ * The education fixture's world as a template (execute/template.ts worldTemplate), under the cluster's own ambient: what
+ * a suite realized once realized per test, made once per member, each case seated on the worker's clone of it, its
+ * tables emptied after it, as each case reset the one world the suite's cases shared.
  */
-const educationSteerEvery = 16
+const educationWorld = worldTemplate({
+	declaredIn: import.meta,
+	name: "education",
+	install: educationInstall,
+	ambient: ordinarySession
+})
 
 /**
- * Registers an education suite's test. Each case stages a drawn reality on the installation, then runs its program,
- * every action drawn from the model's state, performed on the real system and the model side by side, and held to the
- * suite's properties. The steered phase climbs toward the required features. A case that realizes its own world does
- * so in a substrate of its own (drive/suite.ts realizedProgram).
+ * An education suite's case on `realized`, the world it runs on: it stages a drawn reality on the installation, then
+ * runs its program, every action drawn from the model's state, performed on the real system and the model side by
+ * side, and held to the suite's properties.
  */
-const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): void => {
-	it.effect(spec.name, (ctx) =>
+const educationCase = (
+	spec: EducationSuite,
+	c: Case<Feature>,
+	pc: ProgramCase,
+	realized: Effect.Effect<RealWorld, RealizeRefused | SqlError | NeedFailed, Scope.Scope>
+) =>
+	Effect.scoped(
 		Effect.gen(function* () {
 			assert.deepEqual(
 				Arr.map(educationInstall.roles, (r) => r.name),
 				[...educationRoles],
 				"the suite names the fixture's roles"
 			)
-			const once: Option.Option<RealWorld> =
-				spec.realization === "once"
-					? yield* Effect.asSome(realize(educationInstall, ordinarySession))
-					: Option.none()
-			const substrates = yield* caseSubstrates
-			return yield* searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "the worlds model (test/support/worlds/model) at every action, and each suite's education property: a world shows its role's own records, a witness only what its caller submitted or holds whole"
-						},
-						suite: spec.suite,
-						draw: programDraw(
-							constant(educationInstall),
-							{ kinds: spec.focus, roles: spec.roles, aims: noAims, lead: spec.lead },
-							spec.steps,
-							spec.required
-						),
-						literal: Formatter.format,
-						coverage: required<Feature>(spec.required, { cases: spec.cases, sense: notesOnly }),
-						kept: [],
-						runs: spec.cases,
-						shrink: { kind: "bounded", candidates: 200 },
-						concurrency: Option.isSome(once) ? 1 : educationSteerEvery,
-						steerEvery: educationSteerEvery,
-						caseHang
-					},
-					(pc, c) =>
-						Effect.scoped(
-							Effect.gen(function* () {
-								const world = Option.isSome(once)
-									? once.value
-									: yield* Effect.tap(realizedProgram(substrates, pc, spec.required), () =>
-											Effect.sync(() => {
-												noteNaming(pc, c)
-											})
-										)
-								const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
-								const checks = Arr.map(spec.properties, checkOf)
-								yield* driveProgram(staged, pc, c, spec.required, ({ seen, earlier }) => {
-									noteSeen(c, seen, earlier)
-									for (const check of checks) {
-										check({ seen, earlier })
-									}
-								})
-							})
-						)
-				)
-			)
+			const world = yield* realized
+			const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
+			const checks = Arr.map(spec.properties, checkOf)
+			yield* driveProgram(staged, pc, c, spec.required, ({ seen, earlier }) => {
+				noteSeen(c, seen, earlier)
+				for (const check of checks) {
+					check({ seen, earlier })
+				}
+			})
 		})
 	)
+
+/**
+ * An education suite's property: its cases (educationCase) climb toward the required features in the steered phase. A
+ * suite realized once seats each case on the worker's clone of the fixture's world (educationWorld); one realized per
+ * case realizes the case's own world in a database of its own (drive/suite.ts ownWorld).
+ *
+ * Its pre-conversion budget: runs `cases`, coverage cases `cases` (test/pg/education/support.ts at c568eb123).
+ */
+const educationProperty = (spec: EducationSuite) => {
+	const space = programDraw(
+		constant(educationInstall),
+		{ kinds: spec.focus, roles: spec.roles, aims: noAims, lead: spec.lead },
+		spec.steps,
+		spec.required
+	)
+	const stated = {
+		situations: spec.required,
+		oracle: {
+			kind: "second-implementation",
+			name: "the worlds model (test/support/worlds/model) at every action, and each suite's education property: a world shows its role's own records, a witness only what its caller submitted or holds whole"
+		},
+		budget: { runs: spec.cases, steered: spec.cases },
+		kept: [],
+		kills: []
+	} as const
+	switch (spec.realization) {
+		case "once":
+			return property.explore(space, {
+				...stated,
+				needs: { world: Substrate.seat(educationWorld) },
+				check:
+					({ world }, c: Case<Feature>) =>
+					(pc) =>
+						educationCase(
+							spec,
+							c,
+							pc,
+							Effect.flatMap(world, (taken) => templateWorld(taken, Option.none()))
+						)
+			})
+		case "per-case":
+			return property.explore(space, {
+				...stated,
+				needs: { own: Substrate.fresh },
+				check:
+					({ own }, c: Case<Feature>) =>
+					(pc) =>
+						educationCase(
+							spec,
+							c,
+							pc,
+							Effect.tap(
+								Effect.flatMap(own, (substrate) => ownWorld(substrate, pc)),
+								() =>
+									Effect.sync(() => {
+										noteNaming(pc, c)
+									})
+							)
+						)
+			})
+	}
 }
 
-/** The registrar of a file's education suites. */
-export const educationTests =
-	(specs: Arr.NonEmptyReadonlyArray<EducationSuite>) =>
-	(it: Vitest.MethodsNonLive<Substrate>): void => {
-		for (const spec of specs) {
-			register(it, spec)
-		}
-	}
+/** A file's education suites, each its property under its key (EducationSuite key). */
+export const educationTests = (specs: Arr.NonEmptyReadonlyArray<EducationSuite>): PropertyFamily =>
+	family(Record.fromEntries(Arr.map(specs, (spec) => [spec.key, educationProperty(spec)])))

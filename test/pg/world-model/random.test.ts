@@ -1,27 +1,3 @@
-import { explore } from "@bjornpagen/testing/explore"
-import { required, type Situations } from "@bjornpagen/testing/features"
-import { v8Coverage } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { caseHang } from "#test/support/limits.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
-import {
-	drawnRealities,
-	driveProgram,
-	everyAction,
-	generatedDocsInstalls,
-	noCheck,
-	noLead,
-	noteNaming,
-	programDraw,
-	stage
-} from "#test/support/worlds/drive/suite.ts"
-import { realize } from "#test/support/worlds/execute/index.ts"
-import { drawnNameFeatures } from "#test/support/worlds/generate/names.ts"
-import { everyRole, noAims } from "#test/support/worlds/generate/weights.ts"
-import type { WorldFeature } from "#test/support/worlds/model/types.ts"
-
 /**
  * Random programs over the documents base, judged by the worlds model at every step: a case draws an installation of
  * the base's worlds, then, once its names exist, a lawful reality, and then a short program, each action drawn under
@@ -41,88 +17,67 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * (`required`), and the aimed suites of each area require that area's features of the worlds feature map: a write
  * that breaks a law is the laws suite's (laws.test.ts) and the exhaustive box's.
  */
-const guide: Arr.NonEmptyReadonlyArray<string> = [
-	"packages/engine/src/schema/world.ts",
-	"packages/engine/src/physical/ddl/roles.ts",
-	"packages/grizzle/src/adapter/db/claims.ts",
-	"packages/grizzle/src/adapter/db/open.ts",
-	"packages/grizzle/src/adapter/admission/drift.ts",
-	"packages/grizzle/src/adapter/admission/roles.ts",
-	"packages/engine/src/write/entry/precheck.ts"
-]
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import { guide, situations, steps } from "#test/pg/world-model/random.fixtures.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	drawnRealities,
+	driveProgram,
+	everyAction,
+	generatedDocsInstalls,
+	noCheck,
+	noLead,
+	noteNaming,
+	programDraw,
+	stage
+} from "#test/support/worlds/drive/suite.ts"
+import { realize } from "#test/support/worlds/execute/index.ts"
+import { everyRole, noAims } from "#test/support/worlds/generate/weights.ts"
+import type { WorldFeature } from "#test/support/worlds/model/types.ts"
 
 /**
- * What every population of random programs reaches by construction: each invariant the driver holds whose triggering
- * actions the swarm draws in nearly every program (an open, a write, a commit, a migration, a catalog change, a Db's
- * transaction, a delete); each feature of the names a generated installation draws from the kernel dictionary
- * (generate/names.ts), each in at least one case in eight; and a base object or a role entry named after a PostgreSQL
- * type under the installation's schemas first on its owner's search path, about one case in five. Left out:
- * no-hidden-value, which needs an action to meet a fact outside the actor's world, as the reality and the actor happen
- * to give it (once to thrice in 48 cases of the model's own run of the suite), and is the errors suite's to require.
+ * The worlds model, random programs: every random program's observations and probes agree with the model. Each case
+ * realizes its world in a database of its own (Substrate.fresh), as the Vitest file ran in a database of its own, since
+ * a tamper changes database settings. Random programs aim at nothing, the swarm's weights alone keeping them diverse:
+ * aimed at every required feature, half of each program's draws went to whatever lay one step from one, and 60 cases
+ * took 45 minutes and read no relation at all (no via:* feature reached).
+ *
+ * Its pre-conversion budget: runs 48, coverage cases 48 (test/pg/world-model/random.test.ts at c568eb123).
  */
-const situations: Situations<WorldFeature> = [
-	["grizzle-first path", "catalog-type name"],
-	...Arr.map(drawnNameFeatures, (feature): WorldFeature => `name:${feature}`),
-	"invariant:laws-hold",
-	"invariant:claims-end-with-transaction",
-	"invariant:role-ends-with-transaction",
-	"invariant:login-isolation",
-	"invariant:deleted-means-gone",
-	"invariant:least-privilege"
-]
-
-const cases = 48
-const steps = 12
-const name = "every random program's observations and probes agree with the model"
-
-layer(Substrate.isolatedLayer, { excludeTestServices: true })(
-	"the worlds model: random programs",
-	(it) => {
-		it.effect(name, (ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const sense = yield* v8Coverage((url) =>
-						Arr.some(guide, (file) => Str.endsWith(file)(url))
-					)
-					return yield* explore(
-						{
-							oracle: {
-								kind: "second-implementation",
-								name: "the worlds model (test/support/worlds/model), stepped beside every action: its allowed observations, its stored relations and every open session's probe"
-							},
-							suite: "pg/world-model/random",
-							/**
-							 * Random programs aim at nothing, the swarm's weights alone keeping them diverse: aimed at every required
-							 * feature, half of each program's draws went to whatever lay one step from one, and 60 cases took 45
-							 * minutes and read no relation at all (no via:* feature reached).
-							 */
-							draw: programDraw(
-								generatedDocsInstalls,
-								{ kinds: everyAction, roles: everyRole, aims: noAims, lead: noLead },
-								steps,
-								situations
-							),
-							literal: Formatter.format,
-							coverage: required<WorldFeature>(situations, { cases, sense }),
-							kept: [],
-							runs: cases,
-							shrink: { kind: "bounded", candidates: 200 },
-							steerEvery: 16,
-							caseHang
-						},
-						(pc, c) =>
-							Effect.scoped(
-								Effect.gen(function* () {
-									const world = yield* realize(pc.install, pc.ambient)
-									noteNaming(pc, c)
-									const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
-									yield* driveProgram(staged, pc, c, situations, noCheck)
-								})
-							)
-					)
-				})
-			)
-		)
+export const everyRandomProgramsObservationsAndProbesAgreeWithTheModel = property.explore(
+	programDraw(
+		generatedDocsInstalls,
+		{ kinds: everyAction, roles: everyRole, aims: noAims, lead: noLead },
+		steps,
+		situations
+	),
+	{
+		needs: { own: Substrate.fresh },
+		situations,
+		guide: { blocks: guide },
+		check:
+			({ own }, c: Case<WorldFeature>) =>
+			(pc) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const substrate = yield* own
+						const world = yield* Effect.provideService(
+							realize(pc.install, pc.ambient),
+							Substrate,
+							substrate
+						)
+						noteNaming(pc, c)
+						const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
+						yield* driveProgram(staged, pc, c, situations, noCheck)
+					})
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "the worlds model (test/support/worlds/model), stepped beside every action: its allowed observations, its stored relations and every open session's probe"
+		},
+		budget: { runs: 48, steered: 48 },
+		kept: [],
+		kills: []
 	}
 )
