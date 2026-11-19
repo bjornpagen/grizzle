@@ -475,29 +475,13 @@ export const bindWrite = (
 			sentForms.get(statement.index),
 			`the form of statement ${statement.index}, which the call sends`
 		)
-	/** A statement's placeholder texts over `slotFacts`, each member slot's normal facts, and `nestedRows`, each stratum's
-	 * nested rows of a relation. */
-	const valuesOver =
-		(
-			slotFacts: (slot: ParamId) => NormalizedSlot,
-			nestedRows: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>
-		) =>
-		(
-			statement: FlightStatement
-		): Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound> => {
-			const out: Array<Param> = []
-			for (const slot of form(statement).paramSlots) {
-				const encoded = encodeSlot(slot, slotFacts, nestedRows)
-				if (!encoded.ok) {
-					return Result.err(encoded.error)
-				}
-				out.push(encoded.value)
-			}
-			return Result.ok(out)
-		}
-	const values = valuesOver(factsOf, (stratum, relation) => [
+	/** A stratum's nested rows of a relation as normalization left them, each as the walk filled it. */
+	const normalNestedRows = (
+		stratum: StratumAt,
+		relation: StoredRelationName
+	): ReadonlyArray<NestedRow> => [
 		...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])
-	])
+	]
 	const ctx: FillContext = { codes, evaluate: prepared.evaluate, columns: prepared.columns }
 	/** How `relation`'s stated rows are judged, which the binding decided when the write compiled. */
 	const judgedOf = (relation: StoredRelationName): JudgedRelation =>
@@ -578,7 +562,7 @@ export const bindWrite = (
 		},
 		nested: (stratum: StratumAt, relation: StoredRelationName) => {
 			const columns = prepared.columns(relation)
-			return [...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])].map((row) =>
+			return normalNestedRows(stratum, relation).map((row) =>
 				judgedRow(
 					fill,
 					relation,
@@ -668,12 +652,6 @@ export const bindWrite = (
 	 * which the insert proposes nothing of (insert/statement.ts Proposal), so its stored families are the statement's to
 	 * draw.
 	 */
-	const normalNestedRows = (
-		stratum: StratumAt,
-		relation: StoredRelationName
-	): ReadonlyArray<NestedRow> => [
-		...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])
-	]
 	const freshlyCounted = freshOwners(
 		ctx,
 		prepared.fill,
@@ -735,6 +713,12 @@ export const bindWrite = (
 	/** A member slot's facts as its statements send them: an owner slot's with the counts and ends its fresh fill drew
 	 * (`freshOwners`), any other's normal facts. */
 	const slotFacts = (slot: ParamId): NormalizedSlot => fresh.get(slot) ?? factsOf(slot)
+	/** A statement's placeholder values, each as its executions send it (`encodeSlot`): the member slots' facts and the
+	 * strata's nested rows as the write sends them (`slotFacts`, `nestedRowsOf`). */
+	const values = (
+		statement: FlightStatement
+	): Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound> =>
+		Result.each(form(statement).paramSlots, (slot) => encodeSlot(slot, slotFacts, nestedRowsOf))
 	/**
 	 * The executions under `transport` of a statement: its one, or, where its nested rows' arrays are past the
 	 * transport's message, its staged form's (`Chunks`); each placeholder of nested rows sends its source as the write
