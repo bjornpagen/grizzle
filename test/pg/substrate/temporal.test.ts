@@ -17,27 +17,25 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Pool } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import {
 	type ChangeFeature,
 	changeFeature,
 	changeGen,
-	clear,
+	coverageTemplates,
 	type CoverFeature,
 	coverGen,
 	insertSql,
 	judge,
 	type KeyFeature,
 	keyGen,
-	seatOf,
-	seatPair,
+	seatIn,
 	shrinks,
 	targetsOf,
 	type Verdict
 } from "#test/pg/substrate/temporal.fixtures.ts"
 import { covered, isEmpty, keyRefusal, overlaps, type Row } from "#test/pg/substrate/temporal.ts"
 import { assert } from "#test/support/assert.ts"
-import { casesAtOnce } from "#test/support/limits.ts"
 import { attempt, qualified } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -46,7 +44,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2RefuseInAWITHOUTOVERLAPSKeyExactlyTheRowsThatOverlapAnEarlierRowOfTheirKeyOrHoldAnEmptySpanNeverComparingANULLSpan =
 	property.exhaust(finite(keyGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { immediate: Substrate.seat(coverageTemplates.immediate) },
 		situations: [
 			"refused by an overlap",
 			"refused by an empty span",
@@ -55,62 +53,56 @@ export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2RefuseInAWITHOUTO
 			"overlapping spans of two keys admitted"
 		] satisfies ReadonlyArray<Reached<KeyFeature>>,
 		check:
-			({ substrate }, k: Case<KeyFeature>) =>
+			({ immediate }, k: Case<KeyFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const seats = yield* Pool.make({ acquire: seatOf("immediate"), size: casesAtOnce(1) })
-
-						const seat = yield* Pool.get(seats)
-						const target = qualified(seat.schema, "target")
-						const real = yield* attempt(
-							seat.session,
-							Arr.isReadonlyArrayNonEmpty(c.rows) ? [insertSql(target, c.rows, 0)] : []
-						)
-						const model: Verdict = Option.match(keyRefusal(c.rows), {
-							onNone: (): Verdict => ({ kind: "committed" }),
-							onSome: (code): Verdict => ({
-								kind: "refused",
-								moment: { kind: "statement", index: 0 },
-								code
-							})
+				Effect.gen(function* () {
+					const taken = yield* immediate
+					const seat = yield* seatIn(taken)
+					const target = qualified(seat.schema, "target")
+					const real = yield* attempt(
+						seat.session,
+						Arr.isReadonlyArrayNonEmpty(c.rows) ? [insertSql(target, c.rows, 0)] : []
+					)
+					const model: Verdict = Option.match(keyRefusal(c.rows), {
+						onNone: (): Verdict => ({ kind: "committed" }),
+						onSome: (code): Verdict => ({
+							kind: "refused",
+							moment: { kind: "statement", index: 0 },
+							code
 						})
-						yield* judge(real, model, Formatter.format(c))
-						if (real.kind === "committed") {
-							const pairs = Arr.flatMap(c.rows, (a, i) =>
-								Arr.map(c.rows.slice(i + 1), (b) => [a, b] as const)
+					})
+					yield* judge(real, model, Formatter.format(c))
+					if (real.kind === "committed") {
+						const pairs = Arr.flatMap(c.rows, (a, i) =>
+							Arr.map(c.rows.slice(i + 1), (b) => [a, b] as const)
+						)
+						if (
+							Arr.some(
+								pairs,
+								([a, b]) => a.k === b.k && a.span.kind === "null" && b.span.kind === "null"
 							)
-							if (
-								Arr.some(
-									pairs,
-									([a, b]) => a.k === b.k && a.span.kind === "null" && b.span.kind === "null"
-								)
-							) {
-								k.note("two NULL spans of one key admitted")
-							}
-							if (
-								Arr.some(
-									pairs,
-									([a, b]) =>
-										a.k === b.k &&
-										a.span.kind === "span" &&
-										b.span.kind === "span" &&
-										(a.span.hi === b.span.lo || b.span.hi === a.span.lo)
-								)
-							) {
-								k.note("adjacent spans of one key admitted")
-							}
-							if (Arr.some(pairs, ([a, b]) => a.k !== b.k && overlaps(a.span, b.span))) {
-								k.note("overlapping spans of two keys admitted")
-							}
-							yield* clear(seat)
-						} else if (model.kind === "refused") {
-							k.note(model.code === "23514" ? "refused by an empty span" : "refused by an overlap")
+						) {
+							k.note("two NULL spans of one key admitted")
 						}
-					}),
-					Substrate,
-					substrate
-				),
+						if (
+							Arr.some(
+								pairs,
+								([a, b]) =>
+									a.k === b.k &&
+									a.span.kind === "span" &&
+									b.span.kind === "span" &&
+									(a.span.hi === b.span.lo || b.span.hi === a.span.lo)
+							)
+						) {
+							k.note("adjacent spans of one key admitted")
+						}
+						if (Arr.some(pairs, ([a, b]) => a.k !== b.k && overlaps(a.span, b.span))) {
+							k.note("overlapping spans of two keys admitted")
+						}
+					} else if (model.kind === "refused") {
+						k.note(model.code === "23514" ? "refused by an empty span" : "refused by an overlap")
+					}
+				}),
 		oracle: {
 			kind: "specification",
 			name: "a model of interval-union coverage on the host: its verdict, and the SQLSTATE it names at the moment the deferral puts it"
@@ -125,7 +117,10 @@ export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2RefuseInAWITHOUTO
  */
 export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2AdmitASourceSpanExactlyWhenItsKeysTargetSpansCoverItImmediatelyOrAtCommitRefusingAnEmptySpanAndSkippingANULLOne =
 	property.exhaust(finite(coverGen), {
-		needs: { substrate: Substrate.installing },
+		needs: {
+			immediate: Substrate.seat(coverageTemplates.immediate),
+			deferred: Substrate.seat(coverageTemplates.deferred)
+		},
 		situations: [
 			"deferred committed a source sent before its targets",
 			...Arr.flatMap(["immediate", "deferred"] as const, (d): ReadonlyArray<CoverFeature> => [
@@ -137,72 +132,65 @@ export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2AdmitASourceSpanE
 			])
 		] satisfies ReadonlyArray<Reached<CoverFeature>>,
 		check:
-			({ substrate }, k: Case<CoverFeature>) =>
+			({ immediate, deferred }, k: Case<CoverFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const pairs = yield* Pool.make({ acquire: seatPair, size: casesAtOnce(2) })
-						return yield* Effect.flatMap(Pool.get(pairs), (seats) =>
-							Effect.forEach(
-								seats,
-								(seat) =>
-									Effect.gen(function* () {
-										const targets = targetsOf(c)
-										const targetInsert = Arr.isReadonlyArrayNonEmpty(targets)
-											? [insertSql(qualified(seat.schema, "target"), targets, 0)]
-											: []
-										const sourceInsert = insertSql(qualified(seat.schema, "source"), [c.source], 0)
-										/** The deferred FK is sent its source first, as a cascade-fed target's rows arrive after it. */
-										const statements =
-											seat.deferral === "deferred"
-												? [sourceInsert, ...targetInsert]
-												: [...targetInsert, sourceInsert]
-										const real = yield* attempt(seat.session, statements)
-										const ok = covered(targets, c.source)
-										const model: Verdict = ok
-											? { kind: "committed" }
-											: {
-													kind: "refused",
-													moment:
-														seat.deferral === "deferred"
-															? { kind: "commit" }
-															: { kind: "statement", index: targetInsert.length },
-													code: "23503"
-												}
-										yield* judge(real, model, `${seat.deferral}: ${Formatter.format(c)}`)
-										const d = seat.deferral
-										if (c.source.span.kind === "null") {
-											k.note(`${d} skipped a NULL source span`)
-										} else if (isEmpty(c.source.span)) {
-											k.note(`${d} refused an empty source span`)
-										} else if (!ok) {
-											k.note(`${d} refused across a gap`)
-										} else {
-											const { lo, hi } = c.source.span
-											const one = Arr.some(
-												targets,
-												(t) =>
-													t.k === c.source.k &&
-													t.span.kind === "span" &&
-													t.span.lo <= lo &&
-													hi <= t.span.hi
-											)
-											k.note(one ? `${d} covered by one span` : `${d} covered by a union of spans`)
-											if (d === "deferred") {
-												k.note("deferred committed a source sent before its targets")
+				Effect.gen(function* () {
+					const pair = yield* Effect.all([immediate, deferred])
+					return yield* Effect.flatMap(Effect.forEach(pair, seatIn), (seats) =>
+						Effect.forEach(
+							seats,
+							(seat) =>
+								Effect.gen(function* () {
+									const targets = targetsOf(c)
+									const targetInsert = Arr.isReadonlyArrayNonEmpty(targets)
+										? [insertSql(qualified(seat.schema, "target"), targets, 0)]
+										: []
+									const sourceInsert = insertSql(qualified(seat.schema, "source"), [c.source], 0)
+									/** The deferred FK is sent its source first, as a cascade-fed target's rows arrive after it. */
+									const statements =
+										seat.deferral === "deferred"
+											? [sourceInsert, ...targetInsert]
+											: [...targetInsert, sourceInsert]
+									const real = yield* attempt(seat.session, statements)
+									const ok = covered(targets, c.source)
+									const model: Verdict = ok
+										? { kind: "committed" }
+										: {
+												kind: "refused",
+												moment:
+													seat.deferral === "deferred"
+														? { kind: "commit" }
+														: { kind: "statement", index: targetInsert.length },
+												code: "23503"
 											}
+									yield* judge(real, model, `${seat.deferral}: ${Formatter.format(c)}`)
+									const d = seat.deferral
+									if (c.source.span.kind === "null") {
+										k.note(`${d} skipped a NULL source span`)
+									} else if (isEmpty(c.source.span)) {
+										k.note(`${d} refused an empty source span`)
+									} else if (!ok) {
+										k.note(`${d} refused across a gap`)
+									} else {
+										const { lo, hi } = c.source.span
+										const one = Arr.some(
+											targets,
+											(t) =>
+												t.k === c.source.k &&
+												t.span.kind === "span" &&
+												t.span.lo <= lo &&
+												hi <= t.span.hi
+										)
+										k.note(one ? `${d} covered by one span` : `${d} covered by a union of spans`)
+										if (d === "deferred") {
+											k.note("deferred committed a source sent before its targets")
 										}
-										if (real.kind === "committed") {
-											yield* clear(seat)
-										}
-									}),
-								{ concurrency: "unbounded", discard: true }
-							)
+									}
+								}),
+							{ concurrency: "unbounded", discard: true }
 						)
-					}),
-					Substrate,
-					substrate
-				),
+					)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "a model of interval-union coverage on the host: its verdict, and the SQLSTATE it names at the moment the deferral puts it"
@@ -217,7 +205,10 @@ export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2AdmitASourceSpanE
  */
 export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2CommitAChangeOfAReferencedTargetRowExactlyWhenTheSourceStaysCoveredAndTheKeyStaysFreeOfOverlapsAndEmptySpans =
 	property.exhaust(finite(changeGen), {
-		needs: { substrate: Substrate.installing },
+		needs: {
+			immediate: Substrate.seat(coverageTemplates.immediate),
+			deferred: Substrate.seat(coverageTemplates.deferred)
+		},
 		situations: [
 			"immediate delete committed",
 			"immediate delete refused 23503",
@@ -230,75 +221,70 @@ export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2CommitAChangeOfAR
 			"a shrink that keeps the source covered committed"
 		] satisfies ReadonlyArray<Reached<ChangeFeature>>,
 		check:
-			({ substrate }, k: Case<ChangeFeature>) =>
+			({ immediate, deferred }, k: Case<ChangeFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const pairs = yield* Pool.make({ acquire: seatPair, size: casesAtOnce(2) })
-						return yield* Effect.flatMap(Pool.get(pairs), (seats) =>
-							Effect.forEach(
-								seats,
-								(seat) =>
-									Effect.gen(function* () {
-										const target = qualified(seat.schema, "target")
-										const rows = Arr.map(c.targets, (span): Row => ({ k: 0, span }))
-										const setup = yield* attempt(seat.session, [
-											insertSql(target, rows, 0),
-											insertSql(qualified(seat.schema, "source"), [{ k: 0, span: c.source }], 0)
-										])
-										assert.equal(setup.kind, "committed", "a covering state is admitted")
-										const change = c.change
-										const after: ReadonlyArray<Row> =
-											change.kind === "delete"
-												? Arr.filter(rows, (_, i) => i !== change.at)
-												: Arr.map(rows, (row, i) =>
-														i === change.at ? { k: 0, span: change.span } : row
-													)
-										const changed =
-											change.kind === "delete"
-												? `DELETE FROM ${target} WHERE id = ${change.at}`
-												: change.span.kind === "null"
-													? `UPDATE ${target} SET phi = false WHERE id = ${change.at}`
-													: `UPDATE ${target} SET lo = ${change.span.lo}, hi = ${change.span.hi}, phi = true WHERE id = ${change.at}`
-										const real = yield* attempt(seat.session, [changed])
-										/** The changed row is checked against the others first, then the source against what is left. */
-										const keyCode =
-											change.kind === "respan"
-												? keyRefusal([
-														...Arr.filter(rows, (_, i) => i !== change.at),
-														{ k: 0, span: change.span }
-													])
-												: Option.none()
-										const model: Verdict = Option.isSome(keyCode)
-											? {
+				Effect.gen(function* () {
+					const pair = yield* Effect.all([immediate, deferred])
+					return yield* Effect.flatMap(Effect.forEach(pair, seatIn), (seats) =>
+						Effect.forEach(
+							seats,
+							(seat) =>
+								Effect.gen(function* () {
+									const target = qualified(seat.schema, "target")
+									const rows = Arr.map(c.targets, (span): Row => ({ k: 0, span }))
+									const setup = yield* attempt(seat.session, [
+										insertSql(target, rows, 0),
+										insertSql(qualified(seat.schema, "source"), [{ k: 0, span: c.source }], 0)
+									])
+									assert.equal(setup.kind, "committed", "a covering state is admitted")
+									const change = c.change
+									const after: ReadonlyArray<Row> =
+										change.kind === "delete"
+											? Arr.filter(rows, (_, i) => i !== change.at)
+											: Arr.map(rows, (row, i) =>
+													i === change.at ? { k: 0, span: change.span } : row
+												)
+									const changed =
+										change.kind === "delete"
+											? `DELETE FROM ${target} WHERE id = ${change.at}`
+											: change.span.kind === "null"
+												? `UPDATE ${target} SET phi = false WHERE id = ${change.at}`
+												: `UPDATE ${target} SET lo = ${change.span.lo}, hi = ${change.span.hi}, phi = true WHERE id = ${change.at}`
+									const real = yield* attempt(seat.session, [changed])
+									/** The changed row is checked against the others first, then the source against what is left. */
+									const keyCode =
+										change.kind === "respan"
+											? keyRefusal([
+													...Arr.filter(rows, (_, i) => i !== change.at),
+													{ k: 0, span: change.span }
+												])
+											: Option.none()
+									const model: Verdict = Option.isSome(keyCode)
+										? {
+												kind: "refused",
+												moment: { kind: "statement", index: 0 },
+												code: keyCode.value
+											}
+										: covered(after, { k: 0, span: c.source })
+											? { kind: "committed" }
+											: {
 													kind: "refused",
-													moment: { kind: "statement", index: 0 },
-													code: keyCode.value
+													moment:
+														seat.deferral === "deferred"
+															? { kind: "commit" }
+															: { kind: "statement", index: 0 },
+													code: "23503"
 												}
-											: covered(after, { k: 0, span: c.source })
-												? { kind: "committed" }
-												: {
-														kind: "refused",
-														moment:
-															seat.deferral === "deferred"
-																? { kind: "commit" }
-																: { kind: "statement", index: 0 },
-														code: "23503"
-													}
-										yield* judge(real, model, `${seat.deferral}: ${Formatter.format(c)}`)
-										k.note(changeFeature(seat.deferral, c.change.kind, model))
-										if (model.kind === "committed" && shrinks(c)) {
-											k.note("a shrink that keeps the source covered committed")
-										}
-										yield* clear(seat)
-									}),
-								{ concurrency: "unbounded", discard: true }
-							)
+									yield* judge(real, model, `${seat.deferral}: ${Formatter.format(c)}`)
+									k.note(changeFeature(seat.deferral, c.change.kind, model))
+									if (model.kind === "committed" && shrinks(c)) {
+										k.note("a shrink that keeps the source covered committed")
+									}
+								}),
+							{ concurrency: "unbounded", discard: true }
 						)
-					}),
-					Substrate,
-					substrate
-				),
+					)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "a model of interval-union coverage on the host: its verdict, and the SQLSTATE it names at the moment the deferral puts it"

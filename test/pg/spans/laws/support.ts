@@ -7,18 +7,16 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { installationSql } from "#test/support/compile.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
-import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
-import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import { type ScriptInstall, scriptTemplate } from "#test/support/script-template.ts"
 import { installationGroup, type ResetGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession, SubstrateWorld } from "#test/support/substrate/session.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
-import { oracleWorld } from "#test/support/worlds.ts"
+import { Substrate, type SubstrateCase, worldSession } from "#test/support/substrate/substrate.ts"
 
 export interface SpanInstall {
 	readonly schema: string
@@ -35,44 +33,57 @@ export interface SpanInstall {
 	readonly periodForeignKey: (law: LawId) => ConstraintName
 }
 
-/**
- * Installing span-law schemas for the span law tests through the real fresh-install compiler, every law native: a
- * coverage is a PERIOD foreign key, from a selected source's range law column, into a target keyed WITHOUT OVERLAPS
- * (fin.md §7). The script runs as the owner in one transaction, under a unique schema name, because roles are
- * cluster-wide, with the oracle's one login; the writer takes on its full role with only its derived grants, as a
- * grizzle connection or a psql writer does.
- */
-export const installSpans = (
-	desc: SchemaDesc,
-	label: string
-): Effect.Effect<SpanInstall, SqlError | TransactionRolledBack, Substrate | Scope.Scope> =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const schema = yield* substrate.schema({ create: false, label })
-		const owned = owning(desc)
-		const compiled = compileInstallation(owned, {
+/** A span-law schema's installation under `schema`, every law native, with the oracle's one login. */
+const compileSpanLaws = (desc: SchemaDesc, schema: string): Installation => {
+	const owned = owning(desc)
+	return succeeded(
+		compileInstallation(owned, {
 			...installOptions(owned),
 			levels: [identity.schema(parsedSchemaName(schema))],
 			logins: [oracleOwnedLogin(owned.desc)]
-		})
-		if (!compiled.ok) {
-			return yield* Effect.die(new Error(`compile: ${compiled.error.message}`))
-		}
-		const installation = compiled.value
-		yield* transaction(substrate.admin, installationSql(installation, substrate.database))
-		const writer = yield* oracleWorld(installation)
-		const names = installationNamesOf(installation)
-		const q = quoteIdent(schema)
-		return {
-			schema,
-			q,
-			installation,
-			writer,
-			table: (relation: string) => `${q}.${quoteIdent(names.tableIdent({ name: relation }))}`,
-			group: installationGroup(names),
-			periodForeignKey: (law: LawId) => names.constraintOf(law, "PeriodForeignKey")
-		} satisfies SpanInstall
+		}),
+		"the span-law schema compiles"
+	)
+}
+
+/** An installation of a span-law schema under `schema` as a case reads it, its writer taking on `writer`. */
+const spanInstallOf = (
+	schema: string,
+	installation: Installation,
+	writer: SubstrateWorld
+): SpanInstall => {
+	const names = installationNamesOf(installation)
+	const q = quoteIdent(schema)
+	return {
+		schema,
+		q,
+		installation,
+		writer,
+		table: (relation: string) => `${q}.${quoteIdent(names.tableIdent({ name: relation }))}`,
+		group: installationGroup(names),
+		periodForeignKey: (law: LawId) => names.constraintOf(law, "PeriodForeignKey")
+	}
+}
+
+/**
+ * A span-law schema for the span law tests installed through the real fresh-install compiler, every law native: a
+ * coverage is a PERIOD foreign key, from a selected source's range law column, into a target keyed WITHOUT OVERLAPS
+ * (fin.md §7). Its script runs as the owner in one transaction once per member (script-template.ts scriptTemplate),
+ * under the template's name, with the oracle's one login, where a suite installed it in every case; a case reads its
+ * SpanInstall over its clone (spanInstallIn), and its writer takes on its full role with only its derived grants, as a
+ * grizzle connection or a psql writer does.
+ */
+export const spanLawsTemplate = (declaredIn: ImportMeta, desc: SchemaDesc, label: string) =>
+	scriptTemplate({
+		declaredIn,
+		name: label,
+		label,
+		compile: (schema) => compileSpanLaws(desc, schema)
 	})
+
+/** The SpanInstall of a case over a clone of a span-law template (spanLawsTemplate). */
+export const spanInstallIn = (taken: SubstrateCase<ScriptInstall>): SpanInstall =>
+	spanInstallOf(taken.value.schema, taken.value.installation, taken.value.world)
 
 /** A writer session taking on the schema's full role, holding only its derived grants. */
 export const writerOf = (

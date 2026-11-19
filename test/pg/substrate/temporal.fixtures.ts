@@ -1,7 +1,7 @@
 /** What the properties of temporal.test.ts read: its spaces, models and helpers. */
 
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Data, Effect, Option } from "effect"
+import { Array as Arr, Data, Effect, Option, type Scope } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
@@ -14,6 +14,7 @@ import {
 } from "#test/pg/substrate/temporal.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
+import type { SqlError } from "#test/support/pg.ts"
 import {
 	type Attempted,
 	momentText,
@@ -22,9 +23,14 @@ import {
 	sameMoment,
 	tuple
 } from "#test/support/substrate.ts"
-import { clearRows, type ResetGroup, schemaGroup } from "#test/support/substrate/replace.ts"
+import { fixtureGroup, type ResetGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	installTemplate,
+	ownerSession,
+	Substrate,
+	type SubstrateCase
+} from "#test/support/substrate/substrate.ts"
 
 /** PostgreSQL's disagreement with the coverage model, with both sides spelt out. */
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
@@ -54,31 +60,55 @@ const coverageDdl = (schema: string, deferral: "immediate" | "deferred"): Readon
 
 /** A coverage lowering installed in a schema of its own, with every table of it and its session. */
 interface Seat {
-	readonly deferral: "immediate" | "deferred"
+	readonly deferral: Deferral
 	readonly schema: string
 	readonly tables: ResetGroup
 	readonly session: RawSession
 }
 
-export const seatOf = (deferral: "immediate" | "deferred") =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const schema = yield* s.schema(freshSchema)
-		for (const statement of coverageDdl(schema, deferral)) {
-			yield* s.admin.query(statement, [])
-		}
-		const tables = yield* schemaGroup(s.admin, schema)
-		const session = yield* s.session({ ...ownerSession(), label: deferral })
-		return { deferral, schema, tables, session } satisfies Seat
-	})
-
-export const clear = (seat: Seat) => clearRows(seat.session, seat.tables)
+type Deferral = "immediate" | "deferred"
 
 /**
- * A seat of each deferral, for a case that judges both: the cases an exhaustion runs at once each hold a pair of their
- * own (casesAtOnce of its two sessions), so none shares a table or a session.
+ * A deferral's coverage lowering as a template (substrate.ts installTemplate): its schema and its DDL made once per
+ * member, where each case made a pool of seats of it; each case's seat its schema in the worker's clone, every table of
+ * it emptied after the case (Substrate.seat).
  */
-export const seatPair = Effect.all([seatOf("immediate"), seatOf("deferred")])
+const coverageTemplate = (deferral: Deferral) =>
+	installTemplate({
+		declaredIn: import.meta,
+		name: `temporal ${deferral}`,
+		content: { deferral },
+		plan: (names) => Effect.succeed(names.schema),
+		install: () =>
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const schema = yield* s.schema({ create: true, label: "install" })
+				for (const statement of coverageDdl(schema, deferral)) {
+					yield* s.admin.query(statement, [])
+				}
+			}),
+		bind: (schema) => ({
+			deferral,
+			schema,
+			tables: fixtureGroup([qualified(schema, "target"), qualified(schema, "source")])
+		}),
+		reset: (lowering) => lowering.tables
+	})
+
+/** Each deferral's coverage lowering, built once per member (coverageTemplate). */
+export const coverageTemplates = {
+	immediate: coverageTemplate("immediate"),
+	deferred: coverageTemplate("deferred")
+} as const
+
+/** The seat of a case over a clone of a deferral's template (coverageTemplates): its lowering and an owner session. */
+export const seatIn = (
+	taken: SubstrateCase<Omit<Seat, "session">>
+): Effect.Effect<Seat, SqlError, Scope.Scope> =>
+	Effect.map(
+		taken.substrate.session({ ...ownerSession(), label: taken.value.deferral }),
+		(session) => ({ ...taken.value, session })
+	)
 
 /** What the model says of a transaction: it commits, or is refused at a moment with a SQLSTATE. */
 export type Verdict =

@@ -17,11 +17,10 @@ import { Effect } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { readChangeDetail, readLawDetail } from "#compiler/runtime/write/refusal.ts"
-import { printExpr, printStatement } from "#compiler/sql/print.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 import {
 	type ArmRefusal,
 	raised as raisedBy,
-	refusalFunctionDdl,
 	refusalFunctionName
 } from "#compiler/write/refusal.ts"
 import {
@@ -32,12 +31,13 @@ import {
 	law,
 	note,
 	type Raised,
-	raisedFeatures
+	raisedFeatures,
+	refusalTemplate
 } from "#test/pg/write/refusal/refusal.fixtures.ts"
 import { assert } from "#test/support/assert.ts"
 import { auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 import { outputText } from "#test/support/wire.ts"
 
 /**
@@ -57,65 +57,63 @@ export const theWriteRefusalChannelOnPostgreSQL19TheInstalledFunctionRaisesItsSQ
 				source.draw(element(raisedFeatures))
 			] as const,
 		{
-			needs: { substrate: Substrate.installing },
+			needs: { refusals: Substrate.seat(refusalTemplate) },
 			situations: raisedFeatures satisfies ReadonlyArray<Reached<Raised>>,
 			check:
-				({ substrate }, c: Case<Raised>) =>
+				({ refusals }, c: Case<Raised>) =>
 				([texts, kind]) =>
-					Effect.provideServiceEffect(
-						Effect.gen(function* () {
-							const s = yield* Substrate
-							const schema = yield* s.schema(freshSchema)
-							for (const statement of refusalFunctionDdl(schema)) {
-								yield* s.admin.query(printStatement(statement), [])
-							}
-							const sql = (refusal: ArmRefusal) =>
-								`SELECT "${schema}"."${refusalFunctionName}"($4::text, $5::text, ${printExpr(raisedBy(refusal).detail)})`
-							assert.deepEqual(auditTextViolations(sql(law)), [])
-							assert.deepEqual(auditTextViolations(sql(change)), [])
-							/** One key's refusal raised through the installed function: the error PostgreSQL reports carries its SQLSTATE,
-							 * its constraint and its DETAIL, which parses back to the key's texts. */
-							const raised = ({ employee, week, note }: KeyTexts, kind: Raised) =>
-								Effect.gen(function* () {
-									const state =
-										kind === "a law's refusal"
-											? sqlstates.integrityConstraintViolation
-											: sqlstates.grizzleConcurrentChange
-									const error = yield* expectSqlstate(
-										s.admin.query(sql(kind === "a law's refusal" ? law : change), [
-											employee,
-											week,
-											note,
-											state,
-											constraint
-										]),
-										state
-									)
-									assert.equal(error.constraint, constraint)
-									const detail = detailOf(error.detail)
-									if (kind === "a law's refusal") {
-										assert.deepEqual(readLawDetail(detail), {
-											kind: "law",
-											relation: "Timesheet",
-											key: [
-												{ field: "employee", text: outputText(employee) },
-												{ field: "week", text: outputText(week) },
-												{ field: "note", text: outputText(note) }
-											]
-										})
-									} else {
-										assert.deepEqual(readChangeDetail(detail), {
-											reason: "PutTargetConflict",
-											relation: "Timesheet"
-										})
-									}
-								})
+					Effect.flatMap(refusals, ({ substrate: seat, value: schema }) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const s = yield* Substrate
+								const sql = (refusal: ArmRefusal) =>
+									`SELECT "${schema}"."${refusalFunctionName}"($4::text, $5::text, ${printExpr(raisedBy(refusal).detail)})`
+								assert.deepEqual(auditTextViolations(sql(law)), [])
+								assert.deepEqual(auditTextViolations(sql(change)), [])
+								/** One key's refusal raised through the installed function: the error PostgreSQL reports carries its SQLSTATE,
+								 * its constraint and its DETAIL, which parses back to the key's texts. */
+								const raised = ({ employee, week, note }: KeyTexts, kind: Raised) =>
+									Effect.gen(function* () {
+										const state =
+											kind === "a law's refusal"
+												? sqlstates.integrityConstraintViolation
+												: sqlstates.grizzleConcurrentChange
+										const error = yield* expectSqlstate(
+											s.admin.query(sql(kind === "a law's refusal" ? law : change), [
+												employee,
+												week,
+												note,
+												state,
+												constraint
+											]),
+											state
+										)
+										assert.equal(error.constraint, constraint)
+										const detail = detailOf(error.detail)
+										if (kind === "a law's refusal") {
+											assert.deepEqual(readLawDetail(detail), {
+												kind: "law",
+												relation: "Timesheet",
+												key: [
+													{ field: "employee", text: outputText(employee) },
+													{ field: "week", text: outputText(week) },
+													{ field: "note", text: outputText(note) }
+												]
+											})
+										} else {
+											assert.deepEqual(readChangeDetail(detail), {
+												reason: "PutTargetConflict",
+												relation: "Timesheet"
+											})
+										}
+									})
 
-							c.note(kind)
-							yield* raised(texts, kind)
-						}),
-						Substrate,
-						substrate
+								c.note(kind)
+								yield* raised(texts, kind)
+							}),
+							Substrate,
+							seat
+						)
 					),
 			oracle: { kind: "universal", name: "read ∘ raise = id" },
 			budget: { runs: 300, steered: 40 },

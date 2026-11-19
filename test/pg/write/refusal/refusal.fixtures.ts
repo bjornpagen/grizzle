@@ -1,14 +1,21 @@
 /** What the properties of refusal.test.ts read: its spaces, models and helpers. */
 
 import { codePoint, element, type Gen, oneOf, string, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { param, types } from "#compiler/sql/build.ts"
-import type { ArmRefusal } from "#compiler/write/refusal.ts"
+import { printStatement } from "#compiler/sql/print.ts"
+import {
+	type ArmRefusal,
+	refusalFunctionDdl,
+	refusalFunctionName
+} from "#compiler/write/refusal.ts"
 import { assert } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { wild } from "#test/support/kernel/naming.ts"
+import { noTables } from "#test/support/substrate/replace.ts"
+import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** An error's DETAIL; an error without one fails. */
 export const detailOf = (detail: Option.Option<string>): string =>
@@ -94,3 +101,24 @@ export const raisedFeatures: Arr.NonEmptyReadonlyArray<Raised> = [
 	"a law's refusal",
 	"a concurrent change"
 ]
+
+/**
+ * A schema holding the write refusal channel's function (write/refusal.ts refusalFunctionDdl), made once per member
+ * (substrate.ts installTemplate), where the search made it once before its cases: a case only calls the function.
+ */
+export const refusalTemplate = installTemplate({
+	declaredIn: import.meta,
+	name: "refusal channel",
+	content: { function: refusalFunctionName },
+	plan: (names) => Effect.succeed(names.schema),
+	install: () =>
+		Effect.gen(function* () {
+			const s = yield* Substrate
+			const schema = yield* s.schema({ create: true, label: "install" })
+			for (const statement of refusalFunctionDdl(schema)) {
+				yield* s.admin.query(printStatement(statement), [])
+			}
+		}),
+	bind: (schema) => schema,
+	reset: () => noTables
+})

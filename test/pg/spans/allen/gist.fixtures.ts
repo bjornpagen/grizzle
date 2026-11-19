@@ -1,7 +1,7 @@
 /** What the properties of gist.test.ts read: its spaces, models and helpers. */
 
 import { boolean, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, pipe, Record as Rec, String as Str } from "effect"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { fullAllenMask, parseAllenMask } from "#compiler/allen/mask.ts"
 import { allenRelations } from "#compiler/core/allen.ts"
@@ -13,13 +13,14 @@ import { ALLEN } from "#compiler/public/allen.ts"
 import { pg, span, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { installSpans } from "#test/pg/spans/allen/support.ts"
+import { compileSpans } from "#test/pg/spans/allen/support.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { decodedQuery, type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
+import { type ScriptInstall, filledScriptTemplate } from "#test/support/script-template.ts"
 import { volumeFill } from "#test/support/substrate/fill.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateCase, worldSession } from "#test/support/substrate/substrate.ts"
 
 const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest: uuid }, [
 	"room",
@@ -54,7 +55,7 @@ const outsideField: Readonly<Record<RelationName, string>> = { Booking: "guest",
  * Booking holds `perRoom` spans [10k, 10k + 5) per room, so its spans lie in [0, 10·perRoom); Visit holds
  * rooms·perRoom spans [i, i + 1 + i mod 7), across the rooms in turn, so its spans lie in [0, rooms·perRoom + 7).
  */
-export const sizes = [
+const sizes = [
 	{ name: "100 rows", rooms: 4, perRoom: 25 },
 	{ name: "4000 rows", rooms: 20, perRoom: 200 }
 ] as const
@@ -209,69 +210,101 @@ export const requiredFeatures: Arr.NonEmptyReadonlyArray<PlanFeature> = [
 ]
 
 /** One installation per data size, filled and analyzed, with its reader. */
-export const install = (size: Size) =>
+/** Every size's Rooms, its spans' GiST requests and its rows filled once per member (gistTemplate), by its name. */
+export const gistTemplates = Rec.fromEntries(
+	Arr.map(sizes, (size) => [size.name, gistTemplate(size)] as const)
+)
+
+/**
+ * Rooms installed through the fresh-install compiler with its workload's GiST requests, its Booking and Visit filled to
+ * `size` and vacuumed and analyzed, once per member (script-template.ts filledScriptTemplate), where the search
+ * installed and filled every size once before its cases: each case only plans and reads.
+ */
+const gistTemplate = (size: Size) =>
+	filledScriptTemplate({
+		declaredIn: import.meta,
+		name: `gist ${size.name}`,
+		label: "gist",
+		compile: (schema) =>
+			compileSpans(Rooms, schema, {
+				label: "gist",
+				extensions: [
+					workloadExtension(
+						succeeded(
+							compileTestWorkload(
+								[{ login: "server", workloads: [workload(Rooms, { visitsInWindow })] }],
+								Rooms,
+								testCompile
+							),
+							"the workload compiles"
+						)
+					)
+				]
+			}),
+		fill: (installed) =>
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const schemaName = quoteIdent(installed.schema)
+				yield* volumeFill(s.admin, [
+					{
+						tables: [
+							{
+								table: `${schemaName}."booking"`,
+								columns: [
+									[
+										'"room"',
+										`('00000000-0000-4000-8000-' || lpad(to_hex(g / ${size.perRoom}), 12, '0'))::uuid`
+									],
+									[
+										'"during"',
+										`int8range((g % ${size.perRoom}) * 10, (g % ${size.perRoom}) * 10 + 5)`
+									],
+									[
+										'"guest"',
+										`md5((g / ${size.perRoom})::text || ':' || (g % ${size.perRoom})::text)::uuid`
+									]
+								]
+							}
+						],
+						rows: size.rooms * size.perRoom,
+						conflicts: "refused"
+					},
+					{
+						tables: [
+							{
+								table: `${schemaName}."visit"`,
+								columns: [
+									['"id"', "g"],
+									[
+										'"room"',
+										`('00000000-0000-4000-8000-' || lpad(to_hex(g % ${size.rooms}), 12, '0'))::uuid`
+									],
+									['"during"', "int8range(g, g + 1 + g % 7)"],
+									['"note"', "g % 13"]
+								]
+							}
+						],
+						rows: size.rooms * size.perRoom,
+						conflicts: "refused"
+					}
+				])
+				yield* s.admin.queryValues(`VACUUM ANALYZE ${schemaName}."booking"`, [])
+				yield* s.admin.queryValues(`VACUUM ANALYZE ${schemaName}."visit"`, [])
+			})
+	})
+
+/**
+ * A case's installation of a size over its clone of the size's template (gistTemplates): a reader session of its world,
+ * and each relation's GiST, Booking's span key, a primary WITHOUT OVERLAPS over its span, and the access index the
+ * engine created over Visit's (room, during).
+ */
+export const gistIn = (taken: SubstrateCase<ScriptInstall>) =>
 	Effect.gen(function* () {
-		const s = yield* Substrate
-		const plan = succeeded(
-			compileTestWorkload(
-				[{ login: "server", workloads: [workload(Rooms, { visitsInWindow })] }],
-				Rooms,
-				testCompile
-			),
-			"the workload compiles"
-		)
-		const installed = yield* installSpans(Rooms, {
-			label: "gist",
-			extensions: [workloadExtension(plan)]
+		const installed = taken.value
+		const reader = yield* taken.substrate.session({
+			...worldSession(installed.world),
+			label: "reader"
 		})
-		const schemaName = quoteIdent(installed.schema)
-		yield* volumeFill(s.admin, [
-			{
-				tables: [
-					{
-						table: `${schemaName}."booking"`,
-						columns: [
-							[
-								'"room"',
-								`('00000000-0000-4000-8000-' || lpad(to_hex(g / ${size.perRoom}), 12, '0'))::uuid`
-							],
-							['"during"', `int8range((g % ${size.perRoom}) * 10, (g % ${size.perRoom}) * 10 + 5)`],
-							[
-								'"guest"',
-								`md5((g / ${size.perRoom})::text || ':' || (g % ${size.perRoom})::text)::uuid`
-							]
-						]
-					}
-				],
-				rows: size.rooms * size.perRoom,
-				conflicts: "refused"
-			},
-			{
-				tables: [
-					{
-						table: `${schemaName}."visit"`,
-						columns: [
-							['"id"', "g"],
-							[
-								'"room"',
-								`('00000000-0000-4000-8000-' || lpad(to_hex(g % ${size.rooms}), 12, '0'))::uuid`
-							],
-							['"during"', "int8range(g, g + 1 + g % 7)"],
-							['"note"', "g % 13"]
-						]
-					}
-				],
-				rows: size.rooms * size.perRoom,
-				conflicts: "refused"
-			}
-		])
-		yield* s.admin.queryValues(`VACUUM ANALYZE ${schemaName}."booking"`, [])
-		yield* s.admin.queryValues(`VACUUM ANALYZE ${schemaName}."visit"`, [])
-		const reader = yield* s.session({ ...worldSession(installed.world), label: "reader" })
-		/**
-		 * Each relation's GiST: Booking's span key, a primary WITHOUT OVERLAPS over its span, and the access index the
-		 * engine created over Visit's (room, during).
-		 */
 		const names = installationNamesOf(installed.installation)
 		const gist: Readonly<Record<RelationName, string>> = {
 			Booking: names.fieldConstraint(Booking, "pk", ["room", "during"]),

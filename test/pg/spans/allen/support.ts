@@ -42,7 +42,7 @@ export interface SpanInstallOptions {
 }
 
 /** The schema's installation under `schema`, as `owner` names it. */
-const compileSpans = (
+export const compileSpans = (
 	desc: FixtureSchema,
 	schema: string,
 	options: SpanInstallOptions

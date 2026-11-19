@@ -20,8 +20,9 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { visits, type VisitsEndpoint, visitsLaw } from "#test/pg/spans/laws/schemas.ts"
+import { visitsLaw } from "#test/pg/spans/laws/schemas.ts"
 import {
+	coverageTemplates,
 	type CoverFeature,
 	covers,
 	coverSketchGen,
@@ -32,7 +33,7 @@ import {
 	runs,
 	type Where
 } from "#test/pg/spans/laws/selected-coverage.fixtures.ts"
-import { installSpans, writerOf } from "#test/pg/spans/laws/support.ts"
+import { spanInstallIn, writerOf } from "#test/pg/spans/laws/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { replaceRows } from "#test/support/substrate/replace.ts"
@@ -45,7 +46,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const selectedSourceSpanCoverageAtTheLimitsOfBigintAndDateSpansABillableVisitIsAcceptedIffTheUnionOfItsSitesShiftsContainsItAtTheLimitsOfItsEndpoint =
 	property.explore(coverSketchGen, {
-		needs: { substrate: Substrate.installing },
+		needs: Substrate.oneOf(coverageTemplates, Substrate.seat),
 		situations: Arr.flatMap(endpointKinds, (endpoint) =>
 			Arr.flatMap(["covered", "refused"] as const, (o) =>
 				Arr.map(
@@ -54,75 +55,56 @@ export const selectedSourceSpanCoverageAtTheLimitsOfBigintAndDateSpansABillableV
 				)
 			)
 		) satisfies ReadonlyArray<Reached<CoverFeature>>,
-		check:
-			({ substrate }, c: Case<CoverFeature>) =>
-			(sketch) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const installOf = (endpoint: VisitsEndpoint) =>
-							Effect.gen(function* () {
-								const install = yield* installSpans(
-									visits({ mutable: false, endpoint }),
-									`cov${endpoint}`
-								)
-								return {
-									install,
-									writer: yield* writerOf(install, `writer ${endpoint}`),
-									foreignKey: install.periodForeignKey(visitsLaw(endpoint))
-								}
-							})
-						const installed = yield* Effect.all({
-							bigint: installOf("bigint"),
-							date: installOf("date")
-						})
-
-						const resolved = resolveCover(sketch)
-						if (resolved === "no visit") {
-							return
-						}
-						const { points } = endpoints[sketch.endpoint]
-						const { install, writer, foreignKey } = installed[sketch.endpoint]
-						const expected = covers(resolved.shifts, resolved.visit)
-						const where: Where =
-							resolved.visit.start === Arr.headNonEmpty(points)
-								? "from the lower limit"
-								: resolved.visit.end === Arr.lastNonEmpty(points)
-									? "to the upper limit"
-									: "inside the limits"
-						c.note(`${sketch.endpoint} ${expected ? "covered" : "refused"} ${where}`)
-						yield* replaceRows(
-							s.admin,
-							install.group,
-							resolved.shifts.length === 0
-								? []
-								: [
-										{
-											sql: `INSERT INTO ${install.table("Shift")} VALUES ${Arr.join(
-												Arr.map(
-													resolved.shifts,
-													(x, i) => `(1, ${literal(sketch.endpoint, x)}, ${i})`
-												),
-												", "
-											)}`,
-											params: []
-										}
-									]
-						)
-						const insert = writer.query(
-							`INSERT INTO ${install.table("Visit")} VALUES (1, 1, ${literal(sketch.endpoint, resolved.visit)}, true)`,
-							[]
-						)
-						if (expected) {
-							yield* insert
-						} else {
-							const refused = yield* expectSqlstate(insert, "23503")
-							assert.equal(refused.constraint, foreignKey)
-						}
-					}),
+		check: (seats, c: Case<CoverFeature>) => (sketch) =>
+			Effect.gen(function* () {
+				const resolved = resolveCover(sketch)
+				if (resolved === "no visit") {
+					return
+				}
+				const { points } = endpoints[sketch.endpoint]
+				const taken = yield* seats[sketch.endpoint]
+				const s = taken.substrate
+				const install = spanInstallIn(taken)
+				const writer = yield* Effect.provideService(
+					writerOf(install, `writer ${sketch.endpoint}`),
 					Substrate,
-					substrate
-				),
+					s
+				)
+				const foreignKey = install.periodForeignKey(visitsLaw(sketch.endpoint))
+				const expected = covers(resolved.shifts, resolved.visit)
+				const where: Where =
+					resolved.visit.start === Arr.headNonEmpty(points)
+						? "from the lower limit"
+						: resolved.visit.end === Arr.lastNonEmpty(points)
+							? "to the upper limit"
+							: "inside the limits"
+				c.note(`${sketch.endpoint} ${expected ? "covered" : "refused"} ${where}`)
+				yield* replaceRows(
+					s.admin,
+					install.group,
+					resolved.shifts.length === 0
+						? []
+						: [
+								{
+									sql: `INSERT INTO ${install.table("Shift")} VALUES ${Arr.join(
+										Arr.map(resolved.shifts, (x, i) => `(1, ${literal(sketch.endpoint, x)}, ${i})`),
+										", "
+									)}`,
+									params: []
+								}
+							]
+				)
+				const insert = writer.query(
+					`INSERT INTO ${install.table("Visit")} VALUES (1, 1, ${literal(sketch.endpoint, resolved.visit)}, true)`,
+					[]
+				)
+				if (expected) {
+					yield* insert
+				} else {
+					const refused = yield* expectSqlstate(insert, "23503")
+					assert.equal(refused.constraint, foreignKey)
+				}
+			}),
 		oracle: {
 			kind: "second-implementation",
 			name: "a sweep over the disjoint shifts in order, over the endpoint's values"

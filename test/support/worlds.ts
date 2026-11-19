@@ -1,5 +1,5 @@
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
-import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
+import { Array as Arr, Effect, Record as Rec, Redacted, type Scope } from "effect"
 import { TokenError } from "#adapter/errors/failures.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -19,7 +19,8 @@ import type { EntryContexts, RoleRelations } from "#compiler/types/schema/world.
 import { soleWorldOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type TemplateBinding } from "#test/support/substrate/substrate.ts"
+import { templatePassword } from "#test/support/substrate/templates.ts"
 
 /** A schema whose relations are reality's own: what a full role holds whole. */
 type Reality = AnySchema & {
@@ -158,3 +159,22 @@ export const oracleWorld = (
 		const s = yield* Substrate
 		return { login: yield* s.login(sole.login), role: sole.role }
 	})
+
+/**
+ * oracleWorld of an installation a template's build ran (script-template.ts scriptTemplate), as a case over a clone of
+ * it takes it on: the login's password the one the build's allocations derived for it (substrate/templates.ts
+ * templatePassword), which every worker derives from the member's owner password.
+ */
+export const templateOracleWorld = (
+	installation: Installation,
+	binding: TemplateBinding
+): SubstrateWorld => {
+	const sole = soleWorldOf(installation)
+	return {
+		login: {
+			role: sole.login,
+			password: Redacted.make(templatePassword(binding.cluster, sole.login))
+		},
+		role: sole.role
+	}
+}

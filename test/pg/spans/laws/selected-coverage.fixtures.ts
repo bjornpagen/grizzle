@@ -9,7 +9,8 @@ import {
 	firstCalendarDate,
 	lastCalendarDate
 } from "#compiler/ir/date.ts"
-import type { VisitsEndpoint } from "#test/pg/spans/laws/schemas.ts"
+import { visits, type VisitsEndpoint } from "#test/pg/spans/laws/schemas.ts"
+import { spanLawsTemplate } from "#test/pg/spans/laws/support.ts"
 import { defined } from "#test/support/assert.ts"
 
 const int8Min = -(2n ** 63n)
@@ -152,3 +153,16 @@ export type Where = "from the lower limit" | "to the upper limit" | "inside the 
 export type CoverFeature = `${VisitsEndpoint} ${"covered" | "refused"} ${Where}`
 
 export const runs = 60
+
+/**
+ * Each endpoint's visits schema installed once per member (support.ts spanLawsTemplate), where the search installed
+ * both once before its cases: a case seats the one its sketch draws.
+ */
+export const coverageTemplates = {
+	bigint: spanLawsTemplate(
+		import.meta,
+		visits({ mutable: false, endpoint: "bigint" }),
+		"covbigint"
+	),
+	date: spanLawsTemplate(import.meta, visits({ mutable: false, endpoint: "date" }), "covdate")
+} as const
