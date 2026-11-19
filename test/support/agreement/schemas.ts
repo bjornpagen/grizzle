@@ -218,7 +218,8 @@ type SchemaConstruct = (typeof schemaConstructs)[number]
  * a derived head reads, each place a law names a derived relation, each derived definition the engine admits, fin
  * over a key field and over an accumulated one, a closed relation keyed by one, two or three closed ids, its rows with
  * one stated twice, a role over a base declaring one, a concat fold valid and over a number, a fold whose accumulators
- * are another refinement of its step's carrier, and generated fields whose terms are another refinement of theirs.
+ * are another refinement of its step's carrier, generated fields whose terms are another refinement of theirs, and a
+ * numeric field at scale 0, whose host is a bigint where every other scale's is a Decimal.
  */
 const schemaForms = [
 	"slotsMirrors",
@@ -266,7 +267,8 @@ const schemaForms = [
 	"refinedGenerated",
 	"roleBesideClosed",
 	"fixedByValue",
-	"fixedByTerm"
+	"fixedByTerm",
+	"numericAtScaleZero"
 ] as const
 type SchemaForm = (typeof schemaForms)[number]
 
@@ -1466,6 +1468,9 @@ const fieldTypeOf = (
 			"numericField",
 			() => {
 				const [precision, scale] = d.from(numericTypmods)
+				if (scale === 0) {
+					d.note("numericAtScaleZero")
+				}
 				return {
 					kind: "numeric",
 					precision,

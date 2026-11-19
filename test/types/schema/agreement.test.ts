@@ -43,6 +43,12 @@ export const schemas = agreement(schemaCases, {
 	kills: [
 		{
 			file: "packages/engine/src/scalar/values/convert.ts",
+			original: "\t\t? bigint\n\t\t: Decimal\n",
+			replacement: "\t\t? Decimal\n\t\t: Decimal\n",
+			why: "numeric(p, 0)'s host is a Decimal again, where the engine reads a bigint (types/fields NumericHostOf); the numericAtScaleZero situation's case fails."
+		},
+		{
+			file: "packages/engine/src/scalar/values/convert.ts",
 			original: "\t\t: Decimal\n",
 			replacement: "\t\t: Decimal | bigint\n",
 			why: "numeric(p, s)'s host forgets its scale at a literal scale other than 0, Decimal | bigint, where the engine reads a Decimal (types/fields NumericHostOf); the kept numeric(7, 2) case fails."
