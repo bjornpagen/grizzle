@@ -114,8 +114,9 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 			},
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
-				original: "\t\t\t\t\t\t\tfor (const row of nestedRowsOf(stratum, relation)) {",
-				replacement: "\t\t\t\t\t\t\tfor (const row of nestedRowsOf(stratum, relation).slice(1)) {",
+				original: "\t\t\t\t\t\t\tfor (const row of sentRows.nested(stratum, relation)) {",
+				replacement:
+					"\t\t\t\t\t\t\tfor (const row of sentRows.nested(stratum, relation).slice(1)) {",
 				why: "The read-out drops the first nested row of each relation a nested write fills, a Stroke, a sequence's member or a tree's root, which the write stores."
 			},
 			{
