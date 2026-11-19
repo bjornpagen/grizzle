@@ -4,14 +4,16 @@
  * its rows' domains are held as rowEvaluator holds them, so a value decode admits is one the insert admits and PostgreSQL
  * stores within every domain, and one it refuses is refused there, at the same row and field, by the same fault.
  *
- * The schema is compiled once, by the compile every write takes and insertPreview takes (program/preview.ts
- * insertAllFlight): insertAll over every top-level relation, loaded as a served write is, so each relation's member is
- * admitted by the normalizer its slot group holds (runtime/write/normalize.ts bindGroup, its heading planned once, where
- * the write is loaded), and a nested relation's levels each by a normalizer of its own, built where the relation is first
- * decoded (runtime/write/nesting.ts levelNormalizer), each fact split along its sequences by one splitter
- * (runtime/write/addition.ts additionSplitter), whose splits are worked out once a relation. Every domain is judged by
- * one judge over the schema's closed relations and one table of patterns (runtime/write/witness.ts judgeOf), as
- * rowEvaluator judges them, so a closed relation is indexed and a pattern parsed once for the decoder.
+ * The schema's law model is compiled once, the one every reader of the schema value reads (program/schema.ts
+ * builtLawModel), and a relation's insert where it is first decoded: the insert of its families, the host half of the
+ * compile every write takes, which insertPreview's calls compile and share (program/preview.ts familyInsertsOf), so a
+ * relation's member is admitted by the normalizer its slot group holds (runtime/write/normalize.ts bindGroup, its
+ * heading planned once, where the insert is prepared), and a nested relation's levels each by a normalizer of its own,
+ * built where the relation is first decoded (runtime/write/nesting.ts levelNormalizer), each fact split along its
+ * sequences by one splitter (runtime/write/addition.ts additionSplitter), whose splits are worked out once a relation.
+ * A relation whose families' insert refuses as it compiles refuses each value decoded of it (Uncompiled). Every domain
+ * is judged by one judge over the schema's closed relations and one table of patterns (runtime/write/witness.ts
+ * judgeOf), as rowEvaluator judges them, so a closed relation is indexed and a pattern parsed once for the decoder.
  *
  * Each row is read as the write reads it, in the write's order: a flat relation's facts one after another, each by its
  * normalizer (codec/recordset.ts RelationNormalizer readRow: the null ban, the fact's shape, each field by
@@ -35,10 +37,10 @@ import type { FamilyId } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { domainRefusal } from "#compiler/program/evaluate.ts"
-import { insertAllFlight } from "#compiler/program/preview.ts"
+import { familyInsertsOf } from "#compiler/program/preview.ts"
+import { builtLawModel, parseBuiltSchema } from "#compiler/program/schema.ts"
 import { type AdditionSplitter, additionSplitter } from "#compiler/runtime/write/addition.ts"
 import { levelNormalizer, levelOrder, type NestingLevels } from "#compiler/runtime/write/nesting.ts"
-import type { BindInput } from "#compiler/runtime/write/normalize.ts"
 import { type JudgedField, type Judge, judgeOf } from "#compiler/runtime/write/witness.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { ReadFact } from "#compiler/scalar/values/identity.ts"
@@ -154,51 +156,47 @@ export const factsDecoderOver = <S extends AnySchema>(
 	answer: PublicResult
 ): Result.Result<FactsDecoder<S>, CompileError> =>
 	Result.map(
-		insertAllFlight(schema, captureLoc("factsDecoder", [])),
-		({ flight, codes, compiled }) => {
-			const judge = judgeOf(closedTableOf(compiled.frontend), new CompilePatterns())
-			const inputs = new Map<string, { readonly input: BindInput; readonly member: string }>(
-				flight.prepared.groups.flatMap((group) =>
-					group.inputs.flatMap((input) =>
-						input.members.map((m) => [m.name, { input, member: m.name }] as const)
+		Result.flatMap(parseBuiltSchema(schema, captureLoc("factsDecoder", [])), builtLawModel),
+		(model) => {
+			const judge = judgeOf(closedTableOf({ schema: model.checked }), new CompilePatterns())
+			const inserts = familyInsertsOf(schema, model)
+			/** The reader of `relation`'s rows (RowReader), from its member's input in its families' insert, or the
+			 * CompileError that insert refuses by. */
+			const readerOf = (relation: string): Result.Result<RowReader, CompileError> =>
+				Result.map(inserts.writeOf([relation]), ({ host }): RowReader => {
+					const { slot } = defined(
+						host.binding.members.find((m) => m.relation === relation),
+						`the member of ${relation}, a relation its insert inserts at its top level`
 					)
-				)
-			)
-			const slots = new Map(
-				flight.binding.members.map((m) => [
-					m.relation,
-					defined(inputs.get(m.slot), `the input of ${m.slot}`)
-				])
-			)
-			/** The reader of `relation`'s rows (RowReader), from its member's input. */
-			const readerOf = (relation: string): RowReader => {
-				const { input, member } = defined(
-					slots.get(relation),
-					`the member of ${relation}, a relation insertAll inserts at its top level`
-				)
-				switch (input.kind) {
-					case "single": {
-						const normalize = defined(
-							input.members.find((m) => m.name === member),
-							`the normalizer of ${member}`
-						).normalize
-						return flatReader(levelOf(normalize, input.slot.heading))
-					}
-					case "nested": {
-						const { nesting } = input
-						const level = (of: StoredRelationName, heading: Heading): Level =>
-							levelOf(levelNormalizer(of, heading, member, codes), heading)
-						const levels: NestingLevels<Level> = {
-							own: level(nesting.relation, nesting.own),
-							members: new Map<FamilyId, Level>(
-								nesting.sequences.map((f) => [f.id, level(f.member, f.heading)] as const)
-							)
+					const input = defined(
+						host.prepared.groups
+							.flatMap((group) => group.inputs)
+							.find((i) => i.members.some((m) => m.name === slot)),
+						`the input of ${slot}`
+					)
+					switch (input.kind) {
+						case "single": {
+							const normalize = defined(
+								input.members.find((m) => m.name === slot),
+								`the normalizer of ${slot}`
+							).normalize
+							return flatReader(levelOf(normalize, input.slot.heading))
 						}
-						return nestedReader(nesting.relation, levels, additionSplitter(nesting.sequences))
+						case "nested": {
+							const { nesting } = input
+							const level = (of: StoredRelationName, heading: Heading): Level =>
+								levelOf(levelNormalizer(of, heading, slot, host.codes), heading)
+							const levels: NestingLevels<Level> = {
+								own: level(nesting.relation, nesting.own),
+								members: new Map<FamilyId, Level>(
+									nesting.sequences.map((f) => [f.id, level(f.member, f.heading)] as const)
+								)
+							}
+							return nestedReader(nesting.relation, levels, additionSplitter(nesting.sequences))
+						}
 					}
-				}
-			}
-			const readers = new Map<string, RowReader>()
+				})
+			const readers = new Map<string, Result.Result<RowReader, CompileError>>()
 			/**
 			 * The one site of the fact "rows decode admitted are InsertAllRowsOf<S>[K]": each row is K's addition in S, every
 			 * field the codec's host value of its type inside its domains, which K's reader, the compiled insert's admission,
@@ -217,8 +215,12 @@ export const factsDecoderOver = <S extends AnySchema>(
 				if (!isList(facts)) {
 					return Result.err({ _tag: "RowsRefused" })
 				}
-				const reader = readers.get(relation) ?? readerOf(relation)
-				readers.set(relation, reader)
+				const compiled = readers.get(relation) ?? readerOf(relation)
+				readers.set(relation, compiled)
+				if (!compiled.ok) {
+					return Result.err({ _tag: "Uncompiled", error: compiled.error })
+				}
+				const reader = compiled.value
 				const rows: ReadonlyArray<unknown> = facts
 				const reads: Array<ReadonlyArray<LevelRead>> = []
 				for (const [row, fact] of rows.entries()) {

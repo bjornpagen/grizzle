@@ -27,11 +27,11 @@ import {
 
 /**
  * insertPreview(schema): the rows `ChangeSet.empty(schema).insertAll(rows)` stores as the first write of an
- * installation holding no row, closed relations aside, with no SQL sent: the schema compiled once, by the compile every
- * write takes, as a Result whose error is its CompileError, then each call the write's own binding of its rows before
- * any SQL, every writable relation's rows or the refusal that write meets there (engine program/preview.ts). The
- * binding runs under the transport of the wire the write would go over (wire/batch.ts bindFrame), so a call past its
- * message bound is refused as the write is, InputTooLarge.
+ * installation holding no row, closed relations aside, with no SQL sent: the schema's law model compiled, as a Result
+ * whose error is its CompileError, then each call the write's own binding of its rows before any SQL, by the insert of
+ * the families its rows write, compiled where a call first writes them, every writable relation's rows or the refusal
+ * that write meets there (engine program/preview.ts). The binding runs under the transport of the wire the write would
+ * go over (wire/batch.ts bindFrame), so a call past its message bound is refused as the write is, InputTooLarge.
  */
 export const insertPreview = <S extends AnySchema>(
 	schema: S
@@ -41,9 +41,10 @@ export const insertPreview = <S extends AnySchema>(
 /**
  * factsDecoder(schema): the rows `ChangeSet.empty(schema).insertAll(rows)` takes of one top-level relation, decoded from
  * a value of any shape, a value another process sent among them, by the insert's own admission (engine
- * program/decode.ts): the schema compiled once, by insertAll's compile, as a Result whose error is its CompileError,
- * then `decode(K, value)` is the value itself as K's rows, every row admitted as the write admits a fact and held to its
- * domains as rowEvaluator holds a row, or the first refusal its rows meet, at its row and field, by the write's fault.
+ * program/decode.ts): the schema's law model compiled, as a Result whose error is its CompileError, then `decode(K,
+ * value)` is the value itself as K's rows, every row admitted as the insert of K's families admits a fact, compiled
+ * where K is first decoded and shared with insertPreview's calls, and held to its domains as rowEvaluator holds a row,
+ * or the first refusal its rows meet, at its row and field, by the write's fault.
  */
 export const factsDecoder = <S extends AnySchema>(
 	schema: S

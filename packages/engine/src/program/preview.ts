@@ -1,20 +1,30 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { derivedAnalysis } from "#compiler/analysis/schema.ts"
+import { lawDescription } from "#compiler/analysis/theory/description.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { captureLoc } from "#compiler/core/loc.ts"
 /**
  * insertPreview(schema): the host half of an insertion, `ChangeSet.empty(S).insertAll(rows)`, as the first write of an
  * installation holding no row stores it, closed relations aside, with no SQL sent.
  *
- * The schema is compiled once, by the compile every write takes: its artifacts planned over a fresh installation's
- * codes, its rosters' declared order (ir/codes.ts firstCodebook), and `insertAll` over every top-level relation, each
- * member an array, compiled for reality (program/workload/change.ts compileParsed), projected and loaded as a served
- * write is (write/program/served.ts flightOf). Each preview is that write's binding of the call's rows
- * (runtime/write/bind.ts bindWrite), the one every application of the write runs before any SQL, under the transport
- * the caller names; its rows are the rows the bound statements insert (BoundWrite `inserted`).
+ * The schema's law model is compiled once, the one every reader of the schema value reads (program/schema.ts
+ * builtLawModel), and nothing else until a call writes rows: each call compiles, where a call first writes them, the
+ * insert of the families its rows write (`writtenFamilies`: the relations it states rows of, each with every relation a
+ * write of it writes, its families' owners and members (schema/reach.ts writesOf), and the clock each instant it stamps
+ * by reference is stamped from, which its insert stamps beside), as an insertAll of each of their top-level relations,
+ * each member an array, by the host half of the compile every write takes: its front end over the model
+ * (write/frontend/compile.ts compileChangeSet) and its binding (write/program/served.ts hostBindingOf), under its
+ * rosters' declared-order codes (ir/codes.ts firstCodebook), no statement built, kept for every later call that writes
+ * the same families. A family no call writes compiles nothing, so a call's compile is the insert of what it previews,
+ * whatever else the schema holds. Each preview is that write's binding of the call's rows (runtime/write/bind.ts
+ * bindRows), the one every application of the write runs before any SQL, under the transport the caller names; its rows
+ * are the rows the bound write inserts (BoundRows `inserted`). Rows of no other family are any write's of them: none.
+ * An insert whose host half refuses as it compiles refuses each call that writes its families (Uncompiled).
  *
  * A code is a storage detail of one installation: a preview's rows hold host values, a closed id its handle, so the
  * codes it binds under name nothing it gives, and a roster's declared order is its codes' order for every comparison
@@ -27,21 +37,18 @@ import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import { noClock } from "#compiler/ir/clock.ts"
-import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
-import { familyKey, type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
-import {
-	builtLawModel,
-	parseBuiltSchema,
-	type SchemaArtifacts,
-	schemaArtifacts
-} from "#compiler/program/schema.ts"
-import { compileParsed } from "#compiler/program/workload/change.ts"
-import { bindWrite, type InsertedRow } from "#compiler/runtime/write/bind.ts"
-import type { CountedFamily, MemberAt } from "#compiler/runtime/write/binding.ts"
-import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
+import { type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
+import { builtLawModel, parseBuiltSchema } from "#compiler/program/schema.ts"
+import { bindRows, type HostBinding, type InsertedRow } from "#compiler/runtime/write/bind.ts"
+import type { CountedFamily } from "#compiler/runtime/write/binding.ts"
+import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
+import { writesOf } from "#compiler/schema/reach.ts"
 import { insertableNamesOf, writableNamesOf } from "#compiler/schema/world.ts"
 import type {
 	InsertPreview,
@@ -49,9 +56,10 @@ import type {
 	PreviewRows
 } from "#compiler/types/changeset/preview.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
-import { changeSetOver, parseChangeSet } from "#compiler/write/changeset/value.ts"
-import type { CompiledWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { changeSetOver, insertAllSlots, parseChangeSet } from "#compiler/write/changeset/value.ts"
+import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
+import { closedTableOf } from "#compiler/write/program/decide.ts"
+import { hostBindingOf } from "#compiler/write/program/served.ts"
 
 /**
  * How a written relation's field the preview states is filled (ir/law.ts FieldWriting): every way but PostgreSQL's
@@ -93,6 +101,22 @@ const previewWriting = (writing: FieldWriting): PreviewWriting | undefined => {
 type PreviewRow = Readonly<Record<string, unknown>>
 
 /**
+ * The members of insertAll over every top-level relation, in the ChangeSet's order, each by the relation its array is of
+ * and the slot it travels in: what every call's record states (InsertAllRowsOf), read once a preview.
+ */
+interface EveryMember {
+	readonly members: ReadonlyArray<{ readonly slot: string; readonly relation: string }>
+	readonly relations: ReadonlySet<string>
+}
+
+/** A call's rows read off its record (`memberFactsOf`): each member's facts by its slot, and the relations whose
+ * arrays hold a row, in the members' order, which the call writes. */
+interface CallFacts {
+	readonly facts: MemberFacts
+	readonly written: ReadonlyArray<string>
+}
+
+/**
  * The call's rows as the write's members take them, read once off the caller's record (MemberFacts): under each
  * member's relation an array, its own data property, every key of the record one of those relations. Anything else is
  * a fact of another shape than the record insertAll takes (`factShape`): at the member's slot where its array is not
@@ -100,36 +124,149 @@ type PreviewRow = Readonly<Record<string, unknown>>
  * reading it throws.
  */
 const memberFactsOf = (
-	members: ReadonlyArray<MemberAt>,
+	every: EveryMember,
 	rows: unknown
-): Result.Result<MemberFacts, EncodingFailure> =>
+): Result.Result<CallFacts, EncodingFailure> =>
 	hostRead(
 		() => encodeFailure("factShape", factPlace),
 		() => {
 			if (!isPlainRecord(rows)) {
 				return Result.err(encodeFailure("factShape", factPlace))
 			}
-			const relations = new Set(members.map((m) => m.relation))
 			for (const key of Reflect.ownKeys(rows)) {
 				if (typeof key !== "string") {
 					return Result.err(encodeFailure("factShape", factPlace))
 				}
-				if (!relations.has(key)) {
+				if (!every.relations.has(key)) {
 					return Result.err(encodeFailure("factShape", slotPlace(key)))
 				}
 			}
 			const facts = new Map<string, Iterable<unknown>>()
-			for (const member of members) {
+			const written: Array<string> = []
+			for (const member of every.members) {
 				const held = Reflect.getOwnPropertyDescriptor(rows, member.relation)
 				const value: unknown = held?.value
 				if (held === undefined || !Object.hasOwn(held, "value") || !isList(value)) {
 					return Result.err(encodeFailure("factShape", slotPlace(member.slot)))
 				}
 				facts.set(member.slot, value)
+				if (value.length > 0) {
+					written.push(member.relation)
+				}
 			}
-			return Result.ok(facts)
+			return Result.ok({ facts, written })
 		}
 	)
+
+/**
+ * The families a call that states rows of `stated` writes, as their insert compiles (see the header): every relation a
+ * write of them writes, its families' owners and members (schema/reach.ts writesOf), and every clock an instant one of
+ * them stamps by reference is stamped from, whose insert the write stamps it beside (write/frontend/instants.ts
+ * refuseStampsApart), with every relation a write of each writes, until no relation adds another.
+ */
+const writtenFamilies = (model: LawModel, stated: ReadonlyArray<string>): ReadonlySet<string> => {
+	const written = new Set<string>(stated)
+	for (let size = 0; size !== written.size;) {
+		size = written.size
+		for (const relation of writesOf(model.owned, written)) {
+			written.add(relation)
+		}
+		for (const [relation, roles] of model.theory.instants.roles) {
+			if (!written.has(relation)) {
+				continue
+			}
+			for (const role of roles.values()) {
+				if (role.kind === "reference" && role.stamp !== undefined) {
+					written.add(role.stamp.head.relation)
+				}
+			}
+		}
+	}
+	return written
+}
+
+/**
+ * The insert of a call's families as a preview binds its rows (`previewWrite`): its write's host half (bind.ts
+ * HostBinding), and each relation it writes with its fields PostgreSQL does not generate, in declared order, each at
+ * its position.
+ */
+export interface PreviewWrite {
+	readonly host: HostBinding
+	readonly fields: ReadonlyMap<string, ReadonlyArray<PreviewField>>
+}
+
+/** What compiling the insert of `insertable`, top-level relations of the schema each a member an array, reads. */
+interface PreviewCompile {
+	readonly schema: AnySchema
+	readonly model: LawModel
+	readonly codes: ReturnType<typeof firstCodebook>
+	readonly closed: () => ClosedTable
+	readonly patterns: CompilePatterns
+}
+
+/**
+ * The insert of `insertable`, each a top-level relation and a member an array, compiled as a preview binds it: the host
+ * half of the compile every write takes (see the header), its front end over the model and its binding, no statement
+ * built, or the CompileError its front end refuses it by.
+ */
+const previewWrite = (
+	compile: PreviewCompile,
+	insertable: ReadonlyArray<string>
+): Result.Result<PreviewWrite, CompileError> => {
+	const parsed = parseChangeSet(
+		changeSetOver
+			.empty(compile.schema)
+			.insertAll(Object.fromEntries(insertable.map((name) => [name, []] as const)))
+	)
+	if (parsed === undefined) {
+		throw defect("insertAll's value, a ChangeSet")
+	}
+	const { model, codes } = compile
+	return Result.map(
+		compileChangeSet(model.checked, parsed.desc, {
+			claims: { kind: "facts", present: new Set() },
+			laws: model,
+			derived: derivedAnalysis(model.checked),
+			world: { kind: "reality" },
+			codes,
+			clock: noClock
+		}),
+		(frontend) =>
+			previewWriteOf(frontend, hostBindingOf(frontend, codes, compile.closed(), compile.patterns))
+	)
+}
+
+/**
+ * A write as a preview binds its rows (`PreviewWrite`): its host half, a preview's (`previewWrite`) or a served write's
+ * loaded flight, and each relation its front end writes with its fields PostgreSQL does not generate, at their positions
+ * among its host half's columns.
+ */
+export const previewWriteOf = (frontend: WriteFrontend, host: HostBinding): PreviewWrite => ({
+	host,
+	fields: new Map(
+		frontend.written.map((relation) => {
+			const columns = host.prepared.columns(relation.name)
+			return [
+				relation.name,
+				relation.fields.flatMap((f): ReadonlyArray<PreviewField> => {
+					const writing = previewWriting(f.writing)
+					return writing === undefined
+						? []
+						: [{ name: f.name, at: columns.at(columnKeyOf(f.name)), writing }]
+				})
+			] as const
+		})
+	)
+})
+
+/** A value computed where it is first read, then read from its memo. */
+const once = <A>(compute: () => A): (() => A) => {
+	let computed: { readonly value: A } | undefined
+	return () => {
+		computed ??= { value: compute() }
+		return computed.value
+	}
+}
 
 /**
  * The value an inserted row holds at a stored field PostgreSQL does not generate, as the write stores it: a
@@ -171,120 +308,64 @@ const isPreviewRowsOf = <S extends AnySchema>(
 ): built is Readonly<Record<string, ReadonlyArray<PreviewRow>>> & PreviewRows<S> =>
 	Object.keys(built).length === names.length && names.every((name) => Object.hasOwn(built, name))
 
-/**
- * The first write of an installation holding no row that inserts every top-level relation of a schema, compiled once
- * by the compile every write takes (see the header): its artifacts planned over a fresh installation's codes, its
- * rosters' declared order (ir/codes.ts firstCodebook), insertAll over every relation it takes at its top level, each
- * member an array, compiled for reality (program/workload/change.ts compileParsed), then projected and loaded as a
- * served write is (write/program/served.ts flightOf); or the schema's CompileError, refused at `loc`. What a preview
- * binds its rows by, and what a facts decoder admits its rows by (program/decode.ts).
- */
-export const insertAllFlight = (
-	schema: AnySchema,
-	loc: SourceLoc
-): Result.Result<
-	{
-		readonly codes: Codebook
-		readonly artifacts: SchemaArtifacts
-		readonly compiled: CompiledWrite
-		readonly flight: FlightWrite
-	},
-	CompileError
-> => {
-	const built = parseBuiltSchema(schema, loc)
-	if (!built.ok) {
-		return built
-	}
-	const model = builtLawModel(built.value)
-	if (!model.ok) {
-		return model
-	}
-	const codes = firstCodebook(rostersOf(model.value.owned))
-	const artifacts = schemaArtifacts(built.value, { codes })
-	if (!artifacts.ok) {
-		return artifacts
-	}
-	const change = changeSetOver
-		.empty(schema)
-		.insertAll(Object.fromEntries(insertableNamesOf(schema).map((name) => [name, []] as const)))
-	const parsed = parseChangeSet(change)
-	if (parsed === undefined) {
-		throw defect("insertAll's value, a ChangeSet")
-	}
-	const entry = compileParsed(artifacts.value, parsed, new Set(), "serializable", noClock)
-	if (!entry.ok) {
-		return entry
-	}
-	const { compiled } = entry.value
-	return Result.ok({
-		codes,
-		artifacts: artifacts.value,
-		compiled,
-		flight: flightOf(compiled, codes)
-	})
-}
-
 /** A preview's rows by relation name, as a caller that knows its schema only at run time reads them (`previewOver`). */
 export type PreviewRowsByName = Readonly<Record<string, ReadonlyArray<PreviewRow>>>
 
+/** A preview's answer to one call: every writable relation's rows by name, or its refusal. */
+type PreviewAnswer = Result.Result<PreviewRowsByName, PreviewRefusal>
+
 /**
- * insertPreview over `transport` for a caller whose schema is known only at run time (see the header): `schema`
- * compiled once into the preview of its insertions, or the schema's CompileError; each call reads its rows off the
- * caller's record (`memberFactsOf`) and binds them under `transport`, the message bound of the wire the write would go
- * over, so the preview refuses what the write would (InputRefused), and gives every writable relation's rows by name.
- * insertPreviewOver is this one under S's types.
+ * The preview of `schema`'s insertions over its law model `model` (see the header), each call's rows bound by the write
+ * `writeFor` gives for the relations it states rows of, in the members' order, under `transport`: a preview's own, the
+ * insert of the families those rows write (`previewOver`), or any write over every relation it states rows of, a
+ * served insertAll's among them.
  */
-export const previewOver = (
+export const previewThrough = (
 	schema: AnySchema,
-	transport: Transport
-): Result.Result<
-	(rows: unknown) => Result.Result<PreviewRowsByName, PreviewRefusal>,
-	CompileError
-> => {
-	const insert = insertAllFlight(schema, captureLoc("insertPreview", []))
-	if (!insert.ok) {
-		return insert
-	}
-	const { artifacts, compiled, flight } = insert.value
+	model: LawModel,
+	transport: Transport,
+	writeFor: (stated: ReadonlyArray<string>) => Result.Result<PreviewWrite, CompileError>
+): ((rows: unknown) => PreviewAnswer) => {
+	const members = insertAllSlots(insertableNamesOf(schema))
+	const every: EveryMember = { members, relations: new Set(members.map((m) => m.relation)) }
 	const names: ReadonlyArray<string> = writableNamesOf(schema)
-	/** Each written relation's fields PostgreSQL does not generate, in declared order, each at its position. */
-	const fields = new Map(
-		compiled.frontend.written.map((relation) => {
-			const columns = flight.prepared.columns(relation.name)
-			return [
-				relation.name,
-				relation.fields.flatMap((f): ReadonlyArray<PreviewField> => {
-					const writing = previewWriting(f.writing)
-					return writing === undefined
-						? []
-						: [{ name: f.name, at: columns.at(columnKeyOf(f.name)), writing }]
-				})
-			] as const
-		})
-	)
-	/** Each counted family's law as lawsOf lists it, by the family's key (ir/law.ts familyKey). */
-	const familyLaws = new Map(
-		artifacts.theoryLaws.flatMap(({ described }) =>
-			described.kind === "family" && described.order === "counted"
-				? [[familyKey(described.slots), described] as const]
-				: []
-		)
-	)
+	/** A counted family's law as lawsOf lists it (analysis/theory/description.ts lawDescription). */
 	const ownerAbsent = (
 		family: CountedFamily
-	): Extract<PreviewRefusal, { readonly _tag: "OwnerAbsent" }> => ({
-		_tag: "OwnerAbsent",
-		law: defined(
-			familyLaws.get(familyKey(family.id)),
+	): Extract<PreviewRefusal, { readonly _tag: "OwnerAbsent" }> => {
+		const law = defined(
+			model.theory.laws.find(
+				(l) =>
+					l.detail.kind === "family" &&
+					l.detail.family.id.owner === family.id.owner &&
+					l.detail.family.id.count === family.id.count
+			),
 			`the law of the counted family ${family.owner}.${family.count}`
 		)
-	})
-	return Result.ok((rows): Result.Result<PreviewRowsByName, PreviewRefusal> => {
-		const members = memberFactsOf(flight.binding.members, rows)
-		if (!members.ok) {
-			return Result.err({ _tag: "InputRefused", failure: members.error })
+		const described = lawDescription(law)
+		if (described.kind !== "family") {
+			throw defect(`the law of the counted family ${family.owner}.${family.count}, a family's`)
 		}
-		const bound = bindWrite(flight, { members: members.value, params: {}, transport })
+		return { _tag: "OwnerAbsent", law: described }
+	}
+	/** Every writable relation's rows of a call that writes none. */
+	const none = once((): PreviewRowsByName =>
+		Object.freeze(Object.fromEntries(names.map((name) => [name, Object.freeze([])] as const)))
+	)
+	return (rows): PreviewAnswer => {
+		const call = memberFactsOf(every, rows)
+		if (!call.ok) {
+			return Result.err({ _tag: "InputRefused", failure: call.error })
+		}
+		if (call.value.written.length === 0) {
+			return Result.ok(none())
+		}
+		const compiled = writeFor(call.value.written)
+		if (!compiled.ok) {
+			return Result.err({ _tag: "Uncompiled", error: compiled.error })
+		}
+		const { host, fields } = compiled.value
+		const bound = bindRows(host, { members: call.value.facts, params: {}, transport })
 		if (!bound.ok) {
 			return Result.err({ _tag: "InputRefused", failure: bound.error })
 		}
@@ -331,8 +412,81 @@ export const previewOver = (
 				Object.fromEntries([...byRelation].map(([name, of]) => [name, Object.freeze(of)] as const))
 			)
 		)
-	})
+	}
 }
+
+/**
+ * The inserts of a schema's families as its readers compile them (see the header): `writeOf(stated)` the insert of the
+ * families a call that states rows of `stated` writes (`writtenFamilies`, `previewWrite`), or the CompileError it
+ * refuses by, compiled where a reader first writes those families and kept for every later reader of the schema value,
+ * a preview's call (`previewOver`) and a facts decoder's (program/decode.ts) alike.
+ */
+export interface FamilyInserts {
+	readonly writeOf: (stated: ReadonlyArray<string>) => Result.Result<PreviewWrite, CompileError>
+}
+
+/**
+ * Each built schema's family inserts (FamilyInserts), by the law model its value holds (program/schema.ts
+ * builtLawModel), one model to a schema value: what every reader of one schema value in a process compiles of its
+ * families' inserts, once. A WeakMap holds nothing alive and is never enumerated: it is the schema value's state.
+ */
+const familyInserts = new WeakMap<LawModel, FamilyInserts>()
+
+/** The family inserts of `schema`, whose law model is `model` (`familyInserts`). */
+export const familyInsertsOf = (schema: AnySchema, model: LawModel): FamilyInserts => {
+	const known = familyInserts.get(model)
+	if (known !== undefined) {
+		return known
+	}
+	const insertable: ReadonlyArray<string> = insertableNamesOf(schema)
+	const compile: PreviewCompile = {
+		schema,
+		model,
+		codes: firstCodebook(rostersOf(model.owned)),
+		closed: once(() => closedTableOf({ schema: model.checked })),
+		patterns: new CompilePatterns()
+	}
+	/** The insert of each set of families a call wrote, by the top-level relations it inserts, in the schema's order. */
+	const writes = new TupleMap<ReadonlyArray<string>, Result.Result<PreviewWrite, CompileError>>()
+	/** The top-level relations each call's stated relations make it insert (`writtenFamilies`), by those relations. */
+	const inserts = new TupleMap<ReadonlyArray<string>, ReadonlyArray<string>>()
+	const made: FamilyInserts = {
+		writeOf: (stated) => {
+			let inserted = inserts.get(stated)
+			if (inserted === undefined) {
+				const families = writtenFamilies(model, stated)
+				inserted = insertable.filter((name) => families.has(name))
+				inserts.set(stated, inserted)
+			}
+			const compiled = writes.get(inserted)
+			if (compiled !== undefined) {
+				return compiled
+			}
+			const write = previewWrite(compile, inserted)
+			writes.set(inserted, write)
+			return write
+		}
+	}
+	familyInserts.set(model, made)
+	return made
+}
+
+/**
+ * insertPreview over `transport` for a caller whose schema is known only at run time (see the header): `schema`'s law
+ * model compiled, or the schema's CompileError; each call reads its rows off the caller's record (`memberFactsOf`), and
+ * binds them by the insert of the families it writes, compiled where a reader of the schema value first writes them
+ * (`familyInsertsOf`), under `transport`, the message bound of the wire the write would go over, so the preview
+ * refuses what the write would (InputRefused), and gives every writable relation's rows by name. insertPreviewOver is
+ * this one under S's types.
+ */
+export const previewOver = (
+	schema: AnySchema,
+	transport: Transport
+): Result.Result<(rows: unknown) => PreviewAnswer, CompileError> =>
+	Result.map(
+		Result.flatMap(parseBuiltSchema(schema, captureLoc("insertPreview", [])), builtLawModel),
+		(model) => previewThrough(schema, model, transport, familyInsertsOf(schema, model).writeOf)
+	)
 
 /**
  * insertPreview over `transport` (see the header), the shell's (packages/grizzle adapter/public/host.ts): `previewOver`

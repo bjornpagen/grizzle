@@ -8,6 +8,7 @@ import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import { callerParams } from "#compiler/ir/products.ts"
 import type {
 	RelationColumn,
 	ServedSlot,
@@ -15,6 +16,9 @@ import type {
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
+import type { HostBinding } from "#compiler/runtime/write/bind.ts"
+import { prepareBinding } from "#compiler/runtime/write/binding.ts"
+import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import {
 	type FlightWrite,
 	loadWrite,
@@ -26,8 +30,9 @@ import {
 } from "#compiler/runtime/write/flight.ts"
 import type { PreparedStaged, Staged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep, UniqueAbort } from "#compiler/runtime/write/steps.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
+import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type {
 	ArtifactForms,
 	ArtifactStatement,
@@ -35,7 +40,7 @@ import type {
 	SentForm
 } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
-import { closedTableOf } from "#compiler/write/program/decide.ts"
+import { closedTableOf, decideBinding } from "#compiler/write/program/decide.ts"
 import { partedOf } from "#compiler/write/program/single.ts"
 
 /** A relation input's column as its encoder reads it: its name and type. */
@@ -211,3 +216,24 @@ export const projectWrite = (compiled: CompiledWrite): ServedWrite =>
  * served one is. */
 export const flightOf = (compiled: CompiledWrite, codes: Codebook): FlightWrite =>
 	loadWrite(projectWrite(compiled), codes, closedTableOf(compiled.frontend), new CompilePatterns())
+
+/**
+ * A write's host half compiled in process from its front end, no statement built (runtime/write/bind.ts HostBinding):
+ * its declared parameters and its binding (decide.ts decideBinding), prepared under the installation's codes, the
+ * closed table and the patterns `patterns` as a loaded write's is (runtime/write/binding.ts prepareBinding). What an
+ * insertion preview binds its rows by (program/preview.ts), which reads no statement.
+ */
+export const hostBindingOf = (
+	frontend: WriteFrontend,
+	codes: Codebook,
+	closed: ClosedTable,
+	patterns: PatternReads
+): HostBinding => {
+	const binding = decideBinding(frontend)
+	return Object.freeze({
+		params: callerParams(frontend.params),
+		binding,
+		prepared: prepareBinding(binding, codes, closed, patterns),
+		codes
+	})
+}

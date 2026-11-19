@@ -153,7 +153,7 @@ const slots: Readonly<Record<Top, string>> = {
  */
 export const writtenOf = (
 	relation: Top,
-	refused: Exclude<FactsRefused, { readonly _tag: "DomainRefused" }>
+	refused: Exclude<FactsRefused, { readonly _tag: "DomainRefused" | "Uncompiled" }>
 ): { readonly fault: string; readonly place: EncodingPlace } => {
 	switch (refused._tag) {
 		case "RowsRefused":

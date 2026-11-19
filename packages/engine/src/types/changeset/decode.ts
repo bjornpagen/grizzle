@@ -3,7 +3,7 @@
  * of one relation, decoded from a value of any shape, or where the insert's own admission refuses them.
  */
 import type { Result } from "effect"
-import type { CodecFault } from "#compiler/core/errors.ts"
+import type { CodecFault, CompileError } from "#compiler/core/errors.ts"
 import type { InsertableNameOf, InsertAllRowsOf } from "#compiler/types/changeset/changeset.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 
@@ -19,7 +19,9 @@ export type RowPlace =
  *   another shape than its relation's addition (`factShape` at its shape, or at a field it lacks), a NULL
  *   (`nullValue`), or a value its field's type does not hold (scalar/values/identity.ts admitValue);
  * - `DomainRefused`: the row at `row` holds at `field` a value outside its type's contract or patterns, which its
- *   domain's CHECK refuses once PostgreSQL stores it, as rowEvaluator's admit refuses it.
+ *   domain's CHECK refuses once PostgreSQL stores it, as rowEvaluator's admit refuses it;
+ * - `Uncompiled`: the insert of the relation's families refused as it compiled, `error` its CompileError, which a
+ *   decoder compiles where it first decodes the relation (program/decode.ts).
  * A nested member's field is named as the write names it, by the field alone, at the row whose nesting holds it.
  */
 export type FactsRefused =
@@ -31,6 +33,7 @@ export type FactsRefused =
 			readonly fault: CodecFault
 	  }
 	| { readonly _tag: "DomainRefused"; readonly row: number; readonly field: string }
+	| { readonly _tag: "Uncompiled"; readonly error: CompileError }
 
 /**
  * A schema's facts decoder (program/decode.ts factsDecoderOver): `decode(K, value)` is the value as the rows insertAll

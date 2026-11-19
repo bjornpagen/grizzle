@@ -854,30 +854,34 @@ const compile = (
 	/** 1. Check the members and read-backs, merging their queries into one DAG in that order. */
 	const merger = new QueryMerger()
 	const params = new Map<string, ParamDecl>()
-	/** Every ordinary relation of the base as a member writes it: its declared keys with their laws, its unique objects
-	 * and its host checks. */
-	const writable = new Map(
-		[...laws.relations].map(([name, written]): readonly [string, WrittenRelation] => {
-			const uniques = relationUniques(written)
-			const keyLaws = Object.freeze(
-				mapNonEmpty(uniques.keys, (u): KeyLaw =>
-					Object.freeze({ fields: keyWitness(u), law: u.law, described: u.described })
-				)
+	/** Each ordinary relation of the base the ChangeSet writes, as a member writes it (`writtenOf`), built where the
+	 * compile first reads it, so a compile reads of the base only the relations its ChangeSet writes. */
+	const writable = new Map<string, WrittenRelation>()
+	/** An ordinary relation of the base as a member writes it: its declared keys with their laws, its unique objects and
+	 * its host checks. */
+	const writtenOf = (name: string, loc: SourceLoc): WrittenRelation => {
+		const known = writable.get(name)
+		if (known !== undefined) {
+			return known
+		}
+		const written =
+			laws.relations.get(name) ??
+			refuse("MalformedDescription", loc, `an ordinary relation of the schema, not ${name}`)
+		const uniques = relationUniques(written)
+		const keyLaws = Object.freeze(
+			mapNonEmpty(uniques.keys, (u): KeyLaw =>
+				Object.freeze({ fields: keyWitness(u), law: u.law, described: u.described })
 			)
-			return [
-				name,
-				Object.freeze({
-					...written.relation,
-					keyLaws,
-					uniques,
-					host: hostChecks(keyLaws, uniques)
-				})
-			]
+		)
+		const made: WrittenRelation = Object.freeze({
+			...written.relation,
+			keyLaws,
+			uniques,
+			host: hostChecks(keyLaws, uniques)
 		})
-	)
-	const writtenOf = (name: string, loc: SourceLoc): WrittenRelation =>
-		writable.get(name) ??
-		refuse("MalformedDescription", loc, `an ordinary relation of the schema, not ${name}`)
+		writable.set(name, made)
+		return made
+	}
 	/** The schema's families: a nested insert reaches some of them (write/family/nesting.ts). */
 	const families = laws.families
 

@@ -85,6 +85,10 @@ export const decodeRefusesExactlyWhereTheInsertsOwnAdmissionRefusesAtTheSameFiel
 					switch (refusal._tag) {
 						case "RowsRefused":
 							return k.note("rows that are no array")
+						case "Uncompiled":
+							return assert.fail(
+								`the insert of ${relation}'s families compiles: ${refusal.error.message}`
+							)
 						case "DomainRefused":
 							k.note("a value its domain refuses")
 							break
@@ -129,8 +133,10 @@ export const decodeRefusesExactlyWhereTheInsertsOwnAdmissionRefusesAtTheSameFiel
 							`the faulted relation's decode alone refuses, where the write refuses ${refusal.failure.reason._tag}`
 						)
 					}
-					if (one.refusal._tag === "DomainRefused") {
-						return assert.fail(`decode refuses by a domain where the write refuses the input`)
+					if (one.refusal._tag === "DomainRefused" || one.refusal._tag === "Uncompiled") {
+						return assert.fail(
+							`decode refuses by ${one.refusal._tag} where the write refuses the input`
+						)
 					}
 					assert.deepEqual(
 						writtenOf(one.relation, one.refusal),
@@ -208,7 +214,11 @@ const workSites = Object.freeze({
 	splits: { file: "packages/engine/src/runtime/write/addition.ts", name: "relationSplit" }
 })
 
-/** A decoder compiled and every relation's rows decoded, its rows each admitted. */
+/**
+ * A decoder compiled and every relation's rows decoded, its rows each admitted. A relation's insert, its headings
+ * planned among it, is compiled where a reader of the schema value first writes or decodes the relation and shared by
+ * every later one (program/preview.ts familyInsertsOf), so a decoder's own work is counted past a first decode.
+ */
 const decodeAll = (rows: Readonly<Record<Top, ReadonlyArray<unknown>>>) =>
 	Effect.sync(() => {
 		const decode = Result.getOrThrow(factsDecoder(Decoded))
@@ -223,6 +233,7 @@ export const aDecoderPlansEachHeadingParsesEachPatternAndSplitsEachNestingOnceWh
 		situations: [],
 		check: () => (rows) =>
 			Effect.gen(function* () {
+				yield* decodeAll(rows.once)
 				const [once, onceCounts] = yield* callCounts(decodeAll(rows.once), workSites)
 				const [twice, twiceCounts] = yield* callCounts(decodeAll(rows.twice), workSites)
 				assert.ok(
@@ -230,8 +241,8 @@ export const aDecoderPlansEachHeadingParsesEachPatternAndSplitsEachNestingOnceWh
 					"every relation's rows are admitted"
 				)
 				assert.ok(
-					onceCounts.plans > 0 && onceCounts.parses > 0 && onceCounts.splits > 0,
-					"a decoder plans its headings, parses its patterns and splits its nestings"
+					onceCounts.parses > 0 && onceCounts.splits > 0,
+					"a decoder parses its patterns and splits its nestings"
 				)
 				assert.deepEqual(twiceCounts, onceCounts, "twice the rows, the same work")
 			}),
@@ -250,7 +261,7 @@ export const aDecoderPlansEachHeadingParsesEachPatternAndSplitsEachNestingOnceWh
 				file: "packages/engine/src/program/decode.ts",
 				original: "\t\t\t\t\tconst field = domainOf(judge, read)",
 				replacement:
-					"\t\t\t\t\tconst field = domainOf(judgeOf(closedTableOf(compiled.frontend), new CompilePatterns()), read)",
+					"\t\t\t\t\tconst field = domainOf(judgeOf(closedTableOf({ schema: model.checked }), new CompilePatterns()), read)",
 				why: "Each row's domains are judged by a judge of its own, its patterns parsed again: twice the rows parse twice as often."
 			}
 		]

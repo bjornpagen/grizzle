@@ -31,6 +31,7 @@ import {
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { runsLargeForm } from "#compiler/runtime/lower/take.ts"
 import type {
+	Binding,
 	CountedFamily,
 	FamilyNames,
 	FreshStratum,
@@ -122,8 +123,25 @@ export interface FamilyRowBound {
 	readonly row: Unsendable
 }
 
-export interface BoundWrite {
+/**
+ * A write's host half as an application binds its rows (`bindRows`): its declared parameters, its binding, the binding's
+ * closures and the installation's codes, what a loaded write holds besides its statements (runtime/write/flight.ts
+ * FlightWrite).
+ */
+export type HostBinding = Pick<FlightWrite, "params" | "binding" | "prepared" | "codes">
+
+/** An application's rows bound on the host (`bindRows`), before any statement is written. */
+export interface BoundRows {
 	readonly kind: "bound"
+	/** The rows the ChangeSet states as the write fills them (runtime/write/witness.ts StatedRows), which a refusal of
+	 * one of its statements judges. */
+	readonly stated: StatedRows
+	/** The rows the write's statements insert, as this application filled them before any SQL, by stratum
+	 * (`InsertedStratum`), each read where it is asked for. */
+	readonly inserted: () => ReadonlyArray<InsertedStratum>
+}
+
+export interface BoundWrite extends BoundRows {
 	/** The positions of the write's statements the application sends nothing of: their rows need an input that holds no
 	 * fact, or, for a single statement, every part's does (ir/needs.ts, runtime/write/parted.ts). */
 	readonly skip: ReadonlySet<number>
@@ -139,12 +157,6 @@ export interface BoundWrite {
 	) => Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound>
 	/** Each statement's executions in the write's one flight (`Chunks`), none of a statement it skips. */
 	readonly chunks: Chunks
-	/** The rows the ChangeSet states as the write fills them (runtime/write/witness.ts StatedRows), which a refusal of
-	 * one of its statements judges. */
-	readonly stated: StatedRows
-	/** The rows the write's statements insert, as this application filled them before any SQL, by stratum
-	 * (`InsertedStratum`), each read where it is asked for. */
-	readonly inserted: () => ReadonlyArray<InsertedStratum>
 }
 
 /**
@@ -237,12 +249,11 @@ const unfilled: FilledColumn = Object.freeze({ kind: "unfilled" })
 const unreportedWitness: Witness = Object.freeze({ kind: "unreported" })
 
 /**
- * What binding one application gives: its bound write; a same-key conflict among its facts, by its key law, the stored
- * relation whose key's constraint refuses it (`relation`, a query entry's target) and its witness, in the words the
- * facts were stated in; or a generated field's refusal.
+ * A binding's refusal before any SQL: a same-key conflict among its facts, by its key law, the stored relation whose
+ * key's constraint refuses it (`relation`, a query entry's target) and its witness, in the words the facts were stated
+ * in; or a generated field's refusal.
  */
-export type BindResult =
-	| BoundWrite
+type Rejected =
 	| {
 			readonly kind: "invariant-rejected"
 			readonly relation: StoredRelationName
@@ -251,6 +262,12 @@ export type BindResult =
 			readonly witness: Witness
 	  }
 	| { readonly kind: "generated-rejected"; readonly rejection: GeneratedRejection }
+
+/** What binding one application's rows on the host gives (`bindRows`): its bound rows, or its refusal. */
+export type RowsResult = BoundRows | Rejected
+
+/** What binding one application gives (`bindWrite`): its bound write, or its refusal. */
+export type BindResult = BoundWrite | Rejected
 
 /** A statement sent inline, whose nested rows, a single statement's none, ride its own Bind message. */
 const inline: PreparedStaged = Object.freeze({ kind: "none" })
@@ -277,29 +294,47 @@ const sentFormOf = (
 	}
 }
 
-/** Normalizes and encodes one application's inputs.
- *
- * Binding one application's inputs to a WriteProgram, before any SQL is sent.
- *
- * 1. Admission of every declared parameter's value, a relation parameter's facts normalized: a value missing or outside
- *    its type is its EncodingFailure, whatever the members hold, so no law the members break answers for an
- *    application its caller did not complete.
- * 2. Host normalization of every enumerated member: admission through each column's exact carrier,
- *    collapse of equal facts, refusal of conflicting additions under a declared key, and netting of additions against
- *    deletions. A conflict is invariant-rejected with the key law before any SQL is sent, once every member is
- *    admitted. A commit is never split, whatever its members' sizes.
- * 3. Each statement's placeholder texts, through the statement's own encoders: a member slot's normalized facts as its
- *    arrays, a declared parameter's value (a ChangeSet.bind value under its private name, or the caller's), and an
- *    attachment's delivered parent keys from its parent statement's rows. A statement whose rows need an input that
- *    holds no fact writes and returns nothing, so it is not sent, nor, of a single statement, a part whose does: the
- *    statement is sent as the units of its other parts (runtime/write/parted.ts), and as none where no part is left. A
- *    column whose array would be longer than one string holds is refused as its LiteralBound, which the shell raises
- *    as InputTooLarge. */
-export const bindWrite = (
-	flight: FlightWrite,
+/** A counted family's fresh layout at a stratum, which `binding` decided for every family a stratum reaches. */
+const freshLayoutAt = (binding: Binding, stratum: StratumAt, family: string): LaidLayout =>
+	defined(
+		binding.fresh.find((f) => f.stratum === stratum)?.fresh.get(family),
+		`the fresh layout of family ${family} in stratum ${stratum}`
+	)
+
+/** Where `relation` stands in a nested write of `stratum` that fills its rows (binding.ts NestedAt). */
+const nestedAt = (
+	binding: Binding,
+	stratum: StratumAt,
+	relation: StoredRelationName
+): NestedLayoutData =>
+	defined(
+		binding.nested.find((n) => n.stratum === stratum)?.layouts.get(relation),
+		`the nested layout of ${relation}, a relation a nested write of stratum ${stratum} fills`
+	)
+
+/**
+ * An application's rows bound on the host (`hostRows`), with what its statements' binding reads of them
+ * (`boundStatements`): each relation parameter's normalized input and its distinct fact count, each member slot's
+ * normal facts, the rows its statements send, and each counted family's fresh members.
+ */
+interface HostRows extends BoundRows {
+	readonly relationInputs: ReadonlyMap<ParamId, NormalizedRelation>
+	readonly counted: ReadonlyArray<{ readonly param: ParamId; readonly count: number }>
+	readonly factsOf: (slot: ParamId) => NormalizedSlot
+	readonly sentRows: WriteRows
+	readonly freshMembersOf: (stratum: StratumAt, family: string) => ReadonlyArray<CellRow>
+}
+
+/**
+ * Binds one application's rows on the host, before any statement is written: steps 1 and 2 of `bindWrite`, every
+ * member's facts admitted and normalized, each counted family's fresh groups drawn and every row the write's statements
+ * insert filled, from the write's host half alone (`HostBinding`), its statements unread.
+ */
+const hostRows = (
+	host: HostBinding,
 	inputs: BindInputs
-): Result.Result<BindResult, EncodingFailure | MessageBound | LiteralBound> => {
-	const { binding, prepared, codes } = flight
+): Result.Result<HostRows | Rejected, EncodingFailure | MessageBound | LiteralBound> => {
+	const { binding, prepared, codes } = host
 	/** The declared parameters' values; each relation parameter's distinct fact count, which chooses the form of a
 	 * statement whose take its rows bound (`sentForm`). */
 	const counted: Array<{ readonly param: ParamId; readonly count: number }> = []
@@ -307,7 +342,7 @@ export const bindWrite = (
 	 * that binds it read. */
 	const relationInputs = new Map<ParamId, NormalizedRelation>()
 	const paramValue = (name: string): unknown => inputs.params[name]
-	for (const decl of flight.params) {
+	for (const decl of host.params) {
 		const value = paramValue(decl.name)
 		if (decl.kind === "relation") {
 			const normalize = parameterNormalizer({
@@ -371,120 +406,6 @@ export const bindWrite = (
 	 * lookup, a key fixed at compile time against a table built at run time, which no type makes total. */
 	const factsOf = (slot: ParamId): NormalizedSlot =>
 		defined(normalized.slots.get(slot), `the normal facts of member slot ${slot}`)
-	/** Whether an input a statement's rows need holds a fact: a relation parameter by its normalized input's count, a
-	 * member slot by its normal facts'. */
-	const holdsFact = (input: NeededInput): boolean => {
-		switch (input.kind) {
-			case "declared":
-				return (
-					defined(
-						relationInputs.get(input.param),
-						`the normalized input of relation parameter ${input.param}`
-					).count > 0
-				)
-			case "member":
-				return factsOf(input.slot).count > 0
-		}
-	}
-	/**
-	 * A placeholder's text: a declared parameter's host value, by its declared name; the array at its part of a
-	 * relation parameter's normalized input or a member slot's facts in `rows`, which its own encoder writes; or the array
-	 * of one column of a stratum's nested rows of a relation in `rows`, in their sent layout, as a family statement's rows
-	 * are written (order.ts columnArray).
-	 */
-	const encodeSlot = (
-		slot: WriteSlot,
-		rows: WriteRows
-	): Result.Result<Param, EncodingFailure | LiteralBound> => {
-		switch (slot.kind) {
-			case "scalar":
-				return slot.encode(inputs.params[slot.param])
-			case "relation":
-				return slot.encode(
-					defined(
-						relationInputs.get(slot.param),
-						`the normalized input of relation parameter ${slot.param}`
-					),
-					slot.part
-				)
-			case "member":
-				return slot.encode(rows.slot(slot.slot), slot.part)
-			case "nestedRows": {
-				const cells = filledCellsOf(rows.nested, slot.stratum, slot.relation, slot.rows)
-				return nestedColumn(cells, slot.part, cells.rows)
-			}
-		}
-	}
-	/** A counted family's fresh layout at a stratum, which the binding decided for every family a stratum reaches. */
-	const freshLayoutAt = (stratum: StratumAt, family: string): LaidLayout =>
-		defined(
-			binding.fresh.find((f) => f.stratum === stratum)?.fresh.get(family),
-			`the fresh layout of family ${family} in stratum ${stratum}`
-		)
-	/**
-	 * A stratum's host-filled rows of `relation` (ir/products.ts FilledRows) as their placeholders carry them: their
-	 * layout's column types, and each row's cells in its order (write/program/staged.ts NestedCells): the walk's nested
-	 * rows (`nestedRows`) in their sent layout, or a counted family's fresh groups' members, as the stratum's fresh fill
-	 * drew them (`freshOwners`), in the family's fresh layout.
-	 */
-	const filledCellsOf = (
-		nestedRows: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>,
-		stratum: StratumAt,
-		relation: StoredRelationName,
-		rows: FilledRows
-	): NestedCells => {
-		switch (rows.kind) {
-			case "walked":
-				return nestedCellsOf(nestedRows, stratum, relation)
-			case "fresh": {
-				const layout = freshLayoutAt(stratum, rows.family)
-				const cellsOf = cellsReader(codes, prepared.columns(relation), layout)
-				return {
-					relation,
-					types: [...layout.key, ...layout.columns].map((c) => c.type),
-					rows: freshMembersOf(stratum, rows.family).map((m) => cellsOf(m.values, m.texts))
-				}
-			}
-		}
-	}
-	/** A stratum's nested rows of `relation` as their placeholders carry them: their sent layout's column types, and each
-	 * row's cells in its order (write/program/staged.ts NestedCells), as the row holds them. */
-	const nestedCellsOf = (
-		nestedRows: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>,
-		stratum: StratumAt,
-		relation: StoredRelationName
-	): NestedCells => {
-		const layout = sentLayout(nestedAt(stratum, relation))
-		return {
-			relation,
-			types: [...layout.key, ...layout.columns].map((c) => c.type),
-			rows: nestedRows(stratum, relation).map((row) => row.cells)
-		}
-	}
-	/** Whether a choice runs its whole-relation form: the relation parameter it reads, counted above, holds more distinct
-	 * facts than its threshold. Both forms deliver the same rows, so the count decides only which one is sent. */
-	const runsLarge = (choice: ServedWriteChoice): boolean =>
-		counted.some((p) => p.param === choice.source.param && runsLargeForm(choice, p.count))
-	/**
-	 * The form each statement the call sends sends, by its position: a whole statement's chosen form (`sentForm`), where
-	 * its rows' needs hold (ir/needs.ts); a single statement's assembled of the units of its chosen form the call's inputs
-	 * give rows (runtime/write/parted.ts). A statement of none the call skips.
-	 */
-	const sentForms = new Map<number, FlightForm>()
-	for (const statement of flight.statements) {
-		const sent = sentFormOf(statement, runsLarge, holdsFact)
-		if (sent !== undefined) {
-			sentForms.set(statement.index, sent)
-		}
-	}
-	const skip: ReadonlySet<number> = new Set(
-		flight.statements.flatMap(({ index }) => (sentForms.has(index) ? [] : [index]))
-	)
-	const form = (statement: FlightStatement): FlightForm =>
-		defined(
-			sentForms.get(statement.index),
-			`the form of statement ${statement.index}, which the call sends`
-		)
 	/** A stratum's nested rows of a relation as normalization left them, each as the walk filled it. */
 	const normalNestedRows = (
 		stratum: StratumAt,
@@ -638,12 +559,6 @@ export const bindWrite = (
 			)
 		)
 	}
-	/** Where `relation` stands in a nested write of `stratum` that fills its rows (binding.ts NestedAt). */
-	const nestedAt = (stratum: StratumAt, relation: StoredRelationName): NestedLayoutData =>
-		defined(
-			binding.nested.find((n) => n.stratum === stratum)?.layouts.get(relation),
-			`the nested layout of ${relation}, a relation a nested write of stratum ${stratum} fills`
-		)
 	/**
 	 * A generated field with no value a stratum's plan filled a row by (runtime/write/fill.ts GeneratedNull) as its
 	 * write's refusal: the field's law, witnessed by the first row the ChangeSet states of its relation at `stratum`
@@ -680,7 +595,11 @@ export const bindWrite = (
 		binding.fresh,
 		normalRows,
 		(stratum, relation) =>
-			cellsReader(codes, prepared.columns(relation), sentLayout(nestedAt(stratum, relation)))
+			cellsReader(
+				codes,
+				prepared.columns(relation),
+				sentLayout(nestedAt(binding, stratum, relation))
+			)
 	)
 	if (!freshlyCounted.ok) {
 		const refusal = freshlyCounted.error
@@ -706,70 +625,6 @@ export const bindWrite = (
 		slot: (slot) => fresh.get(slot) ?? factsOf(slot),
 		nested: (stratum, relation) =>
 			freshlyCounted.value.nested.get(stratum)?.get(relation) ?? normalNestedRows(stratum, relation)
-	}
-	/** A row of a nested relation no fill carries even alone, as the first family it is a member of names it (binding.ts
-	 * Binding rowFamilies). */
-	const nestedRowBound = (bound: NestedRowBound): FamilyRowBound => ({
-		_tag: "FamilyRowBound",
-		family: defined(
-			binding.rowFamilies.get(bound.relation),
-			`a family whose member is ${bound.relation}, a relation a nested write fills`
-		),
-		row: bound.row
-	})
-	/**
-	 * Every stratum's nested rows of a relation a statement of the flight sends, by stratum and relation, as each
-	 * statement that sends them reads them (staged.ts NestedSource): built once for the write, where a statement first
-	 * sends them (`sourceOf`), so no statement builds, writes or measures the cells or a column another statement sends,
-	 * and a binding none of whose statements is sent, an insertion preview's (program/preview.ts), encodes none.
-	 */
-	const sources = new TupleMap<readonly [StratumAt, StoredRelationName, string], NestedSource>()
-	const sourceOf = (slot: Extract<WriteSlot, { readonly kind: "nestedRows" }>): NestedSource => {
-		const key = [slot.stratum, slot.relation, filledRowsKey(slot.rows)] as const
-		const built = sources.get(key)
-		if (built !== undefined) {
-			return built
-		}
-		const source = nestedSource(
-			filledCellsOf(sentRows.nested, slot.stratum, slot.relation, slot.rows)
-		)
-		sources.set(key, source)
-		return source
-	}
-	/** A statement's placeholder values, each as its executions send it (`encodeSlot`): the member slots' facts and the
-	 * strata's nested rows as the write sends them (`sentRows`). */
-	const values = (
-		statement: FlightStatement
-	): Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound> =>
-		Result.each(form(statement).paramSlots, (slot) => encodeSlot(slot, sentRows))
-	/**
-	 * The executions under `transport` of a statement: its one, or, where its nested rows' arrays are past the
-	 * transport's message, its staged form's (`Chunks`); each placeholder of nested rows sends its source as the write
-	 * built it (`sourceOf`).
-	 */
-	const chunks: Chunks = (statement, transport) => {
-		const sent = sentForms.get(statement.index)
-		if (sent === undefined) {
-			return Result.ok([])
-		}
-		const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>
-			slot.kind === "nestedRows" ? { part: slot.part, source: sourceOf(slot) } : undefined
-		)
-		const executions = executionsOf(
-			{ text: sent.text, staged: statement.kind === "whole" ? statement.staged : inline, nested },
-			partOf(statement.step),
-			(position) =>
-				encodeSlot(
-					defined(sent.paramSlots[position], "a placeholder of the statement's form"),
-					sentRows
-				),
-			transport
-		)
-		if (executions.ok) {
-			return executions
-		}
-		const refused = executions.error
-		return Result.err(refused._tag === "NestedRowBound" ? nestedRowBound(refused) : refused)
 	}
 	/**
 	 * The reader of a row's primary key texts in `relation`, which its rows are a set by, as a nested row's key is
@@ -848,7 +703,7 @@ export const bindWrite = (
 						/** The columns the family's statement takes of a member it drew, its fresh layout's beside its key: a
 						 * member's own fields, its counts and ends among them where it owns a family, are its other sources'. */
 						const memberColumns = prepared.columns(f.member)
-						const taken = freshLayoutAt(stratum, familyKey(f.id)).columns.map((c) =>
+						const taken = freshLayoutAt(binding, stratum, familyKey(f.id)).columns.map((c) =>
 							memberColumns.at(c.key)
 						)
 						const keyOf = keyReader(f.member)
@@ -885,14 +740,241 @@ export const bindWrite = (
 			})
 	return Result.ok({
 		kind: "bound",
+		stated: statedRowsOf({ kind: "sent", rows: sentRows, drawn: (slot) => fresh.has(slot) }),
+		inserted,
+		relationInputs,
+		counted,
+		factsOf,
+		sentRows,
+		freshMembersOf
+	})
+}
+
+/**
+ * Binds one application's rows on the host (`hostRows`): its rows as the write's statements would insert them, or the
+ * refusal its binding meets before any SQL, reading the write's host half alone, so a reader of the rows, an insertion
+ * preview (program/preview.ts), binds a write it compiled no statement of.
+ */
+export const bindRows: (
+	host: HostBinding,
+	inputs: BindInputs
+) => Result.Result<RowsResult, EncodingFailure | MessageBound | LiteralBound> = hostRows
+
+/**
+ * The statements' half of one application's binding (see `bindWrite`, step 3), over `host`, its rows bound on the host
+ * (`hostRows`): the form each statement sends, its placeholder values and its executions.
+ */
+const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows): BoundWrite => {
+	const { binding, prepared, codes } = flight
+	const { relationInputs, counted, factsOf, sentRows, freshMembersOf } = host
+	/** Whether an input a statement's rows need holds a fact: a relation parameter by its normalized input's count, a
+	 * member slot by its normal facts'. */
+	const holdsFact = (input: NeededInput): boolean => {
+		switch (input.kind) {
+			case "declared":
+				return (
+					defined(
+						relationInputs.get(input.param),
+						`the normalized input of relation parameter ${input.param}`
+					).count > 0
+				)
+			case "member":
+				return factsOf(input.slot).count > 0
+		}
+	}
+	/**
+	 * A placeholder's text: a declared parameter's host value, by its declared name; the array at its part of a
+	 * relation parameter's normalized input or a member slot's facts in `rows`, which its own encoder writes; or the array
+	 * of one column of a stratum's nested rows of a relation in `rows`, in their sent layout, as a family statement's rows
+	 * are written (order.ts columnArray).
+	 */
+	const encodeSlot = (
+		slot: WriteSlot,
+		rows: WriteRows
+	): Result.Result<Param, EncodingFailure | LiteralBound> => {
+		switch (slot.kind) {
+			case "scalar":
+				return slot.encode(inputs.params[slot.param])
+			case "relation":
+				return slot.encode(
+					defined(
+						relationInputs.get(slot.param),
+						`the normalized input of relation parameter ${slot.param}`
+					),
+					slot.part
+				)
+			case "member":
+				return slot.encode(rows.slot(slot.slot), slot.part)
+			case "nestedRows": {
+				const cells = filledCellsOf(rows.nested, slot.stratum, slot.relation, slot.rows)
+				return nestedColumn(cells, slot.part, cells.rows)
+			}
+		}
+	}
+	/**
+	 * A stratum's host-filled rows of `relation` (ir/products.ts FilledRows) as their placeholders carry them: their
+	 * layout's column types, and each row's cells in its order (write/program/staged.ts NestedCells): the walk's nested
+	 * rows (`nestedRows`) in their sent layout, or a counted family's fresh groups' members, as the stratum's fresh fill
+	 * drew them (`freshOwners`), in the family's fresh layout.
+	 */
+	const filledCellsOf = (
+		nestedRows: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>,
+		stratum: StratumAt,
+		relation: StoredRelationName,
+		rows: FilledRows
+	): NestedCells => {
+		switch (rows.kind) {
+			case "walked":
+				return nestedCellsOf(nestedRows, stratum, relation)
+			case "fresh": {
+				const layout = freshLayoutAt(binding, stratum, rows.family)
+				const cellsOf = cellsReader(codes, prepared.columns(relation), layout)
+				return {
+					relation,
+					types: [...layout.key, ...layout.columns].map((c) => c.type),
+					rows: freshMembersOf(stratum, rows.family).map((m) => cellsOf(m.values, m.texts))
+				}
+			}
+		}
+	}
+	/** A stratum's nested rows of `relation` as their placeholders carry them: their sent layout's column types, and each
+	 * row's cells in its order (write/program/staged.ts NestedCells), as the row holds them. */
+	const nestedCellsOf = (
+		nestedRows: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>,
+		stratum: StratumAt,
+		relation: StoredRelationName
+	): NestedCells => {
+		const layout = sentLayout(nestedAt(binding, stratum, relation))
+		return {
+			relation,
+			types: [...layout.key, ...layout.columns].map((c) => c.type),
+			rows: nestedRows(stratum, relation).map((row) => row.cells)
+		}
+	}
+	/** Whether a choice runs its whole-relation form: the relation parameter it reads, counted above, holds more distinct
+	 * facts than its threshold. Both forms deliver the same rows, so the count decides only which one is sent. */
+	const runsLarge = (choice: ServedWriteChoice): boolean =>
+		counted.some((p) => p.param === choice.source.param && runsLargeForm(choice, p.count))
+	/**
+	 * The form each statement the call sends sends, by its position: a whole statement's chosen form (`sentForm`), where
+	 * its rows' needs hold (ir/needs.ts); a single statement's assembled of the units of its chosen form the call's inputs
+	 * give rows (runtime/write/parted.ts). A statement of none the call skips.
+	 */
+	const sentForms = new Map<number, FlightForm>()
+	for (const statement of flight.statements) {
+		const sent = sentFormOf(statement, runsLarge, holdsFact)
+		if (sent !== undefined) {
+			sentForms.set(statement.index, sent)
+		}
+	}
+	const skip: ReadonlySet<number> = new Set(
+		flight.statements.flatMap(({ index }) => (sentForms.has(index) ? [] : [index]))
+	)
+	const form = (statement: FlightStatement): FlightForm =>
+		defined(
+			sentForms.get(statement.index),
+			`the form of statement ${statement.index}, which the call sends`
+		)
+	/** A row of a nested relation no fill carries even alone, as the first family it is a member of names it (binding.ts
+	 * Binding rowFamilies). */
+	const nestedRowBound = (bound: NestedRowBound): FamilyRowBound => ({
+		_tag: "FamilyRowBound",
+		family: defined(
+			binding.rowFamilies.get(bound.relation),
+			`a family whose member is ${bound.relation}, a relation a nested write fills`
+		),
+		row: bound.row
+	})
+	/**
+	 * Every stratum's nested rows of a relation a statement of the flight sends, by stratum and relation, as each
+	 * statement that sends them reads them (staged.ts NestedSource): built once for the write, where a statement first
+	 * sends them (`sourceOf`), so no statement builds, writes or measures the cells or a column another statement sends,
+	 * and a binding none of whose statements is sent, an insertion preview's (program/preview.ts), encodes none.
+	 */
+	const sources = new TupleMap<readonly [StratumAt, StoredRelationName, string], NestedSource>()
+	const sourceOf = (slot: Extract<WriteSlot, { readonly kind: "nestedRows" }>): NestedSource => {
+		const key = [slot.stratum, slot.relation, filledRowsKey(slot.rows)] as const
+		const built = sources.get(key)
+		if (built !== undefined) {
+			return built
+		}
+		const source = nestedSource(
+			filledCellsOf(sentRows.nested, slot.stratum, slot.relation, slot.rows)
+		)
+		sources.set(key, source)
+		return source
+	}
+	/** A statement's placeholder values, each as its executions send it (`encodeSlot`): the member slots' facts and the
+	 * strata's nested rows as the write sends them (`sentRows`). */
+	const values = (
+		statement: FlightStatement
+	): Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound> =>
+		Result.each(form(statement).paramSlots, (slot) => encodeSlot(slot, sentRows))
+	/**
+	 * The executions under `transport` of a statement: its one, or, where its nested rows' arrays are past the
+	 * transport's message, its staged form's (`Chunks`); each placeholder of nested rows sends its source as the write
+	 * built it (`sourceOf`).
+	 */
+	const chunks: Chunks = (statement, transport) => {
+		const sent = sentForms.get(statement.index)
+		if (sent === undefined) {
+			return Result.ok([])
+		}
+		const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>
+			slot.kind === "nestedRows" ? { part: slot.part, source: sourceOf(slot) } : undefined
+		)
+		const executions = executionsOf(
+			{ text: sent.text, staged: statement.kind === "whole" ? statement.staged : inline, nested },
+			partOf(statement.step),
+			(position) =>
+				encodeSlot(
+					defined(sent.paramSlots[position], "a placeholder of the statement's form"),
+					sentRows
+				),
+			transport
+		)
+		if (executions.ok) {
+			return executions
+		}
+		const refused = executions.error
+		return Result.err(refused._tag === "NestedRowBound" ? nestedRowBound(refused) : refused)
+	}
+	return {
+		kind: "bound",
 		skip,
 		form,
 		values,
 		chunks,
-		stated: statedRowsOf({ kind: "sent", rows: sentRows, drawn: (slot) => fresh.has(slot) }),
-		inserted
-	})
+		stated: host.stated,
+		inserted: host.inserted
+	}
 }
+
+/** Normalizes and encodes one application's inputs.
+ *
+ * Binding one application's inputs to a WriteProgram, before any SQL is sent.
+ *
+ * 1. Admission of every declared parameter's value, a relation parameter's facts normalized: a value missing or outside
+ *    its type is its EncodingFailure, whatever the members hold, so no law the members break answers for an
+ *    application its caller did not complete.
+ * 2. Host normalization of every enumerated member: admission through each column's exact carrier,
+ *    collapse of equal facts, refusal of conflicting additions under a declared key, and netting of additions against
+ *    deletions. A conflict is invariant-rejected with the key law before any SQL is sent, once every member is
+ *    admitted. A commit is never split, whatever its members' sizes.
+ * 3. Each statement's placeholder texts, through the statement's own encoders: a member slot's normalized facts as its
+ *    arrays, a declared parameter's value (a ChangeSet.bind value under its private name, or the caller's), and an
+ *    attachment's delivered parent keys from its parent statement's rows. A statement whose rows need an input that
+ *    holds no fact writes and returns nothing, so it is not sent, nor, of a single statement, a part whose does: the
+ *    statement is sent as the units of its other parts (runtime/write/parted.ts), and as none where no part is left. A
+ *    column whose array would be longer than one string holds is refused as its LiteralBound, which the shell raises
+ *    as InputTooLarge. */
+export const bindWrite = (
+	flight: FlightWrite,
+	inputs: BindInputs
+): Result.Result<BindResult, EncodingFailure | MessageBound | LiteralBound> =>
+	Result.map(hostRows(flight, inputs), (rows) =>
+		rows.kind === "bound" ? boundStatements(flight, inputs, rows) : rows
+	)
 
 /** A row `inserted` keys by its primary key, as it builds it: its cells so far, its first source's own until another adds
  * to them, and the families that scan it, still growing. */

@@ -482,6 +482,32 @@ const schemaOf = (k: PreviewCase, hues: Hues, name: string) => {
 	}
 }
 
+/**
+ * A case's second version as a preview reads it, under no installation: its relations and statements, the families'
+ * and the palette's, and its call's facts as insertAll takes them, by relation name, its fault stated among them; and
+ * the palette's alone, its relations, statements and facts.
+ */
+export const previewInput = (k: PreviewCase) => {
+	const families = buildFill(k.spec)
+	const palette = paletteOf(secondHues)
+	const familyFacts = instanceFacts(k.spec, k.rows)
+	const paletteRows = paletteFacts(palette, k.swatches, k.fault)
+	return {
+		relations: [...Rec.values(families.relations), ...palette.relations],
+		statements: [...families.statements, ...palette.statements],
+		facts: {
+			...Rec.fromEntries(
+				Arr.map(
+					insertedRelations(k.spec),
+					(r) => [relationName(r), familyFacts.get(r) ?? []] as const
+				)
+			),
+			...paletteRows
+		},
+		palette: { relations: palette.relations, statements: palette.statements, facts: paletteRows }
+	}
+}
+
 /** The situations a case's schema and instance reach, before its call. */
 const reached = (k: PreviewCase): ReadonlyArray<PreviewFeature> => {
 	const { spec, rows, swatches } = k
@@ -632,16 +658,7 @@ export const previewCase = (k: PreviewCase, c: Case<PreviewFeature>) =>
 				review: noPlaceholders
 			}
 		)
-		const familyFacts = instanceFacts(k.spec, k.rows)
-		const facts = {
-			...Rec.fromEntries(
-				Arr.map(
-					insertedRelations(k.spec),
-					(r) => [relationName(r), familyFacts.get(r) ?? []] as const
-				)
-			),
-			...paletteFacts(second.palette, k.swatches, k.fault)
-		}
+		const { facts } = previewInput(k)
 		c.noteAll(reached(k))
 		for (const installed of [fresh, migrated]) {
 			const at = schemaOf(k, secondHues, installed.schema)
@@ -731,6 +748,10 @@ const judged = (
 				)
 				return
 			}
+			case "Uncompiled":
+				return assert.fail(
+					`the insert of the call's families compiles, as the installed write's does: ${Formatter.format(refusal.error)}: ${where}`
+				)
 		}
 	}
 	const evaluate = succeeded(rowEvaluator<AnySchema>(value), "the case's schema evaluates")

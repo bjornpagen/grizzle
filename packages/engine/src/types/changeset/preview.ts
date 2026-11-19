@@ -5,7 +5,7 @@
  * any SQL.
  */
 import type { Result } from "effect"
-import type { EncodingFailure } from "#compiler/core/errors.ts"
+import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import type { InsertAllRowsOf, OwnLaw, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { EvaluatedRow } from "#compiler/types/schema/evaluation.ts"
@@ -58,11 +58,21 @@ interface OwnerAbsent {
 }
 
 /**
+ * The insert of the families the call's rows write refused as it compiled, `error` its CompileError: a preview compiles
+ * the insert of the families a call writes where a call first writes them (program/preview.ts), so a refusal of their
+ * insert is the preview's, of each call that writes them.
+ */
+interface Uncompiled {
+	readonly _tag: "Uncompiled"
+	readonly error: CompileError
+}
+
+/**
  * What refuses a preview, as it refuses the write before any SQL. A law PostgreSQL judges once the statements run, a
  * check, a containment or a rule over a query, is none of these: the preview gives the rows, which rowEvaluator and
  * the laws judge.
  */
-export type PreviewRefusal = InputRefused | KeyConflict | GeneratedNull | OwnerAbsent
+export type PreviewRefusal = InputRefused | KeyConflict | GeneratedNull | OwnerAbsent | Uncompiled
 
 /**
  * The preview of an insertion into S (program/preview.ts insertPreviewOver): the rows its write stores, or its refusal,

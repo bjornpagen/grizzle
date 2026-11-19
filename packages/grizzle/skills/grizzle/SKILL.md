@@ -842,12 +842,14 @@ The command line's own refusals, by stage:
   value (`null` for NULL), each row check's `"holds"` or `"breaks"` by name, NULL breaking a table's check and a derived
   relation's alike, and whether the source keeps the row, each item a `Result` whose error is
   `Unevaluated`. Never restate a check, a selection or a generated expression in your own code to predict it. To know
-  on the host the rows an insertion stores, bind `const preview = insertPreview(schema)` once, which compiles (a
+  on the host the rows an insertion stores, bind `const preview = insertPreview(schema)` once, which compiles the law model (a
   `Result` over `CompileError`), then call `preview(rows)`, insertAll's record over every top-level relation: every writable relation's rows as `ChangeSet.empty(schema).insertAll(rows)`
   stores them in an installation holding no row, an empty array where it stores none, each row every field but the
   generated ones as host values, a closed id its handle, which `evaluate.admit(R, row)` reads as it is; or a tagged
-  refusal, the write's before any SQL: `InputRefused`, `KeyConflict`, `GeneratedNull` or `OwnerAbsent`, a counted
-  member whose owner the call does not insert. Never draw a count, an index, an interval, a fold or a copy in your own
+  refusal, the write's before any SQL: `InputRefused`, `KeyConflict`, `GeneratedNull`, `OwnerAbsent`, a counted
+  member whose owner the call does not insert, or `Uncompiled`, the `CompileError` of an insert of the call's families
+  that does not compile. Binding compiles the law model alone; each call compiles, once, the insert of the families
+  its rows write, so a preview costs what it previews. Never draw a count, an index, an interval, a fold or a copy in your own
   code to predict it. To key
   rows by their values, take each field's text from `codecText(field)`, bound once, never `String()` of a host value:
   one text per value under PostgreSQL's equality, a closed id's its handle and a set's its handles, the same in every

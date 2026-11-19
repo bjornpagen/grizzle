@@ -311,9 +311,15 @@ const isDescribed = (m: MemberState): m is Described => m.kind === "query" || m.
 /** The group of a member: its op and relation. An op is a word without a colon, so the first colon ends it. */
 const groupKey = (m: MemberState): string => `${m.op}:${m.relation}`
 
+/** The order of members by their relation's name, a canonical stratum's first. */
+const relationOrder = Order.mapInput(
+	Order.compareStrings,
+	(m: { readonly relation: string }) => m.relation
+)
+
 /** The order of a canonical stratum's members: by relation, operation and kind, then a described member by its text. */
 const memberOrder: Order.Comparator<MemberState> = Order.combineAll([
-	Order.mapInput(Order.compareStrings, (m: MemberState) => m.relation),
+	relationOrder,
 	Order.mapInput(Order.compareStrings, (m: MemberState) => m.op),
 	Order.mapInput(Order.compareNumbers, (m: MemberState) => kindRank[m.kind]),
 	(a: MemberState, b: MemberState) =>
@@ -404,6 +410,18 @@ const withMember = (
  * it). */
 export const arraySlot = (stratum: number, op: SlotOp, relation: string): string =>
 	slotSpelling("member", stratum, op, "array", relation)
+
+/**
+ * The members insertAll over `relations`, each a top-level relation of the schema and an array, places in its one
+ * stratum, in its canonical order (`memberOrder`, which orders members of one operation and kind by relation alone):
+ * each relation with its array's slot, read off the names alone, building no ChangeSet.
+ */
+export const insertAllSlots = (
+	relations: ReadonlyArray<string>
+): ReadonlyArray<{ readonly slot: string; readonly relation: string }> =>
+	relations
+		.map((relation) => ({ slot: arraySlot(0, "insert", relation), relation }))
+		.toSorted(relationOrder)
 
 /** The slot of the `stream`-th Stream member of one op and relation in a stratum: each Stream is its own input. */
 export const streamSlot = (stratum: number, op: SlotOp, relation: string, stream: number): string =>
