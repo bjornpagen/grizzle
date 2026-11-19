@@ -1,36 +1,8 @@
-import { indices } from "@bjornpagen/grizzle-text/base/array"
-import type * as Result from "@bjornpagen/grizzle-text/base/result"
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	array,
-	characterOf,
-	element,
-	type Gen,
-	int,
-	map,
-	string,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { regex } from "arkregex"
-import { Array as Arr, Effect, Exit, Formatter, Option, Order, String as Str } from "effect"
-import { partRuns } from "#adapter/reader/execution.ts"
-import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
-import { checkedSchema } from "#compiler/analysis/schema.ts"
-import { refinedConstants } from "#compiler/check/refinement/index.ts"
-import { arrayTexts } from "#compiler/codec/recordset.ts"
-import { maxStringLength } from "#compiler/core/canonical.ts"
-import type { EncodingFailure } from "#compiler/core/errors.ts"
-import { identity } from "#compiler/core/identity.ts"
-import type { ConstraintName } from "#compiler/core/ids.ts"
 /**
  * Refinement validation sites on PostgreSQL 19.
  *
- * One schema, installed by the fresh-install compiler under a fresh schema name, carries a slug pattern, a
+ * One schema, installed by the fresh-install compiler once per member as a template (regex-complete.fixtures.ts
+ * contentTemplate), carries a slug pattern, a
  * language-equivalent spelling of it, a contract bounding length with Compute.charLength over the wildcard, and a
  * closed relation whose payload is a slug. The slug's pattern bounds its length, as text in any index grizzle installs
  * must (README, Text in a key): the installation installs the workload of the suites' parameterized queries, whose
@@ -52,891 +24,221 @@ import type { ConstraintName } from "#compiler/core/ids.ts"
  * - closed payloads are validated by PostgreSQL at installation, and the migration generate drafts and the snapshot
  *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
  */
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { partRuns } from "#adapter/reader/execution.ts"
+import { checkedSchema } from "#compiler/analysis/schema.ts"
+import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import type { Param } from "#compiler/core/wire.ts"
-import { noClock } from "#compiler/ir/clock.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
-import { workload } from "#compiler/program/workload/value.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { changeSetDesc } from "#compiler/write/changeset/value.ts"
-import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
-import { StatementShare } from "#compiler/write/insert/statement.ts"
-import { paramTextForm } from "#test/support/arrays.ts"
-import { assert, unorderedEqual } from "#test/support/assert.ts"
 import {
-	compileTemplate,
-	type TemplateDeclarations,
-	installationSql,
-	installedCodes,
-	paramTexts,
-	paramValues,
-	realityWrite,
-	testArtifacts,
-	testCompile,
-	workloadOver
-} from "#test/support/compile.ts"
-import type { OracleTemplate } from "#test/support/conservative.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
-import {
-	type ColumnTextDomain,
-	installationNamesOf,
-	parsedSchemaName
-} from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
-import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { realizeConservative } from "#test/support/oracle/write/realize.ts"
-import type { SqlError } from "#test/support/pg.ts"
-import { checking, owning } from "#test/support/policy.ts"
+	articles,
+	articlesSql,
+	bindRefusal,
+	boundAgrees,
+	type BoundFeature,
+	bySlug,
+	compiled,
+	compiling,
+	constantCases,
+	Content,
+	contentTemplate,
+	decimal,
+	declared,
+	domainRefusal,
+	echoComments,
+	echoSlug,
+	emittedCases,
+	type EmittedFeature,
+	featureOf,
+	givenCases,
+	givenSlugs,
+	id,
+	literal,
+	loadArticles,
+	numericCases,
+	numericLookups,
+	patternCases,
+	readerSession,
+	type RefinedFeature,
+	refinedSend,
+	refinedWriteGen,
+	refusedAtBind,
+	rows,
+	runPlanned,
+	slugAdmits,
+	slugDomain,
+	slugsOrEcho,
+	titlesAsSlugs,
+	withConstant
+} from "#test/pg/regex-complete/regex-complete.fixtures.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { paramTexts } from "#test/support/compile.ts"
+import { installationNamesOf } from "#test/support/kernel/naming.ts"
+import { owning } from "#test/support/policy.ts"
 import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
-import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
-import { outputRows, paramText } from "#test/support/wire.ts"
-import { oracleWorld } from "#test/support/worlds.ts"
+import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { outputRows } from "#test/support/wire.ts"
 
 /**
- * The slug, of at most a DNS label's 63 characters (RFC 1035 2.3.4), and a spelling of the same language (domain
- * identity is the canonical pattern).
+ * A slug parameter outside its pattern is refused at bind, and one inside it matches its rows, generic and custom, each
+ * case on the worker's seat of the installation, three articles loaded.
+ *
+ * Its pre-conversion budget: runs 32, coverage cases 48 (test/pg/regex-complete/regex-complete.test.ts at 41a9e7062).
  */
-const Slug = str.regex("^[a-z][a-z0-9-]{0,62}$")
-const SlugAgain = str.regex("^[a-z](?:[a-z0-9]|-){0,62}$")
-const Prose = str.regex("^.*$", "su")
-/** A length bound is a contract predicate; over the wildcard the CHECK holds only the bound. */
-const limit = 5
-const Note = contract("Note", Prose, (x) => Compute.le(Compute.charLength(x), limit))
-
-const Tier = closed.ordered("Tier", ["Free", "Pro"])
-const TierLabel = closed.relation(
-	"TierLabel",
-	{ tier: closedId(Tier), label: Slug },
-	["tier"],
-	[
-		{ tier: "Free", label: "free" },
-		{ tier: "Pro", label: "pro-plan" }
-	]
-)
-const Article = relation("Article", { id: Id, slug: Slug, title: Prose }, ["id"])
-const Draft = relation("Draft", { id: Id, slug: SlugAgain, note: Note }, ["id"])
-const Comment = relation("Comment", { id: Id, article: Id, slug: Slug }, ["id"])
-/** Numeric contracts: a bigint bound and an exact rate in the unit interval. */
-const Cents = contract("Cents", pg.bigint, (x) => Compute.ge(x, 0n))
-const Rate = contract("Rate", pg.numeric(7, 6), (x) => Compute.between(x, 0n, 1n))
-const Price = relation("Price", { id: Id, amount: Cents, rate: Rate }, ["id"])
-const Content = schema(
-	"Content",
-	[Tier, TierLabel, Article, Draft, Comment, Price],
-	[mutable(Draft)]
-)
-
-/** Content's codes as a fresh installation drafts them, from no codes: what every template of it binds under. */
-const contentCodes = firstCodebook(rostersOf(owning(Content)))
-
-const id = (n: number): IdValue =>
-	Id(`00000000-0000-4000-8000-${Str.padStart(12, "0")(n.toString(16))}`)
-
-/** The articles: valid slugs, and titles that are valid slugs except where a test says otherwise. */
-const articles = (count: number): ReadonlyArray<{ id: string; slug: string; title: string }> =>
-	Arr.map(indices(count), (i) => ({
-		id: id(i + 1),
-		slug: `post-${i + 1}`,
-		title: `title-${i + 1}`
-	}))
-
-/** An article lookup by slug. */
-const bySlug = query(Content).rule((r) => {
-	const { id: article, slug } = v(Article, "article")
-	return r
-		.match(Article, { id: article, slug })
-		.where(r.eq(slug, r.param("slug", Article.fields.slug)))
-		.find({ id: article, slug })
-})
-
-/** The same lookup that also emits the compared parameter under the slug's refinement. */
-const echoSlug = query(Content).rule((r) => {
-	const { id: article, slug } = v(Article, "article")
-	return r
-		.match(Article, { id: article, slug })
-		.where(r.eq(slug, r.param("slug", Article.fields.slug)))
-		.find({ id: article, echo: r.param("slug", Slug) })
-})
-
-/** Every title cast into the slug's refinement: a narrowing nothing proves of a title, which compilation refuses. */
-const titlesAsSlugs = query(Content).rule((r) => {
-	const { id: article, title } = v(Article, "article")
-	return r
-		.match(Article, { id: article, title })
-		.find({ id: article, slug: Compute.cast(title, Slug) })
-})
-
-/**
- * Every article with its comments other than the parameter, each echoing it: the child is fused into the parent
- * statement, and the emitted parameter is a refined field of the attachment's array.
- */
-const echoComments = query(Content)
-	.rule((r) => {
-		const { id: article, slug } = v(Article, "article")
-		return r.match(Article, { id: article, slug }).find({ id: article, slug })
-	})
-	.attach(
-		"comments",
-		(p) =>
-			query(Content).rule((r) => {
-				const { id: comment, slug } = v(Comment, "comment")
-				return r
-					.match(Comment, { id: comment, article: p.id, slug })
-					.where(r.ne(slug, r.param("slug", Comment.fields.slug)))
-					.find({ id: comment, echo: r.param("slug", Slug) })
-			}),
-		"array"
-	)
-
-/** The articles' slugs and the comment slugs equal to the parameter, the second arm emitting the parameter. */
-const slugsOrEcho = query(Content)
-	.rule((r) => {
-		const { id: row, slug } = v(Article, "article")
-		return r.match(Article, { id: row, slug }).find({ id: row, slug })
-	})
-	.rule((r) => {
-		const { id: row, slug } = v(Comment, "comment")
-		return r
-			.match(Comment, { id: row, slug })
-			.where(r.eq(slug, r.param("slug", Comment.fields.slug)))
-			.find({ id: row, slug: r.param("slug", Slug) })
-	})
-
-/** A relation parameter's slugs delivered under their refinement. */
-const givenSlugs = query(Content).rule((r) => {
-	const given = r.relation("given", { id: Id, slug: Slug })
-	const { id: row, slug } = v(given, "given")
-	return r.match(given, { id: row, slug }).find({ id: row, slug })
-})
-
-/** A refined query constant: a Compute.literal of the slug's refinement. */
-const withConstant = query(Content).rule((r) => {
-	const { id: article } = v(Article, "article")
-	return r
-		.match(Article, { id: article })
-		.find({ id: article, kind: Compute.literal(Slug, "article") })
-})
-
-/**
- * A price lookup by a contract field compared with a parameter, without and with emitting the parameter under the
- * contract.
- */
-const byAmount = query(Content).rule((r) => {
-	const { id: price, amount } = v(Price, "price")
-	return r
-		.match(Price, { id: price, amount })
-		.where(r.eq(amount, r.param("amount", Cents)))
-		.find({ id: price })
-})
-
-const echoAmount = query(Content).rule((r) => {
-	const { id: price, amount } = v(Price, "price")
-	return r
-		.match(Price, { id: price, amount })
-		.where(r.eq(amount, r.param("amount", Cents)))
-		.find({ id: price, echo: r.param("amount", Cents) })
-})
-
-const echoRate = query(Content).rule((r) => {
-	const { id: price, rate } = v(Price, "price")
-	return r
-		.match(Price, { id: price, rate })
-		.where(r.eq(rate, r.param("rate", Rate)))
-		.find({ id: price, echo: r.param("rate", Rate) })
-})
-
-/** A value the test needs present, failing the test where it is absent. */
-const defined = <A>(value: A | undefined, what: string): A => {
-	if (value === undefined) {
-		throw new Error(`${what}: absent`)
-	}
-	return value
-}
-
-const ok = <A, E>(r: Result.Result<A, E>, what: string): A => {
-	if (!r.ok) {
-		throw new Error(`${what}: ${Formatter.format(r.error)}`)
-	}
-	return r.value
-}
-
-const compiling = (q: unknown, schemaIdent: string) =>
-	compileTemplate(q, undefined, {
-		...testCompile,
-		installation: identity.schema(parsedSchemaName(schemaIdent))
-	})
-
-const compiled = (q: unknown, schemaIdent: string): OracleTemplate =>
-	ok(compiling(q, schemaIdent), "compile")
-
-/** What paramTexts normalizes a template's relation inputs under: its declared parameters and Content's codes. */
-const declared = (template: OracleTemplate): TemplateDeclarations => ({
-	params: template.params,
-	codes: contentCodes
-})
-
-/** The text domain Article's slug field uses, with its constraint and its law, as the installation names them. */
-const slugDomain = (installation: Installation): ColumnTextDomain =>
-	installationNamesOf(installation).textDomain({ name: "Article" }, "slug")
-
-/** The Note contract domain's CHECK, as the installation names it. */
-const noteCheckOf = (installation: Installation): ConstraintName => {
-	const note = installationNamesOf(installation).contract("Note")
-	if (note.kind !== "checked") {
-		throw new Error("the Note contract's domain has a CHECK")
-	}
-	return note.constraint
-}
-
-const literal = (text: string): string => `'${Str.replaceAll("'", "''")(text)}'`
-
-type Plan = "generic" | "custom"
-
-/**
- * Runs one statement under a forced plan, through PREPARE and EXECUTE, and checks in pg_prepared_statements which plan
- * PostgreSQL chose: the forced plan where the execution ran, and none where it failed. Every refusal these suites draw
- * is a parameter its domain refuses as it is bound, and EXECUTE binds its parameters before it chooses a plan
- * (commands/prepare.c ExecuteQuery: EvaluateParams, then GetCachedPlan, which counts the plan it returns), so a
- * failure that came with a plan chosen did not come at bind. A statement with no bound value is never given a custom
- * plan, so the check also refuses a case that could not exercise one. The execution's own outcome is returned. The
- * plan mode and the prepared statement are held in the call's scope, so both are released however the call ends, and
- * one name serves every call.
- */
-const runPlanned = (
-	session: RawSession,
-	sql: string,
-	values: ReadonlyArray<string | Param>,
-	plan: Plan
-) =>
-	Effect.gen(function* () {
-		const name = "m14a_planned"
-		yield* Effect.acquireRelease(
-			session.query(`SET plan_cache_mode = force_${plan}_plan`, []),
-			() => Effect.orDie(session.query("RESET plan_cache_mode", []))
-		)
-		yield* Effect.acquireRelease(session.query(`PREPARE ${name} AS ${sql}`, []), () =>
-			Effect.orDie(session.query(`DEALLOCATE ${name}`, []))
-		)
-		const run = yield* Effect.exit(
-			session.values(
-				values.length === 0
-					? `EXECUTE ${name}`
-					: `EXECUTE ${name}(${Arr.join(
-							Arr.map(values, (value) => literal(paramTextForm(value))),
-							", "
-						)})`,
-				[]
-			)
-		)
-		const counts = yield* session.values(
-			`SELECT generic_plans::text, custom_plans::text FROM pg_catalog.pg_prepared_statements WHERE name = '${name}'`,
-			[]
-		)
-		if (Exit.isFailure(run)) {
-			assert.deepEqual(
-				counts[0],
-				["0", "0"],
-				`no plan chosen under force_${plan}_plan: refused at bind`
-			)
-			return yield* Effect.failCause(run.cause)
-		}
-		assert.deepEqual(
-			counts[0],
-			plan === "generic" ? ["1", "0"] : ["0", "1"],
-			`the plan PostgreSQL used under force_${plan}_plan`
-		)
-		return run.value
-	}).pipe(Effect.scoped)
-
-const plans: Arr.NonEmptyReadonlyArray<Plan> = ["generic", "custom"]
-
-/** How a case runs a statement: prepared under a forced plan, or sent unprepared. */
-type Run = Plan | "unprepared"
-
-const runs: Arr.NonEmptyReadonlyArray<Run> = ["generic", "custom", "unprepared"]
-
-/**
- * The rows a statement returns run as a case says: under a forced plan through `runPlanned`, which names each
- * placeholder by its text in EXECUTE (paramTextForm), or unprepared, each placeholder sent as its statement binds it.
- */
-const runAs = (session: RawSession, sql: string, values: ReadonlyArray<string | Param>, run: Run) =>
-	run === "unprepared" ? session.values(sql, values) : runPlanned(session, sql, values, run)
-
-/** The two artifacts of a compiled template. */
-type Artifact = "optimized" | "conservative"
-
-const artifacts: Arr.NonEmptyReadonlyArray<Artifact> = ["optimized", "conservative"]
-
-/**
- * The SQLSTATE of a statement's refusal by a domain, as its ErrorResponse reports it with the domain's data type, or
- * undefined where it ran or another refused it.
- */
-const domainRefusal = (ran: Exit.Exit<unknown, SqlError>): string | undefined => {
-	if (Exit.isSuccess(ran)) {
-		return undefined
-	}
-	const failure = Option.getOrUndefined(Exit.findErrorOption(ran))
-	return failure?.reason._tag === "ServerError" && Option.isSome(failure.reason.fields.dataType)
-		? failure.reason.fields.code
-		: undefined
-}
-
-/** What PostgreSQL makes of a case's parameters as it binds them: refused, or bound, matching `count` rows. */
-type Bound = Readonly<{ kind: "refused" }> | Readonly<{ kind: "rows"; count: number }>
-
-const refused: Bound = { kind: "refused" }
-
-const rows = (count: number): Bound => ({ kind: "rows", count })
-
-/** The word a bind refuses with: its encoding failure's reason. */
-type BindRefusal = EncodingFailure["reason"]["_tag"]
-
-/**
- * The codec fault the reader's bind refuses `params` with before any SQL (adapter/reader/relations.ts
- * executionInputs, over the template's declared parameters), or undefined where it binds them.
- */
-const bindRefusal = (
-	template: OracleTemplate,
-	params: Readonly<Record<string, unknown>>
-): BindRefusal | undefined => {
-	const bound = executionInputs(paramCodecs(template.params, contentCodes), params)
-	return bound._tag === "Success" ? undefined : bound.failure.reason._tag
-}
-
-/**
- * A case's parameters against the reader's bind, which parses each as its base carrier and binds every value the case
- * draws, and the first statement of `artifact` run as `run`: refused by PostgreSQL with 23514 on the parameter's own
- * pattern domain or its contract's domain as it binds it, or matching the rows `bound` states.
- */
-const boundAgrees = (
-	session: RawSession,
-	template: OracleTemplate,
-	artifact: Artifact,
-	params: Readonly<Record<string, unknown>>,
-	bound: Bound,
-	run: Run,
-	what: string
-) =>
-	Effect.gen(function* () {
-		assert.equal(bindRefusal(template, params), undefined, what)
-		const spec = defined(template[artifact][0], "statement")
-		const ran = yield* Effect.exit(
-			runAs(session, spec.sql, paramValues(spec, params, declared(template)), run)
-		)
-		if (bound.kind === "refused") {
-			assert.equal(domainRefusal(ran), "23514", what)
-			return
-		}
-		if (Exit.isFailure(ran)) {
-			return yield* Effect.failCause(ran.cause)
-		}
-		assert.equal(ran.value.length, bound.count, what)
-	})
-
-const changeSet = (value: unknown) => defined(changeSetDesc(value), "a ChangeSet value")
-
-/**
- * The queries of these suites that declare parameters, as the workload the installation installs: installing it
- * installs the pattern domain of every pattern a parameter names (physical/access/extension.ts workloadExtension), as a
- * served workload's installation does.
- */
-const parameterized = workload(Content, {
-	bySlug,
-	echoSlug,
-	echoComments,
-	slugsOrEcho,
-	givenSlugs,
-	byAmount,
-	echoAmount,
-	echoRate
-})
-
-/**
- * The fresh installation, whose Validate phase carries the closed payloads' validation (physical/install), with the
- * workload of the suites' parameterized queries (`parameterized`).
- */
-const install = () =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const name = yield* s.schema({ create: false, label: "refined" })
-		const owned = owning(Content)
-		const options = installOptions(owned)
-		const installation: Installation = ok(
-			compileInstallation(owned, {
-				...options,
-				levels: [identity.schema(parsedSchemaName(name))],
-				logins: [oracleOwnedLogin(owned.desc)],
-				extensions: [
-					...options.extensions,
-					workloadOver([{ login: "reader", workloads: [parameterized] }])
-				]
-			}),
-			"install"
-		)
-		yield* transaction(s.admin, installationSql(installation, s.database))
-		return { schema: name, installation }
-	})
-
-/** What a bind's case reaches: refused before any SQL, or bound and matching no row or some. */
-type BoundFeature = "refused at bind" | "no row" | "a row"
-
-const featureOf = (bound: Bound): BoundFeature =>
-	bound.kind === "refused" ? "refused at bind" : bound.count === 0 ? "no row" : "a row"
-
-/** A slug parameter given to a lookup, in an artifact, run as drawn. */
-interface PatternCase {
-	readonly lookup: "the lookup" | "the echoing lookup"
-	readonly artifact: Artifact
-	readonly slug: string
-	readonly run: Run
-}
-
-/** A numeric contract's parameter given to a lookup, in an artifact, run as drawn. */
-interface NumericCase {
-	readonly lookup: "amount compared" | "amount echoed" | "rate echoed"
-	readonly artifact: Artifact
-	readonly value:
-		| Readonly<{ kind: "amount"; amount: bigint }>
-		| Readonly<{ kind: "rate"; rate: Decimal }>
-	readonly run: Run
-}
-
-/** A text written as a refined constant, and the artifact a delivered constant is read through. */
-interface ConstantCase {
-	readonly text: string
-	readonly artifact: Artifact
-}
-
-/** Comments over the loaded articles, the slug parameter the attachment excludes and the union matches, and a plan. */
-interface EmittedCase {
-	readonly comments: ReadonlyArray<Readonly<{ article: number; slug: string }>>
-	readonly slug: string
-	readonly plan: Plan
-}
-
-type EmittedFeature =
-	| "refused at bind"
-	| "no comment"
-	| "a comment the parameter excludes"
-	| "a comment the union matches"
-
-/** A relation parameter's slugs given in an artifact, under a forced plan. */
-interface GivenCase {
-	readonly slugs: ReadonlyArray<string>
-	readonly artifact: Artifact
-	readonly plan: Plan
-}
-
-/** Where a refined value is written: grizzle's insert sent past the host codec, or a direct SQL writer's statement. */
-type RefinedPath =
-	| "grizzle's compiled insert"
-	| "a direct insert of an article's slug"
-	| "a direct update of a draft's slug"
-	| "a direct update of a draft's note"
-
-/** A refined value written along a path: a slug, or the note for the note's path. */
-interface RefinedWrite {
-	readonly path: RefinedPath
-	readonly value: string
-}
-
-type RefinedFeature = `${RefinedPath}: ${"refused" | "admitted"}`
-
-/** The slug's own pattern, as ECMAScript reads it: the oracle the domain's CHECK must agree with. */
-const slugPattern = regex("^[a-z][a-z0-9-]{0,62}$")
-
-const slugAdmits = (value: string): boolean => slugPattern.test(value)
-
-/** Short texts over the slug's class edges and its outside: lowercase ends, digits, the hyphen, a capital, a space, é. */
-const slugTextGen = string(characterOf(["a", "z", "0", "9", "-", "A", " ", "é"]), {
-	min: 0,
-	max: 4
-})
-
-/** Texts around the note's length bound, in characters: one-byte, two-byte and four-byte ones, and a newline. */
-const noteTextGen = string(characterOf(["a", "é", "\n", "\u{1F600}"]), { min: 0, max: limit + 2 })
-
-const refinedWriteGen: Gen<RefinedWrite> = (source) => {
-	const path = source.draw(
-		element([
-			"grizzle's compiled insert",
-			"a direct insert of an article's slug",
-			"a direct update of a draft's slug",
-			"a direct update of a draft's note"
-		] as const)
-	)
-	return {
-		path,
-		value: source.draw(path === "a direct update of a draft's note" ? noteTextGen : slugTextGen)
-	}
-}
-
-layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
-	const articlesSql = (
-		schemaName: string,
-		rows: ReadonlyArray<{ id: string; slug: string; title: string }>
-	): string =>
-		`INSERT INTO ${quoteIdent(schemaName)}."article" ("id", "slug", "title") VALUES ${Arr.join(
-			Arr.map(rows, (a) => `('${a.id}'::Id, ${literal(a.slug)}, ${literal(a.title)})`),
-			", "
-		)}`
-
-	const loadArticles = (
-		schemaName: string,
-		rows: ReadonlyArray<{ id: string; slug: string; title: string }>
-	) =>
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			yield* s.admin.query(articlesSql(schemaName, rows), [])
-		})
-
-	it.effect(
-		"a parameter outside its pattern is refused at bind, and one inside it matches its rows, generic and custom",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const { schema: name } = yield* install()
-					yield* loadArticles(name, articles(3))
-					const session = yield* s.session({ ...ownerSession(), label: "reader" })
-					const lookups = {
-						"the lookup": compiled(bySlug, name),
-						"the echoing lookup": compiled(echoSlug, name)
-					}
-					const loaded = new Set(Arr.map(articles(3), (a) => a.slug))
-					return yield* explore(
-						{
-							suite: "pg/regex-complete/pattern parameter",
-							draw: drawn<PatternCase>((source) => ({
-								lookup: source.draw(element(["the lookup", "the echoing lookup"] as const)),
-								artifact: source.draw(element(artifacts)),
-								slug: source.draw(
-									weighted([
-										[1, map(int(1, 5), (n) => `post-${n}`)],
-										[2, slugTextGen]
-									])
-								),
-								run: source.draw(element(runs))
-							})),
-							literal: Formatter.format,
-							oracle: {
-								kind: "second-implementation",
-								name: "ECMAScript's match of the slug's pattern, and the loaded articles' slugs"
-							},
-							coverage: required<BoundFeature>(["refused at bind", "no row", "a row"], {
-								cases: 48,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs: 32,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						({ lookup, artifact, slug, run }, c) => {
-							const bound = slugAdmits(slug) ? rows(loaded.has(slug) ? 1 : 0) : refused
-							c.note(featureOf(bound))
-							return boundAgrees(
-								session,
-								lookups[lookup],
-								artifact,
-								{ slug },
-								bound,
-								run,
-								`${slug} in ${lookup}, ${artifact}, run ${run}`
-							)
-						}
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"a parameter outside a numeric contract is refused at bind, and one inside it matches its rows, generic and custom",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const { schema: name } = yield* install()
-					yield* s.admin.query(
-						`INSERT INTO ${quoteIdent(name)}."price" ("id", "amount", "rate") VALUES ('${id(1)}', 100, 0.062)`,
-						[]
-					)
-					const session = yield* s.session({ ...ownerSession(), label: "reader" })
-					const decimal = (text: string): Decimal => ok(Decimal.fromString(text), text)
-					const stored = { amount: 100n, rate: decimal("0.062") }
-					/** Each lookup, the parameter it compares and its contract, and the stored value its rows match. */
-					const lookups = {
-						"amount compared": { template: compiled(byAmount, name), param: "amount" },
-						"amount echoed": { template: compiled(echoAmount, name), param: "amount" },
-						"rate echoed": { template: compiled(echoRate, name), param: "rate" }
-					} as const
-					/** An amount near the contract's bound or the stored one; a rate of six places near the unit interval's ends
-					 * or the stored one. */
-					const amountGen = weighted<bigint>([
-						[1, map(int(-3, 3), BigInt)],
-						[1, map(int(99, 101), BigInt)]
-					])
-					const rateGen = weighted<Decimal>([
-						[
-							1,
-							map(int(-2_000_000, 2_000_000), (micro) => decimal((micro / 1_000_000).toFixed(6)))
-						],
-						[1, map(int(61_999, 62_001), (micro) => decimal((micro / 1_000_000).toFixed(6)))]
-					])
-					return yield* explore(
-						{
-							suite: "pg/regex-complete/numeric contract parameter",
-							draw: drawn<NumericCase>((source) => {
-								const lookup = source.draw(
-									element(["amount compared", "amount echoed", "rate echoed"] as const)
+export const aParameterOutsideItsPatternIsRefusedAtBindAndOneInsideItMatchesItsRows =
+	property.explore(patternCases, {
+		needs: { content: Substrate.seat(contentTemplate) },
+		situations: ["refused at bind", "no row", "a row"] satisfies ReadonlyArray<
+			Reached<BoundFeature>
+		>,
+		check:
+			({ content }, c: Case<BoundFeature>) =>
+			({ lookup, artifact, slug, run }) =>
+				Effect.scoped(
+					Effect.flatMap(content, (seat) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const { schema: name } = seat.value
+								yield* loadArticles(name, articles(3))
+								const session = yield* readerSession
+								const template = compiled(lookup === "the lookup" ? bySlug : echoSlug, name)
+								const loaded = new Set(Arr.map(articles(3), (a) => a.slug))
+								const bound = slugAdmits(slug) ? rows(loaded.has(slug) ? 1 : 0) : refusedAtBind
+								c.note(featureOf(bound))
+								yield* boundAgrees(
+									session,
+									template,
+									artifact,
+									{ slug },
+									bound,
+									run,
+									`${slug} in ${lookup}, ${artifact}, run ${run}`
 								)
-								return {
-									lookup,
-									artifact: source.draw(element(artifacts)),
-									value:
-										lookup === "rate echoed"
-											? { kind: "rate", rate: source.draw(rateGen) }
-											: { kind: "amount", amount: source.draw(amountGen) },
-									run: source.draw(element(runs))
-								}
 							}),
-							literal: Formatter.format,
-							oracle: {
-								kind: "specification",
-								name: "the contracts' predicates (amount ≥ 0, 0 ≤ rate ≤ 1) and the stored price"
-							},
-							coverage: required<BoundFeature>(["refused at bind", "no row", "a row"], {
-								cases: 60,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs: 36,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						({ lookup, artifact, value, run }, c) => {
-							const { template, param } = lookups[lookup]
-							const bound =
-								value.kind === "amount"
-									? value.amount < 0n
-										? refused
-										: rows(value.amount === stored.amount ? 1 : 0)
-									: value.rate.compare(decimal("0")) < 0 || value.rate.compare(decimal("1")) > 0
-										? refused
-										: rows(value.rate.compare(stored.rate) === 0 ? 1 : 0)
-							c.note(featureOf(bound))
-							const given = value.kind === "amount" ? value.amount : value.rate
-							return boundAgrees(
-								session,
-								template,
-								artifact,
-								{ [param]: given },
-								bound,
-								run,
-								`${param} ${Formatter.format(given)} in the ${artifact} artifact, run ${run}`
-							)
-						}
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"a refined write is refused before commit with its refinement identity exactly when its value is outside the refinement, by grizzle's compiled insert and a direct SQL writer alike",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const { schema: name, installation } = yield* install()
-					const reality = realityWrite(
-						ok(
-							testArtifacts(Content, {
-								installation: identity.schema(parsedSchemaName(name)),
-								codes: installedCodes(installation.names.codes)
-							}),
-							"artifacts"
+							Substrate,
+							seat.substrate
 						)
 					)
-					const frontend = ok(
-						compileChangeSet(
-							checking(Content),
-							changeSet(
-								ChangeSet.empty(Content).insert(Article, [
-									{ id: id(1), slug: "a-slug", title: "anything" }
-								])
-							),
-							{
-								claims: reality.claims,
-								laws: reality.laws,
-								derived: reality.derived,
-								world: reality.world,
-								codes: installation.names.codes,
-								clock: noClock
-							}
-						),
-						"changeset"
-					)
-					const write = ok(
-						realizeConservative(frontend, {
-							names: reality.names,
-							reads: reality.reads,
-							share: new StatementShare(),
-							level: "serializable"
-						}),
-						"realize"
-					)
-					const found = Arr.findFirst(
-						write.steps,
-						(x) => x.kind === "action" && x.statement.result.kind === "insert"
-					)
-					if (Option.isNone(found) || found.value.kind !== "action") {
-						throw new Error("an insert step")
-					}
-					const step = found.value
-					/** The enumerated member's facts as the insert's member placeholders, one array of the facts per column, each
-					 * placeholder carrying the array of its part. The arrays are written straight from the facts' texts
-					 * (arrayTexts), past the host codec, whose admission refuses a slug outside the pattern before any SQL: what
-					 * reaches PostgreSQL is a value the slug's domain alone judges, as a writer that skipped the codec would send
-					 * it. */
-					const arraysOf = (fact: Readonly<Record<string, string>>) =>
-						Arr.map(step.statement.params, (slot) => {
-							if (slot.kind !== "member") {
-								throw new Error(`a member placeholder, not ${slot.kind}`)
-							}
-							const fields = Arr.map(slot.columns, (c) => c.name)
-							const written = arrayTexts(
-								slot.relation,
-								fields,
-								[Arr.map(fields, (f) => paramText(defined(fact[f], `the fact's ${f}`)))],
-								maxStringLength
-							)
-							if (!written.ok) {
-								throw new Error(`arrays: ${written.error._tag}`)
-							}
-							return defined(
-								written.value[slot.part.kind === "column" ? slot.part.index : 0],
-								`the array of placeholder ${slot.number}`
-							)
-						})
-					const world = yield* oracleWorld(installation)
-					const session = yield* s.session({ ...worldSession(world), label: "writer" })
-					const slugCheck = slugDomain(installation).constraint
-					const noteCheck = noteCheckOf(installation)
-					const table = (t: string) => `${quoteIdent(name)}.${quoteIdent(t)}`
-					yield* session.query(
-						`INSERT INTO ${table("draft")} ("id", "slug", "note") VALUES ('${id(3)}', 'fine', 'ok')`,
-						[]
-					)
-					/** The statement a case sends, the constraint that judges its value, and whether the value is admitted. */
-					const sent = (w: RefinedWrite) => {
-						switch (w.path) {
-							case "grizzle's compiled insert":
-								return {
-									send: Effect.asVoid(
-										session.values(
-											step.statement.sql.text,
-											arraysOf({ id: id(1), slug: w.value, title: "anything" })
-										)
-									),
-									check: slugCheck,
-									admitted: slugAdmits(w.value)
-								}
-							case "a direct insert of an article's slug":
-								return {
-									send: Effect.asVoid(
-										session.query(
-											`INSERT INTO ${table("article")} ("id", "slug", "title") VALUES ('${id(2)}', ${literal(w.value)}, 't')`,
-											[]
-										)
-									),
-									check: slugCheck,
-									admitted: slugAdmits(w.value)
-								}
-							case "a direct update of a draft's slug":
-								return {
-									send: Effect.asVoid(
-										session.query(
-											`UPDATE ${table("draft")} SET "slug" = ${literal(w.value)} WHERE "id" = '${id(3)}'`,
-											[]
-										)
-									),
-									check: slugCheck,
-									admitted: slugAdmits(w.value)
-								}
-							case "a direct update of a draft's note":
-								return {
-									send: Effect.asVoid(
-										session.query(
-											`UPDATE ${table("draft")} SET "note" = ${literal(w.value)} WHERE "id" = '${id(3)}'`,
-											[]
-										)
-									),
-									check: noteCheck,
-									admitted: Arr.fromIterable(w.value).length <= limit
-								}
-						}
-					}
-					const count = s.admin.queryValues(
-						`SELECT (SELECT count(*) FROM ${table("article")})::text, (SELECT count(*) FROM ${table("draft")} WHERE "slug" = 'fine' AND "note" = 'ok')::text`,
-						[]
-					)
-					return yield* explore(
-						{
-							suite: "pg/regex-complete/refined-write",
-							draw: drawn(refinedWriteGen),
-							literal: Formatter.format,
-							oracle: {
-								kind: "second-implementation",
-								name: "ECMAScript's match of the slug's pattern and the note's length in characters, against the domain's CHECK"
-							},
-							coverage: required<RefinedFeature>(
-								[
-									"grizzle's compiled insert: refused",
-									"grizzle's compiled insert: admitted",
-									"a direct insert of an article's slug: refused",
-									"a direct insert of an article's slug: admitted",
-									"a direct update of a draft's slug: refused",
-									"a direct update of a draft's slug: admitted",
-									"a direct update of a draft's note: refused",
-									"a direct update of a draft's note: admitted"
-								],
-								{ cases: 96, sense: notesOnly }
-							),
-							kept: [],
-							runs: 48,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(w, c) =>
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "ECMAScript's match of the slug's pattern, and the loaded articles' slugs"
+		},
+		show: Formatter.format,
+		budget: { runs: 32, steered: 48 },
+		kept: [],
+		kills: []
+	})
+
+/**
+ * A parameter outside a numeric contract is refused at bind, and one inside it matches its rows, generic and custom,
+ * each case on the worker's seat of the installation, one price stored.
+ *
+ * Its pre-conversion budget: runs 36, coverage cases 60 (test/pg/regex-complete/regex-complete.test.ts at 41a9e7062).
+ */
+export const aParameterOutsideANumericContractIsRefusedAtBindAndOneInsideItMatchesItsRows =
+	property.explore(numericCases, {
+		needs: { content: Substrate.seat(contentTemplate) },
+		situations: ["refused at bind", "no row", "a row"] satisfies ReadonlyArray<
+			Reached<BoundFeature>
+		>,
+		check:
+			({ content }, c: Case<BoundFeature>) =>
+			({ lookup, artifact, value, run }) =>
+				Effect.scoped(
+					Effect.flatMap(content, (seat) =>
+						Effect.provideService(
 							Effect.gen(function* () {
-								const { send, check, admitted } = sent(w)
+								const { schema: name } = seat.value
+								const s = yield* Substrate
+								yield* s.admin.query(
+									`INSERT INTO ${quoteIdent(name)}."price" ("id", "amount", "rate") VALUES ('${id(1)}', 100, 0.062)`,
+									[]
+								)
+								const session = yield* readerSession
+								const stored = { amount: 100n, rate: decimal("0.062") }
+								/** Each lookup, the parameter it compares and its contract, and the stored value its rows match. */
+								const { query: lookedUp, param } = numericLookups[lookup]
+								const template = compiled(lookedUp, name)
+								const bound =
+									value.kind === "amount"
+										? value.amount < 0n
+											? refusedAtBind
+											: rows(value.amount === stored.amount ? 1 : 0)
+										: value.rate.compare(decimal("0")) < 0 || value.rate.compare(decimal("1")) > 0
+											? refusedAtBind
+											: rows(value.rate.compare(stored.rate) === 0 ? 1 : 0)
+								c.note(featureOf(bound))
+								const given = value.kind === "amount" ? value.amount : value.rate
+								yield* boundAgrees(
+									session,
+									template,
+									artifact,
+									{ [param]: given },
+									bound,
+									run,
+									`${param} ${Formatter.format(given)} in the ${artifact} artifact, run ${run}`
+								)
+							}),
+							Substrate,
+							seat.substrate
+						)
+					)
+				),
+		oracle: {
+			kind: "specification",
+			name: "the contracts' predicates (amount ≥ 0, 0 ≤ rate ≤ 1) and the stored price"
+		},
+		show: Formatter.format,
+		budget: { runs: 36, steered: 60 },
+		kept: [],
+		kills: []
+	})
+
+/**
+ * A refined write is refused before commit with its refinement identity exactly when its value is outside the
+ * refinement, by grizzle's compiled insert and a direct SQL writer alike, each case on the worker's seat of the
+ * installation, one draft stored.
+ *
+ * Its pre-conversion budget: runs 48, coverage cases 96 (test/pg/regex-complete/regex-complete.test.ts at 41a9e7062).
+ */
+export const aRefinedWriteIsRefusedBeforeCommitExactlyWhenItsValueIsOutsideTheRefinement =
+	property.explore(refinedWriteGen, {
+		needs: { content: Substrate.seat(contentTemplate) },
+		situations: [
+			"grizzle's compiled insert: refused",
+			"grizzle's compiled insert: admitted",
+			"a direct insert of an article's slug: refused",
+			"a direct insert of an article's slug: admitted",
+			"a direct update of a draft's slug: refused",
+			"a direct update of a draft's slug: admitted",
+			"a direct update of a draft's note: refused",
+			"a direct update of a draft's note: admitted"
+		] satisfies ReadonlyArray<Reached<RefinedFeature>>,
+		check:
+			({ content }, c: Case<RefinedFeature>) =>
+			(w) =>
+				Effect.scoped(
+					Effect.flatMap(content, (seat) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const { schema: name, installation, world } = seat.value
+								const s = yield* Substrate
+								const session = yield* s.session({ ...worldSession(world), label: "writer" })
+								const table = (t: string) => `${quoteIdent(name)}.${quoteIdent(t)}`
+								yield* session.query(
+									`INSERT INTO ${table("draft")} ("id", "slug", "note") VALUES ('${id(3)}', 'fine', 'ok')`,
+									[]
+								)
+								const { send, check, admitted } = refinedSend(name, installation, session, w)
 								if (admitted) {
 									yield* inTransaction(session, send)
 									c.note(`${w.path}: admitted`)
@@ -945,165 +247,141 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 									c.note(`${w.path}: refused`)
 								}
 								yield* session.rollback
-								const committed = yield* count
+								const committed = yield* s.admin.queryValues(
+									`SELECT (SELECT count(*) FROM ${table("article")})::text, (SELECT count(*) FROM ${table("draft")} WHERE "slug" = 'fine' AND "note" = 'ok')::text`,
+									[]
+								)
 								assert.deepEqual(committed, [["0", "1"]], "nothing was committed")
-							})
+							}),
+							Substrate,
+							seat.substrate
+						)
 					)
-				})
-			)
-	)
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "ECMAScript's match of the slug's pattern and the note's length in characters, against the domain's CHECK"
+		},
+		show: Formatter.format,
+		budget: { runs: 48, steered: 96 },
+		kept: [],
+		kills: []
+	})
 
-	it.effect(
-		"a cast into a refinement nothing proves is refused at compile, and a relation parameter outside its pattern at bind, generic and custom",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const { schema: name } = yield* install()
-					const session = yield* s.session({ ...ownerSession(), label: "reader" })
-					const cast = compiling(titlesAsSlugs, name)
-					assert.equal(
-						cast.ok
-							? "compiled"
-							: cast.error.reason._tag === "PartialOperation"
-								? `PartialOperation, precondition ${cast.error.reason.precondition}`
-								: cast.error.reason._tag,
-						"PartialOperation, precondition language",
-						"a title cast into the slug's refinement"
-					)
-					/** A relation parameter's refined column is cast to its domain in the delivered output list. */
-					const given = compiled(givenSlugs, name)
-					assert.equal(
-						isRefined(
-							Option.getOrThrow(Arr.findFirst(given.heading, (c) => c.name === "slug")).type
-						),
-						true
-					)
-					return yield* explore(
-						{
-							suite: "pg/regex-complete/relation parameter",
-							draw: drawn<GivenCase>((source) => ({
-								slugs: source.draw(
-									array(
-										weighted([
-											[3, map(int(0, 9), (n) => `given-${n}`)],
-											[1, slugTextGen]
-										]),
-										{ min: 0, max: 10 }
-									)
-								),
-								artifact: source.draw(element(artifacts)),
-								plan: source.draw(element(plans))
-							})),
-							literal: Formatter.format,
-							oracle: {
-								kind: "second-implementation",
-								name: "ECMAScript's match of the slug's pattern over every given fact"
-							},
-							coverage: required<BoundFeature | "an empty relation">(
-								["refused at bind", "a row", "an empty relation"],
-								{ cases: 32, sense: notesOnly }
-							),
-							kept: [],
-							runs: 20,
-							shrink: completeShrink,
-							steerEvery: 8,
-							caseHang
-						},
-						({ slugs, artifact, plan }, c) => {
-							const facts = Arr.map(slugs, (slug, i) => ({ id: id(100 + i), slug }))
-							const bound = Arr.every(slugs, slugAdmits) ? rows(facts.length) : refused
-							c.note(featureOf(bound))
-							if (facts.length === 0) {
-								c.note("an empty relation")
-							}
-							return boundAgrees(
-								session,
-								given,
-								artifact,
-								{ given: facts },
-								bound,
-								plan,
-								`${facts.length} facts in the ${artifact} artifact under a ${plan} plan`
-							)
-						}
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"an attachment's and a union arm's emitted parameter is refused outside its pattern, and delivered inside it",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const { schema: name, installation } = yield* install()
-					const tables = installationGroup(installationNamesOf(installation))
-					const session = yield* s.session({ ...ownerSession(), label: "reader" })
-					/**
-					 * An attachment over exact parents is a part of its own of the read's one statement (lower/shapes/index.ts
-					 * OptimizedDelivery, R36): the parent's rows, then the attachment's, each a parent's key then a child's
-					 * fields, behind its part's tag (adapter/reader/execution.ts partRuns).
-					 */
-					const attached = compiled(echoComments, name)
-					assert.equal(attached.optimized.length, 1)
-					const spec = defined(attached.optimized[0], "the read's statement")
-					const attachment = defined(
-						Option.getOrUndefined(
-							Arr.findFirst(flight(attached.run.roots), (p) => p.role.kind === "attachment")
-						),
-						"the attachment's part"
-					)
-					const union = compiled(slugsOrEcho, name)
-					const unionSpec = defined(union.optimized[0], "statement")
-					const conservative = defined(union.conservative[0], "statement")
-					const articleSlugs = Arr.map(articles(3), (a) => a.slug)
-					return yield* explore(
-						{
-							suite: "pg/regex-complete/attachment and union",
-							draw: drawn<EmittedCase>((source) => ({
-								comments: source.draw(
-									array(
-										(s2) => ({
-											article: s2.draw(int(1, 3)),
-											slug: `c-${s2.draw(int(0, 3))}`
-										}),
-										{ min: 0, max: 3 }
-									)
-								),
-								slug: source.draw(
-									weighted([
-										[2, map(int(0, 4), (n) => `c-${n}`)],
-										[1, slugTextGen]
-									])
-								),
-								plan: source.draw(element(plans))
-							})),
-							literal: Formatter.format,
-							oracle: {
-								kind: "specification",
-								name: "the queries' meaning over the drawn comments: the attachment's comments but the parameter's, echoing it; the union's slugs and the parameter where a comment holds it"
-							},
-							coverage: required<EmittedFeature>(
-								[
-									"refused at bind",
-									"no comment",
-									"a comment the parameter excludes",
-									"a comment the union matches"
-								],
-								{ cases: 48, sense: notesOnly }
-							),
-							kept: [],
-							runs: 32,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						({ comments, slug, plan }, c) =>
+/**
+ * A cast into a refinement nothing proves is refused at compile, and a relation parameter outside its pattern at bind,
+ * generic and custom, each case on the worker's seat of the installation.
+ *
+ * Its pre-conversion budget: runs 20, coverage cases 32 (test/pg/regex-complete/regex-complete.test.ts at 41a9e7062).
+ */
+export const aCastIntoARefinementNothingProvesIsRefusedAtCompileAndARelationParameterOutsideItsPatternAtBind =
+	property.explore(givenCases, {
+		needs: { content: Substrate.seat(contentTemplate) },
+		situations: ["refused at bind", "a row", "an empty relation"] satisfies ReadonlyArray<
+			Reached<BoundFeature | "an empty relation">
+		>,
+		check:
+			({ content }, c: Case<BoundFeature | "an empty relation">) =>
+			({ slugs, artifact, plan }) =>
+				Effect.scoped(
+					Effect.flatMap(content, (seat) =>
+						Effect.provideService(
 							Effect.gen(function* () {
+								const { schema: name } = seat.value
+								const session = yield* readerSession
+								const cast = compiling(titlesAsSlugs, name)
+								assert.equal(
+									cast.ok
+										? "compiled"
+										: cast.error.reason._tag === "PartialOperation"
+											? `PartialOperation, precondition ${cast.error.reason.precondition}`
+											: cast.error.reason._tag,
+									"PartialOperation, precondition language",
+									"a title cast into the slug's refinement"
+								)
+								/** A relation parameter's refined column is cast to its domain in the delivered output list. */
+								const given = compiled(givenSlugs, name)
+								assert.equal(
+									isRefined(
+										Option.getOrThrow(Arr.findFirst(given.heading, (h) => h.name === "slug")).type
+									),
+									true
+								)
+								const facts = Arr.map(slugs, (slug, i) => ({ id: id(100 + i), slug }))
+								const bound = Arr.every(slugs, slugAdmits) ? rows(facts.length) : refusedAtBind
+								c.note(featureOf(bound))
+								if (facts.length === 0) {
+									c.note("an empty relation")
+								}
+								yield* boundAgrees(
+									session,
+									given,
+									artifact,
+									{ given: facts },
+									bound,
+									plan,
+									`${facts.length} facts in the ${artifact} artifact under a ${plan} plan`
+								)
+							}),
+							Substrate,
+							seat.substrate
+						)
+					)
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "ECMAScript's match of the slug's pattern over every given fact"
+		},
+		show: Formatter.format,
+		budget: { runs: 20, steered: 32 },
+		kept: [],
+		kills: []
+	})
+
+/**
+ * An attachment's and a union arm's emitted parameter is refused outside its pattern, and delivered inside it, each case
+ * on the worker's seat of the installation, writing the articles and comments it reads.
+ *
+ * Its pre-conversion budget: runs 32, coverage cases 48 (test/pg/regex-complete/regex-complete.test.ts at 41a9e7062).
+ */
+export const anAttachmentsAndAUnionArmsEmittedParameterIsRefusedOutsideItsPatternAndDeliveredInsideIt =
+	property.explore(emittedCases, {
+		needs: { content: Substrate.seat(contentTemplate) },
+		situations: [
+			"refused at bind",
+			"no comment",
+			"a comment the parameter excludes",
+			"a comment the union matches"
+		] satisfies ReadonlyArray<Reached<EmittedFeature>>,
+		check:
+			({ content }, c: Case<EmittedFeature>) =>
+			({ comments, slug, plan }) =>
+				Effect.scoped(
+					Effect.flatMap(content, (seat) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const { schema: name, installation } = seat.value
+								const s = yield* Substrate
+								const tables = installationGroup(installationNamesOf(installation))
+								const session = yield* readerSession
+								/**
+								 * An attachment over exact parents is a part of its own of the read's one statement (lower/shapes/index.ts
+								 * OptimizedDelivery, R36): the parent's rows, then the attachment's, each a parent's key then a child's
+								 * fields, behind its part's tag (adapter/reader/execution.ts partRuns).
+								 */
+								const attached = compiled(echoComments, name)
+								assert.equal(attached.optimized.length, 1)
+								const spec = defined(attached.optimized[0], "the read's statement")
+								const attachment = defined(
+									Option.getOrUndefined(
+										Arr.findFirst(flight(attached.run.roots), (p) => p.role.kind === "attachment")
+									),
+									"the attachment's part"
+								)
+								const union = compiled(slugsOrEcho, name)
+								const unionSpec = defined(union.optimized[0], "statement")
+								const conservative = defined(union.conservative[0], "statement")
+								const articleSlugs = Arr.map(articles(3), (a) => a.slug)
 								if (!slugAdmits(slug)) {
 									assert.equal(bindRefusal(attached, { slug }), undefined, slug)
 									assert.equal(bindRefusal(union, { slug }), undefined, slug)
@@ -1199,62 +477,62 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 								if (Arr.some(facts, (fact) => fact.slug === slug)) {
 									c.note("a comment the union matches")
 								}
-							})
+							}),
+							Substrate,
+							seat.substrate
+						)
 					)
-				})
-			)
-	)
+				),
+		oracle: {
+			kind: "specification",
+			name: "the queries' meaning over the drawn comments: the attachment's comments but the parameter's, echoing it; the union's slugs and the parameter where a comment holds it"
+		},
+		show: Formatter.format,
+		budget: { runs: 32, steered: 48 },
+		kept: [],
+		kills: []
+	})
 
-	it.effect(
-		"closed payloads are validated by PostgreSQL at installation, and a refined query constant where it is delivered",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const owned = owning(Content)
-					const checked = ok(checkedSchema(owned, everySlice(owned)), "checked")
-					const constants = refinedConstants(checked)
-					unorderedEqual(
-						Arr.map(constants, (c) => c.literal),
-						[
-							{ kind: "text", value: "free" },
-							{ kind: "text", value: "pro-plan" }
-						]
-					)
-					const { schema: name, installation } = yield* install()
-					assert.ok(Arr.some(installation.manifest.objects, (o) => o.kind === "validation"))
-					const template = compiled(withConstant, name)
-					yield* loadArticles(name, articles(2))
-					const constantType = defined(constants[0], "constant").type
-					return yield* explore(
-						{
-							suite: "pg/regex-complete/refined constant",
-							draw: drawn<ConstantCase>((source) => ({
-								text: source.draw(slugTextGen),
-								artifact: source.draw(element(artifacts))
-							})),
-							literal: Formatter.format,
-							oracle: {
-								kind: "second-implementation",
-								name: "ECMAScript's match of the slug's pattern, against the domain's CHECK on a constant"
-							},
-							coverage: required<"a constant refused" | "a constant admitted">(
-								["a constant refused", "a constant admitted"],
-								{ cases: 32, sense: notesOnly }
-							),
-							kept: [],
-							runs: 24,
-							shrink: completeShrink,
-							steerEvery: 8,
-							caseHang
-						},
-						({ text, artifact }, c) =>
+/**
+ * Closed payloads are validated by PostgreSQL at installation, and a refined query constant where it is delivered, each
+ * case on the worker's seat of the installation, two articles loaded.
+ *
+ * Its pre-conversion budget: runs 24, coverage cases 32 (test/pg/regex-complete/regex-complete.test.ts at 41a9e7062).
+ */
+export const closedPayloadsAreValidatedByPostgresqlAtInstallationAndARefinedQueryConstantWhereItIsDelivered =
+	property.explore(constantCases, {
+		needs: { content: Substrate.seat(contentTemplate) },
+		situations: ["a constant refused", "a constant admitted"] satisfies ReadonlyArray<
+			Reached<"a constant refused" | "a constant admitted">
+		>,
+		check:
+			({ content }, c: Case<"a constant refused" | "a constant admitted">) =>
+			({ text, artifact }) =>
+				Effect.scoped(
+					Effect.flatMap(content, (seat) =>
+						Effect.provideService(
 							Effect.gen(function* () {
-								/** A closed payload's validation statement over the constants and the drawn one, and the cast of the
-								 * drawn text into the slug's domain: both fail with the domain's constraint exactly when the
-								 * pattern refuses the text. */
-								const validation = ok(
+								const { schema: name, installation } = seat.value
+								const s = yield* Substrate
+								const owned = owning(Content)
+								const checked = succeeded(checkedSchema(owned, everySlice(owned)), "checked")
+								const constants = refinedConstants(checked)
+								unorderedEqual(
+									Arr.map(constants, (k) => k.literal),
+									[
+										{ kind: "text", value: "free" },
+										{ kind: "text", value: "pro-plan" }
+									]
+								)
+								assert.ok(Arr.some(installation.manifest.objects, (o) => o.kind === "validation"))
+								const template = compiled(withConstant, name)
+								yield* loadArticles(name, articles(2))
+								const constantType = defined(constants[0], "constant").type
+								/**
+								 * A closed payload's validation statement over the constants and the drawn one, and the cast of the drawn text
+								 * into the slug's domain: both fail with the domain's constraint exactly when the pattern refuses the text.
+								 */
+								const validation = succeeded(
 									constantValidationObjects(installation.names, [
 										...constants,
 										{
@@ -1266,7 +544,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 									"validation"
 								)
 								const [statement] = validation[0]?.ddl ?? []
-								const sql = ok(
+								const sql = succeeded(
 									emit(defined(statement, "validation statement"), emptyNameMap),
 									"emit"
 								).text
@@ -1293,9 +571,18 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 									["article", "article"],
 									`the ${artifact} artifact delivers the constant`
 								)
-							})
+							}),
+							Substrate,
+							seat.substrate
+						)
 					)
-				})
-			)
-	)
-})
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "ECMAScript's match of the slug's pattern, against the domain's CHECK on a constant"
+		},
+		show: Formatter.format,
+		budget: { runs: 24, steered: 32 },
+		kept: [],
+		kills: []
+	})
