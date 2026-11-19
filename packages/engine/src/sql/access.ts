@@ -125,6 +125,10 @@ export const relationAccess = (statement: SqlStatement): RelationAccess => {
 		case "dropFunction":
 		case "dropTrigger":
 		case "createFunction":
+		case "createDeclaredFunction":
+		case "handOverFunction":
+		case "createRowType":
+		case "adoptRole":
 		case "packConstant":
 		case "createConstant":
 		case "createGuardTrigger":

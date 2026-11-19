@@ -100,6 +100,9 @@ export type IdentityKind =
 	| "carrier"
 	| "liveSource"
 	| "liveSecret"
+	| "declaredFunction"
+	| "rowType"
+	| "functionOwner"
 
 declare const identifierBrand: unique symbol
 /**

@@ -696,6 +696,10 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "dropPublication":
 			case "createLiveSecret":
 			case "dropTrigger":
+			case "createDeclaredFunction":
+			case "handOverFunction":
+			case "createRowType":
+			case "adoptRole":
 			case "createMaterializedView":
 			case "drop":
 			case "revoke":

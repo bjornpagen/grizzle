@@ -372,6 +372,7 @@ export class InstallBuilder {
 		const ident = spec.ident
 		switch (ident.kind) {
 			case "domain":
+			case "type":
 			case "table":
 			case "materializedView":
 			case "view":

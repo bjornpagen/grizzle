@@ -352,11 +352,12 @@ const accessText = (role: string, access: RoleAccess): string => {
 
 /**
  * A name declared twice differently, a DuplicateIdentity's, with where the earlier declaration is: a relation, a
- * contract, a context matched with another descriptor, an alternatives(...) statement repeated by its manual
+ * declared function, a contract, a context matched with another descriptor, an alternatives(...) statement repeated by its manual
  * expansion `statement`, or a scope name two calls to v give in one rule, which no type tells apart.
  */
 export type Duplicate =
 	| { readonly kind: "relation"; readonly name: string; readonly earlier: SourceLoc }
+	| { readonly kind: "function"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "scope"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "contract"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "context"; readonly name: string; readonly earlier: SourceLoc }
@@ -371,6 +372,8 @@ const duplicateText = (duplicate: Duplicate): string => {
 	switch (duplicate.kind) {
 		case "relation":
 			return `one declaration per relation name; ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
+		case "function":
+			return `one declaration per function name; function ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
 		case "scope":
 			return `one scope per name in a rule; scope ${JSON.stringify(duplicate.name)} is also minted at ${formatLoc(duplicate.earlier)}, so give each v call of the rule its own name`
 		case "contract":

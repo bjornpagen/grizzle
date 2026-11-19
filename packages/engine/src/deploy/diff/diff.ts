@@ -86,6 +86,7 @@ import {
 } from "#compiler/deploy/snapshot/objects.ts"
 import {
 	type ConstantHeader,
+	type DeclaredHeader,
 	type FunctionHeader,
 	type RecordedManifest,
 	type RecordedObject,
@@ -281,8 +282,9 @@ type Dropped =
  * call; the foreign keys before the keys they reference; the keys and CHECKs before the indexes, a row security
  * switched off beside them; then the roles and their schemas, the statistics objects, the materialized views before
  * what they read, the functions, the law
- * columns and columns, the tables over the domains they use, the domains over the constants their CHECKs read, and the
- * constants last, which RESTRICT refuses to drop while anything still reads one. Within a kind, each step keeps its own
+ * columns and columns, the tables over the domains they use, the domains and the declared functions' row types over the
+ * constants their CHECKs read, and the constants and the function owner last, which RESTRICT refuses to drop while
+ * anything still reads one and DROP ROLE while it owns a function. Within a kind, each step keeps its own
  * order: publish.removed the reverse install order, so a materialized view goes before the lower one it reads, a table
  * before one it references and a constant before the one its body reads; and a level's schema after everything in it. */
 const dropOrder: { readonly [K in Dropped]: number } = {
@@ -311,12 +313,15 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	isolationFunction: 11,
 	snapshotGuard: 11,
 	lawFunction: 11,
+	declaredFunction: 11,
 	lawColumn: 12,
 	column: 13,
 	table: 14,
 	liveSecret: 14,
 	domain: 15,
+	rowType: 15,
 	constant: 16,
+	functionOwner: 16,
 	schema: 17
 }
 
@@ -845,6 +850,9 @@ class Differ {
 	/** Domains whose constraint this migration replaces, by name key: the validation statements that cast to one run
 	 * again in Publish. */
 	readonly reconstrained = new Set<NameKey>()
+	/** The declared functions this migration drops and creates again under another signature, by name key: their
+	 * privileges went with their drop. */
+	readonly recreatedFunctions = new Set<NameKey>()
 	/** Every object of the previous installation, in its install order, with its fate. */
 	readonly previous: ReadonlyArray<Previous>
 	/** Every object of the target, in its install order, with what it is to this migration. */
@@ -1838,6 +1846,28 @@ class Differ {
 					this.sql("structure", o.ddl)
 				}
 				return
+			case "functionOwner":
+				if (before === undefined) {
+					this.sql("setup", o.ddl)
+				} else if (!sameRecord(before, o)) {
+					this.sql(
+						"setup",
+						o.ddl.filter((s) => s.kind === "grant")
+					)
+				}
+				return
+			case "rowType":
+				if (before === undefined) {
+					this.sql("setup", o.ddl)
+				}
+				return
+			case "declaredFunction":
+				if (before === undefined) {
+					this.sql("setup", o.ddl)
+				} else if (!sameRecord(before, o)) {
+					this.declaredFunction(before, v.create, o.ddl)
+				}
+				return
 			case "role":
 				if (before === undefined) {
 					this.roleObject(v)
@@ -1997,6 +2027,39 @@ class Differ {
 				? [{ kind: "dropFunction", name: functionNameOf(previous.create), ifExists: false }]
 				: []
 		this.sql("structure", [...drop, ...ddl])
+	}
+
+	/**
+	 * A declared function whose definition changes: replaced in place by CREATE OR REPLACE where its arguments' types and
+	 * its result stand, which keeps its owner and its grants, as a body's change alone does; dropped first where either
+	 * changed, since CREATE OR REPLACE would make a second function of the name or refuse a changed result (42P13), and
+	 * handed over again by its own statements, its grants granted again (recreatedFunctions).
+	 */
+	declaredFunction(
+		before: RecordedObject,
+		create: DeclaredHeader,
+		ddl: ManifestObject["ddl"]
+	): void {
+		const previous = installed(before)
+		const recreated =
+			previous.kind === "declaredFunction" &&
+			(!canonicalEquals(functionNameOf(previous.create), functionNameOf(create)) ||
+				!canonicalEquals(previous.create.returns, create.returns))
+		if (recreated) {
+			this.recreatedFunctions.add(nameKey(create.name))
+		}
+		this.sql("setup", [
+			...(recreated
+				? [
+						{
+							kind: "dropFunction",
+							name: functionNameOf(previous.create),
+							ifExists: false
+						} as const
+					]
+				: []),
+			...ddl
+		])
 	}
 
 	roleObject(v: Installed & { readonly kind: "role" }): void {
@@ -2900,6 +2963,37 @@ class Differ {
 					statement({ kind: "dropFunction", name: functionNameOf(v.create), ifExists: false })
 				)
 				return
+			case "declaredFunction":
+				drop(
+					v.kind,
+					statement({
+						kind: "dropFunction",
+						name: functionNameOf(v.create),
+						ifExists: false
+					})
+				)
+				return
+			case "rowType":
+				drop(
+					v.kind,
+					statement({ kind: "drop", object: "TYPE", name: v.create.name, ifExists: false })
+				)
+				return
+			case "functionOwner":
+				for (const g of o.ddl) {
+					if (g.kind === "grant") {
+						this.removal(
+							dropOrder.role,
+							order,
+							statement({ kind: "revoke", privileges: g.privileges, on: g.on, from: g.to })
+						)
+					}
+				}
+				drop(
+					v.kind,
+					statement({ kind: "drop", object: "ROLE", name: v.create.name, ifExists: false })
+				)
+				return
 			case "lawTrigger":
 				drop(
 					v.kind,
@@ -3104,7 +3198,8 @@ class Differ {
 	}
 
 	/** The keys of the objects whose privileges Structure takes away before Publish grants (privileges.ts objectKey): each
-	 * materialized view it drops, recreated or not, each role's view and world function it drops at its start, and each
+	 * materialized view it drops, recreated or not, each role's view and world function it drops at its start, each
+	 * declared function it drops and creates again for a changed signature or result (recreatedFunctions), and each
 	 * identity sequence it creates again under its name. Publish revokes nothing on one, and grants again every privilege
 	 * the target states on one it holds. */
 	resetObjects(): ReadonlySet<string> {
@@ -3114,11 +3209,14 @@ class Differ {
 					const key = nameKey(x.name)
 					return this.recreatedViews.has(key) || this.dropped.has(key) || this.worldGone.has(key)
 				}
-				case "FUNCTION":
-					return this.worldGone.has(nameKey(x.name))
+				case "FUNCTION": {
+					const key = nameKey(x.name)
+					return this.worldGone.has(key) || this.recreatedFunctions.has(key)
+				}
 				case "SEQUENCE":
 					return this.sequences.get(nameKey(x.name)) === "recreated"
 				case "DOMAIN":
+				case "TYPE":
 				case "SCHEMA":
 				case "DATABASE":
 					return false
@@ -4048,8 +4146,9 @@ const grantOf = (r: Revoke): Grant => ({
 
 /**
  * The objects a GRANT may name that an installed object is (privileges.ts GrantObject): a table, with its identity
- * sequences, the ledger, a role's view and a materialized view as a TABLE; a domain; every function and constant by its
- * name and argument types; a level's schema and a role's; none for any other.
+ * sequences, the ledger, a role's view and a materialized view as a TABLE; a domain; a declared function's row type as
+ * a TYPE; every function, constant and declared function by its name and argument types; a level's schema and a
+ * role's; none for any other.
  */
 const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => {
 	switch (v.kind) {
@@ -4067,6 +4166,10 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 			return [{ kind: "TABLE", name: v.create.name }]
 		case "domain":
 			return [{ kind: "DOMAIN", name: v.create.name }]
+		case "rowType":
+			return [{ kind: "TYPE", name: v.create.name }]
+		case "declaredFunction":
+			return [{ kind: "FUNCTION", name: functionNameOf(v.create) }]
 		case "constant":
 		case "refusalFunction":
 		case "advanceFunction":
@@ -4089,6 +4192,7 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		case "isolationTrigger":
 		case "lawTrigger":
 		case "role":
+		case "functionOwner":
 		case "membership":
 		case "privileges":
 		case "policy":

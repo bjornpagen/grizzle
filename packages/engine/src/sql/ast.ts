@@ -1,6 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
 import type { FloatSpecialName } from "#compiler/core/canonical.ts"
 import type { ClockUnit } from "#compiler/core/clock.ts"
+import type { DeclaredLanguage } from "#compiler/core/function.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -1529,6 +1530,19 @@ export interface CreateDomain {
 	readonly constraints: ReadonlyArray<DomainConstraint>
 }
 
+/**
+ * CREATE TYPE <schema>.<name> AS (<attribute> <type> [COLLATE pg_catalog.pg_c_utf8], ...): the row type of a heading a
+ * declared function's argument or result takes (physical/ddl/functions.ts), named by its definition's digest, so a
+ * changed heading is another type. Each attribute is its field's base type, never a domain: PostgreSQL holds a
+ * function's result rows to its row type's attribute types exactly (pl_exec.c exec_stmt_return_query), so a body's
+ * query of the base types fits it, and a value's refinement is checked where a statement reads it.
+ */
+export interface CreateRowType {
+	readonly kind: "createRowType"
+	readonly name: ObjectName
+	readonly attributes: NonEmptyReadonlyArray<ColumnDefinition>
+}
+
 export type AlterDomainAction =
 	| {
 			readonly kind: "addConstraint"
@@ -1627,7 +1641,14 @@ export interface DropPolicy {
 export type DropObject =
 	| {
 			readonly kind: "drop"
-			readonly object: "TABLE" | "MATERIALIZED VIEW" | "VIEW" | "DOMAIN" | "SEQUENCE" | "STATISTICS"
+			readonly object:
+				| "TABLE"
+				| "MATERIALIZED VIEW"
+				| "VIEW"
+				| "DOMAIN"
+				| "SEQUENCE"
+				| "STATISTICS"
+				| "TYPE"
 			readonly name: ObjectName
 			readonly ifExists: boolean
 	  }
@@ -1877,6 +1898,7 @@ export type GrantObjects =
 	| { readonly kind: "SEQUENCE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "SCHEMA"; readonly names: NonEmptyReadonlyArray<string> }
 	| { readonly kind: "DOMAIN"; readonly names: NonEmptyReadonlyArray<ObjectName> }
+	| { readonly kind: "TYPE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "FUNCTION"; readonly names: NonEmptyReadonlyArray<FunctionName> }
 	| { readonly kind: "DATABASE" }
 
@@ -2190,6 +2212,62 @@ export interface CreateConstant {
 	readonly body: Expr
 }
 
+/** A declared function's volatility as CREATE FUNCTION spells it. */
+export type DeclaredVolatility = "IMMUTABLE" | "STABLE" | "VOLATILE"
+
+/**
+ * A declared function's body: the application's own PL/pgSQL or SQL text, carried byte for byte, which the statement
+ * dollar-quotes under a tag the text does not hold, so PostgreSQL stores exactly it as the function's pg_proc.prosrc.
+ * Minted only by `declaredBody`, at the one place a body leaves its declaration (physical/ddl/functions.ts).
+ */
+export type DeclaredBody = string & { readonly [declaredBodyBrand]: true }
+declare const declaredBodyBrand: unique symbol
+
+/** A declared function's body, its declaration's text as it stands. */
+export const declaredBody = nominal<string, DeclaredBody>()
+
+/**
+ * CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS <type> | SETOF <row type> LANGUAGE <language>
+ * <volatility> SECURITY DEFINER SET search_path = pg_catalog, <path>, pg_temp AS <tag><body><tag>: a function the
+ * application declares (physical/ddl/functions.ts). Its owner is the installation's function owner, a role of no
+ * privilege on any table, so a body that reads a table fails as it runs; its path names pg_catalog first, so no name
+ * of the level's shadows a builtin, then its own schema, the one its name names, so the body names the declared
+ * functions and row types of its level unqualified, and pg_temp last, so no session's temporary object shadows one.
+ * Its parameters and result are base types and row types alone.
+ */
+export interface CreateDeclaredFunction {
+	readonly kind: "createDeclaredFunction"
+	readonly name: ObjectName
+	readonly params: ReadonlyArray<FunctionParam>
+	readonly returns: TypeRef | SetOf
+	readonly language: DeclaredLanguage
+	readonly volatility: DeclaredVolatility
+	readonly body: DeclaredBody
+}
+
+/**
+ * A declared function handed over to the installation's function owner, three commands: GRANT CREATE ON SCHEMA <its
+ * schema> TO <owner>, ALTER FUNCTION <name>(<args>) OWNER TO <owner>, REVOKE CREATE ON SCHEMA <its schema> FROM
+ * <owner>. PostgreSQL hands a function to a role only from one that may SET ROLE to it, and only while the role holds
+ * CREATE on the function's schema (alter.c AlterObjectOwner_internal), which the owner holds for the hand-over alone.
+ */
+export interface HandOverFunction {
+	readonly kind: "handOverFunction"
+	readonly name: FunctionName
+	readonly owner: string
+}
+
+/**
+ * GRANT <role> TO CURRENT_USER WITH INHERIT TRUE, SET TRUE: the migration identity's membership in the installation's
+ * function owner, which hands each declared function to it (HandOverFunction) and replaces or drops each later as a
+ * member of its owner (pg_proc_ownercheck reads has_privs_of_role). The identity holds no privilege of the owner's it
+ * lacks: the owner holds none on any table.
+ */
+export interface AdoptRole {
+	readonly kind: "adoptRole"
+	readonly role: string
+}
+
 /**
  * Transaction control: a read's BEGIN, SERIALIZABLE READ ONLY, DEFERRABLE (it waits for a safe snapshot, then runs
  * untracked by SSI) or not (it runs at once, tracked); a write's BEGIN at its isolation level; COMMIT, ROLLBACK, and
@@ -2237,6 +2315,7 @@ export type CommentTarget =
 				| "VIEW"
 				| "MATERIALIZED VIEW"
 				| "DOMAIN"
+				| "TYPE"
 				| "SEQUENCE"
 				| "INDEX"
 				| "STATISTICS"
@@ -2289,6 +2368,10 @@ export type Ddl =
 	| DropFunction
 	| DropTrigger
 	| CreateFunction
+	| CreateDeclaredFunction
+	| HandOverFunction
+	| CreateRowType
+	| AdoptRole
 	| PackConstant
 	| CreateConstant
 	| CreateGuardTrigger

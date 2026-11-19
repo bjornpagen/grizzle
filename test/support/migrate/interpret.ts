@@ -1467,6 +1467,8 @@ class Model {
 	>()
 	readonly #dependents = new Map<string, View>()
 	readonly #domains = new Map<string, Domain>()
+	/** The row types of the schema's declared functions, by name: a type no column holds. */
+	readonly #rowTypes = new Set<string>()
 	readonly #functions = new Map<string, Function>()
 	readonly #databasePrivileges = new Map<string, ReadonlySet<string>>()
 	/** The columns this run converted, by `<table>.<column>` under their current names. */
@@ -1526,9 +1528,15 @@ class Model {
 		)
 	}
 
-	/** The type namespace (pg_type): domains, and the row types of tables and views; a sequence has none. */
+	/** The type namespace (pg_type): domains, declared functions' row types, and the row types of tables and views; a
+	 * sequence has none. */
 	#typeTaken(name: string): boolean {
-		return this.#domains.has(name) || this.#tables.has(name) || this.#views.has(name)
+		return (
+			this.#domains.has(name) ||
+			this.#rowTypes.has(name) ||
+			this.#tables.has(name) ||
+			this.#views.has(name)
+		)
 	}
 
 	/** A name a new relation with a row type takes in both namespaces. */
@@ -3450,6 +3458,11 @@ class Model {
 			case "DOMAIN":
 				this.#dropType(s.name, s.ifExists)
 				return
+			case "TYPE":
+				if (!this.#rowTypes.delete(name) && !s.ifExists) {
+					refuse("42704", `the dropped type ${printObjectName(s.name)} does not exist`)
+				}
+				return
 			case "SEQUENCE": {
 				const q = this.#sequences.get(name)
 				if (q === undefined) {
@@ -3556,6 +3569,13 @@ class Model {
 			case "DOMAIN":
 				for (const n of on.names) {
 					this.#typeExists(namedType(testTypeSchema(n.schema), n.name, []))
+				}
+				return
+			case "TYPE":
+				for (const n of on.names) {
+					if (this.#ours(n) && !this.#rowTypes.has(n.name)) {
+						refuse("42704", `the type ${printObjectName(n)} does not exist`)
+					}
 				}
 				return
 			case "FUNCTION":
@@ -3912,7 +3932,24 @@ class Model {
 				return
 			}
 			case "createFunction":
+			case "createDeclaredFunction":
 				this.#replaceFunction(s.name, { body: { kind: "opaque" }, calls: [] })
+				return
+			case "createRowType":
+				if (!this.#ours(s.name)) {
+					return
+				}
+				if (this.#typeTaken(s.name.name)) {
+					refuse("42710", `the type ${printObjectName(s.name)} already exists`)
+				}
+				this.#rowTypes.add(s.name.name)
+				return
+			case "handOverFunction":
+				if (this.#ours(s.name) && !this.#functions.has(s.name.name)) {
+					refuse("42883", `the function ${printObjectName(s.name)} handed over does not exist`)
+				}
+				return
+			case "adoptRole":
 				return
 			case "createConstant":
 				this.#addFunction(s.name, {

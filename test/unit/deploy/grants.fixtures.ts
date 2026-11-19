@@ -252,6 +252,7 @@ const objectsOf = (on: GrantObjects): ReadonlyArray<string> => {
 		case "TABLE":
 		case "SEQUENCE":
 		case "DOMAIN":
+		case "TYPE":
 			return Arr.map(on.names, (n) => `${on.kind} ${n.schema}.${n.name}`)
 		case "FUNCTION":
 			return Arr.map(

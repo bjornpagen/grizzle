@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import { Array as Arr, Equal, Option, Order, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type {
@@ -17,6 +18,11 @@ import type {
  */
 export type InstalledFunction =
 	| { readonly kind: "world" }
+	| {
+			/** A declared function (physical/ddl/functions.ts), of its declared volatility, as pg_proc spells it. */
+			readonly kind: "declared"
+			readonly volatility: "i" | "s" | "v"
+	  }
 	| { readonly kind: "advance"; readonly table: string }
 	| { readonly kind: "refusal" }
 	| { readonly kind: "snapshotGuard" }
@@ -70,6 +76,14 @@ export interface ErasureExpectation {
 	readonly guarded: ReadonlySet<string>
 	/** Every function the installation includes, by its name, as what it is. */
 	readonly functions: ReadonlyMap<string, InstalledFunction>
+	/**
+	 * The installation's function owner (physical/ddl/functions.ts), where it declares a function: the one role besides
+	 * the owner that owns an object of it, its declared functions, which holds USAGE on its schemas and EXECUTE on
+	 * what it owns and nothing else.
+	 */
+	readonly functionOwner: Option.Option<string>
+	/** The row types of its declared functions' headings, by name: the only composite types of the schema. */
+	readonly rowTypes: ReadonlySet<string>
 	/** Every trigger the installation includes but PostgreSQL's internal ones, by its name, as what it is. */
 	readonly triggers: ReadonlyMap<string, InstalledTrigger>
 	/** The tables some world's entry narrows: the only ones with row security, and the only ones with policies. */
@@ -176,7 +190,7 @@ export type ErasureProblem =
 	| {
 			readonly kind: "volatility"
 			readonly function: string
-			readonly required: "STABLE" | "VOLATILE"
+			readonly required: "IMMUTABLE" | "STABLE" | "VOLATILE"
 	  }
 	| {
 			readonly kind: "worldFunctionExecutors"
@@ -406,6 +420,14 @@ const grantProblems = (
 				privilege: g.privilege
 			})
 		}
+		if (Option.contains(j.expect.functionOwner, g.grantee)) {
+			return unless(functionOwnerMay(j, g), {
+				kind: "strangerHolds",
+				object: g.object,
+				grantee: g.grantee,
+				privilege: g.privilege
+			})
+		}
 		if (!j.worldRoles.has(g.grantee)) {
 			return [
 				{ kind: "strangerHolds", object: g.object, grantee: g.grantee, privilege: g.privilege }
@@ -418,6 +440,26 @@ const grantProblems = (
 			privilege: g.privilege
 		})
 	})
+
+/** What the function owner may hold: USAGE on the schema, and EXECUTE on a declared function, which it owns. */
+const functionOwnerMay = (j: Judging, g: HeldGrant): boolean =>
+	(g.object.kind === "schema" && g.privilege === "USAGE") ||
+	(g.object.kind === "function" &&
+		g.privilege === "EXECUTE" &&
+		j.expect.functions.get(g.object.name)?.kind === "declared")
+
+/** The name of a volatility as pg_proc.provolatile spells it. */
+const volatilityNames = { i: "IMMUTABLE", s: "STABLE", v: "VOLATILE" } as const
+
+/** A name PostgreSQL's quote_identifier leaves unquoted: lower case letters, digits, underscores and dollar signs. */
+const plainIdentifier = regex("^[a-z_][a-z0-9_$]*$")
+
+/**
+ * The search_path a declared function pins (physical/ddl/functions.ts): pg_catalog, its own schema, pg_temp, as
+ * PostgreSQL stores it in pg_proc.proconfig, each name quoted only where it must be.
+ */
+const declaredSearchPath = (schema: string): string =>
+	`search_path=pg_catalog, ${plainIdentifier.test(schema) ? schema : `"${Str.replaceAll('"', '""')(schema)}"`}, pg_temp`
 
 /** Each login holds what admission and a Db transaction take as the login. */
 const loginLacks = (
@@ -699,6 +741,25 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 		]
 	}
 	switch (expected.kind) {
+		case "declared":
+			return [
+				...unless(Option.contains(j.expect.functionOwner, f.owner), {
+					kind: "misowned",
+					object,
+					owner: f.owner
+				}),
+				...unless(f.securityDefiner, { kind: "notSecurityDefiner", function: f.name }),
+				...unless(Arr.contains(f.config, declaredSearchPath(j.catalog.schema)), {
+					kind: "searchPathUnfixed",
+					function: f.name
+				}),
+				...unless(f.volatility === expected.volatility, {
+					kind: "volatility",
+					function: f.name,
+					required: volatilityNames[expected.volatility]
+				}),
+				...grantProblems(j, held, allowed.function, allowed.none)
+			]
 		case "world":
 			return [
 				...installed,
@@ -1298,7 +1359,9 @@ export const verifyErasure = (
 			}
 		),
 		...Arr.flatMap(catalog.policies, (p) => policyProblems(j, p)),
-		...Arr.map(catalog.otherTypes, (type): ErasureProblem => ({ kind: "foreignType", type })),
+		...Arr.flatMap(catalog.otherTypes, (type): ReadonlyArray<ErasureProblem> =>
+			unless(j.expect.rowTypes.has(type), { kind: "foreignType", type })
+		),
 		...Arr.flatMap(catalog.roles, (r) => roleProblems(j, held, r)),
 		...Arr.flatMap([...declaredRoles], (role) =>
 			unless(

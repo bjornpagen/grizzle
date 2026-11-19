@@ -39,7 +39,6 @@ import {
 	type AstHooks,
 	C,
 	defaultPrivilegesExpectations,
-	emptyNameMap,
 	identityHooks,
 	installedExpectation,
 	judgedSchemas,
@@ -52,9 +51,9 @@ import {
 import {
 	CompileError,
 	type CreatePublication,
-	emit,
 	malformedArtifact,
 	emitCatalog,
+	emitCommands,
 	differenceShown,
 	type EmittedText,
 	escaped,
@@ -114,16 +113,18 @@ import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
  * column list are read so that the attribute order a migrated table differs from a fresh one by never enters a
  * description: columns are keyed by name, and statistics columns listed by name.
  *
- * An IMMUTABLE function is one of the installation's constants (a roster's names, a closed relation's packed cells),
- * and grizzle installs no other: a constant is named by its content's digest, so its key already says what it holds,
+ * An IMMUTABLE function of a parsed SQL body is one of the installation's constants (a roster's names, a closed
+ * relation's packed cells): a constant is named by its content's digest, so its key already says what it holds,
  * and it is described by its owner and its result type alone, never by its body, which for a closed relation runs to
  * many kilobytes. A constant the snapshot names is installed or missing by its key; one only the database holds, as a
  * migration that did not drop a replaced constant leaves, is unexpected by its key.
  *
- * The snapshot records a PL/pgSQL function and a constant by its header alone, a function with the digest of its
- * source (snapshot/recorded.ts), so the replay creates each with a stub body (replayedStatement): a constant is
- * described as above, and a PL/pgSQL function by its definition's header alone (plpgsqlHeader), its source held apart
- * to the record's digest, the SHA-256 of pg_proc.prosrc (sourcesQuery). A source that differs is reported with both
+ * The snapshot records a PL/pgSQL function, a declared function and a constant by its header alone, a function with
+ * the digest of its source (snapshot/recorded.ts), so the replay creates each with a stub body (replayedStatement): a
+ * constant is described as above, and a function of a string body, PL/pgSQL or a declared one's, by its definition's
+ * header alone (plpgsqlHeader), its owner among it, its source held apart to the record's digest, the SHA-256 of
+ * pg_proc.prosrc (sourcesQuery). A declared function's row types are relations of kind c, each described with its
+ * attributes as a table is with its columns. A source that differs is reported with both
  * digests and the committed migration statement that last defines the function (definitionOf), the text to compare
  * the installed one with.
  *
@@ -302,16 +303,13 @@ const notExtensionMember = (catalog: C.CatalogRelation, oid: C.CatalogExpr): C.C
 	)
 }
 
-/** Whether a function's language, `prolang`, is PL/pgSQL. */
-const isPlpgsql = (prolang: C.CatalogExpr): C.CatalogExpr => {
-	const l = C.from("pg_language", "l")
-	return C.exists(
-		C.anyRow(
-			[l.item],
-			C.and([C.eq(l.col("oid"), prolang), C.eq(l.col("lanname"), C.text("plpgsql"))])
-		)
-	)
-}
+/**
+ * Whether a function's body is a string, its source `prosrc` (pg_proc.prosrc): a PL/pgSQL function's, and a declared
+ * function's of either language, each its text. A constant and a writable entry's world function have an SQL body
+ * PostgreSQL parsed, `RETURN <expr>`, which it stores in prosqlbody, its prosrc empty (functioncmds.c
+ * interpret_AS_clause).
+ */
+const stringBodied = (prosrc: C.CatalogExpr): C.CatalogExpr => C.ne(prosrc, C.text(""))
 
 /**
  * A PL/pgSQL function's definition as PostgreSQL deparses it (pg_get_functiondef), its header alone: the definition is
@@ -831,7 +829,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			],
 			C.and([
 				inSchema(n),
-				C.inList(c.col("relkind"), C.letters(["r", "p", "f"])),
+				C.inList(c.col("relkind"), C.letters(["r", "p", "f", "c"])),
 				C.gt(a.col("attnum"), C.literal(0n, "smallint")),
 				C.not(a.col("attisdropped")),
 				notExtensionMember("pg_class", c.col("oid"))
@@ -914,14 +912,17 @@ const descriptionSelect = (): C.CatalogSelect => {
 					C.caseWhen(
 						[
 							{
-								when: C.eq(p.col("provolatile"), C.letter("i")),
+								when: C.and([
+									C.eq(p.col("provolatile"), C.letter("i")),
+									C.not(stringBodied(p.col("prosrc")))
+								]),
 								result: labelled(
 									"constant returning ",
 									C.catalogCall("format_type", [p.col("prorettype"), C.literal(-1n, "integer")])
 								)
 							},
 							{
-								when: C.and([C.eq(p.col("prokind"), C.letter("f")), isPlpgsql(p.col("prolang"))]),
+								when: C.and([C.eq(p.col("prokind"), C.letter("f")), stringBodied(p.col("prosrc"))]),
 								result: plpgsqlHeader(p.col("oid"), p.col("prosrc"))
 							},
 							{
@@ -1076,7 +1077,7 @@ const sourcesQuery: CatalogQuery<readonly [string, string, string]> = (() => {
 				C.and([
 					C.any(n.col("nspname"), C.arrayParam(1, "text")),
 					C.eq(p.col("prokind"), C.letter("f")),
-					isPlpgsql(p.col("prolang")),
+					stringBodied(p.col("prosrc")),
 					notExtensionMember("pg_proc", p.col("oid"))
 				])
 			)
@@ -1276,8 +1277,9 @@ const scratchHooks = (scratchOf: ReadonlyMap<string, TypeSchema>): AstHooks => {
 
 /**
  * What a manifest statement runs in the scratch schemas: an object of an installed schema, built in its scratch one,
- * each installed schema created as its scratch one and an index built in the transaction, never concurrently; nothing
- * for a role, a membership, a grant, a default privilege, a database default, an extension, a comment or a query.
+ * each installed schema created as its scratch one and an index built in the transaction, never concurrently, and a
+ * declared function handed over to the function owner in its scratch schema, as in its installed one; nothing for a
+ * role, a membership, a grant, a default privilege, a database default, an extension, a comment or a query.
  */
 const inScratch = (
 	s: ManifestStatement,
@@ -1298,6 +1300,9 @@ const inScratch = (
 		case "createView":
 		case "createPolicy":
 		case "createFunction":
+		case "createDeclaredFunction":
+		case "handOverFunction":
+		case "createRowType":
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
@@ -1309,6 +1314,7 @@ const inScratch = (
 		case "createRole":
 		case "alterRole":
 		case "grantRole":
+		case "adoptRole":
 		case "grant":
 		case "grantColumns":
 		case "revoke":
@@ -1345,8 +1351,8 @@ interface ReplayText {
 }
 
 /**
- * The texts that build `objects` in the scratch schemas, in the manifest's order, each policy's role filled as the
- * installation names it.
+ * The texts that build `objects` in the scratch schemas, in the manifest's order, one text a command, as a driver sends
+ * a statement of several, each policy's role and each function's owner filled as the installation names it.
  */
 const scratchStatements = (
 	objects: ReadonlyArray<ReplayedObject>,
@@ -1356,15 +1362,17 @@ const scratchStatements = (
 	const texts: Array<ReplayText> = []
 	for (const o of objects) {
 		for (const d of Arr.flatMap(o.statements, (s) => inScratch(s, scratchOf))) {
-			const e = emit(d, emptyNameMap)
-			if (!e.ok) {
-				return Result.fail(e.error)
+			const commands = emitCommands(d)
+			if (!commands.ok) {
+				return Result.fail(commands.error)
 			}
-			const filled = filledText(e.value.text, (text) => resolveVariables(text, installation))
-			if (!filled.ok) {
-				return Result.fail(unfilled(filled.error))
+			for (const command of commands.value) {
+				const filled = filledText(command, (text) => resolveVariables(text, installation))
+				if (!filled.ok) {
+					return Result.fail(unfilled(filled.error))
+				}
+				texts.push({ object: o.ident, text: filled.value })
 			}
-			texts.push({ object: o.ident, text: filled.value })
 		}
 	}
 	return Result.succeed(texts)

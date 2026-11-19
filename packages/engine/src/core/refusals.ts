@@ -18,6 +18,7 @@ export const refusals = [
 	"a contract is a value domain; a serial is a generation declaration, so use its value type",
 	"a contract's name is one literal, the brand of its values",
 	"a counted family's side is its owner's key",
+	"a declared function takes and returns values of a base type, a contract or a refined text over one: no serial, money, bytes, closed id, set, span or vector",
 	"a declared name: ASCII letters, digits and underscores, a letter first",
 	"a derived definition has at least one field",
 	"a derived definition has one heading: a materialized view stores one heading group",

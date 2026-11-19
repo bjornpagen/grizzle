@@ -30,6 +30,7 @@ import type { SqlStatement } from "#compiler/sql/ast.ts"
 type NamedKind = "schema" | "extension" | "role" | "membership" | "privileges" | "publication"
 export type QualifiedKind =
 	| "domain"
+	| "type"
 	| "table"
 	| "materializedView"
 	| "view"
@@ -74,6 +75,7 @@ const namedKinds: ReadonlyArray<NamedKind> = [
 
 const qualifiedKinds: ReadonlyArray<QualifiedKind> = [
 	"domain",
+	"type",
 	"table",
 	"materializedView",
 	"view",
@@ -148,6 +150,7 @@ export const identText = (ident: NodeIdent): string => {
 		case "text":
 			return ident.text
 		case "domain":
+		case "type":
 		case "table":
 		case "materializedView":
 		case "view":
@@ -204,6 +207,7 @@ const keyOf = (ident: NodeIdent): ObjectKey => {
 		case "text":
 			return { kind: ident.kind, names: [{ kind: "readable", name: ident.text }] }
 		case "domain":
+		case "type":
 		case "table":
 		case "materializedView":
 		case "view":

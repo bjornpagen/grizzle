@@ -24,6 +24,7 @@ import {
 	type ColumnGeneration,
 	type CommentTarget,
 	type ContextSource,
+	type CreateDeclaredFunction,
 	type CreateFunction,
 	type Cte,
 	type CteBody,
@@ -39,6 +40,7 @@ import {
 	type FunctionRef,
 	type Grantee,
 	type GrantObjects,
+	type HandOverFunction,
 	type IndexKey,
 	type Insert,
 	type JoinStep,
@@ -1488,9 +1490,27 @@ const grantEmitter: { readonly [K in GrantObjects["kind"]]: Emitter } = {
 	TABLE: own,
 	SEQUENCE: own,
 	DOMAIN: own,
+	TYPE: own,
 	FUNCTION: own,
 	SCHEMA: databaseWide,
 	DATABASE: databaseWide
+}
+
+/**
+ * A declared function's hand-over as its three commands: CREATE on its schema granted to the owner, the ALTER FUNCTION
+ * that `command` writes, and CREATE revoked, each its own command, on the installation's own schema, so no lock.
+ */
+const handedOver = (
+	statement: HandOverFunction,
+	command: Command
+): NonEmptyReadonlyArray<Command> => {
+	const schema = quoteIdent(statement.name.schema)
+	const owner = printRole(statement.owner)
+	return [
+		(out) => out.line(`GRANT CREATE ON SCHEMA ${schema} TO ${owner}`),
+		command,
+		(out) => out.line(`REVOKE CREATE ON SCHEMA ${schema} FROM ${owner}`)
+	]
 }
 
 /** What a GRANT or REVOKE names: its objects, or the current database (printDatabase). */
@@ -1506,6 +1526,7 @@ const printGrantObjects = (on: NamedGrantObjects): string => {
 		case "TABLE":
 		case "SEQUENCE":
 		case "DOMAIN":
+		case "TYPE":
 			return `${on.kind} ${on.names.map(printObjectName).join(", ")}`
 	}
 }
@@ -1704,6 +1725,47 @@ const createFunctionBlock = (out: Lines, fn: CreateFunction): void => {
 	}
 }
 
+/**
+ * The dollar-quote tag for a declared function's body: `$$` unless the body holds it, then `$gz$`, `$gz1$`, …, the first
+ * whose one occurrence in the body followed by it is its own, so no `$` the body ends in joins the tag and PostgreSQL's
+ * scanner ends the body exactly where it ends.
+ */
+const declaredBodyTag = (body: string): string => {
+	const free = (tag: string): boolean => `${body}${tag}`.indexOf(tag) === body.length
+	if (free("$$")) {
+		return "$$"
+	}
+	if (free("$gz$")) {
+		return "$gz$"
+	}
+	for (let n = 1; ; n++) {
+		const tag = `$gz${n}$`
+		if (free(tag)) {
+			return tag
+		}
+	}
+}
+
+/** A declared function's search_path, as its SET clause spells it: pg_catalog, its own schema, then pg_temp. */
+const declaredSearchPath = (schema: string): string =>
+	[closedSearchPath[0], schema, closedSearchPath[1]].map(quoteIdent).join(", ")
+
+/**
+ * A declared function's CREATE OR REPLACE FUNCTION (sql/ast.ts CreateDeclaredFunction): its head and clauses on two lines,
+ * then `AS`, its tag, the body exactly as declared and the tag again, so the value between the tags, which PostgreSQL
+ * stores as its pg_proc.prosrc, is the body itself, byte for byte.
+ */
+const createDeclaredFunction = (out: Lines, fn: CreateDeclaredFunction): void => {
+	out.line(
+		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${"setOf" in fn.returns ? `SETOF ${printType(fn.returns.setOf)}` : printType(fn.returns)}`
+	)
+	out.line(
+		`LANGUAGE ${fn.language} ${fn.volatility} SECURITY DEFINER SET search_path = ${declaredSearchPath(fn.name.schema)}`
+	)
+	const tag = declaredBodyTag(fn.body)
+	out.line(`AS ${tag}${fn.body}${tag}`)
+}
+
 /** A constant's head, CREATE FUNCTION <name>(<params>) RETURNS <type>. */
 const constantHead = (
 	name: ObjectName,
@@ -1835,6 +1897,7 @@ export const printCommentTarget = (on: CommentTarget): string => {
 		case "VIEW":
 		case "MATERIALIZED VIEW":
 		case "DOMAIN":
+		case "TYPE":
 		case "SEQUENCE":
 		case "INDEX":
 		case "STATISTICS":
@@ -1986,6 +2049,20 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			)
 		case "createFunction":
 			return createFunctionBlock(out, statement)
+		case "createDeclaredFunction":
+			return createDeclaredFunction(out, statement)
+		case "handOverFunction":
+			return out.line(
+				`ALTER FUNCTION ${printFunctionSignature(statement.name)} OWNER TO ${printRole(statement.owner)}`
+			)
+		case "createRowType":
+			return out.line(
+				`CREATE TYPE ${printObjectName(statement.name)} AS (${statement.attributes.map(definitionText).join(", ")})`
+			)
+		case "adoptRole":
+			return out.line(
+				`GRANT ${printRole(statement.role)} TO CURRENT_USER WITH INHERIT TRUE, SET TRUE`
+			)
 		case "packConstant":
 			return writePack(out, statement)
 		case "createConstant":
@@ -2128,6 +2205,8 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "grant":
 		case "revoke":
 			return grantEmitter[statement.on.kind](command)
+		case "handOverFunction":
+			return handedOver(statement, command)
 		case "select":
 		case "insert":
 		case "update":
@@ -2152,6 +2231,9 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "dropFunction":
 		case "dropTrigger":
 		case "createFunction":
+		case "createDeclaredFunction":
+		case "createRowType":
+		case "adoptRole":
 		case "packConstant":
 		case "createConstant":
 		case "createGuardTrigger":

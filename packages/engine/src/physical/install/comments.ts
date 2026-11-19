@@ -153,6 +153,15 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 			return [{ on: { kind: "ROLE", name: s.name }, identifier: s.name }]
 		case "createFunction":
 			return [{ on: { kind: "FUNCTION", name: functionNameOf(s) }, identifier: s.name.name }]
+		case "createDeclaredFunction":
+			return [
+				{
+					on: { kind: "FUNCTION", name: { ...s.name, args: s.params.map((p) => p.type) } },
+					identifier: s.name.name
+				}
+			]
+		case "createRowType":
+			return [{ on: { kind: "TYPE", name: s.name }, identifier: s.name.name }]
 		case "packConstant":
 			return [
 				{
@@ -186,6 +195,8 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "drop":
 		case "dropFunction":
 		case "dropTrigger":
+		case "handOverFunction":
+		case "adoptRole":
 		case "alterDatabaseDefault":
 		case "alterRole":
 		case "grantRole":
@@ -219,6 +230,7 @@ export const targetKey = (on: CommentTarget): string => {
 		case "VIEW":
 		case "MATERIALIZED VIEW":
 		case "DOMAIN":
+		case "TYPE":
 		case "SEQUENCE":
 		case "INDEX":
 		case "STATISTICS":
@@ -250,6 +262,7 @@ const targetName = (on: CommentTarget): string => {
 		case "VIEW":
 		case "MATERIALIZED VIEW":
 		case "DOMAIN":
+		case "TYPE":
 		case "SEQUENCE":
 		case "INDEX":
 		case "STATISTICS":

@@ -43,6 +43,7 @@ export type OwnedDomain =
 	| "regex-language"
 	| "domain-definition"
 	| "drift-proof"
+	| "row-type-definition"
 	| ConstantDomain
 
 /**
@@ -150,3 +151,16 @@ export const schemaLevel = (
 				})
 			)
 	)
+
+declare const rowTypeDigestBrand: unique symbol
+
+/**
+ * The digest of a row type's physical definition, its attributes' names, types and collations in order, minted only by
+ * rowTypeDigest: what the naming door names a declared function's row type by (core/identity.ts identity.rowType), so
+ * two headings of one definition share one type and a changed heading is another.
+ */
+export type RowTypeDigest = string & { readonly [rowTypeDigestBrand]: true }
+
+/** The digest of a row type's physical definition: ownedDigest's under "row-type-definition", branded. */
+export const rowTypeDigest = (definition: unknown, options: EncodeOptions): RowTypeDigest =>
+	nominal<string, RowTypeDigest>()(ownedDigest("row-type-definition", definition, options))

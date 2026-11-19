@@ -49,6 +49,10 @@ export type ManifestStatement =
 					| "createView"
 					| "createPolicy"
 					| "createFunction"
+					| "createDeclaredFunction"
+					| "handOverFunction"
+					| "createRowType"
+					| "adoptRole"
 					| "createGuardTrigger"
 					| "createConstraintTrigger"
 					| "createTransitionTrigger"
@@ -87,6 +91,10 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "createView":
 		case "createPolicy":
 		case "createFunction":
+		case "createDeclaredFunction":
+		case "handOverFunction":
+		case "createRowType":
+		case "adoptRole":
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
@@ -189,20 +197,24 @@ export const manifestStatements = (
 		}
 	})
 
-/** A PL/pgSQL function a snapshot installs, by its name, with the digest of the source it installs as. */
+/** A function of a string body a snapshot installs, PL/pgSQL or declared, by its name, with the digest of the source it
+ * installs as. */
 export interface RecordedSource {
 	readonly function: ObjectName
 	readonly source: SourceDigest
 }
 
 /**
- * Every PL/pgSQL function a snapshot installs, by its name, with the digest of its source (snapshot/recorded.ts
- * RecordedFunction), in install order: what the drift check holds each installed function's source to, its
- * pg_proc.prosrc's SHA-256, since its replay holds only the function's header.
+ * Every function of a string body a snapshot installs, a PL/pgSQL function or a declared one, by its name, with the
+ * digest of its source (snapshot/recorded.ts RecordedFunction, RecordedDeclaredFunction), in install order: what the
+ * drift check holds each installed function's source to, its pg_proc.prosrc's SHA-256, since its replay holds only the
+ * function's header.
  */
 export const recordedSources = (snapshot: DeploySnapshot): ReadonlyArray<RecordedSource> =>
 	snapshot.manifest.objects.flatMap((o) =>
 		o.ddl.flatMap((s): ReadonlyArray<RecordedSource> =>
-			s.kind === "recordedFunction" ? [{ function: s.header.name, source: s.source }] : []
+			s.kind === "recordedFunction" || s.kind === "recordedDeclaredFunction"
+				? [{ function: s.header.name, source: s.source }]
+				: []
 		)
 	)

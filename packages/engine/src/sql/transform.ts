@@ -15,6 +15,7 @@ import type {
 	ConflictAction,
 	CoreProjection,
 	CountStar,
+	CreateDeclaredFunction,
 	CreateDomain,
 	CreateExtension,
 	CreateFunction,
@@ -96,6 +97,7 @@ const objectSpace = (
 		case "SEQUENCE":
 			return "relation"
 		case "DOMAIN":
+		case "TYPE":
 			return "type"
 		case "STATISTICS":
 			return "statistics"
@@ -1059,7 +1061,8 @@ export class Transform {
 				return o
 			case "TABLE":
 			case "SEQUENCE":
-			case "DOMAIN": {
+			case "DOMAIN":
+			case "TYPE": {
 				const names = this.names(
 					o.names,
 					o.kind === "TABLE" || o.kind === "SEQUENCE" ? "relation" : "type"
@@ -1208,6 +1211,26 @@ export class Transform {
 		}
 	}
 
+	/** A declared function with its name, its parameters' types and its result's type rebuilt; its body is the
+	 * application's text, which no rename reaches, and its search_path its own schema's, which its name carries. */
+	createDeclaredFunction(s: CreateDeclaredFunction): CreateDeclaredFunction {
+		const name = this.name(s.name, "function")
+		const params = mapList(s.params, (p) => this.functionParam(p))
+		const returns = this.declaredReturns(s.returns)
+		return name === s.name && params === s.params && returns === s.returns
+			? s
+			: { ...s, name, params, returns }
+	}
+
+	/** A declared function's result: a type, or a set of a row type's values. */
+	declaredReturns(r: CreateDeclaredFunction["returns"]): CreateDeclaredFunction["returns"] {
+		if ("setOf" in r) {
+			const setOf = this.type(r.setOf)
+			return setOf === r.setOf ? r : { setOf }
+		}
+		return this.type(r)
+	}
+
 	readonly ddl = (s: Ddl): Ddl => {
 		switch (s.kind) {
 			case "createSchema":
@@ -1289,6 +1312,19 @@ export class Transform {
 			}
 			case "createFunction":
 				return this.createFunction(s)
+			case "createDeclaredFunction":
+				return this.createDeclaredFunction(s)
+			case "handOverFunction": {
+				const name = this.functionName(s.name)
+				return name === s.name ? s : { ...s, name }
+			}
+			case "createRowType": {
+				const name = this.name(s.name, "type")
+				const attributes = mapNonEmptyKept(s.attributes, (a) => this.columnDefinition(a))
+				return name === s.name && attributes === s.attributes ? s : { ...s, name, attributes }
+			}
+			case "adoptRole":
+				return s
 			case "packConstant": {
 				const fn = this.name(s.function, "function")
 				return fn === s.function ? s : { ...s, function: fn }
@@ -1364,7 +1400,8 @@ export class Transform {
 				const name = this.name(on.name, "relation")
 				return name === on.name ? on : { ...on, name }
 			}
-			case "DOMAIN": {
+			case "DOMAIN":
+			case "TYPE": {
 				const name = this.name(on.name, "type")
 				return name === on.name ? on : { ...on, name }
 			}
@@ -1431,6 +1468,10 @@ export class Transform {
 			case "createDomain":
 			case "createExtension":
 			case "createFunction":
+			case "createDeclaredFunction":
+			case "handOverFunction":
+			case "createRowType":
+			case "adoptRole":
 			case "createGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":

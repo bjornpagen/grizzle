@@ -76,6 +76,7 @@ export const targetName = (on: CommentTarget): string => {
 		case "VIEW":
 		case "MATERIALIZED VIEW":
 		case "DOMAIN":
+		case "TYPE":
 		case "SEQUENCE":
 		case "INDEX":
 		case "STATISTICS":

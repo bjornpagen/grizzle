@@ -6,7 +6,7 @@ import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import type { ConservativeProgram } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { conservativeStatement } from "#compiler/lower/shapes/index.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import { declaredBody, type SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
@@ -124,6 +124,14 @@ export const templateLowering = (
 })
 
 /**
+ * The text the text audit reads of a statement: its print, a declared function's with its body left out, since the body
+ * is the application's own PL/pgSQL or SQL, which grizzle carries byte for byte and never writes, so none of its
+ * discipline holds of it.
+ */
+const auditedText = (s: SqlStatement): string =>
+	printStatement(s.kind === "createDeclaredFunction" ? { ...s, body: declaredBody("") } : s)
+
+/**
  * Asserts every statement passes the structural audit, the statement audit on its AST and the text audit on its
  * printed text, and that a write program's ANALYZE statements name only carriers an earlier statement created
  * (sql.ts). `label` names the statements in a failure.
@@ -132,7 +140,7 @@ export const checkedStatements = (statements: ReadonlyArray<SqlStatement>, label
 	const violations = [
 		...Arr.flatMap(statements, (s, i) =>
 			Arr.map(
-				[...auditStatementViolations(s), ...auditTextViolations(printStatement(s))],
+				[...auditStatementViolations(s), ...auditTextViolations(auditedText(s))],
 				(v) => `${label} ${i}: ${v.rule} at ${v.where}: ${v.detail}`
 			)
 		),

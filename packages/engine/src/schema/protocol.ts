@@ -27,6 +27,7 @@
  */
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
@@ -37,7 +38,9 @@ import {
 	type ContextDesc,
 	decodeDesc,
 	type FieldDesc,
+	type FunctionDesc,
 	type LoginDesc,
+	type NamedDesc,
 	type QueryDesc,
 	type RoleDesc,
 	type RosterDesc,
@@ -56,6 +59,7 @@ import type { FragmentContent, FragmentDesc } from "#compiler/schema/schema.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { RoleLevel, WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
+import type { AnyFunction, AnyRows } from "#compiler/types/schema/function.ts"
 import type { AnyClosedRelation, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import type { AnyFragment, AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
@@ -278,6 +282,16 @@ interface OwnedKinds {
 			readonly schema: object
 			readonly heading: ReadonlyMap<string, HeadingTyping>
 		}
+	}
+	readonly function: {
+		readonly value: AnyFunction
+		readonly desc: FunctionDesc
+		readonly content: undefined
+	}
+	readonly rows: {
+		readonly value: AnyRows
+		readonly desc: NonEmptyReadonlyArray<NamedDesc<FieldDesc>>
+		readonly content: undefined
 	}
 }
 

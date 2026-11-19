@@ -102,6 +102,7 @@ const admittedLevels = (desc: UnadmittedSchemaDesc, env: ScalarEnv): SchemaDesc 
 		name: desc.name,
 		relations: desc.relations.map((r) => (r.kind === "closedRelation" ? admitted(r, env) : r)),
 		statements: desc.statements,
+		functions: desc.functions ?? [],
 		extends: desc.extends === undefined ? undefined : admittedLevels(desc.extends, env),
 		loc: desc.loc
 	})

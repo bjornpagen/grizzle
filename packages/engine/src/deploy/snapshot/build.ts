@@ -867,6 +867,9 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "liveSecret":
 			case "publication":
 			case "decoder":
+			case "functionOwner":
+			case "rowType":
+			case "declaredFunction":
 			case "lawColumn":
 			case "check":
 			case "foreignKey":

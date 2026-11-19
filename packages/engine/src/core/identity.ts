@@ -2,7 +2,7 @@ import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import type { ConstantDigest, DomainDigest } from "#compiler/core/fingerprint.ts"
+import type { ConstantDigest, DomainDigest, RowTypeDigest } from "#compiler/core/fingerprint.ts"
 import type { Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -90,6 +90,8 @@ const digestSeparator = "_"
 const asideSegment = "aside"
 /** The first segment of the stem of an installation's live source's name (identity.liveSource). */
 const liveSegment = "live"
+/** The first segment of the stem of an installation's function owner's name (identity.functionOwner). */
+const ownerSegment = "owner"
 /** The separator of a role prefix and the name of the role it leads, `<prefix>__<name>` (roleInSpace). */
 const roleSeparator = "__"
 
@@ -133,7 +135,7 @@ const rolePrefixBytes: number =
 	maxIdentifierBytes -
 	roleSeparator.length -
 	(hashedLead.length +
-		Math.max(liveSegment.length, asideSegment.length) +
+		Math.max(liveSegment.length, asideSegment.length, ownerSegment.length) +
 		digestSeparator.length +
 		digestChars)
 
@@ -466,14 +468,15 @@ const isConversion = (text: string): boolean => parsedName(text).ok && conversio
  * The forms a drafted statement names a role of the installation in, each the identifier the naming door mints: a
  * login's or role's stem, `<schema>__<name>`, two conversions joined by their one `__` (identity.login, identity.role);
  * the name a migration sets a role aside under while it renames logins (identity.roleAside), hashed, `__aside_<digest>`;
- * or the installation's live source's, its decoder login's (identity.liveSource), hashed, `__live_<digest>`. A hashed
+ * the installation's live source's, its decoder login's (identity.liveSource), hashed, `__live_<digest>`; or the
+ * installation's function owner's (identity.functionOwner), hashed, `__owner_<digest>`. A hashed
  * role name's stem is its lead word alone (rolePrefixBytes), so its form is read by its lead and its digest, with no
  * segment of any name to read back.
  *
  * These are the forms every committed folder holds: a folder is history, its files' digests in the installation's
  * ledger, and migrate reads all of them (adapter/migrate/input.ts), and no folder names a role in any other.
  */
-export type RoleNameForm = "stem" | "aside" | "liveSource"
+export type RoleNameForm = "stem" | "aside" | "liveSource" | "functionOwner"
 
 /** Whether `text` is a hashed name's digest: digestChars characters of lowercase base32. */
 const isDigest = (text: string): boolean =>
@@ -497,6 +500,9 @@ export const roleNameForm = (name: string): RoleNameForm | undefined => {
 	}
 	if (lead === asideSegment) {
 		return "aside"
+	}
+	if (lead === ownerSegment) {
+		return "functionOwner"
 	}
 	return lead === liveSegment ? "liveSource" : undefined
 }
@@ -1491,6 +1497,24 @@ export const identity = Object.freeze({
 	/** The table of a schema's live secret, which only the installation's decoder login reads. */
 	liveSecret: (): Identity<"liveSecret"> =>
 		mint("liveSecret", [], ["live", "secret"], "the live secret", readable("__live_secret")),
+	/** A declared function, its declared name's conversion, in the PostgreSQL schema of the level that declares it. */
+	declaredFunction: (name: DeclaredName): Identity<"declaredFunction"> =>
+		readableAs("declaredFunction", name, `function ${name}`),
+	/**
+	 * The row type of a heading a declared function takes rows of or returns, by the digest of its physical definition
+	 * alone (core/fingerprint.ts RowTypeDigest): equal headings share it, and a changed heading is another type, which
+	 * its functions take in its place.
+	 */
+	rowType: (definition: RowTypeDigest): Identity<"rowType"> =>
+		mint("rowType", [definition], ["rows"], `row type of definition ${definition}`, hashed),
+	/**
+	 * The function owner of the installation whose root level is `root`: the role that owns every declared function and
+	 * holds no privilege on any table, so a declared function, which runs as its owner, reads no table. Cluster-wide
+	 * under the installation's role space (roleInSpace), hashed by the root level's identity, `__owner_<digest>`, its
+	 * stem the lead word alone, so its length is one whatever the root's (rolePrefixBytes).
+	 */
+	functionOwner: (root: Identity<"schema">): Identity<"functionOwner"> =>
+		mint("functionOwner", [root], [ownerSegment], `function owner of ${root.display}`, hashed),
 	refusal: (): Identity<"refusal"> =>
 		mint("refusal", [], ["refuse"], "the refusal function", readable("__refuse")),
 	snapshotGuard: (): Identity<"snapshotGuard"> =>

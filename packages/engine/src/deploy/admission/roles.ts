@@ -141,6 +141,7 @@ const familyOf = (on: GrantObjects): PrivilegeFamily => {
 		case "SEQUENCE":
 			return "sequence"
 		case "DOMAIN":
+		case "TYPE":
 			return "type"
 		case "FUNCTION":
 			return "function"
@@ -160,6 +161,7 @@ const objectsOf = (on: GrantObjects): ReadonlyArray<GrantedObject> => {
 		case "TABLE":
 		case "SEQUENCE":
 		case "DOMAIN":
+		case "TYPE":
 			return on.names.map((n) => ({ object: printObjectName(n), schema: n.schema, name: n.name }))
 		case "FUNCTION":
 			return on.names.map((n) => ({
@@ -203,10 +205,14 @@ const privilegesOn = (
 	)
 }
 
-/** The privileges `s` grants `role`: a table-wide grant's, or a column grant's on each of its columns. */
+/** The privileges `s` grants `role`: a table-wide grant's, a column grant's on each of its columns, and EXECUTE on a
+ * declared function handed over to it, which its owner holds as every function's owner does. */
 const grantedTo = (s: ManifestStatement, role: string): ReadonlyArray<ExpectedPrivilege> => {
 	if (s.kind === "grant") {
 		return namesRole(s.to, role) ? privilegesOn(s.on, s.privileges) : []
+	}
+	if (s.kind === "handOverFunction") {
+		return s.owner === role ? privilegesOn({ kind: "FUNCTION", names: [s.name] }, ["EXECUTE"]) : []
 	}
 	if (s.kind !== "grantColumns" || s.to !== role) {
 		return []

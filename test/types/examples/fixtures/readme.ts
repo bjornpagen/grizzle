@@ -21,6 +21,7 @@ import {
 	defineConfig,
 	derived,
 	drawn,
+	fn,
 	type Fact,
 	fin,
 	fold,
@@ -46,6 +47,7 @@ import {
 	retirable,
 	retirement,
 	role,
+	rows,
 	schema,
 	select,
 	settled,
@@ -1571,3 +1573,29 @@ export const debitMet = ChangeSet.empty(Credits)
 			return r.match(met, { call }).find({ debits: r.count() })
 		})
 	})
+
+/** "Declared functions": a function of an SQL body and one of a PL/pgSQL body that calls it, over a heading's rows. */
+const Word = str.regex("^[a-z]+$", "u")
+const Weighted = rows({ word: Word, weight: natural })
+
+/** A word folded to lower case: an SQL body. */
+export const folded = fn("folded", {
+	calls: [],
+	args: { word: Word },
+	returns: Word,
+	volatility: "immutable",
+	language: "sql",
+	body: "SELECT lower(word)"
+})
+
+/** Each word of `words` with its weight doubled: a set of rows, read from an array of rows. */
+export const doubled = fn("doubled", {
+	calls: [folded],
+	args: { words: Weighted },
+	returns: Weighted,
+	volatility: "immutable",
+	language: "plpgsql",
+	body: "\nBEGIN\n  RETURN QUERY SELECT folded(w.word), w.weight * 2 FROM unnest(words) AS w;\nEND\n"
+})
+
+export const Lexicon = schema("Lexicon", [folded, doubled], [])

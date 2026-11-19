@@ -3122,6 +3122,64 @@ and any of them stands for it. A materialized table changes only when a refresh 
 transaction, lower levels first. A refresh of no table is a type error: narrow a list built at run time with `Array.isReadonlyArrayNonEmpty`
 first. A rule over either kind reads its definition, never the view.
 
+## Declared functions
+
+`fn(name, { calls, args, returns, volatility, language, body })` declares a PostgreSQL function the application writes,
+a schema object a level lists beside its relations. Its body is PL/pgSQL or SQL text you own, installed byte for byte;
+grizzle prints its head and never reads its body.
+
+```ts
+const Word = str.regex("^[a-z]+$", "u")
+const Weighted = rows({ word: Word, weight: natural })
+
+/** A word folded to lower case: an SQL body. */
+export const folded = fn("folded", {
+	calls: [],
+	args: { word: Word },
+	returns: Word,
+	volatility: "immutable",
+	language: "sql",
+	body: "SELECT lower(word)"
+})
+
+/** Each word of `words` with its weight doubled: a set of rows, read from an array of rows. */
+export const doubled = fn("doubled", {
+	calls: [folded],
+	args: { words: Weighted },
+	returns: Weighted,
+	volatility: "immutable",
+	language: "plpgsql",
+	body: "\nBEGIN\n  RETURN QUERY SELECT folded(w.word), w.weight * 2 FROM unnest(words) AS w;\nEND\n"
+})
+
+export const Lexicon = schema("Lexicon", [folded, doubled], [])
+```
+
+- **Arguments and results** are a value of a field's type, or `rows(heading)`: an argument of rows is an array of the
+  heading's row type, and a result of rows is a set of them, `RETURNS SETOF`. A heading's fields are in the order its
+  record writes them, its row type's attribute order. A type is a base type, a contract or a refined text over one:
+  a serial, money, bytes, a closed id, a set, a span or a vector is a type error, and from JavaScript `Refused` when
+  the schema is owned. PostgreSQL holds a function to its declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a
+  column whose type is not the row type's), so each is its field's base type, `natural` a bigint and `Word` a text:
+  a contract or a pattern is checked where a statement reads the value, never by the signature.
+- **Names.** A function installs in its level's schema under its name's conversion, `folded`, `xsd_regex` for
+  `xsdRegex`; functions are one namespace across a schema's levels, apart from its relations. Each heading installs
+  once per level as a row type named by its definition's digest, `__rows_<digest>`, so a changed heading is another
+  type and the functions over it take the new one.
+- **It reads no table.** Every declared function is `SECURITY DEFINER`, owned by the installation's function owner,
+  a role of no privilege on any table or view, under `SET search_path = pg_catalog, <its schema>, pg_temp`. So its
+  body names the functions and row types of its own level unqualified, and a body that reads a relation, of its schema
+  or any other, fails where it is called, `42501` permission denied. PUBLIC executes none.
+- **`calls`** lists the declared functions of the function's own level its body calls. The installation creates them
+  callees first, so PostgreSQL, which reads an SQL body's names as it creates the function, finds each; a call of a
+  function of another level, of one the schema does not declare, or a cycle, is `MalformedDescription` when the schema
+  is owned. A PL/pgSQL body reads its names where it first runs, so `calls` orders its creation alone.
+- **Migrations.** A changed body or volatility is `CREATE OR REPLACE FUNCTION`, which keeps the function's owner and
+  grants; a changed signature or result drops the function and creates it again. The snapshot records each function by
+  its head and the SHA-256 of its body, and the drift check holds the installed source, `pg_proc.prosrc`, to that
+  digest, so a body edited by hand is drift, reported with both digests and the committed statement that last defines
+  the function.
+
 ## Levels
 
 A schema builds on another under its own name: `schema.extend(base, name, relations, statements)` is a level over

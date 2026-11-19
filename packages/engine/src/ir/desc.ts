@@ -16,6 +16,12 @@ import {
 } from "#compiler/core/canonical.ts"
 import { clockUnits } from "#compiler/core/clock.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
+import {
+	type DeclaredLanguage,
+	declaredLanguages,
+	type FunctionVolatility,
+	functionVolatilities
+} from "#compiler/core/function.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -1387,10 +1393,51 @@ export const heldRelation = (relation: RelationDesc): boolean => {
 	}
 }
 
+/** A field of a declared function's heading, or one of its arguments: its declared name and its type, in order. */
+export interface NamedDesc<T> {
+	readonly name: string
+	readonly type: T
+}
+
+/**
+ * What a declared function takes as an argument or gives as its result: one value of a field's type, or rows of a
+ * heading, its fields in declared order, which installs as a row type, an argument as an array of it and a result as a
+ * set of it.
+ */
+export type FunctionTypeDesc =
+	| { readonly kind: "value"; readonly type: FieldDesc }
+	| { readonly kind: "rows"; readonly heading: NonEmptyReadonlyArray<NamedDesc<FieldDesc>> }
+
+/**
+ * A function the application declares in a level (schema/function.ts fn): its name, the declared functions its body
+ * calls, its arguments in declared order, what it returns, its volatility, and its body in its language, the
+ * application's own text, which PostgreSQL stores byte for byte.
+ */
+export type FunctionDesc<L = Located> = L & {
+	readonly name: string
+	/**
+	 * The declared functions its body calls, by name, each once, in code point order: its call graph, which the
+	 * installation creates its functions in the order of, its callees first, so PostgreSQL validates an SQL body whose
+	 * callees all stand as it creates it.
+	 */
+	readonly calls: ReadonlyArray<string>
+	readonly args: ReadonlyArray<NamedDesc<FunctionTypeDesc>>
+	readonly returns: FunctionTypeDesc
+	readonly volatility: FunctionVolatility
+	readonly language: DeclaredLanguage
+	readonly body: string
+}
+
 export type SchemaDesc<L = Located> = L & {
 	readonly name: string
 	readonly relations: ReadonlyArray<SchemaRelationOf<L>>
 	readonly statements: ReadonlyArray<StatementDesc<L>>
+	/**
+	 * The functions the level declares, by name, at least one; the member is absent from a level that declares none, its
+	 * one spelling of none, so a schema that declares no function has the text and fingerprint it had before a level
+	 * could declare one.
+	 */
+	readonly functions?: NonEmptyReadonlyArray<FunctionDesc<L>>
 	/** schema.extend: the level this one builds on, under its own name. */
 	readonly extends: SchemaDesc<L> | undefined
 }
@@ -1414,6 +1461,7 @@ export type UnadmittedSchemaDesc = Located & {
 	readonly name: string
 	readonly relations: ReadonlyArray<RelationDesc>
 	readonly statements: ReadonlyArray<StatementDesc>
+	readonly functions?: NonEmptyReadonlyArray<FunctionDesc>
 	readonly extends: UnadmittedSchemaDesc | undefined
 }
 
@@ -2637,6 +2685,41 @@ const schemaRelationShape: S.Shape<SchemaRelationDesc> = S.plain({
 	}
 })
 
+const functionFieldShape: S.Shape<NamedDesc<FieldDesc>> = S.struct({ name, type: fieldDescShape })
+
+const functionTypeShape: S.Shape<FunctionTypeDesc> = S.tagged("kind", {
+	value: S.struct({ type: fieldDescShape }),
+	rows: S.struct({
+		heading: S.nonEmptyUniqueArray(functionFieldShape, (f) => f.name, "heading field names")
+	})
+})
+
+/** A declared function's Description: its arguments named apart, and a body of storable text. */
+const functionDescShape: S.Shape<FunctionDesc> = S.located(
+	S.structWith(
+		{
+			name,
+			calls: S.refine(
+				S.uniqueStrings("called functions", name),
+				(calls) => calls.every((c, i) => i === 0 || (calls[i - 1] ?? "") < c),
+				"called functions in code point order"
+			),
+			args: S.uniqueArray(
+				S.struct({ name, type: functionTypeShape }),
+				(a) => a.name,
+				"argument names"
+			),
+			returns: functionTypeShape,
+			volatility: S.literalsShape(functionVolatilities),
+			language: S.literalsShape(declaredLanguages),
+			body: S.refine(S.string, isValidText, "a body of storable text")
+		},
+		loc
+	)
+)
+
+const functionsShape = S.nonEmptyUniqueArray(functionDescShape, (f) => f.name, "function names")
+
 const schemaDescShape: S.Shape<SchemaDesc> = S.ref("a schema description", () => schemaDescBody)
 
 /** The decoder schemaDescShape refers to (S.ref). */
@@ -2648,7 +2731,7 @@ const schemaDescBody: S.Shape<SchemaDesc> = S.located(
 			statements: S.array(statementDescShape)
 		},
 		{ extends: schemaDescShape },
-		loc
+		{ ...loc, functions: functionsShape }
 	)
 )
 
@@ -2666,7 +2749,7 @@ const unadmittedSchemaBody: S.Shape<UnadmittedSchemaDesc> = S.located(
 			statements: S.array(statementDescShape)
 		},
 		{ extends: unadmittedSchemaShape },
-		loc
+		{ ...loc, functions: functionsShape }
 	)
 )
 
@@ -3026,6 +3109,7 @@ export const schemaLevelDesc = (level: {
 	readonly name: string
 	readonly relations: ReadonlyArray<SchemaRelationDesc>
 	readonly statements: ReadonlyArray<StatementDesc>
+	readonly functions: ReadonlyArray<FunctionDesc>
 	readonly extends: SchemaDesc | undefined
 	readonly loc: SourceLoc
 }): SchemaDesc =>
@@ -3033,6 +3117,7 @@ export const schemaLevelDesc = (level: {
 		name: level.name,
 		relations: Object.freeze(level.relations),
 		statements: Object.freeze(level.statements),
+		...(isNonEmpty(level.functions) ? { functions: Object.freeze(level.functions) } : {}),
 		extends: level.extends,
 		loc: level.loc
 	})

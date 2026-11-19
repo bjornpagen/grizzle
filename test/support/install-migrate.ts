@@ -376,11 +376,12 @@ export const runsInstallScript = (
 			const text = body(s)
 			/**
 			 * A GRANT or REVOKE of a privilege names its object between ON and TO or FROM; one of a role membership names no
-			 * object, and is keyed by its granted role and its member, the pair whose grants and revokes are ordered;
-			 * ALTER DEFAULT PRIVILEGES, which names an object class there, is the one sequence of its own.
+			 * object, and is keyed by its granted role and its member, a role or the migration identity, CURRENT_USER, as the
+			 * function owner is adopted (sql/ast.ts AdoptRole), the pair whose grants and revokes are ordered; ALTER DEFAULT
+			 * PRIVILEGES, which names an object class there, is the one sequence of its own.
 			 */
 			const membership = regex(
-				'^(?:GRANT|REVOKE)(?: (?:ADMIN|INHERIT|SET) OPTION FOR)? ("[^"]+") (?:TO|FROM) ("[^"]+")'
+				'^(?:GRANT|REVOKE)(?: (?:ADMIN|INHERIT|SET) OPTION FOR)? ("[^"]+") (?:TO|FROM) ("[^"]+"|CURRENT_USER)'
 			).exec(text)
 			const key = Str.startsWith("ALTER DEFAULT PRIVILEGES ")(text)
 				? "default privileges"

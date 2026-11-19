@@ -1,4 +1,6 @@
+import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { fnBuilder, rowsBuilder } from "#compiler/schema/function.ts"
 import {
 	closedBuilder,
 	closedRelation as closedRelationBuilder,
@@ -27,6 +29,7 @@ import {
 } from "#compiler/schema/statements.ts"
 import { contextBuilder, roleBuilder } from "#compiler/schema/world.ts"
 import type {
+	DeclaredName,
 	MembersTyped,
 	Hosted,
 	Parameterless,
@@ -42,6 +45,15 @@ import type {
 	StoredOnlySql,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
+import type {
+	AnyFunction,
+	AnyRows,
+	ArgsCheck,
+	DeclaredFunction,
+	HeadingCheck,
+	Rows as RowsOf,
+	SignatureCheck
+} from "#compiler/types/schema/function.ts"
 import type {
 	AnyClosed,
 	AnyClosedRelation,
@@ -326,7 +338,7 @@ export const closed: {
  */
 const rootSchema = <
 	const Name extends string,
-	const Relations extends ReadonlyArray<AnyRelation | AnyClosed | AnyFragment>,
+	const Relations extends ReadonlyArray<AnyRelation | AnyClosed | AnyFragment | AnyFunction>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	name: Name,
@@ -357,7 +369,7 @@ const extend = <
 	Base extends AnySchema,
 	const Name extends string,
 	const Relations extends ReadonlyArray<
-		AnyRelation | AnyClosed | DerivedAt<LevelsOf<Base>> | AnyFragment
+		AnyRelation | AnyClosed | DerivedAt<LevelsOf<Base>> | AnyFragment | AnyFunction
 	>,
 	const Statements extends ReadonlyArray<Statement>
 >(
@@ -380,6 +392,43 @@ const extend = <
 export const schema: typeof rootSchema & { readonly extend: typeof extend } = Object.freeze(
 	Object.assign(rootSchema, { extend })
 )
+
+/**
+ * rows(fields): the heading of the rows a declared function takes as an argument or returns: its fields, at least one,
+ * in the order the record writes them, which is its row type's attribute order. Each is a value of a base type, a
+ * contract or a refined text over one (HeadingCheck).
+ */
+export const rows = <const Fields extends Readonly<Record<string, FieldBase>>>(
+	fields: Fields & HeadingCheck<Fields> & MembersTyped<Fields>,
+	...extra: ReadonlyArray<never>
+): RowsOf<Fields> => rowsBuilder<Fields>(fields, extra)
+
+/**
+ * fn(name, { calls, args, returns, volatility, language, body }): a declared function, the application's own PostgreSQL
+ * function, which a level lists among its relations. `calls` lists the declared functions of its level its body calls,
+ * which the installation creates first; each argument and its result are a value of a field's type or rows(heading);
+ * its volatility is immutable, stable or volatile; its body is PL/pgSQL or SQL text the application owns, installed
+ * byte for byte. It installs in its level's schema as SECURITY DEFINER under the installation's
+ * function owner, a role of no privilege on any table, with its search_path pinned, so its body reads no table.
+ */
+export const fn = <
+	const Name extends string,
+	const Args extends Readonly<Record<string, FieldBase | AnyRows>>,
+	const Returns extends FieldBase | AnyRows,
+	const V extends FunctionVolatility
+>(
+	name: Name & DeclaredName<Name>,
+	definition: {
+		readonly calls: ReadonlyArray<AnyFunction>
+		readonly args: Args & ArgsCheck<Args> & MembersTyped<Args>
+		readonly returns: Returns & SignatureCheck<Returns>
+		readonly volatility: V
+		readonly language: DeclaredLanguage
+		readonly body: string
+	},
+	...extra: ReadonlyArray<never>
+): DeclaredFunction<Name, Args, Returns, V> =>
+	fnBuilder<Name, Args, Returns, V>(name, definition, extra)
 
 /**
  * fragment(relations, statements): a library's relations and the statements over them, which an application's schema

@@ -1,4 +1,4 @@
-import { Array as Arr, Record as Rec } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -40,8 +40,17 @@ const descOf = (schema: unknown): SchemaDesc => {
 	return decoded.value
 }
 
-/** Every level of the declaration, an extended schema's base included. */
+/**
+ * Every level of the declaration, an extended schema's base included. A level that declares a function is refused: its
+ * row types are named by their physical definitions, which only the compiler states, so an audit of such a schema reads
+ * the installation's own expectation (installed.ts), never this one.
+ */
 const levels = (desc: SchemaDesc): Declared => {
+	if (desc.functions !== undefined) {
+		throw new Error(
+			`declared: ${desc.name} declares functions, whose row types only an installation names; audit it by its installation's expectation`
+		)
+	}
 	const base: Declared =
 		desc.extends === undefined
 			? { relations: [], mutable: new Set(), headers: [] }
@@ -159,6 +168,8 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 		refreshes: new Map(),
 		barrierViews: new Set(),
 		closedConstants: Arr.some(relations, (r) => r.kind === "closedRelation"),
-		liveSource: { kind: "none" }
+		liveSource: { kind: "none" },
+		functionOwner: Option.none(),
+		rowTypes: new Set()
 	}
 }

@@ -30,6 +30,7 @@ import {
 	type ParamDomainUse,
 	type TextDomain
 } from "#compiler/physical/ddl/domains.ts"
+import { addFunctions } from "#compiler/physical/ddl/functions.ts"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
 import { addLiveSource } from "#compiler/physical/ddl/live.ts"
 import { addUnitFunctions } from "#compiler/physical/ddl/retire.ts"
@@ -249,8 +250,8 @@ const admittedSchema = (name: string): boolean => {
  *
  * The steps follow the dependency order: the namespace and the refusal function every write statement that can refuse
  * raises through; the isolation default and guard; each roster's names constant and domains and each closed
- * relation's constants (physical/ddl/constants.ts), the structural text domains and the contract domains;
- * the tables with their identities; the tags, keys, CHECKs and references the law model specialized; the shape, width
+ * relation's constants (physical/ddl/constants.ts), the structural text domains and the contract domains; the declared
+ * functions, their row types and their owner (physical/ddl/functions.ts); the tables with their identities; the tags, keys, CHECKs and references the law model specialized; the shape, width
  * and contract-endpoint CHECKs of every span column (`addSpanStorage`), which every installation carries because a span's
  * storage is never optional; the validation of every closed payload with a nontrivial refinement
  * (`refinedConstantsExtension`), which every installation carries because the compiler relies on a closed fact's
@@ -442,6 +443,7 @@ export const installationOver = (
 					...addContractDomains(b),
 					...addOutsideContractDomains(b, plan.outsideContracts)
 				]
+				addFunctions(b)
 				const { keyIndexes, tables, sequences } = addTables(b)
 				const advance = addAdvanceFunctions(b)
 				const units = addUnitFunctions(b)

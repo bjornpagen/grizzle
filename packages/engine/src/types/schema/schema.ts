@@ -130,13 +130,16 @@ type FragmentsAmong<X> = X extends unknown
 	: never
 
 /**
- * What one item of a level's list declares: a fragment, each of its relations; any other item, itself. It distributes
- * over a union of items, as a list's element type is, each told by its kind.
+ * What one item of a level's list declares among its relations: a fragment, each of its relations; a declared
+ * function, none, since a function is no relation and its name lies in no relation's namespace; any other item,
+ * itself. It distributes over a union of items, as a list's element type is, each told by its kind.
  */
 type Listed<X> = X extends unknown
 	? KindStated<X> extends "fragment"
 		? Stated<X, "relations">[keyof Stated<X, "relations">]
-		: X
+		: KindStated<X> extends "function"
+			? never
+			: X
 	: never
 
 /** The statements of the levels below a schema: its base's, none below a root schema. */

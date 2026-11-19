@@ -2431,6 +2431,10 @@ class StatementAuditor {
 			case "dropFunction":
 			case "dropTrigger":
 			case "createFunction":
+			case "createDeclaredFunction":
+			case "handOverFunction":
+			case "createRowType":
+			case "adoptRole":
 			case "createConstant":
 			case "packConstant":
 			case "createGuardTrigger":
@@ -2467,6 +2471,7 @@ class StatementAuditor {
 			case "VIEW":
 			case "MATERIALIZED VIEW":
 			case "DOMAIN":
+			case "TYPE":
 			case "SEQUENCE":
 			case "INDEX":
 			case "STATISTICS":
@@ -2748,6 +2753,38 @@ class StatementAuditor {
 				return
 			case "createFunction":
 				this.createFunction(statement)
+				return
+			case "createDeclaredFunction":
+				this.objectName(statement.name, "function", "name")
+				this.at("params", () => {
+					for (const [i, param] of statement.params.entries()) {
+						this.at(i, () => {
+							this.ident(param.name, "argument", "name")
+							this.type(param.type)
+						})
+					}
+				})
+				this.at("returns", () => {
+					this.type("setOf" in statement.returns ? statement.returns.setOf : statement.returns)
+				})
+				return
+			case "handOverFunction":
+				this.objectName(statement.name, "function", "name")
+				this.ident(statement.owner, "role", "owner")
+				return
+			case "createRowType":
+				this.objectName(statement.name, "type", "name")
+				this.at("attributes", () => {
+					for (const [i, a] of statement.attributes.entries()) {
+						this.at(i, () => {
+							this.ident(a.name, "attribute", "name")
+							this.type(a.type)
+						})
+					}
+				})
+				return
+			case "adoptRole":
+				this.ident(statement.role, "role", "role")
 				return
 			case "createConstant":
 				this.objectName(statement.name, "function", "name")

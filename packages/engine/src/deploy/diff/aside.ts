@@ -335,7 +335,8 @@ export const withNames = (previous: DeploySnapshot, names: Renamed): DeploySnaps
 				const to = parsed.schema === schema ? relations.get(parsed.name) : undefined
 				return to === undefined ? id : qualifiedIdent(parsed.kind, parsed.schema, to)
 			}
-			case "domain": {
+			case "domain":
+			case "type": {
 				const to = parsed.schema === schema ? types.get(parsed.name) : undefined
 				return to === undefined ? id : qualifiedIdent(parsed.kind, parsed.schema, to)
 			}

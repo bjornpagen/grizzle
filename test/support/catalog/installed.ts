@@ -90,6 +90,17 @@ const functionOf = (s: SqlStatement | RecordedStatement): Option.Option<string> 
 			? Option.some(s.header.name.name)
 			: Option.none()
 
+/** A function owner's role, by its CREATE ROLE. */
+const roleOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
+	s.kind === "createRole" ? Option.some(s.name) : Option.none()
+
+/** A declared function's row type, by its CREATE TYPE. */
+const rowTypeOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
+	s.kind === "createRowType" ? Option.some(s.name.name) : Option.none()
+
+/** A declared volatility as pg_proc.provolatile spells it. */
+const provolatile = { IMMUTABLE: "i", STABLE: "s", VOLATILE: "v" } as const
+
 const guardTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createGuardTrigger" ? Option.some(s.name) : Option.none()
 
@@ -367,6 +378,20 @@ export const installedScope = (
 					)
 				),
 				...constantsOf(installation),
+				...Arr.flatMap(snapshot.manifest.objects, (o) =>
+					o.kind === "declaredFunction"
+						? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledFunction]> =>
+								s.kind === "recordedDeclaredFunction"
+									? [
+											[
+												s.header.name.name,
+												{ kind: "declared", volatility: provolatile[s.header.volatility] }
+											]
+										]
+									: []
+							)
+						: []
+				),
 				...Arr.flatMap(Rec.toEntries(snapshot.theory.relations), ([name, r]) =>
 					r.kind === "relation"
 						? Arr.flatMap(r.fields, (f) =>
@@ -407,7 +432,9 @@ export const installedScope = (
 				Rec.values(installation.owned.relations),
 				(r) => r.kind === "closedRelation"
 			),
-			liveSource: liveSourceOf(snapshot)
+			liveSource: liveSourceOf(snapshot),
+			functionOwner: Arr.head([...created(snapshot, "functionOwner", roleOf)]),
+			rowTypes: created(snapshot, "rowType", rowTypeOf)
 		},
 		roles: Arr.map(scoped, (s) => s.scope)
 	}

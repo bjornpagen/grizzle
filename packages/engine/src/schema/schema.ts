@@ -8,6 +8,7 @@ import {
 	type AdmittedClosedRelation,
 	builtNode,
 	type FieldDesc,
+	type FunctionDesc,
 	type RelationDesc,
 	type RosterDesc,
 	type SchemaDesc,
@@ -16,6 +17,7 @@ import {
 	schemaLevelDesc
 } from "#compiler/ir/desc.ts"
 import { fragmentName, fragmentReach } from "#compiler/schema/fragment.ts"
+import { functionDescOf } from "#compiler/schema/function.ts"
 import { levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import {
@@ -36,6 +38,7 @@ import {
 	rosterHandlesOf
 } from "#compiler/schema/relation.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
+import type { AnyFunction } from "#compiler/types/schema/function.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type {
 	AnyFragment,
@@ -125,6 +128,41 @@ const statementsDeclared = (
 			}
 		}
 	}
+}
+
+/**
+ * Whether `fn` is the first declaration of its name in its level, `declared` the level's functions so far and `below`
+ * every level's below it: a later declaration whose Description is the first one's (sameContent) is that one, and one
+ * that differs is refused (DuplicateIdentity), as a relation's is.
+ */
+const declaresFunction = (
+	declared: Map<string, FunctionDesc>,
+	below: ReadonlyMap<string, FunctionDesc>,
+	fn: FunctionDesc
+): boolean => {
+	const prior = below.get(fn.name) ?? declared.get(fn.name)
+	if (prior !== undefined && !sameContent(prior, fn)) {
+		throw CompileError.make({
+			_tag: "DuplicateIdentity",
+			at: fn.loc,
+			duplicate: { kind: "function", name: fn.name, earlier: prior.loc }
+		})
+	}
+	if (prior !== undefined) {
+		return false
+	}
+	declared.set(fn.name, fn)
+	return true
+}
+
+/** Every function `desc` and the levels below it declare, by name. */
+const levelFunctions = (desc: SchemaDesc): Map<string, FunctionDesc> => {
+	const out =
+		desc.extends === undefined ? new Map<string, FunctionDesc>() : levelFunctions(desc.extends)
+	for (const fn of desc.functions ?? []) {
+		out.set(fn.name, fn)
+	}
+	return out
 }
 
 /** A closed id's roster, through any depth of contracts; none for any other field. */
@@ -317,6 +355,8 @@ const namesOf = (
 
 const noDeclarations: ReadonlyMap<string, Declaration> = new Map()
 
+const noFunctions: ReadonlyMap<string, FunctionDesc> = new Map()
+
 /**
  * The admission cores of schema(...) and schema.extend(...): a JavaScript caller's arguments checked and
  * described, the one path a schema's Description is built by.
@@ -339,6 +379,7 @@ export const admitSchema = (
 	)
 	const declared = new Map<string, Declaration>()
 	const descs: Array<SchemaRelationDesc> = []
+	const functions = new Map<string, FunctionDesc>()
 	const fragments: Array<{ readonly content: FragmentContent }> = []
 	for (const [i, value] of values.entries()) {
 		const listed = listedFragment(value)
@@ -349,6 +390,11 @@ export const admitSchema = (
 				}
 			}
 			fragments.push(listed)
+			continue
+		}
+		const fn = functionDescOf(value)
+		if (fn !== undefined) {
+			declaresFunction(functions, noFunctions, fn)
 			continue
 		}
 		if (derivedDraftOf(value) !== undefined) {
@@ -377,6 +423,7 @@ export const admitSchema = (
 		name: schemaName,
 		relations: descs,
 		statements: stmts.map((s) => s.desc),
+		functions: [...functions.values()],
 		extends: undefined,
 		loc: builderLoc(label, [schemaName])
 	})
@@ -399,7 +446,7 @@ export const admitSchema = (
  */
 const rootSchema = <
 	const Name extends string,
-	const Relations extends ReadonlyArray<AnyRelation | AnyClosed | AnyFragment>,
+	const Relations extends ReadonlyArray<AnyRelation | AnyClosed | AnyFragment | AnyFunction>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	name: Name,
@@ -473,6 +520,8 @@ const admitExtend = (
 	)
 	const declared = new Map<string, Declaration>()
 	const descs: Array<SchemaRelationDesc> = []
+	const functions = new Map<string, FunctionDesc>()
+	const lowerFunctions = levelFunctions(baseDesc)
 	const fragments: Array<{ readonly content: FragmentContent }> = []
 	for (const [i, value] of values.entries()) {
 		const listed = listedFragment(value)
@@ -483,6 +532,11 @@ const admitExtend = (
 				}
 			}
 			fragments.push(listed)
+			continue
+		}
+		const fn = functionDescOf(value)
+		if (fn !== undefined) {
+			declaresFunction(functions, lowerFunctions, fn)
 			continue
 		}
 		const draft = derivedDraftOf(value)
@@ -539,6 +593,7 @@ const admitExtend = (
 		name: levelName,
 		relations: descs,
 		statements: stmts.map((s) => s.desc),
+		functions: [...functions.values()],
 		extends: baseDesc,
 		loc: builderLoc(label, [levelName])
 	})
@@ -567,7 +622,9 @@ const admitExtend = (
 const extend = <
 	Base extends AnySchema,
 	const Name extends string,
-	const Relations extends ReadonlyArray<AnyRelation | AnyClosed | AnyDerived | AnyFragment>,
+	const Relations extends ReadonlyArray<
+		AnyRelation | AnyClosed | AnyDerived | AnyFragment | AnyFunction
+	>,
 	const Statements extends ReadonlyArray<Statement>
 >(
 	base: Base & { readonly statements: StatementsBelow<Base> },

@@ -89,6 +89,11 @@ import { Roster } from "#compiler/ir/scalar.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { descCapabilities } from "#compiler/scalar/registry.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
+import {
+	canonicalFunctions,
+	type OwnedFunction,
+	ownFunctions
+} from "#compiler/schema/function-own.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
 import { foreignInput } from "#compiler/schema/terms.ts"
@@ -281,6 +286,8 @@ export interface Owned extends OwnedSchema {
 	 */
 	readonly statementAt: ReadonlyMap<string, number>
 	readonly contracts: Readonly<Record<string, OwnedContract>>
+	/** Every function a level declares, by its declared name (schema/function-own.ts). */
+	readonly functions: Readonly<Record<string, OwnedFunction>>
 	/** Every field of every relation and closed relation, sorted. */
 	readonly fieldIds: ReadonlyArray<FieldId>
 }
@@ -1239,6 +1246,7 @@ class Owner {
 			relations
 		)
 		const contracts = this.#ownContracts()
+		const functions = unwrap(ownFunctions(this.#levels))
 		const canonical = this.#canonicalDesc()
 		const levels = ownedLevels(canonical, fingerprinted)
 		const fingerprint = lastNonEmpty(levels).fingerprint
@@ -1255,6 +1263,7 @@ class Owner {
 			statements: ordered.map((s) => s.statement),
 			statementAt: new Map(ordered.map((s, i) => [s.text, i] as const)),
 			contracts,
+			functions,
 			fieldIds
 		}
 	}
@@ -2451,6 +2460,7 @@ class Owner {
 				name: schema.name,
 				relations,
 				statements,
+				functions: canonicalFunctions(schema),
 				extends: below,
 				loc: schema.loc
 			})

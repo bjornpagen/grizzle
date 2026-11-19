@@ -1,11 +1,12 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { EmittedSql, EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import type { CatalogStatement } from "#compiler/sql/catalog.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
-import { printCatalogStatement, printStatement } from "#compiler/sql/print.ts"
+import { printCatalogStatement, printCommands, printStatement } from "#compiler/sql/print.ts"
 
 const emitted = nominal<string, EmittedText>()
 
@@ -43,6 +44,16 @@ export const filledText = <E>(
 	statement: EmittedText,
 	fill: (text: string) => Result.Result<string, E>
 ): Result.Result<EmittedText, E> => Result.map(fill(statement), emitted)
+
+/**
+ * The texts of `statement`'s commands (print.ts commandsOf), each one message's: what a driver that sends one command a
+ * message sends, as the drift check's replay does, for a statement of several, a declared function's hand-over among
+ * them.
+ */
+export const emitCommands = (
+	statement: SqlStatement
+): Result.Result<NonEmptyReadonlyArray<EmittedText>, CompileError> =>
+	catchRefusal(() => mapNonEmpty(printCommands(statement), emitted))
 
 /** `nameMap` is the statement's generated-name map, from its NameSupply (naming.ts emptyNameMap when it has none). */
 export const emit = (

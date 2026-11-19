@@ -19,6 +19,7 @@ export {
 	counted,
 	fin,
 	fold,
+	fn,
 	fragment,
 	key,
 	Monoid,
@@ -31,6 +32,7 @@ export {
 	relation,
 	retirable,
 	role,
+	rows,
 	schema,
 	select,
 	tree
@@ -53,6 +55,14 @@ export { schemaNameOf } from "#compiler/program/names.ts"
 export { login } from "#compiler/program/workload/login.ts"
 export { insertableNamesOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
+export type {
+	AnyFunction,
+	AnyRows,
+	DeclaredFunction,
+	FunctionType,
+	Rows
+} from "#compiler/types/schema/function.ts"
+export type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
 export type {
 	Alternatives,
 	AnyFamily,

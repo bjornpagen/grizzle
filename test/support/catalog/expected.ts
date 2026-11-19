@@ -444,6 +444,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "SEQUENCE":
 				return Arr.map(g.on.names, (n) => ["sequence", n.name] as const)
 			case "DOMAIN":
+			case "TYPE":
 				return Arr.map(g.on.names, (n) => ["type", n.name] as const)
 			case "FUNCTION":
 				return Arr.map(g.on.names, (n) => ["function", n.name] as const)
@@ -570,6 +571,10 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "createDomain":
 			case "alterDomain":
 			case "createFunction":
+			case "createDeclaredFunction":
+			case "handOverFunction":
+			case "createRowType":
+			case "adoptRole":
 			case "createConstant":
 			case "packConstant":
 			case "dropFunction":

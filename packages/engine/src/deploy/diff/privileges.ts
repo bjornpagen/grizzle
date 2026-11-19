@@ -20,7 +20,7 @@ import type {
 
 /** One object a GRANT names: of a kind and one name, or the current database, the one object of its kind. */
 export type GrantObject =
-	| { readonly kind: "TABLE" | "SEQUENCE" | "DOMAIN"; readonly name: ObjectName }
+	| { readonly kind: "TABLE" | "SEQUENCE" | "DOMAIN" | "TYPE"; readonly name: ObjectName }
 	| { readonly kind: "FUNCTION"; readonly name: FunctionName }
 	| { readonly kind: "SCHEMA"; readonly name: string }
 	| { readonly kind: "DATABASE" }
@@ -48,7 +48,8 @@ const objectsOf = (on: GrantObjects): NonEmptyReadonlyArray<GrantObject> => {
 	switch (on.kind) {
 		case "TABLE":
 		case "SEQUENCE":
-		case "DOMAIN": {
+		case "DOMAIN":
+		case "TYPE": {
 			const kind = on.kind
 			const [first, ...rest] = on.names
 			return [{ kind, name: first }, ...rest.map((name) => ({ kind, name }))]
@@ -80,7 +81,8 @@ const namedAs = (
 	switch (on.kind) {
 		case "TABLE":
 		case "SEQUENCE":
-		case "DOMAIN": {
+		case "DOMAIN":
+		case "TYPE": {
 			const kind = on.kind
 			const names = objects.flatMap((o) => (o.kind === kind ? [o.name] : []))
 			return isNonEmpty(names) ? { kind, names } : undefined

@@ -3,6 +3,8 @@ import { malformedArtifact } from "#compiler/core/errors.ts"
 import {
 	type ConstantHeader,
 	constantHeader,
+	type DeclaredHeader,
+	declaredHeader,
 	type FunctionHeader,
 	functionHeader,
 	type RecordedObject,
@@ -23,6 +25,7 @@ import {
 	type CreatePolicy,
 	type CreatePublication,
 	type CreateRole,
+	type CreateRowType,
 	type CreateSchema,
 	type CreateStatistics,
 	type CreateTable,
@@ -168,6 +171,9 @@ export type Installed<O extends AnyObject = ManifestObject> =
 			readonly create: CreatePublication
 	  }
 	| { readonly kind: "decoder"; readonly object: O; readonly create: CreateRole }
+	| { readonly kind: "functionOwner"; readonly object: O; readonly create: CreateRole }
+	| { readonly kind: "rowType"; readonly object: O; readonly create: CreateRowType }
+	| { readonly kind: "declaredFunction"; readonly object: O; readonly create: DeclaredHeader }
 	| {
 			readonly kind: "lawColumn"
 			readonly object: O
@@ -274,6 +280,17 @@ const functionHeaderOf = (
 		: s?.kind === "recordedFunction"
 			? s.header
 			: undefined
+
+/** A declared function's statement's header, the compile's CREATE FUNCTION's but its body, or the record's own; none for
+ * any other statement. */
+const declaredHeaderOf = (
+	s: SqlStatement | RecordedStatement | undefined
+): DeclaredHeader | undefined => {
+	if (s?.kind === "createDeclaredFunction") {
+		return declaredHeader(s)
+	}
+	return s?.kind === "recordedDeclaredFunction" ? s.header : undefined
+}
 
 /** The view of one object, the compile's or the record's: its kind's statement, read from its DDL. */
 export const installed = <O extends AnyObject>(o: O): Installed<O> => {
@@ -386,6 +403,23 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 			return o.ddl.length === 1 && s?.kind === "createRole" && s.login
 				? { kind: o.kind, object: o, create: s }
 				: malformed("exactly one CREATE ROLE ... LOGIN")
+		case "functionOwner":
+			return s?.kind === "createRole" &&
+				!s.login &&
+				o.ddl.slice(1).every((r) => r.kind === "adoptRole" || r.kind === "grant")
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a CREATE ROLE ... NOLOGIN, then its adoption and its grants")
+		case "rowType":
+			return s?.kind === "createRowType" && o.ddl.slice(1).every((r) => r.kind === "revoke")
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a CREATE TYPE ... AS, then its revokes")
+		case "declaredFunction": {
+			const header = declaredHeaderOf(s)
+			return header !== undefined &&
+				o.ddl.slice(1).every((r) => r.kind === "revoke" || r.kind === "handOverFunction")
+				? { kind: o.kind, object: o, create: header }
+				: malformed("a declared function's CREATE FUNCTION, then its revokes and its hand-over")
+		}
 		case "privileges": {
 			const grantee = o.ddl
 				.flatMap((g) => (g.kind === "grant" ? g.to : []))
@@ -506,6 +540,9 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "privileges":
 		case "publication":
 		case "decoder":
+		case "functionOwner":
+		case "rowType":
+		case "declaredFunction":
 		case "roleSchema":
 		case "view":
 		case "schema":
@@ -642,6 +679,9 @@ export const builtOver = <O extends AnyObject>(
 		case "liveSecret":
 		case "publication":
 		case "decoder":
+		case "functionOwner":
+		case "rowType":
+		case "declaredFunction":
 		case "schema":
 		case "extension":
 		case "ledger":
@@ -787,6 +827,9 @@ const objectParts = <O extends AnyObject>(
 		case "liveSecret":
 		case "publication":
 		case "decoder":
+		case "functionOwner":
+		case "rowType":
+		case "declaredFunction":
 		case "schema":
 		case "extension":
 		case "ledger":

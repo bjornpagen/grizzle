@@ -1549,7 +1549,11 @@ const withColumns = (
 		case "dropTrigger":
 		case "createFunction":
 		case "recordedFunction":
+		case "recordedDeclaredFunction":
 		case "recordedConstant":
+		case "handOverFunction":
+		case "createRowType":
+		case "adoptRole":
 		case "createGuardTrigger":
 		case "createTransitionTrigger":
 		case "alterDatabaseDefault":
@@ -1600,6 +1604,10 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 			return { ...s, from: mapNonEmpty(s.from, grantee) }
 		case "createPolicy":
 			return { ...s, role: role(s.role) }
+		case "handOverFunction":
+			return { ...s, owner: role(s.owner) }
+		case "adoptRole":
+			return { ...s, role: role(s.role) }
 		case "rename":
 			return s.object === "ROLE" ? { ...s, name: role(s.name), to: role(s.to) } : s
 		case "drop":
@@ -1626,6 +1634,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "dropFunction":
 		case "dropTrigger":
 		case "createFunction":
+		case "createRowType":
 		case "createPublication":
 		case "dropPublication":
 		case "createLiveSecret":
@@ -1766,7 +1775,10 @@ const manifestUnderRoles = (
 	}
 	/** A statement with its roles renamed: neither a function nor a constant names a role. */
 	const renamed = (s: SqlStatement): SqlStatement =>
-		s.kind === "createFunction" || s.kind === "createConstant" || s.kind === "packConstant"
+		s.kind === "createFunction" ||
+		s.kind === "createDeclaredFunction" ||
+		s.kind === "createConstant" ||
+		s.kind === "packConstant"
 			? s
 			: withRoles(s, roles)
 	const renamedIn = (list: ReadonlyArray<SqlStatement>): ReadonlyArray<SqlStatement> =>
@@ -1777,7 +1789,11 @@ const manifestUnderRoles = (
 			...o,
 			ident: ident(o.ident),
 			ddl: o.ddl.map((s) =>
-				s.kind === "recordedFunction" || s.kind === "recordedConstant" ? s : withRoles(s, roles)
+				s.kind === "recordedFunction" ||
+				s.kind === "recordedDeclaredFunction" ||
+				s.kind === "recordedConstant"
+					? s
+					: withRoles(s, roles)
 			)
 		})),
 		edges: manifest.edges.map((e) => ({ from: ident(e.from), to: ident(e.to) })),

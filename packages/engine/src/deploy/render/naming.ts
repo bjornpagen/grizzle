@@ -36,6 +36,7 @@ const kindRank: Readonly<Record<GraphIdent["kind"], number>> = {
 	table: 1,
 	materializedView: 2,
 	domain: 3,
+	type: 3,
 	column: 4,
 	constraint: 5,
 	index: 6,
@@ -75,6 +76,7 @@ const nameOf = (ident: GraphIdent): string => {
 		case "publication":
 			return ident.name
 		case "domain":
+		case "type":
 		case "table":
 		case "materializedView":
 		case "view":
@@ -110,6 +112,8 @@ const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 			return { kind: "VIEW", name: { schema: ident.schema, name: ident.name } }
 		case "domain":
 			return { kind: "DOMAIN", name: { schema: ident.schema, name: ident.name } }
+		case "type":
+			return { kind: "TYPE", name: { schema: ident.schema, name: ident.name } }
 		case "index":
 			return { kind: "INDEX", name: { schema: ident.schema, name: ident.name } }
 		case "statistics":

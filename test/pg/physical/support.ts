@@ -287,6 +287,7 @@ export const worldsGrants = (
 				case "hold":
 				case "retire":
 				case "closedConstant":
+				case "declared":
 					return []
 			}
 		}),
