@@ -6,4 +6,4 @@
 import { alternativesHistory } from "#test/support/history/families.ts"
 import { historySuite } from "#test/support/history/suite.ts"
 
-historySuite(alternativesHistory)
+export const alternativesHistories = historySuite(import.meta, alternativesHistory)

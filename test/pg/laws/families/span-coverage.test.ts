@@ -7,6 +7,6 @@
  */
 
 import { spanCoverage } from "#test/support/laws/boxes.ts"
-import { casesPerTest, familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
+import { familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
 
-familySuite(spanCoverage, casesPerTest, "the family", noKeptCases)
+export const spanCoverageLaws = familySuite(import.meta, spanCoverage, "the family", noKeptCases)

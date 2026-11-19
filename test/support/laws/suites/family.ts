@@ -1,15 +1,17 @@
-import { aimed, explore, type Kept } from "@bjornpagen/testing/explore"
-import { type Reached, required } from "@bjornpagen/testing/features"
-import { constant, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, type Scope, String as Str } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { aimed, constant, type Gen } from "@bjornpagen/testing/gen"
+import {
+	type Case,
+	family as propertyFamily,
+	type Family as PropertyFamily,
+	type Kept,
+	property
+} from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { type AmbientSession, grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
-import { type Family, installFamily, type Mode, populationsOf } from "#test/support/laws/boxes.ts"
+import { type Family, type Mode, modeOf, populationsOf } from "#test/support/laws/boxes.ts"
 import { fromSelected, type HostLaw, type HostSchema } from "#test/support/laws/model.ts"
 import {
 	exemptReachable,
@@ -17,38 +19,52 @@ import {
 	type FamilyFeature,
 	familyCaseGen,
 	lawShapes,
+	lawsTemplate,
 	plantedRefusal,
 	type RefusalFeature,
 	refusalFeatures,
 	runSteps
 } from "#test/support/laws/support.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
-/** The rotating stream's cases per test. */
+
+/** The rotating stream's cases of a population's property, its pre-conversion runs. */
 export const casesPerTest = 120
 
-/** The most shrink candidates a failure runs (the header says why it is bounded). */
-const shrinkCandidates = 300
-export const shrink: ShrinkBudget = { kind: "bounded", candidates: shrinkCandidates }
+/** The session a schema installs under: a mutable one the installation-first path's, an immutable one the cluster's. */
+const ambientOf = (mode: Mode): AmbientSession =>
+	mode === "mutable" ? grizzleFirstSession : ordinarySession
 
 /**
- * Installs a variant for a case, under the ambient session `ambient`: a schema that does not install fails the case that
- * drew it.
+ * A family's schemas as templates (support.ts lawsTemplate), each by its place in the family's box (variantKey): what
+ * the Vitest suites installed once per test before its first case, made once per member, each case seated on the
+ * worker's clone of the one it draws (Substrate.oneOf with Substrate.seat), its tables emptied after it. A mutable
+ * schema installs under the installation-first path, an immutable one under the cluster's own. `declaredIn` is the
+ * module that states the family, whose import closure covers the code its templates install.
  */
-export const installVariant = <P>(
-	family: Family<P>,
-	p: P,
-	ambient: AmbientSession
-): Effect.Effect<Installed, CaseFailed, Scope.Scope | Substrate> =>
-	Effect.mapError(
-		installFamily(family, p, ambient),
-		(e) => new CaseFailed({ report: `${family.describe(p)} did not install: ${messageOf(e)}` })
+export const familyTemplates = <P>(
+	declaredIn: ImportMeta,
+	family: Family<P>
+): Readonly<Record<string, SubstrateTemplate<Installed>>> =>
+	Rec.fromEntries(
+		Arr.map(family.variants, (p, at) => [
+			String(at),
+			lawsTemplate({
+				declaredIn,
+				name: `${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}-${at}`,
+				content: { family: family.label, schema: family.describe(p) },
+				build: family.schema(p),
+				ambient: ambientOf(modeOf(family.host(p)))
+			})
+		])
 	)
+
+/** The key of a family's schema among its templates (familyTemplates): its place in the family's box. */
+export const variantKey = <P>(family: Family<P>, p: P): string => String(family.variants.indexOf(p))
 
 /**
  * What a suite requires of each of a family's schemas, beside what it requires of the family, when the schemas differ in
@@ -207,11 +223,11 @@ const meets = <P>(
 }
 
 /**
- * A planted case: the kept case, the schema it runs on, and every feature its refusal notes whichever violator its
- * witness names.
+ * A planted case: the case, the schema it runs on, and every feature its refusal notes whichever violator its witness
+ * names.
  */
 interface Planted {
-	readonly kept: Kept<FamilyCase, FamilyFeature>
+	readonly sketch: FamilyCase
 	readonly variant: number
 	readonly reaches: ReadonlyArray<RefusalFeature>
 }
@@ -241,16 +257,7 @@ const plant = <P>(
 		const reaches = Arr.filter(refusalFeatures(host, first), (f) =>
 			Arr.every(rest, (r) => refusalFeatures(host, r).includes(f))
 		)
-		return {
-			kept: {
-				note: `${family.describe(p)}: ${feature}`,
-				sketch: { variant, steps: [...c.lawful, c.refused] },
-				draws: "",
-				reaches: [feature, ...Arr.filter(reaches, (f) => f !== feature)]
-			},
-			variant,
-			reaches
-		}
+		return { sketch: { variant, steps: [...c.lawful, c.refused] }, variant, reaches }
 	}
 	return undefined
 }
@@ -306,29 +313,19 @@ const aimsOf = <P>(
 			),
 			{
 				onNone: () => [],
-				onSome: (k): ReadonlyArray<Aim> => [
-					[reachedOf(family, variants, q), constant(k.kept.sketch)]
-				]
+				onSome: (k): ReadonlyArray<Aim> => [[reachedOf(family, variants, q), constant(k.sketch)]]
 			}
 		)
 	)
 
-/** A suite's own kept cases, by population: counterexamples its search once found, each replayed in every run. */
-export type KeptCases = Readonly<Record<Mode, ReadonlyArray<Kept<FamilyCase, FamilyFeature>>>>
-
-/** No kept case in either population. */
-export const noKeptCases: KeptCases = { immutable: [], mutable: [] }
-
 /**
- * One family's generated suite.
- *
- * For each population of the family's box (boxes.ts populationsOf: its schemas with no mutable relation, and those
- * with one), cases explore through the library's explore, each drawing one of the population's schemas and a sequence
- * of steps (../support.ts runSteps).
- * A schema installs once per test, the first time a case draws it. Its writer's connection belongs to the case: each
- * case opens it and closes it when it ends, so a test holds one case's connection whatever the number of schemas it
- * draws. That the installation enforces exactly the host's laws is judged by outcomes alone: every refusal names a law
- * the host knows and that the final state violates, and every law kind must refuse a step.
+ * One family's generated suite: a property for each population of the family's box (boxes.ts populationsOf: its
+ * schemas with no mutable relation, and those with one), keyed by its mode, each case drawing one of the population's
+ * schemas and a sequence of steps (../support.ts runSteps), beside the population's own kept cases (`kept`). Each schema is a template of its own (variantTemplates),
+ * built on a worker the first time a case there draws it, and a case runs on the worker's clone of it, its tables
+ * emptied after it. Its writer's connection belongs to the case: each case opens it and closes it when it ends. That the
+ * installation enforces exactly the host's laws is judged by outcomes alone: every refusal names a law the host knows
+ * and that the final state violates, and every law kind must refuse a step.
  *
  * The population must reach steps accepted and left unchanged, and every refusal the suite requires (requirements):
  * a refusal by every kind of law the family declares, and one showing every shape of law it declares (a coverage across
@@ -336,100 +333,90 @@ export const noKeptCases: KeptCases = { immutable: [], mutable: [] }
  * after a write of one side alone, a source switched into its selection or its target moved; support.ts lawShapes); for
  * each trait of a schema (boxes.ts traits), a refusal by every kind of law from a selected side that schema declares;
  * and for a family whose schemas differ in the shape of a law, each schema a refusal by every kind of law from a
- * selected side it declares (schemaRefusals). Every requirement is planted (plantedRefusals): a kept case reaches it in every run, since a schema of a
- * family meets only a share of the cases and some refusals only a share of a schema's. Beside them run the suite's own
- * kept cases of the population (`kept`).
- *
- * A failing case shrinks through at most `shrinkCandidates` candidates, each a whole case against the server. A
- * complete shrink is unbounded in time: a failure only some runs of a case reproduce walks it from candidate to
- * candidate, accepting whichever happens to fail.
+ * selected side it declares (schemaRefusals). Every requirement is planted (plantedRefusals) as the aim of its situation,
+ * so a steered witness whose turn aims at it runs the planted case, since a schema of a family meets only a share of
+ * the cases and some refusals only a share of a schema's. `declaredIn` is the module that states the family, whose
+ * import closure covers the code its templates install.
  */
 export const familySuite = <P>(
+	declaredIn: ImportMeta,
 	family: Family<P>,
-	cases: number,
 	reach: Reach,
 	kept: KeptCases
-): void => {
-	layer(Substrate.layer, { excludeTestServices: true })(
-		`law-bearing generated schemas: ${family.label}`,
-		(it) => {
-			for (const { mode, variants } of populationsOf(family)) {
-				const refusals = requirements(family, variants, reach)
-				const planted = plantedRefusals(family, variants, refusals)
-				const aims = aimsOf(family, variants, refusals, planted)
-				const exempt = Arr.some(variants, (p) => exemptReachable(family.host(p), family.domains))
-				const situations: Arr.NonEmptyReadonlyArray<Reached<FamilyFeature>> = [
-					"accepted",
-					"no-change",
-					...(exempt
-						? (["accepted beside a source fact no selected containment selects"] as const)
-						: []),
-					...Arr.map(refusals, (q) => reachedOf(family, variants, q))
-				]
-				/** The writer's session is the case's: it closes when the case ends. */
-				const search = Effect.gen(function* () {
-					/**
-					 * Every variant's installation, made before the first case; it holds no connection. The mutable
-					 * population installs under the installation-first path, the immutable one under the cluster's own.
-					 */
-					const installs = yield* Effect.forEach(variants, (p) =>
-						installVariant(family, p, mode === "mutable" ? grizzleFirstSession : ordinarySession)
-					)
-					return yield* explore(
-						{
-							oracle: { kind: "unstated" },
-							suite: `laws/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}/${mode}`,
-							draw: aimed(familyCaseGen(variants.length), aims),
-							literal: Formatter.format,
-							coverage: required<FamilyFeature>(situations, { cases: 4 * cases, sense: notesOnly }),
-							kept: [...Arr.map(planted, (k) => k.kept), ...kept[mode]],
-							runs: cases,
-							shrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(k, c) =>
-							Effect.gen(function* () {
-								const p = elementAt(variants, k.variant, "the family's schemas")
-								const schemaFeature: FamilyFeature = `schema ${family.describe(p)}`
-								const traits = Arr.map(
-									family.traits(p),
-									(nested): FamilyFeature => `trait ${nested}`
-								)
-								c.note(schemaFeature)
-								for (const nested of traits) {
-									c.note(nested)
-								}
-								/** Each refusal is noted with the schema it ran on, and with each of its traits. */
-								const note = (f: FamilyFeature) => {
-									c.note(f)
-									if (Str.startsWith("refused by a ")(f)) {
-										c.pair(schemaFeature, f)
-										for (const nested of traits) {
-											c.pair(nested, f)
-										}
-									}
-								}
-								const installed = elementAt(installs, k.variant, "the family's installations")
-								yield* Effect.scoped(
-									Effect.flatMap(
-										Effect.mapError(
-											family.connect(p, installed),
-											(e) =>
-												new CaseFailed({
-													report: `${family.describe(p)} did not connect: ${messageOf(e)}`
-												})
-										),
-										(session) => runSteps(session, family.domains, k.steps, note)
-									)
-								)
-							})
-					)
-				})
-				it.effect(`${mode}: accepted iff every violation query is empty`, (ctx) =>
-					searched(ctx, search)
-				)
-			}
-		}
+): PropertyFamily =>
+	propertyFamily(
+		Rec.fromEntries(
+			Arr.map(populationsOf(family), ({ mode, variants }) => [
+				mode,
+				populationProperty(declaredIn, family, reach, variants, kept[mode])
+			])
+		)
 	)
+
+/** A suite's own kept cases, by population: counterexamples its search once found, each replayed in every run. */
+export type KeptCases = Readonly<Record<Mode, ReadonlyArray<Kept>>>
+
+/** No kept case in either population. */
+export const noKeptCases: KeptCases = { immutable: [], mutable: [] }
+
+/**
+ * One population's property of a family's suite (familySuite): `mode: accepted iff every violation query is empty`.
+ *
+ * Its pre-conversion budget: runs casesPerTest (120), coverage cases 4 · casesPerTest (test/support/laws/suites/family.ts
+ * at c568eb123).
+ */
+const populationProperty = <P>(
+	declaredIn: ImportMeta,
+	family: Family<P>,
+	reach: Reach,
+	variants: Arr.NonEmptyReadonlyArray<P>,
+	kept: ReadonlyArray<Kept>
+) => {
+	const refusals = requirements(family, variants, reach)
+	const planted = plantedRefusals(family, variants, refusals)
+	const aims = aimsOf(family, variants, refusals, planted)
+	const exempt = Arr.some(variants, (p) => exemptReachable(family.host(p), family.domains))
+	const situations: Arr.NonEmptyReadonlyArray<Reached<FamilyFeature>> = [
+		"accepted",
+		"no-change",
+		...(exempt ? (["accepted beside a source fact no selected containment selects"] as const) : []),
+		...Arr.map(refusals, (q) => reachedOf(family, variants, q))
+	]
+	return property.explore(aimed(familyCaseGen(variants.length), aims), {
+		needs: Substrate.oneOf(familyTemplates(declaredIn, family), Substrate.seat),
+		situations,
+		check: (seats, c: Case<FamilyFeature>) => (k) =>
+			Effect.scoped(
+				Effect.gen(function* () {
+					const p = elementAt(variants, k.variant, "the family's schemas")
+					const schemaFeature: FamilyFeature = `schema ${family.describe(p)}`
+					const traits = Arr.map(family.traits(p), (nested): FamilyFeature => `trait ${nested}`)
+					c.note(schemaFeature)
+					for (const nested of traits) {
+						c.note(nested)
+					}
+					/** Each refusal is noted with the schema it ran on, and with each of its traits. */
+					const note = (f: FamilyFeature) => {
+						c.note(f)
+						if (Str.startsWith("refused by a ")(f)) {
+							c.pair(schemaFeature, f)
+							for (const nested of traits) {
+								c.pair(nested, f)
+							}
+						}
+					}
+					const seat = yield* defined(seats[variantKey(family, p)], "the family's seats")
+					const session = yield* Effect.mapError(
+						Effect.provideService(family.connect(p, seat.value), Substrate, seat.substrate),
+						(e) =>
+							new CaseFailed({ report: `${family.describe(p)} did not connect: ${messageOf(e)}` })
+					)
+					yield* runSteps(session, family.domains, k.steps, note)
+				})
+			),
+		oracle: { kind: "unstated" },
+		budget: { runs: casesPerTest, steered: 4 * casesPerTest },
+		kept,
+		kills: []
+	})
 }

@@ -6,6 +6,11 @@
  */
 
 import { timekeepingFamily } from "#test/support/laws/boxes.ts"
-import { casesPerTest, familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
+import { familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
 
-familySuite(timekeepingFamily, casesPerTest, "the family", noKeptCases)
+export const timekeepingLaws = familySuite(
+	import.meta,
+	timekeepingFamily,
+	"the family",
+	noKeptCases
+)

@@ -1,4 +1,5 @@
-import { Array as Arr, Effect, type Scope } from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Record as Rec, type Scope, String as Str } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -40,6 +41,7 @@ import type { HostSchema } from "#test/support/laws/model.ts"
 import {
 	type Domains,
 	familyWriters,
+	lawsTemplate,
 	openWriter,
 	servedWrite,
 	type StepWrite
@@ -48,7 +50,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
-import type { Substrate } from "#test/support/substrate/substrate.ts"
+import type { Substrate, SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /** The grizzle writers: each a Db of `app` with a pool of its own, so its one session is its own backend. */
 const grizzleWriters = ["g", "h"] as const
@@ -105,6 +107,14 @@ export interface HistoryInstall<P> {
  */
 export interface HistoryFamily<P> {
 	readonly family: Family<P>
+	/**
+	 * The installation of each of the family's schemas as a template (historyTemplate), by its place in the family's box:
+	 * what `install` makes per test, made once per member. `declaredIn` is the module that states the suite, whose import
+	 * closure covers the code its templates install.
+	 */
+	readonly templates: (
+		declaredIn: ImportMeta
+	) => Readonly<Record<string, SubstrateTemplate<HistoryInstall<P>>>>
 	readonly install: (
 		p: P
 	) => Effect.Effect<
@@ -160,13 +170,47 @@ const historyInstall = <P>(
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
-	Effect.map(installFamily(family, p, ordinarySession), (installed) => ({
-		params: p,
-		host: family.host(p),
-		domains: family.domains,
-		installed,
-		names: namesOf(installed)
-	}))
+	Effect.map(installFamily(family, p, ordinarySession), (installed) =>
+		historyInstallOf(family, p, installed)
+	)
+
+/** An installation of the family schema drawn as `p` as a history reads it (HistoryInstall), with its names. */
+const historyInstallOf = <P>(family: Family<P>, p: P, installed: Installed): HistoryInstall<P> => ({
+	params: p,
+	host: family.host(p),
+	domains: family.domains,
+	installed,
+	names: namesOf(installed)
+})
+
+/**
+ * Each of `family`'s schemas as a template (laws/support.ts lawsTemplate), by its place in the family's box: what
+ * historyInstall makes per test, made once per member under the cluster's own ambient session, each case's
+ * HistoryInstall the installation in its clone.
+ */
+const historyTemplates =
+	<P>(family: Family<P>) =>
+	(declaredIn: ImportMeta): Readonly<Record<string, SubstrateTemplate<HistoryInstall<P>>>> =>
+		Rec.fromEntries(
+			Arr.map(family.variants, (p, at) => {
+				const template = lawsTemplate({
+					declaredIn,
+					name: `${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}-history-${at}`,
+					content: { family: family.label, schema: family.describe(p) },
+					build: family.schema(p),
+					ambient: ordinarySession
+				})
+				const value: SubstrateTemplate<HistoryInstall<P>> = {
+					database: template.database,
+					bound: Effect.map(
+						template.bound,
+						(bind) => (binding) => historyInstallOf(family, p, bind(binding))
+					),
+					reset: (i) => template.reset(i.installed)
+				}
+				return [String(at), value] as const
+			})
+		)
 
 /**
  * The history environment of an installation of `schema`: `app` opened as `g` and then as `h`, each writer's actor
@@ -200,6 +244,7 @@ const historyEnv = <P>(
 
 export const alternativesHistory: HistoryFamily<RunsParams> = {
 	family: alternativesBox,
+	templates: historyTemplates(alternativesBox),
 	install: (p) => historyInstall(alternativesBox, p),
 	connect: (i) => {
 		const schema = runs(i.params)(i.installed.declared)
@@ -209,6 +254,7 @@ export const alternativesHistory: HistoryFamily<RunsParams> = {
 
 export const spanCoverageHistory: HistoryFamily<VisitsParams> = {
 	family: spanCoverage,
+	templates: historyTemplates(spanCoverage),
 	install: (p) => historyInstall(spanCoverage, p),
 	connect: (i) => {
 		switch (i.params.target) {
@@ -226,6 +272,7 @@ export const spanCoverageHistory: HistoryFamily<VisitsParams> = {
 
 export const queueHistory: HistoryFamily<QueueParams> = {
 	family: queueFamily,
+	templates: historyTemplates(queueFamily),
 	install: (p) => historyInstall(queueFamily, p),
 	connect: (i) => {
 		const schema = queue(i.params)(i.installed.declared)
@@ -235,6 +282,7 @@ export const queueHistory: HistoryFamily<QueueParams> = {
 
 export const timekeepingHistory: HistoryFamily<TimekeepingParams> = {
 	family: timekeepingFamily,
+	templates: historyTemplates(timekeepingFamily),
 	install: (p) => historyInstall(timekeepingFamily, p),
 	connect: (i) => {
 		const schema = timekeeping(i.params)(i.installed.declared)

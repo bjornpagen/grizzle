@@ -1,7 +1,17 @@
-import { aimed, type Case, type Draw } from "@bjornpagen/testing/explore"
 import type { Reached } from "@bjornpagen/testing/features"
-import { array, constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
+import {
+	type Aimed,
+	aimed,
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { agree } from "@bjornpagen/testing/oracle"
+import type { Case } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Effect,
@@ -257,15 +267,19 @@ const withUpdateGen =
 	}
 
 /**
- * A direct suite's draw over `variants` schemas (directCaseGen), aimed (aimed): a witness whose turn aims at the ending
- * of a move `aims` names draws a case with one more transaction, an UPDATE of the mode aimed at it alone
- * (withUpdateGen), the case it runs, prints and keeps.
+ * A direct suite's space over `variants` schemas (directCaseGen), aimed (aimed): a witness whose turn aims at a situation
+ * its caller planted a case for (`planted`) draws that case, and one whose turn aims at the ending of a move `aims`
+ * names draws a case with one more transaction, an UPDATE of the mode aimed at it alone (withUpdateGen): the case it
+ * runs, prints and keeps.
  */
-export const directDraw = (variants: number): Draw<DirectCase, DirectCase, DirectFeature> =>
-	aimed(
-		directCaseGen(variants),
-		Arr.map(aims, ([situation, mode]) => [situation, withUpdateGen(variants, mode)] as const)
-	)
+export const directDraw = (
+	variants: number,
+	planted: ReadonlyArray<readonly [Reached<DirectFeature>, Gen<DirectCase>]>
+): Aimed<DirectCase, DirectFeature> =>
+	aimed(directCaseGen(variants), [
+		...planted,
+		...Arr.map(aims, ([situation, mode]) => [situation, withUpdateGen(variants, mode)] as const)
+	])
 
 /** A direct writer's statement, resolved against the state the transaction has reached. */
 type Statement =

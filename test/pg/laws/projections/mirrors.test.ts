@@ -11,89 +11,26 @@
  * the one by level reaches: raised to level 3 with its escalation inserted after it, raised to level 3 with no
  * escalation, and, at level 3, moved to another id with its escalation moved after it.
  */
+import { mirrorShapes, projectedMirrors } from "#test/pg/laws/projections/families.ts"
+import { planted } from "#test/pg/laws/projections/mirrors.fixtures.ts"
+import { directSuite } from "#test/support/laws/suites/direct.ts"
+import { familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
 
-import { Array as Arr, Option } from "effect"
-import { mirrorShapes, projectedMirrors, tickets } from "#test/pg/laws/projections/families.ts"
-import { variantsOf } from "#test/support/laws/boxes.ts"
-import { plantedUpdate } from "#test/support/laws/direct.ts"
-import { directSuite, type Planted } from "#test/support/laws/suites/direct.ts"
-import { casesPerTest, familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
-import { plantedInsert } from "#test/support/laws/support.ts"
+/** Law-bearing generated schemas, the ticket's projected mirrors: accepted iff every violation query is empty. */
+export const projectedMirrorsLaws = familySuite(
+	import.meta,
+	projectedMirrors,
+	"the family",
+	noKeptCases
+)
 
-familySuite(projectedMirrors, casesPerTest, "the family", noKeptCases)
-familySuite(
+/** Law-bearing generated schemas, the mirrors' shapes: each schema's every refusal by every law but a key. */
+export const mirrorShapesLaws = familySuite(
+	import.meta,
 	mirrorShapes,
-	casesPerTest,
 	"every schema's refusals by every law but a key",
 	noKeptCases
 )
 
-const [p, variant] = Object.freeze(
-	Option.getOrThrowWith(
-		Arr.findFirstWithIndex(
-			variantsOf(mirrorShapes, "mutable"),
-			(shape) => shape.kind === "signals"
-		),
-		() => new Error("no mutable schema of the ticket's mirrors")
-	)
-)
-const host = mirrorShapes.host(p)
-const domains = mirrorShapes.domains
-const [first, second] = tickets
-const ticket = (level: number) =>
-	plantedInsert(host, domains, "Ticket", { id: first, level, lang: "de", priority: "low" })
-const escalation = plantedInsert(host, domains, "Escalation", { ticket: first })
-
-const planted: Planted = {
-	immutable: [],
-	mutable: [
-		{
-			note: "a ticket raised to level 3, its escalation inserted after it",
-			sketch: {
-				variant,
-				initial: [[ticket(1)]],
-				transactions: [
-					{ members: [escalation], updates: [plantedUpdate(host, domains, "Ticket", { level: 3 })] }
-				]
-			},
-			draws: "",
-			reaches: ["statement selection of a referring fact", "committed"]
-		},
-		{
-			note: "a ticket raised to level 3 with no escalation",
-			sketch: {
-				variant,
-				initial: [[ticket(1)]],
-				transactions: [
-					{ members: [], updates: [plantedUpdate(host, domains, "Ticket", { level: 3 })] }
-				]
-			},
-			draws: "",
-			reaches: ["statement selection of a referring fact", "refused at COMMIT"]
-		},
-		{
-			note: "a ticket at level 3 moved to another id, its escalation moved after it",
-			sketch: {
-				variant,
-				initial: [[ticket(3), escalation]],
-				transactions: [
-					{
-						members: [],
-						updates: [
-							plantedUpdate(host, domains, "Ticket", { id: second }),
-							plantedUpdate(host, domains, "Escalation", { ticket: second })
-						]
-					}
-				]
-			},
-			draws: "",
-			reaches: [
-				"statement rekey of a referred fact",
-				"statement move of a referring fact",
-				"committed"
-			]
-		}
-	]
-}
-
-directSuite(mirrorShapes, casesPerTest, planted)
+/** A direct writer over the mirrors' shapes, each population: a transaction commits iff its final state is lawful. */
+export const mirrorShapesDirect = directSuite(import.meta, mirrorShapes, planted)

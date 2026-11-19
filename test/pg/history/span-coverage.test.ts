@@ -6,4 +6,4 @@
 import { spanCoverageHistory } from "#test/support/history/families.ts"
 import { historySuite } from "#test/support/history/suite.ts"
 
-historySuite(spanCoverageHistory)
+export const spanCoverageHistories = historySuite(import.meta, spanCoverageHistory)

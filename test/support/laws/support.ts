@@ -1,6 +1,7 @@
-import type { Case } from "@bjornpagen/testing/explore"
 import { array, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { agree } from "@bjornpagen/testing/oracle"
+import type { Case } from "@bjornpagen/testing/property"
+import type { Content } from "@bjornpagen/testing/resources"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
@@ -11,6 +12,7 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import type { CompileError, CompileReason } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
 	type AnyDerived,
 	type AnyRelation,
@@ -25,7 +27,11 @@ import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/va
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { type ClosedField, closedField, namedText } from "#test/support/closed/stored.ts"
-import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import {
+	type Installed,
+	installMigrated as install,
+	migratedTemplate
+} from "#test/support/install-migrate.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
 import {
 	type Expected,
@@ -59,13 +65,14 @@ import {
 	type HostValue,
 	violations
 } from "#test/support/laws/model.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
 import { applicationOf, openServedDb, type ServedOn } from "#test/support/served-db.ts"
 import { holdsCycle, printOrder } from "#test/support/stratum-order.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
  * What a family case notes: each step's op kinds and its outcome, what a refusal notes (refusalFeatures), the schema it
@@ -409,6 +416,32 @@ export const installLaws = (
 		extensions: [],
 		logins: [writers.server, writers.psql],
 		label: "real"
+	})
+}
+
+/**
+ * A law-bearing schema's installation as a template (substrate.ts installTemplate): what installLaws makes per test made
+ * once per member, `build`'s schema migrated with its writers' logins under the template's name, each case's Installed
+ * the schema in its clone. `content` tells it from the other templates its declaring module states (a family's label
+ * and the schema's description), and the declaring module's import closure covers the code that builds it.
+ */
+export const lawsTemplate = (spec: {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly content: Content
+	readonly build: (name: string) => AnySchema
+	readonly ambient: AmbientSession
+}): SubstrateTemplate<Installed> => {
+	const value = spec.build("Laws")
+	const writers = familyWriters(value)
+	return migratedTemplate({
+		declaredIn: spec.declaredIn,
+		name: spec.name,
+		content: spec.content,
+		versions: [
+			{ schema: value, logins: [writers.server, writers.psql], declarations: noDeclarations }
+		],
+		options: { label: "real", extensions: [], ambient: spec.ambient, compile: compileInstallation }
 	})
 }
 

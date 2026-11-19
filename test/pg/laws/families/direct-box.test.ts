@@ -10,57 +10,9 @@
  * selects: an unselected child whose parent is missing selected, and the same child selected with its parent inserted
  * after it.
  */
-
-import { Array as Arr, Option } from "effect"
-import { variantsOf } from "#test/support/laws/boxes.ts"
-import { plantedUpdate } from "#test/support/laws/direct.ts"
+import { planted } from "#test/pg/laws/families/direct-box.fixtures.ts"
 import { directLawBox } from "#test/support/laws/generated.ts"
-import { directSuite, type Planted } from "#test/support/laws/suites/direct.ts"
-import { casesPerTest } from "#test/support/laws/suites/family.ts"
-import { plantedInsert } from "#test/support/laws/support.ts"
+import { directSuite } from "#test/support/laws/suites/direct.ts"
 
-const variants = variantsOf(directLawBox, "mutable")
-const [p, variant] = Object.freeze(
-	Option.getOrThrowWith(
-		Arr.findFirstWithIndex(variants, (box) =>
-			Arr.every(["family containment", "key int2", "selector boolean"], (t) =>
-				box.point.traits.includes(t)
-			)
-		),
-		() => new Error("no mutable box point whose child a boolean selects")
-	)
-)
-const host = directLawBox.host(p)
-const domains = directLawBox.domains
-const fields = Object.freeze({ level: 1, lang: "en", stage: "draft" })
-const child = plantedInsert(host, domains, "Child", { id: 1, flag: false, parent: 1, ...fields })
-const parent = plantedInsert(host, domains, "Parent", { id: 1, flag: false, note: 1, ...fields })
-const selected = plantedUpdate(host, domains, "Child", { flag: true })
-
-const planted: Planted = {
-	immutable: [],
-	mutable: [
-		{
-			note: "an unselected child whose parent is missing selected",
-			sketch: {
-				variant,
-				initial: [[child]],
-				transactions: [{ members: [], updates: [selected] }]
-			},
-			draws: "",
-			reaches: ["statement selection of a referring fact", "refused at COMMIT"]
-		},
-		{
-			note: "an unselected child selected, its parent inserted after it",
-			sketch: {
-				variant,
-				initial: [[child]],
-				transactions: [{ members: [parent], updates: [selected] }]
-			},
-			draws: "",
-			reaches: ["statement selection of a referring fact", "committed"]
-		}
-	]
-}
-
-directSuite(directLawBox, casesPerTest, planted)
+/** A direct writer over directLawBox, each population: a transaction commits iff its final state is lawful. */
+export const directLawBoxDirect = directSuite(import.meta, directLawBox, planted)

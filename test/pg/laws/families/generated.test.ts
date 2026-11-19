@@ -8,6 +8,11 @@
  */
 
 import { lawBox } from "#test/support/laws/generated.ts"
-import { casesPerTest, familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
+import { familySuite, noKeptCases } from "#test/support/laws/suites/family.ts"
 
-familySuite(lawBox, casesPerTest, "every schema's refusals", noKeptCases)
+export const generatedLaws = familySuite(
+	import.meta,
+	lawBox,
+	"every schema's refusals",
+	noKeptCases
+)

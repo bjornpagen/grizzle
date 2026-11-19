@@ -9,80 +9,9 @@
  * run moved into the paid handle with its payment inserted after it, and a paid run moved to the other tenant with its
  * payment moved after it.
  */
+import { planted } from "#test/pg/laws/families/direct-alternatives.fixtures.ts"
+import { compositeAlternatives } from "#test/support/laws/boxes.ts"
+import { directSuite } from "#test/support/laws/suites/direct.ts"
 
-import { defined } from "#test/support/assert.ts"
-import { compositeAlternatives, variantsOf } from "#test/support/laws/boxes.ts"
-import { plantedUpdate } from "#test/support/laws/direct.ts"
-import { directSuite, type Planted } from "#test/support/laws/suites/direct.ts"
-import { casesPerTest } from "#test/support/laws/suites/family.ts"
-import { plantedInsert } from "#test/support/laws/support.ts"
-
-const host = compositeAlternatives.host(
-	defined(variantsOf(compositeAlternatives, "mutable")[0], "the mutable composite-key schema")
-)
-const domains = compositeAlternatives.domains
-const payment = plantedInsert(host, domains, "TenantPayment", { tenant: 1, run: 1, amount: 1 })
-
-const planted: Planted = {
-	immutable: [],
-	mutable: [
-		{
-			note: "a draft run moved into the paid handle, its payment inserted after it",
-			sketch: {
-				variant: 0,
-				initial: [
-					[
-						plantedInsert(host, domains, "TenantRun", {
-							tenant: 1,
-							id: 1,
-							stage: "draft",
-							note: "a"
-						})
-					]
-				],
-				transactions: [
-					{
-						members: [payment],
-						updates: [plantedUpdate(host, domains, "TenantRun", { stage: "paid" })]
-					}
-				]
-			},
-			draws: "",
-			reaches: ["statement selection of a referring fact", "committed"]
-		},
-		{
-			note: "a paid run moved to the other tenant, its payment moved after it",
-			sketch: {
-				variant: 0,
-				initial: [
-					[
-						plantedInsert(host, domains, "TenantRun", {
-							tenant: 1,
-							id: 1,
-							stage: "paid",
-							note: "a"
-						}),
-						payment
-					]
-				],
-				transactions: [
-					{
-						members: [],
-						updates: [
-							plantedUpdate(host, domains, "TenantRun", { tenant: 2 }),
-							plantedUpdate(host, domains, "TenantPayment", { tenant: 2 })
-						]
-					}
-				]
-			},
-			draws: "",
-			reaches: [
-				"statement rekey of a referred fact",
-				"statement move of a referring fact",
-				"committed"
-			]
-		}
-	]
-}
-
-directSuite(compositeAlternatives, casesPerTest, planted)
+/** A direct writer over compositeAlternatives, each population: a transaction commits iff its final state is lawful. */
+export const compositeAlternativesDirect = directSuite(import.meta, compositeAlternatives, planted)

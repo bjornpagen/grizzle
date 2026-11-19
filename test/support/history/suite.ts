@@ -1,11 +1,13 @@
-import { aimed, type Case, explore, type Kept } from "@bjornpagen/testing/explore"
-import { type Reached, required } from "@bjornpagen/testing/features"
-import { constant, type Gen } from "@bjornpagen/testing/gen"
+import type { Reached } from "@bjornpagen/testing/features"
+import { aimed, constant, type Gen } from "@bjornpagen/testing/gen"
 import { type PctSchedule, pctSchedule } from "@bjornpagen/testing/interleave"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Cause, Effect, Formatter, Option, type Scope, String as Str } from "effect"
+import {
+	type Case,
+	family as propertyFamily,
+	type Family as PropertyFamily,
+	property
+} from "@bjornpagen/testing/property"
+import { Array as Arr, Cause, Effect, Option, Record as Rec, type Scope } from "effect"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import {
 	type DirectAbort,
@@ -17,11 +19,7 @@ import {
 import { populationsOf } from "#test/support/laws/boxes.ts"
 import { expect, rowsDifference, stateRows } from "#test/support/laws/model.ts"
 
-import {
-	enforcementProblem,
-	type HistoryFamily,
-	type HistoryInstall
-} from "#test/support/history/families.ts"
+import { enforcementProblem, type HistoryFamily } from "#test/support/history/families.ts"
 
 import {
 	type DirectWriter,
@@ -33,6 +31,7 @@ import {
 import type { WriterKind } from "#test/support/history/model.ts"
 import { type BelowFeature, belowFeaturesOf } from "#test/support/history/refused.ts"
 
+import { defined } from "#test/support/assert.ts"
 import {
 	type HistoryCase,
 	type HistoryEnv,
@@ -45,7 +44,6 @@ import {
 	scheduleOf,
 	sessionOf
 } from "#test/support/history/run.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
@@ -58,7 +56,6 @@ import {
 } from "#test/support/schedules/interleave.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-import { regex } from "arkregex"
 /** Histories per test, the rotating stream's; the floor stream runs a quarter as many. */
 const runs = 24
 
@@ -248,33 +245,26 @@ const runHistory = (
 	)
 
 /**
- * The planted histories (plantedHistories) on the first of the family's schemas that has them: what every
- * history suite's population must reach, which the drawn histories reach a few times a run. A family none of whose
- * schemas has them fails here, where its suite is declared.
+ * The planted histories (plantedHistories) on the first of the family's schemas that has them, each the aim of the
+ * situations it reaches: what every history suite's population must reach, which the drawn histories reach a few times
+ * a run, so a witness whose turn aims at one of them runs its planted history. A family none of whose schemas has them
+ * fails here, where its suite is declared.
  */
 const plantedOn = <P>(
 	h: HistoryFamily<P>,
 	variants: Arr.NonEmptyReadonlyArray<P>
-): ReadonlyArray<Kept<HistoryCase, HistoryFeature>> => {
+): ReadonlyArray<readonly [Reached<HistoryFeature>, Gen<HistoryCase>]> => {
 	for (const [i, p] of variants.entries()) {
 		const planted = plantedHistories(h.family.host(p), h.family.domains)
 		if (planted === undefined) {
 			continue
 		}
-		const schema = h.family.describe(p)
+		const serial: HistoryCase = { variant: i, history: planted.serial, order: "listed" }
+		const overlapping: HistoryCase = { variant: i, history: planted.overlapping, order: "listed" }
 		return [
-			{
-				note: `a direct writer's step, then a grizzle writer's, each accepted, on ${schema}`,
-				sketch: { variant: i, history: planted.serial, order: "listed" },
-				draws: "",
-				reaches: ["direct accepted", "grizzle accepted"]
-			},
-			{
-				note: `a grizzle writer's step while a direct writer's transaction is open, on ${schema}`,
-				sketch: { variant: i, history: planted.overlapping, order: "listed" },
-				draws: "",
-				reaches: ["overlapping"]
-			}
+			["direct accepted", constant(serial)],
+			["grizzle accepted", constant(serial)],
+			["overlapping", constant(overlapping)]
 		]
 	}
 	throw new Error(`no schema of ${h.family.label} has a planted history`)
@@ -312,39 +302,21 @@ const traitAims = <P>(
 			)
 	)
 
-/** Installs `p` and checks the installation enforces the host's laws as the host states them. */
-const installChecked = <P>(
-	h: HistoryFamily<P>,
-	p: P
-): Effect.Effect<HistoryInstall<P>, CaseFailed, Substrate | Scope.Scope> =>
-	Effect.flatMap(
-		Effect.mapError(
-			h.install(p),
-			(e) => new CaseFailed({ report: `${h.family.describe(p)} did not install: ${messageOf(e)}` })
-		),
-		(install) => {
-			const problem = enforcementProblem(install.host, install.names)
-			return problem === undefined
-				? Effect.succeed(install)
-				: Effect.fail(new CaseFailed({ report: `${h.family.describe(p)}: ${problem}` }))
-		}
-	)
-
 /**
- * One family's generated-history suite: for each population of its box (laws/boxes.ts populationsOf), histories over the
- * population's schemas, each run in its order, explored through the library. A planted writer below SERIALIZABLE runs
+ * One family's generated-history suite: a property for each population of its box (laws/boxes.ts populationsOf), keyed by
+ * its mode, histories over the population's schemas, each run in its order. A planted writer below SERIALIZABLE runs
  * inside a history beside the others (history/refused.ts); the guard's refusal of every statement at every level on
  * every kind of table, alone, is test/pg/direct-writers/isolation.test.ts's box.
  *
- * A case draws which of the family's schemas it runs on; each schema installs once per test, the first time a case
- * draws it, and its installation is checked to enforce the host's laws as the host states them (history/families.ts
- * enforcementProblem). The installation holds no connection: each case opens its writers, two grizzle Dbs and three
+ * A case draws which of the family's schemas it runs on, and runs on the worker's clone of that schema's template
+ * (history/families.ts HistoryFamily templates), whose installation is checked to enforce the host's laws as the host
+ * states them (history/families.ts enforcementProblem). The installation holds no connection: each case opens its writers, two grizzle Dbs and three
  * psql children, and closes them when it ends, so a test holds one case's connections whatever the number of schemas
  * it draws. Each history is a deterministic function of its case, so a failing one shrinks, and its report is the case
  * to replay.
  *
  * The suite's required features keep the histories from going vacuous: operations overlapped, and some were accepted
- * and some refused; and on a schema bearing each trait of the population's schemas (laws/boxes.ts traits), a direct
+ * and some refused, each planted (plantedOn); and on a schema bearing each trait of the population's schemas (laws/boxes.ts traits), a direct
  * writer's operation accepted, so the direct writer's model meets every coordinate the family steers by, an arm whose
  * mutability is not its parent's among them. Lock waits, aborts by cause, retries and the planted writers' cases are
  * noted for the residual-risk line. Every note goes through the case's own Case (HistoryFeature), each also paired
@@ -354,90 +326,96 @@ const installChecked = <P>(
  * time explains every outcome and every refusal by its law, every abort is explained by a concurrent operation, and the
  * state left is that order's, every law holding over it.
  */
-export const historySuite = <P>(h: HistoryFamily<P>): void => {
-	layer(Substrate.layer, { excludeTestServices: true })(
-		`generated histories: ${h.family.label}`,
-		(it) => {
-			for (const { mode, variants } of populationsOf(h.family)) {
-				const kept = plantedOn(h, variants)
-				const reach: Arr.NonEmptyReadonlyArray<Reached<HistoryFeature>> = Arr.appendAll(
-					situations,
-					Arr.map(
-						[...new Set(Arr.flatMap(variants, (p) => h.family.traits(p)))],
-						(t) => [`trait ${t}`, "direct accepted"] as const
-					)
-				)
-				const label = Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(h.family.label)
-				const histories = Effect.gen(function* () {
-					/**
-					 * Every variant's installation, made before the first case and checked against the host; it holds no
-					 * connection.
-					 */
-					const installs = yield* Effect.forEach(variants, (p) => installChecked(h, p))
-					return yield* explore(
-						{
-							oracle: {
-								kind: "second-implementation",
-								name: "the history check (history/check.ts): a real-time serial order of the committed operations explains every outcome, refusal and abort, and the state left"
+export const historySuite = <P>(declaredIn: ImportMeta, h: HistoryFamily<P>): PropertyFamily =>
+	propertyFamily(
+		Rec.fromEntries(
+			Arr.map(populationsOf(h.family), ({ mode, variants }) => [
+				mode,
+				populationHistories(declaredIn, h, variants)
+			])
+		)
+	)
+
+/**
+ * One population's property of a history suite (historySuite): `mode: small histories are lawful, serial and every
+ * abort explained`.
+ *
+ * Its pre-conversion budget: runs 24, coverage cases 96 (test/support/history/suite.ts at c568eb123).
+ */
+const populationHistories = <P>(
+	declaredIn: ImportMeta,
+	h: HistoryFamily<P>,
+	variants: Arr.NonEmptyReadonlyArray<P>
+) => {
+	const reach: Arr.NonEmptyReadonlyArray<Reached<HistoryFeature>> = Arr.appendAll(
+		situations,
+		Arr.map(
+			[...new Set(Arr.flatMap(variants, (p) => h.family.traits(p)))],
+			(t) => [`trait ${t}`, "direct accepted"] as const
+		)
+	)
+	return property.explore(
+		aimed(historyCaseGen(variants.length), [...plantedOn(h, variants), ...traitAims(h, variants)]),
+		{
+			needs: Substrate.oneOf(h.templates(declaredIn), Substrate.seat),
+			situations: reach,
+			check: (seats, c: Case<HistoryFeature>) => (hc) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const p = elementAt(variants, hc.variant, "the family's schemas")
+						c.note(`schema ${h.family.describe(p)}`)
+						const traits = Arr.map(h.family.traits(p), (t): HistoryFeature => `trait ${t}`)
+						c.noteAll(traits)
+						/** The case as its history sees it: every feature it notes is paired with each trait. */
+						const traited: Case<HistoryFeature> = {
+							...c,
+							note: (feature) => {
+								c.note(feature)
+								for (const t of traits) {
+									c.pair(t, feature)
+								}
 							},
-							suite: `history/${label}/${mode}`,
-							draw: aimed(historyCaseGen(variants.length), traitAims(h, variants)),
-							literal: Formatter.format,
-							coverage: required<HistoryFeature>(reach, { cases: 4 * runs, sense: notesOnly }),
-							kept,
-							runs,
-							/**
-							 * A shrink candidate is a whole history run, so a bound on the candidates keeps a failing
-							 * history's report within the test's time.
-							 */
-							shrink: { kind: "bounded", candidates: 300 },
-							steerEvery: 16,
-							caseHang
-						},
-						(hc, c) =>
-							Effect.gen(function* () {
-								const p = elementAt(variants, hc.variant, "the family's schemas")
-								c.note(`schema ${h.family.describe(p)}`)
-								const traits = Arr.map(h.family.traits(p), (t): HistoryFeature => `trait ${t}`)
-								c.noteAll(traits)
-								/** The case as its history sees it: every feature it notes is paired with each trait. */
-								const traited: Case<HistoryFeature> = {
-									...c,
-									note: (feature) => {
-										c.note(feature)
-										for (const t of traits) {
-											c.pair(t, feature)
-										}
-									},
-									noteAll: (noted) => {
-										const features = [...noted]
-										c.noteAll(features)
-										for (const feature of features) {
-											for (const t of traits) {
-												c.pair(t, feature)
-											}
-										}
+							noteAll: (noted) => {
+								const features = [...noted]
+								c.noteAll(features)
+								for (const feature of features) {
+									for (const t of traits) {
+										c.pair(t, feature)
 									}
 								}
-								const install = elementAt(installs, hc.variant, "the family's installations")
-								yield* Effect.scoped(
-									Effect.gen(function* () {
-										const didNotConnect = (e: unknown) =>
-											new CaseFailed({
-												report: `${h.family.describe(p)} did not connect: ${messageOf(e)}`
-											})
-										const env = yield* Effect.mapError(h.connect(install), didNotConnect)
-										const actors = yield* Effect.mapError(lawActors(env), didNotConnect)
-										yield* runHistory(env, hc, actors, traited)
-									})
-								)
+							}
+						}
+						const seat = yield* defined(
+							seats[String(h.family.variants.indexOf(p))],
+							"the family's seats"
+						)
+						const install = seat.value
+						const problem = enforcementProblem(install.host, install.names)
+						if (problem !== undefined) {
+							return yield* new CaseFailed({ report: `${h.family.describe(p)}: ${problem}` })
+						}
+						const didNotConnect = (e: unknown) =>
+							new CaseFailed({
+								report: `${h.family.describe(p)} did not connect: ${messageOf(e)}`
 							})
-					)
-				})
-				it.effect(`${mode}: small histories are lawful, serial and every abort explained`, (ctx) =>
-					searched(ctx, histories)
-				)
-			}
+						yield* Effect.provideService(
+							Effect.gen(function* () {
+								const env = yield* Effect.mapError(h.connect(install), didNotConnect)
+								const actors = yield* Effect.mapError(lawActors(env), didNotConnect)
+								yield* runHistory(env, hc, actors, traited)
+							}),
+							Substrate,
+							seat.substrate
+						)
+					})
+				),
+			oracle: {
+				kind: "second-implementation",
+				name: "the history check (history/check.ts): a real-time serial order of the committed operations explains every outcome, refusal and abort, and the state left"
+			},
+			budget: { runs, steered: 4 * runs },
+			kept: [],
+			kills: []
 		}
 	)
 }
