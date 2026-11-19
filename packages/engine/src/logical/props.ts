@@ -350,6 +350,7 @@ const valueAt = (e: ScalarExpr, locals: ReadonlySet<NodeId>): ValueAt => {
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return { kind: "expr" }
 	}
 }
@@ -648,6 +649,7 @@ const keptInputOf = (reading: PropsReading): Props | undefined => {
 		case "Recursive":
 		case "SelfRef":
 		case "OrderedSetAggregate":
+		case "Call":
 			return undefined
 	}
 }
@@ -1857,6 +1859,15 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 				)
 			)
 		}
+		case "Call":
+			return finish(
+				subject,
+				[],
+				oneGroup(
+					{ exactlyOne: false, provenance: noProvenance, context: "queryLocal", equal: [] },
+					[]
+				)
+			)
 		case "InputSet":
 			return reading.input.kind === "row"
 				? finish(

@@ -36,6 +36,7 @@ import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
+	noCalls,
 	noCarriers,
 	noContribution,
 	noFences,
@@ -224,6 +225,7 @@ const certifying = (
 	carriers: noCarriers,
 	fences: noFences,
 	holds,
+	calls: noCalls,
 	live: noLive
 })
 

@@ -20,6 +20,7 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noHolds,
+	noCalls,
 	noCertificates,
 	noContribution,
 	noFences,
@@ -390,6 +391,7 @@ const workloadRequests = (programs: Readonly<Record<string, unknown>>): InstallE
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,
+	calls: noCalls,
 	live: noLive,
 	fences: noFences
 })

@@ -204,6 +204,7 @@ const semiRule: Rule = {
 			case "Window":
 			case "OrderedSetAggregate":
 			case "Step":
+			case "Call":
 				return false
 		}
 	}

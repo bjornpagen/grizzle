@@ -94,6 +94,7 @@ const correlationSteps = (
 		case "Window":
 		case "OrderedSetAggregate":
 		case "Step":
+		case "Call":
 			return []
 	}
 }
@@ -202,6 +203,7 @@ const pipelinedReason = (node: RelNode, top: boolean): string | undefined => {
 		case "Window":
 		case "OrderedSetAggregate":
 		case "Step":
+		case "Call":
 			return undefined
 	}
 }

@@ -51,6 +51,7 @@ const kindCertificates = (
 		case "Window":
 		case "OrderedSetAggregate":
 		case "Step":
+		case "Call":
 			return []
 	}
 }

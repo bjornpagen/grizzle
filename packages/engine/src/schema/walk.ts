@@ -1,14 +1,17 @@
 import {
+	type BindMapDesc,
 	type ContextDesc,
 	type ExprDesc,
 	exprChildren,
 	headTerms,
+	type Inferred,
 	type InferredExpr,
 	type InferredHead,
 	type InferredQuery,
 	type InferredRule,
 	type InferredSource,
 	type InferredStage,
+	type Located,
 	type QueryDesc,
 	type QueryStageDesc,
 	type RuleDesc,
@@ -119,56 +122,68 @@ class Collector {
 		}
 	}
 
+	/**
+	 * A query read under a bind map, an import's or a call's rows argument's: what it reads is the importer's, but its
+	 * bound parameters are the binding's, not the importer's: only what the binding expressions use, and any input the
+	 * binding leaves open (every one, for the empty binding), is an input of the importer.
+	 */
+	#imported(query: InferredQuery, bind: BindMapDesc<Located, Inferred>): void {
+		const inner = new Collector()
+		inner.query(query)
+		for (const r of inner.relations) {
+			this.relations.add(r)
+		}
+		for (const r of inner.deltas) {
+			this.deltas.add(r)
+		}
+		for (const [relation, fields] of inner.patterns) {
+			for (const field of fields) {
+				this.#read(relation, field)
+			}
+		}
+		for (const [name, c] of inner.contexts) {
+			if (!this.contexts.has(name)) {
+				this.contexts.set(name, c)
+			}
+		}
+		const bound = new Set(Object.keys(bind))
+		for (const input of inner.inputs) {
+			const name = input.startsWith("parameter ")
+				? input.slice("parameter ".length)
+				: input.startsWith("relation parameter ")
+					? input.slice("relation parameter ".length)
+					: undefined
+			if (name === undefined || !bound.has(name)) {
+				this.inputs.add(input)
+			}
+		}
+		for (const b of Object.values(bind)) {
+			if (b.kind === "relationParam") {
+				this.inputs.add(`relation parameter ${b.name}`)
+			} else {
+				this.expr(b)
+			}
+		}
+	}
+
 	source(s: InferredSource): void {
 		switch (s.kind) {
 			case "relation":
 				this.relations.add(s.name)
 				return
 			case "query":
-			case "step": {
-				/**
-				 * An import's bound parameters are the binding's, not the importer's: only what the binding
-				 * expressions use, and any input the binding leaves open (every one, for the empty binding), is an input
-				 * of the importer.
-				 */
-				const inner = new Collector()
-				inner.query(s.query)
-				for (const r of inner.relations) {
-					this.relations.add(r)
-				}
-				for (const r of inner.deltas) {
-					this.deltas.add(r)
-				}
-				for (const [relation, fields] of inner.patterns) {
-					for (const field of fields) {
-						this.#read(relation, field)
-					}
-				}
-				for (const [name, c] of inner.contexts) {
-					if (!this.contexts.has(name)) {
-						this.contexts.set(name, c)
-					}
-				}
-				const bound = new Set(Object.keys(s.bind))
-				for (const input of inner.inputs) {
-					const name = input.startsWith("parameter ")
-						? input.slice("parameter ".length)
-						: input.startsWith("relation parameter ")
-							? input.slice("relation parameter ".length)
-							: undefined
-					if (name === undefined || !bound.has(name)) {
-						this.inputs.add(input)
-					}
-				}
-				for (const b of Object.values(s.bind)) {
-					if (b.kind === "relationParam") {
-						this.inputs.add(`relation parameter ${b.name}`)
+			case "step":
+				this.#imported(s.query, s.bind)
+				return
+			case "call":
+				for (const a of Object.values(s.args)) {
+					if (a.kind === "rows") {
+						this.#imported(a.query, a.bind)
 					} else {
-						this.expr(b)
+						this.expr(a)
 					}
 				}
 				return
-			}
 			case "param":
 				this.inputs.add(`relation parameter ${s.name}`)
 				return

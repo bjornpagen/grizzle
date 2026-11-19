@@ -103,6 +103,7 @@ import {
 	typeReturned,
 	typeWithin,
 	type TypingEnv,
+	type CallableFunction,
 	unprovedFact,
 	unwrapOrRefuse,
 	withinGuards
@@ -232,7 +233,12 @@ interface LowerCommon<R extends Refs> {
  * term computes.
  */
 export type LowerEnv<R extends Refs = Spelled> =
-	| (LowerCommon<R> & { readonly mode: "query"; readonly extension: LowerExtension<R> })
+	| (LowerCommon<R> & {
+			readonly mode: "query"
+			readonly extension: LowerExtension<R>
+			/** The declared functions of the query's schema, by name, which a Compute.call term calls. */
+			readonly functions: (name: string) => CallableFunction | undefined
+	  })
 	| (LowerCommon<R> & { readonly mode: "check" })
 
 /** The typing a lowering reads: its environment's names, its text analyzed by the compile's lookup and patterns. */
@@ -242,6 +248,13 @@ const typingEnvOf = <R extends Refs>(env: LowerEnv<R>): TypingEnv<R> => ({
 	params: env.params,
 	fieldType: env.fieldType,
 	closed: env.closed,
+	functions:
+		env.mode === "query"
+			? { kind: "schema", of: env.functions }
+			: {
+					kind: "none",
+					why: "PostgreSQL alone evaluates a declared function, and the host evaluates a check, a contract predicate and a generated field"
+				},
 	analysis: { kind: "analyzed", lookup: env.patternLanguage, patterns: env.patterns }
 })
 
@@ -501,6 +514,7 @@ const hasTypeFacts = (node: TypedNode): boolean => {
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return false
 	}
 }

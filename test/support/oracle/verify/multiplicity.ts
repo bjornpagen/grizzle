@@ -195,6 +195,10 @@ const observingEdges = (
 				return by(node.input, "a window function numbers or folds every row")
 			case "Attach":
 				return by(node.child, "a delivered attachment is a set per parent")
+			case "Call":
+				return Arr.flatMap(node.args, (a) =>
+					a.kind === "rows" ? by(a.rows, "a call reads its rows argument whole") : []
+				)
 			case "Base":
 			case "Closed":
 			case "Context":

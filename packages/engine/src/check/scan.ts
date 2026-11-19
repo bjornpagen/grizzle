@@ -2,6 +2,7 @@ import type { ResolvedExpr } from "#compiler/check/params.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
 import {
 	type BindingsDesc,
+	type BindMapDesc,
 	type ExprDesc,
 	exprChildren,
 	type HeadTermDesc,
@@ -84,17 +85,31 @@ const bindingLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	}
 }
 
-/** A source's bind map is evaluated in the importing rule's scope. */
+/**
+ * A source's bind map is evaluated in the importing rule's scope, and so is each argument of a call: a value's term,
+ * and a rows argument's bind map, its query its own scope.
+ */
 const sourceLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	s: SourceDesc<Located, ParamsAs<P, T, D>>,
 	into: Leaves<P, T>
 ): void => {
-	if (s.kind === "query" || s.kind === "step") {
-		for (const [, b] of entries(s.bind)) {
+	const bound = (bind: BindMapDesc<Located, ParamsAs<P, T, D>>): void => {
+		for (const [, b] of entries(bind)) {
 			if (b.kind === "relationParam") {
 				into.params.push(b)
 			} else {
 				exprLeaves(b, into)
+			}
+		}
+	}
+	if (s.kind === "query" || s.kind === "step") {
+		bound(s.bind)
+	} else if (s.kind === "call") {
+		for (const [, a] of entries(s.args)) {
+			if (a.kind === "rows") {
+				bound(a.bind)
+			} else {
+				exprLeaves(a, into)
 			}
 		}
 	}

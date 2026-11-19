@@ -341,6 +341,7 @@ export const roleReadNames = (
 	codes: names.codes,
 	closed: names.closed,
 	refusal: names.refusal,
+	declaredFunction: names.declaredFunction,
 	imaged: imagedViews(names, world, role, entries)
 })
 
@@ -491,6 +492,14 @@ export const installNames = (input: NamesInput): InstallNames => {
 		levelOf,
 		vectorSchema: vectorTypes(input.vectorSchema),
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) },
+		declaredFunction: (name) => {
+			const fn = owned.functions[name] ?? missing(`physical: no declared function ${name}`)
+			const level = levels[fn.level] ?? missing(`physical: no installed level for function ${name}`)
+			return {
+				ref: { kind: "qualified", schema: identifierOf(level), name: identifierOf(fn.named) },
+				types: installationTypes(level)
+			}
+		},
 		relation: (relation) => ({
 			schema: identifierOf(levelOf(relation)),
 			name: installedOf(owned, relation).ident

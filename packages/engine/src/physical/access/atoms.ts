@@ -75,6 +75,7 @@ export const operandOf = (local: NodeId, e: ScalarExpr): Operand => {
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			if (e.deps.nodes.includes(local)) {
 				return { kind: "computed" }
 			}

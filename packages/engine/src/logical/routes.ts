@@ -242,6 +242,8 @@ const reads = (node: RelNode, r: Restriction): ReadonlyArray<readonly [RelNode, 
 			return [[node.input, unrestricted]]
 		case "ApproximateNearest":
 			return [[node.source, unrestricted]]
+		case "Call":
+			return node.args.flatMap((a) => (a.kind === "rows" ? [[a.rows, unrestricted] as const] : []))
 		case "Recursive":
 			return [
 				[node.base, unrestricted],

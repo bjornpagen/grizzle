@@ -175,6 +175,21 @@ class Structure {
 					)
 				}
 				return
+			case "call":
+				for (const [arg, a] of entries(s.args)) {
+					const at = childLoc(childLoc(loc, "args"), arg)
+					if (a.kind === "rows") {
+						this.query(a.query, { recursiveStep: false, attachment: false })
+						for (const [param, e] of entries(a.bind)) {
+							if (e.kind !== "relationParam") {
+								this.expr(e, vars, interiors, cx, childLoc(childLoc(at, "bind"), param))
+							}
+						}
+					} else {
+						this.expr(a, vars, interiors, cx, at)
+					}
+				}
+				return
 			case "relation":
 			case "param":
 			case "paramOf":

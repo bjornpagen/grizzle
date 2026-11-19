@@ -185,6 +185,8 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/reads/stream.test.ts",
 	"test/pg/recursion/**/*.test.ts",
 	"test/pg/scalar/**/*.test.ts",
+	"test/pg/served/call-writes.test.ts",
+	"test/pg/served/calls.test.ts",
 	"test/pg/served/clock.test.ts",
 	"test/pg/served/facts.test.ts",
 	"test/pg/served/unwritten-read-backs.test.ts",

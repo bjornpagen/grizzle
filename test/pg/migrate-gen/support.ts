@@ -51,6 +51,7 @@ import {
 	noCertificates,
 	noFences,
 	noHolds,
+	noCalls,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 import {
@@ -1009,6 +1010,7 @@ export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
 					certifies: noCertificates,
 					carriers: noCarriers,
 					holds: noHolds,
+					calls: noCalls,
 					live: noLive,
 					fences: noFences
 				}

@@ -28,6 +28,7 @@ const foreignKind = (e: ExprDesc): ForeignKind | undefined => {
 		case "value":
 		case "absent":
 		case "exists":
+		case "call":
 			return e.kind
 		case "field":
 		case "literal":

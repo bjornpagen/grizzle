@@ -18,6 +18,7 @@ const sourceKeys = (source: RelNode): ReadonlyArray<KeySet> => {
 			return [[]]
 		case "Delta":
 			return source.keys.length > 0 ? source.keys : [heading]
+		case "Call":
 		case "Closed":
 		case "InputSet":
 		case "MatchRegion":
@@ -73,6 +74,7 @@ const regionUnder = (input: RelNode): RelNode => {
 		case "SemiJoin":
 		case "AntiJoin":
 			return regionUnder(input.left)
+		case "Call":
 		case "Base":
 		case "Closed":
 		case "Context":
@@ -141,6 +143,7 @@ export const keyedFoldInput = (
 				? undefined
 				: { columns, keyed: [{ occurrence: region.occurrence, key }] }
 		}
+		case "Call":
 		case "Closed":
 		case "Context":
 		case "InputSet":

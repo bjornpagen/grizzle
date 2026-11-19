@@ -167,6 +167,7 @@ export const sameExpr = (x: ScalarExpr, y: ScalarExpr): boolean => {
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return false
 	}
 }

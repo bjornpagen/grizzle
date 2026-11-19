@@ -44,6 +44,7 @@ export type OwnedDomain =
 	| "domain-definition"
 	| "drift-proof"
 	| "row-type-definition"
+	| "function-definition"
 	| ConstantDomain
 
 /**
@@ -164,3 +165,21 @@ export type RowTypeDigest = string & { readonly [rowTypeDigestBrand]: true }
 /** The digest of a row type's physical definition: ownedDigest's under "row-type-definition", branded. */
 export const rowTypeDigest = (definition: unknown, options: EncodeOptions): RowTypeDigest =>
 	nominal<string, RowTypeDigest>()(ownedDigest("row-type-definition", definition, options))
+
+declare const functionDigestBrand: unique symbol
+
+/**
+ * The digest of a declared function's Description, its name, calls, signature, volatility, language and body, minted
+ * only by functionDigest: what a call of it carries (ir/rel.ts CalledFunction), so a call's meaning, and the identity of
+ * every law and program that reads it, changes with any part of the function, its body included.
+ */
+export type FunctionDigest = string & { readonly [functionDigestBrand]: true }
+
+const mintFunctionDigest = nominal<string, FunctionDigest>()
+
+/** The digest of a declared function's Description: ownedDigest's under "function-definition", branded. */
+export const functionDigest = (definition: unknown, options: EncodeOptions): FunctionDigest =>
+	mintFunctionDigest(ownedDigest("function-definition", definition, options))
+
+/** A function digest an outside form reads back (ir/scalar-shape.ts calledFunctionShape), unchecked as every brand is. */
+export const admittedFunctionDigest = (text: string): FunctionDigest => mintFunctionDigest(text)

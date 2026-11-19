@@ -299,6 +299,8 @@ const entryOf = (node: RelNode): Entry => {
 		case "SemiJoin":
 		case "AntiJoin":
 			return { exprs: [], over: [], perRow: [{ input: node.right, rows: [node.left.id] }] }
+		case "Call":
+			return { exprs: scopeExprs(node), over: [], perRow: [] }
 		case "Base":
 		case "Closed":
 		case "Context":

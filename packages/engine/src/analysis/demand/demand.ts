@@ -199,6 +199,7 @@ const need = (
 		case "Window":
 		case "OrderedSetAggregate":
 		case "Step":
+		case "Call":
 			return all(input)
 	}
 }

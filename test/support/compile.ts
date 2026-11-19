@@ -40,6 +40,7 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noHolds,
+	noCalls,
 	noCertificates,
 	noContribution,
 	noFences
@@ -446,6 +447,7 @@ const workloadExtensionOver = (
 		certifies: noCertificates,
 		carriers: noCarriers,
 		holds: noHolds,
+		calls: noCalls,
 		live,
 		fences: noFences
 	}
@@ -507,6 +509,7 @@ export const declaredParams = (
 		certifies: noCertificates,
 		carriers: noCarriers,
 		holds: noHolds,
+		calls: noCalls,
 		live: noLive,
 		fences: noFences
 	}

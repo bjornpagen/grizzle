@@ -1,5 +1,6 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { mapRecord } from "#compiler/core/record.ts"
 import {
 	type AttachDesc,
 	type BindingsDesc,
@@ -77,6 +78,19 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 							param,
 							b.kind === "relationParam" ? b : expr(b)
 						])
+					)
+				}
+			case "call":
+				return {
+					...s,
+					args: mapRecord(s.args, (a) =>
+						a.kind === "rows"
+							? {
+									kind: "rows",
+									query: inQuery(a.query),
+									bind: mapRecord(a.bind, (b) => (b.kind === "relationParam" ? b : expr(b)))
+								}
+							: expr(a)
 					)
 				}
 			case "param":

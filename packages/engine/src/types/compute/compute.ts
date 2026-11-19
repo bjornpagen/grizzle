@@ -49,6 +49,17 @@ import type {
 
 import type { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import type {
+	CallArgs,
+	CalledTerm,
+	CallParams,
+	CallReads,
+	CallSource,
+	ExactCallArgs,
+	RowsFunction,
+	ValueFunction
+} from "#compiler/types/compute/call.ts"
+import type {
+	Carriers,
 	ColumnFacts,
 	ComputedOrigin,
 	UnhostedOrigin,
@@ -74,8 +85,16 @@ import type {
 	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { EqualityStates, StatesOf, Stating } from "#compiler/types/evidence/evidence.ts"
-import type { Field, LiteralOf, NotStoredOnly, NotRoster } from "#compiler/types/fields/field.ts"
+import type {
+	Field,
+	FieldBase,
+	LiteralOf,
+	NotStoredOnly,
+	NotRoster
+} from "#compiler/types/fields/field.ts"
 import type { PatternValidate } from "#compiler/types/fields/regex.ts"
+import type { FunctionType } from "#compiler/types/schema/function.ts"
+import type { FactOfFields } from "#compiler/types/schema/relation.ts"
 import type { Scored } from "#compiler/types/vector/vector.ts"
 
 /** The SQL type a descriptor states, read off the descriptor as written. */
@@ -1286,6 +1305,38 @@ export interface ComputeApi {
 	singleton<A extends TermBase | FirstValue, X, PA, OA, L>(
 		id: A & FirstTerm<A> & Term<X, PA, OA, "code", unknown, Facts, L>
 	): Admitted<TakesFirst<A, "code">, Term<SetOver<X, L>, PA, ComputedOrigin<OA>, "bits">>
+	/**
+	 * A declared function's value at its arguments (schema/function.ts fn): a function that returns a value of a field,
+	 * immutable or stable, each argument by its declared name, every one and none other, a term meeting its declared
+	 * domain or a JavaScript value of its language. The value is a term of the result field, which PostgreSQL alone
+	 * computes: of an origin no host evaluates (UnhostedOrigin), so a contract predicate, a row check and a generated
+	 * field refuse it (Hosted), and a NULL result raises where the query reads it (SQLSTATE 22004).
+	 */
+	call<
+		const Args extends Readonly<Record<string, FunctionType>>,
+		H,
+		S extends SqlTag,
+		D,
+		F extends Facts,
+		const A extends CallArgs<Args>
+	>(
+		f: ValueFunction<Args, H, S, D, F>,
+		args: A & ExactCallArgs<A, Args>
+	): CalledTerm<A, H, S, D, F>
+	/**
+	 * The rows a declared function that returns rows of a heading returns at its arguments, a source a rule matches as
+	 * it matches a bound query: each argument by its declared name, a value as Compute.call takes one, or rows, a query
+	 * or a bound query whose facts are the argument's heading's. Its facts are the result heading's, a set; a row of a
+	 * NULL field raises where the query reads it (SQLSTATE 22004).
+	 */
+	rowsOf<
+		const Args extends Readonly<Record<string, FunctionType>>,
+		Fields extends Readonly<Record<string, FieldBase>> & Carriers,
+		const A extends CallArgs<Args>
+	>(
+		f: RowsFunction<Args, Fields>,
+		args: A & ExactCallArgs<A, Args>
+	): CallSource<FactOfFields<Fields>, CallParams<A>, Fields, CallReads<A>>
 }
 
 /** The comparison and boolean helpers a row check sees beside its fields. */

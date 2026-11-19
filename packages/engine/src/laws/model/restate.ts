@@ -191,6 +191,7 @@ const rosterIn = (e: ExprDesc, scope: Scope): string | undefined => {
 		case "absent":
 		case "exists":
 		case "closedHas":
+		case "call":
 			return undefined
 	}
 }
@@ -406,6 +407,13 @@ const restatedExpr = (
 			const args =
 				closed === undefined ? undefined : each(e.args, (a, at) => sub(a, keyRoster(closed, at)))
 			return args === undefined || relation === undefined ? undefined : { ...e, relation, args }
+		}
+		case "call": {
+			const args = each(Object.entries(e.args), ([name, a]) => {
+				const term = own(a)
+				return term === undefined ? undefined : ([name, term] as const)
+			})
+			return args === undefined ? undefined : { ...e, args: Object.fromEntries(args) }
 		}
 		case "absent":
 		case "exists":

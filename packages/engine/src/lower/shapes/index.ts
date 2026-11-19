@@ -686,7 +686,8 @@ const optimizedLowerers = <I extends ChoiceInput>(
 	Forbid: delivering(facts, conservativeLowerers.Forbid),
 	Window: catalogLowerers.Window,
 	OrderedSetAggregate: catalogLowerers.OrderedSetAggregate,
-	Step: realized(facts, conservativeLowerers.Step)
+	Step: realized(facts, conservativeLowerers.Step),
+	Call: realized(facts, conservativeLowerers.Call)
 })
 
 const cteMaterialization = (strategy: CteStrategy): NonNullable<Cte["materialized"]> | undefined =>

@@ -166,6 +166,8 @@ class ExprPrinter {
 				return `${expr.relation}.row(${Arr.join(args, ", ")})`
 			case "closedHas":
 				return `${expr.relation}.has(${Arr.join(args, ", ")})`
+			case "call":
+				return `${expr.function.name}(${Arr.join(args, ", ")})`
 		}
 	}
 }
@@ -267,6 +269,13 @@ const printBody = (n: RelNode, printer: ExprPrinter): string => {
 			return `OrderedResult ${n.input.id} ${printOrder(n.order)}`
 		case "Step":
 			return `Step ${n.input.id}`
+		case "Call":
+			return `Call ${n.function.name}(${Arr.join(
+				Arr.map(n.args, (a) =>
+					a.kind === "value" ? `${a.name}=${e(a.expr)}` : `${a.name}=${a.rows.id}`
+				),
+				", "
+			)})`
 		case "Attach":
 			return `Attach ${n.parent.id} ${n.name}=${n.child.id} ${n.delivered} on${list(Arr.map(n.correlation, (c) => `${c.parent}=${c.child}`))}${n.order === undefined ? "" : ` ${printOrder(n.order)}`}`
 		case "Forbid":

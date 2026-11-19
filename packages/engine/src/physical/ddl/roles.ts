@@ -67,15 +67,25 @@ import {
 	columnDomains,
 	usedNodes
 } from "#compiler/physical/ddl/domains.ts"
+import type { InstalledFunction } from "#compiler/physical/ddl/functions.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
 import { levelIn, type NamedRole, roleView } from "#compiler/physical/ddl/names.ts"
 import type { UnitFunction, UnitFunctions } from "#compiler/physical/ddl/retire.ts"
+
+/** A function a role executes beside its statements' own: a retirable unit's hold or retirement, or a declared
+ * function its served programs call. */
+type CalledFunction = UnitFunction | InstalledFunction
 import {
 	derivedReading,
 	type LoweredDefinition,
 	lowerDefinition
 } from "#compiler/physical/derived/definition.ts"
-import type { LoginFence, RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
+import type {
+	LoginFence,
+	RoleCall,
+	RoleHold,
+	RoleOfLogin
+} from "#compiler/physical/install/extension.ts"
 import {
 	enforcement,
 	type Node,
@@ -1306,7 +1316,7 @@ const addRole = (
 	login: { readonly role: string; readonly object: Node<"publish"> },
 	advance: AdvanceFunctions,
 	carriers: boolean,
-	held: ReadonlyArray<UnitFunction>
+	held: ReadonlyArray<CalledFunction>
 ): RoleOutcome => {
 	const role = checked.world.role
 	const theory = b.name(named)
@@ -1546,7 +1556,7 @@ const addLogin = (
 	advance: AdvanceFunctions,
 	carriers: ReadonlyArray<RoleOfLogin>,
 	fenced: ReadonlyArray<string>,
-	held: (role: OwnedRole) => ReadonlyArray<UnitFunction>
+	held: (role: OwnedRole) => ReadonlyArray<CalledFunction>
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
@@ -1812,6 +1822,10 @@ export const addWorlds = (
 	checkedLogins: ReadonlyArray<CheckedLogin>,
 	carriers: ReadonlyArray<RoleOfLogin>,
 	holds: ReadonlyArray<RoleHold>,
+	calls: {
+		readonly calls: ReadonlyArray<RoleCall>
+		readonly declared: ReadonlyMap<string, InstalledFunction>
+	},
 	fences: ReadonlyArray<LoginFence>
 ): WorldsPlan => {
 	const logins = [...checkedLogins].toSorted((x, y) => compareStrings(x.login.name, y.login.name))
@@ -1822,9 +1836,9 @@ export const addWorlds = (
 	const views: Array<ObjectName> = []
 	const writers: Array<Writer> = []
 	for (const login of logins) {
-		/** The unit functions a role calls: the hold of each unit its served workload holds, and the retirement of each
-		 * unit whose header its retire list names. */
-		const held = (role: OwnedRole): ReadonlyArray<UnitFunction> => [
+		/** The functions a role calls: the hold of each unit its served workload holds, the retirement of each unit
+		 * whose header its retire list names, and each declared function its served programs call. */
+		const held = (role: OwnedRole): ReadonlyArray<CalledFunction> => [
 			...holds.flatMap((h) =>
 				h.login === login.login.name && h.role === role.name
 					? [defined(units.get(h.header), `the hold function of retirable ${h.header}`).hold]
@@ -1833,6 +1847,11 @@ export const addWorlds = (
 			...role.retire.map(
 				(header) =>
 					defined(units.get(header), `the retirement function of retirable ${header}`).retire
+			),
+			...calls.calls.flatMap((c) =>
+				c.login === login.login.name && c.role === role.name
+					? [defined(calls.declared.get(c.function), `the declared function ${c.function}`)]
+					: []
 			)
 		]
 		const added = addLogin(

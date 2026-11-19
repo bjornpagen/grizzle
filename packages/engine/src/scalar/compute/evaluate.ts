@@ -1174,6 +1174,10 @@ const compiledTable = (exprs: Readonly<Record<ExprId, TableExpr>>, root: ExprId)
 			case "closedRow":
 			case "closedHas":
 				return closedExpr(expr, expr.args.map(node))
+			case "call":
+				return refusedExpr(
+					`a call of the declared function ${expr.function.name}, which PostgreSQL alone evaluates`
+				)
 		}
 	}
 	/** A cast of the operand `operand` into `to`, its value NULL where the operand's is (caster). */

@@ -141,6 +141,7 @@ export class KeyAnalysis {
 				)
 			case "Group":
 				return [node.keys]
+			case "Call":
 			case "Union":
 			case "Intersect":
 			case "Difference":

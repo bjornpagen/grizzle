@@ -1,18 +1,15 @@
-import { withoutSourceLocs } from "#compiler/core/canonical.ts"
-import { rowTypeDigest } from "#compiler/core/fingerprint.ts"
 import type { FunctionVolatility } from "#compiler/core/function.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { FieldDesc, FunctionTypeDesc, NamedDesc } from "#compiler/ir/desc.ts"
-import { baseTypeRef, lawColumnType } from "#compiler/ir/physical.ts"
+import { baseTypeRef, rowTypeOf } from "#compiler/ir/physical.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { installationTypes } from "#compiler/physical/ddl/names.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { OwnedFunction } from "#compiler/schema/function-own.ts"
 import {
-	type ColumnDefinition,
 	type CreateDeclaredFunction,
 	type DeclaredVolatility,
 	declaredBody,
@@ -20,7 +17,7 @@ import {
 	type FunctionParam,
 	type TypeRef
 } from "#compiler/sql/ast.ts"
-import { arrayOf, functionNameOf, namedType } from "#compiler/sql/build.ts"
+import { arrayOf, functionNameOf } from "#compiler/sql/build.ts"
 
 /**
  * The installation's declared functions (schema/function.ts fn): each a SECURITY DEFINER function of its level's
@@ -69,17 +66,6 @@ interface RowType {
 /** The type a value of `desc` is as an argument or a result: its base type, never a domain. */
 const valueType = (b: InstallBuilder, desc: FieldDesc, at: OwnedFunction): TypeRef =>
 	baseTypeRef(b.names, b.checked.fieldType(desc, at.desc.loc))
-
-/** A heading's attributes as its row type declares them: each field's base type, text collated. */
-const attributesOf = (
-	b: InstallBuilder,
-	heading: NonEmptyReadonlyArray<NamedDesc<FieldDesc>>,
-	at: OwnedFunction
-): NonEmptyReadonlyArray<ColumnDefinition> =>
-	mapNonEmpty(heading, (f) => {
-		const column = lawColumnType(b.names, b.checked.fieldType(f.type, at.desc.loc))
-		return { name: f.name, type: column.type, collation: column.collation }
-	})
 
 const why = (fn: OwnedFunction) => enforcement(`function ${fn.name}`)
 
@@ -155,8 +141,14 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 		const types = installationTypes(level)
 		const used: Array<Node<"setup">> = []
 		const rowType = (heading: NonEmptyReadonlyArray<NamedDesc<FieldDesc>>): TypeRef => {
-			const attributes = attributesOf(b, heading, fn)
-			const named = identity.rowType(rowTypeDigest(attributes, withoutSourceLocs))
+			const { attributes, named, type } = rowTypeOf(
+				b.names,
+				types,
+				mapNonEmpty(heading, (f) => ({
+					name: f.name,
+					type: b.checked.fieldType(f.type, fn.desc.loc)
+				}))
+			)
 			const key = `${identifierOf(level)}.${identifierOf(named)}`
 			const known = rowTypes.get(key)
 			if (known !== undefined) {
@@ -182,7 +174,6 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 				},
 				[levelNode]
 			)
-			const type = namedType(types, name.name, [])
 			rowTypes.set(key, { node, type })
 			used.push(node)
 			return type

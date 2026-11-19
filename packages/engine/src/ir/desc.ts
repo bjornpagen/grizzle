@@ -32,7 +32,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import { compareStrings, type Direction, directions } from "#compiler/core/order.ts"
-import { deepFreeze } from "#compiler/core/record.ts"
+import { deepFreeze, isRecord, mapRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type CanonicalSet, tupleKeyedSet } from "#compiler/core/set.ts"
 import { isValidText } from "#compiler/core/text.ts"
@@ -453,6 +453,16 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	  }
 	| {
 			/**
+			 * Compute.call(f, args) of a declared function `function` that returns a value: a term for each of its
+			 * arguments by the argument's name, each a value of the argument's type. The host never evaluates one: a call
+			 * is read in SQL alone, and no contract predicate, row check or generated field holds one.
+			 */
+			readonly kind: "call"
+			readonly function: string
+			readonly args: Readonly<Record<string, ExprDesc<L, R>>>
+	  }
+	| {
+			/**
 			 * C.at(field, t…): payload field `field` of the fact of closed relation `relation` whose key is `args`, one term
 			 * per key field in key order. A key no fact holds reads NULL, never a value, so a predicate's IS TRUE refuses it
 			 * and a generated column's NOT NULL does.
@@ -626,6 +636,8 @@ export const exprChildren = <L, R extends Refs>(
 				{ term: e.point, at: named.point },
 				{ term: e.span, at: named.span }
 			]
+		case "call":
+			return Object.entries(e.args).map(([arg, term]) => ({ term, at: ["args", arg] }))
 		case "absent":
 		case "exists":
 			return [
@@ -641,12 +653,30 @@ export const exprChildren = <L, R extends Refs>(
  */
 export const bindTerms = <L, R extends Refs>(
 	s: SourceDesc<L, R>
-): ReadonlyArray<readonly [string, ExprDesc<L, R>]> =>
-	s.kind === "query" || s.kind === "step"
-		? Object.entries(s.bind).flatMap(([param, b]) =>
-				b.kind === "relationParam" ? [] : [[param, b] as const]
+): ReadonlyArray<readonly [string, ExprDesc<L, R>]> => {
+	const scalar = (bind: BindMapDesc<L, R>, at: (param: string) => string) =>
+		Object.entries(bind).flatMap(([param, b]) =>
+			b.kind === "relationParam" ? [] : [[at(param), b] as const]
+		)
+	switch (s.kind) {
+		case "query":
+		case "step":
+			return scalar(s.bind, (param) => param)
+		case "call":
+			return Object.entries(s.args).flatMap(([arg, a]) =>
+				a.kind === "rows" ? scalar(a.bind, (param) => `${arg}.${param}`) : [[arg, a] as const]
 			)
-		: []
+		case "relation":
+		case "param":
+		case "paramOf":
+		case "interior":
+		case "self":
+		case "delta":
+		case "context":
+		case "row":
+			return []
+	}
+}
 
 /**
  * How mapExpr rebuilds an expression over references R as one over references S: each leaf by `leaf`, each child by
@@ -706,6 +736,8 @@ export const mapExpr = <L, R extends Refs, S extends Refs>(
 			return { ...e, arg: term(e.arg), low: term(e.low), high: term(e.high) }
 		case "pointIn":
 			return { ...e, point: term(e.point), span: term(e.span) }
+		case "call":
+			return { ...e, args: mapRecord(e.args, term) }
 		case "absent":
 		case "exists":
 			return { ...e, source: m.source(e.source), bindings: mapBindingTerms(e.bindings, term) }
@@ -723,15 +755,33 @@ export const mapBindingTerms = <L, R extends Refs, S extends Refs>(
 export const mapBindTerms = <L, R extends Refs>(
 	s: SourceDesc<L, R>,
 	f: (e: ExprDesc<L, R>) => ExprDesc<L, R>
-): SourceDesc<L, R> =>
-	s.kind === "query" || s.kind === "step"
-		? {
+): SourceDesc<L, R> => {
+	const mapped = (bind: BindMapDesc<L, R>): BindMapDesc<L, R> =>
+		Object.fromEntries(
+			Object.entries(bind).map(([param, b]) => [param, b.kind === "relationParam" ? b : f(b)])
+		)
+	switch (s.kind) {
+		case "query":
+		case "step":
+			return { ...s, bind: mapped(s.bind) }
+		case "call":
+			return {
 				...s,
-				bind: Object.fromEntries(
-					Object.entries(s.bind).map(([param, b]) => [param, b.kind === "relationParam" ? b : f(b)])
+				args: mapRecord(s.args, (a): CallArgDesc<L, R> =>
+					a.kind === "rows" ? { ...a, bind: mapped(a.bind) } : f(a)
 				)
 			}
-		: s
+		case "relation":
+		case "param":
+		case "paramOf":
+		case "interior":
+		case "self":
+		case "delta":
+		case "context":
+		case "row":
+			return s
+	}
+}
 
 /**
  * `e` with each child (exprChildren) mapped by `f` and every other part as it is: the bind map of an absent's source
@@ -755,6 +805,51 @@ export type BindMapDesc<L = Located, R extends Refs = Spelled> = Readonly<
 	Record<string, BindTermDesc<L, R>>
 >
 
+/**
+ * What a call of a set-returning declared function gives one of its arguments: a value, the term itself, of the
+ * caller's scope, a variable, a parent variable, a parameter or a typed constant, as a bind map binds one; or the rows
+ * of a query whose heading is the argument's heading, its parameters bound by the caller as an import's are (`bind`),
+ * which the call passes as an array of the argument's row type. No term is of kind "rows", so the kind tells them apart.
+ */
+export type CallArgDesc<L = Located, R extends Refs = Spelled> =
+	| ExprDesc<L, R>
+	| {
+			readonly kind: "rows"
+			readonly query: QueryDesc<L, R["nested"]>
+			readonly bind: BindMapDesc<L, R>
+	  }
+
+/**
+ * The declared functions a Description calls, by name, at any depth: each call term (ExprDesc call) and each call
+ * source (SourceDesc call) it holds, through its imports, attachments, interiors, rows arguments, members and read-backs
+ * alike. A Description is plain data, a tree of records and lists, and a call is the one node of kind "call" that names
+ * a `function`, so the walk reads every node once and needs no case for any other.
+ */
+export const callsOf = (desc: unknown): ReadonlySet<string> => {
+	const out = new Set<string>()
+	const walk = (node: unknown): void => {
+		if (Array.isArray(node)) {
+			for (const item of node) {
+				walk(item)
+			}
+			return
+		}
+		if (!isRecord(node)) {
+			return
+		}
+		const record = node
+		const called = record["function"]
+		if (record["kind"] === "call" && typeof called === "string") {
+			out.add(called)
+		}
+		for (const value of Object.values(record)) {
+			walk(value)
+		}
+	}
+	walk(desc)
+	return out
+}
+
 /** What `match` consumes. */
 export type SourceDesc<L = Located, R extends Refs = Spelled> =
 	| { readonly kind: "relation"; readonly name: string }
@@ -776,6 +871,15 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 	  }
 	| ({ readonly kind: "param"; readonly heading: Readonly<Record<string, FieldDesc>> } & R["param"])
 	| ({ readonly kind: "paramOf"; readonly relation: string } & R["param"])
+	| {
+			/**
+			 * Compute.call(f, args) of a declared function `function` that returns rows: its result's rows, matched like a
+			 * table, each argument by its name (CallArgDesc), each read where the match stands.
+			 */
+			readonly kind: "call"
+			readonly function: string
+			readonly args: Readonly<Record<string, CallArgDesc<L, R>>>
+	  }
 	| { readonly kind: "interior"; readonly id: R["interior"] }
 	| { readonly kind: "self" }
 	| { readonly kind: "delta"; readonly side: DeltaSide; readonly relation: string }
@@ -1749,6 +1853,19 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 				return { kind: "param", heading: s.heading, ...this.#spelling.param(s.name) }
 			case "paramOf":
 				return { kind: "paramOf", relation: s.relation, ...this.#spelling.param(s.name) }
+			case "call":
+				return {
+					...s,
+					args: mapRecord(s.args, (a) =>
+						a.kind === "rows"
+							? {
+									kind: "rows",
+									query: new ParamWalk<P, T, D>(this.#spelling.imported()).query(a.query),
+									bind: mapRecord(a.bind, (b) => this.bound(b))
+								}
+							: this.expr(a)
+					)
+				}
 			case "relation":
 			case "interior":
 			case "self":
@@ -2031,6 +2148,13 @@ const exprCases = {
 	closedHas: S.struct({
 		relation: name,
 		args: S.nonEmptyArray(S.ref("an expression", () => exprDescShape))
+	}),
+	call: S.struct({
+		function: name,
+		args: S.recordShape(
+			S.ref("an expression", () => exprDescShape),
+			S.nonEmptyString
+		)
 	})
 } as const
 
@@ -2173,19 +2297,25 @@ const contextDescShape: S.Shape<ContextDesc> = S.structStated(
 	{}
 )
 
-const sourceDescShape: S.Shape<SourceDesc> = S.ref("a source", () => sourceDescBody)
-
-/** The decoder sourceDescShape refers to (S.ref). */
-const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
-	relation: S.struct({ name }),
-	/** An import that binds nothing has the empty binding, however it was spelled. */
-	query: S.normalized(
+/**
+ * A query read under a bind map, an import's and a call's rows argument's alike: an import that binds nothing has the
+ * empty binding, however it was spelled.
+ */
+const importDescShape: S.Shape<{ readonly query: QueryDesc; readonly bind: BindMapDesc }> =
+	S.normalized(
 		S.structWith(
 			{ query: S.ref("a query description", () => unorderedQueryShape) },
 			{ bind: bindMapDescShape }
 		),
 		(q) => ({ query: q.query, bind: q.bind ?? {} })
-	),
+	)
+
+const sourceDescShape: S.Shape<SourceDesc> = S.ref("a source", () => sourceDescBody)
+
+/** The decoder sourceDescShape refers to (S.ref). */
+const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
+	relation: S.struct({ name }),
+	query: importDescShape,
 	param: S.struct({
 		name,
 		heading: S.refine(
@@ -2195,12 +2325,25 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 		)
 	}),
 	paramOf: S.struct({ name, relation: name }),
+	call: S.struct({
+		function: name,
+		args: S.recordShape(
+			S.ref("a call's argument", () => callArgDescShape),
+			S.nonEmptyString
+		)
+	}),
 	interior: S.struct({ id: name }),
 	self: S.struct({}),
 	delta: S.struct({ side: S.literalsShape(["added", "removed", "met"]), relation: name }),
 	context: S.struct({ context: S.ref("a context description", () => contextDescShape) }),
 	row: S.struct({ heading: fieldMapShape })
 })
+
+/** A call's argument: rows of a query and the bind map of its parameters, or a value's term itself. */
+const callArgDescShape: S.Shape<CallArgDesc> = S.unionShape(
+	S.tagged("kind", { rows: importDescShape }),
+	S.ref("an expression", () => exprDescShape)
+)
 
 const varDescShape: S.Shape<VarDesc> = S.located(
 	S.structStated({ id: name }, { origin: S.struct({ relation: name, field: name }) }, loc)

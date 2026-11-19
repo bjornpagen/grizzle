@@ -204,7 +204,8 @@ export interface ComputedOrigin<out Operands> {
 /**
  * The origin of a computation by a Compute function the host does not evaluate (scalar/compute/registry.ts
  * computeSpecs, check false: quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric
- * and cosineDistance): a ComputedOrigin of its operands, marked, so a term over it carries the mark through every
+ * and cosineDistance), and of a declared function's call (Compute.call), which PostgreSQL alone evaluates: a
+ * ComputedOrigin of its operands, marked, so a term over it carries the mark through every
  * computation over it, and a contract predicate, a row check of a stored relation and a generated field, which the
  * host evaluates, refuse it (Hosted).
  */
@@ -951,7 +952,7 @@ export type Parameterless<X> = [keyof ParamsOfTerm<X>] extends [never]
  */
 export type Hosted<X> =
 	true extends ReadsUnhosted<OriginOfTerm<X>>
-		? Refusal<"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric or cosineDistance">
+		? Refusal<"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric or cosineDistance, and call no declared function">
 		: unknown
 
 /**

@@ -12,6 +12,7 @@ import { type RelNode, unionArms } from "#compiler/ir/rel.ts"
  *
  * - an InputSet the facts of its relation parameter or member slot, and a membership's row, one fact, nothing;
  * - a stored or derived relation, a context and a delta nothing the call states, a closed relation of no row never;
+ * - a declared function's call nothing, since a function may return rows where its rows arguments hold none;
  * - a match region every occurrence it joins, a semi-join and an intersection both sides;
  * - a union any arm, an anti-join and a difference their left side;
  * - a filter, a step, a projection, a take, an order, a window, a producer, an approximate search, a fold and an
@@ -47,6 +48,7 @@ export const needsOf = (node: RelNode): Needs => {
 			case "Base":
 			case "Context":
 			case "Delta":
+			case "Call":
 				return always
 			case "Closed":
 				return n.rows.length === 0 ? never : always

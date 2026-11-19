@@ -19,7 +19,9 @@ import {
 	noCertificates,
 	noContribution,
 	noFences,
-	noHolds
+	noHolds,
+	noCalls,
+	type RoleCall
 } from "#compiler/physical/install/extension.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 
@@ -93,6 +95,7 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,
+	calls: noCalls,
 	live: noLive,
 	fences: noFences
 })
@@ -102,13 +105,15 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
  * certificate of every role of every login its plan certified (program/workload/compile.ts servedWorkload), which the
  * installation's guards follow; the roles whose served ChangeSets create a carrier, which it grants TEMPORARY on
  * the database; the roles whose served ChangeSets hold a retirable unit, which it grants EXECUTE on the unit's hold
- * function; its live plan; and the relations each login fences, on which it grants the login MAINTAIN.
+ * function; the roles whose served programs call a declared function, which it grants EXECUTE on the function; its live
+ * plan; and the relations each login fences, on which it grants the login MAINTAIN.
  */
 export const servedWorkloadExtension = (
 	workload: WorkloadPhysical & {
 		readonly certification: ReadonlyArray<RoleIsolation>
 		readonly carriers: ReadonlyArray<RoleOfLogin>
 		readonly holds: ReadonlyArray<RoleHold>
+		readonly calls: ReadonlyArray<RoleCall>
 		readonly live: LivePlan
 		readonly fences: ReadonlyArray<Fence>
 	}
@@ -117,6 +122,7 @@ export const servedWorkloadExtension = (
 	certifies: workload.certification,
 	carriers: workload.carriers,
 	holds: workload.holds,
+	calls: workload.calls,
 	live: workload.live,
 	fences: loginFences(workload.fences)
 })

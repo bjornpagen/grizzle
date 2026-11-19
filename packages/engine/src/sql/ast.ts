@@ -349,6 +349,7 @@ export const builtinFunctions = {
 	make_date: { reach: "row" },
 	encode: { reach: "row" },
 	generate_series: { reach: "row" },
+	num_nonnulls: { reach: "row" },
 	sha256: { reach: "row" },
 	md5: { reach: "row" },
 	to_regclass: { reach: "row" },

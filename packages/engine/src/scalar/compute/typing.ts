@@ -4,7 +4,8 @@ import { int4Max } from "#compiler/core/canonical.ts"
 import { canonicalTextOf, catchRefusal, Refusal, sameContent } from "#compiler/core/canonical.ts"
 import { maxAllocSize } from "#compiler/core/errors.ts"
 import { CompileError, prose, type ProseTag, ruleRefused } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import type { FunctionDigest } from "#compiler/core/fingerprint.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
@@ -20,6 +21,7 @@ import type {
 	CompareOp,
 	ExprDesc,
 	FieldDesc,
+	FunctionDesc,
 	GuardDesc,
 	LiteralDesc,
 	Located,
@@ -384,6 +386,7 @@ const partsUnder = <R extends Refs>(
 		case "pointIn":
 		case "absent":
 		case "exists":
+		case "call":
 			return [{ kind: "other", desc, branches }]
 	}
 }
@@ -460,7 +463,28 @@ export interface TypingEnv<R extends Refs> {
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	/** The closed relations C.at and C.row apply. */
 	readonly closed: ClosedRelations
+	/** The declared functions Compute.call calls (DeclaredFunctions). */
+	readonly functions: DeclaredFunctions
 	readonly analysis: TextAnalysis
+}
+
+/**
+ * The declared functions a term may call (schema/function.ts fn): a query's schema's, by name, undefined for a name that
+ * is no declared function's; or none, where the host evaluates the term or no schema is in reach, with the reason, which
+ * a refusal of Compute.call there states.
+ */
+export type DeclaredFunctions =
+	| { readonly kind: "schema"; readonly of: (name: string) => CallableFunction | undefined }
+	| { readonly kind: "none"; readonly why: string }
+
+/**
+ * A declared function as a call reads it (schema/function-own.ts OwnedFunction): its name, its Description, which
+ * states its signature and its volatility, and the digest of its Description, which the call carries.
+ */
+export interface CallableFunction {
+	readonly name: string
+	readonly desc: FunctionDesc
+	readonly definition: FunctionDigest
 }
 
 /** A recorded node's arguments: the nodes recorded before it, whose emissions its emission reads. */
@@ -1382,6 +1406,8 @@ const specText = (spec: TypedSpec): string => {
 			return `${spec.relation}.row(…)`
 		case "closedHas":
 			return `${spec.relation}.has(…)`
+		case "call":
+			return `${spec.function.name}(…)`
 	}
 }
 
@@ -1475,6 +1501,8 @@ export const sameNode = (a: TypedNode, b: TypedNode): boolean => {
 			return y.kind === "closedRow" && x.relation === y.relation
 		case "closedHas":
 			return y.kind === "closedHas" && x.relation === y.relation
+		case "call":
+			return y.kind === "call" && x.function.definition === y.function.definition
 	}
 }
 
@@ -2170,6 +2198,8 @@ class Typing<R extends Refs> {
 				return this.closedRow(desc, at)
 			case "closedHas":
 				return this.closedHas(desc, at)
+			case "call":
+				return this.call(desc, at)
 			case "allen":
 			case "pointIn":
 			case "absent":
@@ -2777,6 +2807,97 @@ class Typing<R extends Refs> {
 			type: payload.type,
 			nonNull: "absentRefused"
 		})
+	}
+
+	/**
+	 * Compute.call(f, args): the value of a declared function the schema declares (DeclaredFunctions), one that returns
+	 * a value and is immutable or stable, a term being a function of its operands, at one term per declared argument,
+	 * each a value of a type that meets the argument's declared type, a bare literal admitted at it (callArgument). Its
+	 * value is of its declared result type, which the lowering casts it to, so it has the facts that type states.
+	 */
+	call(desc: Extract<ExprDesc<Located, R>, { readonly kind: "call" }>, at: SourceLoc): Typed {
+		const here = childLoc(at, "call")
+		const functions = this.env.functions
+		if (functions.kind === "none") {
+			return stop(
+				"UnsupportedOperation",
+				here,
+				`a call of declared function ${desc.function}: ${functions.why}`
+			)
+		}
+		const fn = functions.of(desc.function)
+		if (fn === undefined) {
+			return stop(
+				"MalformedDescription",
+				here,
+				`a declared function of the schema; ${desc.function} is none`
+			)
+		}
+		const returns = fn.desc.returns
+		if (returns.kind !== "value") {
+			return stop(
+				"MalformedDescription",
+				here,
+				`a declared function that returns a value as a term; ${fn.name} returns rows, which a match reads as a source`
+			)
+		}
+		if (fn.desc.volatility === "volatile") {
+			return stop(
+				"UnsupportedOperation",
+				here,
+				`an immutable or stable function as a term, a function of its operands; ${fn.name} is volatile, which a match calls as a source`
+			)
+		}
+		const named = Object.keys(desc.args)
+		const declared = fn.desc.args.map((a) => a.name)
+		const stray = named.filter((a) => !declared.includes(a))
+		const missing = declared.filter((a) => !named.includes(a))
+		if (stray.length > 0 || missing.length > 0) {
+			return stop(
+				"MalformedDescription",
+				here,
+				`the arguments of function ${fn.name}, ${declared.length === 0 ? "none" : declared.join(", ")}; ${[...missing.map((a) => `${a} is missing`), ...stray.map((a) => `${a} is none of them`)].join(", ")}`
+			)
+		}
+		const args = fn.desc.args.map((a) => {
+			const where = childLoc(here, a.name)
+			if (a.type.kind !== "value") {
+				return stop(
+					"MalformedDescription",
+					where,
+					`a function of value arguments as a term; ${fn.name} takes rows at ${a.name}, which a match reads as a source`
+				)
+			}
+			const type = unwrapOrRefuse(this.env.fieldType(a.type.type, where))
+			const term = defined(desc.args[a.name], "an argument the call names, checked above")
+			return { type, node: this.callArgument(term, type, a.name, where).node }
+		})
+		const type = unwrapOrRefuse(this.env.fieldType(returns.type, here))
+		return this.emit({
+			kind: "call",
+			function: { name: fn.name, volatility: fn.desc.volatility, definition: fn.definition },
+			params: args.map((a) => a.type),
+			args: args.map((a) => a.node),
+			type,
+			nonNull: "returned",
+			volatility: fn.desc.volatility === "stable" ? "stable" : "immutable"
+		})
+	}
+
+	/** A call's argument at its declared type `type`: a bare literal admitted at it, any other term one that meets it. */
+	callArgument(d: ExprDesc<Located, R>, type: ScalarType, arg: string, at: SourceLoc): Typed {
+		if (d.kind === "literal" && d.type === undefined) {
+			return this.literal(d.value, type, at)
+		}
+		const term = this.lower(d, at)
+		if (!meets(type, term.nominal)) {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a term of argument ${arg}'s type ${typeLabel(type)}, not ${typeLabel(term.nominal)}`
+			)
+		}
+		return this.convert(term, type, at)
 	}
 
 	/**

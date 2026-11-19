@@ -224,6 +224,7 @@ const contextOf = (source: SourceDesc): ContextDesc | undefined => {
 		case "step":
 		case "param":
 		case "paramOf":
+		case "call":
 		case "interior":
 		case "self":
 		case "delta":

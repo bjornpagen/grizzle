@@ -3157,11 +3157,13 @@ export const Lexicon = schema("Lexicon", [folded, doubled], [])
 
 - **Arguments and results** are a value of a field's type, or `rows(heading)`: an argument of rows is an array of the
   heading's row type, and a result of rows is a set of them, `RETURNS SETOF`. A heading's fields are in the order its
-  record writes them, its row type's attribute order. A type is a base type, a contract or a refined text over one:
-  a serial, money, bytes, a closed id, a set, a span or a vector is a type error, and from JavaScript `Refused` when
-  the schema is owned. PostgreSQL holds a function to its declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a
-  column whose type is not the row type's), so each is its field's base type, `natural` a bigint and `Word` a text:
-  a contract or a pattern is checked where a statement reads the value, never by the signature.
+  record writes them, its row type's attribute order. A type is a base type, a closed id, a contract or a refined text
+  over one: a serial, money, bytes, a set, a span or a vector is a type error, and from JavaScript `Refused` when the
+  schema is owned. PostgreSQL holds a function to its declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a
+  column whose type is not the row type's), so each is its field's base type, `natural` a bigint, `Word` a text and a
+  closed id its code, a smallint: a contract, a pattern or a roster is checked where a statement reads the function's
+  value, cast to its field's domain, never by the signature. A call passes a closed id of the argument's own roster
+  alone, as every term does.
 - **Names.** A function installs in its level's schema under its name's conversion, `folded`, `xsd_regex` for
   `xsdRegex`; functions are one namespace across a schema's levels, apart from its relations. Each heading installs
   once per level as a row type named by its definition's digest, `__rows_<digest>`, so a changed heading is another
@@ -3179,6 +3181,65 @@ export const Lexicon = schema("Lexicon", [folded, doubled], [])
   its head and the SHA-256 of its body, and the drift check holds the installed source, `pg_proc.prosrc`, to that
   digest, so a body edited by hand is drift, reported with both digests and the committed statement that last defines
   the function.
+
+### Calling a function
+
+A query calls a declared function of its schema in one of two ways, by what the function returns.
+`Compute.call(f, args)` is the value of a function that returns a value: a term, which stands wherever a term of its
+result's type stands. `Compute.rowsOf(f, args)` is the rows of a function that returns rows: a source, which a rule
+matches as it matches a bound query. Each argument is named as the function declares it, every one of them and no
+other: a value is a term, a parameter or a JavaScript value, as a bind map takes one; rows are a query, or a bound
+query, whose heading holds the argument's fields.
+
+```ts
+const Doc = relation("Doc", { doc: uuid, shift: natural }, ["doc"])
+const Line = relation("Line", { doc: uuid, pos: natural, txt: Word }, ["doc", "pos"])
+const Numbered = rows({ pos: natural, txt: Word })
+
+/** Each line of `program` shifted by `shift`, its word folded. */
+export const shifted = fn("shifted", {
+	calls: [folded],
+	args: { program: Numbered, shift: natural },
+	returns: Numbered,
+	volatility: "immutable",
+	language: "sql",
+	body: "SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p"
+})
+
+export const Docs = schema("Docs", [Doc, Line, folded, shifted], [])
+
+const linesOf = query(Docs).rule((r) => {
+	const { pos, txt } = v(Line, "line")
+	return r.match(Line, { doc: r.param("doc", uuid), pos, txt }).find({ pos, txt })
+})
+
+/** Every document's lines, shifted by its own shift, each beside its word folded again. */
+export const shiftedLines = query(Docs).rule((r) => {
+	const { doc, shift } = v(Doc, "doc")
+	const run = Compute.rowsOf(shifted, { program: linesOf.bind({ doc }), shift })
+	const { pos, txt } = v(run, "run")
+	return r
+		.match(Doc, { doc, shift })
+		.match(run, { pos, txt })
+		.find({ doc, pos, txt, again: Compute.call(folded, { word: txt }) })
+})
+```
+
+- **Where it runs.** A call of rows is read `LATERAL`, after the matches whose variables its arguments read, once per
+  their binding: `shifted` above runs once per document, at the array of that document's lines. A rows argument is an
+  array of the heading's row type, `ARRAY(SELECT ROW(...)::<row type> FROM (<query>))`, a set, in no order; a value
+  argument is cast to its declared type's base.
+- **What it returns.** The rows of a call are a set: a row the function returns twice is one row. Each value is cast to
+  its field's declared type, so a contract or a pattern refuses a value of the function's that breaks it, where the
+  query reads it. grizzle holds no NULL: a function that returns NULL, as a value or in a field of a row, fails the
+  query with SQLSTATE `22004`.
+- **What may call one.** A call is a query's term alone: a check, a contract's predicate and a generated field are
+  evaluated on the host too, and PostgreSQL alone evaluates a declared function, so a call there is a type error
+  (`Refused`), and refused from JavaScript when the schema is owned. A term calls an immutable or stable function; a
+  volatile one is called through `Compute.rowsOf` alone.
+- **Who may call one.** A role holds `EXECUTE` on exactly the declared functions its served programs call, and the
+  function, which reads no table, runs as the function owner. A derived relation's or a query entry's definition that
+  calls a function runs inside its view, as its owner.
 
 ## Levels
 

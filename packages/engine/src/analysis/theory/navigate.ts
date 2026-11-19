@@ -575,6 +575,7 @@ class Navigator {
 			case "step":
 			case "param":
 			case "paramOf":
+			case "call":
 			case "interior":
 			case "self":
 			case "delta":

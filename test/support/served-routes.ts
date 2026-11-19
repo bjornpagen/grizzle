@@ -59,6 +59,7 @@ const climbsOf = (node: RelNode): ReadonlyArray<readonly [RelNode, Climb]> => {
 		{ consumer: node, up, fixes: unfixed }
 	]
 	switch (node.kind) {
+		case "Call":
 		case "Base":
 		case "Closed":
 		case "Context":

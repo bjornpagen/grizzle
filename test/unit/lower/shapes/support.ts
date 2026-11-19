@@ -170,6 +170,7 @@ const shapeDispatch = (facts: ShapeFacts): NodeDispatch => {
 				return union(node, cx, env)
 			case "InputSet":
 				return input(node, cx, env)
+			case "Call":
 			case "AntiJoin":
 			case "ApproximateNearest":
 			case "Attach":

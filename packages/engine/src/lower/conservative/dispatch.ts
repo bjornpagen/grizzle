@@ -5,6 +5,7 @@ import { edgesOf, type NodeOf, type RelKind, type RelNode } from "#compiler/ir/r
 import { antiJoinLowering } from "#compiler/lower/conservative/anti-join/index.ts"
 import { attachLowering } from "#compiler/lower/conservative/attach/index.ts"
 import { baseLowering } from "#compiler/lower/conservative/base/index.ts"
+import { callLowering } from "#compiler/lower/conservative/call/index.ts"
 import { contextLowering } from "#compiler/lower/conservative/claims/index.ts"
 import { closedLowering } from "#compiler/lower/conservative/closed/index.ts"
 import {
@@ -72,7 +73,8 @@ export const conservativeLowerers: Lowerers<RelKind> = {
 	...forbidLowering,
 	...windowLowering,
 	...orderedSetAggregateLowering,
-	...stepLowering
+	...stepLowering,
+	...callLowering
 }
 
 /**

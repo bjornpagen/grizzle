@@ -389,6 +389,8 @@ const rowExpr = (expr: OpenExpr): ExprDesc | ForeignInput => {
 			return foreign("a relational negation")
 		case "exists":
 			return foreign("a relational existence")
+		case "call":
+			return foreign("a declared function's call, which PostgreSQL alone evaluates")
 		case "compute": {
 			const args = rowExprs(expr.args)
 			return args instanceof ForeignInput ? args : Object.freeze({ ...expr, args })
@@ -513,6 +515,7 @@ const rowForeign: { readonly [K in ExprDesc["kind"]]: string | undefined } = {
 	value: "a contract's value",
 	absent: "a relational negation",
 	exists: "a relational existence",
+	call: "a declared function's call, which PostgreSQL alone evaluates",
 	field: undefined,
 	literal: undefined,
 	compute: undefined,

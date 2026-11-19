@@ -212,6 +212,8 @@ const plannedConstants = (
 			case "closedRow":
 			case "closedHas":
 				return every ? over(e, forms) : undefined
+			case "call":
+				return undefined
 		}
 	}
 	plan(expr)

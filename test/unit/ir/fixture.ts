@@ -1,4 +1,6 @@
 import { Array as Arr, Record as Rec } from "effect"
+import { withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { functionDigest } from "#compiler/core/fingerprint.ts"
 import { type IdSupply, ParamId } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
@@ -168,6 +170,7 @@ export type EveryKindKey =
 	| "Union(hetero)"
 	| "ProjectSet(exprs)"
 	| "Step"
+	| "Call"
 
 export interface EveryKind {
 	readonly dag: ValidDag
@@ -815,6 +818,36 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		meta: conservativeMeta
 	})
 
+	/** A declared function's rows at a value and at rows of the fenced step's accounts, read by key and amount. */
+	const called = b.node({
+		kind: "Call",
+		function: {
+			name: "graded",
+			volatility: "immutable",
+			definition: functionDigest("graded", withoutSourceLocs)
+		},
+		args: [
+			{
+				kind: "value",
+				name: "shift",
+				expr: x.lit({ kind: "int", value: 1n }, scalarTypes.int8),
+				type: scalarTypes.int8
+			},
+			{
+				kind: "rows",
+				name: "accounts",
+				rows: fenced,
+				columns: [
+					{ name: "account", type: scalarTypes.uuid },
+					{ name: "amount", type: scalarTypes.int8 }
+				]
+			}
+		],
+		heading: accountAmount,
+		loc: undefined,
+		meta: conservativeMeta
+	})
+
 	/** In allocation order, which is the order of the roots. */
 	const nodes = {
 		Base: task,
@@ -853,7 +886,8 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		"ProjectSet(arm Manual)": armM,
 		"Union(hetero)": hetero,
 		"ProjectSet(exprs)": exprs,
-		Step: fenced
+		Step: fenced,
+		Call: called
 	}
 	return { dag: b.build(Rec.values(nodes)), nodes, params: x.params }
 }

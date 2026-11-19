@@ -787,6 +787,7 @@ const readsAlike = (e: ExprDesc): boolean => {
 		case "pointIn":
 		case "absent":
 		case "exists":
+		case "call":
 			return false
 	}
 }

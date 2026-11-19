@@ -282,6 +282,7 @@ const evaluatedOver = (
 			return { input: n.input, exprs: n.filter === undefined ? n.args : [...n.args, n.filter] }
 		case "OrderedSetAggregate":
 			return { input: n.input, exprs: n.fractions }
+		case "Call":
 		case "AntiJoin":
 		case "ApproximateNearest":
 		case "Attach":
@@ -573,7 +574,7 @@ const identities: ReadonlyArray<DagCorruption> = [
 
 /**
  * The kinds whose heading their inputs define: never a leaf whose heading a description states (a relation's, a
- * context's, a parameter's, a delta's, an empty closed relation's).
+ * context's, a parameter's, a delta's, an empty closed relation's), nor a call, whose heading is its function's result.
  */
 const definedHeading = (n: TableNode): boolean =>
 	!(
@@ -581,12 +582,13 @@ const definedHeading = (n: TableNode): boolean =>
 		n.kind === "Context" ||
 		n.kind === "InputSet" ||
 		n.kind === "Delta" ||
+		n.kind === "Call" ||
 		(n.kind === "Closed" && n.rows.length === 0)
 	)
 
 /**
- * The kinds whose first heading column's type their inputs define: a group's types only at its keys, a producer's and
- * an ordered-set aggregate's never, a window's only at its input's columns.
+ * The kinds whose first heading column's type their inputs define: a group's types only at its keys, a producer's, an
+ * ordered-set aggregate's and a call's never, a window's only at its input's columns.
  */
 const typedFirstColumn = (dag: DagTable, n: TableNode): boolean => {
 	switch (n.kind) {
@@ -596,6 +598,7 @@ const typedFirstColumn = (dag: DagTable, n: TableNode): boolean => {
 		case "Delta":
 		case "Produce":
 		case "OrderedSetAggregate":
+		case "Call":
 			return false
 		case "Closed":
 			return n.rows.length > 0
@@ -1443,6 +1446,7 @@ const orders: ReadonlyArray<DagCorruption> = [
 						const keys = tiedPrefix(dag, n.input, n.order.keys, [])
 						return broken(keys, { ...n, partition: [], order: { keys } })
 					}
+					case "Call":
 					case "AntiJoin":
 					case "ApproximateNearest":
 					case "Base":

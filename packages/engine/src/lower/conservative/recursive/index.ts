@@ -52,6 +52,11 @@ const nonPositive = (node: RelNode): Blocking | undefined => {
 				: undefined
 		case "Recursive":
 			return { inputs: [node.base, node.step], what: "a recursion over the feedback" }
+		case "Call":
+			return {
+				inputs: node.args.flatMap((a) => (a.kind === "rows" ? [a.rows] : [])),
+				what: "a declared function's call over the feedback"
+			}
 		case "Base":
 		case "Closed":
 		case "Context":

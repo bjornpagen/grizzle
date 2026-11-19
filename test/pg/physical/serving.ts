@@ -37,6 +37,7 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noHolds,
+	noCalls,
 	noCertificates,
 	noContribution,
 	noFences,
@@ -303,6 +304,7 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,
+	calls: noCalls,
 	live: noLive,
 	fences: noFences
 })

@@ -209,6 +209,7 @@ const step = (cx: RewriteCx, reach: Reach): void => {
 			case "Window":
 			case "OrderedSetAggregate":
 			case "Step":
+			case "Call":
 				return undefined
 		}
 	}

@@ -316,6 +316,7 @@ const valueRep = (given: ScalarExpr, locals: ReadonlySet<NodeId>): ValueRep => {
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return e.deps.nodes.some((n) => locals.has(n))
 				? { kind: "unknown" }
 				: { kind: "fixed", fact: fixedFact(e, { kind: "expr" }, columnRefs(e)) }
@@ -770,6 +771,22 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 				dedup: placed,
 				maxCard: unbounded
 			})
+		}
+		case "Call": {
+			/** A call's rows are a set its lowering makes distinct: its whole heading is its key. */
+			const columns = node.heading.map((c) => c.name)
+			const fds = new DependencyDraft(columns)
+			fds.identify(
+				columns,
+				withReason(
+					joinJustifications([
+						justify({ premises: [nodePremise(node.id)] }),
+						comparing(node.heading.map((c) => c.type))
+					]),
+					["deduplicatedInput"]
+				)
+			)
+			return finish(node, cx, { fds, fixed: new Map(), dedup: placed, maxCard: unbounded })
 		}
 		case "Context":
 			return atMostOneFact(node, cx)

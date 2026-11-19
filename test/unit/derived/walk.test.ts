@@ -71,8 +71,8 @@ export const queryUsesOverImportsNeedsExactlyTheParametersAnImportsBindingLeaves
 			{
 				file: "packages/engine/src/schema/walk.ts",
 				original:
-					'\t\t\t\t\tconst name = input.startsWith("parameter ")\n\t\t\t\t\t\t? input.slice("parameter ".length)\n\t\t\t\t\t\t: input.startsWith("relation parameter ")\n\t\t\t\t\t\t\t? input.slice("relation parameter ".length)\n\t\t\t\t\t\t\t: undefined\n\t\t\t\t\tif (name === undefined || !bound.has(name)) {\n\t\t\t\t\t\tthis.inputs.add(input)\n\t\t\t\t\t}\n\t\t\t\t}',
-				replacement: "\t\t\t\t\tthis.inputs.add(input)\n\t\t\t\t}\n",
+					'\t\t\tconst name = input.startsWith("parameter ")\n\t\t\t\t? input.slice("parameter ".length)\n\t\t\t\t: input.startsWith("relation parameter ")\n\t\t\t\t\t? input.slice("relation parameter ".length)\n\t\t\t\t\t: undefined\n\t\t\tif (name === undefined || !bound.has(name)) {\n\t\t\t\tthis.inputs.add(input)\n\t\t\t}\n\t\t}',
+				replacement: "\t\t\tthis.inputs.add(input)\n\t\t}\n",
 				why: "queryUses keeps every input of a bound import, its bound parameters included."
 			}
 		]

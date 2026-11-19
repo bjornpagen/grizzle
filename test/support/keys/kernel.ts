@@ -158,6 +158,7 @@ export class KeyKernel {
 			)
 		const out = ((): ReadonlyArray<string> => {
 			switch (n.kind) {
+				case "Call":
 				case "Base":
 				case "Closed":
 				case "Context":
@@ -269,6 +270,7 @@ export class KeyKernel {
 			case "cond":
 			case "closedAt":
 			case "closedRow":
+			case "call":
 			case "closedHas":
 				return { kind: "opaque" }
 		}
@@ -679,6 +681,7 @@ export class KeyKernel {
 					}
 				]
 			}
+			case "Call":
 			case "Base":
 			case "Closed":
 			case "Context":

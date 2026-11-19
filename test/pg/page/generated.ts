@@ -353,6 +353,7 @@ const rowsBounds = (
 				return Arr.reduce(n.heading, 1, (product, c) =>
 					times(product, values(n.base, c.name) + added(n.id, c.name, n.step, c.name))
 				)
+			case "Call":
 			case "Context":
 			case "Delta":
 			case "Produce":

@@ -19,8 +19,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * position alone. widthBucket is the one function of the roster left out: no term of it typechecks over a field.
  */
 
-/** The functions of the box: every one computeSpecs marks check false but widthBucket, then abs. */
-const functions = [
+/** The Compute functions of the box: every one computeSpecs marks check false but widthBucket, then abs. */
+const computeFunctions = [
 	"quot",
 	"rem",
 	"round",
@@ -36,6 +36,10 @@ const functions = [
 	"cosineDistance",
 	"abs"
 ] as const satisfies ReadonlyArray<ComputeFn>
+
+/** The operations of the box: its Compute functions, then a call of a declared function, scale, which PostgreSQL alone
+ * evaluates (Compute.call). */
+const functions = [...computeFunctions, "call"] as const
 
 type Fn = (typeof functions)[number]
 
@@ -141,6 +145,11 @@ const termOf: {
 		term: (a) =>
 			`Compute.when(Compute.within(Compute.abs(${a}), 0n, 1000n), (k) => Compute.cast(k, pg.bigint), 0n)`,
 		stored: "pg.bigint"
+	},
+	call: {
+		family: "int",
+		term: (a) => `Compute.call(scale, { x: ${a}, k: 2n })`,
+		stored: "pg.bigint"
 	}
 }
 
@@ -161,11 +170,14 @@ export const hostedBoxItems: Arr.NonEmptyReadonlyArray<HostedCase> = [
 ]
 
 const hostedRefusal: Refused =
-	"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric or cosineDistance"
+	"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric or cosineDistance, and call no declared function"
 
-/** The roster's verdict on a cell: refused where the host evaluates the position and computeSpecs marks the function. */
+/**
+ * The roster's verdict on a cell: refused where the host evaluates the position and computeSpecs marks the function,
+ * or the cell calls a declared function, which PostgreSQL alone evaluates.
+ */
 const refusedCell = (c: HostedCase): boolean =>
-	hostEvaluated[c.position] && !computeSpecs[c.fn].check
+	hostEvaluated[c.position] && (c.fn === "call" || !computeSpecs[c.fn].check)
 
 /** A cell's statement, the predicate its term stands in comparing the term with itself. */
 const statementOf = (c: HostedCase, index: number): string => {
@@ -198,7 +210,8 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/hosted.
 
 /** Cell, a field of each family, its schema, and Cells, a derived relation of its rows. */
 const hostedHeader = `export const Cell = relation("Cell", { id: uuid, n: pg.bigint, d: pg.numeric(10, 2), x: pg["double precision"], w: pg.vector(2) }, ["id"])
-export const Root = schema("Root", [Cell], [])
+export const scale = fn("scale", { calls: [], args: { x: pg.bigint, k: pg.bigint }, returns: pg.bigint, volatility: "immutable", language: "sql", body: "SELECT x * k" })
+export const Root = schema("Root", [Cell, scale], [])
 export const Cells = derived("Cells", query(Root).rule((r) => {
 	const { id, n, d, x, w } = v(Cell, "cell")
 	return r.match(Cell, { id, n, d, x, w }).find({ id, n, d, x, w })

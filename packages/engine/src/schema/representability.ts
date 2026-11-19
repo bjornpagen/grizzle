@@ -576,6 +576,7 @@ export const lengthBound = (measure: LengthMeasure, predicate: ExprDesc): number
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return Number.POSITIVE_INFINITY
 	}
 }

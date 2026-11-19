@@ -448,6 +448,8 @@ const alikeByName = (x: ScalarExpr, y: ScalarExpr): boolean => {
 			return y.kind === "closedRow" && x.relation === y.relation
 		case "closedHas":
 			return y.kind === "closedHas" && x.relation === y.relation
+		case "call":
+			return y.kind === "call" && x.function.definition === y.function.definition
 		case "value":
 		case "domainCast":
 		case "cond":

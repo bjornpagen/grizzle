@@ -747,6 +747,12 @@ class Extractor {
 				return this.visit(n.violation, nothing)
 			case "Step":
 				return this.visit(n.input, pushed)
+			case "Call":
+				return all(
+					n.args.flatMap((a): ReadonlyArray<readonly [RelNode, Pushed]> =>
+						a.kind === "rows" ? [[a.rows, nothing]] : []
+					)
+				)
 			case "Closed":
 			case "Context":
 			case "InputSet":
@@ -1143,6 +1149,7 @@ class Extractor {
 				return this.resolve(n.left, requests, pushed)
 			case "Step":
 				return this.resolve(n.input, requests, pushed)
+			case "Call":
 			case "Closed":
 			case "Context":
 			case "InputSet":

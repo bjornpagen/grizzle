@@ -1,4 +1,6 @@
+import { withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
+import { type FunctionDigest, functionDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
 	DeclaredNamespace,
@@ -13,19 +15,22 @@ import type { FieldDesc, FunctionDesc, FunctionTypeDesc, SchemaDesc } from "#com
 
 /**
  * A declared function as ownership admitted it: its declared name, parsed; the level that declares it, whose
- * PostgreSQL schema it installs in; its identity at the naming door; and its Description.
+ * PostgreSQL schema it installs in; its identity at the naming door; its Description; and the digest of its
+ * Description, which a call of it carries (core/fingerprint.ts FunctionDigest).
  */
 export interface OwnedFunction {
 	readonly name: DeclaredName
 	readonly level: number
 	readonly named: Identity<"declaredFunction">
 	readonly desc: FunctionDesc
+	readonly definition: FunctionDigest
 }
 
 /**
  * Whether a declared function's signature takes a field of this type: a value of a base type PostgreSQL passes as it
- * is, or a contract or a refined text over one; never money, whose text is the session's locale's, bytes, a closed id,
- * whose code no body knows, a set, a span or a vector.
+ * is, a closed id, passed as its code, which the call casts to its roster's domain where it reads the function's value,
+ * or a contract or a refined text over one; never money, whose text is the session's locale's, bytes, a set, a span or
+ * a vector.
  */
 const signatureType = (t: FieldDesc): boolean => {
 	switch (t.kind) {
@@ -34,12 +39,12 @@ const signatureType = (t: FieldDesc): boolean => {
 		case "numeric":
 		case "uuid":
 		case "text":
+		case "closedId":
 			return true
 		case "contract":
 			return signatureType(t.base)
 		case "bytes":
 		case "span":
-		case "closedId":
 		case "bits":
 		case "vector":
 			return false
@@ -54,7 +59,7 @@ const typesOf = (t: FunctionTypeDesc): ReadonlyArray<FieldDesc> =>
 const signatureRefused = (loc: SourceLoc): CompileError =>
 	ruleRefused(
 		loc,
-		"a declared function takes and returns values of a base type, a contract or a refined text over one: no serial, money, bytes, closed id, set, span or vector"
+		"a declared function takes and returns values of a base type, a closed id, a contract or a refined text over one: no serial, money, bytes, set, span or vector"
 	)
 
 /**
@@ -156,7 +161,8 @@ export const ownFunctions = (
 				name: name.value,
 				level,
 				named: identity.declaredFunction(name.value),
-				desc: fn
+				desc: fn,
+				definition: functionDigest(fn, withoutSourceLocs)
 			}
 		}
 	}

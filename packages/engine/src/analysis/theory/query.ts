@@ -19,6 +19,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { mapRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type {
 	InferredBindings,
@@ -232,6 +233,7 @@ const foreignReads: { readonly [K in InferredExpr["kind"]]: string | undefined }
 	not: undefined,
 	allen: undefined,
 	pointIn: undefined,
+	call: undefined,
 	closedAt: undefined,
 	closedRow: undefined,
 	closedHas: undefined
@@ -629,6 +631,8 @@ class Flattener {
 				return this.#refuse(relation, `${verb} a relation parameter`)
 			case "context":
 				return this.#refuse(relation, `${verb} a context`)
+			case "call":
+				return this.#refuse(relation, `${verb} a declared function's rows`)
 			case "interior":
 			case "self":
 			case "delta":
@@ -1098,6 +1102,13 @@ const liveQuery = (query: InferredQuery, definition: LiveEnv["definition"]): Inf
 			case "query":
 			case "step":
 				return { ...s, query: liveQuery(s.query, definition) }
+			case "call":
+				return {
+					...s,
+					args: mapRecord(s.args, (a) =>
+						a.kind === "rows" ? { ...a, query: liveQuery(a.query, definition) } : a
+					)
+				}
 			case "param":
 			case "paramOf":
 			case "interior":

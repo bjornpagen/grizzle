@@ -109,6 +109,8 @@ const appliedAtoms = (expr: ScalarExpr): ReadonlyArray<Atom> => {
 		case "closedRow":
 		case "closedHas":
 			return [expr.relation]
+		case "call":
+			return [expr.function.name]
 		case "domainCast":
 		case "cond":
 			return []
@@ -1162,6 +1164,10 @@ export class Reference {
 			case "Step":
 			case "OrderedResult":
 				return this.eval(node.input, scope).rows
+			case "Call":
+				throw referenceUnsupported(
+					`the call of declared function ${node.function.name}, which PostgreSQL alone evaluates`
+				)
 			case "ApproximateNearest": {
 				const source = this.eval(node.source, scope)
 				this.input.observer.nearest(node, source)

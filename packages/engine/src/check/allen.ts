@@ -42,6 +42,7 @@ const operandOf = (e: ScalarExpr): SpanOperand => {
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return { kind: "expr", expr: e }
 	}
 }

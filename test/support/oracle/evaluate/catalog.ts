@@ -1015,6 +1015,8 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 			case "closedRow":
 			case "closedHas":
 				return unsupported(`the closed read ${expr.kind} of ${expr.relation}`)
+			case "call":
+				return unsupported(`the call of declared function ${expr.function.name}`)
 			case "op": {
 				const op = nativeOp(expr.op)
 				if (op === undefined) {

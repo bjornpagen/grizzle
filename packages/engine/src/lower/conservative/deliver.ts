@@ -581,6 +581,7 @@ export class Delivery<Own extends PageParamSlot = never> {
 				case "Window":
 				case "Step":
 				case "OrderedSetAggregate":
+				case "Call":
 					return false
 			}
 		}

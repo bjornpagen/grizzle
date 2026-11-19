@@ -47,3 +47,10 @@ export const deepFreeze = <A>(value: A): A => {
 	}
 	return value
 }
+
+/** `record` with each value mapped by `f`, its keys in their order. */
+export const mapRecord = <A, B>(
+	record: Readonly<Record<string, A>>,
+	f: (value: A, key: string) => B
+): Readonly<Record<string, B>> =>
+	Object.fromEntries(Object.entries(record).map(([key, value]) => [key, f(value, key)]))

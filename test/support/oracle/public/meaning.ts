@@ -307,6 +307,7 @@ class Translation {
 	): { readonly expr: ScalarExpr; readonly type: ScalarType } {
 		const env: LowerEnv = {
 			mode: "query",
+			functions: () => undefined,
 			loc: SourceLoc("a computed head key", []),
 			closed: noClosedRelations("a generated term reads no closed relation"),
 			emit: (spec) => this.b.expr(spec),

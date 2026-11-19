@@ -1,3 +1,4 @@
+import { mapRecord } from "#compiler/core/record.ts"
 import {
 	type BindingsDesc,
 	type ExprDesc,
@@ -45,6 +46,20 @@ const spellSource = (source: OpenSource, s: Spellings): SourceDesc => {
 						k,
 						b.kind === "relationParam" ? b : spellExpr(b, s)
 					])
+				)
+			}
+		case "call":
+			return {
+				kind: "call",
+				function: source.function,
+				args: mapRecord(source.args, (a) =>
+					a.kind === "rows"
+						? {
+								kind: "rows",
+								query: a.query,
+								bind: mapRecord(a.bind, (b) => (b.kind === "relationParam" ? b : spellExpr(b, s)))
+							}
+						: spellExpr(a, s)
 				)
 			}
 		case "param":

@@ -291,6 +291,7 @@ const emptiedBy = (
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Call":
 		case "Step":
 			return undefined
 	}

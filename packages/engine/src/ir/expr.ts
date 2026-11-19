@@ -9,6 +9,8 @@ import {
 } from "#compiler/core/canonical.ts"
 import type { DecimalParts } from "#compiler/core/decimal.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { FunctionDigest } from "#compiler/core/fingerprint.ts"
+import type { FunctionVolatility } from "#compiler/core/function.ts"
 import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
@@ -205,7 +207,8 @@ const exprKinds = [
 	"cond",
 	"closedAt",
 	"closedRow",
-	"closedHas"
+	"closedHas",
+	"call"
 ] as const
 type ExprKind = (typeof exprKinds)[number]
 
@@ -307,6 +310,18 @@ export const identityValueOf = (value: TypedLiteral): IdentityValue => {
 		case "vector":
 			return { part, stem: value.kind, display: part }
 	}
+}
+
+/**
+ * A declared function as a call names it (schema/function.ts fn): its declared name, by which the lowering reads its
+ * installed name (ir/physical.ts PhysicalNames declaredFunction), its volatility, and the digest of its Description
+ * (core/fingerprint.ts FunctionDigest), so a call's meaning, and the identity of every law and program that reads it,
+ * changes with any part of the function, its body included.
+ */
+export interface CalledFunction {
+	readonly name: string
+	readonly volatility: FunctionVolatility
+	readonly definition: FunctionDigest
 }
 
 /** The free parameters and source nodes an expression reads, transitively ("dependencies"). */
@@ -473,6 +488,22 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 			readonly args: NonEmptyReadonlyArray<R["expr"]>
 			readonly nonNull: "strict"
 	  }
+	| {
+			/**
+			 * Compute.call(f, args) of a declared function `function` that returns a value: its value at its arguments, one
+			 * per declared argument in declared order, each passed at its declared type's base (`params`), and its value
+			 * of its declared type, which the lowering casts it to. A NULL value is refused where it is returned, so the
+			 * value is never NULL (nonNull "returned"); PostgreSQL alone evaluates it, so no host evaluator reads one. Its
+			 * volatility is its function's, an immutable or a stable one: a term is a function of its operands, so a
+			 * volatile function is called as a source alone.
+			 */
+			readonly kind: "call"
+			readonly function: CalledFunction
+			readonly params: ReadonlyArray<ScalarType>
+			readonly args: ReadonlyArray<R["expr"]>
+			readonly nonNull: "returned"
+			readonly volatility: Volatility
+	  }
 )
 
 /** An expression as a builder states it: its kind, its type, and its argument expressions themselves. */
@@ -530,6 +561,7 @@ const ownEffects = <R extends ArgKinds>(spec: ExprSpecOver<R>): Effects => {
 	switch (spec.kind) {
 		case "op":
 		case "cast":
+		case "call":
 			return { volatility: spec.volatility }
 		case "domainCast":
 		case "column":
@@ -624,6 +656,7 @@ const pgTypeOf = (spec: ExprSpec): ScalarType => {
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return spec.type
 		case "cond":
 			return commonPgType([spec.args[1], spec.args[2]], spec.type)
@@ -681,7 +714,8 @@ export function* mapArgs<R extends ArgKinds, S extends ArgKinds>(
 			}
 			return { ...spec, args: [head, ...tail] }
 		}
-		case "closedRow": {
+		case "closedRow":
+		case "call": {
 			const args: Array<S["expr"]> = []
 			for (const a of spec.args) {
 				const value: S["expr"] = yield a
@@ -1184,6 +1218,7 @@ const kindProblems = (
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return []
 	}
 }

@@ -11,7 +11,11 @@ import {
 	spanLiteralText,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
+import {
+	fieldColumnType,
+	baseTypeRef as physicalBaseType,
+	type PhysicalNames
+} from "#compiler/ir/physical.ts"
 import { baseOf, rosterOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import {
 	type Env,
@@ -27,7 +31,7 @@ import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { isDateParse } from "#compiler/scalar/compute/registry.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
-import { cast, lit } from "#compiler/sql/build.ts"
+import { cast, lit, qualifiedCall, types } from "#compiler/sql/build.ts"
 import { type ClosedRead, closedRead as closedReadOf } from "#compiler/sql/constants.ts"
 import { dateOfText } from "#compiler/sql/lexical.ts"
 
@@ -215,7 +219,56 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 		case "closedRow":
 		case "closedHas":
 			return closedRead(site, expr, expr.args.map(lower))
+		case "call":
+			return declaredCall(site, expr, expr.args.map(lower))
 	}
+}
+
+/**
+ * Compute.call(f, args) of a declared function that returns a value: the function's call, each argument cast to its
+ * declared type's base, the type the function takes it at, and its value cast to the type its declared field's values
+ * are stored as (ir/physical.ts fieldColumnType), whose domain PostgreSQL checks it at, a closed id's roster's among
+ * them, where a NULL value is refused through the installation's refusal function (SQLSTATE
+ * 22004, null_value_not_allowed), since grizzle holds no NULL:
+ *
+ *   COALESCE(<level>.<f>(<a>::<base>, ...), CASE WHEN <level>.__refuse('22004', '<f>', ...) THEN <the call> ELSE
+ *     <the call> END)::<type>
+ *
+ * COALESCE reads its second argument only where its first is NULL, and the refusal raises there, so the function is
+ * called once and the CASE's branches, which state the value's type, are never read.
+ */
+const declaredCall = (
+	site: ScalarSite,
+	expr: ScalarExpr & { readonly kind: "call" },
+	args: ReadonlyArray<Expr>
+): Expr => {
+	const fn = site.names.declaredFunction(expr.function.name)
+	const value = qualifiedCall(
+		fn.ref.schema,
+		fn.ref.name,
+		args.map((a, i) => {
+			const param = expr.params[i]
+			if (param === undefined) {
+				throw defect("a call's argument at each of its declared parameters")
+			}
+			return cast(a, physicalBaseType(site.names, param))
+		})
+	)
+	const refused = qualifiedCall(site.names.refusal.schema, site.names.refusal.name, [
+		lit.text("22004", types.text),
+		lit.text(expr.function.name, types.text),
+		lit.text(`function ${expr.function.name} returned NULL`, types.text)
+	])
+	return cast(
+		{
+			kind: "coalesce",
+			args: [
+				value,
+				{ kind: "case", operand: undefined, whens: [{ when: refused, result: value }], else: value }
+			]
+		},
+		fieldColumnType(site.names, expr.type).type
+	)
 }
 
 /**

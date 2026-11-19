@@ -208,6 +208,7 @@ const provesKeys = (
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
+			case "Call":
 			case "Step": {
 				/** A kept row is its input's (`keptRowsOf`), and an intersection's row is its right side's too. */
 				const kept = keptRowsOf(node)
@@ -470,6 +471,7 @@ const keySetStep = (node: RelNode, columns: ReadonlyArray<string>): KeySetStep =
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
+		case "Call":
 		case "Step":
 			return noKeySet
 	}

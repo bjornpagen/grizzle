@@ -7,6 +7,7 @@ import {
 	type InstallExtension,
 	noCarriers,
 	noHolds,
+	noCalls,
 	noCertificates,
 	noContribution,
 	noFences,
@@ -40,6 +41,7 @@ export const refinedConstantsExtension: InstallExtension = {
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,
+	calls: noCalls,
 	live: noLive,
 	fences: noFences
 }

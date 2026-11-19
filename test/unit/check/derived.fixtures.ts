@@ -281,7 +281,7 @@ export const graphFeature = (graph: ReadonlyArray<GraphField>): GraphFeature => 
 }
 
 /** The inputs beyond a row a generation expression may state (core/causes.ts GeneratedRule notRowLocal). */
-const foreignInputs = ["var", "param", "parent", "value", "absent"] as const
+const foreignInputs = ["var", "param", "parent", "value", "absent", "call"] as const
 
 type ForeignInput = (typeof foreignInputs)[number]
 
@@ -302,6 +302,7 @@ const items = [
 	{ kind: "foreign", input: "parent" },
 	{ kind: "foreign", input: "value" },
 	{ kind: "foreign", input: "absent" },
+	{ kind: "foreign", input: "call" },
 	{ kind: "nested" }
 ] as const satisfies ReadonlyArray<Item>
 
@@ -328,6 +329,8 @@ const itemExpr = (item: Item): AuthoredExprDesc => {
 						source: { kind: "relation", name: relationName },
 						bindings: { id: { kind: "var", var: "y" } }
 					}
+				case "call":
+					return { kind: "call", function: "f", args: {} }
 			}
 	}
 }

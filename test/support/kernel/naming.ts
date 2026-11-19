@@ -155,7 +155,8 @@ export const localVectorSchema = "vector_ext"
  * each name minted at the naming door (core/identity.ts), a relation's as a stored relation's table. A structural text
  * domain exists only where an installation types a column by it, so these names name none; and they name no closed
  * relation's constant, no contract's domain and no column a lookup index holds by its image, which only an installation
- * holds, since a contract's domain is named by its definition's digest and an index is its installation's.
+ * holds, since a contract's domain is named by its definition's digest and an index is its installation's. A declared
+ * function is named as a root level's, in `at`'s schema.
  */
 export const productionNames = (
 	declaredSchema: string,
@@ -193,6 +194,14 @@ export const productionNames = (
 		}),
 		selectionKeys: () => [],
 		imaged: imagedColumns([]),
+		declaredFunction: (name) => ({
+			ref: {
+				kind: "qualified",
+				schema,
+				name: identifierOf(identity.declaredFunction(parsedName(name)))
+			},
+			types
+		}),
 		vectorSchema: vectorTypes(vectorSchema),
 		codes,
 		closed: (relation) => {

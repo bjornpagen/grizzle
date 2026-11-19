@@ -239,6 +239,35 @@ export const sourceValue = <C extends Carriers>(
 		label
 	})
 
+/**
+ * The rows of a declared function's call as a source (query/build/call.ts): `desc`, its heading and its carriers the
+ * function's result heading's, matched where its rows arguments may be, each a query or a bound query (`rows`): over the
+ * one level they are written over, or anywhere where it takes none. Rows arguments over two levels are refused.
+ */
+export const callSourceValue = <C extends Carriers>(
+	desc: OpenSource,
+	sourceHeading: Heading,
+	carriers: C,
+	rows: ReadonlyArray<SourceInfo>,
+	label: string
+): Built & Headed<C> => {
+	const levels = [
+		...new Set(rows.flatMap((r) => (r.scope.kind === "written" ? [r.scope.over] : [])))
+	]
+	const [over, ...more] = levels
+	if (more.length > 0) {
+		throw malformed(label, "rows arguments over one level of the schema")
+	}
+	return registerSource(Object.freeze({ ...builtMark, heading: carriers }), {
+		desc,
+		heading: sourceHeading,
+		carriers,
+		origin: noOrigin,
+		scope: over === undefined ? anywhere : { kind: "written", over },
+		label
+	})
+}
+
 /** A descriptor's carrier: its column and SQL type, as the registry admitted it. */
 const descriptorCarrier = (descriptor: unknown, label: string): Carrier => {
 	const field = describeField(descriptor, SourceLoc(label, []))

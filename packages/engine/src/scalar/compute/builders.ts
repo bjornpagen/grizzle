@@ -389,6 +389,10 @@ class Call {
 			closed: noClosedRelations(
 				"a builder types its term over its operands, which hold any closed read already typed"
 			),
+			functions: {
+				kind: "none",
+				why: "a builder types its term over its operands, which hold any call already built"
+			},
 			leaf: (desc) => {
 				const index =
 					desc.kind === "var" && desc.var.startsWith("#") ? Number(desc.var.slice(1)) : undefined

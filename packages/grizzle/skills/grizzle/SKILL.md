@@ -288,7 +288,8 @@ breaking change may briefly break older application instances that are still run
   same way. Then the refined constants' casts to their domains, so each is judged by the target's CHECK (one it refuses
   rolls the whole file back); the worlds: logins and roles, their memberships and settings, each role's schema of
   views (a security-barrier view for a query entry, a plain one for a whole entry, each closed id followed by its
-  decoded `<field>_name`), its grants (EXECUTE on each constant its statements call among them), row-security policies
+  decoded `<field>_name`), its grants (EXECUTE on each constant its statements call among them, and on each declared function its served
+  programs call, `Compute.call` and `Compute.rowsOf`, and no other), row-security policies
   and filter functions; and last every object the schema no longer has, dropped: indexes, roles, statistics, views,
   functions (a constant by `DROP FUNCTION ... RESTRICT`, so PostgreSQL refuses a migration that left a reader of it
   standing), columns, tables, then types. A declared drop of a stored relation or field is drafted live. A world object

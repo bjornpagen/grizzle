@@ -1062,6 +1062,65 @@ export const filePost = ChangeSet.empty(Blog)
 	)
 
 /** README: "Levels". */
+/** "Declared functions": a function of an SQL body and one of a PL/pgSQL body that calls it, over a heading's rows. */
+const Word = str.regex("^[a-z]+$", "u")
+const Weighted = rows({ word: Word, weight: natural })
+
+/** A word folded to lower case: an SQL body. */
+export const folded = fn("folded", {
+	calls: [],
+	args: { word: Word },
+	returns: Word,
+	volatility: "immutable",
+	language: "sql",
+	body: "SELECT lower(word)"
+})
+
+/** Each word of `words` with its weight doubled: a set of rows, read from an array of rows. */
+export const doubled = fn("doubled", {
+	calls: [folded],
+	args: { words: Weighted },
+	returns: Weighted,
+	volatility: "immutable",
+	language: "plpgsql",
+	body: "\nBEGIN\n  RETURN QUERY SELECT folded(w.word), w.weight * 2 FROM unnest(words) AS w;\nEND\n"
+})
+
+export const Lexicon = schema("Lexicon", [folded, doubled], [])
+
+/** "Calling a function": a call of rows over a bound query, read once per document, and a call term. */
+const Doc = relation("Doc", { doc: uuid, shift: natural }, ["doc"])
+const Line = relation("Line", { doc: uuid, pos: natural, txt: Word }, ["doc", "pos"])
+const Numbered = rows({ pos: natural, txt: Word })
+
+/** Each line of `program` shifted by `shift`, its word folded. */
+export const shifted = fn("shifted", {
+	calls: [folded],
+	args: { program: Numbered, shift: natural },
+	returns: Numbered,
+	volatility: "immutable",
+	language: "sql",
+	body: "SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p"
+})
+
+export const Docs = schema("Docs", [Doc, Line, folded, shifted], [])
+
+const linesOf = query(Docs).rule((r) => {
+	const { pos, txt } = v(Line, "line")
+	return r.match(Line, { doc: r.param("doc", uuid), pos, txt }).find({ pos, txt })
+})
+
+/** Every document's lines, shifted by its own shift, each beside its word folded again. */
+export const shiftedLines = query(Docs).rule((r) => {
+	const { doc, shift } = v(Doc, "doc")
+	const run = Compute.rowsOf(shifted, { program: linesOf.bind({ doc }), shift })
+	const { pos, txt } = v(run, "run")
+	return r
+		.match(Doc, { doc, shift })
+		.match(run, { pos, txt })
+		.find({ doc, pos, txt, again: Compute.call(folded, { word: txt }) })
+})
+
 /** The QTI content model, maintained on its own. */
 export const Item = relation("Item", { id: uuid, title: Title }, ["id"])
 export const Qti = schema("Qti", [Item], [])
@@ -1573,29 +1632,3 @@ export const debitMet = ChangeSet.empty(Credits)
 			return r.match(met, { call }).find({ debits: r.count() })
 		})
 	})
-
-/** "Declared functions": a function of an SQL body and one of a PL/pgSQL body that calls it, over a heading's rows. */
-const Word = str.regex("^[a-z]+$", "u")
-const Weighted = rows({ word: Word, weight: natural })
-
-/** A word folded to lower case: an SQL body. */
-export const folded = fn("folded", {
-	calls: [],
-	args: { word: Word },
-	returns: Word,
-	volatility: "immutable",
-	language: "sql",
-	body: "SELECT lower(word)"
-})
-
-/** Each word of `words` with its weight doubled: a set of rows, read from an array of rows. */
-export const doubled = fn("doubled", {
-	calls: [folded],
-	args: { words: Weighted },
-	returns: Weighted,
-	volatility: "immutable",
-	language: "plpgsql",
-	body: "\nBEGIN\n  RETURN QUERY SELECT folded(w.word), w.weight * 2 FROM unnest(words) AS w;\nEND\n"
-})
-
-export const Lexicon = schema("Lexicon", [folded, doubled], [])

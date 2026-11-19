@@ -2,6 +2,7 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import type {
 	BindingsDesc,
 	BindTermDesc,
+	CallArgDesc,
 	ExprDesc,
 	HeadTermDesc,
 	Located,
@@ -84,6 +85,8 @@ export type OpenBindings = BindingsDesc<Located, Open>
 export type OpenBound = BindTermDesc<Located, Open>
 
 export type OpenSource = SourceDesc<Located, Open>
+
+export type OpenCallArg = CallArgDesc<Located, Open>
 
 export type OpenMatch = MatchDesc<Located, Open>
 

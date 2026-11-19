@@ -644,6 +644,8 @@ const nameOf = (e: ScalarExpr): string => {
 		case "closedRow":
 		case "closedHas":
 			return e.relation
+		case "call":
+			return e.function.name
 		case "value":
 		case "domainCast":
 		case "cond":

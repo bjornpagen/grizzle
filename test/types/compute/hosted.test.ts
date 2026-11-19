@@ -14,7 +14,7 @@ import { hostedProgram } from "#test/types/compute/hosted.ts"
 
 /** Over every unhosted function and abs at every position, refuses exactly the roster's cells, and admits the rest. */
 export const hosted = boxAgreement(finite(word(hostedBox)), {
-	box: "every Compute function computeSpecs marks check false but widthBucket, and abs, each in a row check of a stored relation, a contract predicate, a generated field, a row check of a derived relation and a selection",
+	box: "every Compute function computeSpecs marks check false but widthBucket, abs, and a declared function's call, each in a row check of a stored relation, a contract predicate, a generated field, a row check of a derived relation and a selection",
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",
@@ -30,6 +30,12 @@ export const hosted = boxAgreement(finite(word(hostedBox)), {
 			original: "\tO extends UnhostedOrigin<unknown>",
 			replacement: "\tO extends never",
 			why: "No origin reads as unhosted (types/core/phantom.ts ReadsUnhosted), so every refused cell typechecks and its directive is unused; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/compute/call.ts",
+			original: "\tUnhostedOrigin<CallReads<A>>,",
+			replacement: "\tCallReads<A>,",
+			why: "A declared function's call is of its operands' origin, unmarked, so its contract, row check and generated field cells typecheck and their directives are unused; the program fails."
 		},
 		{
 			file: "packages/engine/src/types/fields/constructors.ts",

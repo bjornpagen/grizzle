@@ -320,7 +320,7 @@ const env = (
 	const common = commonEnv(vars, emit, params)
 	switch (mode) {
 		case "query":
-			return { ...common, mode, extension: noExtension }
+			return { ...common, mode, extension: noExtension, functions: () => undefined }
 		case "check":
 			return { ...common, mode }
 	}
@@ -383,6 +383,8 @@ const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>):
 			return { ...e, args: mapNonEmpty(e.args, go) }
 		case "closedRow":
 			return { ...e, args: Arr.map(e.args, go) }
+		case "call":
+			return { ...e, args: Rec.map(e.args, go) }
 		case "pointIn":
 			return { ...e, point: go(e.point), span: go(e.span) }
 		case "absent":
@@ -431,6 +433,7 @@ export const typeWith = (
 	} = commonEnv(vars, sink().emit, params)
 	const env: TypingEnv<Spelled> = {
 		...names,
+		functions: { kind: "none", why: "a unit typing declares no function" },
 		analysis: { kind: "analyzed", lookup: patternLanguage, patterns }
 	}
 	const literal = withLiterals(expr, vars)
@@ -656,6 +659,10 @@ export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 			case "closedHas":
 				throw new Error(
 					`the compute suites render no closed read: ${e.kind} of ${e.relation} reads an installed constant`
+				)
+			case "call":
+				throw new Error(
+					`the compute suites render no call: ${e.function.name} is a declared function no suite installs`
 				)
 		}
 	}

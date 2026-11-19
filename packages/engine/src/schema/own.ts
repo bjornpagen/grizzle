@@ -880,6 +880,7 @@ const canonicalPredicate = (expr: ExprDesc): Canonical<ExprDesc> => {
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return asIs(expr)
 	}
 }
@@ -1818,6 +1819,7 @@ class Owner {
 			case "closedAt":
 			case "closedRow":
 			case "closedHas":
+			case "call":
 				return
 		}
 	}

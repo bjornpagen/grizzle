@@ -17,6 +17,7 @@ import {
 	type ProgramDesc,
 	type QueryDesc
 } from "#compiler/ir/desc.ts"
+import { callsOf } from "#compiler/ir/desc.ts"
 import type {
 	AccessIndexRequest,
 	AccessPath,
@@ -41,7 +42,7 @@ import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
 import { type ParamTypes, paramTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
-import type { RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
+import type { RoleCall, RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import {
 	mergeStatistics,
@@ -59,6 +60,7 @@ import {
 	type RoleChanges,
 	readCommittedChanges
 } from "#compiler/program/workload/change.ts"
+import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
@@ -644,6 +646,9 @@ export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends
 	/** The roles whose served ChangeSets hold a retirable unit, each with the unit's header (servedHolds), which the
 	 * installation grants EXECUTE on the unit's hold function. */
 	readonly holds: ReadonlyArray<RoleHold>
+	/** The roles whose served programs call a declared function, each with the function (servedCalls), which the
+	 * installation grants EXECUTE on the function. */
+	readonly calls: ReadonlyArray<RoleCall>
 	readonly fences: ReadonlyArray<Fence>
 }
 
@@ -692,6 +697,37 @@ export const servedHolds = (
 		)
 	)
 
+/**
+ * The roles of `logins`, each with every declared function the programs of the login's workloads that run on it call
+ * (ir/desc.ts callsOf), by its name, in login, role and function order: the roles whose statements call the function,
+ * which PostgreSQL checks EXECUTE on against the role that runs them. A function a derived relation's or a query
+ * entry's definition calls runs inside its materialized view or its view, as their owner, which holds it.
+ */
+const servedCalls = (
+	logins: ReadonlyArray<ServedLogin>
+): Result.Result<ReadonlyArray<RoleCall>, ServedWorkloadRefused> => {
+	const out: Array<RoleCall> = []
+	for (const login of logins) {
+		for (const { name, value } of login.roles) {
+			const parsed = loginRole(value, login.named.owned)
+			if (!parsed.ok) {
+				return Result.err({ kind: "workload", error: parsed.error })
+			}
+			const running = programsOn(parsed.value.input, login.workload)
+			if (!running.ok) {
+				return Result.err({ kind: "workload", error: running.error })
+			}
+			const functions = new Set(
+				running.value.flatMap((p) => ("desc" in p ? [...callsOf(p.desc)] : []))
+			)
+			for (const fn of [...functions].toSorted(compareStrings)) {
+				out.push({ login: login.name, role: name, function: fn })
+			}
+		}
+	}
+	return Result.ok(out)
+}
+
 /** The plan of the logins refused: the certification of their roles, or a login's change compile. */
 export type ServedWorkloadRefused =
 	| { readonly kind: "workload"; readonly error: CompileError }
@@ -716,6 +752,10 @@ export const servedWorkload = <S extends ParamSource>(
 		}
 		changes.set(login.name, roles.value)
 	}
+	const calls = servedCalls(logins)
+	if (!calls.ok) {
+		return calls
+	}
 	return Result.map(
 		Result.mapError(certification(options.artifacts, changes), (error): ServedWorkloadRefused => ({
 			kind: "workload",
@@ -727,6 +767,7 @@ export const servedWorkload = <S extends ParamSource>(
 			certification: certified.certificates,
 			carriers: servedCarriers(certified.served),
 			holds: servedHolds(certified.served),
+			calls: calls.value,
 			fences: certified.fences
 		})
 	)

@@ -1,3 +1,4 @@
+import { callRows, callTerm } from "#compiler/query/build/call.ts"
 import { compute as C } from "#compiler/scalar/compute/builders.ts"
 import { guarded } from "#compiler/scalar/compute/term.ts"
 import type { ComputeApi } from "#compiler/types/compute/compute.ts"
@@ -73,7 +74,9 @@ const catalogue: ComputeApi = {
 	cardinality: (a) => C.cardinality(a),
 	subset: (a, b) => C.subset(a, b),
 	disjoint: (a, b) => C.disjoint(a, b),
-	singleton: (id) => C.singleton(id)
+	singleton: (id) => C.singleton(id),
+	call: (f, args) => callTerm(f, args),
+	rowsOf: (f, args) => callRows(f, args)
 }
 
 /**

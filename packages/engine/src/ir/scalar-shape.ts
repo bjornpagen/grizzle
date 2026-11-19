@@ -1,5 +1,7 @@
 import { floatSpecialNames } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { admittedFunctionDigest } from "#compiler/core/fingerprint.ts"
+import { functionVolatilities } from "#compiler/core/function.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -14,6 +16,7 @@ import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import { DecimalText, type DecimalValue, decimalTag } from "#compiler/ir/decimal.ts"
 import {
+	type CalledFunction,
 	type ColumnRef,
 	definedOp,
 	type ExprDeps,
@@ -618,6 +621,13 @@ const nativeShape: S.Shape<NativeProof> = S.struct({ premises: S.nonEmptyArray(p
  * Every expression has the common fields, its kind's inputs and non-null proof among them in that order, then its
  * kind's own fields, then the common optional ones.
  */
+/** A declared function as a call names it (ir/expr.ts CalledFunction): its name, its volatility and its digest. */
+export const calledFunctionShape: S.Shape<CalledFunction> = S.struct({
+	name: S.nonEmptyString,
+	volatility: S.literalsShape(functionVolatilities),
+	definition: S.branded(admittedFunctionDigest, S.nonEmptyString)
+})
+
 const common = <A, N>(args: S.Shape<A>, nonNull: S.Shape<N>) =>
 	({
 		id: exprIdShape,
@@ -701,6 +711,11 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 	closedHas: S.struct({
 		...common(S.nonEmptyArray(exprIdShape), strict),
 		relation: S.nonEmptyString
+	}),
+	call: S.struct({
+		...common(S.array(exprIdShape), S.literalsShape(["returned"])),
+		function: calledFunctionShape,
+		params: S.array(scalarTypeShape)
 	})
 })
 

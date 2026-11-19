@@ -51,12 +51,14 @@ import * as Result from "#compiler/core/result.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
 import { deliverySpine, relNode } from "#compiler/ir/dag.ts"
 import {
+	bindTerms,
 	descText,
 	type FieldDesc,
 	type LiteralDesc,
 	type OrderDesc,
 	type VarDesc
 } from "#compiler/ir/desc.ts"
+import type { OwnedFunction } from "#compiler/schema/function-own.ts"
 
 import { int4Max } from "#compiler/core/canonical.ts"
 import {
@@ -74,6 +76,7 @@ import {
 	type AggregateCallOver,
 	type AggregateSpec,
 	builtSides,
+	type CallArg,
 	type CompletedOrder,
 	type Correlation,
 	conservativeMeta,
@@ -82,6 +85,7 @@ import {
 	type Heading,
 	type HeadingColumn,
 	type KeySet,
+	type LiveRefs,
 	type Occurrence,
 	type ProducerCallOver,
 	type ProducerKind,
@@ -1809,6 +1813,123 @@ export class Checker {
 			}
 			case "context":
 				return this.#contextSource(src, loc)
+			case "call":
+				return this.#callSource(src, loc, bind)
+		}
+	}
+
+	/**
+	 * A call of a declared function that returns rows (Compute.call): the function its level declares, each of its
+	 * arguments by its declared name and none other. A value argument is bound as an import's parameter is (`bind`): a
+	 * variable of the region the call is matched in, a parent variable, a parameter or a typed constant, of a type that
+	 * meets the argument's declared type. A rows argument is a query imported under its bind map (#importSource), whose
+	 * heading holds each field of the argument's heading at a type that meets the field's. The call's heading is its
+	 * result's, each field at its declared type, which the lowering casts the function's value to.
+	 */
+	#callSource(
+		src: Extract<ResolvedSource, { readonly kind: "call" }>,
+		loc: SourceLoc,
+		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+	): RelNode {
+		const fn = this.#declaredFunction(src.function, loc)
+		if (fn.desc.returns.kind !== "rows") {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`a declared function that returns rows as a source; ${fn.name} returns a value, a term`
+			)
+		}
+		const returned = fn.desc.returns.heading
+		this.#callArguments(fn, Object.keys(src.args), loc)
+		const args = fn.desc.args.map((declared): CallArg<LiveRefs> => {
+			const at = childLoc(childLoc(loc, "args"), declared.name)
+			const arg = defined(src.args[declared.name], "an argument #callArguments found")
+			if (declared.type.kind === "value") {
+				if (arg.kind === "rows") {
+					return fail("MalformedDescription", at, `a value for argument ${declared.name}, not rows`)
+				}
+				const type = this.fieldType(declared.type.type, at)
+				return {
+					kind: "value",
+					name: declared.name,
+					expr: this.#boundArgument(bind(arg, declared.name, at), type, declared.name, at),
+					type
+				}
+			}
+			if (arg.kind !== "rows") {
+				return fail("MalformedDescription", at, `rows for argument ${declared.name}, not a value`)
+			}
+			const rows = this.#importSource(arg, at, bind)
+			const columns = mapNonEmpty(declared.type.heading, (f) => {
+				const type = this.fieldType(f.type, childLoc(at, f.name))
+				const delivered = columnOf(rows.heading, f.name)
+				if (delivered === undefined || !compatible(delivered.type, type)) {
+					fail(
+						"MalformedDescription",
+						childLoc(at, f.name),
+						`a query delivering ${f.name} of ${typeLabel(type)} for argument ${declared.name}; it ${delivered === undefined ? "delivers no such column" : `delivers ${typeLabel(delivered.type)}`}`
+					)
+				}
+				return { name: f.name, type }
+			})
+			return { kind: "rows", name: declared.name, rows, columns }
+		})
+		return this.node(
+			{
+				kind: "Call",
+				function: { name: fn.name, volatility: fn.desc.volatility, definition: fn.definition },
+				args,
+				heading: returned.map((f) => ({
+					name: f.name,
+					type: this.fieldType(f.type, childLoc(loc, f.name))
+				}))
+			},
+			loc
+		)
+	}
+
+	/** The declared function a call names, refused where no level of the schema declares one of that name. */
+	#declaredFunction(name: string, loc: SourceLoc): OwnedFunction {
+		return (
+			this.schema.owned.functions[name] ??
+			fail("MalformedDescription", loc, `a declared function of the schema; ${name} is none`)
+		)
+	}
+
+	/** A call's arguments are its function's, each named once: none missing, none another. */
+	#callArguments(fn: OwnedFunction, named: ReadonlyArray<string>, loc: SourceLoc): void {
+		const declared = fn.desc.args.map((a) => a.name)
+		const missing = declared.filter((a) => !named.includes(a))
+		const stray = named.filter((a) => !declared.includes(a))
+		if (missing.length > 0 || stray.length > 0) {
+			fail(
+				"MalformedDescription",
+				childLoc(loc, "args"),
+				`the arguments of function ${fn.name}, ${declared.length === 0 ? "none" : declared.join(", ")}; ${[...missing.map((a) => `${a} is missing`), ...stray.map((a) => `${a} is none of them`)].join(", ")}`
+			)
+		}
+	}
+
+	/**
+	 * A call's value argument as an expression of the scope the call stands in: a variable read through its column of
+	 * the region, of a type that meets the argument's declared type; a parameter used at the declared type, bound as its
+	 * base; a constant admitted at it.
+	 */
+	#boundArgument(value: BindValue, type: ScalarType, arg: string, loc: SourceLoc): ScalarExpr {
+		switch (value.kind) {
+			case "column":
+				if (!compatible(value.type, type)) {
+					fail(
+						"MalformedDescription",
+						loc,
+						`a value of ${typeLabel(type)} for argument ${arg}; the variable bound to it is ${typeLabel(value.type)}`
+					)
+				}
+				return this.emit(storedColumn(value.node, value.name, value.type))
+			case "param":
+				return this.emit(paramSpec(value.cell.use(type, loc), "compare", compareType(type)))
+			case "literal":
+				return this.emit(boundConstant(this.schema, value, type, this.patterns))
 		}
 	}
 
@@ -1858,7 +1979,7 @@ export class Checker {
 	}
 
 	#importSource(
-		src: Extract<ResolvedSource, { readonly kind: "query" | "step" }>,
+		src: Pick<Extract<ResolvedSource, { readonly kind: "query" | "step" }>, "query" | "bind">,
 		loc: SourceLoc,
 		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
 	): RelNode {
@@ -1957,6 +2078,7 @@ export class Checker {
 			mode: "query",
 			loc,
 			closed: reads === "filter" ? this.#closedReads : deliveredValue,
+			functions: (name) => this.schema.owned.functions[name],
 			emit: (spec) => this.emit(spec),
 			leaf: (desc, at) =>
 				catchRefusal(() => {
@@ -2291,6 +2413,8 @@ const sourceLabel = (src: ResolvedSource): string => {
 			return `context ${src.context.name}`
 		case "row":
 			return "the asked row"
+		case "call":
+			return `the rows of function ${src.function}`
 	}
 }
 
@@ -2601,14 +2725,10 @@ class RuleCheck {
 	 */
 	#matches(): void {
 		const pending = this.rule.matches.map((match, index) => ({ match, index }))
-		const waiting = (m: ResolvedMatch): ReadonlyArray<string> => {
-			if (m.source.kind !== "query" && m.source.kind !== "step") {
-				return []
-			}
-			return entries(m.source.bind).flatMap(([, e]) =>
+		const waiting = (m: ResolvedMatch): ReadonlyArray<string> =>
+			bindTerms(m.source).flatMap(([, e]) =>
 				e.kind === "var" && this.#unbound(e.var) ? [e.var] : []
 			)
-		}
 		while (isNonEmpty(pending)) {
 			const [p] = pending
 			const found = pending.find((q) => waiting(q.match).length === 0)
@@ -3781,6 +3901,7 @@ class RuleCheck {
 			case "Window":
 			case "OrderedSetAggregate":
 			case "Step":
+			case "Call":
 				return [heading]
 		}
 	}

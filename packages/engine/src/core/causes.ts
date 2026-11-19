@@ -481,7 +481,7 @@ export type GeneratedRule =
 	| { readonly kind: "readsGenerated"; readonly read: string }
 	| {
 			readonly kind: "notRowLocal"
-			readonly input: "var" | "param" | "parent" | "value" | "absent" | "exists"
+			readonly input: "var" | "param" | "parent" | "value" | "absent" | "exists" | "call"
 	  }
 	| { readonly kind: "type"; readonly declared: string; readonly expression: string }
 
@@ -494,7 +494,8 @@ const rowInputWords: {
 	parent: "a parent column",
 	value: "a contract's value",
 	absent: "a relational negation",
-	exists: "a relational existence"
+	exists: "a relational existence",
+	call: "a declared function's call, which PostgreSQL alone evaluates"
 }
 
 /** A generated field rule's sentence. */

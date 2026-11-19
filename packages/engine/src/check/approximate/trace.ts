@@ -131,6 +131,7 @@ const anchorKeys = (source: RelNode): ReadonlyArray<KeySet> => {
 		case "Window":
 		case "OrderedSetAggregate":
 		case "Step":
+		case "Call":
 			return []
 	}
 }
@@ -257,6 +258,8 @@ const sourceShape = (kind: RelKind): string => {
 			return "an ordered delivery"
 		case "Step":
 			return "a navigation step of a rule's probe"
+		case "Call":
+			return "a declared function's rows, which no index of a table orders"
 		case "Base":
 		case "Closed":
 		case "Context":
@@ -301,6 +304,8 @@ const exprLabel = (e: ScalarExpr): string => {
 			return `a row of closed relation ${e.relation}`
 		case "closedHas":
 			return `a membership test of closed relation ${e.relation}`
+		case "call":
+			return `a call of declared function ${e.function.name}`
 	}
 }
 
@@ -349,6 +354,7 @@ const toRegion = (
 			case "Window":
 			case "OrderedSetAggregate":
 			case "Step":
+			case "Call":
 				return Result.err(node.kind)
 		}
 	}

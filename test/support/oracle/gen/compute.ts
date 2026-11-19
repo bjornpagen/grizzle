@@ -800,6 +800,7 @@ const refusal = (loc: SourceLoc, capability: string): CompileError =>
 
 const lowerEnv = (heading: Heading, hooks: LowerHooks): LowerEnv => ({
 	mode: "query",
+	functions: () => undefined,
 	loc: SourceLoc("a generated term", []),
 	emit: hooks.emit,
 	leaf: (desc, loc) => {

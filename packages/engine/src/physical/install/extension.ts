@@ -75,6 +75,13 @@ export interface InstallExtension {
 	 */
 	readonly holds: ReadonlyArray<RoleHold>
 	/**
+	 * The roles whose served programs call a declared function (schema/function.ts fn), each with the function's name,
+	 * which the installation grants EXECUTE on the function (physical/ddl/roles.ts addWorlds), and no role else: the
+	 * served workload's, derived from the programs it serves (program/workload/compile.ts servedWorkload); every other
+	 * extension's, none (`noCalls`).
+	 */
+	readonly calls: ReadonlyArray<RoleCall>
+	/**
 	 * The live plan of the programs it serves (live/notify.ts LivePlan), whose footprint tables the installation's live
 	 * source publishes (physical/ddl/live.ts): the served workload's, derived from its read programs
 	 * (program/workload/compile.ts servedWorkload); every other extension's, none (noLive).
@@ -121,6 +128,14 @@ export interface RoleHold extends RoleOfLogin {
 
 /** No role that holds a unit: what an extension that compiles no served workload states. */
 export const noHolds: ReadonlyArray<RoleHold> = []
+
+/** A role of a login whose served programs call the declared function `function`. */
+export interface RoleCall extends RoleOfLogin {
+	readonly function: string
+}
+
+/** No role that calls a declared function: what an extension that compiles no served workload states. */
+export const noCalls: ReadonlyArray<RoleCall> = []
 
 /** No fence: what an extension that compiles no served workload states. */
 export const noFences: ReadonlyArray<LoginFence> = []

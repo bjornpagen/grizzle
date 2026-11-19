@@ -110,6 +110,7 @@ export const carriedFrom = (
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
+			case "Call":
 			case "Step":
 				return false
 		}

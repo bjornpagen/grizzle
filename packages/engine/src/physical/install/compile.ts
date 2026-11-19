@@ -443,7 +443,7 @@ export const installationOver = (
 					...addContractDomains(b),
 					...addOutsideContractDomains(b, plan.outsideContracts)
 				]
-				addFunctions(b)
+				const declared = addFunctions(b)
 				const { keyIndexes, tables, sequences } = addTables(b)
 				const advance = addAdvanceFunctions(b)
 				const units = addUnitFunctions(b)
@@ -487,6 +487,7 @@ export const installationOver = (
 						"carrier statement"
 					),
 					options.extensions.flatMap((e) => e.holds),
+					{ calls: options.extensions.flatMap((e) => e.calls), declared },
 					fencedOnce(
 						plan,
 						options.extensions.flatMap((e) => e.fences)

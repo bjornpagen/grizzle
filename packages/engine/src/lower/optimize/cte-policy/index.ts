@@ -78,7 +78,8 @@ const expensiveKinds: ReadonlyArray<RelKind> = [
 	"Union",
 	"Take",
 	"Produce",
-	"ApproximateNearest"
+	"ApproximateNearest",
+	"Call"
 ]
 
 /**

@@ -1,15 +1,23 @@
-import { Refusal } from "#compiler/core/canonical.ts"
+import { Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
-import type { DeclaredName, ParamPlace } from "#compiler/core/identity.ts"
+import { rowTypeDigest } from "#compiler/core/fingerprint.ts"
+import {
+	type DeclaredName,
+	type Identity,
+	identifierOf,
+	identity,
+	type ParamPlace
+} from "#compiler/core/identity.ts"
 import type { ColumnIdent, DomainName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf, patternsText, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type {
 	Collation,
+	ColumnDefinition,
 	QualifiedFunctionRef,
 	TypeName,
 	TypeRef,
@@ -126,6 +134,37 @@ export interface PhysicalNames {
 	 * states of their images too (statingImages).
 	 */
 	readonly imaged: ImagedColumns
+	/**
+	 * A declared function, by its declared name (schema/function.ts fn): its installed name, in the schema of the level
+	 * that declares it, where its row types are too (physical/ddl/functions.ts).
+	 */
+	readonly declaredFunction: (name: string) => {
+		readonly ref: QualifiedFunctionRef
+		readonly types: TypeSchema
+	}
+}
+
+/**
+ * The row type of a heading a declared function takes rows of or returns, in its function's schema `schema`: its
+ * attributes, each field's base type, text collated as every grizzle column is (lawColumnType), and its type, named by
+ * their digest (core/identity.ts identity.rowType), which the installation creates (physical/ddl/functions.ts) and a
+ * call's rows argument casts each element to.
+ */
+export const rowTypeOf = (
+	names: PhysicalNames,
+	schema: TypeSchema,
+	heading: NonEmptyReadonlyArray<{ readonly name: string; readonly type: ScalarType }>
+): {
+	readonly attributes: NonEmptyReadonlyArray<ColumnDefinition>
+	readonly named: Identity<"rowType">
+	readonly type: TypeRef
+} => {
+	const attributes = mapNonEmpty(heading, (f) => {
+		const column = lawColumnType(names, f.type)
+		return { name: f.name, type: column.type, collation: column.collation }
+	})
+	const named = identity.rowType(rowTypeDigest(attributes, withoutSourceLocs))
+	return { attributes, named, type: namedType(schema, identifierOf(named), []) }
 }
 
 /** A name the owned schema cannot supply is a defect of the caller's input, refused as MalformedDescription.

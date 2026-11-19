@@ -16,6 +16,7 @@ export type InputRole =
 	| "parent"
 	| "child"
 	| "violation"
+	| "argument"
 
 /** What consumes an input: a node, in one of its input roles, or the program's result at a root. */
 export interface NodeConsumer {
@@ -182,6 +183,8 @@ const consumerEdges = (node: RelNode, env: ClassifyEnv): ReadonlyArray<ConsumerE
 			return [pass(node.parent, "parent"), observe(node.child, "child")]
 		case "Forbid":
 			return [ignore(node.violation, "violation")]
+		case "Call":
+			return node.args.flatMap((a) => (a.kind === "rows" ? [observe(a.rows, "argument")] : []))
 	}
 }
 

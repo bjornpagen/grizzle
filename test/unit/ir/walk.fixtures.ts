@@ -49,7 +49,8 @@ const kindRoster: { readonly [K in ExprDesc["kind"]]: K } = {
 	exists: "exists",
 	closedAt: "closedAt",
 	closedRow: "closedRow",
-	closedHas: "closedHas"
+	closedHas: "closedHas",
+	call: "call"
 }
 
 export const exprKinds = Rec.values(kindRoster)
@@ -121,8 +122,10 @@ const bound = (inner: Gen<InferredExpr>): Gen<BindTermDesc<Located, Inferred>> =
 		map(name, (n) => ({ kind: "relationParam", name: n }))
 	])
 
-/** What an absent negates or an exists asks of: every kind of source, an imported query and a step with a bind map and
- * a scope of its own. */
+/**
+ * What an absent negates or an exists asks of: every kind of source, an imported query and a step with a bind map and
+ * a scope of its own, and a call of a value argument and of rows of an imported query under a bind map.
+ */
 const sourceOf = (inner: Gen<InferredExpr>): Gen<InferredSource> =>
 	oneOf<InferredSource>([
 		constant({ kind: "relation", name: "R" }),
@@ -145,7 +148,19 @@ const sourceOf = (inner: Gen<InferredExpr>): Gen<InferredSource> =>
 			kind: "context",
 			context: { name: "Session", fields: { x: integer }, claim: undefined }
 		}),
-		constant({ kind: "row", heading: { x: integer } })
+		constant({ kind: "row", heading: { x: integer } }),
+		(source) => ({
+			kind: "call",
+			function: "f",
+			args: {
+				v: source.draw(inner),
+				r: {
+					kind: "rows",
+					query: source.draw(nested(inner)),
+					bind: source.draw(record(bound(inner)))
+				}
+			}
+		})
 	])
 
 /** One more level over `inner`: every kind that holds terms, each with its terms of `inner`'s. */
@@ -204,7 +219,8 @@ const node = (inner: Gen<InferredExpr>): Gen<InferredExpr> => {
 		}),
 		map(nonEmpty, (args) => ({ kind: "closedAt", relation: "C", field: "f", args })),
 		map(some, (args) => ({ kind: "closedRow", relation: "C", args })),
-		map(nonEmpty, (args) => ({ kind: "closedHas", relation: "C", args }))
+		map(nonEmpty, (args) => ({ kind: "closedHas", relation: "C", args })),
+		map(record(inner), (args) => ({ kind: "call", function: "f", args }))
 	])
 }
 
@@ -233,7 +249,8 @@ interface Site {
  * The oracle: the nodes below `value`'s members, walked over the description's own values rather than by its kinds,
  * every one if `deep`, else the first on each path. Each object reachable is visited but through a member `termless`
  * names; one at an import's `query` member stands in a scope of its own, one at a `bind` member is bound, and an object
- * at a `source` member is a source, never a node.
+ * at a `source` member is a source, and a call's rows argument (kind "rows") the query and bind map it passes, never
+ * a node.
  */
 const sitesBelow = (value: object, deep: boolean): ReadonlyArray<Site> => {
 	const out: Array<Site> = []
@@ -255,7 +272,7 @@ const sitesBelow = (value: object, deep: boolean): ReadonlyArray<Site> => {
 			return
 		}
 		const kind: unknown = Reflect.get(v, "kind")
-		if (kind !== undefined && !isSource) {
+		if (kind !== undefined && !isSource && kind !== "rows") {
 			out.push({ node: v, kind, own, bound })
 			if (!deep) {
 				return

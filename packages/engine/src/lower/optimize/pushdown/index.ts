@@ -314,6 +314,7 @@ const pushRule: Rule = {
 			case "Window":
 			case "OrderedSetAggregate":
 			case "Step":
+			case "Call":
 				return false
 		}
 	}

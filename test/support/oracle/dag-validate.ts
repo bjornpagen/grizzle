@@ -87,7 +87,12 @@ import {
 	type WindowFrame,
 	windowFns
 } from "#compiler/ir/rel.ts"
-import { literalShape, scalarTypeShape, tableExprShape } from "#compiler/ir/scalar-shape.ts"
+import {
+	calledFunctionShape,
+	literalShape,
+	scalarTypeShape,
+	tableExprShape
+} from "#compiler/ir/scalar-shape.ts"
 import { baseOf, isRefined, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
@@ -177,6 +182,8 @@ export type DagRule =
 	| "an occurrence reads columns of its source at their types"
 	| "equated variables have one base type"
 	| "a relation parameter or a context has a column"
+	| "a call's rows are its result's heading, of a column"
+	| "a call's rows argument delivers its heading's fields"
 	| "a column a node names lies in the heading it reads"
 	| "a union's groups have distinct headings"
 	| "an aggregate's name differs from its group's keys"
@@ -239,6 +246,7 @@ const namesOf = (
 			return Arr.flatMap(node.termination.premises, (p) =>
 				p.kind === "node" ? [{ id: p.node, rule: "a termination premise names a node" }] : []
 			)
+		case "Call":
 		case "Base":
 		case "Closed":
 		case "Context":
@@ -1090,6 +1098,7 @@ class Checker {
 					}
 				]
 			case "closedHas":
+			case "call":
 				return []
 		}
 	}
@@ -1458,6 +1467,26 @@ class Checker {
 			}
 			case "Step":
 				this.requireHeading(node, this.headingOf(node.input), "its input")
+				return
+			case "Call":
+				if (heading.length === 0) {
+					this.report(
+						"a call's rows are its result's heading, of a column",
+						path,
+						"a call of at least one column"
+					)
+				}
+				for (const arg of node.args) {
+					if (arg.kind === "rows") {
+						this.requireColumns(
+							"a call's rows argument delivers its heading's fields",
+							[...path, "args", arg.name],
+							this.headingOf(arg.rows),
+							Arr.map(arg.columns, (c) => c.name),
+							"a field of the argument's heading"
+						)
+					}
+				}
 				return
 			case "OrderedResult": {
 				this.requireHeading(node, this.headingOf(node.input), "its input")
@@ -2639,6 +2668,24 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 			fractions: S.array(exprIdShape),
 			outs: S.nonEmptyUniqueStrings("output columns"),
 			rule: S.nonEmptyString
+		},
+		commonStated,
+		{}
+	),
+	Call: S.structStated(
+		{
+			...common,
+			function: calledFunctionShape,
+			args: S.array(
+				S.tagged("kind", {
+					value: S.struct({ name: S.nonEmptyString, expr: exprIdShape, type: scalarTypeShape }),
+					rows: S.struct({
+						name: S.nonEmptyString,
+						rows: nodeIdShape,
+						columns: S.nonEmptyArray(S.struct({ name: S.nonEmptyString, type: scalarTypeShape }))
+					})
+				})
+			)
 		},
 		commonStated,
 		{}

@@ -13,7 +13,13 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { EvidenceContext, Premise } from "#compiler/ir/evidence.ts"
-import type { CatalogOpId, ScalarExpr, TableExpr, TypedLiteral } from "#compiler/ir/expr.ts"
+import type {
+	CalledFunction,
+	CatalogOpId,
+	ScalarExpr,
+	TableExpr,
+	TypedLiteral
+} from "#compiler/ir/expr.ts"
 import type { KeyProof, ViewKey } from "#compiler/ir/keys.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
@@ -42,7 +48,8 @@ export const relKinds = [
 	"Forbid",
 	"Window",
 	"OrderedSetAggregate",
-	"Step"
+	"Step",
+	"Call"
 ] as const
 export type RelKind = (typeof relKinds)[number]
 
@@ -746,6 +753,38 @@ export interface OrderedSetAggregate<R extends RefKinds> extends NodeCommon<R> {
 }
 
 /**
+ * An argument of a call, in the function's declared order: a value, an expression of the scope the call stands in, of
+ * the argument's declared type `type`; or rows, a node whose heading holds the argument's heading's fields, passed as an
+ * array of the heading's row type, each element its fields in `columns`' order, the heading's declared order, each of
+ * its declared type.
+ */
+export type CallArg<R extends RefKinds> =
+	| {
+			readonly kind: "value"
+			readonly name: string
+			readonly expr: R["expr"]
+			readonly type: ScalarType
+	  }
+	| {
+			readonly kind: "rows"
+			readonly name: string
+			readonly rows: R["node"]
+			readonly columns: NonEmptyReadonlyArray<HeadingColumn>
+	  }
+
+/**
+ * A call of a declared function that returns rows (Compute.call): the rows it returns for its arguments, under its
+ * result's heading, a set, every repeat of a row one row. Its value arguments and its rows arguments' nodes may read the
+ * scope it stands in, as a correlated source of a region does (lower/conservative/match-region), so a region places it
+ * after what its arguments read. PostgreSQL alone evaluates it: no host evaluator reads one.
+ */
+export interface Call<R extends RefKinds> extends NodeCommon<R> {
+	readonly kind: "Call"
+	readonly function: CalledFunction
+	readonly args: ReadonlyArray<CallArg<R>>
+}
+
+/**
  * The closed relational node family over one form of reference (RefKinds): one plain parametric union, so every form
  * of a DAG (live, stated, tabled, edited, folded) has the same 24 kinds with the same fields.
  */
@@ -775,6 +814,7 @@ export type NodeOver<R extends RefKinds> =
 	| Window<R>
 	| OrderedSetAggregate<R>
 	| Step<R>
+	| Call<R>
 
 /** One kind of the family over one form of reference. */
 export type KindOver<K extends RelKind, R extends RefKinds> = Extract<
@@ -1070,6 +1110,18 @@ export function* mapNode<R extends RefKinds, S extends RefKinds>(
 			const fractions = n.fractions.map((e) => m.expr(e))
 			return { ...n, input, fractions, meta: m.meta(n.meta) }
 		}
+		case "Call": {
+			const args: Array<CallArg<S>> = []
+			for (const a of n.args) {
+				if (a.kind === "value") {
+					args.push({ ...a, expr: m.expr(a.expr) })
+				} else {
+					const rows: S["node"] = yield a.rows
+					args.push({ kind: "rows", name: a.name, rows, columns: a.columns })
+				}
+			}
+			return { ...n, args, meta: m.meta(n.meta) }
+		}
 	}
 }
 
@@ -1113,6 +1165,8 @@ export const edgesOf = <N>(n: NodeOver<EdgeRefs<N>>): ReadonlyArray<N> => {
 			return [n.parent, n.child]
 		case "Forbid":
 			return [n.violation]
+		case "Call":
+			return n.args.flatMap((a) => (a.kind === "rows" ? [a.rows] : []))
 	}
 }
 
@@ -1159,8 +1213,15 @@ export const exprsOf = <E>(n: NodeOver<ExprRefs<E>>): ReadonlyArray<E> => {
 			return n.filter === undefined ? n.args : [...n.args, n.filter]
 		case "OrderedSetAggregate":
 			return n.fractions
+		case "Call":
+			return callValues(n.args)
 	}
 }
+
+/** A call's value arguments' expressions, in argument order. */
+const callValues = <E>(
+	args: ReadonlyArray<{ readonly kind: "value"; readonly expr: E } | { readonly kind: "rows" }>
+): ReadonlyArray<E> => args.flatMap((a) => (a.kind === "value" ? [a.expr] : []))
 
 /**
  * The parameters a node's own fields name, beside its expressions': an InputSet's placeholder (a membership's row has
@@ -1197,6 +1258,7 @@ export const fieldParams = (n: NodeOver<RefKinds>): ReadonlyArray<ParamId> => {
 		case "Window":
 		case "OrderedSetAggregate":
 		case "Step":
+		case "Call":
 			return []
 	}
 }
@@ -1207,7 +1269,8 @@ const noScopeExprs: ReadonlyArray<never> = Object.freeze([])
  * The expressions a node evaluates in its own scope, the only ones outer values enter it through: a region's constants
  * and correlated variables, evaluated with the whole region in scope, and a take's correlation. A column reference one
  * of them makes may name any node in scope there: the region itself, another occurrence's source, or a node of an
- * enclosing scope. Every other expression a node evaluates reads its input's rows alone. The
+ * enclosing scope; and a call's value arguments, which read the scope the call stands in. Every other expression a node
+ * evaluates reads its input's rows alone. The
  * scope rule (dag.ts nodeScopes) and demand analysis's lateral reads are both read from these.
  */
 export const scopeExprs = <E>(n: NodeOver<ExprRefs<E>>): ReadonlyArray<E> => {
@@ -1219,6 +1282,8 @@ export const scopeExprs = <E>(n: NodeOver<ExprRefs<E>>): ReadonlyArray<E> => {
 			]
 		case "Take":
 			return n.correlation.map((c) => c.expr)
+		case "Call":
+			return callValues(n.args)
 		case "Base":
 		case "Closed":
 		case "Context":
@@ -1297,6 +1362,7 @@ export const keptRowsOf = <N>(n: NodeOver<EdgeRefs<N>>): KeptRows<N> | undefined
 		case "Window":
 		case "OrderedSetAggregate":
 		case "Step":
+		case "Call":
 			return undefined
 	}
 }

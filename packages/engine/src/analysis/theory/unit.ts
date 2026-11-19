@@ -250,6 +250,7 @@ const readsOnly = (e: InferredExpr, bound: ReadonlyMap<string, string>): boolean
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
+		case "call":
 			return exprChildren(e).every((c) => readsOnly(c.term, bound))
 	}
 }
@@ -367,6 +368,7 @@ const sourceUnit = (
 		case "step":
 		case "param":
 		case "paramOf":
+		case "call":
 		case "interior":
 		case "delta":
 		case "context":
