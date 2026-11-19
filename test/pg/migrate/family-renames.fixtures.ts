@@ -140,10 +140,10 @@ const asFirst: Naming = {
 	handle: (name) => name
 }
 
-/** What a version's family reads: the field its fold steps over (a member's x or y, a tree node's two tags), the
- * owner field its copy reads, and its group. A tree's group is its parent. */
+/** What a version's family reads: the field its fold steps over (a member's x or y, a tree node's two tags, or the
+ * family's copy, ownerTag or parentTag), the owner field its copy reads, and its group. A tree's group is its parent. */
 interface Reading {
-	readonly step: "first" | "second"
+	readonly step: "first" | "second" | "copy"
 	readonly copied: "tag" | "tag2"
 	readonly group: "g" | "h"
 }
@@ -240,7 +240,9 @@ const familySchema = (shape: Shape, naming: Naming, reading: Reading) => {
 					shape,
 					naming,
 					member,
-					named ? [group, steps[reading.step], "before", "after"] : [group, steps[reading.step]]
+					named
+						? [group, reading.step === "copy" ? "ownerTag" : steps[reading.step], "before", "after"]
+						: [group, reading.step === "copy" ? "ownerTag" : steps[reading.step]]
 				),
 				on(owner, ["id", "end"])
 			)
@@ -288,7 +290,10 @@ const treeSchema = (shape: Shape, naming: Naming, reading: Reading, folded: bool
 		return { relations: [relation(node, fields, ["doc", "start"])], statements }
 	}
 	if (shape.fold !== "none") {
-		const step = naming.field(reading.step === "first" ? "tag" : "tag2")
+		const step =
+			reading.step === "copy"
+				? "parentTag"
+				: naming.field(reading.step === "first" ? "tag" : "tag2")
 		statements.push(
 			fold(
 				slots,
@@ -1376,10 +1381,14 @@ const alikes = ["drawn", "some", "every"] as const
 
 type Alike = (typeof alikes)[number]
 
-/** A changed filler over stored rows whose second fields are alike to their first as `alike` says. */
+/** A changed filler over stored rows whose second fields are alike to their first as `alike` says, and, for a copy's
+ * target changed beside a fold, whether the fold steps over the copy (`foldsCopy`), so the change draws the fold
+ * again with the fold itself unchanged, its CHECK, its key and its foreign key along its members held as they are, as
+ * C18's Node string-value fold over its codes is. */
 interface RedrawCase {
 	readonly change: ChangeCase
 	readonly alike: Alike
+	readonly foldsCopy: boolean
 }
 
 /** `rows` with the second field of each row `chosen` picks set to its first's. */
@@ -1437,7 +1446,9 @@ export const redrawCaseGen: Gen<RedrawCase> = (source) => {
 			}
 		}
 	}
-	return { change: { ...change, stored: alikeRows(change.stored, chosen) }, alike }
+	const foldsCopy =
+		change.change === "copy target" && change.shape.fold !== "none" && source.draw(boolean)
+	return { change: { ...change, stored: alikeRows(change.stored, chosen) }, alike, foldsCopy }
 }
 
 export type RedrawFeature =
@@ -1446,6 +1457,7 @@ export type RedrawFeature =
 	| "every row alike"
 	| "some rows alike"
 	| "a family emptied by its regroup"
+	| "a fold over the copy"
 	| "a table the re-draw writes no row of"
 	| "a table the re-draw writes some rows of"
 
@@ -1560,21 +1572,56 @@ const writtenRows = (before: RowsRead, after: RowsRead): ReadonlySet<string> => 
 	return new Set(Arr.flatMap(after.rows, (r) => (was.get(r.key) === r.xmin ? [] : [r.key])))
 }
 
+/** Each constraint of the relation `relation` of a version, by name: its OID and its definition, as PostgreSQL's
+ * catalog states them. */
+const constraintsOf = (schemaName: string, relation: RelationName) =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const [oid] = yield* oidsOf(schemaName, [relation])
+		const rows = yield* Effect.orDie(
+			substrate.admin.queryValues(
+				`SELECT conname::text, oid::int8::text, pg_catalog.pg_get_constraintdef(oid) FROM pg_catalog.pg_constraint WHERE conrelid = ${defined(oid, "the relation's OID")} ORDER BY 1`,
+				[]
+			)
+		)
+		return new Map(
+			Arr.map(
+				rows,
+				(row) => [String(row[0]), { oid: String(row[1]), definition: String(row[2]) }] as const
+			)
+		)
+	})
+
+/** What the re-draw oracle reads of a version: its family's tables (RowsRead) and its member's constraints. */
+interface VersionRead {
+	readonly tables: ReadonlyArray<RowsRead>
+	readonly constraints: ReadonlyMap<string, { readonly oid: string; readonly definition: string }>
+}
+
+const unread: VersionRead = { tables: [], constraints: new Map() }
+
 /**
  * A changed filler drawn again over stored rows, judged by PostgreSQL: the migration commits with every law validated,
  * which holds every value it draws to the target's natives, the values the target's fill draws over those rows; and
  * on every table it does not rewrite, the rows its backfill writes, those whose xmin moved, are exactly the rows whose
  * values it changed. A re-draw that moves no value writes no row; one that moves the values of k rows writes those k.
+ * Where the fold steps over the copy, every constraint of its member's table the target holds as it is keeps its OID:
+ * its CHECK reads one row, which the backfill writes once; its key holds the family's slot key, which no two rows
+ * share; and its foreign keys along its members read one table, which one UPDATE writes whole: the migration builds
+ * none of them again.
  */
 export const redrawCase = (r: RedrawCase, k: Case<RedrawFeature>) =>
 	Effect.gen(function* () {
 		const c = r.change
+		const first: Reading = r.foldsCopy ? { ...firstReading, step: "copy" } : firstReading
+		const member: RelationName = c.shape.kind === "tree" ? "Node" : "Member"
 		k.noteAll([
 			c.shape.kind,
 			c.change,
 			...(r.alike === "every" && c.change !== "fold added" ? (["every row alike"] as const) : []),
 			...(r.alike === "some" && c.change !== "fold added" ? (["some rows alike"] as const) : []),
-			...(emptiesAFamily(c) ? (["a family emptied by its regroup"] as const) : [])
+			...(emptiesAFamily(c) ? (["a family emptied by its regroup"] as const) : []),
+			...(r.foldsCopy ? (["a fold over the copy"] as const) : [])
 		])
 		const outcome = yield* Effect.result(
 			migrateHistory(
@@ -1583,11 +1630,7 @@ export const redrawCase = (r: RedrawCase, k: Case<RedrawFeature>) =>
 					{ desc: (name) => versionOf(name, c.shape, { kind: "plain" }), declared: noDeclarations },
 					{
 						desc: (name) =>
-							versionOf(name, shapeBefore(c), {
-								kind: "family",
-								naming: asFirst,
-								reading: firstReading
-							}),
+							versionOf(name, shapeBefore(c), { kind: "family", naming: asFirst, reading: first }),
 						declared: noDeclarations
 					},
 					{
@@ -1595,7 +1638,7 @@ export const redrawCase = (r: RedrawCase, k: Case<RedrawFeature>) =>
 							versionOf(name, c.shape, {
 								kind: "family",
 								naming: asFirst,
-								reading: changedReading(c.change)
+								reading: { ...changedReading(c.change), step: first.step }
 							}),
 						declared: noDeclarations
 					}
@@ -1603,7 +1646,12 @@ export const redrawCase = (r: RedrawCase, k: Case<RedrawFeature>) =>
 				c.stored,
 				() => [],
 				(step, name) =>
-					step === 0 ? Effect.succeed<ReadonlyArray<RowsRead>>([]) : rowsReadOf(name, c.shape.kind)
+					step === 0
+						? Effect.succeed(unread)
+						: Effect.all({
+								tables: rowsReadOf(name, c.shape.kind),
+								constraints: constraintsOf(name, member)
+							})
 			)
 		)
 		if (outcome._tag === "Failure") {
@@ -1613,8 +1661,20 @@ export const redrawCase = (r: RedrawCase, k: Case<RedrawFeature>) =>
 		}
 		const before = defined(outcome.success[1], "the family's tables before the re-draw")
 		const after = defined(outcome.success[2], "the family's tables after the re-draw")
-		for (const [i, now] of after.entries()) {
-			const was = defined(before[i], "a table both versions hold")
+		if (r.foldsCopy) {
+			for (const [name, now] of after.constraints) {
+				const was = before.constraints.get(name)
+				if (was !== undefined && was.definition === now.definition) {
+					assert.equal(
+						now.oid,
+						was.oid,
+						`the re-draw keeps ${name}, which the target holds as it is, unbuilt\n${Formatter.format(r)}`
+					)
+				}
+			}
+		}
+		for (const [i, now] of after.tables.entries()) {
+			const was = defined(before.tables[i], "a table both versions hold")
 			if (was.relfilenode !== now.relfilenode) {
 				continue
 			}

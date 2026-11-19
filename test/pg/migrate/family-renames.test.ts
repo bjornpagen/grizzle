@@ -171,7 +171,7 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 	]
 })
 
-/** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19rc2 a fold's step, an axis copy's target or a counted family's group changed over stored rows, or a fold added, is drawn again in place and writes exactly the rows whose values it changes: none where the new filler draws every row as the old one did, k where it moves k rows' values, every law validated over what it leaves. */
+/** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19rc2 a fold's step, an axis copy's target or a counted family's group changed over stored rows, or a fold added, is drawn again in place and writes exactly the rows whose values it changes: none where the new filler draws every row as the old one did, k where it moves k rows' values, every law validated over what it leaves, and builds again no constraint the target holds as it is that no state of the backfill can break. */
 export const redrawWrites = property.explore(redrawCaseGen, {
 	needs: { substrate: Substrate.installing },
 	situations: [
@@ -183,6 +183,7 @@ export const redrawWrites = property.explore(redrawCaseGen, {
 		"every row alike",
 		"some rows alike",
 		"a family emptied by its regroup",
+		"a fold over the copy",
 		"a table the re-draw writes no row of",
 		"a table the re-draw writes some rows of"
 	] satisfies ReadonlyArray<Reached<RedrawFeature>>,
@@ -213,9 +214,24 @@ export const redrawWrites = property.explore(redrawCaseGen, {
 		},
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",
-			original: "\tcheck: true,\n\tforeignKey: true,",
-			replacement: "\tcheck: false,\n\tforeignKey: false,",
-			why: "A revaluation takes no constraint over the column: the previous fold's CHECK and its foreign keys read the values the backfill draws by the previous definition, and refuse the migration at the backfill's UPDATE; the property fails."
+			original: '\t\t\t\tcase "check":\n\t\t\t\t\treturn !keptAsIs(o)\n',
+			replacement: '\t\t\t\tcase "check":\n\t\t\t\t\treturn false\n',
+			why: "A revaluation keeps a CHECK the target defines otherwise: the previous fold's CHECK judges the values the backfill draws by the previous step and refuses the migration at the backfill's UPDATE; the property fails."
+		},
+		{
+			file: "packages/engine/src/deploy/diff/diff.ts",
+			original:
+				"\t\t\tif (!keptAsIs(o) || (from && onto && nameKey(table) !== nameKey(fk.references))) {",
+			replacement: "\t\t\tif (!keptAsIs(o)) {",
+			why: "A revaluation keeps a foreign key over revalued columns of two tables: an owner's end held to its last member's after is checked at the end of the members' UPDATE, against the owner's stale end, and refuses the migration; the property fails."
+		},
+		{
+			file: "packages/engine/src/deploy/diff/diff.ts",
+			original:
+				'\t\t\t\tcase "check":\n\t\t\t\t\treturn !keptAsIs(o)\n\t\t\t\tcase "primaryKey":\n\t\t\t\tcase "unique":\n\t\t\t\t\treturn takesKey(o, over.table, over.columns)\n\t\t\t\tcase "foreignKey":\n\t\t\t\t\treturn takesForeignKey(o, v.constraint, v.table)\n',
+			replacement:
+				'\t\t\t\tcase "check":\n\t\t\t\tcase "primaryKey":\n\t\t\t\tcase "unique":\n\t\t\t\tcase "foreignKey":\n\t\t\t\t\treturn true\n',
+			why: "A revaluation takes every constraint over the column: a fold over a copy whose target moves builds its CHECK, its key and its foreign key along its members again, which no state of the backfill breaks; their OIDs move and the property fails."
 		},
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",

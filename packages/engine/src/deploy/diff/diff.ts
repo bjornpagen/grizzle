@@ -68,7 +68,6 @@ import {
 import {
 	type AnyObject,
 	type BuiltOver,
-	type BuiltOverKind,
 	builtOver,
 	constraintColumns,
 	type Installed,
@@ -206,13 +205,23 @@ const ownedAside = (a: Aside): string =>
  * before Structure's alteration and added again where the target holds it; or dropped, at the end of the migration, a
  * field or law column the target no longer holds.
  *
- * A revalued column keeps what PostgreSQL maintains on each row an UPDATE writes, its indexes, statistics and the
- * generated columns over it; every constraint over it and every rule trigger its update fires is taken away before the
- * backfill and built again after it (takenByReplacement, revaluationTakes), as over a replaced column: PostgreSQL checks
- * a key that is not deferrable at each row the UPDATE writes and a foreign key at the end of each statement, and a
- * backfill that draws two rows' values into each other's place, or one table's before another's, passes through
- * states that break them on its way to one that holds them; and a constraint the target replaces would read the drawn
- * values by the previous definition. */
+ * A revalued column keeps what is built over it wherever no state the backfill passes through can break it, and the
+ * rest is taken away before the backfill and built again after it, as over a replaced column (takenByReplacement):
+ * - PostgreSQL maintains an index, a statistics object and a generated column on each row the backfill writes: kept.
+ * - It checks a CHECK on each row it writes, and the backfill writes each row of a table once, with every value it
+ *   draws on that table: a CHECK the target keeps as it is reads the row as the backfill leaves it. Kept, but taken
+ *   where the target defines it otherwise, since the previous definition would judge the drawn values.
+ * - It checks a key that is not deferrable at each row it writes, against the rows not yet written: two rows whose
+ *   values the backfill moves into each other's place break it on the way to a state that holds it. Kept only where
+ *   the target keeps it as it is and its columns hold a stable key of its table, one the target keeps over columns the
+ *   migration keeps as they are, which no two rows share before, during or after the backfill, so no row it writes meets
+ *   another holding its key.
+ * - It checks a foreign key at the end of each statement that writes a row it reads, on either side: where it reads
+ *   revalued columns of two tables, the backfill's UPDATE of the first runs its checks against the second's stale
+ *   values. Kept only where the target keeps it as it is, every revalued column it reads is on one table, which one
+ *   UPDATE writes whole before its checks run against the table as the backfill leaves it, and the key it references
+ *   is kept.
+ * - A rule trigger its update fires is taken: its judge reads tables the backfill has yet to write. */
 type ColumnFate =
 	| { readonly kind: "kept" }
 	| { readonly kind: "revalued" }
@@ -1548,22 +1557,101 @@ class Differ {
 	 * each with how and its own drop (Replaced): what is built over the column (objects.ts builtOver: a constraint, an
 	 * index, a statistics object, a law column computed from it or a rule trigger fired by its update), and each foreign
 	 * key referencing a key over one, which dropReplaced drops before the column is converted or dropped. Over a column
-	 * the backfill revalues in place, what a revaluation takes (revaluationTakes), dropped before the backfill and built
-	 * again after it as over a column dropped and added again. */
+	 * the backfill revalues in place, what a state the backfill passes through could break (ColumnFate revalued),
+	 * dropped before the backfill and built again after it as over a column dropped and added again. */
 	takenByReplacement(): ReadonlyMap<string, Replaced> {
 		const out = new Map<string, Replaced>()
-		/** How each of `columns` of `table` is replaced for an object of `kind`, of those this migration replaces: only a
-		 * table both hold has a column replaced. */
-		const hows = (
-			kind: BuiltOverKind,
+		/** What this migration does to a column of `table`: only a table both hold has a column it replaces or
+		 * revalues. */
+		const fateAt = (table: ObjectName, column: string): ColumnFate["kind"] => {
+			const kept = this.keptTables.get(tableIdent(table))
+			return kept === undefined ? "kept" : columnFate(kept, column).kind
+		}
+		/** How each of `columns` of `table` is replaced, of those this migration converts or drops and adds again. */
+		const replacedAt = (
 			table: ObjectName,
 			columns: ReadonlyArray<string>
-		): ReadonlyArray<Replacement> => {
-			const kept = this.keptTables.get(tableIdent(table))
-			if (kept === undefined) {
-				return []
+		): ReadonlyArray<Replacement> =>
+			columns.flatMap((c): ReadonlyArray<Replacement> => {
+				const fate = fateAt(table, c)
+				return fate === "converted" || fate === "redefined" ? [fate] : []
+			})
+		/** Whether the backfill revalues one of `columns` of `table` in place. */
+		const revaluedAt = (table: ObjectName, columns: ReadonlyArray<string>): boolean =>
+			columns.some((c) => fateAt(table, c) === "revalued")
+		/** Whether the target holds the previous object `o` as it is. */
+		const keptAsIs = (o: RecordedObject): boolean => {
+			const now = this.next.get(o.ident)
+			return now !== undefined && sameRecord(o, now)
+		}
+		/** Each table's keys, by table key, each with its columns; and its stable ones, those the target keeps as they are
+		 * over columns this migration keeps as they are, whose values, and so whose uniqueness, stand through the
+		 * backfill. */
+		const keys = new Map<
+			string,
+			Array<{ readonly object: RecordedObject; readonly columns: ReadonlyArray<string> }>
+		>()
+		const stable = new Map<string, Array<ReadonlyArray<string>>>()
+		for (const o of this.prev.values()) {
+			const v = installed(o)
+			if (v.kind !== "primaryKey" && v.kind !== "unique") {
+				continue
 			}
-			return columns.flatMap((c) => replacementBy(columnFate(kept, c).kind, revaluationTakes[kind]))
+			const key = nameKey(v.table)
+			const columns = constraintColumns(keyOrCheckDefinition(v, this.prev))
+			keys.set(key, [...(keys.get(key) ?? []), { object: o, columns }])
+			if (keptAsIs(o) && columns.every((c) => fateAt(v.table, c) === "kept")) {
+				stable.set(key, [...(stable.get(key) ?? []), columns])
+			}
+		}
+		/** Whether a revaluation takes the key `o` of `table` over `columns`: unless the target keeps it as it is and its
+		 * columns hold a stable key of its table, which no two rows share, so no row the backfill writes meets a row
+		 * holding its key, whatever the order it writes them in. */
+		const takesKey = (
+			o: RecordedObject,
+			table: ObjectName,
+			columns: ReadonlyArray<string>
+		): boolean =>
+			!keptAsIs(o) ||
+			!(stable.get(nameKey(table)) ?? []).some((k) => k.every((c) => columns.includes(c)))
+		/** Whether a revaluation takes the foreign key `o`: unless the target keeps it as it is, every revalued column
+		 * it reads is on one table, which the backfill's one UPDATE of it writes whole before PostgreSQL checks the
+		 * foreign key at the end of that statement, and the key it references is kept. */
+		const takesForeignKey = (o: RecordedObject, fk: ForeignKey, table: ObjectName): boolean => {
+			const referenced = fk.referencedColumns.map((k) => k.column)
+			const from = revaluedAt(table, constraintColumns(fk))
+			const onto = revaluedAt(fk.references, referenced)
+			if (!keptAsIs(o) || (from && onto && nameKey(table) !== nameKey(fk.references))) {
+				return true
+			}
+			if (!onto) {
+				return false
+			}
+			const key = (keys.get(nameKey(fk.references)) ?? []).find(
+				(k) =>
+					k.columns.length === referenced.length && referenced.every((c) => k.columns.includes(c))
+			)
+			return key === undefined || takesKey(key.object, fk.references, key.columns)
+		}
+		/** Whether a revaluation of a column `over` is built over takes `o` away (ColumnFate revalued). */
+		const revaluationTakes = (o: RecordedObject, over: BuiltOver<RecordedObject>): boolean => {
+			const v = over.part
+			switch (v.kind) {
+				case "index":
+				case "statistics":
+				case "lawColumn":
+					return false
+				case "uniqueIndex":
+				case "lawTrigger":
+					return true
+				case "check":
+					return !keptAsIs(o)
+				case "primaryKey":
+				case "unique":
+					return takesKey(o, over.table, over.columns)
+				case "foreignKey":
+					return takesForeignKey(o, v.constraint, v.table)
+			}
 		}
 		for (const o of this.prev.values()) {
 			const over = builtOver(installed(o), (c) => keyOrCheckDefinition(c, this.prev))
@@ -1571,14 +1659,16 @@ class Differ {
 				continue
 			}
 			const v = over.part
+			const referenced: ReadonlyArray<readonly [ObjectName, ReadonlyArray<string>]> =
+				v.kind === "foreignKey"
+					? [[v.constraint.references, v.constraint.referencedColumns.map((k) => k.column)]]
+					: []
+			const sides = [[over.table, over.columns] as const, ...referenced]
 			const how = strongestReplacement([
-				...hows(v.kind, over.table, over.columns),
-				...(v.kind === "foreignKey"
-					? hows(
-							v.kind,
-							v.constraint.references,
-							v.constraint.referencedColumns.map((k) => k.column)
-						)
+				...sides.flatMap(([table, columns]) => replacedAt(table, columns)),
+				...(sides.some(([table, columns]) => revaluedAt(table, columns)) &&
+				revaluationTakes(o, over)
+					? (["redefined"] as const)
 					: [])
 			])
 			if (how !== undefined) {
@@ -3366,40 +3456,6 @@ type Replacement = "converted" | "redefined"
 interface Replaced {
 	readonly how: Replacement
 	readonly drop: Drop
-}
-
-/**
- * Whether a revaluation of a column in place (ColumnFate revalued) takes away an object of each kind built over it,
- * dropped before the backfill and built again after it: every constraint, a key, a unique index, a CHECK and a foreign
- * key, from the column or onto it, and every rule trigger its update fires, since each reads rows the backfill writes
- * by a rule PostgreSQL holds while it writes them (ColumnFate); never an index that holds no key, a statistics object or
- * a law column computed from it, which PostgreSQL maintains on each row the backfill writes.
- */
-const revaluationTakes: { readonly [K in BuiltOverKind]: boolean } = {
-	index: false,
-	uniqueIndex: true,
-	statistics: false,
-	primaryKey: true,
-	unique: true,
-	check: true,
-	foreignKey: true,
-	lawColumn: false,
-	lawTrigger: true
-}
-
-/** How an object over a column of fate `fate` is replaced: as the column is, converted or dropped and added again; as
- * dropped and added again where a revaluation of it takes the object (`takes`, revaluationTakes); otherwise not. */
-const replacementBy = (fate: ColumnFate["kind"], takes: boolean): ReadonlyArray<Replacement> => {
-	switch (fate) {
-		case "converted":
-		case "redefined":
-			return [fate]
-		case "revalued":
-			return takes ? ["redefined"] : []
-		case "kept":
-		case "dropped":
-			return []
-	}
 }
 
 /** The strongest of `hows`: a conversion in place takes more than a law column dropped and added again. */
