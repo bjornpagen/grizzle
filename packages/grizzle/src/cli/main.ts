@@ -98,3 +98,17 @@ const main = Effect.gen(function* () {
  */
 export const runCommand = (): void =>
 	NodeRuntime.runMain(Effect.provide(main, NodeServices.layer), { disableErrorReporting: true })
+
+/**
+ * This module run as the program, where the bin (bin.ts) is the command line's one entry point: it runs nothing and
+ * exits 2, a usage error, naming the bin, since a run of it would otherwise define the command line and exit 0 having
+ * done nothing, which a script reads as a command that succeeded.
+ */
+const refuseAsProgram = (): void => {
+	process.stderr.write("grizzle: run src/cli/bin.ts (the package bin), not main.ts\n")
+	process.exitCode = 2
+}
+
+if (import.meta.main) {
+	refuseAsProgram()
+}

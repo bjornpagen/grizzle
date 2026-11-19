@@ -386,7 +386,8 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   but `node:crypto`). What the library needs is its caller's input. Its readers are
   `packages/grizzle/src/adapter/connection/environment.ts`, which refuses the variables node-postgres would send at a
   session's startup, `PGOPTIONS` and `PGREPLICATION`, and the `grizzle` command's module,
-  `packages/grizzle/src/cli/main.ts`, which its bin loads, and which reads its own `argv` and `cwd` and passes them on. One file imports
+  `packages/grizzle/src/cli/main.ts`, which its bin loads, and which reads its own `argv` and `cwd` and passes them on;
+  run as the program itself, it runs nothing and exits 2 naming the bin, the one entry point. One file imports
   `node:os` by an override with its reason: `packages/grizzle/src/adapter/live/call-error.ts`, for the platform's
   errno names.
 - **Regular expressions are arkregex's `regex()`**, which types a pattern's captures, everywhere, tests included (the
