@@ -69,6 +69,7 @@ import {
 	type LiteralDesc,
 	mapExprChildren,
 	queryParamNames,
+	type TermDesc,
 	type VarDesc
 } from "#compiler/ir/desc.ts"
 import type { RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
@@ -908,44 +909,102 @@ export interface RegionFacts {
 	readonly containments: ReadonlyArray<FieldContainment>
 }
 
+/** The containments one statement states between stored relations (`regionFactsOf`), each a FieldContainment. */
+const statedOf = (
+	s: OwnedStatement,
+	stored: (name: string) => RelationInfo | undefined
+): ReadonlyArray<FieldContainment> => {
+	switch (s.kind) {
+		case "contained": {
+			const pairs = s.pairs.flatMap((p) =>
+				p.left.kind === "field" && p.right.kind === "field"
+					? [{ from: p.left.field, to: p.right.field }]
+					: []
+			)
+			return stored(s.left.relation) !== undefined &&
+				stored(s.right.relation) !== undefined &&
+				isNonEmpty(pairs) &&
+				pairs.length === s.pairs.length
+				? [
+						{
+							from: s.left.relation,
+							to: s.right.relation,
+							pairs,
+							selection: s.left.selection.conjuncts
+						}
+					]
+				: []
+		}
+		case "family":
+		case "tree": {
+			const member = stored(s.member.relation)
+			const owner = stored(s.slots.owner)
+			if (member === undefined || owner === undefined) {
+				return []
+			}
+			const group =
+				s.kind === "family"
+					? s.member.terms.slice(0, owner.primaryFields.length)
+					: [
+							...s.root.map((field): TermDesc => ({ kind: "field", field })),
+							...s.member.terms.slice(0, 1)
+						]
+			const pairs = owner.primaryFields.flatMap((key, j) => {
+				const term = group[j]
+				return term?.kind === "field" ? [{ from: term.field, to: key.name }] : []
+			})
+			return isNonEmpty(pairs) && pairs.length === owner.primaryFields.length
+				? [{ from: member.name, to: owner.name, pairs, selection: [] }]
+				: []
+		}
+		case "key":
+		case "mutable":
+		case "race":
+		case "check":
+		case "fold":
+		case "alternatives":
+		case "retirable":
+			return []
+	}
+}
+
 /**
  * The containments `statements` state over the rows of a stored relation its source's selection admits, field by field
- * into a stored relation (`RegionFacts`), and every one they compose to: a `contained` statement whose sides are stored
- * relations (`stored`) and whose every pair is a field on each side, its source's selection its own (FieldContainment
- * `selection`), its target selecting rows or not, since a row in a selection of `to` is a row of `to`; and E ⊆ N
- * wherever E ⊆ M and M ⊆ N hold, M ⊆ N over every row of M at fields each of which E ⊆ M pairs, over the rows of E
- * E ⊆ M's selection admits: each such row of E meets a row of M at E ⊆ M's pairs, which meets a row of N at M ⊆ N's,
- * so the row of E holds at each field paired with one of those of M the value the row of N holds at its pair there
- * (`composed`). A containment of any other form states no fact a region reads. In statement order, then each
- * composition in the order the closure meets it, each containment once.
+ * into a stored relation (`RegionFacts`), and every one they compose to:
+ *
+ * - a `contained` statement whose sides are stored relations (`stored`), at its pairs of a field on each side, its
+ *   source's selection its own (FieldContainment `selection`), its target selecting rows or not, since a row in a
+ *   selection of `to` is a row of `to`;
+ * - a family's member relation at its group into its owner at the owner's primary key, the group's j-th field paired
+ *   with the key's j-th, as counted(on(F, g…), fin(O, n)) and ordered(on(F, g…, i), fin(O, n)) pair them
+ *   (analysis/theory/families.ts familyShape), over every row of F: every member names its owner, a law every
+ *   committed state holds, whatever discharges it; and a tree's relation into itself at its root fields and its parent
+ *   paired with its root fields and its start (treeShape), over every row: every member's parent is a row of its tree,
+ *   and each root is its own parent;
+ * - and E ⊆ N wherever E ⊆ M and M ⊆ N hold, M ⊆ N over every row of M, at each pair of M ⊆ N whose field of M one of
+ *   E ⊆ M's pairs reaches, over the rows of E E ⊆ M's selection admits (`composed`).
+ *
+ * A containment holds at any of its pairs alone, its projection: each row of its source meets a row of its target at
+ * every pair, and so at those kept. So a composition keeps the pairs of M ⊆ N that E ⊆ M reaches, where it reaches
+ * one, and a witness reads a containment at the pairs its two occurrences bind alike (`witnessesOf`). A statement with
+ * a pred term holds only of the rows whose predecessor is defined, a condition none of its field pairs states, so it
+ * states no fact a region reads. A containment of a relation into itself at its own fields
+ * states nothing and is not held. In statement order, then each composition in the order the closure meets it, each
+ * containment once.
  */
 export const regionFactsOf = (
 	statements: ReadonlyArray<OwnedStatement>,
-	stored: (relation: string) => boolean
+	relations: ReadonlyMap<string, TheoryRelation>
 ): RegionFacts => {
-	const stated = statements.flatMap((s): ReadonlyArray<FieldContainment> => {
-		if (s.kind !== "contained" || !stored(s.left.relation) || !stored(s.right.relation)) {
-			return []
-		}
-		const pairs = s.pairs.flatMap((p) =>
-			p.left.kind === "field" && p.right.kind === "field"
-				? [{ from: p.left.field, to: p.right.field }]
-				: []
-		)
-		return isNonEmpty(pairs) && pairs.length === s.pairs.length
-			? [
-					{
-						from: s.left.relation,
-						to: s.right.relation,
-						pairs,
-						selection: s.left.selection.conjuncts
-					}
-				]
-			: []
-	})
+	const stored = (name: string): RelationInfo | undefined => {
+		const r = relations.get(name)
+		return r?.kind === "relation" ? r : undefined
+	}
+	const stated = statements.flatMap((s) => statedOf(s, stored))
 	const containments: Array<FieldContainment> = []
 	const hold = (c: FieldContainment): void => {
-		if (c.from !== c.to && !containments.some((held) => canonicalEquals(held, c))) {
+		const states = c.from !== c.to || c.pairs.some((p) => p.from !== p.to)
+		if (states && !containments.some((held) => canonicalEquals(held, c))) {
 			containments.push(c)
 		}
 	}
@@ -963,7 +1022,8 @@ export const regionFactsOf = (
 }
 
 /** E ⊆ N from E ⊆ M (`first`) and M ⊆ N (`second`), over the rows of E `first`'s selection admits, where `second`
- * holds over every row of M and pairs only fields of M `first` pairs (`regionFactsOf`). */
+ * holds over every row of M, at the pairs of `second` whose field of M one of `first`'s pairs reaches, its projection
+ * there, where `first` reaches one (`regionFactsOf`). */
 const composed = (
 	first: FieldContainment,
 	second: FieldContainment
@@ -975,7 +1035,7 @@ const composed = (
 		const from = first.pairs.find((q) => q.to === p.from)
 		return from === undefined ? [] : [{ from: from.from, to: p.to }]
 	})
-	return isNonEmpty(pairs) && pairs.length === second.pairs.length
+	return isNonEmpty(pairs)
 		? { from: first.from, to: second.to, pairs, selection: first.selection }
 		: undefined
 }
@@ -1009,19 +1069,19 @@ const implies = (conditions: ReadonlyArray<InferredExpr>, conjunct: ExprDesc): b
 
 /**
  * The containments that may prove an occurrence of a holder N needs no unit of a row N gained beyond those of the rows
- * it gained where it lost one (`proofsOf`), each with the place of the occurrence beside it the proof rests on: `r`
- * positive, matched beside an occurrence of E at its polarity, the schema stating the containment E(F_E) ⊆ N(F_N) over
- * the rows of E its selection admits (RegionFacts), the occurrence of E reading only such rows, its conditions implying
- * the selection (`implies`), the two occurrences binding each pair's fields, F_E's of E and F_N's of N, to one
- * variable, and a key of N among F_N's fields. Every such occurrence beside `r`, by its containment; none where `r` is
- * not positive.
+ * it gained where it lost one (`proofsOf`), each with the place of the occurrence beside it the proof rests on and the
+ * fields of N it pairs: `r` positive, matched beside an occurrence of E at its polarity, the schema stating the
+ * containment E(F) ⊆ N(G) over the rows of E its selection admits (RegionFacts), the occurrence of E reading only such
+ * rows, its conditions implying the selection (`implies`), read at its projection onto the pairs the two occurrences
+ * bind alike, each pair's field of E and of N to one variable, F_E and F_N, a key of N among F_N. Every such
+ * occurrence beside `r`, by its containment; none where `r` is not positive.
  */
 const witnessesOf = (
 	r: RegionRead,
 	regions: ReadonlyArray<RegionRead>,
 	facts: RegionFacts,
 	relations: ReadonlyMap<string, TheoryRelation>
-): ReadonlyArray<{ readonly beside: number; readonly containment: FieldContainment }> => {
+): ReadonlyArray<{ readonly beside: number; readonly fields: NonEmptyReadonlyArray<string> }> => {
 	const n = relations.get(r.relation)
 	if (r.polarity !== "positive" || n?.kind !== "relation") {
 		return []
@@ -1029,17 +1089,20 @@ const witnessesOf = (
 	const keyed = (fields: ReadonlyArray<string>): boolean =>
 		[n.primaryFields, ...n.keyFields].some((key) => key.every((f) => fields.includes(f.name)))
 	return facts.containments.flatMap((c) =>
-		c.to === r.relation && keyed(c.pairs.map((p) => p.to))
+		c.to === r.relation
 			? r.beside.flatMap((beside) => {
 					const e = defined(regions[beside], "an occurrence beside another")
-					return e.relation === c.from &&
-						c.pairs.every((p) => {
-							const v = r.bound[p.to]
-							return v !== undefined && v === e.bound[p.from]
-						}) &&
-						c.selection.every((conjunct) => implies(e.where, conjunct))
-						? [{ beside, containment: c }]
-						: []
+					if (
+						e.relation !== c.from ||
+						!c.selection.every((conjunct) => implies(e.where, conjunct))
+					) {
+						return []
+					}
+					const alike = c.pairs.flatMap((p) => {
+						const v = r.bound[p.to]
+						return v !== undefined && v === e.bound[p.from] ? [p.to] : []
+					})
+					return isNonEmpty(alike) && keyed(alike) ? [{ beside, fields: alike }] : []
 				})
 			: []
 	)
@@ -1055,10 +1118,12 @@ const witnessesOf = (
  * occurrence's relation gained, and an occurrence its conditions restrict reads fewer of them where it stands unproved,
  * so where two occurrences each prove the other, the one its conditions restrict is the one read.
  *
- * The proof. Let `r` be a positive occurrence of N matched beside an occurrence of E, the schema stating the
- * containment E(F_E) ⊆ N(F_N) over the rows of E its selection admits, the occurrence of E reading only such rows, both
- * occurrences binding each pair's fields to one variable, a key of N among F_N's fields (`witnessesOf`), N and E
- * immutable, as every holder of a unit is (`wholeRule`). A fact that `r` reads from a row n that a transaction gave N
+ * The proof. Let `r` be a positive occurrence of N matched beside an occurrence of E, the schema stating, or
+ * composing, a containment of E into N over the rows of E its selection admits, the occurrence of E reading only such
+ * rows, and E(F_E) ⊆ N(F_N) its projection onto the pairs both occurrences bind to one variable each, a key of N among
+ * F_N's fields (`witnessesOf`), N and E immutable, as every holder of a unit is (`wholeRule`). The projection holds
+ * wherever the containment does: each row of E meets a row of N at every pair, so at the pairs kept; and E and N may
+ * be one relation, a tree's own parent axis, two occurrences of it beside each other. A fact that `r` reads from a row n that a transaction gave N
  * holds a row e of E with e[F_E] = n[F_N], one the occurrence of E reads, so one the selection admits. If the
  * transaction gave E the row e too, the occurrence of E reads e among the rows E gained, and its unit is the region's
  * through that occurrence, which reads every row E gained that its conditions admit, since the assignment proves that
@@ -1089,10 +1154,7 @@ const proofsOf = (
 		const r = defined(regions[at], "an occurrence of the walk")
 		const proof = witnessesOf(r, regions, facts, relations).find((w) => !proved.has(w.beside))
 		if (proof !== undefined) {
-			proved.set(
-				at,
-				mapNonEmpty(proof.containment.pairs, (p) => p.to)
-			)
+			proved.set(at, proof.fields)
 			read.add(proof.beside)
 		}
 	}
