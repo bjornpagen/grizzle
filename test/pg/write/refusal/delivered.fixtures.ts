@@ -1,7 +1,7 @@
 /** What the properties of delivered.test.ts read: its spaces, models and helpers. */
 
 import { array, element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -14,7 +14,10 @@ import {
 	type StatementsByName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { alteredFixtureTemplate } from "#test/pg/reads/support.ts"
 import { bareRecord } from "#test/support/assert.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A read-back attachment whose delivered type breaks raises inside its own statement, so its write commits nothing.
  *
@@ -130,7 +133,7 @@ const notes = (s: NotesInstalled) =>
 		)
 
 /** The write: the note each call's facts give, inserted, and every note read back. */
-export const write = (s: NotesInstalled) =>
+const write = (s: NotesInstalled) =>
 	ChangeSet.empty(s)
 		.insert(Note, [])
 		.read("notes", () => notes(s))
@@ -264,3 +267,31 @@ export type DeliveredFeature =
 	| "no holder, committed"
 	| `${Artifact}: every delivered type proved, committed`
 	| `${Artifact}: a breach aborts the write`
+
+/** What every case installs: Notes, its full world's workload holding the write. */
+export const notesInstall = { label: "real", programs: { write: write(Notes) } } as const
+
+/**
+ * Notes installed once per member with the defect planted: the constraints behind the evidence go, Note's foreign keys
+ * in one pass, then the keys they reference in another (reads/support.ts alteredFixtureTemplate), where the search
+ * dropped them once before its cases.
+ */
+export const notesTemplate = alteredFixtureTemplate(import.meta, Notes, notesInstall, (generated) =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const names = namesOf(generated.installed)
+		const passes = [
+			`conrelid = '${names.table(Note)}'::regclass AND contype = 'f'`,
+			`conrelid IN ('${names.table(Account)}'::regclass, '${names.table(Badge)}'::regclass, '${names.table(Profile)}'::regclass) AND contype = 'p'`
+		]
+		for (const constraints of passes) {
+			const drops = yield* s.admin.queryValues(
+				`SELECT format('ALTER TABLE %s DROP CONSTRAINT %I', conrelid::regclass, conname) FROM pg_catalog.pg_constraint WHERE ${constraints}`,
+				[]
+			)
+			for (const [drop] of drops) {
+				yield* s.admin.queryValues(String(drop), [])
+			}
+		}
+	})
+)

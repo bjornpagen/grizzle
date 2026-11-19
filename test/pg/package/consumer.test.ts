@@ -46,16 +46,15 @@ import {
 	noteId,
 	type NoteRow,
 	notesOf,
+	notesTemplate,
 	numbersGen,
 	pinProgram,
 	shellPin,
 	shellSpelling
 } from "#test/pg/package/consumer.fixtures.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
-import { installGenerated } from "#test/support/install-migrate.ts"
 import { testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
 import { privateCluster } from "#test/support/private-cluster.ts"
 import { hardenedNode } from "#test/support/process.ts"
@@ -80,90 +79,94 @@ import {
  */
 export const thePackageAsASubmoduleConsumerTakesItOnTheDevClusterOpensARoleOfALoginWithTheLinkedPackagesDbOpenAndReadsExactlyEveryNoteWrittenSoFar =
 	property.explore(numbersGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { notes: Substrate.seat(notesTemplate) },
 		situations: [
 			"one note",
 			"several notes",
 			"a read after an earlier write"
 		] satisfies ReadonlyArray<Reached<ConsumerFeature>>,
 		check:
-			({ substrate }, c: Case<ConsumerFeature>) =>
+			({ notes }, c: Case<ConsumerFeature>) =>
 			(numbers) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const written: Array<NoteRow> = []
-						const fs = yield* FileSystem.FileSystem
-						const path = yield* Path.Path
-						const consumer = yield* consumerProject
-						const generated = yield* installGenerated(
-							(name) => {
-								const at = declared(name)
-								return { schema: at, logins: [fullWorld(at, { notes: notesOf(at) }).server] }
-							},
-							{ label: "consumer", ambient: ordinarySession }
-						)
-						const installed = generated.installed
-						const App = declared(installed.declared)
-						const own = fullWorld(App, { notes: notesOf(App) })
-						const file = defined(
-							generated.served.get(own.server.name),
-							`the served file of login ${own.server.name}`
-						)
-						const served = path.join(consumer.project, "server.json")
-						yield* fs.writeFileString(
-							served,
-							succeeded(
-								servedText(succeeded(servedFile(file), "the login's served file")),
-								"the login's served file's text"
+				Effect.flatMap(notes, ({ substrate: seat, value: generated }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const written: Array<NoteRow> = []
+							const fs = yield* FileSystem.FileSystem
+							const path = yield* Path.Path
+							const consumer = yield* consumerProject
+							const installed = generated.installed
+							const App = declared(installed.declared)
+							const own = fullWorld(App, { notes: notesOf(App) })
+							const file = defined(
+								generated.served.get(own.server.name),
+								`the served file of login ${own.server.name}`
 							)
-						)
-						const program = path.join(consumer.project, "consumer.mjs")
-						yield* fs.writeFileString(program, consumerProgram)
-						const config = path.join(consumer.project, "config.json")
-						yield* fs.writeFileString(
-							config,
-							jsonText({
-								host: pgPin.host,
-								port: installed.cluster.port,
-								ca: installed.cluster.ca,
-								database: installed.database,
-								password: Redacted.value(installed.as(own.server).password),
-								connectTimeoutMs: testConnectTimeout,
-								idleTimeoutMs: testIdleTimeout,
-								served
-							})
-						)
-
-						const notes = Arr.map(numbers, (n, i) => ({ id: noteId(written.length + i), n }))
-						c.note(notes.length === 1 ? "one note" : "several notes")
-						if (Arr.isReadonlyArrayNonEmpty(written)) {
-							c.note("a read after an earlier write")
-						}
-						const outcome = yield* withServedDb(installed, own.server.roles.app, {}, ({ serve }) =>
-							Effect.flatMap(serve({ add: ChangeSet.empty(App).insert(Note, []) }), (served) =>
-								answered(
-									writeOnce(member(served, "add"))({
-										params: {},
-										facts: { insert: { Note: notes } }
-									})
+							const served = path.join(consumer.project, "server.json")
+							yield* fs.writeFileString(
+								served,
+								succeeded(
+									servedText(succeeded(servedFile(file), "the login's served file")),
+									"the login's served file's text"
 								)
 							)
-						).pipe(Effect.scoped)
-						assert.equal(outcome.kind, "accepted")
-						for (const note of notes) {
-							written.push(note)
-						}
-						const read = yield* Effect.scoped(
-							Effect.andThen(
-								installed.cluster.budget.within(consumerConnections),
-								runChild(process.execPath, [...hardenedNode, program, config], consumer.project, {})
+							const program = path.join(consumer.project, "consumer.mjs")
+							yield* fs.writeFileString(program, consumerProgram)
+							const config = path.join(consumer.project, "config.json")
+							yield* fs.writeFileString(
+								config,
+								jsonText({
+									host: pgPin.host,
+									port: installed.cluster.port,
+									ca: installed.cluster.ca,
+									database: installed.database,
+									password: Redacted.value(installed.as(own.server).password),
+									connectTimeoutMs: testConnectTimeout,
+									idleTimeoutMs: testIdleTimeout,
+									served
+								})
 							)
-						)
-						assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
-						unorderedEqual(trustedJson<ReadonlyArray<NoteRow>>(Str.trim(read.stdout)), written)
-					}),
-					Substrate,
-					substrate
+
+							const notes = Arr.map(numbers, (n, i) => ({ id: noteId(written.length + i), n }))
+							c.note(notes.length === 1 ? "one note" : "several notes")
+							if (Arr.isReadonlyArrayNonEmpty(written)) {
+								c.note("a read after an earlier write")
+							}
+							const outcome = yield* withServedDb(
+								installed,
+								own.server.roles.app,
+								{},
+								({ serve }) =>
+									Effect.flatMap(serve({ add: ChangeSet.empty(App).insert(Note, []) }), (served) =>
+										answered(
+											writeOnce(member(served, "add"))({
+												params: {},
+												facts: { insert: { Note: notes } }
+											})
+										)
+									)
+							).pipe(Effect.scoped)
+							assert.equal(outcome.kind, "accepted")
+							for (const note of notes) {
+								written.push(note)
+							}
+							const read = yield* Effect.scoped(
+								Effect.andThen(
+									installed.cluster.budget.within(consumerConnections),
+									runChild(
+										process.execPath,
+										[...hardenedNode, program, config],
+										consumer.project,
+										{}
+									)
+								)
+							)
+							assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
+							unorderedEqual(trustedJson<ReadonlyArray<NoteRow>>(Str.trim(read.stdout)), written)
+						}),
+						Substrate,
+						seat
+					)
 				),
 		oracle: {
 			kind: "specification",

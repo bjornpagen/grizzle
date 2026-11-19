@@ -14,7 +14,9 @@ import {
 import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
+	alteredGeneratedTemplate,
 	type Generated,
+	type GeneratedSpec,
 	generatedTemplate,
 	type Installed,
 	installGenerated,
@@ -298,9 +300,43 @@ export const fixtureTemplate = <
 	declaredIn: ImportMeta,
 	fixture: ReadFixture<N, R, St>,
 	options: FixtureInstall<P>
-): SubstrateTemplate<Generated> => {
+): SubstrateTemplate<Generated> => generatedTemplate(fixtureSpec(declaredIn, fixture, options))
+
+/**
+ * fixtureTemplate's installation with its catalog altered once per member right after the install (install-migrate.ts
+ * alteredGeneratedTemplate): `alter` plants what every case reads, such as the constraints behind a read-back's
+ * evidence dropped, where the search did it once before its cases. A case opens it as fixtureTemplate's (openedIn).
+ */
+export const alteredFixtureTemplate = <
+	const N extends string,
+	R extends Record<string, AnyRelation | AnyClosed>,
+	const St extends ReadonlyArray<Statement>,
+	const P extends Readonly<Record<string, unknown>>,
+	E
+>(
+	declaredIn: ImportMeta,
+	fixture: ReadFixture<N, R, St>,
+	options: FixtureInstall<P>,
+	alter: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
+): SubstrateTemplate<Generated> =>
+	alteredGeneratedTemplate({ ...fixtureSpec(declaredIn, fixture, options), alter })
+
+/**
+ * A read fixture's generated template's spec (fixtureTemplate): its full world's login, whose workload holds
+ * `options.programs`, its content the fixture's name, the label and the programs' names.
+ */
+const fixtureSpec = <
+	const N extends string,
+	R extends Record<string, AnyRelation | AnyClosed>,
+	const St extends ReadonlyArray<Statement>,
+	const P extends Readonly<Record<string, unknown>>
+>(
+	declaredIn: ImportMeta,
+	fixture: ReadFixture<N, R, St>,
+	options: FixtureInstall<P>
+): GeneratedSpec => {
 	const named = namedFixture(fixture)
-	return generatedTemplate({
+	return {
 		declaredIn,
 		name: options.label,
 		content: {
@@ -313,7 +349,7 @@ export const fixtureTemplate = <
 			logins: [fullWorld(named(name), options.programs).server]
 		}),
 		ambient: ordinarySession
-	})
+	}
 }
 
 /**

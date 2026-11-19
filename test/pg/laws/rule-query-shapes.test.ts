@@ -22,25 +22,21 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import {
 	brokenOf,
-	declared,
 	Disagreed,
 	type Feature,
 	programsOf,
-	RELATIONS,
-	shapeRowsOf,
 	type Rule,
 	ruleOf,
 	rules,
+	shapeRowsOf,
 	shapes,
+	shapesTemplate,
 	sketchGen
 } from "#test/pg/laws/rule-query-shapes.fixtures.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -51,7 +47,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 export const downstreamsRulesOverQueriesOnPostgreSQL19rc2AcceptExactlyTheStatesOfEachDownstreamShapeThatKeepItsRulesRefusingTheRestNamingARuleTheyBreak =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { shaped: Substrate.seat(shapesTemplate) },
 		situations: nonEmpty([
 			"typedHref: accepted",
 			"titledObject: accepted",
@@ -62,70 +58,65 @@ export const downstreamsRulesOverQueriesOnPostgreSQL19rc2AcceptExactlyTheStatesO
 			"a typed href's lom object accepted"
 		]) satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate }, c: Case<Feature>) =>
+			({ shaped }, c: Case<Feature>) =>
 			(sketch) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const done = yield* installMigrated(declared, {
-							ambient: ordinarySession,
-							label: "rule_shapes",
-							logins: [fullWorld(declared, {}).server],
-							extensions: []
-						})
-						const value = shapes(done.schema)
-						const world = fullWorld(value, programsOf(value))
-						const seat = yield* seatOfInstalled(done, RELATIONS, "rule_shapes")
-						const served = yield* servedFixture(done, world.server)
-						const context = yield* Layer.build(served.layer)
-						const db = yield* Db.open(served.login.roles.app, {}).pipe(
-							Effect.provideContext(context)
-						)
+				Effect.flatMap(shaped, ({ substrate: seat0, value: done }) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const value = shapes(done.schema)
+							const world = fullWorld(value, programsOf(value))
+							const served = yield* servedFixture(done, world.server)
+							const context = yield* Layer.build(served.layer)
+							const db = yield* Db.open(served.login.roles.app, {}).pipe(
+								Effect.provideContext(context)
+							)
 
-						yield* cleared(seat, RELATIONS)
-						const rows = shapeRowsOf(sketch)
-						const outcome = yield* answered(
-							db.workload.insertAll.once({ params: {}, facts: { insert: rows } })
-						)
-						const breaks = brokenOf(sketch)
-						if (outcome.kind === "accepted" || outcome.kind === "unchanged") {
-							if (breaks.length > 0) {
+							const rows = shapeRowsOf(sketch)
+							const outcome = yield* answered(
+								db.workload.insertAll.once({ params: {}, facts: { insert: rows } })
+							)
+							const breaks = brokenOf(sketch)
+							if (outcome.kind === "accepted" || outcome.kind === "unchanged") {
+								if (breaks.length > 0) {
+									return yield* new Disagreed({
+										message: `accepted a state breaking ${Arr.join(breaks, ", ")}: ${Formatter.format(sketch)}`
+									})
+								}
+								c.note(`${sketch.shape}: accepted`)
+								if (
+									sketch.shape === "heldSetter" &&
+									sketch.heldType &&
+									Arr.filter(sketch.expressions, (e) => e.parent === 1 && e.held).length === 2
+								) {
+									c.note("a setter with two held expressions forces one held type")
+								}
+								if (sketch.shape === "typedHref" && sketch.lom !== "none") {
+									c.note("a typed href's lom object accepted")
+								}
+								return
+							}
+							const named =
+								outcome.kind === "refused" ? Arr.map(refusedLaws(outcome.refused), ruleOf) : []
+							const broke = (r: Rule | undefined): r is Rule =>
+								r !== undefined && breaks.includes(r)
+							if (
+								outcome.kind !== "refused" ||
+								outcome.witness.kind !== "unreported" ||
+								!(outcome.refused.kind === "some"
+									? Arr.some(named, broke)
+									: Arr.isReadonlyArrayNonEmpty(named) && Arr.every(named, broke))
+							) {
 								return yield* new Disagreed({
-									message: `accepted a state breaking ${Arr.join(breaks, ", ")}: ${Formatter.format(sketch)}`
+									message: `answered ${Formatter.format(outcome)} where the state breaks ${Arr.join(breaks, ", ") || "nothing"}: ${Formatter.format(sketch)}`
 								})
 							}
-							c.note(`${sketch.shape}: accepted`)
-							if (
-								sketch.shape === "heldSetter" &&
-								sketch.heldType &&
-								Arr.filter(sketch.expressions, (e) => e.parent === 1 && e.held).length === 2
-							) {
-								c.note("a setter with two held expressions forces one held type")
+							for (const r of Arr.filter(named, broke)) {
+								c.note(`refused by ${r}`)
 							}
-							if (sketch.shape === "typedHref" && sketch.lom !== "none") {
-								c.note("a typed href's lom object accepted")
-							}
-							return
-						}
-						const named =
-							outcome.kind === "refused" ? Arr.map(refusedLaws(outcome.refused), ruleOf) : []
-						const broke = (r: Rule | undefined): r is Rule => r !== undefined && breaks.includes(r)
-						if (
-							outcome.kind !== "refused" ||
-							outcome.witness.kind !== "unreported" ||
-							!(outcome.refused.kind === "some"
-								? Arr.some(named, broke)
-								: Arr.isReadonlyArrayNonEmpty(named) && Arr.every(named, broke))
-						) {
-							return yield* new Disagreed({
-								message: `answered ${Formatter.format(outcome)} where the state breaks ${Arr.join(breaks, ", ") || "nothing"}: ${Formatter.format(sketch)}`
-							})
-						}
-						for (const r of Arr.filter(named, broke)) {
-							c.note(`refused by ${r}`)
-						}
-					}),
-					Substrate,
-					substrate
+						}),
+						Substrate,
+						seat0
+					)
 				),
 		oracle: {
 			kind: "specification",

@@ -11,9 +11,9 @@ import { contained, derived, login, on, relation, role, schema } from "#compiler
 import { refresh, workload } from "#compiler/public/workload.ts"
 import { dimensions, runProbes, vectorText } from "#test/pg/vector/ann/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
+import { type Generated, generatedTemplate, type Installed } from "#test/support/install-migrate.ts"
 import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
@@ -104,53 +104,67 @@ interface Opened {
 }
 
 /**
- * Installs the fixture under a fresh schema as `grizzle generate` drafts and serves it with its login
- * (test/support/install-migrate.ts installGenerated), loads the documents, rebuilds the fixture under the installed
- * name, so Db.open takes on the installed roles (test/pg/reads/support.ts), serves its login from the file generate
- * wrote, and refreshes the view through the refresher's workload member.
+ * The fixture drafted and served as `grizzle generate` drafts it with its login (install-migrate.ts generatedTemplate),
+ * once per member under the template's name, where the search installed it once before its cases.
  */
-export const opened = Effect.gen(function* () {
-	const s = yield* Substrate
-	const probe = yield* runProbes
-	const documents = documentsOf(probe)
-	const generated = yield* installGenerated(
-		(name) => {
-			const at = build(name)
-			return { schema: at.Reports, logins: [at.server] }
-		},
-		{ label: "vecview", ambient: ordinarySession }
-	)
-	const installed = generated.installed
-	const table = (relation: string): string => {
-		const name = installed.names.relation(relation)
-		return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
-	}
-	yield* s.admin.query(
-		`INSERT INTO ${table("Document")} ("id", "account") VALUES ${Arr.join(
-			Arr.map(documents, (d) => `('${d.id}'::uuid, '${d.account}'::uuid)`),
-			", "
-		)}`,
-		[]
-	)
-	yield* s.admin.query(
-		`INSERT INTO ${table("DocumentEmbedding")} ("document", "value") VALUES ${Arr.join(
-			Arr.flatMap(documents, (d) =>
-				d.value === undefined
-					? []
-					: [`('${d.id}'::uuid, '${vectorText(d.value)}'::vector_ext.vector)`]
-			),
-			", "
-		)}`,
-		[]
-	)
-	const fixture = build(installed.declared)
-	const served = servedGenerated(generated, fixture.server)
-	yield* Effect.gen(function* () {
-		const db = yield* Db.open(served.login.roles.refresher, {})
-		yield* db.workload.embeddings.once({ params: {}, facts: {} })
-	}).pipe(Effect.scoped, withLayer(served.layer))
-	return { installed, fixture, served, table, probe } satisfies Opened
+export const reportsTemplate = generatedTemplate({
+	declaredIn: import.meta,
+	name: "vecview",
+	content: { fixture: "vecview" },
+	build: (name) => {
+		const at = build(name)
+		return { schema: at.Reports, logins: [at.server] }
+	},
+	ambient: ordinarySession
 })
+
+/**
+ * A case's fixture over its own clone of the template (reportsTemplate): loads the documents of the run's probes,
+ * which a run draws anew and so no template holds, rebuilds the fixture under the installed name, so Db.open takes on
+ * the installed roles (test/pg/reads/support.ts), serves its login from the file generate wrote, and refreshes the view
+ * through the refresher's workload member, a refresh the clone's own, which it drops after the case.
+ */
+export const openedIn = (taken: SubstrateCase<Generated>) =>
+	Effect.provideService(
+		Effect.gen(function* () {
+			const s = yield* Substrate
+			const probe = yield* runProbes
+			const documents = documentsOf(probe)
+			const generated = taken.value
+			const installed = generated.installed
+			const table = (relation: string): string => {
+				const name = installed.names.relation(relation)
+				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
+			}
+			yield* s.admin.query(
+				`INSERT INTO ${table("Document")} ("id", "account") VALUES ${Arr.join(
+					Arr.map(documents, (d) => `('${d.id}'::uuid, '${d.account}'::uuid)`),
+					", "
+				)}`,
+				[]
+			)
+			yield* s.admin.query(
+				`INSERT INTO ${table("DocumentEmbedding")} ("document", "value") VALUES ${Arr.join(
+					Arr.flatMap(documents, (d) =>
+						d.value === undefined
+							? []
+							: [`('${d.id}'::uuid, '${vectorText(d.value)}'::vector_ext.vector)`]
+					),
+					", "
+				)}`,
+				[]
+			)
+			const fixture = build(installed.declared)
+			const served = servedGenerated(generated, fixture.server)
+			yield* Effect.gen(function* () {
+				const db = yield* Db.open(served.login.roles.refresher, {})
+				yield* db.workload.embeddings.once({ params: {}, facts: {} })
+			}).pipe(Effect.scoped, withLayer(served.layer))
+			return { installed, fixture, served, table, probe } satisfies Opened
+		}),
+		Substrate,
+		taken.substrate
+	)
 
 /** A case: the account the viewer scores, the probe it scores by, and the take of a search over the view. */
 export interface ViewCase {

@@ -35,10 +35,15 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
-import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
+import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import {
+	ownerSession,
+	Substrate,
+	type SubstrateCase,
+	worldSession
+} from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 const R = relation("R", { id: pg.integer, k: pg.integer, a: pg.integer }, ["id"])
@@ -1435,21 +1440,31 @@ const sessionDeltas = (
 		(a, b) => a.name === b.name
 	)
 
+/** The schema rule-query's cases run on, as declared. */
+const declared = ruleQuery("RuleQuery")
+
+/** The schema installed through its first migration once per member (install-migrate.ts installedTemplate). */
+export const judgedTemplate = installedTemplate({
+	declaredIn: import.meta,
+	name: "rule query",
+	schema: declared,
+	options: {
+		ambient: ordinarySession,
+		label: "rule_query",
+		logins: [fullWorld(declared, {}).server],
+		extensions: []
+	}
+})
+
 /**
- * The schema installed through its first migration, with everything a case runs on it: its seat, whose owner session
+ * A case's clone of the template (judgedTemplate), with everything a case runs on it: its seat, whose owner session
  * writes direct SQL; a second owner session; a session of the full world's login as its role, which writes the
  * tampers; its served write; the rule a refusal names through the installation's own constraint map; the name the
  * check over J3 reports; the deltas the judge's captures create; and the judge by its signature.
  */
-export const installJudged = (label: string) =>
+export const judgedIn = (taken: SubstrateCase<Installed>, label: string) =>
 	Effect.gen(function* () {
-		const declared = ruleQuery("RuleQuery")
-		const done = yield* installMigrated(declared, {
-			ambient: ordinarySession,
-			label,
-			logins: [fullWorld(declared, {}).server],
-			extensions: []
-		})
+		const done = taken.value
 		const value = ruleQuery(done.schema)
 		const checkName = constraintNamesOf(value)({
 			kind: "check",
@@ -1502,7 +1517,7 @@ export const installJudged = (label: string) =>
 			deltas: sessionDeltas(done),
 			judge: `${quoteIdent(installation.names.schema)}.${quoteIdent(identifierOf(identity.ruleJudge()))}()`
 		}
-	})
+	}).pipe(Effect.provideService(Substrate, taken.substrate))
 
 /**
  * The tables of a session's own temporary schema that hold a row: none at a transaction's end, where every delta and

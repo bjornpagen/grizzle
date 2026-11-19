@@ -33,13 +33,11 @@ import {
 	type Request,
 	untilGone,
 	workAt,
+	workTemplates,
 	worldsOver
 } from "#test/pg/serverless/logins.fixtures.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { workFacts } from "#test/support/fixtures/golden/work.ts"
-import { installGenerated, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -53,7 +51,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const loginsInOneProcessEachLoginItsOwnPoolADbPerRequestOnItsRolesLoginAloneEveryPoolReleasedWhenTheLayersScopeCloses =
 	property.explore(programGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { one: Substrate.seat(workTemplates.one), two: Substrate.seat(workTemplates.two) },
 		situations: [
 			"two installations",
 			"two logins of one installation",
@@ -62,125 +60,119 @@ export const loginsInOneProcessEachLoginItsOwnPoolADbPerRequestOnItsRolesLoginAl
 			"a login no request opened",
 			"a Db per request at volume"
 		] satisfies ReadonlyArray<Reached<LoginsFeature>>,
-		check:
-			({ substrate }, k: Case<LoginsFeature>) =>
-			(program) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const installs = yield* Effect.forEach(["one", "two"] as const, (label) =>
-							Effect.gen(function* () {
-								const generated = yield* installGenerated(
-									(name) => {
-										const at = worldsOver(workAt(name))
-										return { schema: workAt(name), logins: [at.web, at.ops] }
-									},
-									{ label, ambient: ordinarySession }
-								)
-								const done = generated.installed
-								yield* load(done, workFacts)
-								const worlds = worldsOver(workAt(done.declared))
-								const web = servedGenerated(generated, worlds.web)
-								const ops = servedGenerated(generated, worlds.ops)
-								return { done, worlds, web, ops, read: readsOf(web.login, ops.login) }
-							})
-						)
-						const [first, second] = installs
-						const installations = [defined(first), defined(second)] as const
-						/** The PostgreSQL role each login's sessions log in as. */
-						const loginRole = (i: 0 | 1, l: Login): string => {
-							const { done, worlds } = installations[i]
-							return done.as(worlds[l]).role
-						}
-						const everyLogin = Arr.flatMap([0, 1] as const, (i) =>
-							Arr.map(["web", "ops"] as const, (l) => ({
-								installation: i,
-								login: l,
-								role: loginRole(i, l)
-							}))
-						)
+		check: (seats, k: Case<LoginsFeature>) => (program) =>
+			Effect.gen(function* () {
+				/** Each installation over its own seat, whose database its logins' pools connect to. */
+				const installs = yield* Effect.forEach(["one", "two"] as const, (label) =>
+					Effect.map(seats[label], ({ substrate, value: generated }) => {
+						const done = generated.installed
+						const worlds = worldsOver(workAt(done.declared))
+						const web = servedGenerated(generated, worlds.web)
+						const ops = servedGenerated(generated, worlds.ops)
+						return { done, substrate, worlds, web, ops, read: readsOf(web.login, ops.login) }
+					})
+				)
+				const [first, second] = installs
+				const installations = [defined(first), defined(second)] as const
+				/** The PostgreSQL role each login's sessions log in as. */
+				const loginRole = (i: 0 | 1, l: Login): string => {
+					const { done, worlds } = installations[i]
+					return done.as(worlds[l]).role
+				}
+				const everyLogin = Arr.flatMap([0, 1] as const, (i) =>
+					Arr.map(["web", "ops"] as const, (l) => ({
+						installation: i,
+						login: l,
+						role: loginRole(i, l)
+					}))
+				)
 
-						const requests: ReadonlyArray<Request> =
-							program.kind === "drawn requests"
-								? program.requests
-								: upTo(program.count, (n) => ({
-										installation: program.installation,
-										role: n % 2 === 0 ? "reader" : "auditor"
-									}))
-						const concurrency = program.concurrency
-						/** One request: a Db of its role, opened for it alone, reading every account. */
-						const run = (r: Request) =>
-							Effect.gen(function* () {
-								const ids = yield* installations[r.installation].read[r.role]
-								assert.deepEqual(
-									Arr.sort(ids, Order.String),
-									accountIds,
-									`the accounts, read as ${r.role}`
-								)
-							})
-						const layers = Layer.mergeAll(
-							installations[0].web.layer,
-							installations[0].ops.layer,
-							installations[1].web.layer,
-							installations[1].ops.layer
+				const requests: ReadonlyArray<Request> =
+					program.kind === "drawn requests"
+						? program.requests
+						: upTo(program.count, (n) => ({
+								installation: program.installation,
+								role: n % 2 === 0 ? "reader" : "auditor"
+							}))
+				const concurrency = program.concurrency
+				/** One request: a Db of its role, opened for it alone, reading every account. */
+				const run = (r: Request) =>
+					Effect.gen(function* () {
+						const ids = yield* installations[r.installation].read[r.role]
+						assert.deepEqual(
+							Arr.sort(ids, Order.String),
+							accountIds,
+							`the accounts, read as ${r.role}`
 						)
-						yield* Effect.scoped(
-							Effect.gen(function* () {
-								yield* Effect.forEach(requests, run, { concurrency, discard: true })
-								for (const l of everyLogin) {
-									const backends = yield* roleBackends(l.role)
-									const opened = Arr.some(
-										requests,
-										(r) => r.installation === l.installation && loginOf(r.role) === l.login
-									)
-									assert.ok(
-										backends <= clusterPool.max,
-										`${l.role} holds ${backends} backends, past its pool's maximum`
-									)
-									if (!opened) {
-										assert.equal(backends, 0, `${l.role}: no request opened it, so no session`)
-										k.note("a login no request opened")
-									}
-								}
-							}).pipe(withLayer(layers))
-						)
+					})
+				const layers = Layer.mergeAll(
+					installations[0].web.layer,
+					installations[0].ops.layer,
+					installations[1].web.layer,
+					installations[1].ops.layer
+				)
+				yield* Effect.scoped(
+					Effect.gen(function* () {
+						yield* Effect.forEach(requests, run, { concurrency, discard: true })
 						for (const l of everyLogin) {
-							yield* untilGone(l.role)
-						}
-						const installationsUsed = new Set(Arr.map(requests, (r) => r.installation))
-						if (installationsUsed.size === 2) {
-							k.note("two installations")
-						}
-						if (
-							Arr.some(
-								[0, 1] as const,
-								(i) =>
-									new Set(
-										Arr.flatMap(requests, (r) => (r.installation === i ? [loginOf(r.role)] : []))
-									).size === 2
+							const backends = yield* Effect.provideService(
+								roleBackends(l.role),
+								Substrate,
+								installations[l.installation].substrate
 							)
-						) {
-							k.note("two logins of one installation")
-						}
-						if (
-							Arr.some(
-								[0, 1] as const,
-								(i) =>
-									Arr.some(requests, (r) => r.installation === i && r.role === "reader") &&
-									Arr.some(requests, (r) => r.installation === i && r.role === "auditor")
+							const opened = Arr.some(
+								requests,
+								(r) => r.installation === l.installation && loginOf(r.role) === l.login
 							)
-						) {
-							k.note("two roles of one login")
+							assert.ok(
+								backends <= clusterPool.max,
+								`${l.role} holds ${backends} backends, past its pool's maximum`
+							)
+							if (!opened) {
+								assert.equal(backends, 0, `${l.role}: no request opened it, so no session`)
+								k.note("a login no request opened")
+							}
 						}
-						if (concurrency > 1 && requests.length > 1) {
-							k.note("requests at once")
-						}
-						if (program.kind === "a Db per request at volume") {
-							k.note("a Db per request at volume")
-						}
-					}).pipe(Effect.scoped),
-					Substrate,
-					substrate
-				),
+					}).pipe(withLayer(layers))
+				)
+				for (const l of everyLogin) {
+					yield* Effect.provideService(
+						untilGone(l.role),
+						Substrate,
+						installations[l.installation].substrate
+					)
+				}
+				const installationsUsed = new Set(Arr.map(requests, (r) => r.installation))
+				if (installationsUsed.size === 2) {
+					k.note("two installations")
+				}
+				if (
+					Arr.some(
+						[0, 1] as const,
+						(i) =>
+							new Set(Arr.flatMap(requests, (r) => (r.installation === i ? [loginOf(r.role)] : [])))
+								.size === 2
+					)
+				) {
+					k.note("two logins of one installation")
+				}
+				if (
+					Arr.some(
+						[0, 1] as const,
+						(i) =>
+							Arr.some(requests, (r) => r.installation === i && r.role === "reader") &&
+							Arr.some(requests, (r) => r.installation === i && r.role === "auditor")
+					)
+				) {
+					k.note("two roles of one login")
+				}
+				if (concurrency > 1 && requests.length > 1) {
+					k.note("requests at once")
+				}
+				if (program.kind === "a Db per request at volume") {
+					k.note("a Db per request at volume")
+				}
+			}).pipe(Effect.scoped),
 		oracle: {
 			kind: "specification",
 			name: "the README's contract of logins: one pool per login, a Db per request on its login's layer, released with it"

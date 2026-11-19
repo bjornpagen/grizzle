@@ -8,9 +8,11 @@ import { query, v } from "#compiler/public/query.ts"
 import { login, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { roleBackends } from "#test/pg/serverless/support.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
+import { loadMigrated as load, seededGeneratedTemplate } from "#test/support/install-migrate.ts"
 
 export type Login = "web" | "ops"
 
@@ -140,3 +142,23 @@ export const accountIds = Arr.sort(
 	Arr.map(workFacts.Account, (a) => a.id),
 	Order.String
 )
+
+/**
+ * Work with its two logins installed once per member under each label, as `grizzle generate` drafts and serves it, its
+ * facts loaded in the build (install-migrate.ts seededGeneratedTemplate), where the search installed and loaded both
+ * once before its cases: every request only reads.
+ */
+const workTemplate = (label: "one" | "two") =>
+	seededGeneratedTemplate({
+		declaredIn: import.meta,
+		name: `logins ${label}`,
+		content: { installation: label },
+		build: (name) => {
+			const at = worldsOver(workAt(name))
+			return { schema: workAt(name), logins: [at.web, at.ops] }
+		},
+		ambient: ordinarySession,
+		seed: (generated) => load(generated.installed, workFacts)
+	})
+
+export const workTemplates = { one: workTemplate("one"), two: workTemplate("two") } as const

@@ -7,7 +7,9 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema, select } from "#compiler/public/schema.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
-import { nonEmpty } from "#test/support/assert.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { installedTemplate } from "#test/support/install-migrate.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /** A resource type's code: an item's, or a web content's. */
 const ITEM = 1
@@ -128,22 +130,6 @@ export const shapes = (name: string) => {
 		]
 	)
 }
-
-export const RELATIONS = nonEmpty([
-	"ResourceHref",
-	"ResourceTyped",
-	"Entry",
-	"LomObject",
-	"LomTitle",
-	"RecordObject",
-	"ObjectTitle",
-	"VariableRef",
-	"Expression",
-	"HeldType",
-	"Item",
-	"ItemKey",
-	"Flag"
-])
 
 export const rules = [
 	"DocumentEntry",
@@ -425,4 +411,17 @@ export type Feature =
 
 export class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
-export const declared = shapes("RuleShapes")
+const declared = shapes("RuleShapes")
+
+/** RuleShapes installed once per member with its full world's login (install-migrate.ts installedTemplate). */
+export const shapesTemplate = installedTemplate({
+	declaredIn: import.meta,
+	name: "rule shapes",
+	schema: declared,
+	options: {
+		ambient: ordinarySession,
+		label: "rule_shapes",
+		logins: [fullWorld(declared, {}).server],
+		extensions: []
+	}
+})

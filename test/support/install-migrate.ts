@@ -1285,14 +1285,8 @@ export const installGenerated = (
 		(history) => history.first
 	)
 
-/**
- * A generated installation's template (substrate.ts installTemplate): `build`'s schema and logins drafted and served
- * under the template's names as `grizzle generate` drafts them (generatedHistory) by every worker, applied once per
- * member by the build as installGenerated applies its first version, and each case's Generated the installation in the
- * case's clone, every login logging in with the password its template derived, with each login's served file.
- * `content` is what tells this template from another its module declares: its module's import closure covers the code.
- */
-export const generatedTemplate = (spec: {
+/** A generated installation's template's spec, as generatedTemplate takes it. */
+export interface GeneratedSpec {
 	readonly declaredIn: ImportMeta
 	readonly name: string
 	readonly content: Content
@@ -1301,7 +1295,60 @@ export const generatedTemplate = (spec: {
 		readonly logins: ReadonlyArray<AnyLogin>
 	}
 	readonly ambient: AmbientSession
-}): SubstrateTemplate<Generated> =>
+}
+
+/**
+ * A generated installation's template (substrate.ts installTemplate): `build`'s schema and logins drafted and served
+ * under the template's names as `grizzle generate` drafts them (generatedHistory) by every worker, applied once per
+ * member by the build as installGenerated applies its first version, and each case's Generated the installation in the
+ * case's clone, every login logging in with the password its template derived, with each login's served file.
+ * `content` is what tells this template from another its module declares: its module's import closure covers the code.
+ */
+export const generatedTemplate = (spec: GeneratedSpec): SubstrateTemplate<Generated> =>
+	generatedSeeded(spec, {
+		seed: () => Effect.void,
+		reset: (generated) => installationGroup(namesOf(generated.installed))
+	})
+
+/**
+ * generatedTemplate's installation with what every case starts from written once per member, as the build's owner,
+ * right after the install: `seed` on the installation it made (facts loaded), where a search did it once before its
+ * cases. Every case over a seat of it commits nothing to the seeded tables: the seat's reset empties no table, and the
+ * clone must hold the seeded state again after the case, or it is replaced and the case fails.
+ */
+export const seededGeneratedTemplate = <E>(
+	spec: GeneratedSpec & {
+		readonly seed: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
+	}
+): SubstrateTemplate<Generated> => generatedSeeded(spec, { seed: spec.seed, reset: () => noTables })
+
+/**
+ * generatedTemplate's installation with its catalog altered once per member, as the build's owner, right after the
+ * install: `alter` on the installation it made (constraints dropped, a defect planted in the schema), where a search did
+ * it once before its cases. Its seat's reset empties every stored relation's table, as generatedTemplate's does: what
+ * the alteration made is the template's own, and a case's rows are its own.
+ */
+export const alteredGeneratedTemplate = <E>(
+	spec: GeneratedSpec & {
+		readonly alter: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
+	}
+): SubstrateTemplate<Generated> =>
+	generatedSeeded(spec, {
+		seed: spec.alter,
+		reset: (generated) => installationGroup(namesOf(generated.installed))
+	})
+
+/**
+ * generatedTemplate's, seededGeneratedTemplate's and alteredGeneratedTemplate's one template, its build seeding and its
+ * seat resetting as `seeding` says.
+ */
+const generatedSeeded = <E>(
+	spec: GeneratedSpec,
+	seeding: {
+		readonly seed: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
+		readonly reset: (generated: Generated) => ResetGroup
+	}
+): SubstrateTemplate<Generated> =>
 	installTemplate({
 		declaredIn: spec.declaredIn,
 		name: spec.name,
@@ -1324,12 +1371,13 @@ export const generatedTemplate = (spec: {
 				const owner = yield* ambientOwner(spec.ambient, installedSchemas(drafted.plan.installation))
 				yield* applyFolders(owner, substrate.database, drafted.snapshot, [drafted.folder])
 				const credentials = yield* loginCredentials(drafted.plan, drafted.served, new Map())
-				yield* generatedAt(drafted, {
+				const generated = yield* generatedAt(drafted, {
 					declared: names.schema,
 					folders: [drafted.folder],
 					ambientOwner: owner,
 					credentials
 				})
+				yield* seeding.seed(generated)
 			}),
 		bind: ({ names, drafted }, binding) => ({
 			installed: installedAt(
@@ -1349,7 +1397,7 @@ export const generatedTemplate = (spec: {
 			),
 			served: drafted.served
 		}),
-		reset: (generated) => installationGroup(namesOf(generated.installed))
+		reset: seeding.reset
 	})
 
 /**

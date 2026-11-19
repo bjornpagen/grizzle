@@ -86,7 +86,8 @@ import {
 	type Feature,
 	forms,
 	heldSessionRows,
-	installJudged,
+	judgedIn,
+	judgedTemplate,
 	insufficientPrivilege,
 	j3,
 	Keys,
@@ -117,7 +118,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const rulesOverQueriesOnPostgreSQL19rc2CommitExactlyTheHistoriesWhoseEveryStateKeepsEveryRuleOverAQueryRefusingTheRestByTheBrokenRulesNameAtCOMMITOrAtTheFirstStatementPastSETCONSTRAINTSALLIMMEDIATEThatBreaksOneAndCommitNoBrokenStateUnderConcurrentWritersOrALoginsOwnPgTempTables =
 	property.explore(aimed(caseGen, aims), {
-		needs: { substrate: Substrate.installing },
+		needs: { judged: Substrate.seat(judgedTemplate) },
 		situations: [
 			"committed",
 			"committed a J3 fact",
@@ -145,281 +146,286 @@ export const rulesOverQueriesOnPostgreSQL19rc2CommitExactlyTheHistoriesWhoseEver
 			"concurrent writer refused by a serialization failure"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate }, c: Case<Feature>) =>
+			({ judged }, c: Case<Feature>) =>
 			(rc) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const u = yield* installJudged("rule_query")
-						const definer = yield* Effect.map(
-							u.seat.session.values(
-								"SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc AS p WHERE p.oid = pg_catalog.to_regprocedure($1)",
-								[u.judge]
-							),
-							(rows) => String(defined(rows[0], "the judge's owner")[0])
-						)
-
-						yield* cleared(u.seat, RELATIONS)
-						const keys = new Keys()
-						let state: State = emptyState
-						const committed = (after: State): void => {
-							state = after
-							c.note("committed")
-							if (j3(state).length > 0) {
-								c.note("committed a J3 fact")
-							}
-							if (lonely(state).length > 0) {
-								c.note("committed a lonely row")
-							}
-							const rows = negated(state)
-							for (const f of forms) {
-								if (rows[f].length > 0) {
-									c.note(`committed a row of ${f}`)
-								}
-							}
-						}
-						/** The situations a refused transaction reached, by the rules the state it leaves breaks. */
-						const refusalNotes = (
-							ops: ReadonlyArray<Op>,
-							t: Resolved,
-							breaks: ReadonlyArray<Rule>,
-							needed: boolean
-						): void => {
-							if (needed && breaks.includes("target3")) {
-								c.note("a fact unwound across tables while W needs it")
-							}
-							if (t.withdrawn.length > 0 && breaks.includes("vLonely")) {
-								c.note("a lonely row deleted and blocked at once while V needs it")
-							}
-							if (t.listed.length > 0 && breaks.length === 1 && breaks.includes("nUnlisted")) {
-								c.note("a marked row listed through both negations of its arm at once")
-							}
-							for (const situation of alone(ops, t, breaks)) {
-								c.note(situation)
-							}
-						}
-						const clusterNotes = (t: Resolved): void => {
-							for (const cs of t.clusters) {
-								const omitting = Arr.filter(cs, (x) => x.omit !== "none").length
-								c.note(
-									omitting === 0
-										? "clusters with none omitting a row"
-										: omitting === 1
-											? "clusters with one omitting a row"
-											: "clusters with several omitting a row"
-								)
-							}
-						}
-						for (const tx of rc.history) {
-							const t = resolve(tx.ops, state, keys, u.seat.table)
-							const breaks = broken(t.after)
-							const needed = Arr.some(t.unwound, (k) =>
-								Arr.some([...state.W.values()], (w) => w.k === k)
+				Effect.flatMap(judged, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const u = yield* judgedIn(taken, "rule_query")
+							const definer = yield* Effect.map(
+								u.seat.session.values(
+									"SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc AS p WHERE p.oid = pg_catalog.to_regprocedure($1)",
+									[u.judge]
+								),
+								(rows) => String(defined(rows[0], "the judge's owner")[0])
 							)
-							if (tx.writer === "tamper") {
-								const w = u.writer
-								const arming = yield* attempt(w, [`DELETE FROM ${u.seat.table("R")} WHERE false`])
-								yield* w.query("DISCARD TEMP", [])
-								for (const d of u.deltas) {
-									yield* w.query(
-										`CREATE TEMPORARY TABLE pg_temp.${quoteIdent(d.name)} (${Arr.join(
-											Arr.map(d.columns, (col) => `${quoteIdent(col.name)} ${printType(col.type)}`),
-											", "
-										)})`,
-										[]
-									)
-									yield* w.query(
-										`GRANT ALL ON pg_temp.${quoteIdent(d.name)} TO ${quoteIdent(definer)}`,
-										[]
+
+							yield* cleared(u.seat, RELATIONS)
+							const keys = new Keys()
+							let state: State = emptyState
+							const committed = (after: State): void => {
+								state = after
+								c.note("committed")
+								if (j3(state).length > 0) {
+									c.note("committed a J3 fact")
+								}
+								if (lonely(state).length > 0) {
+									c.note("committed a lonely row")
+								}
+								const rows = negated(state)
+								for (const f of forms) {
+									if (rows[f].length > 0) {
+										c.note(`committed a row of ${f}`)
+									}
+								}
+							}
+							/** The situations a refused transaction reached, by the rules the state it leaves breaks. */
+							const refusalNotes = (
+								ops: ReadonlyArray<Op>,
+								t: Resolved,
+								breaks: ReadonlyArray<Rule>,
+								needed: boolean
+							): void => {
+								if (needed && breaks.includes("target3")) {
+									c.note("a fact unwound across tables while W needs it")
+								}
+								if (t.withdrawn.length > 0 && breaks.includes("vLonely")) {
+									c.note("a lonely row deleted and blocked at once while V needs it")
+								}
+								if (t.listed.length > 0 && breaks.length === 1 && breaks.includes("nUnlisted")) {
+									c.note("a marked row listed through both negations of its arm at once")
+								}
+								for (const situation of alone(ops, t, breaks)) {
+									c.note(situation)
+								}
+							}
+							const clusterNotes = (t: Resolved): void => {
+								for (const cs of t.clusters) {
+									const omitting = Arr.filter(cs, (x) => x.omit !== "none").length
+									c.note(
+										omitting === 0
+											? "clusters with none omitting a row"
+											: omitting === 1
+												? "clusters with one omitting a row"
+												: "clusters with several omitting a row"
 									)
 								}
-								const verdict = yield* attempt(w, [
-									...t.statements,
-									...Arr.map(u.deltas, (d) => `DELETE FROM pg_temp.${quoteIdent(d.name)}`)
-								])
-								yield* w.query("DISCARD TEMP", [])
-								if (arming.kind !== "committed") {
-									return yield* new Disagreed({
-										message: `a tamper's judged write, which writes nothing, was refused ${momentText(arming.moment)} by ${refusalText(arming.fields)}`
-									})
-								}
-								if (verdict.kind === "refused") {
-									if (verdict.fields.code !== insufficientPrivilege) {
+							}
+							for (const tx of rc.history) {
+								const t = resolve(tx.ops, state, keys, u.seat.table)
+								const breaks = broken(t.after)
+								const needed = Arr.some(t.unwound, (k) =>
+									Arr.some([...state.W.values()], (w) => w.k === k)
+								)
+								if (tx.writer === "tamper") {
+									const w = u.writer
+									const arming = yield* attempt(w, [`DELETE FROM ${u.seat.table("R")} WHERE false`])
+									yield* w.query("DISCARD TEMP", [])
+									for (const d of u.deltas) {
+										yield* w.query(
+											`CREATE TEMPORARY TABLE pg_temp.${quoteIdent(d.name)} (${Arr.join(
+												Arr.map(
+													d.columns,
+													(col) => `${quoteIdent(col.name)} ${printType(col.type)}`
+												),
+												", "
+											)})`,
+											[]
+										)
+										yield* w.query(
+											`GRANT ALL ON pg_temp.${quoteIdent(d.name)} TO ${quoteIdent(definer)}`,
+											[]
+										)
+									}
+									const verdict = yield* attempt(w, [
+										...t.statements,
+										...Arr.map(u.deltas, (d) => `DELETE FROM pg_temp.${quoteIdent(d.name)}`)
+									])
+									yield* w.query("DISCARD TEMP", [])
+									if (arming.kind !== "committed") {
 										return yield* new Disagreed({
-											message: `a tamper over the judge's deltas was refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)}, where a write the judge captures into a login's table must be refused ${insufficientPrivilege}: ${Formatter.format(t.statements)}`
+											message: `a tamper's judged write, which writes nothing, was refused ${momentText(arming.moment)} by ${refusalText(arming.fields)}`
 										})
 									}
-									c.note("a tamper refused")
-									if (breaks.length > 0) {
-										c.note("a tamper whose writes break a rule refused")
+									if (verdict.kind === "refused") {
+										if (verdict.fields.code !== insufficientPrivilege) {
+											return yield* new Disagreed({
+												message: `a tamper over the judge's deltas was refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)}, where a write the judge captures into a login's table must be refused ${insufficientPrivilege}: ${Formatter.format(t.statements)}`
+											})
+										}
+										c.note("a tamper refused")
+										if (breaks.length > 0) {
+											c.note("a tamper whose writes break a rule refused")
+										}
+										clusterNotes(t)
+										continue
 									}
-									clusterNotes(t)
-									continue
-								}
-								if (breaks.length > 0) {
-									return yield* new Disagreed({
-										message: `a tamper over the judge's deltas committed a state breaking ${Arr.join(breaks, ", ")}: ${Formatter.format(t.statements)}`
-									})
-								}
-								committed(t.after)
-								continue
-							}
-							if (tx.writer === "grizzle") {
-								const outcome = yield* u.write(state, t.after)
-								if (outcome.kind === "accepted" || outcome.kind === "unchanged") {
-									if (
-										breaks.length > 0 ||
-										(outcome.kind === "unchanged") !== unchanged(state, t.after)
-									) {
+									if (breaks.length > 0) {
 										return yield* new Disagreed({
-											message: `grizzle's write answered ${outcome.kind} where the state it leaves breaks ${Arr.join(breaks, ", ") || "nothing"}: ${Formatter.format(tx.ops)}`
+											message: `a tamper over the judge's deltas committed a state breaking ${Arr.join(breaks, ", ")}: ${Formatter.format(t.statements)}`
 										})
 									}
 									committed(t.after)
-									c.note("a grizzle write committed")
 									continue
 								}
-								const named =
-									outcome.kind === "refused" ? Arr.map(refusedLaws(outcome.refused), ruleOf) : []
-								const broke = (r: Rule | undefined): boolean =>
-									r !== undefined && breaks.includes(r)
-								if (
-									outcome.kind !== "refused" ||
-									outcome.witness.kind !== "unreported" ||
-									!(outcome.refused.kind === "some"
-										? Arr.some(named, broke)
-										: Arr.isReadonlyArrayNonEmpty(named) && Arr.every(named, broke))
-								) {
-									return yield* new Disagreed({
-										message: `grizzle's write answered ${Formatter.format(outcome)} where the state it leaves breaks ${Arr.join(breaks, ", ") || "nothing"}: ${Formatter.format(tx.ops)}`
-									})
-								}
-								for (const r of named) {
-									if (broke(r)) {
-										c.note(`refused by ${defined(r, "a rule the refusal names")}`)
+								if (tx.writer === "grizzle") {
+									const outcome = yield* u.write(state, t.after)
+									if (outcome.kind === "accepted" || outcome.kind === "unchanged") {
+										if (
+											breaks.length > 0 ||
+											(outcome.kind === "unchanged") !== unchanged(state, t.after)
+										) {
+											return yield* new Disagreed({
+												message: `grizzle's write answered ${outcome.kind} where the state it leaves breaks ${Arr.join(breaks, ", ") || "nothing"}: ${Formatter.format(tx.ops)}`
+											})
+										}
+										committed(t.after)
+										c.note("a grizzle write committed")
+										continue
 									}
+									const named =
+										outcome.kind === "refused" ? Arr.map(refusedLaws(outcome.refused), ruleOf) : []
+									const broke = (r: Rule | undefined): boolean =>
+										r !== undefined && breaks.includes(r)
+									if (
+										outcome.kind !== "refused" ||
+										outcome.witness.kind !== "unreported" ||
+										!(outcome.refused.kind === "some"
+											? Arr.some(named, broke)
+											: Arr.isReadonlyArrayNonEmpty(named) && Arr.every(named, broke))
+									) {
+										return yield* new Disagreed({
+											message: `grizzle's write answered ${Formatter.format(outcome)} where the state it leaves breaks ${Arr.join(breaks, ", ") || "nothing"}: ${Formatter.format(tx.ops)}`
+										})
+									}
+									for (const r of named) {
+										if (broke(r)) {
+											c.note(`refused by ${defined(r, "a rule the refusal names")}`)
+										}
+									}
+									c.note("a grizzle write refused by a rule")
+									refusalNotes(tx.ops, t, breaks, needed)
+									continue
 								}
-								c.note("a grizzle write refused by a rule")
-								refusalNotes(tx.ops, t, breaks, needed)
-								continue
-							}
-							const expected = expectedOf(t)
-							const verdict = yield* attempt(u.seat.session, t.statements)
-							if (verdict.kind === "committed") {
-								if (expected.kind !== "committed") {
+								const expected = expectedOf(t)
+								const verdict = yield* attempt(u.seat.session, t.statements)
+								if (verdict.kind === "committed") {
+									if (expected.kind !== "committed") {
+										return yield* new Disagreed({
+											message: `committed where it must be refused ${momentText(expected.moment)} by ${Arr.join(expected.breaks, ", ")}: ${Formatter.format(t.statements)}`
+										})
+									}
+								} else {
+									const rule = u.refusedRule(verdict.fields)
+									if (
+										expected.kind !== "refused" ||
+										rule === undefined ||
+										!expected.breaks.includes(rule) ||
+										verdict.fields.code !== codeOf(rule) ||
+										(rule === "check3" && verdict.fields.constraint !== u.checkName) ||
+										!sameMoment(verdict.moment, expected.moment)
+									) {
+										return yield* new Disagreed({
+											message: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (rule ${rule ?? "none"}), where it must be ${expected.kind === "committed" ? "committed" : `refused ${momentText(expected.moment)} by ${Arr.join(expected.breaks, ", ")}`}: ${Formatter.format(t.statements)}`
+										})
+									}
+									c.note(`refused by ${rule}`)
+								}
+								const held = yield* heldSessionRows(u.seat.session)
+								if (held.length > 0) {
 									return yield* new Disagreed({
-										message: `committed where it must be refused ${momentText(expected.moment)} by ${Arr.join(expected.breaks, ", ")}: ${Formatter.format(t.statements)}`
+										message: `the writer's session holds rows of ${Arr.join(held, ", ")} after its transaction ended: ${Formatter.format(t.statements)}`
 									})
 								}
-							} else {
-								const rule = u.refusedRule(verdict.fields)
-								if (
-									expected.kind !== "refused" ||
-									rule === undefined ||
-									!expected.breaks.includes(rule) ||
-									verdict.fields.code !== codeOf(rule) ||
-									(rule === "check3" && verdict.fields.constraint !== u.checkName) ||
-									!sameMoment(verdict.moment, expected.moment)
-								) {
-									return yield* new Disagreed({
-										message: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (rule ${rule ?? "none"}), where it must be ${expected.kind === "committed" ? "committed" : `refused ${momentText(expected.moment)} by ${Arr.join(expected.breaks, ", ")}`}: ${Formatter.format(t.statements)}`
-									})
+								if (expected.kind === "committed") {
+									committed(t.after)
+								} else if (expected.moment.kind === "commit") {
+									refusalNotes(tx.ops, t, expected.breaks, needed)
 								}
-								c.note(`refused by ${rule}`)
+								if (t.immediate.length > 0) {
+									c.note(
+										expected.kind === "refused" && expected.moment.kind === "statement"
+											? "refused at a statement past SET CONSTRAINTS ALL IMMEDIATE"
+											: expected.kind === "committed"
+												? "committed past SET CONSTRAINTS ALL IMMEDIATE"
+												: "committed"
+									)
+								}
+								if (expected.kind === "committed" && t.rolledBack) {
+									c.note("a write rolled back to a savepoint")
+								}
+								if (expected.kind === "committed" && t.renoted) {
+									c.note("a note no rule reads updated")
+								}
+								clusterNotes(t)
 							}
-							const held = yield* heldSessionRows(u.seat.session)
-							if (held.length > 0) {
+							const a = resolve(rc.concurrent.first, state, keys, u.seat.table)
+							const b = resolve(rc.concurrent.second, state, keys, u.seat.table)
+							const g = resolve(rc.concurrent.grizzle, state, keys, u.seat.table)
+							const run = (session: RawSession, statements: ReadonlyArray<string>) =>
+								Effect.gen(function* () {
+									for (const sql of statements) {
+										const refused = yield* refusalOf(session.query(sql, []))
+										if (Option.isSome(refused)) {
+											return refused
+										}
+									}
+									return Option.none()
+								})
+							/**
+							 * Each SQL writer takes its snapshot first, so grizzle's write commits while both are open and
+							 * neither sees it; a writer that meets another's row lock gives up at once, so none waits on a
+							 * commit that comes after it.
+							 */
+							const opening = ["SET LOCAL lock_timeout = '200ms'", "SELECT 1"]
+							yield* u.seat.session.begin
+							yield* u.second.begin
+							const snapA = yield* run(u.seat.session, opening)
+							const snapB = yield* run(u.second, opening)
+							const grizzle = yield* u.write(state, g.after).pipe(
+								Effect.map((outcome) =>
+									outcome.kind === "accepted" || outcome.kind === "unchanged"
+										? "committed"
+										: "refused"
+								),
+								Effect.catchIf(
+									(error) => error.kind === "transient",
+									() => Effect.succeed("serialization" as const)
+								)
+							)
+							const openA = Option.isSome(snapA) ? snapA : yield* run(u.seat.session, a.statements)
+							const openB = Option.isSome(snapB) ? snapB : yield* run(u.second, b.statements)
+							const commitA = Option.isSome(openA) ? openA : yield* refusalOf(u.seat.session.commit)
+							if (Option.isSome(openA)) {
+								yield* u.seat.session.rollback
+							}
+							const commitB = Option.isSome(openB) ? openB : yield* refusalOf(u.second.commit)
+							if (Option.isSome(openB)) {
+								yield* u.second.rollback
+							}
+							const now = yield* readState((sql) => u.seat.session.values(sql, []), u.seat.table)
+							const after = broken(now)
+							if (after.length > 0) {
 								return yield* new Disagreed({
-									message: `the writer's session holds rows of ${Arr.join(held, ", ")} after its transaction ended: ${Formatter.format(t.statements)}`
+									message: `concurrent writers committed a state breaking ${Arr.join(after, ", ")}: ${Formatter.format([a.statements, b.statements, rc.concurrent.grizzle])}`
 								})
 							}
-							if (expected.kind === "committed") {
-								committed(t.after)
-							} else if (expected.moment.kind === "commit") {
-								refusalNotes(tx.ops, t, expected.breaks, needed)
-							}
-							if (t.immediate.length > 0) {
-								c.note(
-									expected.kind === "refused" && expected.moment.kind === "statement"
-										? "refused at a statement past SET CONSTRAINTS ALL IMMEDIATE"
-										: expected.kind === "committed"
-											? "committed past SET CONSTRAINTS ALL IMMEDIATE"
-											: "committed"
-								)
-							}
-							if (expected.kind === "committed" && t.rolledBack) {
-								c.note("a write rolled back to a savepoint")
-							}
-							if (expected.kind === "committed" && t.renoted) {
-								c.note("a note no rule reads updated")
-							}
-							clusterNotes(t)
-						}
-						const a = resolve(rc.concurrent.first, state, keys, u.seat.table)
-						const b = resolve(rc.concurrent.second, state, keys, u.seat.table)
-						const g = resolve(rc.concurrent.grizzle, state, keys, u.seat.table)
-						const run = (session: RawSession, statements: ReadonlyArray<string>) =>
-							Effect.gen(function* () {
-								for (const sql of statements) {
-									const refused = yield* refusalOf(session.query(sql, []))
-									if (Option.isSome(refused)) {
-										return refused
-									}
-								}
-								return Option.none()
-							})
-						/**
-						 * Each SQL writer takes its snapshot first, so grizzle's write commits while both are open and
-						 * neither sees it; a writer that meets another's row lock gives up at once, so none waits on a
-						 * commit that comes after it.
-						 */
-						const opening = ["SET LOCAL lock_timeout = '200ms'", "SELECT 1"]
-						yield* u.seat.session.begin
-						yield* u.second.begin
-						const snapA = yield* run(u.seat.session, opening)
-						const snapB = yield* run(u.second, opening)
-						const grizzle = yield* u.write(state, g.after).pipe(
-							Effect.map((outcome) =>
-								outcome.kind === "accepted" || outcome.kind === "unchanged"
-									? "committed"
-									: "refused"
-							),
-							Effect.catchIf(
-								(error) => error.kind === "transient",
-								() => Effect.succeed("serialization" as const)
+							const refusals = Arr.getSomes([commitA, commitB])
+							c.note(
+								refusals.length === 0 && grizzle === "committed"
+									? "concurrent writers all committed"
+									: "concurrent writer refused"
 							)
-						)
-						const openA = Option.isSome(snapA) ? snapA : yield* run(u.seat.session, a.statements)
-						const openB = Option.isSome(snapB) ? snapB : yield* run(u.second, b.statements)
-						const commitA = Option.isSome(openA) ? openA : yield* refusalOf(u.seat.session.commit)
-						if (Option.isSome(openA)) {
-							yield* u.seat.session.rollback
-						}
-						const commitB = Option.isSome(openB) ? openB : yield* refusalOf(u.second.commit)
-						if (Option.isSome(openB)) {
-							yield* u.second.rollback
-						}
-						const now = yield* readState((sql) => u.seat.session.values(sql, []), u.seat.table)
-						const after = broken(now)
-						if (after.length > 0) {
-							return yield* new Disagreed({
-								message: `concurrent writers committed a state breaking ${Arr.join(after, ", ")}: ${Formatter.format([a.statements, b.statements, rc.concurrent.grizzle])}`
-							})
-						}
-						const refusals = Arr.getSomes([commitA, commitB])
-						c.note(
-							refusals.length === 0 && grizzle === "committed"
-								? "concurrent writers all committed"
-								: "concurrent writer refused"
-						)
-						if (
-							grizzle === "serialization" ||
-							Arr.some(refusals, (f) => f.code === serializationFailure)
-						) {
-							c.note("concurrent writer refused by a serialization failure")
-						}
-					}),
-					Substrate,
-					substrate
+							if (
+								grizzle === "serialization" ||
+								Arr.some(refusals, (f) => f.code === serializationFailure)
+							) {
+								c.note("concurrent writer refused by a serialization failure")
+							}
+						}),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",

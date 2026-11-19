@@ -29,7 +29,8 @@ import { admittedPolicy, textRows, vectorParam, vectorText } from "#test/pg/vect
 import {
 	derivedAccountA,
 	derivedAccountB,
-	opened,
+	openedIn,
+	reportsTemplate,
 	policySettings,
 	type ViewCase,
 	type ViewFeature
@@ -55,121 +56,126 @@ export const approximateNearestOverADerivedRelationTheViewerReachesTheVectorType
 			take: source.draw(int(1, 20))
 		}),
 		{
-			needs: { substrate: Substrate.installing },
+			needs: { reports: Substrate.freshOf(reportsTemplate) },
 			situations: [
 				"account A scored",
 				"account B scored",
 				"a search over the view refused"
 			] satisfies ReadonlyArray<Reached<ViewFeature>>,
 			check:
-				({ substrate }, k: Case<ViewFeature>) =>
+				({ reports }, k: Case<ViewFeature>) =>
 				(c) =>
-					Effect.provideServiceEffect(
-						Effect.gen(function* () {
-							const o = yield* opened
-							const s = yield* Substrate
-							const viewer = o.installed.role(o.fixture.viewer)
-							const session = yield* s.session({
-								...worldSession(o.installed.world(o.fixture.viewer)),
-								label: "viewer"
-							})
-							return yield* Effect.gen(function* () {
-								const db = yield* Db.open(o.served.login.roles.viewer, {})
-
-								/** The viewer's own view is its one path to the vector type. */
-								const privileges = yield* s.admin.queryValues(
-									`SELECT pg_catalog.has_table_privilege($1::text, $2::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $3::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $4::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $5::text, 'SELECT')::text, pg_catalog.has_schema_privilege($1::text, 'vector_ext', 'USAGE')::text`,
-									[
-										viewer,
-										roleNamesOf(o.installed, o.fixture.viewer).view("Embeddings"),
-										o.table("Embeddings"),
-										o.table("Document"),
-										o.table("DocumentEmbedding")
-									]
-								)
-								assert.deepEqual(textRows(privileges), [
-									["true", "false", "false", "false", "true"]
-								])
-								for (const p of searchPolicySettings) {
-									const rows = yield* session.values(`SHOW ${p.parameter}`, [])
-									assert.deepEqual(rows, [[p.value]], p.parameter)
-								}
-								yield* session.values(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
-								for (const p of searchPolicySettings) {
-									const rows = yield* session.values(`SHOW ${p.parameter}`, [])
-									assert.deepEqual(rows, [[p.value]], p.parameter)
-								}
-								assert.deepEqual(
-									admittedPolicy(o.installed.snapshot, o.installed.as(o.fixture.server).role),
-									policySettings
-								)
-								const account = c.account === "A" ? derivedAccountA : derivedAccountB
-								const vector = o.probe(c.probe)
-								/**
-								 * A complete scan of the view, as the owner sees it: every embedded document of the
-								 * account with the native distance, the same C function `cosine_distance` calls.
-								 */
-								const oracle = yield* Effect.map(
-									s.admin.queryValues(
-										`SELECT "document"::text, ("value" OPERATOR(vector_ext.<=>) $1::vector_ext.vector)::text FROM ${o.table("Embeddings")} WHERE "account" = $2::uuid ORDER BY 1`,
-										[vectorText(vector), account]
-									),
-									textRows
-								)
-								assert.notDeepEqual(oracle, [], "the view holds the account's embedded documents")
-								const rows = yield* rowsOf(
-									db.workload.scored.once({
-										params: {
-											account,
-											vector: vectorParam(vector)
-										},
-										facts: {}
-									})
-								)
-								const pairs: ReadonlyArray<ReadonlyArray<string | number>> = Arr.map(rows, (r) => [
-									r.document,
-									r.distance
-								])
-								assert.deepEqual(
-									Arr.sortWith(pairs, (row) => String(row[0]), Order.String),
-									Arr.map(oracle, ([document, distance]) => [
-										defined(document, "a document"),
-										Number(distance)
-									])
-								)
-								k.note(c.account === "A" ? "account A scored" : "account B scored")
-								/**
-								 * A ranked vector must be a stored relation's field: a search over the view is refused by the
-								 * checker, and by the compile of a served workload that holds it, at the program.
-								 */
-								const nearest = o.fixture.scored.approximateNearest({
-									by: "distance",
-									take: c.take
+					Effect.flatMap(reports, (taken) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const o = yield* openedIn(taken)
+								const s = yield* Substrate
+								const viewer = o.installed.role(o.fixture.viewer)
+								const session = yield* s.session({
+									...worldSession(o.installed.world(o.fixture.viewer)),
+									label: "viewer"
 								})
-								refused(
-									Result.flatMap(queryInput(nearest), (input) =>
-										checkQuery(checking(o.fixture.viewer), input.desc, checkOptions("query"))
-									),
-									"UnsupportedOperation",
-									"the checker refuses the search"
-								)
-								const refusal = yield* Effect.flip(
-									Effect.asVoid(
-										servedJson(o.installed, o.fixture.server, [
-											servedPrograms(o.fixture.viewer, { nearest })
+								return yield* Effect.gen(function* () {
+									const db = yield* Db.open(o.served.login.roles.viewer, {})
+
+									/** The viewer's own view is its one path to the vector type. */
+									const privileges = yield* s.admin.queryValues(
+										`SELECT pg_catalog.has_table_privilege($1::text, $2::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $3::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $4::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $5::text, 'SELECT')::text, pg_catalog.has_schema_privilege($1::text, 'vector_ext', 'USAGE')::text`,
+										[
+											viewer,
+											roleNamesOf(o.installed, o.fixture.viewer).view("Embeddings"),
+											o.table("Embeddings"),
+											o.table("Document"),
+											o.table("DocumentEmbedding")
+										]
+									)
+									assert.deepEqual(textRows(privileges), [
+										["true", "false", "false", "false", "true"]
+									])
+									for (const p of searchPolicySettings) {
+										const rows = yield* session.values(`SHOW ${p.parameter}`, [])
+										assert.deepEqual(rows, [[p.value]], p.parameter)
+									}
+									yield* session.values(
+										`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`,
+										[]
+									)
+									for (const p of searchPolicySettings) {
+										const rows = yield* session.values(`SHOW ${p.parameter}`, [])
+										assert.deepEqual(rows, [[p.value]], p.parameter)
+									}
+									assert.deepEqual(
+										admittedPolicy(o.installed.snapshot, o.installed.as(o.fixture.server).role),
+										policySettings
+									)
+									const account = c.account === "A" ? derivedAccountA : derivedAccountB
+									const vector = o.probe(c.probe)
+									/**
+									 * A complete scan of the view, as the owner sees it: every embedded document of the
+									 * account with the native distance, the same C function `cosine_distance` calls.
+									 */
+									const oracle = yield* Effect.map(
+										s.admin.queryValues(
+											`SELECT "document"::text, ("value" OPERATOR(vector_ext.<=>) $1::vector_ext.vector)::text FROM ${o.table("Embeddings")} WHERE "account" = $2::uuid ORDER BY 1`,
+											[vectorText(vector), account]
+										),
+										textRows
+									)
+									assert.notDeepEqual(oracle, [], "the view holds the account's embedded documents")
+									const rows = yield* rowsOf(
+										db.workload.scored.once({
+											params: {
+												account,
+												vector: vectorParam(vector)
+											},
+											facts: {}
+										})
+									)
+									const pairs: ReadonlyArray<ReadonlyArray<string | number>> = Arr.map(
+										rows,
+										(r) => [r.document, r.distance]
+									)
+									assert.deepEqual(
+										Arr.sortWith(pairs, (row) => String(row[0]), Order.String),
+										Arr.map(oracle, ([document, distance]) => [
+											defined(document, "a document"),
+											Number(distance)
 										])
 									)
-								)
-								assert.deepEqual(refusal.place, {
-									kind: "program",
-									role: "viewer",
-									program: "nearest"
-								})
-								k.note("a search over the view refused")
-							}).pipe(Effect.scoped, withLayer(o.served.layer))
-						}),
-						Substrate,
-						substrate
+									k.note(c.account === "A" ? "account A scored" : "account B scored")
+									/**
+									 * A ranked vector must be a stored relation's field: a search over the view is refused by the
+									 * checker, and by the compile of a served workload that holds it, at the program.
+									 */
+									const nearest = o.fixture.scored.approximateNearest({
+										by: "distance",
+										take: c.take
+									})
+									refused(
+										Result.flatMap(queryInput(nearest), (input) =>
+											checkQuery(checking(o.fixture.viewer), input.desc, checkOptions("query"))
+										),
+										"UnsupportedOperation",
+										"the checker refuses the search"
+									)
+									const refusal = yield* Effect.flip(
+										Effect.asVoid(
+											servedJson(o.installed, o.fixture.server, [
+												servedPrograms(o.fixture.viewer, { nearest })
+											])
+										)
+									)
+									assert.deepEqual(refusal.place, {
+										kind: "program",
+										role: "viewer",
+										program: "nearest"
+									})
+									k.note("a search over the view refused")
+								}).pipe(Effect.scoped, withLayer(o.served.layer))
+							}),
+							Substrate,
+							taken.substrate
+						)
 					),
 			oracle: {
 				kind: "second-implementation",

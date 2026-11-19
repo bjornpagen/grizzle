@@ -23,8 +23,9 @@ import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { levelNameAt } from "#test/support/compile.ts"
-import { installGenerated } from "#test/support/install-migrate.ts"
+import { type Generated, generatedTemplate } from "#test/support/install-migrate.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import type { SubstrateCase } from "#test/support/substrate/substrate.ts"
 
 export const Code = contract("Code", uuid)
 
@@ -258,17 +259,26 @@ export const expectedOf = (
 	}
 }
 
-/** The installation of the two levels and their logins under an allocated name, and the levels under that name. */
-export const installedLevels = Effect.gen(function* () {
-	const generated = yield* installGenerated(
-		(name) => {
-			const at = levelsAt(name)
-			return { schema: at.upper, logins: [at.authorApp, at.app] }
-		},
-		{ label: "levels", ambient: ordinarySession }
-	)
-	const done = generated.installed
-	return { generated, done, at: levelsAt(done.declared) }
+/**
+ * The two levels and their logins drafted and served as `grizzle generate` drafts them, once per member under the
+ * template's name (install-migrate.ts generatedTemplate), where the search installed them once before its cases.
+ */
+export const levelsTemplate = generatedTemplate({
+	declaredIn: import.meta,
+	name: "levels",
+	content: { levels: "levels" },
+	build: (name) => {
+		const at = levelsAt(name)
+		return { schema: at.upper, logins: [at.authorApp, at.app] }
+	},
+	ambient: ordinarySession
+})
+
+/** A case's installation of the levels over its clone of the template (levelsTemplate), and the levels under its name. */
+export const levelsIn = (taken: SubstrateCase<Generated>) => ({
+	generated: taken.value,
+	done: taken.value.installed,
+	at: levelsAt(taken.value.installed.declared)
 })
 
 export const quote = (text: string) => `'${Str.replaceAll("'", "''")(text)}'`

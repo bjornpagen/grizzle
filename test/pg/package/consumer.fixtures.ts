@@ -7,7 +7,10 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { generatedTemplate } from "#test/support/install-migrate.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 import type { SubmoduleConsumer } from "#test/unit/dev/consumer.ts"
 
 export const Note = relation("Note", { id: uuid, n: pg.integer }, ["id"])
@@ -20,6 +23,21 @@ export const notesOf = (base: ReturnType<typeof declared>) =>
 		const { id, n } = v(Note, "note")
 		return r.match(Note, { id, n }).find({ id, n })
 	})
+
+/**
+ * The consumer's schema with its full world's login drafted and served as `grizzle generate` drafts it, once per member
+ * (install-migrate.ts generatedTemplate), where the search installed it once before its cases.
+ */
+export const notesTemplate = generatedTemplate({
+	declaredIn: import.meta,
+	name: "consumer",
+	content: { schema: "consumer" },
+	build: (name) => {
+		const at = declared(name)
+		return { schema: at, logins: [fullWorld(at, { notes: notesOf(at) }).server] }
+	},
+	ambient: ordinarySession
+})
 
 /**
  * The connections the consumer opens on the cluster at once, which its run draws from the file's budget: its pool's

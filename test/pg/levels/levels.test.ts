@@ -37,7 +37,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Law } from "#compiler/public/changeset.ts"
 import { lawsOf, schemaNameOf } from "#compiler/public/schema.ts"
-import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
+import { seatOfInstalled } from "#test/pg/fin/installed.ts"
 import {
 	type CatalogFact,
 	catalogFactGen,
@@ -50,7 +50,8 @@ import {
 	type Feature,
 	historyGen,
 	idAt,
-	installedLevels,
+	levelsIn,
+	levelsTemplate,
 	Item,
 	type Level,
 	type LevelRole,
@@ -73,7 +74,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const levelsOfOneInstallationOnPostgreSQL19rc2InstallEachLevelsTablesInItsOwnSchemaTheContainmentAcrossThemOverOneDomainAndGrantEachRoleExactlyTheTablesItWrites =
 	property.exhaust(finite(catalogFactGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { levels: Substrate.seat(levelsTemplate) },
 		situations: [
 			"a table in its level's schema",
 			"no table in another level's schema",
@@ -83,54 +84,56 @@ export const levelsOfOneInstallationOnPostgreSQL19rc2InstallEachLevelsTablesInIt
 			"one contract domain across the levels"
 		] satisfies ReadonlyArray<Reached<CatalogFeature>>,
 		check:
-			({ substrate }, c: Case<CatalogFeature>) =>
+			({ levels }, c: Case<CatalogFeature>) =>
 			(fact) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const { done, at } = yield* installedLevels
-						const seat = yield* seatOfInstalled(done, ["Item", "Sitting"], "levels")
-						const schemaOf: { readonly [L in Level]: string } = {
-							lower: schemaNameOf(at.lower),
-							upper: schemaNameOf(at.upper)
-						}
-						const roleOf: { readonly [R in LevelRole]: string } = {
-							author: roleNameOf(at.author, {}),
-							learner: roleNameOf(at.learner, {})
-						}
-						/** A relation's table in a level's schema, both as the compiler names them, as a regclass literal. */
-						const tableIn = (level: Level, relation: string) =>
-							quote(
-								`${quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaOf[level]))))}.${quoteIdent(identifierOf(identity.table(parsedName(relation))))}`
-							)
-						const lowerItem = tableIn("lower", Item.name)
-						const upperSitting = tableIn("upper", Sitting.name)
-						/** The boolean the catalog answers for a fact. */
-						const sqlOf = (fact: CatalogFact): string => {
-							switch (fact.kind) {
-								case "placed":
-									return `to_regclass(${tableIn(fact.level, fact.relation)}) IS NOT NULL`
-								case "privileged": {
-									const role = quote(roleOf[fact.role])
-									const table = tableIn(
-										Arr.contains(at.declares.lower, fact.relation) ? "lower" : "upper",
-										fact.relation
-									)
-									return `has_table_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE,DELETE') OR has_any_column_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE')`
-								}
-								case "containment":
-									return `EXISTS (SELECT FROM pg_catalog.pg_constraint WHERE contype = 'f' AND conrelid = ${upperSitting}::regclass AND confrelid = ${lowerItem}::regclass AND condeferred)`
-								case "domain":
-									return `(SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${lowerItem}::regclass AND attname = ${columnOf("id")}) = (SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${upperSitting}::regclass AND attname = ${columnOf("item")})`
+				Effect.flatMap(levels, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const { done, at } = levelsIn(taken)
+							const seat = yield* seatOfInstalled(done, ["Item", "Sitting"], "levels")
+							const schemaOf: { readonly [L in Level]: string } = {
+								lower: schemaNameOf(at.lower),
+								upper: schemaNameOf(at.upper)
 							}
-						}
+							const roleOf: { readonly [R in LevelRole]: string } = {
+								author: roleNameOf(at.author, {}),
+								learner: roleNameOf(at.learner, {})
+							}
+							/** A relation's table in a level's schema, both as the compiler names them, as a regclass literal. */
+							const tableIn = (level: Level, relation: string) =>
+								quote(
+									`${quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaOf[level]))))}.${quoteIdent(identifierOf(identity.table(parsedName(relation))))}`
+								)
+							const lowerItem = tableIn("lower", Item.name)
+							const upperSitting = tableIn("upper", Sitting.name)
+							/** The boolean the catalog answers for a fact. */
+							const sqlOf = (fact: CatalogFact): string => {
+								switch (fact.kind) {
+									case "placed":
+										return `to_regclass(${tableIn(fact.level, fact.relation)}) IS NOT NULL`
+									case "privileged": {
+										const role = quote(roleOf[fact.role])
+										const table = tableIn(
+											Arr.contains(at.declares.lower, fact.relation) ? "lower" : "upper",
+											fact.relation
+										)
+										return `has_table_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE,DELETE') OR has_any_column_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE')`
+									}
+									case "containment":
+										return `EXISTS (SELECT FROM pg_catalog.pg_constraint WHERE contype = 'f' AND conrelid = ${upperSitting}::regclass AND confrelid = ${lowerItem}::regclass AND condeferred)`
+									case "domain":
+										return `(SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${lowerItem}::regclass AND attname = ${columnOf("id")}) = (SELECT atttypid FROM pg_catalog.pg_attribute WHERE attrelid = ${upperSitting}::regclass AND attname = ${columnOf("item")})`
+								}
+							}
 
-						const [expected, situation] = expectedOf(at, fact)
-						const rows = yield* seat.session.values(`SELECT (${sqlOf(fact)})::text`, [])
-						c.note(situation)
-						assert.equal(rows[0]?.[0] === "true", expected, Formatter.format(fact))
-					}),
-					Substrate,
-					substrate
+							const [expected, situation] = expectedOf(at, fact)
+							const rows = yield* seat.session.values(`SELECT (${sqlOf(fact)})::text`, [])
+							c.note(situation)
+							assert.equal(rows[0]?.[0] === "true", expected, Formatter.format(fact))
+						}),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "postgresql",
@@ -148,7 +151,7 @@ export const levelsOfOneInstallationOnPostgreSQL19rc2InstallEachLevelsTablesInIt
  */
 export const levelsOfOneInstallationOnPostgreSQL19rc2ServeALoginOverEachLevelCommitEachTransactionExactlyWhenItKeepsTheContainmentAndRefuseALowerWriteAHigherLawForbidsByThatLawNamedAbove =
 	property.explore(historyGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { levels: Substrate.seat(levelsTemplate) },
 		situations: [
 			"an item added",
 			"an item deleted",
@@ -159,195 +162,195 @@ export const levelsOfOneInstallationOnPostgreSQL19rc2ServeALoginOverEachLevelCom
 			"a fused read of a sitting"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate }, c: Case<Feature>) =>
+			({ levels }, c: Case<Feature>) =>
 			(history) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const { generated, done, at } = yield* installedLevels
-						const seat = yield* seatOfInstalled(done, ["Item", "Sitting"], "levels")
-						const lowerServed = servedGenerated(generated, at.authorApp)
-						const upperServed = servedGenerated(generated, at.app)
-						const lowerContext = yield* Layer.build(lowerServed.layer)
-						const upperContext = yield* Layer.build(upperServed.layer)
-						const author = yield* Db.open(lowerServed.login.roles.author, {}).pipe(
-							Effect.provideContext(lowerContext)
-						)
-						const learner = yield* Db.open(upperServed.login.roles.learner, {}).pipe(
-							Effect.provideContext(upperContext)
-						)
-						const containment = defined(
-							Arr.findFirst(
-								Arr.map(lawsOf(at.upper), (l) => l.law),
-								(l) => l.kind === "contained"
-							).pipe(Option.getOrUndefined),
-							"the upper level states its containment"
-						)
-						const above: Law = {
-							kind: "above",
-							level: levelNameAt(done.schema, 1),
-							law: containment
-						}
+				Effect.flatMap(levels, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							const { generated, done, at } = levelsIn(taken)
+							const lowerServed = servedGenerated(generated, at.authorApp)
+							const upperServed = servedGenerated(generated, at.app)
+							const lowerContext = yield* Layer.build(lowerServed.layer)
+							const upperContext = yield* Layer.build(upperServed.layer)
+							const author = yield* Db.open(lowerServed.login.roles.author, {}).pipe(
+								Effect.provideContext(lowerContext)
+							)
+							const learner = yield* Db.open(upperServed.login.roles.learner, {}).pipe(
+								Effect.provideContext(upperContext)
+							)
+							const containment = defined(
+								Arr.findFirst(
+									Arr.map(lawsOf(at.upper), (l) => l.law),
+									(l) => l.kind === "contained"
+								).pipe(Option.getOrUndefined),
+								"the upper level states its containment"
+							)
+							const above: Law = {
+								kind: "above",
+								level: levelNameAt(done.schema, 1),
+								law: containment
+							}
 
-						yield* cleared(seat, ["Sitting", "Item"])
-						const facts: Facts = { items: new Map(), sittings: new Map() }
-						for (const op of history) {
-							switch (op.kind) {
-								case "addItem": {
-									if (facts.items.has(op.id)) {
-										continue
-									}
-									const outcome = yield* answered(
-										author.workload.addItem.once({
-											params: {},
-											facts: { insert: { Item: [{ id: Code(idAt(op.id)), n: op.n }] } }
-										})
-									)
-									if (outcome.kind !== "accepted") {
-										return yield* disagreed(
-											`adding item ${op.id} answered ${Formatter.format(outcome)}`
+							const facts: Facts = { items: new Map(), sittings: new Map() }
+							for (const op of history) {
+								switch (op.kind) {
+									case "addItem": {
+										if (facts.items.has(op.id)) {
+											continue
+										}
+										const outcome = yield* answered(
+											author.workload.addItem.once({
+												params: {},
+												facts: { insert: { Item: [{ id: Code(idAt(op.id)), n: op.n }] } }
+											})
 										)
-									}
-									facts.items.set(op.id, op.n)
-									c.note("an item added")
-									break
-								}
-								case "dropItem": {
-									const n = facts.items.get(op.id)
-									if (n === undefined) {
-										continue
-									}
-									const held = Arr.some([...facts.sittings.values()], (s) => s.item === op.id)
-									const outcome = yield* answered(
-										author.workload.dropItem.once({
-											params: {},
-											facts: { delete: { Item: [{ id: Code(idAt(op.id)), n }] } }
-										})
-									)
-									if (held) {
-										if (
-											outcome.kind !== "refused" ||
-											outcome.witness.kind !== "unreported" ||
-											!namesExactly(outcome, refusedLaws(outcome.refused), above)
-										) {
+										if (outcome.kind !== "accepted") {
 											return yield* disagreed(
-												`deleting held item ${op.id} answered ${Formatter.format(outcome)}, not a refusal by ${Formatter.format(above)}`
+												`adding item ${op.id} answered ${Formatter.format(outcome)}`
 											)
 										}
-										c.note("a held item's deletion refused from above")
+										facts.items.set(op.id, op.n)
+										c.note("an item added")
 										break
 									}
-									if (outcome.kind !== "accepted") {
-										return yield* disagreed(
-											`deleting item ${op.id} answered ${Formatter.format(outcome)}`
+									case "dropItem": {
+										const n = facts.items.get(op.id)
+										if (n === undefined) {
+											continue
+										}
+										const held = Arr.some([...facts.sittings.values()], (s) => s.item === op.id)
+										const outcome = yield* answered(
+											author.workload.dropItem.once({
+												params: {},
+												facts: { delete: { Item: [{ id: Code(idAt(op.id)), n }] } }
+											})
 										)
-									}
-									facts.items.delete(op.id)
-									c.note("an item deleted")
-									break
-								}
-								case "addSitting": {
-									if (facts.sittings.has(op.id)) {
-										continue
-									}
-									const outcome = yield* answered(
-										learner.workload.addSitting.once({
-											params: {},
-											facts: {
-												insert: {
-													Sitting: [
-														{
-															id: idAt(op.id),
-															item: Code(idAt(op.item)),
-															kind: op.test ? "Test" : "Practice"
-														}
-													]
-												}
+										if (held) {
+											if (
+												outcome.kind !== "refused" ||
+												outcome.witness.kind !== "unreported" ||
+												!namesExactly(outcome, refusedLaws(outcome.refused), above)
+											) {
+												return yield* disagreed(
+													`deleting held item ${op.id} answered ${Formatter.format(outcome)}, not a refusal by ${Formatter.format(above)}`
+												)
 											}
-										})
-									)
-									if (!facts.items.has(op.item)) {
-										if (
-											!namesExactly(
-												outcome,
-												outcome.kind === "refused" ? refusedLaws(outcome.refused) : undefined,
-												containment
-											)
-										) {
+											c.note("a held item's deletion refused from above")
+											break
+										}
+										if (outcome.kind !== "accepted") {
 											return yield* disagreed(
-												`a sitting of absent item ${op.item} answered ${Formatter.format(outcome)}, not a refusal by ${Formatter.format(containment)}`
+												`deleting item ${op.id} answered ${Formatter.format(outcome)}`
 											)
 										}
-										c.note("a dangling sitting refused")
+										facts.items.delete(op.id)
+										c.note("an item deleted")
 										break
 									}
-									if (outcome.kind !== "accepted") {
-										return yield* disagreed(
-											`adding sitting ${op.id} answered ${Formatter.format(outcome)}`
-										)
-									}
-									facts.sittings.set(op.id, { item: op.item, test: op.test })
-									c.note("a sitting added")
-									break
-								}
-								case "dropSitting": {
-									const s = facts.sittings.get(op.id)
-									if (s === undefined) {
-										continue
-									}
-									const outcome = yield* answered(
-										learner.workload.dropSitting.once({
-											params: {},
-											facts: {
-												delete: {
-													Sitting: [
-														{
-															id: idAt(op.id),
-															item: Code(idAt(s.item)),
-															kind: s.test ? "Test" : "Practice"
-														}
-													]
+									case "addSitting": {
+										if (facts.sittings.has(op.id)) {
+											continue
+										}
+										const outcome = yield* answered(
+											learner.workload.addSitting.once({
+												params: {},
+												facts: {
+													insert: {
+														Sitting: [
+															{
+																id: idAt(op.id),
+																item: Code(idAt(op.item)),
+																kind: op.test ? "Test" : "Practice"
+															}
+														]
+													}
 												}
-											}
-										})
-									)
-									if (outcome.kind !== "accepted") {
-										return yield* disagreed(
-											`deleting sitting ${op.id} answered ${Formatter.format(outcome)}`
+											})
 										)
+										if (!facts.items.has(op.item)) {
+											if (
+												!namesExactly(
+													outcome,
+													outcome.kind === "refused" ? refusedLaws(outcome.refused) : undefined,
+													containment
+												)
+											) {
+												return yield* disagreed(
+													`a sitting of absent item ${op.item} answered ${Formatter.format(outcome)}, not a refusal by ${Formatter.format(containment)}`
+												)
+											}
+											c.note("a dangling sitting refused")
+											break
+										}
+										if (outcome.kind !== "accepted") {
+											return yield* disagreed(
+												`adding sitting ${op.id} answered ${Formatter.format(outcome)}`
+											)
+										}
+										facts.sittings.set(op.id, { item: op.item, test: op.test })
+										c.note("a sitting added")
+										break
 									}
-									facts.sittings.delete(op.id)
-									c.note("a sitting deleted")
-									break
+									case "dropSitting": {
+										const s = facts.sittings.get(op.id)
+										if (s === undefined) {
+											continue
+										}
+										const outcome = yield* answered(
+											learner.workload.dropSitting.once({
+												params: {},
+												facts: {
+													delete: {
+														Sitting: [
+															{
+																id: idAt(op.id),
+																item: Code(idAt(s.item)),
+																kind: s.test ? "Test" : "Practice"
+															}
+														]
+													}
+												}
+											})
+										)
+										if (outcome.kind !== "accepted") {
+											return yield* disagreed(
+												`deleting sitting ${op.id} answered ${Formatter.format(outcome)}`
+											)
+										}
+										facts.sittings.delete(op.id)
+										c.note("a sitting deleted")
+										break
+									}
 								}
-							}
-							const joined = yield* rowsOf(learner.workload.fused.once({ params: {}, facts: {} }))
-							const expectedJoin = plain(
-								Arr.map([...facts.sittings], ([id, sitting]) => ({
-									id: idAt(id),
-									n: defined(facts.items.get(sitting.item), "a held item")
-								}))
-							)
-							const joinDiffers = sameRows(plain(joined), expectedJoin)
-							if (Option.isSome(joinDiffers)) {
-								return yield* disagreed(`the fused read: ${joinDiffers.value}`)
-							}
-							if (expectedJoin.length > 0) {
-								c.note("a fused read of a sitting")
-							}
-							const read = yield* rowsOf(learner.workload.items.once({ params: {}, facts: {} }))
-							const expectedItems = plain(
-								Arr.map([...facts.items], ([id, n]) => ({ id: idAt(id), n }))
-							)
-							const itemsDiffer = sameRows(plain(read), expectedItems)
-							if (Option.isSome(itemsDiffer)) {
-								return yield* disagreed(
-									`the lower level's query on the upper role: ${itemsDiffer.value}`
+								const joined = yield* rowsOf(learner.workload.fused.once({ params: {}, facts: {} }))
+								const expectedJoin = plain(
+									Arr.map([...facts.sittings], ([id, sitting]) => ({
+										id: idAt(id),
+										n: defined(facts.items.get(sitting.item), "a held item")
+									}))
 								)
+								const joinDiffers = sameRows(plain(joined), expectedJoin)
+								if (Option.isSome(joinDiffers)) {
+									return yield* disagreed(`the fused read: ${joinDiffers.value}`)
+								}
+								if (expectedJoin.length > 0) {
+									c.note("a fused read of a sitting")
+								}
+								const read = yield* rowsOf(learner.workload.items.once({ params: {}, facts: {} }))
+								const expectedItems = plain(
+									Arr.map([...facts.items], ([id, n]) => ({ id: idAt(id), n }))
+								)
+								const itemsDiffer = sameRows(plain(read), expectedItems)
+								if (Option.isSome(itemsDiffer)) {
+									return yield* disagreed(
+										`the lower level's query on the upper role: ${itemsDiffer.value}`
+									)
+								}
 							}
-						}
-					}),
-					Substrate,
-					substrate
+						}),
+						Substrate,
+						taken.substrate
+					)
 				),
 		oracle: {
 			kind: "specification",
