@@ -34,6 +34,7 @@ import {
 import { fieldReads } from "#compiler/ir/expr.ts"
 import { type Family, isSequence, isTreeOf, type TreeShape } from "#compiler/ir/family.ts"
 import { familyDrawn, layoutKey } from "#compiler/ir/fill.ts"
+import type { Stamped } from "#compiler/ir/instant.ts"
 import {
 	familyKey,
 	type LawField,
@@ -93,6 +94,7 @@ import type { WitnessEntry } from "#compiler/runtime/write/witness.ts"
 import type { UnitDelete, UnitMatch, UnitMember, UnitSource } from "#compiler/write/delete/unit.ts"
 import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import { endColumns, memberFamilies } from "#compiler/write/family/statements.ts"
+import { refuseStampsApart, stampsOf } from "#compiler/write/frontend/instants.ts"
 import {
 	type PlainRefill,
 	type RefillHolds,
@@ -332,6 +334,9 @@ export interface ActionInfo {
 	readonly reads: SourceReads
 	/** The heading its source delivers. */
 	readonly heading: Heading
+	/** The instant fields its insert's rows leave out, each with what stamps it (write/frontend/instants.ts stampsOf);
+	 * none for a put or a delete, which state every one, or an insert that states them all. */
+	readonly stamps: ReadonlyArray<Stamped>
 	/** What the action writes: its relation whole, or a role's query entry, whose fill its source reads through and whose
 	 * membership its additions are prechecked against. */
 	readonly entry: ActionEntry
@@ -518,12 +523,13 @@ const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 }
 
 /**
- * Whether a fact determines a field's value: one its caller or its sequence writes (isCarried), or one PostgreSQL
- * generates from them, which the statement that writes the fact computes as PostgreSQL stores it. A field grizzle draws
- * or accumulates is no fact's.
+ * Whether a fact determines a field's value: one its caller or its sequence writes (isCarried), one PostgreSQL
+ * generates from them, which the statement that writes the fact computes as PostgreSQL stores it, or an instant, which
+ * a put's or a delete's facts state from a stored one, a query's term, and whose every other writing is refused
+ * (write/frontend/instants.ts stampsOf). A field grizzle draws or accumulates is no fact's.
  */
 const determined = (field: LawField): boolean =>
-	isCarried(field) || field.writing.kind === "generated"
+	isCarried(field) || field.writing.kind === "generated" || field.writing.kind === "instant"
 
 /**
  * A put or a delete of `relation`, `member`, refused (UnstatedKey) where a key it reads off its facts holds a field no
@@ -700,6 +706,8 @@ interface Draft {
 	readonly carried: Heading
 	readonly reads: DraftReads
 	readonly entry: DraftEntry
+	/** Where its first member stands, which a refusal of how it writes an instant names. */
+	readonly loc: SourceLoc
 }
 
 /** A stratum's delete of a unit root's units before its source is built: its relation, the heading its facts carry, its
@@ -1580,7 +1588,9 @@ const compile = (
 				const enumerated = ofOp.flatMap((m) =>
 					m.source.kind === "enumerated" ? [m.source.member] : []
 				)
-				const queries = ofOp.flatMap((m) => (m.source.kind === "described" ? [m.source] : []))
+				const queries = ofOp.flatMap((m) =>
+					m.source.kind === "described" ? [{ root: m.source.root, loc: m.loc }] : []
+				)
 				const loc = firstOfOp.loc
 				const transport = enumerated.some((m) => m.kind === "stream") ? "stream" : "enumerated"
 				/** The member slot of the operation's enumerated members, its facts carrying `carried` and stating `walked`
@@ -1645,7 +1655,8 @@ const compile = (
 					act: ActionOp,
 					carried: Heading,
 					slot: MemberSlot | undefined,
-					roots: ReadonlyArray<RelNode>
+					roots: ReadonlyArray<RelNode>,
+					site: SourceLoc
 				): void => {
 					const reads: DraftReads | undefined = isNonEmpty(roots)
 						? { kind: "described", slot, roots }
@@ -1656,7 +1667,7 @@ const compile = (
 						return
 					}
 					if (target.kind === "whole") {
-						drafts.push({ act, relation, carried, reads, entry: { kind: "whole" } })
+						drafts.push({ act, relation, carried, reads, entry: { kind: "whole" }, loc: site })
 						return
 					}
 					if (!target.fillable) {
@@ -1671,7 +1682,8 @@ const compile = (
 						relation,
 						carried,
 						reads,
-						entry: { kind: "entry", entry: target.entry, names: target.names, fill }
+						entry: { kind: "entry", entry: target.entry, names: target.names, fill },
+						loc: site
 					})
 				}
 				/** An owner of counted families' counts and ends, which its enumerated slot carries at their starts when the
@@ -1727,7 +1739,8 @@ const compile = (
 							act,
 							carried,
 							singleInput(act, carried, facts),
-							queries.map((q) => q.root)
+							queries.map((q) => q.root),
+							loc
 						)
 						break
 					}
@@ -1753,9 +1766,9 @@ const compile = (
 						 * written fields, so a fact inserted and deleted is one fact with one identity, which nets. A
 						 * generated field is a function of the written ones, so it decides no match. */
 						const act: WriteAct = { op, names: "rows" }
-						draft(act, facts, singleInput(act, facts, facts), [])
+						draft(act, facts, singleInput(act, facts, facts), [], loc)
 						for (const q of queries) {
-							draft(act, facts, undefined, [q.root])
+							draft(act, facts, undefined, [q.root], q.loc)
 						}
 						break
 					}
@@ -1790,7 +1803,7 @@ const compile = (
 									)
 								}
 								if (nesting.root.kind === "plain") {
-									draft(insert, nesting.top, slot, [])
+									draft(insert, nesting.top, slot, [], loc)
 								}
 							}
 							break
@@ -1798,9 +1811,9 @@ const compile = (
 						/** An owner of counted families carries its counts and ends in its slot, at their starts, which the
 						 * stratum's appends to it replace before its insert is sent. */
 						const carried = [...facts, ...owned]
-						draft(insert, carried, singleInput(insert, carried, facts), [])
+						draft(insert, carried, singleInput(insert, carried, facts), [], loc)
 						for (const q of queries) {
-							draft(insert, facts, undefined, [q.root])
+							draft(insert, facts, undefined, [q.root], q.loc)
 						}
 						break
 					}
@@ -1898,11 +1911,13 @@ const compile = (
 	interface Built {
 		readonly action: ActionCore
 		readonly info: ActionInfo
+		/** Where its first member stands (Draft). */
+		readonly loc: SourceLoc
 	}
 	const builtByStratum = draftsByStratum.map(({ stratum, drafts, outside }) => ({
 		stratum,
 		outside,
-		built: drafts.map(({ act, relation, carried, reads, entry }): Built => {
+		built: drafts.map(({ act, relation, carried, reads, entry, loc }): Built => {
 			/** The source, what it reads and the heading it delivers: the slot alone; one described member's query alone;
 			 * or the Union of the slot's InputSet and of every described member's query. A query entry's sources, in its
 			 * facts, fill its fill's relation parameter, and the fill is the source. */
@@ -1949,14 +1964,28 @@ const compile = (
 				relation,
 				reads: read.reads,
 				heading: read.heading,
+				stamps: stampsOf(
+					laws.theory.instants,
+					relation,
+					act.op,
+					read.heading,
+					entry.kind === "whole" && !managed(relation.name) && !nests(relation.name),
+					loc
+				),
 				entry:
 					entry.kind === "entry"
 						? Object.freeze({ kind: "entry", entry: entry.entry, names: entry.names })
 						: whole
 			})
-			return { action: { ...act, relation: relation.name, source: read.source }, info }
+			return { action: { ...act, relation: relation.name, source: read.source }, info, loc }
 		})
 	}))
+	/** Each action's stamps by its stratum, which a ChangeSet stamps each clock in one stratum of, every reference beside
+	 * its clock's insert (write/frontend/instants.ts refuseStampsApart). */
+	const stamping = builtByStratum.flatMap(({ stratum, built }) =>
+		built.map(({ info, loc }) => ({ stratum, relation: info.relation, stamps: info.stamps, loc }))
+	)
+	refuseStampsApart(stamping)
 	/** Each stratum's unit deletes, each its relation's units from its one source, built after every action's. */
 	const unitsByStratum = draftsByStratum.map(({ stratum, units, below }) => ({
 		stratum,

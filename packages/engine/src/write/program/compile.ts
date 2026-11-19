@@ -1434,7 +1434,7 @@ const buildWriteOp = (
 	const { relation, input } = step
 	switch (step.op) {
 		case "insert":
-			return buildInsert(w, { relation, input, of: "insert" })
+			return buildInsert(w, { relation, input, of: "insert", stamps: step.stamps })
 		case "exactDelete":
 			return buildExactDelete(w, { relation, input, except: step.except })
 		case "anchoredDelete":
@@ -1442,7 +1442,7 @@ const buildWriteOp = (
 		case "displace":
 			return buildDisplacingDelete(w, { relation, input, payload: step.payload })
 		case "putInsert":
-			return buildInsert(w, { relation, input, of: "put" })
+			return buildInsert(w, { relation, input, of: "put", stamps: [] })
 		case "upsert":
 			return buildUpsert(w, {
 				relation,

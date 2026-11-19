@@ -453,10 +453,18 @@ export interface ValuePlaceholder {
 }
 
 /**
- * An expression. A `clock` is the placeholder of the declared parameter `param` its served member binds to the
- * database's clock (ir/clock.ts): the instant the call's transaction began, transaction_timestamp(), counted in `unit`
- * since the Unix epoch and floored, cast to `type` as the placeholder would be. It fills no slot: the server reads it,
- * never the call.
+ * What a reading of the database's clock stands for (Expr `clock`): the declared parameter `param` its served member
+ * binds to the clock (ir/clock.ts), or the reading an insert stamps an instant from (write/insert/stamp.ts), which binds
+ * no parameter.
+ */
+export type ClockOf =
+	| { readonly kind: "param"; readonly param: string }
+	| { readonly kind: "stamp" }
+
+/**
+ * An expression. A `clock` is a reading of the database's clock, as `of` says (ClockOf): the instant the call's
+ * transaction began, transaction_timestamp(), counted in `unit` since the Unix epoch and floored, cast to `type` as a
+ * placeholder of a parameter would be. It fills no slot: the server reads it, never the call.
  */
 export type Expr =
 	| { readonly kind: "column"; readonly table: string | undefined; readonly column: string }
@@ -465,7 +473,7 @@ export type Expr =
 	| { readonly kind: "param"; readonly slot: ValuePlaceholder; readonly type: TypeRef }
 	| {
 			readonly kind: "clock"
-			readonly param: string
+			readonly of: ClockOf
 			readonly unit: ClockUnit
 			readonly type: TypeRef
 	  }

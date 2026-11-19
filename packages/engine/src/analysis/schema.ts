@@ -36,6 +36,7 @@ import {
 	nestedFields
 } from "#compiler/ir/desc.ts"
 import { type ExprTable, type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
+import { instantInputText, isInstantDesc, isInstantType } from "#compiler/ir/instant.ts"
 import {
 	type ClosedSlot,
 	type ClosedTheoryRelation,
@@ -261,6 +262,9 @@ const drawnWriting: FieldWriting = Object.freeze({ kind: "drawn" })
 
 /** How a header's retirement field is written: false by its column's default, true by its group's retirement. */
 const retirementWriting: FieldWriting = Object.freeze({ kind: "retirement" })
+
+/** How an instant is written: by the database's clock, as its relation's laws say (analysis/theory/instants.ts). */
+const instantWriting: FieldWriting = Object.freeze({ kind: "instant" })
 
 /**
  * What a generated field's expression reads: each written field's type (undefined for a generated field or no field),
@@ -639,9 +643,16 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		patterns: PatternAutomata
 	): FieldWriting {
 		const w = f.writing
+		if (isInstantDesc(f.desc) && w.kind !== "caller") {
+			return fail(
+				"MalformedDescription",
+				at,
+				`an instant field declared by its type alone, which the database's clock writes; ${r.name}.${f.name} is ${w.kind}`
+			)
+		}
 		switch (w.kind) {
 			case "caller":
-				return callerWriting
+				return isInstantDesc(f.desc) ? instantWriting : callerWriting
 			case "drawn":
 				if (!isNaturalDesc(f.desc)) {
 					return fail(
@@ -966,6 +977,9 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		loc: SourceLoc,
 		patterns: PatternAutomata
 	): TypedLiteral {
+		if (isInstantType(type)) {
+			return fail("MalformedDescription", loc, instantInputText("literal"))
+		}
 		const admitted = admitLiteral(value, type, { kind: "refinements", patterns })
 		if (!admitted.ok) {
 			return fail(admitted.error.reason, loc, admitted.error.capability)
@@ -1011,6 +1025,9 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		patterns: PatternAutomata
 	): ScalarType {
 		nestedFields(desc, (d) => {
+			if (isInstantDesc(d)) {
+				fail("MalformedDescription", loc, instantInputText("value a query carries"))
+			}
 			if (d.kind !== "contract") {
 				return
 			}

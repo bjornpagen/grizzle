@@ -41,6 +41,7 @@ import {
 	type Volatility,
 	withArgs
 } from "#compiler/ir/expr.ts"
+import { instantInputText, isInstantType } from "#compiler/ir/instant.ts"
 import type { Exact, Fact, NativeProof, OperationProof, Precondition } from "#compiler/ir/proof.ts"
 import {
 	baseOf,
@@ -1962,6 +1963,9 @@ class Typing<R extends Refs> {
 	 * where the term is compiled, the contract and the regex refinement, which the lowering judges.
 	 */
 	literal(value: LiteralDesc, type: ScalarType, at: SourceLoc): Typed {
+		if (isInstantType(type)) {
+			return stop("MalformedDescription", at, instantInputText("literal"))
+		}
 		const admitted = admitLiteral(value, type, { kind: "shape" })
 		if (!admitted.ok) {
 			return stop(admitted.error.reason, at, admitted.error.capability)

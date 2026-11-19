@@ -89,8 +89,9 @@ import type {
 	Field,
 	FieldBase,
 	LiteralOf,
-	NotStoredOnly,
-	NotRoster
+	NotInstant,
+	NotRoster,
+	NotStoredOnly
 } from "#compiler/types/fields/field.ts"
 import type { PatternValidate } from "#compiler/types/fields/regex.ts"
 import type { FunctionType } from "#compiler/types/schema/function.ts"
@@ -374,7 +375,10 @@ export interface ComputeApi {
 	 * reads it.
 	 */
 	literal<H, S extends SqlTag, D, F extends Facts, const V>(
-		type: Field<H, S, D, F> & ([S] extends ["code"] ? NotRoster : unknown) & NotStoredOnly<S>,
+		type: Field<H, S, D, F> &
+			([S] extends ["code"] ? NotRoster : unknown) &
+			NotStoredOnly<S> &
+			NotInstant<D>,
 		value: Fit<V, NoInfer<LiteralOf<H>>> & ContractAdmits<Takes<V, LiteralOf<H>>, F, V>
 	): Admitted<
 		Every<[Takes<V, LiteralOf<H>>, Not<Refutes<F, V>>]>,
@@ -421,7 +425,7 @@ export interface ComputeApi {
 				FiniteCast<S, F, FX, LX>,
 				"a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)"
 			>,
-		to: Field<H, F, D>
+		to: Field<H, F, D> & NotInstant<D>
 	): Admitted<Casts<A, X, S, D, F>, Term<D, PA, ComputedOrigin<OA>, F, H, CastFacts<S, F, FX>>>
 
 	/**

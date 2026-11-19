@@ -513,6 +513,51 @@ export const generatedRuleText = (rule: GeneratedRule): string => {
 	}
 }
 
+/**
+ * Why an instant is refused (ir/instant.ts): a clock, an instant no containment carries, outside its relation's primary
+ * key, where no child orders it (`clockOutsideKey`), or first in it, its child no field (`childless`); an insert that
+ * stamps a clock at a child holding an instant `stamped` it also stamps (`childStamped`); a write that adds rows states a clock, which the database's clock
+ * alone stamps (`clockStated`); a put or a delete leaves an instant of its rows out, which only an insert stamps, where it
+ * states every instant from a stored one, a term of instant's type (`unstated`); an insert leaves out a reference that no one clock stamps (`unstampable`), or one
+ * whose clock `clock` its statement does not stamp (`clockUnstamped`); or one call would stamp the clock `clock` in more
+ * than one statement, each reading its own head, in two strata or in a stratum of several statements (`stampedApart`).
+ */
+export type InstantRule =
+	| { readonly kind: "clockOutsideKey" }
+	| { readonly kind: "childless" }
+	| { readonly kind: "childStamped"; readonly stamped: string }
+	| { readonly kind: "clockStated"; readonly op: "insert" | "put" }
+	| { readonly kind: "unstated"; readonly op: "put" | "delete" }
+	| { readonly kind: "unstampable" }
+	| { readonly kind: "clockUnstamped"; readonly clock: string }
+	| {
+			readonly kind: "stampedApart"
+			readonly clock: string
+			readonly apart: "strata" | "statements"
+	  }
+
+/** An instant rule's sentence. */
+export const instantRuleText = (rule: InstantRule): string => {
+	switch (rule.kind) {
+		case "clockOutsideKey":
+			return "a clock, an instant no containment carries into another relation's, stands in its relation's primary key, whose fields before it are the child it orders"
+		case "childless":
+			return "a clock stands in its relation's primary key after its child, at least one field: an instant first in its key would order every row of its relation as one child, which every writer meets and no shard splits"
+		case "childStamped":
+			return `a clock's child is stated, never stamped by the same insert, and ${rule.stamped} is: state it from a stored instant, or stamp it in an earlier stratum`
+		case "clockStated":
+			return `a clock is stamped by the database's clock alone, and ${rule.op === "insert" ? "an insert" : "a put"} states it: leave it out of the insert's rows, which stamps it`
+		case "unstated":
+			return `${rule.op === "put" ? "a put" : "a delete"} states every instant of its rows from a stored instant, which only a query's term of an instant field holds, never a row a caller passes: write it from a query`
+		case "unstampable":
+			return "a reference an insert leaves out is stamped by the one clock its containments reach, at a child they carry its row to, and this one's reach none, or two: state it from a stored instant"
+		case "clockUnstamped":
+			return `a reference an insert leaves out takes the instant its statement stamps ${rule.clock} with, and no insert of that stratum stamps ${rule.clock}: insert it in the same stratum, or state the reference from a stored instant`
+		case "stampedApart":
+			return `one call stamps ${rule.clock} in one statement, whose every row at a child shares one instant, and this one would stamp it ${rule.apart === "strata" ? "in two strata" : "in a stratum of several statements"}: stamp it in one stratum, and read it back as a stored instant after`
+	}
+}
+
 /** A claim rule's sentence. */
 export const claimRuleText = (rule: ClaimRule): string =>
 	`a claim of text, uuid, boolean, an integer type, a contract over one, or a closed handle; field ${rule.field} is none`

@@ -441,6 +441,7 @@ export const startOf = (names: PhysicalNames, field: LawField): Expr | undefined
 			return lowerLiteral(names, { kind: "bool", value: false }, field.type)
 		case "caller":
 		case "generated":
+		case "instant":
 			return undefined
 	}
 }

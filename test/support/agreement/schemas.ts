@@ -882,6 +882,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "RoleNameTooLong":
 		case "UnfillableField":
 		case "UnwritableRelation":
+		case "InstantRefused":
 		case "ForeignLevel":
 		case "LevelRefused":
 		case "FragmentRefused":

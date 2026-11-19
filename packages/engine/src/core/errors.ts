@@ -11,6 +11,8 @@ import {
 	type FilledLater,
 	type GeneratedRule,
 	generatedRuleText,
+	type InstantRule,
+	instantRuleText,
 	type KeyFault,
 	keyFaultText,
 	type LoginRule,
@@ -443,6 +445,8 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   fills it.
  * - `UnwritableRelation`: no write fills `relation`'s rows, or no delete removes them whole, for `cause`
  *   (UnwritableCause).
+ * - `InstantRefused`: instant field `field` of `relation` breaks the rule `rule` (InstantRule): as the schema declares
+ *   it, a clock outside its primary key, or as a ChangeSet writes it.
  * - `CascadedCopyAppend`: a write at `at` of `member`, an `op`, edits `family`, whose copy `copy` reads `owner`'s
  *   `through`, which `owner` copies from `changed`, a relation the same stratum puts from a query: grizzle never sees
  *   the query's rows, so it cannot draw the copy the put's change reaches `owner` with.
@@ -467,12 +471,14 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   read-back reads a body or the header's retirement field (`read`), or a read-back reads its delta (`delta`). A
  *   retirement removes its groups whole, by its unit's function, whose rows no other statement of the call sees, so a
  *   ChangeSet that retires a unit reads and writes it no other way (write/hold/stated.ts heldUnits).
- * - `NoReadCommittedForm`: the write at `at` inserts into `relation`, whose primary key holds a span, and is compiled for
- *   READ COMMITTED. An exclusion constraint arbitrates an INSERT by ON CONFLICT DO NOTHING alone, so no statement of the
- *   insert tells a requested fact it met from one it made, and the insert has no READ COMMITTED form: it runs
- *   SERIALIZABLE, where it arbitrates every object and classifies what it met (write/insert/protocol.ts Arbitration
- *   `every`). Certification reads it as the condition `form` of the role it compiles (analysis/isolation/certify.ts),
- *   which then runs SERIALIZABLE; only a compile for a level no certificate gives meets it as a refusal.
+ * - `NoReadCommittedForm`: the write at `at` inserts into `relation` and is compiled for READ COMMITTED, where the
+ *   insert has no form, as `why` says (NoFormWhy): `spanKey`, its primary key holds a span, whose exclusion constraint
+ *   arbitrates an INSERT by ON CONFLICT DO NOTHING alone, so no statement of the insert tells a requested fact it met
+ *   from one it made, where SERIALIZABLE arbitrates every object and classifies what it met (write/insert/protocol.ts
+ *   Arbitration `every`); or `stamp`, it stamps an instant, whose head two calls at READ COMMITTED both read before
+ *   either commits, so their instants need not follow their commits, where SERIALIZABLE orders them (ir/instant.ts).
+ *   Certification reads it as the condition `form` of the role it compiles (analysis/isolation/certify.ts), which then
+ *   runs SERIALIZABLE; only a compile for a level no certificate gives meets it as a refusal.
  * - `UninstalledDomain`: a statement at `at` casts a value to `domain` (UninstalledType), a domain the installation it is
  *   compiled for installs none of: a statement is served only over the domains its installation holds, so a value cast
  *   to another is refused where it is compiled, never by PostgreSQL where it runs.
@@ -636,6 +642,13 @@ export type CompileReason =
 			readonly cause: UnwritableCause
 	  }
 	| {
+			readonly _tag: "InstantRefused"
+			readonly at: SourceLoc
+			readonly relation: string
+			readonly field: string
+			readonly rule: InstantRule
+	  }
+	| {
 			readonly _tag: "CascadedCopyAppend"
 			readonly at: SourceLoc
 			readonly op: "insert" | "put" | "delete"
@@ -684,7 +697,12 @@ export type CompileReason =
 			readonly header: string
 			readonly how: "written" | "read" | "delta"
 	  }
-	| { readonly _tag: "NoReadCommittedForm"; readonly at: SourceLoc; readonly relation: string }
+	| {
+			readonly _tag: "NoReadCommittedForm"
+			readonly at: SourceLoc
+			readonly relation: string
+			readonly why: NoFormWhy
+	  }
 	| { readonly _tag: "UninstalledDomain"; readonly at: SourceLoc; readonly domain: UninstalledType }
 	| { readonly _tag: "UninstalledFunction"; readonly at: SourceLoc; readonly fn: string }
 export type CompileReasonTag = CompileReason["_tag"]
@@ -901,9 +919,18 @@ export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason
 		? { _tag: tag, at, what: text }
 		: { _tag: tag, at, capability: text }
 
-/** Why an insert into `relation`, whose primary key holds a span, has no READ COMMITTED form (NoReadCommittedForm). */
-const noReadCommittedFormText = (relation: string): string =>
-	`an insert into ${relation}, whose primary key holds a span, has no READ COMMITTED form: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no statement tells a requested fact it met from one it made, and it runs SERIALIZABLE`
+/** Why an insert has no READ COMMITTED form (NoReadCommittedForm): a span primary key, or an instant it stamps. */
+export type NoFormWhy = "spanKey" | "stamp"
+
+/** Why an insert into `relation` has no READ COMMITTED form, as `why` says (NoReadCommittedForm). */
+export const noReadCommittedFormText = (relation: string, why: NoFormWhy): string => {
+	switch (why) {
+		case "spanKey":
+			return `an insert into ${relation}, whose primary key holds a span, has no READ COMMITTED form: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no statement tells a requested fact it met from one it made, and it runs SERIALIZABLE`
+		case "stamp":
+			return `an insert into ${relation} that stamps an instant has no READ COMMITTED form: two calls of one child would both read its head before either commits, so their instants need not follow their commits, and it runs SERIALIZABLE, where they do`
+	}
+}
 
 /** The sentence a reason states after its tag and location. */
 export const compileReasonText = (reason: CompileReason): string => {
@@ -963,6 +990,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `a ${reason.of} name whose role ${reason.role} fits ${reason.limit} bytes with its schema's name`
 		case "UnfillableField":
 			return unfillableText(reason)
+		case "InstantRefused":
+			return `instant ${reason.relation}.${reason.field}: ${instantRuleText(reason.rule)}`
 		case "UnwritableRelation":
 			return unwritableRelationText(reason.relation, reason.cause)
 		case "CascadedCopyAppend":
@@ -978,7 +1007,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "RetiredUnitTouched":
 			return `the ChangeSet retires the groups of ${reason.header} and ${reason.how === "written" ? "writes" : reason.how === "read" ? "reads" : "reads the delta of"} ${reason.relation}, a relation of its unit: a retirement removes its groups whole, by the unit's function, whose rows no other statement of the call sees, so retire ${reason.header} in a ChangeSet that reads and writes its unit no other way`
 		case "NoReadCommittedForm":
-			return noReadCommittedFormText(reason.relation)
+			return noReadCommittedFormText(reason.relation, reason.why)
 		case "UninstalledDomain":
 			return uninstalledText(reason.domain)
 		case "UninstalledFunction":

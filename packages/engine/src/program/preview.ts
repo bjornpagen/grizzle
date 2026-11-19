@@ -46,14 +46,37 @@ import { changeSetOver, parseChangeSet } from "#compiler/write/changeset/value.t
 import { flightOf } from "#compiler/write/program/served.ts"
 
 /**
+ * How a written relation's field the preview states is filled (ir/law.ts FieldWriting): every way but PostgreSQL's
+ * generation from the row, whose value is the row's evaluation's (rowEvaluator), and the database's clock, which
+ * stamps an instant as its statement runs, so no write knows it before any SQL.
+ */
+type PreviewWriting =
+	| { readonly kind: "caller" | "drawn" | "retirement" }
+	| Extract<FieldWriting, { readonly kind: "accumulated" }>
+
+/**
  * A field of a written relation as a preview reads it: its name, its position among its relation's columns, at which an
- * inserted row's cells hold its value (runtime/write/cells.ts Cells), and how the write fills it (ir/law.ts
- * FieldWriting), one PostgreSQL does not generate from the row, whose value is the row's evaluation's (rowEvaluator).
+ * inserted row's cells hold its value (runtime/write/cells.ts Cells), and how the write fills it (PreviewWriting).
  */
 interface PreviewField {
 	readonly name: string
 	readonly at: number
-	readonly writing: Exclude<FieldWriting, { readonly kind: "generated" }>
+	readonly writing: PreviewWriting
+}
+
+/** A field's writing as a preview states it (PreviewWriting), none for a generated field or an instant. */
+const previewWriting = (writing: FieldWriting): PreviewWriting | undefined => {
+	switch (writing.kind) {
+		case "caller":
+		case "drawn":
+		case "retirement":
+			return { kind: writing.kind }
+		case "accumulated":
+			return writing
+		case "generated":
+		case "instant":
+			return undefined
+	}
 }
 
 /** A row's fields, by name, as the preview gives them. */
@@ -188,11 +211,12 @@ export const previewOver = (
 			const columns = flight.prepared.columns(relation.name)
 			return [
 				relation.name,
-				relation.fields.flatMap((f): ReadonlyArray<PreviewField> =>
-					f.writing.kind === "generated"
+				relation.fields.flatMap((f): ReadonlyArray<PreviewField> => {
+					const writing = previewWriting(f.writing)
+					return writing === undefined
 						? []
-						: [{ name: f.name, at: columns.at(columnKeyOf(f.name)), writing: f.writing }]
-				)
+						: [{ name: f.name, at: columns.at(columnKeyOf(f.name)), writing }]
+				})
 			] as const
 		})
 	)

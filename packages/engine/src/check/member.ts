@@ -12,12 +12,14 @@ import {
 } from "#compiler/ir/scalar.ts"
 
 /**
- * Whether a member that adds facts writes a field written so: a caller's field; never one PostgreSQL generates or
- * grizzle draws or accumulates (types/changeset UnwrittenFieldsOf).
+ * Whether a member that adds facts writes a field written so: a caller's field, and an instant, which its rows state
+ * from a stored instant or leave out to be stamped; never one PostgreSQL generates or grizzle draws or accumulates
+ * (types/changeset UnwrittenFieldsOf).
  */
 const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 	switch (writing) {
 		case "caller":
+		case "instant":
 			return true
 		case "generated":
 		case "drawn":
@@ -66,7 +68,7 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
  * A member is a set of facts of one ordinary relation. An array or a Stream member is the query over a relation
  * parameter its input binds, whose shape the codec checks; a query member is checked here. A delete's head is the
  * relation's heading; an insert's and a put's is the fields a member writes, no field PostgreSQL generates or grizzle
- * draws or accumulates. Each head column enters the field it is
+ * draws or accumulates, an instant left out or stated (write/frontend/instants.ts). Each head column enters the field it is
  * written into at the field's own type (ir/scalar.ts sameEnteredType), as a generated field's term and a fold's
  * accumulator do: the same carrier, contract, roster, numeric typmod, span endpoint and width, and vector dimensions,
  * never an exact value or a computed numeric, which no field stores; a text's pattern and byte bound alone are the
@@ -97,7 +99,14 @@ export const checkMemberHeading = (
 	}
 	const delivered = root.heading
 	const expected = writtenHeading(relation)
-	const missing = expected.filter((c) => !delivered.some((d) => d.name === c.name))
+	/** An instant a head leaves out is the write's to stamp or to refuse, by its op and its role (write/frontend/
+	 * instants.ts stampsOf); one it states is held to the instant's type, which only a stored instant is. */
+	const instants = new Set(
+		relation.heading.flatMap((c) => (c.writing.kind === "instant" ? [c.name] : []))
+	)
+	const missing = expected.filter(
+		(c) => !instants.has(c.name) && !delivered.some((d) => d.name === c.name)
+	)
 	const extra = delivered.filter((c) => !expected.some((d) => d.name === c.name))
 	if (missing.length > 0 || extra.length > 0) {
 		fail(

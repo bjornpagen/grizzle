@@ -3,6 +3,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { rowEq, typedEq } from "#compiler/ir/compare.ts"
+import type { Stamped } from "#compiler/ir/instant.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
@@ -54,6 +55,7 @@ import {
 	sameKeyCte,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
+import { stampedInput } from "#compiler/write/insert/stamp.ts"
 
 import {
 	buildStatement,
@@ -113,6 +115,9 @@ interface InsertSpec {
 	 * the put's first statement, its deletion or a family owner's UPDATE, which raises PutTargetConflict; a same-key pair
 	 * still raises the key law. */
 	readonly of: InsertOf
+	/** The instant fields its rows leave out, each stamped by its clock (write/insert/stamp.ts); none for an insert that
+	 * states every one, and for a put's insert half, which states every one. */
+	readonly stamps: ReadonlyArray<Stamped>
 }
 
 /** Where an insert raises its probe's refusal (see `buildInsert`): nowhere, when it probes nothing; or as one of its
@@ -381,9 +386,12 @@ export const buildInsert = (
 	 * owner's counts and ends, which a nesting's input and an owner's plain insert carry and no other input does. */
 	const carried = [...inputStated(input), ...inputFamily(input)]
 	const carries = (f: LawField): boolean => carried.some((c) => c.name === f.name)
-	const fields = written.filter(carries)
+	/** The instant fields the rows leave out, which the insert stamps and so reads beside the carried ones from the
+	 * stamped input (write/insert/stamp.ts). */
+	const stamped = (f: LawField): boolean => spec.stamps.some((s) => s.field.name === f.name)
+	const fields = written.filter((f) => carries(f) || stamped(f))
 	const starts = written
-		.filter((f) => !carries(f))
+		.filter((f) => !carries(f) && !stamped(f))
 		.map((f) => ({
 			field: f,
 			value: defined(
@@ -426,14 +434,18 @@ export const buildInsert = (
 			supply.column(internal("same-key column"))
 		)
 		const c9 = r4 === undefined ? undefined : supply.column(internal("same-key marker"))
+		/** The fields the input carries, under their input columns: what its read names, the stamped ones apart, which
+		 * the stamped input adds (write/insert/stamp.ts). */
+		const carriedFields = fields.filter(carries)
+		const carriedInputs = fieldColumns(carriedFields, (f) => inputs.of(f))
 		const read = readInput(
 			w,
 			input,
 			{
 				kind: "input",
-				fields,
+				fields: carriedFields,
 				alias: scan,
-				keys: inputs,
+				keys: carriedInputs,
 				into: { as: "write" }
 			},
 			at
@@ -444,7 +456,16 @@ export const buildInsert = (
 		const requested = requestedValue(w, relation, fields, inCol)
 		const retCol = returned.of
 		const column = (f: LawField) => w.names.column(relation.name, f.name)
-		const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
+		const [firstStamp, ...moreStamps] = spec.stamps
+		const [readCte, ...stampCtes] =
+			firstStamp === undefined
+				? [cte(r1, inputs.columns, read.select)]
+				: stampedInput(w, supply, read.select, carriedFields, [firstStamp, ...moreStamps], {
+						name: r1,
+						fields,
+						columns: inputs
+					})
+		const ctes: [Cte, ...Array<Cte>] = [readCte, ...stampCtes]
 		if (r4 !== undefined) {
 			ctes.push(sameKeyCte(r4, r1, pk, keys, inCol))
 		}

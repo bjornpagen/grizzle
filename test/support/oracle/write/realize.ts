@@ -254,9 +254,12 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					})
 				}
 			}
-			/** The insert protocol for an insertion or a put's insert half. */
+			/** The insert protocol for an insertion, stamping the instants its rows leave out, or a put's insert half,
+			 * which states every one (write/program/compile.ts). */
 			const insert = (of: InsertOf) => {
-				statement(buildInsert(w, { relation, input, of }))
+				statement(
+					buildInsert(w, { relation, input, of, stamps: of === "insert" ? action.info.stamps : [] })
+				)
 			}
 			switch (action.op) {
 				case "delete": {

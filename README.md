@@ -1702,8 +1702,9 @@ schema.
 - **First insertion wins, by `race`.** `race(Claim)` among a schema's rules makes a table's primary key first come,
   first held: an insertion at a key another row holds meets that row instead of being refused for differing from it
   ([Races](#races)).
-- **No timestamp type.** An instant is a `bigint` contract, such as milliseconds since the epoch, and the current time
-  is a parameter: the caller's, or the database's clock where a member binds it
+- **No timestamp type.** When a row was written is an `instant`, which the database alone writes ([Instants](#instants)).
+  Any other time, a deadline or a due instant, is a value: a `bigint` contract, such as milliseconds since the epoch,
+  and the current time is a parameter, the caller's, or the database's clock where a member binds it
   ([The database's clock](#the-databases-clock)). A calendar day is a `date`.
 
 | Field                                              | PostgreSQL                                                          | TypeScript                                                             |
@@ -1712,6 +1713,7 @@ schema.
 | `pg.smallint`, `pg.integer`                        | smallint, integer                                                   | `number`                                                               |
 | `pg.bigint`                                        | bigint                                                              | `bigint`                                                               |
 | `natural`                                          | bigint, behind a domain that checks `>= 0`                          | `bigint`                                                               |
+| `instant`                                          | bigint, behind natural's domain                                     | `bigint`, microseconds since the Unix epoch, written by the database   |
 | `date`                                             | date, its column checked to 0001-01-01 … 9999-12-31                 | `CalendarDate`, its ISO 8601 text `"YYYY-MM-DD"`                       |
 | `pg.numeric(p, s)`                                 | numeric(p, s)                                                       | `Decimal`, exact, no display scale                                     |
 | `pg.real`, `pg["double precision"]`                | real, double precision                                              | `number`                                                               |
@@ -1843,6 +1845,8 @@ Every field has one writer. An insert or a put takes exactly the fields its call
   `start` its value where the axis begins.
 - **Its group's retirement:** `retirement`, a retirable header's boolean, false when its row is inserted and true once
   its group is retired ([Retirable units](#retirable-units)).
+- **The database's clock:** `instant`, stamped by the insert that adds its row where it is its relation's clock, or a
+  stored instant where it is a reference ([Instants](#instants)).
 
 **Generated fields.** A term reads its own row and closed relations ([Closed relations](#closed-relations)). `r` holds
 every stored field of the row but the generated ones, a field grizzle draws or accumulates among them: its column holds
@@ -2926,6 +2930,7 @@ export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now:
 - **Never live.** Time passing is no change, so a clocked read is answered at its call's instant alone: its handle holds `once`, `explain` and `explainAnalyze`, and no `watch`, and over HTTP its answer is `reset`, its upserts, `ready`, then `end`. It needs no live source. To wake at an instant, watch a read of the due instants that reads no clock, and read the clocked one when an instant passes. A clocked ChangeSet is a ChangeSet member like any other, whose `watch` is its outcome, then the end.
 - **The reading is the parameter's value.** It stands wherever the parameter does, cast to the parameter's type, so a contract judges it as it judges a caller's value, `refused` on the contract. The member's input holds the program's other parameters alone. A law, a check, a contract, a generated field, a derived relation and a role's entry read no parameter, so none reads the clock: a law judged against the clock would turn false with no write. PostgreSQL accepts `now()` in a table's or a domain's CHECK and judges it only at write; grizzle emits none.
 - **What a binding binds.** A binding names at least one parameter of the program whose values are `bigint`s, each with its unit; any other name is a type error, a take's or a page's bound is refused, and a paged member, a key and a refresh are never clocked. A micros reading past the year 294,247 on the server's clock is out of bigint's range, and refuses the call.
+- **A reading is a value, never an instant.** Its parameter is a `bigint` or a contract over one, never `instant`, which no parameter is: a deadline, a lease's end or a due instant is a reading and some arithmetic, while when a row was written is the insert's to stamp, ordered per child as no reading is ([Instants](#instants)).
 
 ## Writes
 
@@ -2977,7 +2982,8 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   without a value.
 - **A row states its whole fact.** grizzle mints no ids and PostgreSQL draws none: every field a caller writes is in
   every row, its key among them, and a row that leaves one out is an `EncodingFailure`
-  ([Identity: natural keys](#identity-natural-keys)).
+  ([Identity: natural keys](#identity-natural-keys)). An instant is no caller's: an insert's row leaves it out and the
+  database stamps it ([Instants](#instants)).
 - **`read`** runs its query after the change, before COMMIT. `delta.added(T)` and `delta.removed(T)` are the rows the
   change added and removed, and `delta.met(T)` the stored rows its insertions met ([Rows an insertion
   met](#rows-an-insertion-met)). A read-back name used twice in one ChangeSet is a type error.
@@ -3086,6 +3092,93 @@ transaction's snapshot fails the call with 40001, whose retry's precheck refuses
 constraint arbitrates only by `ON CONFLICT DO NOTHING`, so no statement can tell a row it met from one it made. A
 family's members are a type error, since their family statement writes them. A read-back over `delta.met(T)` rides
 the one statement that inserts into `T`.
+
+### Instants
+
+`instant` is when a row was written, on the database's clock: microseconds since the Unix epoch, written by the
+database alone. A row is keyed by its natural identity ([Identity: natural keys](#identity-natural-keys)), and by an
+instant after it where when it was written is part of its fact. No caller states one, so a time a row records is never
+a host's clock or a value a caller passes. Every instant field is a clock or a reference, as the schema's laws make it:
+
+- A **reference** is an instant field a containment carries, from every row of its relation, into another relation's
+  instant field: its values are stored instants there, which the containment proves. Below, `Session.at` is a
+  reference to `SignIn.at`.
+- Every other instant field is a **clock**. It stands in its relation's primary key after at least one field, and the
+  key's fields before it are its **child**: `SignIn`'s key `(user, at)` makes `user` the child of `SignIn.at`. A clock
+  outside its primary key is refused when the schema compiles (`InstantRefused`, `clockOutsideKey`), since no child
+  would order it, and so is one first in its key (`childless`), whose relation would be one child every write of it
+  waits on.
+
+```ts
+/** A user's sign-in at an instant, and the session it opened, at the same instant. */
+const SignIn = relation("SignIn", { user: UserId, at: instant, method: Method }, ["user", "at"])
+const Session = relation("Session", { token: Token, user: UserId, at: instant }, ["token"])
+export const Auth = schema(
+	"Auth",
+	[Method, SignIn, Session],
+	[contained(on(Session, "user", "at"), on(SignIn, "user", "at"))]
+)
+
+/** A sign-in and its session in one write that reads no row: both at the call's instant for the user. */
+export const signIn = ChangeSet.empty(Auth)
+	.insert(
+		SignIn,
+		query(Auth).rule((r) => r.find({ user: r.param("user", UserId), method: r.param("method", Method) }))
+	)
+	.insert(
+		Session,
+		query(Auth).rule((r) => r.find({ token: r.param("token", Token), user: r.param("user", UserId) }))
+	)
+```
+
+- **An insert leaves an instant out to have it stamped.** A row of an array, a Stream or a query that omits an
+  instant field has it stamped with the call's instant of its clock: a clock's own, at the row's child, or a
+  reference's clock, at the child its containment carries the row to, `Session.user` above. A stamp's child is a
+  field the row states, never one the same insert stamps (`childStamped`). A clock is only ever stamped: a row that
+  states one is refused (`clockStated`). A reference is stamped only beside an insert of its clock
+  in the same stratum, else refused (`clockUnstamped`), since no stored row could hold the instant; and a reference
+  whose containments reach no one clock at one child is never stamped (`unstampable`).
+- **Or states a stored instant.** A query's row may state a reference by a term of type `instant`, and only a stored
+  instant is one: a variable of an instant field, or `r.min`, `r.max`, `Compute.least`, `Compute.greatest` or
+  `Compute.cond` over such terms. No parameter, relation parameter's column, literal, `Compute.literal`, cast, contract
+  or span is of type `instant`, so each is a type error and a `CompileError`, and arithmetic over an instant is a
+  `bigint`. An instant meets only instants; `Compute.base(at)` reads one as the `bigint` it is. A put and a delete state
+  every instant of their rows this way, from a query, and a put of a relation with a clock is refused, since it would
+  state the clock.
+- **One instant per child per call.** Every row a call stamps at one child of one clock holds one instant, so rows of
+  one child in one call that share the rest of a key need a field of their own in it, a place or a name, or they meet
+  at the key. A call stamps a clock in one statement: its stratum's, which holds its every insert and those of the
+  references it stamps. A ChangeSet that would stamp it in two strata, or in a stratum of several statements, is refused
+  when it compiles (`stampedApart`); a later stratum reads the stamped rows back as stored instants.
+- **A stamped row is new.** Its instant is above every instant its child held, so an insertion that stamps a clock
+  meets no stored row at the primary key: `delta.met` holds none of its rows ([Rows an insertion
+  met](#rows-an-insertion-met)), and a call retried after `commitUnknown` adds them again, at a later instant.
+- **The stamp.** The call's instant at a child is `greatest(c, h + 1)`: `c` the call's reading of the database's clock
+  in microseconds, `transaction_timestamp()`, and `h` the latest instant the child holds, `max(at)` over the clock's
+  primary key at the child, one index probe per child. A role whose ChangeSet stamps an instant runs SERIALIZABLE.
+
+**Why it is the child's order.** For one child of one clock:
+
+- **Instant order is commit order.** Two calls that stamp the child and both commit: if neither saw the other's row,
+  each read the child's head, the range of the clock's key at the child, and the other inserted into it, a
+  read-write dependency each way, a cycle SSI refuses by failing one of them with 40001, a retryable `transient`. So
+  the later's snapshot holds the earlier's commit: its instant is at least the earlier's plus one, and the earlier
+  committed before that snapshot was taken, so before the later commits. Whatever plan PostgreSQL chooses, the head is
+  read under its predicate locks, of the index page a new row of the child lands on or of the whole table. Without
+  the head, overlapping calls would stamp in the order their transactions began, which is no order of commits.
+- **A clock that steps back reorders nothing.** An NTP step or a failover to a host whose clock is behind gives a
+  smaller `c`, and `h + 1` wins: the child's instants count up by one a write until the clock passes them again. An
+  instant is never earlier than its call's reading.
+- **Two calls in one microsecond** stamp `h + 1` where one sees the other; where neither does, they meet at the key,
+  the later fails with 40001, and its retry reads the head the first committed.
+- **No occupant of the call's microsecond is met.** A row stamped in the same microsecond by a call that committed
+  before this call's snapshot is the child's head, so this call stamps after it; a call that commits after the
+  snapshot is the concurrent case above, never a key conflict.
+- **What a child holds.** The order is over the rows the child holds: a write may delete its head, and a later stamp
+  is then above every row still held, not above the deleted one.
+- **The child is the shard key.** The theory orders one child's instants and claims nothing between two children, so
+  each child needs one place that serializes its writes, its rows on one machine, which stamps them, and children
+  shard freely.
 
 ## Derived tables
 
@@ -4605,7 +4698,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 ### Values
 
-- **No timestamp type.** An instant is a bigint contract, and the database's clock a parameter a member binds ([The database's clock](#the-databases-clock)). A `date` holds 0001-01-01 to 9999-12-31; a lexical form has no timezone, so a timezoned `xs:date` has no typed value.
+- **No timestamp type.** When a row was written is an `instant`, stamped by the database ([Instants](#instants)); any other time is a bigint contract, and the database's clock a parameter a member binds ([The database's clock](#the-databases-clock)). A `date` holds 0001-01-01 to 9999-12-31; a lexical form has no timezone, so a timezoned `xs:date` has no typed value.
 - **A span is over `integer`, `bigint`, `date` or a contract over one** (int4range, int8range, daterange), never `smallint`, which PostgreSQL has no range over. A date span's ends are `CalendarDate`s within 0001-01-01 and an excluded 9999-12-31, as an integer span's excluded end is at most its type's greatest value; its width is a `number` of days.
 - **A numeric field declares its precision and scale**, `pg.numeric(p, s)`: p at most 1,000, s within ±1,000, NaN but no infinity. A computed numeric (a sum, a mean, an operation's result, a derived field) carries the digits its computation proves; past 131,072 integer digits, PostgreSQL's limit, it is `ResourceBound` at compile time. `Compute.numeric(x)` is `x::numeric` of an integer, money or a float, a float to the 6 or 15 significant digits PostgreSQL writes.
 - **A parse reads integer, numeric(p, s), double precision, boolean and date forms.** A numeric form has at most 255 digits either side of its point; a double's, 15 significant digits either side and an exponent of at most 293, so float8in neither overflows nor underflows. `Compute.parseDouble` reads a double's text of any digits and exponent, and `Compute.parseDecimal` a decimal text of any digits within 16,384 bytes, the most whose every value numeric holds. An `xs:duration` has no typed value, since PostgreSQL's interval orders 1 month as 30 days.

@@ -1,10 +1,11 @@
 import { int4Max } from "#compiler/core/canonical.ts"
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
-import { malformedDescription } from "#compiler/core/errors.ts"
+import { malformedDescription, unsupported } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { int8Max } from "#compiler/ir/carriers.ts"
 import { dayNumber, lastCalendarDate } from "#compiler/ir/date.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { isInstantType } from "#compiler/ir/instant.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { type Described, describeFieldOrThrow, spanType } from "#compiler/scalar/registry.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -97,7 +98,15 @@ export const spanParts = (endpoint: unknown, rest: ReadonlyArray<unknown>): Span
 	const described = describeFieldOrThrow(endpoint, SourceLoc("span endpoint", []))
 	const loc = captureLoc(`span(${described.sql})`, [])
 	const base = baseOf(described.scalar).carrier
-	/** The endpoint decides first, whatever width accompanies it: a smallint or money endpoint by its capability. */
+	/** Whether the endpoint is an instant, which no caller states: it decides first, whatever width accompanies it, as
+	 * a smallint or money endpoint does by its capability. */
+	const instantEnd = isInstantType(described.scalar)
+	if (instantEnd) {
+		throw unsupported(
+			loc,
+			"spanEndpoint: an instant is the database's alone, stamped by an insert or read from a stored row, and a span's ends are values a caller states; spans are over integer, bigint and contracts over them"
+		)
+	}
 	const unchecked = spanType(described.scalar, undefined, loc)
 	if (!unchecked.ok) {
 		throw unchecked.error

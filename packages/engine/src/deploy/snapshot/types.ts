@@ -51,6 +51,7 @@ export interface SnapshotFiles {
 export type SnapshotWriting =
 	| "caller"
 	| "retirement"
+	| "instant"
 	| { readonly generated: string }
 	| { readonly drawn: string }
 	| { readonly accumulated: string }

@@ -90,7 +90,13 @@ export default defineConfig({
   binds the bigint parameter `now` of a query, an ordered query or a ChangeSet to the database's clock, the instant
   the call's transaction began, in `"micros"` or `"millis"`: the input omits it, every statement of the call reads the
   one instant, and a clocked read answers `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
-  so, never the host's clock. The member `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key or
+  so, never the host's clock. A reading is a value, a `bigint`, never an `instant`: a row records when it was written
+  by a field of type `instant`, which no caller states. Key the row by its natural fields and the instant after them,
+  `relation("SignIn", { user, at: instant, ... }, ["user", "at"])`: its `at` is a clock of child `user`, which an
+  insert leaving it out stamps with the call's instant at the user, `greatest(clock, the user's latest + 1)`, so a
+  user's instants increase in the order their calls commit; a role that stamps runs SERIALIZABLE. An instant a
+  containment carries into another relation's instant is a reference, stamped beside an insert of its clock or stated
+  from a stored instant (README "Instants"). The member `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key or
   a clocked read, reads in a SERIALIZABLE READ ONLY DEFERRABLE transaction: it waits until every SERIALIZABLE
   read-write transaction running on the cluster when it began has ended, then never fails with a serialization
   failure, never makes another transaction fail and holds no predicate lock. A plain read answers at once and may

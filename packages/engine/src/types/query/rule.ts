@@ -73,8 +73,11 @@ import type {
 import type {
 	Field,
 	FieldBase,
+	InstantDomain,
+	InstantField,
 	LiteralOf,
 	NaturalDomain,
+	NotInstant,
 	NotStoredOnly,
 	StoredOnlySql
 } from "#compiler/types/fields/field.ts"
@@ -411,7 +414,7 @@ export type ParamConstructor = <
 	F extends ProvedFacts
 >(
 	name: Name,
-	type: Field<H, Sql, D, F> & NotStoredOnly<Sql>
+	type: Field<H, Sql, D, F> & NotStoredOnly<Sql> & NotInstant<D>
 ) => ParamTerm<Name, H, Sql, D, F>
 
 /** What r.relation takes as a heading: a heading of fields C, or a relation, whose heading C is. */
@@ -441,14 +444,21 @@ type ParamRelationAt<R, C> = [R] extends [never]
 		: Refusal<"the relation is not in this query's schema">
 
 /**
- * The refusal a relation parameter's heading carries: none for a heading of at least one field, as a relation has, and
- * no bytes field, which no parameter holds.
+ * The refusal a relation parameter's heading carries: none for a heading of at least one field, as a relation has, no
+ * bytes field, which no parameter holds, and no instant, which no caller states.
  */
 type ParamFields<C> = [keyof C] extends [never]
 	? Refusal<"a relation parameter has at least one field, as a relation does">
 	: [StoredOnlyFieldsIn<C>] extends [never]
-		? unknown
+		? [InstantFieldsIn<C>] extends [never]
+			? unknown
+			: NotInstant<InstantDomain>
 		: NotStoredOnly<StoredOnlySql>
+
+/** The instant fields of a heading C, which no parameter holds. */
+type InstantFieldsIn<C> = {
+	[K in keyof C]-?: C[K] extends InstantField ? K : never
+}[keyof C]
 
 /** The bytes fields of a heading C, which no parameter holds. */
 type StoredOnlyFieldsIn<C> = {

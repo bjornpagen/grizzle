@@ -4,8 +4,9 @@ import { bitsColumn, brandColumn, type Columned, codeColumn } from "#compiler/co
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { bytesDescriptor } from "#compiler/scalar/bytes.ts"
-import { contractParts } from "#compiler/scalar/contract.ts"
+import { callerContractParts } from "#compiler/scalar/contract.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
+import { instantDescriptor } from "#compiler/scalar/instant.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
@@ -38,6 +39,7 @@ import type {
 	DrawnConstructor,
 	GeneratedConstructor,
 	GeneratedTermOf,
+	NotInstantBase,
 	OneContractName,
 	Pg,
 	SpanConstructor
@@ -57,6 +59,7 @@ import type {
 	GeneratedField,
 	HandleOf,
 	Infer,
+	InstantField,
 	SpanEndpointLike,
 	NaturalField,
 	NoWriting,
@@ -92,6 +95,8 @@ export type {
 	GeneratedField,
 	HandleOf,
 	Infer,
+	InstantDomain,
+	InstantField,
 	IntegerLike,
 	SpanEndpointLike,
 	LiteralOf,
@@ -141,7 +146,11 @@ export const contract: ContractConstructor = <
 	const Proved extends ReadonlyArray<keyof Facts> = readonly []
 >(
 	name: Name,
-	base: B & NoWriting & ContractBase<NoInfer<Name>, B> & OneContractName<NoInfer<Name>>,
+	base: B &
+		NoWriting &
+		NotInstantBase<B> &
+		ContractBase<NoInfer<Name>, B> &
+		OneContractName<NoInfer<Name>>,
 	predicate:
 		| ((
 				v: Scalar<DomainOf<B>, unknown, ContractValueOrigin, B["sql"], Infer<B>>
@@ -150,7 +159,7 @@ export const contract: ContractConstructor = <
 	declared: { readonly proves: Proved } | undefined,
 	...extra: ReadonlyArray<never>
 ): Contract<Name, B, Proved> => {
-	const parts = contractParts(name, base, [predicate, declared, ...extra])
+	const parts = callerContractParts(name, base, [predicate, declared, ...extra])
 	type Unbranded = Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>
 	const brand = nominal<Unbranded, Unbranded & Infer<B> & Brand.Brand<Name>>()
 	const column = brandColumn(base.column, brand)
@@ -243,6 +252,13 @@ export const generated: GeneratedConstructor = <F extends FieldBase>(
  * retired, never written by a caller (schema/relation.ts retirementField).
  */
 export const retirement: RetirementField = retirementField(pgDescriptors.boolean)
+
+/**
+ * instant: microseconds since the Unix epoch on the database's clock, written only by the database: an insert stamps
+ * its relation's clock per child, and a reference holds a stored instant a containment carries it to
+ * (scalar/instant.ts, analysis/theory/instants.ts). Installed as natural's domain.
+ */
+export const instant: InstantField = instantDescriptor
 
 /** drawn(natural): a natural grizzle draws from the nested arrays its caller writes (schema/relation.ts drawnField). */
 export const drawn: DrawnConstructor = (

@@ -505,7 +505,7 @@ const paramName = (n: number, paramOf: (n: number) => string | undefined): strin
 /**
  * The canonical name of what a placeholder carries, where `e` is one: a slot's parameter (paramName), or the declared
  * parameter a clock reading binds, which is one value for the call as a parameter is, so a column equal to it is bound
- * to one value.
+ * to one value; a stamp's reading binds none.
  */
 const placeholderName = (
 	e: Expr,
@@ -514,7 +514,7 @@ const placeholderName = (
 	if (e.kind === "param") {
 		return paramName(e.slot.number, paramOf)
 	}
-	return e.kind === "clock" ? `:${e.param}` : undefined
+	return e.kind === "clock" && e.of.kind === "param" ? `:${e.of.param}` : undefined
 }
 
 /** The query and column names a source of the call's own rows reads, a derived table's or a query CTE's; none else. */

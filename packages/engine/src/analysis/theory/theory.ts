@@ -4,6 +4,7 @@ import { refuse, ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes.ts"
 import { familyStated } from "#compiler/analysis/theory/families.ts"
 import { fillOrder } from "#compiler/analysis/theory/fill.ts"
+import { instantRoles } from "#compiler/analysis/theory/instants.ts"
 import {
 	type ContractUse,
 	fixedSelection,
@@ -60,6 +61,7 @@ import type { EvidenceContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
+import type { Instants } from "#compiler/ir/instant.ts"
 import {
 	type EvidenceSide,
 	fieldNames,
@@ -234,6 +236,9 @@ export interface Theory extends CheckedTheory {
 	readonly fill: FillOrder
 	/** The containments a whole rule's region reads (unit.ts RegionFacts), which the law model's whole containments read too. */
 	readonly regionFacts: RegionFacts
+	/** Every instant field a clock or a reference (ir/instant.ts), as the classifier read them off the laws
+	 * (analysis/theory/instants.ts), which a write stamps by. */
+	readonly instants: Instants
 }
 
 /** A theory with the evidence its laws give queries (theoryEvidence), each containment's validity context the one law
@@ -584,10 +589,15 @@ class Builder {
 		if (!fill.ok) {
 			throw new Refusal(fill.error)
 		}
+		const relations = Object.freeze(Object.fromEntries(this.relations))
+		const instants = instantRoles(relations, laws)
+		if (!instants.ok) {
+			throw new Refusal(instants.error)
+		}
 		return Object.freeze({
 			schema: this.owned.fingerprint,
 			name: this.owned.name,
-			relations: Object.freeze(Object.fromEntries(this.relations)),
+			relations,
 			classes,
 			laws,
 			primaryKeys,
@@ -596,7 +606,8 @@ class Builder {
 			capabilities: this.#capabilities(laws),
 			families,
 			fill: fill.value,
-			regionFacts: this.regionFacts
+			regionFacts: this.regionFacts,
+			instants: instants.value
 		})
 	}
 

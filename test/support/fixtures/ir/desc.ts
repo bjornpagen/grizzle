@@ -143,6 +143,10 @@ const naturalDesc: FieldDesc = {
 	facts: ["nonnegative"]
 }
 
+/** instant: the builtin contract over bigint of the database's clock, natural's very definition under its own name
+ * (scalar/instant.ts). */
+const instantDesc: FieldDesc = { ...naturalDesc, name: "instant" }
+
 /** Field descriptors. */
 export const f = {
 	pg: (type: PgScalarName): FieldDesc => ({ kind: "pg", type }),
@@ -152,6 +156,8 @@ export const f = {
 	boolean: fieldDesc({ kind: "pg", type: "boolean" }),
 	numeric: (precision: number, scale: number): FieldDesc => ({ kind: "numeric", precision, scale }),
 	natural: naturalDesc,
+	/** An instant of the database's clock, which a relation's laws make a clock or a reference (ir/instant.ts). */
+	instant: instantDesc,
 	/** A family's index or count, drawn(natural): grizzle draws it from the nested arrays its caller writes. */
 	drawn: { type: naturalDesc, writing: { kind: "drawn" } } satisfies FieldDecl<object>,
 	/** A fold's end or a copy along a family axis: grizzle fills it on the host, `start` at its axis's base. */

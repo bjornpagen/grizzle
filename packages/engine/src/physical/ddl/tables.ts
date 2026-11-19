@@ -118,6 +118,7 @@ const fieldGeneration = (
 		case "caller":
 		case "drawn":
 		case "accumulated":
+		case "instant":
 			return undefined
 	}
 }

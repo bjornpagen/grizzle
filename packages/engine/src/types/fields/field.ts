@@ -129,6 +129,45 @@ export interface NaturalField extends Field<
 	readonly natural: true
 }
 /**
+ * The identity an instant's terms meet at: a bigint of the database's clock, the domain of the builtin contract
+ * `instant` over pg.bigint, proved nonnegative, a name no other contract takes (OneContractName), so an instant meets
+ * only instants, never a count, a caller's bigint or a contract over one. Its values are bigints: the brand is the
+ * type's alone (InstantField).
+ */
+export type InstantDomain = bigint & Brand.Brand<"instant"> & DeclaresAll<"nonnegative">
+
+/**
+ * The refusal of a type of domain D where a caller states a value of it, a parameter, a relation parameter's column, a
+ * literal or a typed constant, a cast's target, a contract's base or a span's endpoint: an instant's (InstantDomain),
+ * which is the database's clock's alone; nothing for any other, nor for a domain the types do not know, `any` or
+ * `never`, which states no instant.
+ */
+export type NotInstant<D> = [D] extends [never]
+	? unknown
+	: 0 extends 1 & D
+		? unknown
+		: [D] extends [InstantDomain]
+			? Refusal<"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or span is of its type">
+			: unknown
+
+/**
+ * instant: microseconds since the Unix epoch on the database's clock, installed as natural is. No caller writes one: an
+ * insert stamps its relation's clock, or states a stored instant into a reference, as the schema's laws say which a
+ * field is (analysis/theory/instants.ts); no parameter, literal or cast is of its type, so no value a caller holds
+ * reaches one. Its host type is bigint, unbranded, as a read delivers it; its domain is InstantDomain, so a term of it
+ * meets only another instant's, and `Compute.base` reads one as the bigint it is. `instant: true` is the member its
+ * type is told apart by.
+ */
+export interface InstantField extends Field<
+	bigint,
+	"bigint",
+	InstantDomain,
+	{ readonly nonnegative: true }
+> {
+	readonly instant: true
+}
+
+/**
  * How a field is written, as its descriptor's type states it under `writing`; a caller's field carries none.
  * generated: by PostgreSQL from its row; drawn: by grizzle from the nested arrays its caller writes; accumulated: by
  * grizzle on the host, proved by PostgreSQL; retirement: by its group's retirement.
@@ -153,12 +192,17 @@ export interface SpanField<Endpoint, EndpointDomain> extends Field<
 
 /**
  * A literal operand. Over Decimal it is a Decimal, a bigint, or an exact decimal string checked at construction; a
- * JavaScript number is never a numeric literal. A literal compared with or written into a contract
+ * JavaScript number is never a numeric literal; and nothing over an instant, which is the database's alone. A literal compared with or written into a contract
  * term adopts the contract, so the literal type is the unbranded base. Without
  * BaseOf, `T extends Decimal ? Decimal | bigint | string : T` would make `r.eq(cents, 5n)` fail to typecheck.
  */
-export type LiteralOf<T> =
-	BaseOf<T> extends infer B ? (B extends Decimal ? Decimal | bigint | string : B) : never
+export type LiteralOf<T> = [T] extends [InstantDomain]
+	? never
+	: BaseOf<T> extends infer B
+		? B extends Decimal
+			? Decimal | bigint | string
+			: B
+		: never
 
 export type Infer<F> = FieldHost<F>
 export type SqlOf<F> = F extends Field<unknown, infer Sql> ? Sql : never

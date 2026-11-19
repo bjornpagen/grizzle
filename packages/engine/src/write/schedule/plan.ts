@@ -1,12 +1,18 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
-import { CompileError, type NamedSide, type ReadBackCrossing } from "#compiler/core/errors.ts"
+import {
+	CompileError,
+	type NamedSide,
+	type NoFormWhy,
+	type ReadBackCrossing
+} from "#compiler/core/errors.ts"
 import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Stamped } from "#compiler/ir/instant.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
@@ -20,6 +26,7 @@ import {
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
 import type { CheckNames } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
+import { refuseStampedStatements } from "#compiler/write/frontend/instants.ts"
 import {
 	type FamilyAt,
 	type FamilyNode,
@@ -78,7 +85,7 @@ export type PlannedCheck =
  * relation input, a MERGE carries the scope it was proved over); the deletion a MERGE absorbs has no statement of its
  * own. */
 type WriteOpStep =
-	| { readonly op: "insert" }
+	| { readonly op: "insert"; readonly stamps: ReadonlyArray<Stamped> }
 	| { readonly op: "exactDelete"; readonly except: ReadonlyArray<WriteInput> }
 	| { readonly op: "anchoredDelete"; readonly anchor: DeleteAnchor }
 	| { readonly op: "displace"; readonly payload: NonEmptyReadonlyArray<LawField> }
@@ -327,8 +334,8 @@ const opsOf = (action: ChosenAction, level: Isolation): ReadonlyArray<DraftStep>
 		case "delete":
 			return [{ op: "exactDelete" }]
 		case "insert":
-			formedAt(action.info.relation, level)
-			return [...precheckOf(action), { op: "insert" }]
+			formedAt(action, level)
+			return [...precheckOf(action), { op: "insert", stamps: action.info.stamps }]
 		case "put":
 			return putOps(action, level)
 	}
@@ -347,13 +354,21 @@ const precheckOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
  * object and classifies what it met itself (protocol.ts Arbitration `every`). Certification reads the refusal as the
  * condition `form` of the role it compiles, which then runs SERIALIZABLE (program/workload/change.ts readCommittedChanges).
  */
-const formedAt = (relation: RelationInfo, level: Isolation): void => {
-	if (level === "readCommitted" && primaryKeyShape(relation).kind === "span") {
+const formedAt = (action: ChosenAction, level: Isolation): void => {
+	const relation = action.info.relation
+	const why: NoFormWhy | undefined =
+		primaryKeyShape(relation).kind === "span"
+			? "spanKey"
+			: action.info.stamps.length > 0
+				? "stamp"
+				: undefined
+	if (level === "readCommitted" && why !== undefined) {
 		throw new Refusal(
 			CompileError.make({
 				_tag: "NoReadCommittedForm",
 				at: childLoc(SourceLoc("ChangeSet", []), "writes", relation.name),
-				relation: relation.name
+				relation: relation.name,
+				why
 			})
 		)
 	}
@@ -368,7 +383,7 @@ const putOps = (
 	const relation = put.info.relation
 	switch (choice.target) {
 		case "deleteThenInsert": {
-			formedAt(relation, level)
+			formedAt(put, level)
 			const payload = payloadOf(relation)
 			return [
 				...(payload.kind === "pureSet"
@@ -390,7 +405,7 @@ const putOps = (
 		case "updateFrom":
 			return [{ op: "updateFrom", inPlace: choice.inPlace }]
 		case "ownerPut":
-			formedAt(relation, level)
+			formedAt(put, level)
 			return [
 				...precheckOf(put),
 				...(choice.inPlace === undefined
@@ -1069,6 +1084,16 @@ export const planWrite = (
 		)
 		const realization: Realization =
 			before || creates ? { kind: "sequential" } : realizationOf(drafted)
+		if (realization.kind === "sequential") {
+			refuseStampedStatements(
+				drafted.map((d) => ({
+					relation: d.action.info.relation,
+					stamps: d.action.info.stamps,
+					statements: d.steps.length,
+					loc: childLoc(SourceLoc("ChangeSet", []), "writes", d.action.info.relation.name)
+				}))
+			)
+		}
 		switch (realization.kind) {
 			case "single":
 				strata.push({

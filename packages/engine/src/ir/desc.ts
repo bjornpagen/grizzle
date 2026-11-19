@@ -927,7 +927,7 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 		case "closedId":
 			return true
 		case "contract":
-			return contextFieldAdmits(desc.base)
+			return desc.name !== "instant" && contextFieldAdmits(desc.base)
 		case "numeric":
 		case "bytes":
 		case "span":
@@ -2598,7 +2598,8 @@ const keyWriting = (decl: FieldDecl | undefined): boolean => {
 /**
  * The field types a closed relation's field may have: a closed id, which a key field always is, or an open type its
  * rows' values are coded by within the relation. A span and a vector have no finite code space a cell reads, a set
- * is no row's value, and bytes have no literal.
+ * is no row's value, bytes have no literal, and an instant is the database's clock's, never a row's literal
+ * (ir/instant.ts).
  */
 const closedFieldAdmits = (desc: FieldDesc): boolean => {
 	switch (desc.kind) {
@@ -2609,7 +2610,7 @@ const closedFieldAdmits = (desc: FieldDesc): boolean => {
 		case "closedId":
 			return true
 		case "contract":
-			return closedFieldAdmits(desc.base)
+			return desc.name !== "instant" && closedFieldAdmits(desc.base)
 		case "bytes":
 		case "span":
 		case "bits":

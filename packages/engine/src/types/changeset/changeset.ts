@@ -34,7 +34,12 @@ import type {
 	Source,
 	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
-import type { LiteralOf, UnwrittenField } from "#compiler/types/fields/field.ts"
+import type {
+	InstantDomain,
+	InstantField,
+	LiteralOf,
+	UnwrittenField
+} from "#compiler/types/fields/field.ts"
 import type {
 	ContextsOf,
 	Decoders,
@@ -150,14 +155,32 @@ type HeadFit<H, M, F, R> =
 type MemberShapeFit<M, F, R, Keyed extends boolean> = M extends
 	| ReadonlyArray<infer E>
 	| Stream.Stream<infer E, unknown, unknown>
-	? IsNone<UnfitArms<E, F, never>> extends true
-		? Keyed extends true
-			? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
-				? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
-				: unknown
-			: unknown
-		: Refusal<"a member fact is not a fact of the relation">
+	? HostRowsOf<F, R> extends infer Fh
+		? [Fh] extends [never]
+			? Refusal<"a put or a delete states every instant of its rows from a stored instant: write it from a query">
+			: IsNone<UnfitArms<E, Fh, never>> extends true
+				? Keyed extends true
+					? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
+						? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
+						: unknown
+					: unknown
+				: Refusal<"a member fact is not a fact of the relation">
+		: never
 	: unknown
+
+/**
+ * The rows an array or a Stream of R states as F: F where R holds no instant; else, where F leaves every instant
+ * optional, an insertion's, F with every instant left out, which the insert stamps, since no host value is an instant;
+ * and none where F states one, a put's or a delete's, whose rows name every instant from a stored one, which only a
+ * query holds (write/frontend/instants.ts).
+ */
+type HostRowsOf<F, R> = [InstantFieldsOf<R>] extends [never]
+	? F
+	: F extends unknown
+		? Partial<Pick<F, InstantFieldsOf<R> & keyof F>> extends Pick<F, InstantFieldsOf<R> & keyof F>
+			? Omit<F, InstantFieldsOf<R>>
+			: never
+		: never
 
 /**
  * Whether X is none. A test of a part read from S is written as this alias over the part, never as a tuple of it,
@@ -195,7 +218,9 @@ type MistypedCarriers<Hc, R> =
  */
 type WritesAt<X, F> =
 	IsRetyped<X> extends true
-		? true
+		? [DomainOf<F>] extends [InstantDomain]
+			? false
+			: true
 		: [InputTerm<DomainOf<X>, unknown, unknown, SqlOfCarrier<X>>] extends [
 					InputTerm<DomainOf<F>, unknown, unknown, SqlOfCarrier<F>>
 			  ]
@@ -299,6 +324,24 @@ export type UnwrittenFieldsOf<R> =
 export type Addition<R> = Omit<Fact<R>, UnwrittenFieldsOf<R>>
 
 /**
+ * The instant fields of R (types/fields InstantField): each one an insert stamps where its rows leave it out, or a
+ * query's row states from a stored instant, and no host row carries (write/frontend/instants.ts).
+ */
+export type InstantFieldsOf<R> = R extends { readonly fields: infer Fields }
+	? { [K in keyof Fields]-?: Fields[K] extends InstantField ? K : never }[keyof Fields]
+	: never
+
+/**
+ * R's insertion: its addition with every instant optional, which its rows leave out to have it stamped or state from a
+ * stored instant, a query's term of the instant's type (MistypedFields); R's addition itself where it holds none.
+ */
+export type InsertionOf<R> = [InstantFieldsOf<R>] extends [never]
+	? Addition<R>
+	: Omit<Addition<R>, InstantFieldsOf<R>> & {
+			readonly [K in InstantFieldsOf<R> & keyof Addition<R>]?: Addition<R>[K]
+		}
+
+/**
  * S's sequences, its ordered families and trees, which a nesting reads: the families whose order is the caller's data.
  * A counted family is a law over rows whose group key names their owner, so no write nests it.
  */
@@ -348,7 +391,7 @@ type NestedOf<Fa> =
  * statement of S for each relation an insertAll names.
  */
 export type AdditionIn<S, R> = [DrawnFieldOf<R>] extends [never]
-	? Addition<R>
+	? InsertionOf<R>
 	: AdditionThrough<R, NestingSequences<S, R>>
 
 /**

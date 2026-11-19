@@ -4,6 +4,7 @@
  * member's statements), so the certifier reads no compiled artifact and a search can draw the facts themselves.
  */
 import type { Witness } from "#compiler/analysis/theory/query.ts"
+import type { NoFormWhy } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
@@ -260,6 +261,7 @@ export interface MemberFacts {
 export interface Unformed {
 	readonly member: string
 	readonly relation: string
+	readonly why: NoFormWhy
 }
 
 /**

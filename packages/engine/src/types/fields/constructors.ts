@@ -28,6 +28,7 @@ import type {
 	Infer,
 	NaturalField,
 	NoWriting,
+	NotInstant,
 	NotStoredOnly,
 	NumericTypmodField,
 	SpanEndpointLike,
@@ -102,6 +103,7 @@ export type ContractConstructor = <
 	base: B &
 		NoWriting &
 		NotStoredOnly<B["sql"]> &
+		NotInstantBase<B> &
 		ContractBase<NoInfer<Name>, B> &
 		OneContractName<NoInfer<Name>>,
 	predicate?: (
@@ -116,13 +118,18 @@ export type ContractConstructor = <
  */
 export type OneContractName<Name extends string> =
 	IsOneLiteral<Name> extends true
-		? unknown
+		? [Name] extends ["instant"]
+			? Refusal<"a contract's name is apart from instant, the database's clock's own type">
+			: unknown
 		: Refusal<"a contract's name is one literal, the brand of its values">
 
 /** A base whose column delivers what the contract's brand constructor takes: its host value, every brand stripped. */
 export type ContractBase<Name extends string, B> = Columned<
 	Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>
 >
+
+/** A contract's base or a span's endpoint that is no instant, which no caller brands (NotInstant). */
+export type NotInstantBase<B> = NotInstant<DomainOf<B>>
 
 /**
  * A bounded half-open span over an integer or a date endpoint. The width is upper - lower, a
@@ -131,7 +138,7 @@ export type ContractBase<Name extends string, B> = Columned<
  * Span<CalendarDate>.
  */
 export type SpanConstructor = <E extends SpanEndpointLike>(
-	endpoint: E & Columned<Infer<E>> & NoWriting,
+	endpoint: E & Columned<Infer<E>> & NoWriting & NotInstantBase<E>,
 	width?: SpanWidthOf<Infer<E>>
 ) => SpanField<Infer<E>, DomainOf<E>>
 

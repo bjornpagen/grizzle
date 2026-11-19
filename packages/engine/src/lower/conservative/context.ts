@@ -869,7 +869,7 @@ export class LowerContext {
 		}
 		const checked = this.paramTypeRef(p.type, { kind: "scalar", name: param })
 		return p.kind === "clock"
-			? { kind: "clock", param: p.name, unit: p.unit, type: checked }
+			? { kind: "clock", of: { kind: "param", param: p.name }, unit: p.unit, type: checked }
 			: this.params.scalar(param, type, checked)
 	}
 

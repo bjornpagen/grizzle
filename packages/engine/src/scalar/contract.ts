@@ -1,10 +1,11 @@
-import { malformedDescription } from "#compiler/core/errors.ts"
+import { malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { decodeDesc, type ExprDesc, type FieldDesc } from "#compiler/ir/desc.ts"
+import { instantName, isInstantType } from "#compiler/ir/instant.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Fact, factNames } from "#compiler/ir/proof.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -148,6 +149,24 @@ interface ContractParts {
  * callback, contract(name, base, predicate), the facts it proves after it contract(name, base, predicate, { proves }),
  * and more are refused. The predicate is read once, here.
  */
+/**
+ * A caller's contract's admission (public/fields.ts contract): contractParts', its name apart from instant, the
+ * database's clock's own type, which only the builtin takes (scalar/instant.ts).
+ */
+export const callerContractParts = (
+	name: unknown,
+	base: unknown,
+	rest: ReadonlyArray<unknown>
+): ContractParts => {
+	if (name === instantName) {
+		throw ruleRefused(
+			captureLoc(`contract ${name}`, []),
+			"a contract's name is apart from instant, the database's clock's own type"
+		)
+	}
+	return contractParts(name, base, rest)
+}
+
 export const contractParts = (
 	name: unknown,
 	base: unknown,
@@ -171,6 +190,12 @@ export const contractParts = (
 	}
 	const described = describeFieldOrThrow(base, SourceLoc(`contract ${contract} base`, []))
 	const loc = captureLoc(`contract ${contract}`, [])
+	if (isInstantType(described.scalar)) {
+		throw ruleRefused(
+			loc,
+			"a contract is over a value a caller brands; an instant is the database's clock's alone, so no contract is over one"
+		)
+	}
 	const domain = contractType(contract, described.scalar, loc, undefined, [])
 	if (!domain.ok) {
 		throw domain.error

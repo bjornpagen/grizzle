@@ -22,18 +22,20 @@ import type {
 	TypeOfTerm,
 	Unordered
 } from "#compiler/types/core/phantom.ts"
-import type { LiteralOf, NotStoredOnly } from "#compiler/types/fields/field.ts"
+import type { InstantDomain, LiteralOf, NotStoredOnly } from "#compiler/types/fields/field.ts"
 
 /**
  * What may stand opposite a term of host type T and SQL type S: a term that meets T and S (Meets, the one relation, a
  * parameter of them and a value of an exact family among them), or a literal of the term's language L (which adopts
- * T's base and S). A literal never stands in the first operand; a parameter, a term, does (FirstTerm). S is the SQL
+ * T's base and S), never opposite an instant, which no caller states (types/fields InstantDomain). A literal never stands in the first operand; a parameter, a term, does (FirstTerm). S is the SQL
  * type the typing checks the operand against (scalar/compute/typing.ts), so every position that checks it states it.
  * Every type parameter an Operand constrains is const, so a JavaScript value keeps its literal type: widened, a
  * roster's member, a uuid or a refined text's member is no value of L, and TypeScript would type the operand as the
  * constraint, whose terms read an unknown origin, so nothing computed over it would be determined.
  */
-export type Operand<T, S extends SqlTag, L = T> = Meets<T, S> | LiteralOf<L>
+export type Operand<T, S extends SqlTag, L = T> =
+	| Meets<T, S>
+	| ([T] extends [InstantDomain] ? never : LiteralOf<L>)
 
 /**
  * What a number or bigint literal type proves of its value, as compilation reads the value (typing.ts factsOfValue): it

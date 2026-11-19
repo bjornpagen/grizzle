@@ -320,7 +320,11 @@ const readCommittedRole = <S extends ParamSource>(
 			if (variants.ok) {
 				members.set(program.name, variants.value)
 			} else if (variants.error.reason._tag === "NoReadCommittedForm") {
-				unformed.push({ member: program.name, relation: variants.error.reason.relation })
+				unformed.push({
+					member: program.name,
+					relation: variants.error.reason.relation,
+					why: variants.error.reason.why
+				})
 			} else {
 				return Result.err({ role: name, program: program.name, error: variants.error })
 			}

@@ -18,6 +18,7 @@ import {
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
 import { sameMembers, sameOrder } from "#compiler/core/array.ts"
+import { noReadCommittedFormText } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -2394,7 +2395,7 @@ const formReasons = (
 		reason(
 			"form",
 			{ kind: "member", member: u.member, relation: u.relation },
-			`it inserts into ${u.relation}, whose primary key holds a span: an exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so the insert has no READ COMMITTED form`
+			noReadCommittedFormText(u.relation, u.why)
 		)
 	)
 
