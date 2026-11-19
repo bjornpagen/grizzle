@@ -148,9 +148,23 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 				reason:
 					"a check added on Doc under beta, which reads Doc whole: Structure drops beta's view, adds the check NOT VALID, creates the view again and grants it right there, Validate validates the check, and no Publish file follows",
 				since: "2026-11-19"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:4.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.1.0.0.0.0.0.1.1"
+				),
+				reason:
+					"a key added on Doc beneath alpha's view of the derived OrgDocs: the derived relation's keys, its materialized view's unique indexes, change no world object, so the folder drafts the index and its comment and no Structure",
+				since: "2026-11-19"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/deploy/diff/diff.ts",
+				original: "\t\t\t\t\tthis.regrantWorld(v)\n",
+				replacement: "",
+				why: "A world object Structure creates again is granted in Publish rather than right after it, so its role reads nothing of it between the two files and the kept case drafts a Publish file; this property fails."
+			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
 				original: "\t\t\t\tif (this.worldWithin(v)) {",

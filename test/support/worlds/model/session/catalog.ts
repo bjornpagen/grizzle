@@ -9,7 +9,6 @@ import {
 	samePlain
 } from "#test/support/worlds/model/session/state.ts"
 
-import { derivedKeys } from "#test/support/worlds/model/session/keys.ts"
 import {
 	filterReadsStored,
 	keysOf,
@@ -208,9 +207,10 @@ interface WorldObject {
  * What a world object's statement reads of a relation, which it waits for, so a change to it drops and creates the
  * object again (packages/engine/src/deploy/diff/diff.ts worldChangesOf): an ordinary relation's table, its fields, primary key
  * and the laws its CREATE TABLE declares inline (keys, span keys, row checks, a closed tag's conditional facts); a
- * derived relation's definition and its keys, its materialized view's unique indexes (keys.ts derivedKeys); a roster's
- * members. No foreign key is in it: a world object is identified by its own statement, which no foreign key the model
- * holds changes, since every entry of the model reads its relations whole or by the rules it states.
+ * derived relation's definition; a roster's members. No foreign key is in it, and no key of a derived relation, its
+ * materialized view's unique indexes: a world object is identified by its own statement, which neither changes
+ * (DRIFTPROOF's 9b9fc2263, deploy/diff/diff.ts worldChangesOf), since every entry of the model reads its relations
+ * whole or by the rules it states.
  */
 const readOf = (base: BaseSpec, name: string): unknown => {
 	const relation = relationSpecOf(base, name)
@@ -231,7 +231,7 @@ const readOf = (base: BaseSpec, name: string): unknown => {
 	}
 	const derived = Option.getOrUndefined(Arr.findFirst(base.derived, (d) => d.name === name))
 	if (derived !== undefined) {
-		return { rules: derived.rules, keys: derivedKeys(base, derived) }
+		return { rules: derived.rules }
 	}
 	return Option.getOrUndefined(Arr.findFirst(base.closed, (c) => c.name === name))?.members
 }

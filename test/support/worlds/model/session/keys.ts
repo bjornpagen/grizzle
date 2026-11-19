@@ -105,7 +105,7 @@ const inherited = (heading: ReadonlyArray<string>, root: Keys): Keys => {
 const closedKeys = (closed: ClosedSpec): Keys => (closed.members.length <= 1 ? [[]] : [["id"]])
 
 /** A derived relation's keys: its materialized view's unique indexes, its definition's keys as a view's. */
-export const derivedKeys = (base: BaseSpec, derived: DerivedSpec): Keys =>
+const derivedKeys = (base: BaseSpec, derived: DerivedSpec): Keys =>
 	inherited(canonical(Rec.keys(derived.rules[0].head)), rulesKeys(base, derived.rules))
 
 /** The keys of the relation a source names, as the scan over it sees them. */
