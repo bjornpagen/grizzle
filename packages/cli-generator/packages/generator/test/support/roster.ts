@@ -24,6 +24,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/generated/lazy-root.test.ts",
 	"test/generated/methods-bodies.test.ts",
 	"test/generated/multipart-parts.test.ts",
+	"test/generated/object-parameters.test.ts",
 	"test/generated/printed-requests.test.ts",
 	"test/generated/proxy-routing.test.ts",
 	"test/generated/redirect-chains.test.ts",

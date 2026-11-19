@@ -82,9 +82,6 @@ class ManifestBinUnclear extends Schema.TaggedError<
 	{ readonly brand: unique symbol }
 >()("ManifestBinUnclear", { bins: Schema.Array(Schema.String) }) {}
 
-/** Everything the harness runs on: Node's file system, path, child processes and digests. */
-export const harnessLayer = Layer.mergeAll(NodeServices.layer, NodeCrypto.layerDigest)
-
 /**
  * A suite's fixture as a need, `key` naming it: `open` (a capture server, the package generated and built against its
  * origin) runs once on each worker that runs a property needing it, in that worker's scope, with the harness's

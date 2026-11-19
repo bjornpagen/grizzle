@@ -32,14 +32,7 @@ export default defineConfig(
 			"no-spread-argument": { tuples: [] },
 			"no-case-list": {
 				searches: CASE_LISTS.searches,
-				generators: [
-					...CASE_LISTS.generators,
-					{
-						module: "#test/support/steering.ts",
-						names: ["aimedAmong"],
-						draws: "each"
-					}
-				],
+				generators: CASE_LISTS.generators,
 				mints: CASE_LISTS.mints,
 				cases: [],
 				dictionaries: []

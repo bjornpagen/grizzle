@@ -51,7 +51,6 @@
 		"@bjornpagen/grizzle": "workspace:*",
 		"@bjornpagen/grizzle-pg": "workspace:*",
 		"@bjornpagen/testing": "workspace:*",
-		"@effect/vitest": "catalog:",
 		"@types/pg": "catalog:",
 		"oxfmt": "catalog:",
 		"pg": "catalog:",
