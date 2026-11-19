@@ -7,7 +7,9 @@
  * Oracle: grizzle's parse of the printed source, membership by match.ts Matcher, against the counts restated over the
  * text's length.
  *
- * Features: a least count past 255, a greatest past it, an unbounded greatest, and counts within it.
+ * A repetition whose least count passes its most is the empty language, whatever its most, 0 among them.
+ *
+ * Features: a least count past 255, a greatest past it, an unbounded greatest, counts within it, and counts crossed.
  */
 
 import { charSet } from "@bjornpagen/grizzle-text/regex/charset"
@@ -27,6 +29,7 @@ type CountsFeature =
 	| "a greatest count past 255"
 	| "an unbounded greatest"
 	| "counts within 255"
+	| "counts crossed"
 
 interface CountsCase {
 	readonly min: number
@@ -46,7 +49,7 @@ const countsOf = (text: string): ReadonlyArray<number> =>
 	Arr.flatMap(Str.split(text, "{"), (part, at) =>
 		at === 0
 			? []
-			: Arr.map(Str.split(Str.split(part, "}")[0] ?? "", ","), (n) => (n === "" ? 0 : Number(n)))
+			: Arr.map(Str.split(Str.split(part, "}")[0], ","), (n) => (n === "" ? 0 : Number(n)))
 	)
 
 /** A repetition past 255 prints as pieces of counts each at most 255, which grizzle's parser reads as its counts. */
@@ -57,10 +60,22 @@ export const aRepetitionPast255PrintsAsPiecesEachOfCountsAtMost255WhichReadBackA
 			"a least count past 255",
 			"a greatest count past 255",
 			"an unbounded greatest",
-			"counts within 255"
+			"counts within 255",
+			"counts crossed"
 		] satisfies ReadonlyArray<Reached<CountsFeature>>,
 		check: (_, c: Case<CountsFeature>) => (k) =>
 			Effect.sync(() => {
+				const crossed = new RegexBuilder().repeat(
+					set(charSet([[0x61, 0x61]])),
+					k.min + 1,
+					Math.min(k.min, k.max === "unbounded" ? k.min : k.max)
+				)
+				assert.equal(
+					crossed.kind,
+					"never",
+					"a repetition whose least count passes its most is the empty language"
+				)
+				c.note("counts crossed")
 				c.note(k.min > regexMaxRepeat ? "a least count past 255" : "counts within 255")
 				c.note(
 					k.max === "unbounded"
@@ -83,9 +98,6 @@ export const aRepetitionPast255PrintsAsPiecesEachOfCountsAtMost255WhichReadBackA
 				}
 				const parsed = parsePattern(source, "u")
 				assert.ok(parsed.ok, `${source} parses`)
-				if (!parsed.ok) {
-					return
-				}
 				const matcher = Matcher.of(buildNfa(parsed.value))
 				const top = (k.max === "unbounded" ? k.min : k.max) + 2
 				for (const length of [0, k.min - 1, k.min, k.min + 1, top - 2, top - 1, top]) {
@@ -106,6 +118,12 @@ export const aRepetitionPast255PrintsAsPiecesEachOfCountsAtMost255WhichReadBackA
 		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: [
+			{
+				file: "packages/text/src/regex/ir.ts",
+				original: '\t\tif (max !== "unbounded" && max < min) {\n\t\t\treturn never\n\t\t}\n',
+				replacement: "",
+				why: "A repetition of crossed counts whose most is 0 is the empty string: a facet's minLength 1 and maxLength 0 admit the empty text."
+			},
 			{
 				file: "packages/text/src/regex/print.ts",
 				original: "\tintervals: setOf,\n\tmostCount: regexMaxRepeat",

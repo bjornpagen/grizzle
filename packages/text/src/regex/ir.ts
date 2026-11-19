@@ -587,9 +587,14 @@ export class RegexBuilder {
 	 *   regexMaxHeldArcs written-out positions, each at least one arc of the NFA PostgreSQL holds twice; a larger one
 	 *   stays a constraint loop, which analyzeText refuses as ResourceBound (loopsThroughAnchor), as the arcs measure
 	 *   would refuse the rewritten pattern.
-	 * - A repetition none of whose counts has a path is the empty language: `(?:^a){2}` is never.
+	 * - A repetition none of whose counts has a path is the empty language: `(?:^a){2}` is never, and so is one whose
+	 *   least count passes its most, which no parse writes and a builder may (a facet's crossed lengths), where a most of
+	 *   0 read first made it the empty string.
 	 */
 	repeat(body: RegexNode, min: number, max: number | "unbounded"): RegexNode {
+		if (max !== "unbounded" && max < min) {
+			return never
+		}
 		if (max === 0) {
 			return empty
 		}
