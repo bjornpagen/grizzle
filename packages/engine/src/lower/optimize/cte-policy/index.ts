@@ -15,6 +15,7 @@ import {
 	type NodeOf,
 	type RelKind,
 	type RelNode,
+	unionArms,
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
@@ -109,12 +110,16 @@ interface Decided {
 
 /**
  * Whether every column of `columns` of `node` is bound, through the rows a node keeps of its input (ir/rel.ts
- * keptRowsOf: a filter's, a semi- or anti-join's left side's) and projections of columns, by one occurrence of a stored
- * relation in a region: a restriction by them is then a range of that relation, which the index the workload's access
- * paths request for it reads (physical/access), and the rest of the region joins each row of that range by the
- * variables it binds.
+ * keptRowsOf: a filter's, a semi- or anti-join's left side's), projections of columns and every arm of a union, by one
+ * occurrence of a stored relation in a region: a restriction by them is then a range of that relation, which the index
+ * the workload's access paths request for it reads (physical/access), and the rest of the region joins each row of that
+ * range by the variables it binds. A union's arms read its columns by name (lower/conservative/union/arms.ts), and
+ * PostgreSQL moves a restriction of a UNION into each arm, so a restriction of a union is that range in each arm.
  */
 const probedByKey = (node: RelNode, columns: ReadonlyArray<string>): boolean => {
+	if (node.kind === "Union") {
+		return unionArms(node.groups).every((arm) => probedByKey(arm, columns))
+	}
 	if (node.kind === "ProjectSet") {
 		const read = columns.flatMap((c) => {
 			const e = node.out.find((o) => o.name === c)?.expr
@@ -145,9 +150,11 @@ const attachedRows = (child: RelNode): RelNode => {
  * How a pipelined attachment's part reads its child's rows (lower/shapes/attach pipelinedAttachment), so that no form
  * derives them again for each parent row:
  *
- * - `perKey`: one stored relation's range binds every column the attachment correlates (probedByKey; for a fold by
- *   them, its input's), so the part reads the child once per parent key, the key's values fixed inside a LATERAL
- *   derived table PostgreSQL never pulls up: a fold restricted inside its grouping, any other child under DISTINCT.
+ * - `perKey`: one stored relation's range binds every column the attachment correlates, in each arm of a union
+ *   (probedByKey; for a fold by them, its input's), so the part reads the child once per parent key, the key's values
+ *   fixed inside a LATERAL derived table PostgreSQL never pulls up: a fold restricted inside its grouping, any other
+ *   child under DISTINCT. A union is restricted in each arm: edullm's `files`, ReferencePath ⋈ Media ∪ CandidatePath ⋈
+ *   Media, read once for the statement, read every reference and media file stored for each item read.
  * - `once`: no stored relation's range binds them, so the statement derives `rows` once (rule 5b, a MATERIALIZED CTE)
  *   and the part joins each parent key to them beside.
  * - `take`: a take, which the take policy reads its own way (R20, lower/shapes/take), beside.
