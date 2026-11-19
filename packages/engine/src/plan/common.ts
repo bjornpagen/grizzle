@@ -12,6 +12,7 @@
  * @quote The default setting is two megabytes (<literal>2MB</literal>)
  * @verified 2026-11-14
  */
+export { quoteIdent } from "#compiler/core/text.ts"
 export const maxStackDepth = 2_048
 /**
  * What every plan is spelled in: the engine's errors and results, identifiers and names, descriptions and scalar
@@ -208,12 +209,7 @@ export { lit, types } from "#compiler/sql/build.ts"
 export { explainAnalyzeOf, explainOf } from "#compiler/runtime/explain.ts"
 export { emit, emitCatalog, emitText } from "#compiler/sql/emit.ts"
 export { differenceShown, escaped } from "#compiler/sql/escape.ts"
-export {
-	looksLikeLiteralPack,
-	printCommentTarget,
-	printObjectName,
-	quoteIdent
-} from "#compiler/sql/print.ts"
+export { looksLikeLiteralPack, printCommentTarget, printObjectName } from "#compiler/sql/print.ts"
 export type {
 	Carriers,
 	Invariant,

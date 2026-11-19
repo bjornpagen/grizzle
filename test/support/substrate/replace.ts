@@ -1,5 +1,5 @@
 import { Array as Arr, Brand, Effect } from "effect"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { TransactionRolledBack } from "#test/support/substrate/errors.ts"

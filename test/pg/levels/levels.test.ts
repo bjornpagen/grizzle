@@ -34,9 +34,9 @@ import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { Law } from "#compiler/public/changeset.ts"
 import { lawsOf, schemaNameOf } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import {
 	type CatalogFact,

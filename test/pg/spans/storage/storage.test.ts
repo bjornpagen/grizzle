@@ -1,16 +1,3 @@
-/**
- * Span storage on PostgreSQL 19: what a span column admits and stores, and how a span parameter binds.
- *
- * - Shape: drawn literals of every spelling (bounded, empty, unbounded on either side or both, and spellings beside a
- *   type's limits) are stored as their canonical half-open span, refused by the shape CHECK when empty or unbounded,
- *   or refused as invalid literals, as the host canonicalization says.
- * - Width: a span of a fixed declared width is accepted exactly when its width is the declared one, at int4's limits
- *   too, the width checked in numeric.
- * - Contract endpoints: a span over a contract is refused, under the contract's law, exactly when an endpoint breaks
- *   the contract's predicate, near its bounds and at bigint's limits.
- * - Parameters: a span parameter binds as its canonical text, and lower, upper and width read every stored span the
- *   window meets, exactly, a width past bigint's range among them; an empty or reversed window is refused by its codec.
- */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
@@ -31,12 +18,25 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
+/**
+ * Span storage on PostgreSQL 19: what a span column admits and stores, and how a span parameter binds.
+ *
+ * - Shape: drawn literals of every spelling (bounded, empty, unbounded on either side or both, and spellings beside a
+ *   type's limits) are stored as their canonical half-open span, refused by the shape CHECK when empty or unbounded,
+ *   or refused as invalid literals, as the host canonicalization says.
+ * - Width: a span of a fixed declared width is accepted exactly when its width is the declared one, at int4's limits
+ *   too, the width checked in numeric.
+ * - Contract endpoints: a span over a contract is refused, under the contract's law, exactly when an endpoint breaks
+ *   the contract's predicate, near its bounds and at bigint's limits.
+ * - Parameters: a span parameter binds as its canonical text, and lower, upper and width read every stored span the
+ *   window meets, exactly, a width past bigint's range among them; an empty or reversed window is refused by its codec.
+ */
+import { quoteIdent } from "#compiler/core/text.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { contract, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	compileSpanQuery,
 	type InstalledSpans,

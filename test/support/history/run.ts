@@ -1,9 +1,10 @@
 import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { PctSchedule } from "@bjornpagen/testing/interleave"
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
-import { Array as Arr, Effect, Option, Record, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Record } from "effect"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import {
 	emptyState,
 	expect,
@@ -19,7 +20,6 @@ import {
 	type HostValue
 } from "#test/support/laws/model.ts"
 
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
 import { type ClosedField, closedField, namedText } from "#test/support/closed/stored.ts"
 import type { GrizzleSettled, Outcome, Settled, WitnessKey } from "#test/support/history/check.ts"
@@ -570,7 +570,7 @@ const literal = (closed: ClosedField | undefined, x: HostValue): string => {
 	if (typeof x !== "string") {
 		return String(x)
 	}
-	return closed === undefined ? `'${Str.replaceAll("'", "''")(x)}'` : closed.literal(x)
+	return closed === undefined ? quoteString(x) : closed.literal(x)
 }
 
 /**

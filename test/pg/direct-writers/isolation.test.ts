@@ -1,3 +1,11 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 /**
  * Every write to a grizzle table runs at SERIALIZABLE (a direct SQL writer must use SERIALIZABLE), as a model
  * over the whole small box of planted writers.
@@ -38,17 +46,9 @@
  * - Features: each statement under each verdict, the guard's refusal on each kind of table and after a read, and a write
  *   admitted at the database's default.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { check, contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"

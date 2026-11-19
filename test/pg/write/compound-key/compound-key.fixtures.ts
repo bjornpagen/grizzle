@@ -16,6 +16,7 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "
 import type { WrittenOutcome } from "#adapter/db/handles.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -28,7 +29,6 @@ import {
 	mutableBuilder,
 	onBuilder
 } from "#compiler/schema/statements.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"

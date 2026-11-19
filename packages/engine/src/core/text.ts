@@ -157,3 +157,13 @@ export const isDecimal = (text: string): boolean => {
 	}
 	return true
 }
+
+/**
+ * PostgreSQL's quoted identifier of a name: double quotes around it, each `"` in it doubled, so case and reserved words
+ * never matter. The one quoting of an identifier, which the SQL printer (sql/print.ts), the replication protocol's
+ * commands (live/replication.ts) and every other spelling of a name read.
+ */
+export const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""')}"`
+
+/** A standard-conforming string literal: single quotes around it, only the single quote special, each one doubled. */
+export const quoteString = (value: string): string => `'${value.replaceAll("'", "''")}'`

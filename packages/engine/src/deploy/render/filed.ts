@@ -1,3 +1,4 @@
+import { quoteString } from "#compiler/core/text.ts"
 import { escaped, isUnfiled } from "#compiler/sql/escape.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
 
@@ -52,7 +53,7 @@ const holdsUnfiled = (text: string, layout: "inline" | "lines"): boolean => {
 }
 
 /** One piece of an escape string: its value escaped and its quotes doubled, between quotes. */
-const piece = (value: string): string => `'${escaped(value).replaceAll("'", "''")}'`
+const piece = (value: string): string => quoteString(escaped(value))
 
 /** A body as an escape string continued line by line: E, then one piece per line, each but the last ending in \n. */
 const continuedPieces = (body: string): string => {

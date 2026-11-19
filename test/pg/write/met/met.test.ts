@@ -36,7 +36,7 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { openServed } from "#adapter/db/served.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	aims,
 	type Answer,

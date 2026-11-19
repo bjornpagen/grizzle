@@ -3,7 +3,7 @@
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	covered,
 	INTERVALS,

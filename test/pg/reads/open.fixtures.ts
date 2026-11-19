@@ -10,11 +10,12 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, String as Str } from "effect"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { bytes, date, pg, uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyLogin, relation, schema } from "#compiler/public/schema.ts"
-import { printRoleSetting, quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { printRoleSetting } from "#compiler/sql/print.ts"
 import {
 	type RoleDefaultParameter,
 	roleDefaults,

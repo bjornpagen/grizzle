@@ -1,12 +1,12 @@
 import { Effect, type Scope } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	compileInstallation,
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"

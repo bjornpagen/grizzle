@@ -1,5 +1,6 @@
 import { Array as Arr, Data, Effect, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
+import { quoteString } from "#compiler/core/text.ts"
 import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -26,8 +27,6 @@ const withNullPlaceholders = (text: string): string => {
 	}
 	return out + Str.slice(from)(text)
 }
-
-const quoted = (s: string): string => `'${Str.replaceAll("'", "''")(s)}'`
 
 /**
  * The type a delivered column of `t` is claimed as: the DDL's type of a column of it (fieldColumnType), or, for a text
@@ -161,10 +160,13 @@ export const typeProblems = (
 		const claimed = Arr.flatMap(probes, (p, v) =>
 			Arr.map(
 				p.heading,
-				(c, i) => `(${v}, ${i + 1}, ${quoted(printType(claimedType(names, c.type)))})`
+				(c, i) => `(${v}, ${i + 1}, ${quoteString(printType(claimedType(names, c.type)))})`
 			)
 		)
-		const viewed = Arr.map(probes, (p, v) => `(${v}, ${quoted(`pg_temp.${p.view}`)}::regclass)`)
+		const viewed = Arr.map(
+			probes,
+			(p, v) => `(${v}, ${quoteString(`pg_temp.${p.view}`)}::regclass)`
+		)
 		/** Each claimed type with the types it is over, a domain's chain down to its base. */
 		const read = `WITH RECURSIVE claim(v, n, t) AS (VALUES ${Arr.join(claimed, ", ")}),
 			viewed(v, oid) AS (VALUES ${Arr.join(viewed, ", ")}),

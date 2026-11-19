@@ -1,5 +1,6 @@
 import { Array as Arr, Effect, Formatter, Record as Rec, type Scope, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -11,7 +12,6 @@ import {
 	type StatementsWithin
 } from "#compiler/public/schema.ts"
 import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	type Generated,

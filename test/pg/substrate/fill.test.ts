@@ -1,3 +1,6 @@
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, Predicate, Result } from "effect"
 /**
  * A volume fill (test/support/substrate/fill.ts): tables filled over one series in chunks, each chunk one transaction
  * inserting the same slice of the series into every table of the fill, sized by the WAL the chunk before wrote, so no
@@ -24,10 +27,7 @@
  * regression at 96d796b0 (a chunk of the one index whose key the index before already held inserted no row and wrote
  * no WAL, and the loader died dividing by it): every case that reaches it runs that chunk.
  */
-import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Predicate, Result } from "effect"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	columnsOf,
 	type FillCase,

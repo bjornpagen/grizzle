@@ -5,8 +5,9 @@ import type { Pending } from "@bjornpagen/testing/features"
 import { array, boolean, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import { printType, quoteIdent } from "#compiler/sql/print.ts"
+import { printType } from "#compiler/sql/print.ts"
 import { sameCatalog } from "#test/pg/migrate/support.ts"
 import {
 	check,

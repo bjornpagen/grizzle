@@ -25,7 +25,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Redacted, Result } from "effect"
 import { CredentialError } from "#adapter/errors/failures.ts"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import {
 	answerFault,
 	type AnswerFeature,

@@ -5,9 +5,10 @@ import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import {
 	Asm,

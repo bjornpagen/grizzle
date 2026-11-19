@@ -1,3 +1,12 @@
+import { runProgram } from "@bjornpagen/testing/commands"
+import { drawn as drawnCase, exhaust, explore, type Oracle } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 /**
  * The fin lemmas through grizzle's own lowering, per direction, on PostgreSQL 19rc2 (fin.md §5.2, §11): an ordered and
  * a counted family declared with grizzle's formers and installed by their first migration, written by a direct SQL
@@ -27,16 +36,7 @@
  * a refusal at commit through each, so the search itself shows a real COMMIT never decides otherwise than the checked
  * end.
  */
-import { runProgram } from "@bjornpagen/testing/commands"
-import { drawn as drawnCase, exhaust, explore, type Oracle } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
-import { quoteString } from "#compiler/sql/print.ts"
+import { quoteString } from "#compiler/core/text.ts"
 import {
 	Disagreed,
 	FAMILY_RELATIONS,

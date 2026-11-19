@@ -15,7 +15,8 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	compiled,
 	expectedNotes,

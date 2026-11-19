@@ -1,3 +1,14 @@
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace, type Situations } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { exact, ordered } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option, Order, Predicate, Record as Rec } from "effect"
+import { fullAllenMask } from "#compiler/allen/mask.ts"
+import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 /**
  * Allen masks and pointIn on stored spans, against PostgreSQL 19, in both artifacts (optimized and conservative).
  *
@@ -18,23 +29,12 @@
  * operator (check/allen.ts allenExpr), so the relations each atom of allen/atoms.ts holds for are the table
  * generator's, which test/unit/allen/table.test.ts holds.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace, type Situations } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { exact, ordered } from "@bjornpagen/testing/oracle"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Predicate, Record as Rec } from "effect"
-import { fullAllenMask } from "#compiler/allen/mask.ts"
-import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	compileSpanQuery,
 	type InstalledSpans,

@@ -22,6 +22,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as EngineResult from "#compiler/core/result.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations, Draft } from "#compiler/deploy/diff/plan.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
@@ -48,7 +49,7 @@ import { own, rostersOf } from "#compiler/schema/own.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	apply,
 	kept,

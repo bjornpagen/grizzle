@@ -7,13 +7,14 @@ import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { Expr, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { lit } from "#compiler/sql/build.ts"
-import { printObjectName, printStatement, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import {
 	apply,
 	keeping,

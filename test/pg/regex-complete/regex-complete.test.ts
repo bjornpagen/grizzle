@@ -1,28 +1,3 @@
-/**
- * Refinement validation sites on PostgreSQL 19.
- *
- * One schema, installed by the fresh-install compiler under a fresh schema name, carries a slug pattern, a
- * language-equivalent spelling of it, a contract bounding length with Compute.charLength over the wildcard, and a
- * closed relation whose payload is a slug. The slug's pattern bounds its length, as text in any index grizzle installs
- * must (README, Text in a key): the installation installs the workload of the suites' parameterized queries, whose
- * lookups of Article and Comment by slug each ask for an index on the slug. Against it:
- *
- * - a parameter is checked against its pattern or contract by PostgreSQL as it binds it, its placeholder cast to its own
- *   pattern domain or its contract's domain, which the installation creates for every pattern a parameter names: the
- *   reader's bind (adapter/reader/relations.ts executionInputs) parses only its base carrier, a value outside its
- *   refinement is refused with 23514 on that domain, and a value inside them matches exactly its rows, under generic and custom plans and unprepared, in both artifacts, also
- *   where the query emits the parameter, a fused attachment's child emits it inside its array, or a union's arm emits
- *   it beside an arm that stores it; each forced plan is checked against pg_prepared_statements, and each refusal to
- *   come before PostgreSQL chooses any plan;
- * - a scalar parameter's and a relation parameter's refined values alike, a relation parameter's refined column, which
- *   the optimized delivery casts to its domain in the output list (lower/shapes/refined), included;
- * - a Compute.cast into a refinement no value of its operand is proved to satisfy is refused by compilation
- *   (PartialOperation, precondition language), so no read raises 23514 on a delivered row;
- * - a refined write is refused before commit, by grizzle's compiled insert and by a direct SQL writer alike, with
- *   PostgreSQL's 23514 naming the domain's constraint;
- * - closed payloads are validated by PostgreSQL at installation, and the migration generate drafts and the snapshot
- *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
- */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
@@ -52,6 +27,32 @@ import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
+/**
+ * Refinement validation sites on PostgreSQL 19.
+ *
+ * One schema, installed by the fresh-install compiler under a fresh schema name, carries a slug pattern, a
+ * language-equivalent spelling of it, a contract bounding length with Compute.charLength over the wildcard, and a
+ * closed relation whose payload is a slug. The slug's pattern bounds its length, as text in any index grizzle installs
+ * must (README, Text in a key): the installation installs the workload of the suites' parameterized queries, whose
+ * lookups of Article and Comment by slug each ask for an index on the slug. Against it:
+ *
+ * - a parameter is checked against its pattern or contract by PostgreSQL as it binds it, its placeholder cast to its own
+ *   pattern domain or its contract's domain, which the installation creates for every pattern a parameter names: the
+ *   reader's bind (adapter/reader/relations.ts executionInputs) parses only its base carrier, a value outside its
+ *   refinement is refused with 23514 on that domain, and a value inside them matches exactly its rows, under generic and custom plans and unprepared, in both artifacts, also
+ *   where the query emits the parameter, a fused attachment's child emits it inside its array, or a union's arm emits
+ *   it beside an arm that stores it; each forced plan is checked against pg_prepared_statements, and each refusal to
+ *   come before PostgreSQL chooses any plan;
+ * - a scalar parameter's and a relation parameter's refined values alike, a relation parameter's refined column, which
+ *   the optimized delivery casts to its domain in the output list (lower/shapes/refined), included;
+ * - a Compute.cast into a refinement no value of its operand is proved to satisfy is refused by compilation
+ *   (PartialOperation, precondition language), so no read raises 23514 on a delivered row;
+ * - a refined write is refused before commit, by grizzle's compiled insert and by a direct SQL writer alike, with
+ *   PostgreSQL's 23514 naming the domain's constraint;
+ * - closed payloads are validated by PostgreSQL at installation, and the migration generate drafts and the snapshot
+ *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
+ */
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -75,7 +76,6 @@ import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"

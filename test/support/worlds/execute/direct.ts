@@ -7,6 +7,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { type Codebook, codeNames } from "#compiler/ir/codes.ts"
 import type { Expr, InsertTarget, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import {
@@ -27,7 +28,7 @@ import {
 import { emit } from "#compiler/sql/emit.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { printExpr, printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { printExpr, printObjectName } from "#compiler/sql/print.ts"
 import { valueText } from "#test/support/laws/model.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
 import type { OracleTable } from "#test/support/oracle/install/model.ts"

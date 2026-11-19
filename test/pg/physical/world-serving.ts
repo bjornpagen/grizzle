@@ -1,3 +1,15 @@
+import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
+import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import {
+	type Explained,
+	explainStatementWith,
+	type PlanNode,
+	parsePlan,
+	planNodes
+} from "#bench/harness/explain.ts"
+import { appendAll } from "#compiler/core/array.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 /**
  * Every world function judged by PostgreSQL's serving judge (serving.ts): the filter functions, key and unique
  * probes, policy predicates and write prechecks a writable query entry installs (physical/ddl/roles.ts writePlan,
@@ -57,18 +69,7 @@
  * reads the relation's index with no index condition on every call, which the judge names at any size: a body's
  * arguments are its statement's parameters, so every relation it reads is a probe of their values.
  */
-import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
-import { collectInputs } from "#adapter/apply/collect.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
-import {
-	type Explained,
-	explainStatementWith,
-	type PlanNode,
-	parsePlan,
-	planNodes
-} from "#bench/harness/explain.ts"
-import { appendAll } from "#compiler/core/array.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { noClock } from "#compiler/ir/clock.ts"
@@ -80,13 +81,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { ownRole } from "#compiler/schema/own.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import type { CreateFunction, SqlStatement } from "#compiler/sql/ast.ts"
-import {
-	claimsSettingName,
-	printExpr,
-	printObjectName,
-	quoteIdent,
-	quoteString
-} from "#compiler/sql/print.ts"
+import { claimsSettingName, printExpr, printObjectName } from "#compiler/sql/print.ts"
 import { changeSetOver, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { relationUniques } from "#compiler/write/insert/unique.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"

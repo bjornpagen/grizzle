@@ -29,6 +29,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { RaiseOption } from "#compiler/sql/ast.ts"
 import {
 	cast,
@@ -42,7 +43,7 @@ import {
 } from "#compiler/sql/build.ts"
 import * as C from "#compiler/sql/catalog.ts"
 import { emitCatalog } from "#compiler/sql/emit.ts"
-import { printExpr, quoteIdent } from "#compiler/sql/print.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 import {
 	aggregateCaseGen,
 	type Evaluated,

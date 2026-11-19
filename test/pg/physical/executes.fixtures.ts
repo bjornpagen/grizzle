@@ -1,7 +1,7 @@
 /** What the properties of executes.test.ts read: its spaces, models and helpers. */
 
 import { Array as Arr, Effect, Option, Order, Result } from "effect"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 export type Feature =

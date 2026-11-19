@@ -1,26 +1,3 @@
-/**
- * The fin lemmas of fin.md §5.2, proved against PostgreSQL 19rc2 inside a stated box: the lowering's DDL written by hand
- * (test/pg/substrate/fin.ts), every state and every single mutation the box holds sent to PostgreSQL, and PostgreSQL's
- * verdict judged by two oracles.
- *
- * - **The specification turned into a checker:** the families theorem (test/support/families/theorem.ts), per
- *   direction. F[g, at] ⊆ fin(O, n) holds when every row has an owner and an index below its count; fin(O, n) ⊆ F[g, at]
- *   when every slot below a count holds a row; mirrors when both hold and no slot holds two rows. PostgreSQL must accept
- *   exactly the states where the direction's lemma holds and refuse every other one.
- * - **A second implementation:** the model of each transaction (fin.ts predicted), which applies the statements to a
- *   state on the host and checks each constraint at the moment the lowering declares, so it says whether PostgreSQL
- *   commits, and where it refuses with which SQLSTATE and which constraints it may name. PostgreSQL must agree on the
- *   verdict, the moment, the SQLSTATE and a constraint the model allows, and a committed state must read back as the
- *   model's.
- *
- * The box (doctrine rules 6, 9): at most two owners, counts 0 to 3, at most four rows, indices 0 to 4, so every count
- * has a slot above it. Its invalid states are the theorem's named breaches: a slot two rows hold (twice), a row with no
- * owner (orphan), a row at or past its count (beyond), and a slot below the count no row holds (gap). The RFC's
- * lowering is the minimal deferral §5.1 states: the owner's last slot deferred (the owner ↔ family cycle), an ordered
- * family's closure immediate and a counted family's deferred, and the copy's foreign key immediate, since every write
- * updates the count before it inserts, which the families model (mutate.ts checkedAt) states. A lowering that defers
- * the copy as well is judged beside the RFC's.
- */
 import {
 	type Answer,
 	accepted,
@@ -50,7 +27,30 @@ import {
 	String as Str
 } from "effect"
 import { appendAll, indices } from "#compiler/core/array.ts"
-import { quoteString } from "#compiler/sql/print.ts"
+/**
+ * The fin lemmas of fin.md §5.2, proved against PostgreSQL 19rc2 inside a stated box: the lowering's DDL written by hand
+ * (test/pg/substrate/fin.ts), every state and every single mutation the box holds sent to PostgreSQL, and PostgreSQL's
+ * verdict judged by two oracles.
+ *
+ * - **The specification turned into a checker:** the families theorem (test/support/families/theorem.ts), per
+ *   direction. F[g, at] ⊆ fin(O, n) holds when every row has an owner and an index below its count; fin(O, n) ⊆ F[g, at]
+ *   when every slot below a count holds a row; mirrors when both hold and no slot holds two rows. PostgreSQL must accept
+ *   exactly the states where the direction's lemma holds and refuse every other one.
+ * - **A second implementation:** the model of each transaction (fin.ts predicted), which applies the statements to a
+ *   state on the host and checks each constraint at the moment the lowering declares, so it says whether PostgreSQL
+ *   commits, and where it refuses with which SQLSTATE and which constraints it may name. PostgreSQL must agree on the
+ *   verdict, the moment, the SQLSTATE and a constraint the model allows, and a committed state must read back as the
+ *   model's.
+ *
+ * The box (doctrine rules 6, 9): at most two owners, counts 0 to 3, at most four rows, indices 0 to 4, so every count
+ * has a slot above it. Its invalid states are the theorem's named breaches: a slot two rows hold (twice), a row with no
+ * owner (orphan), a row at or past its count (beyond), and a slot below the count no row holds (gap). The RFC's
+ * lowering is the minimal deferral §5.1 states: the owner's last slot deferred (the owner ↔ family cycle), an ordered
+ * family's closure immediate and a counted family's deferred, and the copy's foreign key immediate, since every write
+ * updates the count before it inserts, which the families model (mutate.ts checkedAt) states. A lowering that defers
+ * the copy as well is judged beside the RFC's.
+ */
+import { quoteString } from "#compiler/core/text.ts"
 import {
 	appliedTo,
 	canonical,

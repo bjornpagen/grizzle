@@ -24,6 +24,7 @@ import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { AbandonedSchema } from "#compiler/deploy/diff/plan.ts"
 import {
 	completedFiles,
@@ -45,7 +46,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { folderOrdinal, ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
-import { catalogExpr, quoteIdent } from "#compiler/sql/print.ts"
+import { catalogExpr } from "#compiler/sql/print.ts"
 import {
 	apply,
 	writtenTexts,

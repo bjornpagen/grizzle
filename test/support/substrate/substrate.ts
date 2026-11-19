@@ -31,9 +31,9 @@ import {
 } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { advisoryKey } from "#compiler/sql/catalog.ts"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { InitializedCluster, lentPlace, lentVariable } from "#test/support/cluster.ts"
 import { pgCluster, pgPin } from "#test/support/env.ts"
 import {

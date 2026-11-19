@@ -1,3 +1,10 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
+import { Db } from "#adapter/public/db.ts"
 /**
  * The worked example's arm switch end to end, in both forms, against a model of the switch, exhausted over its inputs,
  * straight to the server.
@@ -24,18 +31,11 @@
  *
  * Features: each form over each kind of task, by its outcome.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
-import { Db } from "#adapter/public/db.ts"
+import { quoteString } from "#compiler/core/text.ts"
 import { ChangeSet, sameLaw } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { alternatives } from "#compiler/public/schema.ts"
-import { quoteString } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, unorderedEqual } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"

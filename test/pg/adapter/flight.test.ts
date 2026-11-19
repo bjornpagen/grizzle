@@ -1,3 +1,12 @@
+import { type Case, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { exact } from "@bjornpagen/testing/oracle"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Fiber, Formatter, Option, Order } from "effect"
+import { oneShotStatement } from "#adapter/wire/batch.ts"
 /**
  * The scripted session (test/support/flight/scripted.ts) against PostgreSQL, so the double the unit fuzzer trusts
  * (test/unit/adapter/batch.test.ts) cannot drift from the server: the same flight cases, restricted to what the server
@@ -28,17 +37,8 @@
  * Features: a read-committed write frame, a deferrable read's frame, each interruption point, a CancelRequest sent, each refused ending, and a
  * write committed after an interruption.
  */
-import { type Case, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { exact } from "@bjornpagen/testing/oracle"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Fiber, Formatter, Option, Order } from "effect"
-import { oneShotStatement } from "#adapter/wire/batch.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { until } from "#test/pg/adapter/support.ts"
 import { type CaseSpace, caseGen } from "#test/support/flight/cases.ts"
 import { runAlone } from "#test/support/pg.ts"

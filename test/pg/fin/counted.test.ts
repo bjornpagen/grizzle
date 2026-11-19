@@ -1,3 +1,9 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 /**
  * Counted swap-with-last through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §4.2, §11, "Counted swap-with-last
  * with the deferred closure FK"): a counted family hides its index ‹i› and its fold's accumulators, so removing a
@@ -22,13 +28,7 @@
  * would check it and rolled back, or ended by a real COMMIT whose rows are then cleared, as the case draws its end on
  * its tape (installed.ts endGen; folds.ts judgedFold): the box holds every case under both ends.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	byMember,
 	Disagreed,

@@ -1,3 +1,11 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Data, Effect, Formatter, Layer } from "effect"
+import { Db } from "#adapter/public/db.ts"
+import type { Plan } from "#adapter/types/db.ts"
 /**
  * A family write's removals statement reads its stored tables by index, on PostgreSQL 19rc2 (write/family/removals.ts):
  * every stored row it reads, of a member relation it edits or refills and of an owner it recounts, is found at its
@@ -24,14 +32,7 @@
  * - an ordered member deleted: the deletion's keyset of the removed member and the members it re-places;
  * - a member of each of an owner's two counted families deleted: the recount's keyset of its two families' groups.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Layer } from "effect"
-import { Db } from "#adapter/public/db.ts"
-import type { Plan } from "#adapter/types/db.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
@@ -46,7 +47,6 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { caseHang } from "#test/support/limits.ts"

@@ -1,18 +1,3 @@
-/**
- * Endpoint spellings of span relations on PostgreSQL 19: the optimized artifact's normal form of a predicate over
- * spans' endpoints (lower, upper, a computed span, the window parameter) selects exactly what PostgreSQL selects for the
- * predicate as spelled.
- *
- * - Exhausted: every endpoint predicate over a pair of spans, its negation, and every two of them joined, on each range
- *   type, over facts at the window and at the type's limits.
- * - Searched: generated trees of span predicates, Allen formulas beside endpoint predicates over the same pair, the
- *   window parameter, comparisons within one span, predicates over no span, negations, and two pairs alike but for
- *   their computed span.
- *
- * The oracle is PostgreSQL evaluating the predicate as spelled, over the same facts and parameters.
- *
- * Features: each type rewritten, and selecting every fact, none and some; each tree shape above.
- */
 import { drawn, exhaust } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
@@ -33,12 +18,27 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+/**
+ * Endpoint spellings of span relations on PostgreSQL 19: the optimized artifact's normal form of a predicate over
+ * spans' endpoints (lower, upper, a computed span, the window parameter) selects exactly what PostgreSQL selects for the
+ * predicate as spelled.
+ *
+ * - Exhausted: every endpoint predicate over a pair of spans, its negation, and every two of them joined, on each range
+ *   type, over facts at the window and at the type's limits.
+ * - Searched: generated trees of span predicates, Allen formulas beside endpoint predicates over the same pair, the
+ *   window parameter, comparisons within one span, predicates over no span, negations, and two pairs alike but for
+ *   their computed span.
+ *
+ * The oracle is PostgreSQL evaluating the predicate as spelled, over the same facts and parameters.
+ *
+ * Features: each type rewritten, and selecting every fact, none and some; each tree shape above.
+ */
+import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { Compute, type Predicate } from "#compiler/public/compute.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	compileSpanQuery,
 	type InstalledSpans,

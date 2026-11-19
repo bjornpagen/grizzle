@@ -2,6 +2,7 @@ import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { closedId, Decimal, Money, pg, span } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
@@ -18,7 +19,6 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import { defined } from "#test/support/assert.ts"
 import { namedText } from "#test/support/closed/stored.ts"

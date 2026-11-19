@@ -8,6 +8,7 @@ import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#com
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { messageMaxBytes } from "#compiler/core/wire.ts"
 import {
 	type AlterDomainAction,
@@ -155,7 +156,6 @@ const statementTextLoc = SourceLoc("SQL statement text", [])
  *
  * Every identifier is quoted, so case and reserved words never matter.
  */
-export const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""')}"`
 
 /**
  * A role of the installation where a statement names it: psql's identifier variable `:"<stem>"`, the role's stem, which
@@ -265,9 +265,6 @@ export const printTableName = (table: TableName): string =>
 
 /** closedSearchPath as a SET clause spells it. */
 const printedSearchPath = closedSearchPath.map(quoteIdent).join(", ")
-
-/** A standard-conforming string literal: only the single quote is special. */
-export const quoteString = (value: string): string => `'${value.replaceAll("'", "''")}'`
 
 /**
  * A login default as ALTER ROLE ... SET spells it: search_path's schemas as a list, each quoted, since PostgreSQL reads

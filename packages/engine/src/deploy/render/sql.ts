@@ -11,6 +11,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	type Action,
 	alterationStatement,
@@ -48,7 +49,6 @@ import {
 	printObjectName,
 	printStatement,
 	printType,
-	quoteIdent,
 	sqlText,
 	statementText,
 	writeDoBlock

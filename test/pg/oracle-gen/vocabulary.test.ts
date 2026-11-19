@@ -1,3 +1,12 @@
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
+import { canonicalTag } from "#compiler/core/canonical.ts"
 /**
  * The generators' claims about PostgreSQL 19, checked on PostgreSQL 19.
  *
@@ -16,20 +25,11 @@
  *
  * Features: an aggregate typed as PostgreSQL types it and one declined and defined, and facts loaded.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
-import { canonicalTag } from "#compiler/core/canonical.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { codecOf, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { nativeNames, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import {

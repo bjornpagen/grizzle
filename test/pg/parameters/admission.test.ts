@@ -33,7 +33,8 @@ import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { ParamPlace } from "#compiler/core/identity.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	Admit,
 	caseGen,

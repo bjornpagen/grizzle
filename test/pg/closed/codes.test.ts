@@ -1,3 +1,26 @@
+import { drawn, exhaust, explore, type Steered, steered } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int, subset } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	String as Str
+} from "effect"
+import type { MigrateError } from "#adapter/migrate/errors.ts"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
+import { scalarReader } from "#compiler/codec/read.ts"
+import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { ConstraintName } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 /**
  * Closed ids as codes on PostgreSQL 19rc2: a roster's smallint domain, its names constant, the decoded column of a role
  * view, and a set's bit string, each judged against A8's model of the roster's history (test/support/closed/generate.ts),
@@ -43,29 +66,7 @@
  * one and more; the VALIDATE search's named tables; the bits histories' growth past and within a hex digit, a removal
  * refused until its data step, and two migrations.
  */
-import { drawn, exhaust, explore, type Steered, steered } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen, int, subset } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	String as Str
-} from "effect"
-import type { MigrateError } from "#adapter/migrate/errors.ts"
-import type { FolderTexts } from "#adapter/migrate/input.ts"
-import { scalarReader } from "#compiler/codec/read.ts"
-import { scalarCodec } from "#compiler/codec/scalar.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
@@ -87,7 +88,7 @@ import { own, rostersOf } from "#compiler/schema/own.ts"
 import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"

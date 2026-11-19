@@ -1,8 +1,8 @@
 import { Array as Arr, Data, Effect, Option, Record as Rec, Result, String as Str } from "effect"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
+import { quoteString } from "#compiler/core/text.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { quoteString } from "#compiler/sql/print.ts"
 import type { SqlError } from "#test/support/pg.ts"
 
 /**

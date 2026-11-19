@@ -1,3 +1,5 @@
+import { nominal } from "#compiler/core/brand.ts"
+import * as Result from "#compiler/core/result.ts"
 /**
  * The replication protocol commands the leader of an installation's live source sends on its decoder login's
  * replication connection (`replication=database`), each printed once at generate into the login's served file
@@ -9,8 +11,7 @@
  * (deploy/render/variables.ts resolveVariables), the one door of every drafted role-spaced text, reads the SQL lexer,
  * which no runtime module loads, so no drafted text with a variable reaches the runtime.
  */
-import { nominal } from "#compiler/core/brand.ts"
-import * as Result from "#compiler/core/result.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { LiveTextRefused } from "#compiler/live/notify.ts"
 
 declare const replicationCommandBrand: unique symbol
@@ -33,12 +34,6 @@ interface SlotText {
  * @formatConstant pgoutput's logical replication protocol, version 1
  */
 const protocolVersion = "1"
-
-/** An identifier, double-quoted, each `"` in it doubled. */
-const quoted = (name: string): string => `"${name.replaceAll('"', '""')}"`
-
-/** A string literal, single-quoted, each `'` in it doubled. */
-const literal = (text: string): string => `'${text.replaceAll("'", "''")}'`
 
 /**
  * The pgoutput options every stream starts with besides its publication (startTemplate), closed: protocol version 1
@@ -70,12 +65,12 @@ export const createSlotTemplate: SlotText = {
  */
 export const startTemplate = (publication: string): SlotText => ({
 	before: "START_REPLICATION SLOT ",
-	after: ` LOGICAL 0/0 (proto_version ${literal(streamOptions.proto_version)}, publication_names ${literal(quoted(publication))}, messages ${literal(streamOptions.messages)})`
+	after: ` LOGICAL 0/0 (proto_version ${quoteString(streamOptions.proto_version)}, publication_names ${quoteString(quoteIdent(publication))}, messages ${quoteString(streamOptions.messages)})`
 })
 
 /** The served command `template` over the slot `slot` (served/forms.ts SlotCommand). */
 export const slotCommand = (template: SlotText, slot: string): ReplicationCommand =>
-	command(`${template.before}${quoted(slot)}${template.after}`)
+	command(`${template.before}${quoteIdent(slot)}${template.after}`)
 
 /**
  * A replication stream's deadline, its walsender's own wal_sender_timeout: half of it after the last message its

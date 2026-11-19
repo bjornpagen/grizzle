@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Option, type Scope } from "effect"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { SubstrateShape, TextRows } from "#test/support/substrate/substrate.ts"
 
 /**

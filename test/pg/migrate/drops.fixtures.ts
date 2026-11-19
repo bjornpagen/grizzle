@@ -9,9 +9,10 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
-import { printType, quoteIdent } from "#compiler/sql/print.ts"
+import { printType } from "#compiler/sql/print.ts"
 import { type Aim, sameCatalog } from "#test/pg/migrate/support.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import {

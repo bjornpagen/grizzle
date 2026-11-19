@@ -22,6 +22,7 @@ import {
 	String as Str
 } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
 	accumulated,
@@ -57,7 +58,6 @@ import {
 	onBuilder,
 	orderedBuilder
 } from "#compiler/schema/statements.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"

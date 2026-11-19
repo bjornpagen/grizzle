@@ -132,7 +132,7 @@ export const generatedStatementsPassBothAuditsAndReachEveryStatementKindAndEvery
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/sql/print.ts",
+				file: "packages/engine/src/core/text.ts",
 				original: `export const quoteIdent = (name: string): string => \`"\${name.replaceAll('"', '""')}"\``,
 				replacement: `export const quoteIdent = (name: string): string => \`"\${name}"\``,
 				why: "A quote inside an identifier is printed bare; the generated statements' audit property fails."

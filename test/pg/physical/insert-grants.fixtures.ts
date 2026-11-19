@@ -2,6 +2,7 @@
 
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Result } from "effect"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -18,7 +19,6 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /** The version under the declared name `name`. */

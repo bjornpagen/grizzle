@@ -71,7 +71,8 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { printType, quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
+import { printType } from "#compiler/sql/print.ts"
 import { cleared } from "#test/pg/fin/installed.ts"
 import {
 	aims,

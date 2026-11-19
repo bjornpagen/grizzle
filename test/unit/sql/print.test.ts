@@ -24,6 +24,7 @@ import { double } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { BlockLines } from "#compiler/core/lines.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { lit, provedSelect, target, types } from "#compiler/sql/build.ts"
@@ -31,7 +32,6 @@ import { lex } from "#compiler/sql/lexer.ts"
 import {
 	commented,
 	printStatement,
-	quoteIdent,
 	sqlText,
 	writeDoBlock,
 	writeStatement
@@ -262,7 +262,7 @@ export const identifiersTypesAndLiteralsQuotesEveryIdentifierSoThatItLexesBackAs
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/sql/print.ts",
+				file: "packages/engine/src/core/text.ts",
 				original: `export const quoteIdent = (name: string): string => \`"\${name.replaceAll('"', '""')}"\``,
 				replacement: `export const quoteIdent = (name: string): string => \`"\${name}"\``,
 				why: "A quoted name's quotes are left undoubled; the quoted identifier search fails."

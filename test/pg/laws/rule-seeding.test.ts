@@ -1,3 +1,23 @@
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	map,
+	subset,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
+import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 /**
  * The seeding of a rule over a query's probes on PostgreSQL 19rc2: each probe of the set judge (physical/ddl/rules.ts
  * addRules) is the rule's violation restricted to the rows the transaction wrote, its region, and those its chain
@@ -60,26 +80,7 @@
  * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so key's and
  * tagged's searches require the first refusal only.
  */
-import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	array,
-	boolean,
-	element,
-	type Gen,
-	int,
-	map,
-	subset,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
-import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { LawId } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/rules.ts"
@@ -88,7 +89,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
-import { printStatement, quoteIdent } from "#compiler/sql/print.ts"
+import { printStatement } from "#compiler/sql/print.ts"
 import { cleared, type Seat, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"

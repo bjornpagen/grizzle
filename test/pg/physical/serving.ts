@@ -16,6 +16,7 @@ import {
 	parsePlan,
 	planNodes
 } from "#bench/harness/explain.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 
 import type { Direction } from "#compiler/core/order.ts"
 import * as EngineResult from "#compiler/core/result.ts"
@@ -41,7 +42,7 @@ import {
 	noFences,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
-import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import { backendWaitStep, caseHang } from "#test/support/limits.ts"

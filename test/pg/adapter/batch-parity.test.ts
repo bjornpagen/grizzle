@@ -1,22 +1,3 @@
-/**
- * The wire's flights (adapter/wire/batch.ts) on pg in pipeline mode, observed on the protocol through the tap
- * (test/support/wire-tap.ts), one session to a schema of the test's own with a write's frame.
- *
- * - One round trip: a flight of drawn statements (rows of a drawn count and text, inserts, an update that matches
- *   nothing), bracketed by txid_current(), is one round trip that ends idle; the brackets read one transaction; each
- *   statement answers in its place what a model of it says; and the rows its inserts commit are the model's.
- * - A refusal: a statement PostgreSQL refuses at its Parse, its Bind, its execution or a key, drawn among inserts before
- *   and after it, fails the flight at its index with PostgreSQL's own verdict on it run alone (the oracle: its SQLSTATE
- *   and the constraint it names), in one round trip, the session open after; the inserts before it roll back, their
- *   sequence advanced, and none after it runs.
- * - Prepared names: on a fresh session, each flight of drawn texts Parses exactly the names its connection has not
- *   parsed, each once, and Binds every statement's name, as a model of pg's per-connection names says; a Parse the
- *   server refused leaves its name to parse again; a refusal is the first refused text's, with PostgreSQL's SQLSTATE
- *   for that text alone; and the server ends holding exactly the parsed names, each with its text.
- *
- * Interruption of a flight is test/pg/adapter/flight.test.ts's and interrupt.test.ts's; a lease's wait for a pooled
- * session is test/pg/serverless/pool.test.ts's.
- */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
@@ -40,8 +21,27 @@ import {
 import type { Session, SessionState } from "#adapter/wire/session.ts"
 import { indices } from "#compiler/core/array.ts"
 import { prepared } from "#compiler/core/prepared.ts"
+/**
+ * The wire's flights (adapter/wire/batch.ts) on pg in pipeline mode, observed on the protocol through the tap
+ * (test/support/wire-tap.ts), one session to a schema of the test's own with a write's frame.
+ *
+ * - One round trip: a flight of drawn statements (rows of a drawn count and text, inserts, an update that matches
+ *   nothing), bracketed by txid_current(), is one round trip that ends idle; the brackets read one transaction; each
+ *   statement answers in its place what a model of it says; and the rows its inserts commit are the model's.
+ * - A refusal: a statement PostgreSQL refuses at its Parse, its Bind, its execution or a key, drawn among inserts before
+ *   and after it, fails the flight at its index with PostgreSQL's own verdict on it run alone (the oracle: its SQLSTATE
+ *   and the constraint it names), in one round trip, the session open after; the inserts before it roll back, their
+ *   sequence advanced, and none after it runs.
+ * - Prepared names: on a fresh session, each flight of drawn texts Parses exactly the names its connection has not
+ *   parsed, each once, and Binds every statement's name, as a model of pg's per-connection names says; a Parse the
+ *   server refused leaves its name to parse again; a refusal is the first refused text's, with PostgreSQL's SQLSTATE
+ *   for that text alone; and the server ends holding exactly the parsed names, each with its text.
+ *
+ * Interruption of a flight is test/pg/adapter/flight.test.ts's and interrupt.test.ts's; a lease's wait for a pooled
+ * session is test/pg/serverless/pool.test.ts's.
+ */
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { Param } from "#compiler/core/wire.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, failureOf } from "#test/support/assert.ts"
 import { fenceSql, prologueIn } from "#test/support/flight/model.ts"
 import { caseHang } from "#test/support/limits.ts"

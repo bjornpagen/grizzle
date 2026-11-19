@@ -1,4 +1,3 @@
-/** What the properties of scalar.test.ts read: the carriers' cases, their spaces, a case's setup and its round trip. */
 import {
 	array,
 	boolean,
@@ -20,6 +19,8 @@ import { positionalColumns } from "#compiler/codec/recordset.ts"
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
 import { int4Max } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
+/** What the properties of scalar.test.ts read: the carriers' cases, their spaces, a case's setup and its round trip. */
+import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
@@ -30,7 +31,6 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { parseValue, type CarrierHost } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	monetaryContext,
 	type SqlNames,

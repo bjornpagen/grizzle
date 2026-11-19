@@ -16,13 +16,14 @@ import {
 	type PlanNode,
 	parsePlan
 } from "#bench/harness/explain.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

@@ -1,3 +1,11 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Data, Effect, Formatter, Layer } from "effect"
+import { Db } from "#adapter/public/db.ts"
+import type { Plan } from "#adapter/types/db.ts"
 /**
  * A write statement reads the relations it writes only through a key it binds, on PostgreSQL 19rc2: every stored row a
  * generated write statement reads of a table it inserts into, updates or deletes from is reached at an index condition
@@ -33,14 +41,7 @@
  *
  * Features, each required: each program at each fate its units meet.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Layer } from "effect"
-import { Db } from "#adapter/public/db.ts"
-import type { Plan } from "#adapter/types/db.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -57,7 +58,6 @@ import {
 	select,
 	tree
 } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { caseHang } from "#test/support/limits.ts"

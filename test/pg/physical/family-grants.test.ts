@@ -1,3 +1,23 @@
+import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, oneOf, subarray } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record,
+	Result,
+	String as Str
+} from "effect"
+import type { ServedDbContext } from "#adapter/db/context.ts"
+import { onceCalls, variantOf } from "#adapter/db/handles.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
 /**
  * A member writer's hold on its family's owner, on PostgreSQL 19 (physical/ddl/roles.ts, rows-first): a role that
  * writes a family's member and not its owner O holds column SELECT on O's key, count, ends and copies, column UPDATE on
@@ -26,26 +46,7 @@
  *
  * Features: each role's probes of each statement kind on the owners, admitted and refused, and each apply outcome.
  */
-import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, oneOf, subarray } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record,
-	Result,
-	String as Str
-} from "effect"
-import type { ServedDbContext } from "#adapter/db/context.ts"
-import { onceCalls, variantOf } from "#adapter/db/handles.ts"
-import type { LoadedMember } from "#adapter/served/load.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -64,7 +65,6 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, assertVariant, defined, nonEmpty } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { migrated, type Version } from "#test/support/installed.ts"

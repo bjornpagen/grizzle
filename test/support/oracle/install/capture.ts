@@ -1,5 +1,5 @@
 import { Array as Arr, Data, Effect, Option, pipe, Record, Result, String as Str } from "effect"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 
 import { regex } from "arkregex"

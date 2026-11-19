@@ -8,6 +8,7 @@ import {
 	type PlanSummary,
 	summarizePlans
 } from "#bench/harness/explain.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 
 import {
 	type FailedOutcome,
@@ -27,7 +28,6 @@ import {
 import type { BenchSession } from "#bench/harness/session.ts"
 import { measureWal, type WalDelta } from "#bench/harness/wal.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 

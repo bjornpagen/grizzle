@@ -1,3 +1,7 @@
+import type { Reached } from "@bjornpagen/testing/features"
+import { uniqueArray } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 /**
  * Exact scalar codecs against PostgreSQL 19 in raw-text mode (codec/scalar.ts): the outermost SELECT casts every column
  * to text, which the conversions read.
@@ -26,12 +30,8 @@
  *
  * Features: "round-trips <carrier>", every carrier's; "routes <carrier>", every routable carrier's.
  */
-import type { Reached } from "@bjornpagen/testing/features"
-import { uniqueArray } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	anyUuid,
 	caseOf,

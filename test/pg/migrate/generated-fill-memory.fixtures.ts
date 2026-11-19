@@ -2,6 +2,7 @@
 
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import {
 	accumulated,
@@ -11,7 +12,6 @@ import {
 	pg
 } from "#compiler/public/fields.ts"
 import { counted, fin, fold, Monoid, on, relation, schema } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"

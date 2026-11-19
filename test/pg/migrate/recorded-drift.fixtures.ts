@@ -5,6 +5,7 @@ import { Array as Arr, Option, String as Str } from "effect"
 import type { DefinedBy, DriftMismatch } from "#adapter/admission/drift.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { filed } from "#compiler/deploy/render/filed.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
@@ -26,7 +27,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { ObjectName, PlFunction } from "#compiler/sql/ast.ts"
-import { printObjectName, printStatement, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
 
 /**

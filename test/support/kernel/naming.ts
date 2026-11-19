@@ -12,6 +12,7 @@ import {
 	parseSchemaName,
 	type SchemaName
 } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	installationsOf,
 	type Owned,
@@ -84,7 +85,6 @@ import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
 import { imagedColumns } from "#compiler/sql/image.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"

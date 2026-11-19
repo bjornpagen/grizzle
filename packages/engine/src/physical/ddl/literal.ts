@@ -1,5 +1,6 @@
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { defined } from "#compiler/core/invariant.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	constantDigestOf,
 	constantOfLiteral,
@@ -9,12 +10,7 @@ import {
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { PackConstant } from "#compiler/sql/ast.ts"
 import type { ClosedKey } from "#compiler/sql/constants.ts"
-import {
-	looksLikeLiteralPack,
-	printObjectName,
-	quoteIdent,
-	readLiteralPack
-} from "#compiler/sql/print.ts"
+import { looksLikeLiteralPack, printObjectName, readLiteralPack } from "#compiler/sql/print.ts"
 
 /**
  * What `grizzle check` holds a migration's closed constant to (sql/print.ts writePack), its one reader of them: a

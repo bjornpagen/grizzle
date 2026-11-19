@@ -1,3 +1,13 @@
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { boolean, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import { identifierOf } from "#compiler/core/identity.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 /**
  * The catalog verifiers against drift on PostgreSQL 19: the erasure verifier (test/support/catalog/verify.ts), the
  * installed checker (test/support/catalog/installed.ts) and the manifest projection (test/support/catalog/expected.ts),
@@ -15,16 +25,7 @@
  *
  * Features: each drift kind, named and conferring nothing, and each foreign key.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import { identifierOf } from "#compiler/core/identity.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { type PrivilegeFamily, privilegeFamilies } from "#compiler/deploy/admission/roles.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -41,7 +42,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	fixtureWorlds,
 	installed,

@@ -1,6 +1,7 @@
 import { array, boolean, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import { ALLEN, fullAllenMask } from "#compiler/allen/mask.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
 	decodedQuery,
@@ -814,13 +815,11 @@ export const referenceRows = (c: SpanCase): ReadonlyArray<RawRow> => {
 	}
 }
 
-const q = (name: string): string => `"${Str.replaceAll('"', '""')(name)}"`
-
 /** The table of a relation, by the installer's identifier mapping (Left -> left). */
 const spanTableName = (relation: SpanRelationName): string => Str.toLowerCase(relation)
 
 const table = (schema: string, relation: SpanRelationName): string =>
-	`${q(schema)}.${q(spanTableName(relation))}`
+	`${quoteIdent(schema)}.${quoteIdent(spanTableName(relation))}`
 
 /**
  * The statements a span schema's PostgreSQL schema holds: the Tick domain with its constraint, and the tables of its two
@@ -829,24 +828,24 @@ const table = (schema: string, relation: SpanRelationName): string =>
  * the naming rule's markers: nothing compares them with grizzle's.
  */
 const spanSchemaStatements = (schema: string, spans: SpanSchema): ReadonlyArray<string> => [
-	`CREATE DOMAIN ${q(schema)}.${q("tick")} AS int8 CONSTRAINT ${q("tick_check")} CHECK ((VALUE >= '${tickContract.low}'::int8) IS TRUE)`,
+	`CREATE DOMAIN ${quoteIdent(schema)}.${quoteIdent("tick")} AS int8 CONSTRAINT ${quoteIdent("tick_check")} CHECK ((VALUE >= '${tickContract.low}'::int8) IS TRUE)`,
 	...Arr.map(spanRelationNames, (name) => {
 		const relation = spans.relations[name]
 		const t = spanTableName(name)
 		const range = rangeTypeOf(spans.endpoint)
 		const columns = [
-			...(relation.spanKeyed ? [] : [`${q("id")} int4 NOT NULL`]),
-			`${q("group")} int4 NOT NULL`,
-			`${q("during")} ${range} NOT NULL`,
-			`CONSTRAINT ${q(`${t}_during_shape`)} CHECK ((NOT isempty(${q("during")}) AND NOT lower_inf(${q("during")}) AND NOT upper_inf(${q("during")}) AND lower_inc(${q("during")}) AND NOT upper_inc(${q("during")})) IS TRUE)`,
+			...(relation.spanKeyed ? [] : [`${quoteIdent("id")} int4 NOT NULL`]),
+			`${quoteIdent("group")} int4 NOT NULL`,
+			`${quoteIdent("during")} ${range} NOT NULL`,
+			`CONSTRAINT ${quoteIdent(`${t}_during_shape`)} CHECK ((NOT isempty(${quoteIdent("during")}) AND NOT lower_inf(${quoteIdent("during")}) AND NOT upper_inf(${quoteIdent("during")}) AND lower_inc(${quoteIdent("during")}) AND NOT upper_inc(${quoteIdent("during")})) IS TRUE)`,
 			...(spans.endpoint === "contract"
 				? [
-						`CONSTRAINT ${q(`${t}_during_tick`)} CHECK ((lower(${q("during")}) >= '${tickContract.low}'::int8 AND upper(${q("during")}) >= '${tickContract.low}'::int8) IS TRUE)`
+						`CONSTRAINT ${quoteIdent(`${t}_during_tick`)} CHECK ((lower(${quoteIdent("during")}) >= '${tickContract.low}'::int8 AND upper(${quoteIdent("during")}) >= '${tickContract.low}'::int8) IS TRUE)`
 					]
 				: []),
 			relation.spanKeyed
-				? `CONSTRAINT ${q(`${t}_key`)} PRIMARY KEY (${q("group")}, ${q("during")} WITHOUT OVERLAPS)`
-				: `CONSTRAINT ${q(`${t}_key`)} PRIMARY KEY (${q("id")})`
+				? `CONSTRAINT ${quoteIdent(`${t}_key`)} PRIMARY KEY (${quoteIdent("group")}, ${quoteIdent("during")} WITHOUT OVERLAPS)`
+				: `CONSTRAINT ${quoteIdent(`${t}_key`)} PRIMARY KEY (${quoteIdent("id")})`
 		]
 		return `CREATE TABLE ${table(schema, name)} (${Arr.join(columns, ", ")})`
 	})
@@ -915,7 +914,9 @@ export const spanInsert = (
 ): { readonly sql: string; readonly params: ReadonlyArray<string> } => {
 	const range = rangeTypeOf(c.schema.endpoint)
 	const keyed = c.schema.relations[relation].spanKeyed
-	const columns = keyed ? [q("group"), q("during")] : [q("id"), q("group"), q("during")]
+	const columns = keyed
+		? [quoteIdent("group"), quoteIdent("during")]
+		: [quoteIdent("id"), quoteIdent("group"), quoteIdent("during")]
 	const values = keyed ? ["j.g", `j.d::${range}`] : ["j.id", "j.g", `j.d::${range}`]
 	return {
 		sql: `INSERT INTO ${table(schema, relation)} (${Arr.join(columns, ", ")}) SELECT ${Arr.join(values, ", ")} FROM jsonb_to_recordset($1::text::jsonb) AS j(id int4, g int4, d text)`,
@@ -991,7 +992,11 @@ export const endpointMaskPredicate = (
 	left: { table: string; column: string },
 	right: { table: string; column: string }
 ): string =>
-	maskTest(mask, `${q(left.table)}.${q(left.column)}`, `${q(right.table)}.${q(right.column)}`)
+	maskTest(
+		mask,
+		`${quoteIdent(left.table)}.${quoteIdent(left.column)}`,
+		`${quoteIdent(right.table)}.${quoteIdent(right.column)}`
+	)
 
 /**
  * The handwritten SQL that evaluates the case's query on the installed tables, with its parameters as text. The
@@ -1007,13 +1012,13 @@ export const referenceSql = (
 	const point = endpointSqlType(c.schema.endpoint)
 	const left = table(schema, "Left")
 	const right = table(schema, "Right")
-	const g = (alias: string) => `${q(alias)}.${q("group")}`
-	const d = (alias: string) => `${q(alias)}.${q("during")}`
-	const pairFrom = `${left} AS ${q("l")} JOIN ${right} AS ${q("r")} ON ${g("r")} = ${g("l")}`
+	const g = (alias: string) => `${quoteIdent(alias)}.${quoteIdent("group")}`
+	const d = (alias: string) => `${quoteIdent(alias)}.${quoteIdent("during")}`
+	const pairFrom = `${left} AS ${quoteIdent("l")} JOIN ${right} AS ${quoteIdent("r")} ON ${g("r")} = ${g("l")}`
 	switch (query.kind) {
 		case "allenFilter":
 			return {
-				sql: `SELECT DISTINCT ${g("l")}::text, ${d("l")}::text FROM ${table(schema, query.relation)} AS ${q("l")} CROSS JOIN (SELECT $1::text::${range}) AS ${q("w")}(${q("v")}) WHERE ${mask(query.mask, { table: "l", column: "during" }, { table: "w", column: "v" })}`,
+				sql: `SELECT DISTINCT ${g("l")}::text, ${d("l")}::text FROM ${table(schema, query.relation)} AS ${quoteIdent("l")} CROSS JOIN (SELECT $1::text::${range}) AS ${quoteIdent("w")}(${quoteIdent("v")}) WHERE ${mask(query.mask, { table: "l", column: "during" }, { table: "w", column: "v" })}`,
 				params: [spanTextOf(c.schema.endpoint)(query.window.span)]
 			}
 		case "allenJoin":
@@ -1023,7 +1028,7 @@ export const referenceSql = (
 			}
 		case "pointIn":
 			return {
-				sql: `SELECT DISTINCT ${g("l")}::text, ${d("l")}::text FROM ${table(schema, query.relation)} AS ${q("l")} WHERE ${d("l")} @> $1::text::${point}`,
+				sql: `SELECT DISTINCT ${g("l")}::text, ${d("l")}::text FROM ${table(schema, query.relation)} AS ${quoteIdent("l")} WHERE ${d("l")} @> $1::text::${point}`,
 				params: [pointTextOf(c.schema.endpoint)(query.point.point)]
 			}
 		case "intersection":
@@ -1033,12 +1038,12 @@ export const referenceSql = (
 			}
 		case "difference":
 			return {
-				sql: `SELECT DISTINCT ${g("l")}::text, ${q("p")}.${q("piece")}::text FROM ${pairFrom} CROSS JOIN LATERAL range_minus_multi(${d("l")}, ${d("r")}) AS ${q("p")}(${q("piece")})`,
+				sql: `SELECT DISTINCT ${g("l")}::text, ${quoteIdent("p")}.${quoteIdent("piece")}::text FROM ${pairFrom} CROSS JOIN LATERAL range_minus_multi(${d("l")}, ${d("r")}) AS ${quoteIdent("p")}(${quoteIdent("piece")})`,
 				params: []
 			}
 		case "pack":
 			return {
-				sql: `SELECT ${q("x")}.${q("g")}::text, ${q("u")}.${q("piece")}::text FROM (SELECT ${g("l")}, range_agg(${d("l")}) FROM ${table(schema, query.relation)} AS ${q("l")} GROUP BY ${g("l")}) AS ${q("x")}(${q("g")}, ${q("m")}) CROSS JOIN LATERAL unnest(${q("x")}.${q("m")}) AS ${q("u")}(${q("piece")})`,
+				sql: `SELECT ${quoteIdent("x")}.${quoteIdent("g")}::text, ${quoteIdent("u")}.${quoteIdent("piece")}::text FROM (SELECT ${g("l")}, range_agg(${d("l")}) FROM ${table(schema, query.relation)} AS ${quoteIdent("l")} GROUP BY ${g("l")}) AS ${quoteIdent("x")}(${quoteIdent("g")}, ${quoteIdent("m")}) CROSS JOIN LATERAL unnest(${quoteIdent("x")}.${quoteIdent("m")}) AS ${quoteIdent("u")}(${quoteIdent("piece")})`,
 				params: []
 			}
 	}

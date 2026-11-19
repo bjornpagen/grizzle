@@ -1,3 +1,9 @@
+import { exhaust, type Oracle } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 /**
  * Folds through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §4.3, §11 "Identities", w4-w7 §2.3): one family per
  * (monoid, carrier) folded by grizzle's `fold` (folds.ts), every family of at most four members over a five-value
@@ -30,15 +36,9 @@
  * every box requires both ends, each meeting a refusal at commit, so the search itself shows a real COMMIT never
  * decides otherwise than the checked end.
  */
-import { exhaust, type Oracle } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { fin, fold, Monoid, on, relation, schema, tree } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	attemptedText,
 	byMember,

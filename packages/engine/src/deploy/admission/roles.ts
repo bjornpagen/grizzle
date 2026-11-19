@@ -1,6 +1,7 @@
 import { type InstalledRoleTooLong, roleInSpace, type RoleSpace } from "#compiler/core/identity.ts"
 import { compareStrings, mapInput, thenBy } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { ManifestStatement } from "#compiler/deploy/admission/manifest.ts"
 import { databaseDefaults } from "#compiler/physical/ddl/isolation.ts"
 import type {
@@ -10,12 +11,7 @@ import type {
 	Grantee,
 	Privilege
 } from "#compiler/sql/ast.ts"
-import {
-	printFunctionSignature,
-	printObjectName,
-	quoteIdent,
-	storedSettingValue
-} from "#compiler/sql/print.ts"
+import { printFunctionSignature, printObjectName, storedSettingValue } from "#compiler/sql/print.ts"
 
 /** The object families a privilege is held on: a column's is a privilege held on it beyond its table's; a database's is
  * the current database's. */

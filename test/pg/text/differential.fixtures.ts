@@ -1,4 +1,3 @@
-/** What the properties of differential.test.ts read: the families' cases and agreement, and the edges of the limits. */
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	aimed,
@@ -19,6 +18,8 @@ import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+/** What the properties of differential.test.ts read: the families' cases and agreement, and the edges of the limits. */
+import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"
 import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
@@ -28,7 +29,6 @@ import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	analyzeText,
 	type TextRefinement,

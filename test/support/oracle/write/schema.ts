@@ -1,9 +1,10 @@
 import { array, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { keep, type Swarm, swarm as swarmOf, weightOf } from "@bjornpagen/testing/swarm"
-import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { constraintLawMap } from "#compiler/laws/model/model.ts"
 import {
@@ -785,9 +786,8 @@ export interface WriteLawNames {
 	readonly column: (relation: string, field: string) => string
 }
 
-const quote = (ident: string): string => `"${Str.replaceAll('"', '""')(ident)}"`
-
-const qualified = (name: ObjectName): string => `${quote(name.schema)}.${quote(name.name)}`
+const qualified = (name: ObjectName): string =>
+	`${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 
 export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 	const tableOf = (relation: string) => {
@@ -919,7 +919,7 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 			if (Option.isNone(c)) {
 				throw new Error(`${relation} has no column ${field}`)
 			}
-			return quote(c.value.column)
+			return quoteIdent(c.value.column)
 		}
 	}
 }

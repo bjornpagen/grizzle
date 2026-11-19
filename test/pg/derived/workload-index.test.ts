@@ -4,10 +4,11 @@ import { Array as Arr, Effect, Option, Order } from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	busyAccounts,
 	busyCaseGen,

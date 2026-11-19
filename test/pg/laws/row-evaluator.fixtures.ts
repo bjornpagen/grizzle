@@ -1,14 +1,15 @@
+import { array, characterOf, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
+import { rowEvaluator } from "#adapter/public/host.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 /**
  * The cases of row-evaluator.test.ts: a world of the NULL language (test/support/null/language.ts), rows of it each
  * with two refined values, a generated field, one to three row checks, a selection and a selection of the world's
  * closed relation Pick, drawn over the language; the schema that states them; and one case's check, the host's
  * rowEvaluator against PostgreSQL.
  */
-import { array, characterOf, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
-import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import { rowEvaluator } from "#adapter/public/host.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
@@ -24,7 +25,6 @@ import { str } from "#compiler/public/text.ts"
 import { query, v } from "#compiler/query/build/query.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"

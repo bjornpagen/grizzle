@@ -1,9 +1,9 @@
 import { Array as Arr, Effect } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { type Codebook, codecOf } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 
 /**

@@ -1,3 +1,12 @@
+import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
+import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
+import { indices } from "#compiler/core/array.ts"
 /**
  * A containment's reverse probe is served by an index, generated: PostgreSQL's half of the reverse-index rule, whose
  * plan the law model's suite checks (test/unit/laws/model/reverse-index.test.ts).
@@ -29,17 +38,8 @@
  * the judge of what serves each probe. Features: every situation reverse.ts draws, and the wide text stored; each axis
  * of a family and of a tree, each way an axis is served, and each situation of the axes' box.
  */
-import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
-import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
-import { indices } from "#compiler/core/array.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"

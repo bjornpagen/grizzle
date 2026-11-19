@@ -1,6 +1,6 @@
 import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, Formatter, Option, Predicate } from "effect"
-import { quoteString } from "#compiler/sql/print.ts"
+import { quoteString } from "#compiler/core/text.ts"
 import { testExitWait } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import type { HeldConnection } from "#test/support/substrate/budget.ts"

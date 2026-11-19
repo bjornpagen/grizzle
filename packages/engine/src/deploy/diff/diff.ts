@@ -33,6 +33,7 @@ import {
 } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { type Aside, asideStatements } from "#compiler/deploy/diff/aside.ts"
 import {
 	type BackfilledTable,
@@ -155,7 +156,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { anchorFor, type TableGeneration } from "#compiler/sql/generation.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
 interface DiffInput {

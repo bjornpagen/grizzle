@@ -22,7 +22,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { Drifted } from "#adapter/migrate/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	type Built,
 	caseGen,

@@ -1,3 +1,7 @@
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
+import { openServed } from "#adapter/db/served.ts"
+import type { TransientTag } from "#compiler/core/errors.ts"
 /**
  * Two SERIALIZABLE writers appending to one stored owner's family, every interleaving: a direct writer running the
  * direct-writer protocol for an append to owner 0's counted family (the count read, the count update, and the member
@@ -14,10 +18,7 @@
  *   `every`, every move on the family's relations, so no two moves commute and every order runs), some of which block
  *   the grizzle write on the owner row the direct writer updated, and run it again once that commits.
  */
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
-import { openServed } from "#adapter/db/served.ts"
-import type { TransientTag } from "#compiler/core/errors.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
@@ -31,7 +32,6 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { familyStoredOf } from "#test/pg/fin/family.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"

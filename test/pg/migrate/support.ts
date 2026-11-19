@@ -37,6 +37,7 @@ import { oneShotStatement, sentAnswer } from "#adapter/wire/batch.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
@@ -46,7 +47,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	aliasRenames,
 	bothRenames,

@@ -1,3 +1,13 @@
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { array, boolean, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option, Record, Result } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 /**
  * A direct SQL writer meets PostgreSQL's native errors for the two kinds of object the generated direct-writer
  * populations do not draw. The direct-writer model (model.ts) owns keys, candidate keys, foreign keys at the statement
@@ -23,18 +33,8 @@
  *
  * The contract's CHECK is the one the installation names for it.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record, Result } from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import {
 	Account,
 	DeskReports,

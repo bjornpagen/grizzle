@@ -1,3 +1,13 @@
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
+import type { TestContext } from "vitest"
+import { appendAll } from "#compiler/core/array.ts"
 /**
  * The worked example's plans, read as a tenant through its world: every selective workload read is planned through its
  * indexes, judged by PostgreSQL's planner with the scans that need no index disabled, over relations it plans
@@ -23,16 +33,7 @@
  *
  * Features: a read by a busy account and by another.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { type Gen, int } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
-import type { TestContext } from "vitest"
-import { appendAll } from "#compiler/core/array.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
@@ -40,7 +41,7 @@ import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, role } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"

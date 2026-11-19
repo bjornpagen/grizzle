@@ -11,6 +11,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { type Codebook, codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
@@ -24,7 +25,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	historiesGen,

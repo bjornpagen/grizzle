@@ -21,6 +21,7 @@ import {
 	type Uncommitting,
 	writeFrame
 } from "#adapter/wire/batch.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { textsOfParams } from "#test/support/wire.ts"
 
 import { type Answer, controlText, type WireQuery, type Session } from "#adapter/wire/session.ts"
@@ -41,7 +42,6 @@ import {
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	type Delivered,
 	type Rows,

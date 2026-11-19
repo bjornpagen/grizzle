@@ -1,3 +1,21 @@
+import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import {
+	array,
+	boolean,
+	characterOf,
+	element,
+	type Gen,
+	int,
+	oneOf,
+	string,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
+import { indices } from "#compiler/core/array.ts"
 /**
  * Row checks, generated: the CHECK constraint grizzle installs for a row check accepts exactly the rows its predicate
  * holds on, under the name constraintNamesOf's lookup gives its law.
@@ -21,24 +39,7 @@
  * Oracle: a second implementation, `holds`, the predicate evaluated on the host. Features: every predicate form and
  * every spelling of a check name, each a required situation.
  */
-import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	array,
-	boolean,
-	characterOf,
-	element,
-	type Gen,
-	int,
-	oneOf,
-	string,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import {
 	check,
@@ -49,7 +50,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { ordinarySession } from "#test/support/ambient.ts"

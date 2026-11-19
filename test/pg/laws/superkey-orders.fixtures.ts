@@ -3,8 +3,8 @@
 import { array, boolean, element, type Gen, int, shuffled, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { type Catalogued, seatOf } from "#test/pg/fin/installed.ts"
 import {
 	apply,

@@ -23,13 +23,13 @@ import {
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	type Aim,
 	apply,

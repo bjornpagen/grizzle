@@ -4,13 +4,13 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { mismatchLine } from "#adapter/admission/drift.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	apply,
 	checkedAdmission,

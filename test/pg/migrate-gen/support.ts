@@ -19,6 +19,7 @@ import {
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
@@ -60,7 +61,7 @@ import {
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
 import { types as sqlTypes } from "#compiler/sql/build.ts"
-import { printType, quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { printType } from "#compiler/sql/print.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import type {
 	SchemaDesc as AuthoredSchemaDesc,

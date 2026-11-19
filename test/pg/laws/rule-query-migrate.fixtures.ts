@@ -3,10 +3,10 @@
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, select } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 

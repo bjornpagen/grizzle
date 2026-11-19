@@ -18,8 +18,8 @@ import { Array as Arr, Effect } from "effect"
 import { atomLiterals, literalNegated } from "#compiler/allen/atoms.ts"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
 import { indices } from "#compiler/core/array.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	batchSize,
 	type CanonicalFeature,

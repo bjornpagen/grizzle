@@ -3,6 +3,7 @@
 import { type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, pipe, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -11,7 +12,7 @@ import type { InstallNames } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
 import {
 	compileTemplate,

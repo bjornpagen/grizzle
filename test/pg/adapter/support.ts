@@ -4,11 +4,12 @@ import type { BatchRefused } from "#adapter/errors/failures.ts"
 import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
 import { type ApartFailure, oneShotStatement } from "#adapter/wire/batch.ts"
 import { makePool, type Session, type SessionPool } from "#adapter/wire/session.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import type { ServedSession } from "#compiler/served/forms.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
-import { printRoleSetting, quoteIdent } from "#compiler/sql/print.ts"
+import { printRoleSetting } from "#compiler/sql/print.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
 import {
 	clusterConnection,

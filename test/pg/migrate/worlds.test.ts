@@ -47,8 +47,8 @@ import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { readableRelations } from "#compiler/physical/ddl/roles.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	aims,
 	type Built,

@@ -1,3 +1,15 @@
+import { drawn, explore } from "@bjornpagen/testing/explore"
+import { required } from "@bjornpagen/testing/features"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { notesOnly } from "@bjornpagen/testing/sense"
+import { completeShrink } from "@bjornpagen/testing/shrink"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
+import type { TestContext } from "vitest"
+import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
+import { appendAll } from "#compiler/core/array.ts"
+import type { Json } from "#compiler/core/canonical.ts"
 /**
  * The platform's plans: every workload read is planned through an index, and law maintenance and every law's probe
  * read through an index, judged by PostgreSQL's planner with the scans that need no index disabled, over relations it
@@ -33,25 +45,13 @@
  * Features: a read by the busiest entities and by another, a week's window and a whole month's, and a usage event with
  * its charges and debits written.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { type Gen, int } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import type { TestContext } from "vitest"
-import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
-import { appendAll } from "#compiler/core/array.ts"
-import type { Json } from "#compiler/core/canonical.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyLoginRole, context, login, role } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { applyFacts, type OpenedPlatform, openPlatformWith } from "#test/pg/e2e-platform/support.ts"
 import { directSql, literal } from "#test/schedules/platform/support.ts"

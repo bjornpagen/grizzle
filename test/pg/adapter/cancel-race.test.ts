@@ -1,3 +1,16 @@
+import { exhaust } from "@bjornpagen/testing/explore"
+import { requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { searched } from "@bjornpagen/testing/vitest"
+import { layer } from "@effect/vitest"
+import { Array as Arr, Clock, Deferred, Effect, Exit, Fiber, Formatter, Order } from "effect"
+import {
+	type BatchStatement,
+	oneShotStatement,
+	runApart,
+	runTransaction
+} from "#adapter/wire/batch.ts"
+import type { Session } from "#adapter/wire/session.ts"
 /**
  * An interrupted flight ends only once the server has stopped its statement (README "No server-side timeouts";
  * adapter/wire/batch.ts abandon), wherever its CancelRequest lands, and a server that never answers ends it within the
@@ -41,20 +54,7 @@
  *
  * Features: each landing, each runner, and each landing with each runner.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Clock, Deferred, Effect, Exit, Fiber, Formatter, Order } from "effect"
-import {
-	type BatchStatement,
-	oneShotStatement,
-	runApart,
-	runTransaction
-} from "#adapter/wire/batch.ts"
-import type { Session } from "#adapter/wire/session.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { backendPidOf, until } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

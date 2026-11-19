@@ -9,9 +9,9 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Layer, pipe, Result, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { ChangeSet, type Law, type Witness } from "#compiler/public/changeset.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	Club,
 	Clubs,

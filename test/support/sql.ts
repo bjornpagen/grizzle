@@ -4,7 +4,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CompileBound } from "#compiler/core/errors.ts"
 import * as EngineResult from "#compiler/core/result.ts"
-import { isDecimal } from "#compiler/core/text.ts"
+import { isDecimal, quoteIdent } from "#compiler/core/text.ts"
 import {
 	cellWidth,
 	type Constant,
@@ -41,13 +41,7 @@ import {
 	carrierName,
 	carrierPrefix
 } from "#compiler/sql/naming.ts"
-import {
-	printExpr,
-	printObjectName,
-	printStatement,
-	printType,
-	quoteIdent
-} from "#compiler/sql/print.ts"
+import { printExpr, printObjectName, printStatement, printType } from "#compiler/sql/print.ts"
 import { type AstHooks, Transform } from "#compiler/sql/transform.ts"
 import { hexOfText, installedText } from "#test/support/closed/bit-text.ts"
 

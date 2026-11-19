@@ -1,14 +1,14 @@
+import { Array as Arr, Formatter, Option, Result } from "effect"
 /**
  * A closed id as its column stores it: its handle's code under the installation's codes, the smallint its roster's
  * domain admits, never the handle's text. A test whose model holds handles (a host's facts, a fixture's rows) spells
  * each handle it writes in SQL as its code, and reads each code a column returns back as its handle, through the
  * installation's own codebook, which no schema alone determines.
  */
-import { Array as Arr, Formatter, Option, Result } from "effect"
+import { quoteString } from "#compiler/core/text.ts"
 import { codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { quoteString } from "#compiler/sql/print.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
 
 /** A stored relation's field that holds a closed id, spelled and read by its roster's codes under the installation's. */

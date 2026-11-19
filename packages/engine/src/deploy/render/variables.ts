@@ -5,8 +5,9 @@ import {
 	type RoleSpace
 } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
-import { databaseVariable, quoteIdent } from "#compiler/sql/print.ts"
+import { databaseVariable } from "#compiler/sql/print.ts"
 
 /**
  * The variables of a drafted statement, and their filling.

@@ -10,6 +10,7 @@ import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
@@ -17,7 +18,6 @@ import { isNoTransaction, noTransactionMarker } from "#compiler/deploy/render/ma
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	apply,
 	kept,

@@ -12,6 +12,7 @@ import {
 import { Array as Arr, Data, Effect, Layer, Option, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -28,7 +29,6 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import type { ColumnDefinition, PlStatement } from "#compiler/sql/ast.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"

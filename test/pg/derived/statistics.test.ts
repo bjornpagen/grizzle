@@ -3,8 +3,8 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record, Result } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import {
 	build,
 	byRowText,

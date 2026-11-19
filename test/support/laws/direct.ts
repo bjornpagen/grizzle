@@ -12,18 +12,10 @@ import {
 } from "@bjornpagen/testing/gen"
 import { agree } from "@bjornpagen/testing/oracle"
 import type { Case } from "@bjornpagen/testing/property"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	Result,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { type ConstraintLaws, constraintLaw } from "#compiler/ir/products.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	type HostFact,
 	type HostLaw,
@@ -882,7 +874,7 @@ const literal = (closed: ClosedField | undefined, x: Sendable): string => {
 	if (typeof x !== "string") {
 		return String(x)
 	}
-	return closed === undefined ? `'${Str.replaceAll("'", "''")(x)}'` : closed.literal(x)
+	return closed === undefined ? quoteString(x) : closed.literal(x)
 }
 
 /** A statement as the direct writer sends it, on the tables and closed ids of the owner's view. */

@@ -2,7 +2,7 @@
 
 import { boolean, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, pipe, String as Str } from "effect"
-import { quoteString } from "#compiler/sql/print.ts"
+import { quoteString } from "#compiler/core/text.ts"
 import { roleDefaults } from "#test/pg/adapter/support.ts"
 import { variableGen, type VariableValue } from "#test/support/process-env.ts"
 

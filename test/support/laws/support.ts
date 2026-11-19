@@ -12,6 +12,7 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import type { CompileError, CompileReason } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
 	type AnyDerived,
@@ -21,7 +22,6 @@ import {
 	login,
 	role
 } from "#compiler/public/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"

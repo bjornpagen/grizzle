@@ -31,12 +31,12 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { contract } from "#compiler/public/fields.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import {
 	type BytesFeature,
