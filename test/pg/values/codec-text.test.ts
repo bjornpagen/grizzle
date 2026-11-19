@@ -138,9 +138,9 @@ export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEvery
 			},
 			{
 				file: "packages/engine/src/schema/relation.ts",
-				original: "\tconst recorded = writtenByOf(value) ?? slottedOf(value)",
+				original: '\t\tcase "written":\n\t\t\treturn entry.type',
 				replacement:
-					'\tconst recorded = writingOf(value).kind === "accumulated" ? undefined : (writtenByOf(value) ?? slottedOf(value))',
+					'\t\tcase "written":\n\t\t\treturn entry.writing.kind === "accumulated" ? value : entry.type',
 				why: "An accumulated field is read from its accumulated(type, start) value, not from its declared type, the one its column is stored and read with: the value is no descriptor a builder registered, so it is refused, every other kind still read as its declared type; the property fails over an accumulated field."
 			}
 		]

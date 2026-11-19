@@ -213,8 +213,9 @@ export const exactlyKeyTextBytes = property.explore(caseSpace, {
 		},
 		{
 			file: "packages/engine/src/schema/relation.ts",
-			original: "\tconst recorded = writtenByOf(value) ?? slottedOf(value)",
-			replacement: "\tconst recorded = writtenByOf(value)",
+			original: '\t\tcase "slot":\n\t\tcase "written":\n\t\t\treturn entry.type',
+			replacement:
+				'\t\tcase "slot":\n\t\t\treturn value\n\t\tcase "written":\n\t\t\treturn entry.type',
 			why: "The one reading of a field as its declared type (describeDeclared) misses a slot: a closed relation's slot field is read as itself, a copy of its closed id that no builder registered, so keyTextBytes refuses a slot companion (MalformedDescription) though its type admits it."
 		}
 	]

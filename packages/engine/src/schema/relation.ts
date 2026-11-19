@@ -154,40 +154,38 @@ const describedFields = (
 }
 
 /**
- * What slot(type, fin) recorded for the field value it made: the descriptor of its declared type, a closed id, and the
- * fin whose slots its codes are. A WeakMap holds nothing alive and is never enumerated, so it is no cache.
+ * What a field builder recorded for the field value it made, beside the descriptor of its declared type: slot(type, fin)
+ * the fin whose slots its codes are; drawn(type), accumulated(type, start) and retirement how it is written; and
+ * generated(type, term) its declared type as the registry reads it and the term its value is.
  */
-interface Slotted {
-	readonly type: unknown
-	readonly slots: SlotsDesc
-}
-
-const slotted = new WeakMap<object, Slotted>()
-
-const slottedOf = (value: unknown): Slotted | undefined =>
-	typeof value === "object" && value !== null ? slotted.get(value) : undefined
+type FieldEntry =
+	| { readonly kind: "slot"; readonly type: unknown; readonly slots: SlotsDesc }
+	| {
+			readonly kind: "written"
+			readonly type: unknown
+			readonly writing: Extract<Writing, { readonly kind: "drawn" | "accumulated" | "retirement" }>
+	  }
+	| { readonly kind: "generated"; readonly type: Described; readonly term: unknown }
 
 /**
- * What drawn(type) and accumulated(type, start) recorded for the field value each made: the descriptor of its declared
- * type, and how it is written. A WeakMap holds nothing alive and is never enumerated, so it is no cache.
+ * The field values the field builders made, each under its entry. A WeakMap holds nothing alive and is never
+ * enumerated, so it is no cache.
  */
-interface WrittenBy {
-	readonly type: unknown
-	readonly writing: Extract<Writing, { readonly kind: "drawn" | "accumulated" | "retirement" }>
-}
+const fieldEntries = new WeakMap<object, FieldEntry>()
 
-const writtenBy = new WeakMap<object, WrittenBy>()
+const fieldEntryOf = (value: unknown): FieldEntry | undefined =>
+	typeof value === "object" && value !== null ? fieldEntries.get(value) : undefined
 
-const writtenByOf = (value: unknown): WrittenBy | undefined =>
-	typeof value === "object" && value !== null ? writtenBy.get(value) : undefined
+/** Whether a field value is one slot(type, fin) made. */
+const isSlot = (value: unknown): boolean => fieldEntryOf(value)?.kind === "slot"
 
 /**
  * How a field value is written: as drawn(…) or accumulated(…) recorded it, by its sequence for a serial descriptor,
  * whose `writing` member says so, and by its caller otherwise.
  */
 export const writingOf = (value: unknown): Writing => {
-	const recorded = writtenByOf(value)
-	if (recorded !== undefined) {
+	const recorded = fieldEntryOf(value)
+	if (recorded?.kind === "written") {
 		return recorded.writing
 	}
 	return hasProperties(value) && value["writing"] === "serial" ? { kind: "serial" } : callerWriting
@@ -205,7 +203,7 @@ export const drawnField = (type: NaturalField, extra: ReadonlyArray<unknown>): D
 		throw malformed("drawn", "drawn(type): one argument")
 	}
 	const described = describedField(type, "drawn type")
-	if (!isNaturalDesc(described.desc) || writtenByOf(type) !== undefined) {
+	if (!isNaturalDesc(described.desc) || fieldEntryOf(type)?.kind === "written") {
 		throw malformed("drawn", "natural, the one type a family's index and count are of")
 	}
 	const value: DrawnField = Object.freeze({
@@ -215,7 +213,7 @@ export const drawnField = (type: NaturalField, extra: ReadonlyArray<unknown>): D
 		column: type.column,
 		sql: type.sql
 	})
-	writtenBy.set(value, { type, writing: { kind: "drawn" } })
+	fieldEntries.set(value, { kind: "written", type, writing: { kind: "drawn" } })
 	return value
 }
 
@@ -231,7 +229,7 @@ export const retirementField = (type: Field<boolean, "boolean">): RetirementFiel
 		column: type.column,
 		sql: type.sql
 	})
-	writtenBy.set(value, { type, writing: { kind: "retirement" } })
+	fieldEntries.set(value, { kind: "written", type, writing: { kind: "retirement" } })
 	return value
 }
 
@@ -265,7 +263,11 @@ export const accumulatedField = <F extends FieldBase>(
 		column: type.column,
 		sql: type.sql
 	})
-	writtenBy.set(value, { type, writing: { kind: "accumulated", start: literal } })
+	fieldEntries.set(value, {
+		kind: "written",
+		type,
+		writing: { kind: "accumulated", start: literal }
+	})
 	return value
 }
 
@@ -285,8 +287,8 @@ export const slotField = <F extends ClosedIdField<AnyRoster>, Fi>(
 	const described = describedField(type, "slot type")
 	if (
 		described.desc.kind !== "closedId" ||
-		writtenByOf(type) !== undefined ||
-		slottedOf(type) !== undefined
+		fieldEntryOf(type)?.kind === "written" ||
+		isSlot(type)
 	) {
 		throw malformed("slot", "a closed id, closedId(roster), whose codes number the slots")
 	}
@@ -298,7 +300,7 @@ export const slotField = <F extends ClosedIdField<AnyRoster>, Fi>(
 		)
 	}
 	const value: SlotField<F, Fi> = Object.freeze({ ...type, slots })
-	slotted.set(value, { type, slots: fin.slots })
+	fieldEntries.set(value, { kind: "slot", type, slots: fin.slots })
 	return value
 }
 
@@ -314,16 +316,16 @@ const keySlots = (
 ): ReadonlyArray<KeySlotDesc> => {
 	const keyFields = isList(key) ? key : []
 	for (const [field, descriptor] of Object.entries(descriptors)) {
-		if (slottedOf(descriptor) !== undefined && !keyFields.includes(field)) {
+		if (isSlot(descriptor) && !keyFields.includes(field)) {
 			throw malformed(label, `a slot that is a key field; ${field} is in the payload`)
 		}
 	}
 	return keyFields.flatMap((field) => {
 		const slot =
 			typeof field === "string" && Object.hasOwn(descriptors, field)
-				? slottedOf(descriptors[field])
+				? fieldEntryOf(descriptors[field])
 				: undefined
-		return slot === undefined || typeof field !== "string" ? [] : [{ field, fin: slot.slots }]
+		return slot?.kind !== "slot" || typeof field !== "string" ? [] : [{ field, fin: slot.slots }]
 	})
 }
 
@@ -348,7 +350,7 @@ const writtenDecls = (
 ): Readonly<Record<string, FieldDecl>> => {
 	const out: Record<string, FieldDecl> = {}
 	for (const [name, field] of Object.entries(described)) {
-		if (slottedOf(values[name]) !== undefined) {
+		if (isSlot(values[name])) {
 			throw malformed(
 				label,
 				`fields of an ordinary relation; ${name} is a slot, which only a closed relation's key holds`
@@ -412,17 +414,6 @@ export const admitRelation = (
 }
 
 /**
- * What generated(type, term) recorded for the field value it made: its declared type's descriptor as the registry reads
- * it, and the term its value is. A WeakMap holds nothing alive and is never enumerated, so it is no cache.
- */
-interface GeneratedEntry {
-	readonly type: Described
-	readonly term: unknown
-}
-
-const generatedEntries = new WeakMap<object, GeneratedEntry>()
-
-/**
  * generated(type, term): a field PostgreSQL writes, carrying its declared type's column and SQL type so that it is read
  * as every field of that type is. It records the term, which relation.generated reads against the row it was built
  * over. A serial is written by its sequence, so no generated field is one.
@@ -445,7 +436,7 @@ export const generatedField = <F extends FieldBase>(
 		column: type.column,
 		sql: type.sql
 	})
-	generatedEntries.set(value, { type: described, term })
+	fieldEntries.set(value, { kind: "generated", type: described, term })
 	return value
 }
 
@@ -464,9 +455,8 @@ interface RowCallback<G> {
  * Description, a decoded one's included.
  */
 const generatedDecl = (value: unknown, label: string): FieldDecl => {
-	const entry =
-		typeof value === "object" && value !== null ? generatedEntries.get(value) : undefined
-	if (entry === undefined) {
+	const entry = fieldEntryOf(value)
+	if (entry?.kind !== "generated") {
 		throw malformed(label, "a field built by generated(type, term)")
 	}
 	const expr = termExpr(entry.term)
@@ -1186,13 +1176,16 @@ export const fieldRoster = (
  * declared type's.
  */
 const declaredDescriptorOf = (value: unknown): unknown => {
-	const recorded = writtenByOf(value) ?? slottedOf(value)
-	if (recorded !== undefined) {
-		return recorded.type
+	const entry = fieldEntryOf(value)
+	switch (entry?.kind) {
+		case "slot":
+		case "written":
+			return entry.type
+		case "generated":
+			return hasProperties(value) ? value["type"] : value
+		case undefined:
+			return value
 	}
-	const entry =
-		typeof value === "object" && value !== null ? generatedEntries.get(value) : undefined
-	return entry === undefined ? value : hasProperties(value) ? value["type"] : value
 }
 
 /**
