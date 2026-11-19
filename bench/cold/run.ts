@@ -1,4 +1,4 @@
-import { timerMaxMs } from "@bjornpagen/grizzle/adapter/connection/config"
+import { timerMaxMs } from "@bjornpagen/grizzle/runtime"
 import {
 	Array as Arr,
 	Data,

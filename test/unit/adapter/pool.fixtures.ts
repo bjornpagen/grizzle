@@ -2,7 +2,7 @@
 
 import { Buffer } from "node:buffer"
 import type { TLSSocket } from "node:tls"
-import { timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
+import { timerMinMs } from "@bjornpagen/grizzle/runtime"
 import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { type Array as Arr, Clock, Duration, Effect, Exit, Result, type Scope } from "effect"
 import type { PgSocket } from "#adapter/types/driver.ts"

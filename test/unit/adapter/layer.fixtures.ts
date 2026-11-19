@@ -1,7 +1,7 @@
 /** What the properties of layer.test.ts read: its spaces, models and helpers. */
 
 import net from "node:net"
-import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
+import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
 import {
 	array,
 	boolean,

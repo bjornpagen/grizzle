@@ -26,7 +26,7 @@
  */
 import { createServer, type Socket } from "node:net"
 import { inspect } from "node:util"
-import { timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
+import { timerMinMs } from "@bjornpagen/grizzle/runtime"
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"

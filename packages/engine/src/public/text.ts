@@ -15,7 +15,7 @@ import type { Field, FieldBase, GeneratedField } from "#compiler/types/fields/fi
  * parses, then enters the contract by its predicate's proof: date's, whose range is the form's own. A type with no form
  * is refused, UnsupportedOperation.
  */
-export const lexicalTargetOfField = (type: unknown): LexicalTarget => {
+const lexicalTargetOfField = (type: unknown): LexicalTarget => {
 	const loc = captureLoc("lexicalForm", [])
 	const target = lexicalTargetOf(baseOf(describeDeclared(type, loc).scalar))
 	if (target === undefined) {

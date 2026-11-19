@@ -2,7 +2,7 @@
 
 import net from "node:net"
 import { inspect } from "node:util"
-import { timerMaxMs } from "@bjornpagen/grizzle/adapter/connection/config"
+import { timerMaxMs } from "@bjornpagen/grizzle/runtime"
 import {
 	array,
 	constant,

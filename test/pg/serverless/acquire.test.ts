@@ -1,4 +1,4 @@
-import { timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
+import { timerMinMs } from "@bjornpagen/grizzle/runtime"
 /**
  * A connection that can't be had, for a Db already open (README "Errors and outcomes"): a failing `password` Effect
  * fails a read and a write alike with the CallError `credentialRefused`, reason `passwordFailed`, never to retry, since

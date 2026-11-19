@@ -1,4 +1,4 @@
-import { timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
+import { timerMinMs } from "@bjornpagen/grizzle/runtime"
 /**
  * The session pool on Vercel Fluid compute.
  *

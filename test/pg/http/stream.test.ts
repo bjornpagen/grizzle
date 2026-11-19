@@ -1,4 +1,4 @@
-import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
+import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
 /**
  * A call over HTTP answers the events the in-process call answers, and a client that goes away leaves nothing behind.
  * Over a schema of scored items, its stored items and every call drawn, served as an application serves it (its

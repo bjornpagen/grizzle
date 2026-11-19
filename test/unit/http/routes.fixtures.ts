@@ -1,6 +1,6 @@
 /** What the properties of routes.test.ts read: its spaces, models and helpers. */
 
-import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
+import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
 import {
 	characterOf,
 	constant,

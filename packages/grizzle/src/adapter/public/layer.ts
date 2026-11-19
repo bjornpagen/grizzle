@@ -62,6 +62,7 @@ export type {
 	Verify
 } from "#adapter/types/layer.ts"
 export type { Isolation } from "#compiler/plan/common.ts"
+export { timerMaxMs, timerMinMs } from "#adapter/connection/config.ts"
 export { served } from "#adapter/served/served.ts"
 
 export const DbLayer: DbLayerConstructor = {
